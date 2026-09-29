@@ -14304,6 +14304,8 @@ export namespace Schemas {
          * @nullable
          */
       hogql_query?: string | null;
+      /** HogQL modifiers to use when the query runs. Only supported when 'model' is 'hogql'. Each modifier set here overrides the project modifier with the same name, and the project modifiers apply to all others. For example, set convertToProjectTimezone to false to export timestamps in UTC instead of the project timezone. */
+      hogql_modifiers?: HogQLQueryModifiers | null;
       /** A schema of custom fields to select when exporting data. */
       readonly schema: unknown;
       filters?: unknown;
@@ -15151,6 +15153,8 @@ export namespace Schemas {
          * @nullable
          */
       hogql_query?: string | null;
+      /** HogQL modifiers to use when the query runs. Only supported when 'model' is 'hogql'. Each modifier set here overrides the project modifier with the same name, and the project modifiers apply to all others. For example, set convertToProjectTimezone to false to export timestamps in UTC instead of the project timezone. */
+      hogql_modifiers?: HogQLQueryModifiers | null;
       /** Optional list of property filters to restrict which events are exported. Each filter is a serialized HogQL property filter object with a 'type' of one of: 'event', 'hogql', 'person' (e.g. {"key": "$browser", "operator": "exact", "type": "event", "value": ["Firefox"]}). */
       filters?: unknown;
       /**
@@ -23419,6 +23423,8 @@ export namespace Schemas {
       model: FileDownloadHogQLRequestModel;
       /** HogQL SELECT query whose results are exported. This model is in closed beta and is enabled per team; when it is not enabled, the request fails with a permission error that names HogQL batch exports. Contact PostHog support to request access. The query may reference the {data_interval_start} and {data_interval_end} placeholders. Provide a value for each placeholder the query references; missing referenced bounds are rejected, not inferred. When both bounds are supplied, they must span at most seven days. Neither supplied bound may be in the future. Without placeholders, the query runs unchanged, even if bounds are supplied. Every column in the SELECT clause must be a field or have an alias. It is recommended to limit the query with a WHERE clause, for example bounding timestamp on the events table, both to avoid exporting more rows than expected and because user queries run under stricter resource limits than the other models. */
       hogql_query: string;
+      /** HogQL modifiers to use when the query runs. Only supported when 'model' is 'hogql'. Each modifier set here overrides the project modifier with the same name, and the project modifiers apply to all others. For example, set convertToProjectTimezone to false to export timestamps in UTC instead of the project timezone. */
+      hogql_modifiers?: HogQLQueryModifiers;
       /** Start of the export interval. Required for the events, persons, and sessions models. For HogQL, required only when the query references {data_interval_start}. A supplied start must not be in the future. When both bounds are supplied, the interval must span at most seven days. */
       data_interval_start?: string;
       /** End of the export interval. Required for the events, persons, and sessions models. For HogQL, required only when the query references {data_interval_end}. A supplied end must not be in the future or precede a supplied start. Bounds replace HogQL placeholders; they do not add filters to the query. */
@@ -32768,6 +32774,34 @@ export namespace Schemas {
       Failed: 'failed',
     } as const;
 
+    /**
+     * One merged pull request as the digest listed it.
+     */
+    export interface _DigestSummaryPR {
+      /** Pull request number on GitHub. */
+      readonly pr_number: number;
+      /** Pull request title. */
+      readonly title: string;
+      /** Full URL to the pull request on GitHub. */
+      readonly url: string;
+      /** GitHub login of the pull request author. */
+      readonly author_login: string;
+      /** The one-line summary of the change that the digest posted. */
+      readonly summary: string;
+      /** Repository full name, e.g. 'PostHog/posthog'. Blank on older runs. */
+      readonly repository: string;
+    }
+
+    /**
+     * What the digest posted to Slack: the headline and the pull requests it listed.
+     */
+    export interface _DigestSummary {
+      /** Prose about the merges with real consequence. Blank when the digest led with its first line. */
+      readonly headline: string;
+      /** The merged pull requests the digest listed, in the order it listed them. */
+      readonly prs: readonly _DigestSummaryPR[];
+    }
+
     export interface DigestRun {
       readonly id: string;
       /** Digest bucket this run drained, e.g. a team slug or 'repo:PostHog/posthog'. */
@@ -32791,6 +32825,8 @@ export namespace Schemas {
       readonly status: DigestRunStatusEnum;
       /** Number of merged PRs included in the posted digest. */
       readonly pr_count: number;
+      /** What the digest posted: its headline and the merged pull requests it listed. Both are empty on a run with nothing to post, and on runs stored before this format. */
+      readonly summary: _DigestSummary;
       /** Slack message timestamp of the posted digest, if posted. */
       readonly slack_message_ts: string;
       /** Error message if the run failed, blank otherwise. */
@@ -35242,10 +35278,10 @@ export namespace Schemas {
     } as const;
 
     /**
-     * One typed, directed link to write on the report being edited.
+     * One typed, directed link to write on the report being emitted or edited.
      */
     export interface ReportLinkWrite {
-      /** How the edited report relates to `report_id`. `depends_on` for work that cannot land until the other report's fix does, `part_of` for one piece of a larger report, `follow_up_of` for work the other report left behind, `duplicate_of` for the same problem filed twice, and `recurrence_of` for a problem a resolved report already covered.
+      /** How this report relates to `report_id`. `depends_on` for work that cannot land until the other report's fix does, `part_of` for one piece of a larger report, `follow_up_of` for work the other report left behind, `duplicate_of` for the same problem filed twice, and `recurrence_of` for a problem a resolved report already covered.
        *
        * * `depends_on` - Depends on
        * * `part_of` - Part of
@@ -35786,6 +35822,11 @@ export namespace Schemas {
          * @items.maxLength 200
          */
       suggested_prompts?: string[];
+      /**
+         * Typed, directed links from the new report to reports that already exist. Send them here, not in a later `edit-report` call, because autostart reads them when the report is created: a `duplicate_of` link to a report that already has a pull request, or a `depends_on` link to a report with no pull request yet, stops a second draft PR. Only the new report gets a row, so link from the side the sentence starts at. Links of the same kind must stay acyclic and every report must be in this project.
+         * @maxItems 10
+         */
+      links?: ReportLinkWrite[];
       /**
          * Optional name for this emission, unique within the run. Reuse it verbatim to retry a call whose outcome you don't know (a timeout, a dropped connection): the retry returns the report the first call authored, with `idempotent_replay` true, instead of a second report. Omit it and the report's own content is the key, which covers a retry of the identical call — pass one when a retry might reword the report.
          * @maxLength 200
@@ -38452,7 +38493,7 @@ export namespace Schemas {
       prompt: string;
     } | {
       /**
-         * Hog source code. Must return a boolean or a finite number matching output_type, or null for allowed N/A. Output settings determine which boolean counts as a failure.
+         * Hog source code. Return a boolean, finite number, or category keys matching output_type. Categorical single selection accepts one key or a one-item list; multiple selection accepts a list, including []. Return null only for allowed N/A. Output settings determine which boolean counts as a failure.
          * @minLength 1
          */
       source: string;
@@ -38461,24 +38502,53 @@ export namespace Schemas {
       source?: 'user_messages';
     };
 
+    export type EvaluationOutputConfigOptionsItem = {
+      /**
+         * Stable category key.
+         * @minLength 1
+         * @maxLength 128
+         * @pattern ^[a-z0-9]+(?:[_-][a-z0-9]+)*$
+         */
+      key: string;
+      /**
+         * Category display label.
+         * @minLength 1
+         * @maxLength 256
+         */
+      label: string;
+    };
+
     /**
-     * Optional numeric passing rule. Null removes the rule; historical scores use the current rule.
-     * @nullable
+     * Select one category or multiple categories. Multiple selection allows an empty result. Defaults to single.
+     */
+    export type EvaluationOutputConfigSelectionMode = typeof EvaluationOutputConfigSelectionMode[keyof typeof EvaluationOutputConfigSelectionMode];
+
+
+    export const EvaluationOutputConfigSelectionMode = {
+      Single: 'single',
+      Multiple: 'multiple',
+    } as const;
+
+    /**
+     * Optional numeric or categorical passing rule. Null removes the rule; historical results use the current rule.
      */
     export type EvaluationOutputConfigPassingRule = {
       /** Pass at or above (gte), or at or below (lte), the threshold. */
       operator: 'gte' | 'lte';
       /** Finite passing threshold within any configured score bounds. */
       threshold: number;
+    } | {
+      /** Passing category keys. With keys selected, results must be non-empty and contain only these keys. If no passing keys are selected, only an empty result passes. */
+      categories: string[];
     } | null;
 
     /**
-     * Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': only min/max/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. Do not send true_is_failure for numeric output. For 'sentiment': {}.
+     * Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': only min/max/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. For 'categorical': options [{key, label}], selection_mode (single or multiple), allows_na, and optional passing_rule {categories: [key]}. Do not send true_is_failure for numeric or categorical output. For 'sentiment': {}.
      */
     export type EvaluationOutputConfig = {
       /** Whether the evaluation can return N/A for non-applicable generations. */
       allows_na?: boolean;
-      /** Boolean output only. Omit for numeric and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
+      /** Boolean output only. Omit for numeric, categorical, and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
       true_is_failure?: boolean;
       /**
          * Inclusive minimum numeric score. Omit for no lower bound.
@@ -38498,9 +38568,14 @@ export namespace Schemas {
          */
       step?: number | null;
       /**
-         * Optional numeric passing rule. Null removes the rule; historical scores use the current rule.
-         * @nullable
+         * Categorical output options. Keys identify stored results; labels are displayed to users.
+         * @minItems 1
+         * @maxItems 100
          */
+      options?: EvaluationOutputConfigOptionsItem[];
+      /** Select one category or multiple categories. Multiple selection allows an empty result. Defaults to single. */
+      selection_mode?: EvaluationOutputConfigSelectionMode;
+      /** Optional numeric or categorical passing rule. Null removes the rule; historical results use the current rule. */
       passing_rule?: EvaluationOutputConfigPassingRule;
     };
 
@@ -38590,6 +38665,7 @@ export namespace Schemas {
     /**
      * * `boolean` - Boolean (Pass/Fail)
      * * `numeric` - Numeric
+     * * `categorical` - Categorical
      * * `sentiment` - Sentiment
      */
     export type OutputTypeEnum = typeof OutputTypeEnum[keyof typeof OutputTypeEnum];
@@ -38598,6 +38674,7 @@ export namespace Schemas {
     export const OutputTypeEnum = {
       Boolean: 'boolean',
       Numeric: 'numeric',
+      Categorical: 'categorical',
       Sentiment: 'sentiment',
     } as const;
 
@@ -38714,13 +38791,14 @@ export namespace Schemas {
       evaluation_type: EvaluationTypeEnum;
       /** Configuration dict. For 'llm_judge': {prompt}; for 'hog': {source}; for 'sentiment': {source: 'user_messages'}. */
       evaluation_config?: EvaluationEvaluationConfig;
-      /** Output format: 'boolean', 'numeric' for a finite score, or 'sentiment' for sentiment analysis.
+      /** Output format: 'boolean', 'numeric' for a finite score, 'categorical' for category keys, or 'sentiment' for sentiment analysis.
        *
        * * `boolean` - Boolean (Pass/Fail)
        * * `numeric` - Numeric
+       * * `categorical` - Categorical
        * * `sentiment` - Sentiment */
       output_type: OutputTypeEnum;
-      /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': only min/max/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. Do not send true_is_failure for numeric output. For 'sentiment': {}. */
+      /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': only min/max/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. For 'categorical': options [{key, label}], selection_mode (single or multiple), allows_na, and optional passing_rule {categories: [key]}. Do not send true_is_failure for numeric or categorical output. For 'sentiment': {}. */
       output_config?: EvaluationOutputConfig;
       /** Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads. */
       conditions?: EvaluationCondition[];
@@ -38796,12 +38874,14 @@ export namespace Schemas {
       readonly conditions: readonly EvaluationBackfillCondition[];
       /** Whether units with an existing result are evaluated again. */
       readonly rerun_existing: boolean;
-      /** Units matched at creation; the ceiling on dispatched_count. */
+      /** Units matched at creation. Units that land in the window later can take dispatched_count and skipped_count past it. */
       readonly total_count: number;
       /** Units the backfill has started an evaluation for so far. */
       readonly dispatched_count: number;
       /** Units the live path had already covered, so nothing was dispatched. */
       readonly skipped_count: number;
+      /** Units whose evaluation failed to start. They have no result and count toward remaining_count. */
+      readonly failed_count: number;
       /**
          * Units still holding no result when the run finished, counted at that moment. Zero means the window is covered, whoever graded it.
          * @nullable
@@ -39040,24 +39120,53 @@ export namespace Schemas {
       reason?: string;
     }
 
+    export type EvaluationReportMetricsOutputConfigOptionsItem = {
+      /**
+         * Stable category key.
+         * @minLength 1
+         * @maxLength 128
+         * @pattern ^[a-z0-9]+(?:[_-][a-z0-9]+)*$
+         */
+      key: string;
+      /**
+         * Category display label.
+         * @minLength 1
+         * @maxLength 256
+         */
+      label: string;
+    };
+
     /**
-     * Optional numeric passing rule. Null removes the rule; historical scores use the current rule.
-     * @nullable
+     * Select one category or multiple categories. Multiple selection allows an empty result. Defaults to single.
+     */
+    export type EvaluationReportMetricsOutputConfigSelectionMode = typeof EvaluationReportMetricsOutputConfigSelectionMode[keyof typeof EvaluationReportMetricsOutputConfigSelectionMode];
+
+
+    export const EvaluationReportMetricsOutputConfigSelectionMode = {
+      Single: 'single',
+      Multiple: 'multiple',
+    } as const;
+
+    /**
+     * Optional numeric or categorical passing rule. Null removes the rule; historical results use the current rule.
      */
     export type EvaluationReportMetricsOutputConfigPassingRule = {
       /** Pass at or above (gte), or at or below (lte), the threshold. */
       operator: 'gte' | 'lte';
       /** Finite passing threshold within any configured score bounds. */
       threshold: number;
+    } | {
+      /** Passing category keys. With keys selected, results must be non-empty and contain only these keys. If no passing keys are selected, only an empty result passes. */
+      categories: string[];
     } | null;
 
     /**
-     * Numeric score configuration and passing rule used for both report periods.
+     * Output configuration and passing rule used for both report periods.
      */
     export type EvaluationReportMetricsOutputConfig = {
       /** Whether the evaluation can return N/A for non-applicable generations. */
       allows_na?: boolean;
-      /** Boolean output only. Omit for numeric and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
+      /** Boolean output only. Omit for numeric, categorical, and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
       true_is_failure?: boolean;
       /**
          * Inclusive minimum numeric score. Omit for no lower bound.
@@ -39077,9 +39186,14 @@ export namespace Schemas {
          */
       step?: number | null;
       /**
-         * Optional numeric passing rule. Null removes the rule; historical scores use the current rule.
-         * @nullable
+         * Categorical output options. Keys identify stored results; labels are displayed to users.
+         * @minItems 1
+         * @maxItems 100
          */
+      options?: EvaluationReportMetricsOutputConfigOptionsItem[];
+      /** Select one category or multiple categories. Multiple selection allows an empty result. Defaults to single. */
+      selection_mode?: EvaluationReportMetricsOutputConfigSelectionMode;
+      /** Optional numeric or categorical passing rule. Null removes the rule; historical results use the current rule. */
       passing_rule?: EvaluationReportMetricsOutputConfigPassingRule;
     };
 
@@ -39106,12 +39220,13 @@ export namespace Schemas {
     export type EvaluationReportMetricsPreviousResultRates = {[key: string]: number} | null;
 
     export interface EvaluationReportMetrics {
-      /** Numeric score configuration and passing rule used for both report periods. */
+      /** Output configuration and passing rule used for both report periods. */
       output_config?: EvaluationReportMetricsOutputConfig;
       /** Evaluation result type. Stored metrics without this field represent boolean evaluations.
        *
        * * `boolean` - Boolean (Pass/Fail)
        * * `numeric` - Numeric
+       * * `categorical` - Categorical
        * * `sentiment` - Sentiment */
       output_type?: OutputTypeEnum;
       /** Number of evaluation results in the report period. */
@@ -39140,12 +39255,12 @@ export namespace Schemas {
          */
       previous_result_rates?: EvaluationReportMetricsPreviousResultRates;
       /**
-         * Boolean or numeric pass percentage, excluding N/A results. Null when no numeric scores were produced.
+         * Pass percentage excluding N/A. With no applicable results, numeric and categorical reports return null; boolean reports return 0.
          * @nullable
          */
       pass_rate?: number | null;
       /**
-         * Boolean or numeric pass percentage for the previous period, or null when unavailable.
+         * Pass percentage for boolean, numeric, or categorical results in the previous period, or null when unavailable.
          * @nullable
          */
       previous_pass_rate?: number | null;
@@ -47659,6 +47774,8 @@ export namespace Schemas {
       model: FileDownloadHogQLModelEnum;
       /** HogQL SELECT query whose results are exported. This model is in closed beta and is enabled per team; when it is not enabled, the request fails with a permission error that names HogQL batch exports. Contact PostHog support to request access. The query may reference the {data_interval_start} and {data_interval_end} placeholders. Provide a value for each placeholder the query references; missing referenced bounds are rejected, not inferred. When both bounds are supplied, they must span at most seven days. Neither supplied bound may be in the future. Without placeholders, the query runs unchanged, even if bounds are supplied. Every column in the SELECT clause must be a field or have an alias. It is recommended to limit the query with a WHERE clause, for example bounding timestamp on the events table, both to avoid exporting more rows than expected and because user queries run under stricter resource limits than the other models. */
       hogql_query: string;
+      /** HogQL modifiers to use when the query runs. Only supported when 'model' is 'hogql'. Each modifier set here overrides the project modifier with the same name, and the project modifiers apply to all others. For example, set convertToProjectTimezone to false to export timestamps in UTC instead of the project timezone. */
+      hogql_modifiers?: HogQLQueryModifiers;
       /** Start of the export interval. Required for the events, persons, and sessions models. For HogQL, required only when the query references {data_interval_start}. A supplied start must not be in the future. When both bounds are supplied, the interval must span at most seven days. */
       data_interval_start?: string;
       /** End of the export interval. Required for the events, persons, and sessions models. For HogQL, required only when the query references {data_interval_end}. A supplied end must not be in the future or precede a supplied start. Bounds replace HogQL placeholders; they do not add filters to the query. */
@@ -49686,6 +49803,7 @@ export namespace Schemas {
     /**
      * * `boolean` - Boolean (Pass/Fail)
      * * `numeric` - Numeric
+     * * `categorical` - Categorical
      */
     export type HogEvaluationOutputTypeEnum = typeof HogEvaluationOutputTypeEnum[keyof typeof HogEvaluationOutputTypeEnum];
 
@@ -49693,6 +49811,7 @@ export namespace Schemas {
     export const HogEvaluationOutputTypeEnum = {
       Boolean: 'boolean',
       Numeric: 'numeric',
+      Categorical: 'categorical',
     } as const;
 
     /**
@@ -50015,6 +50134,15 @@ export namespace Schemas {
       readonly updated_at: string;
     }
 
+    export interface HogFlowLastRun {
+      /** The task this run belongs to. */
+      readonly task_id: string;
+      /** Status of the task's newest run: not_started, queued, in_progress, completed, failed or cancelled. */
+      readonly status: string;
+      /** When the run started, or when the task was created if it has no run yet. */
+      readonly ran_at: string;
+    }
+
     /**
      * Mixin for serializers to add user access control fields
      */
@@ -50101,6 +50229,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly email_sending_resumed_at: string | null;
+      /** Newest task this loop workflow created, as its last run. Null when the workflow is not a loop or has not run. */
+      readonly last_run: HogFlowLastRun | null;
     }
 
     /**
@@ -50260,6 +50390,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly user_access_level: string | null;
+      /** Newest task this loop workflow created, as its last run. Null when the workflow is not a loop or has not run. */
+      readonly last_run: HogFlowLastRun | null;
     }
 
     export interface HogFlowPublishImpactMoveTarget {
@@ -50570,6 +50702,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly email_sending_resumed_at: string | null;
+      /** Newest task this loop workflow created, as its last run. Null when the workflow is not a loop or has not run. */
+      readonly last_run: HogFlowLastRun | null;
     }
 
     /**
@@ -71650,6 +71784,8 @@ export namespace Schemas {
          * @nullable
          */
       hogql_query?: string | null;
+      /** HogQL modifiers to use when the query runs. Only supported when 'model' is 'hogql'. Each modifier set here overrides the project modifier with the same name, and the project modifiers apply to all others. For example, set convertToProjectTimezone to false to export timestamps in UTC instead of the project timezone. */
+      hogql_modifiers?: HogQLQueryModifiers | null;
       /** Optional list of property filters to restrict which events are exported. Each filter is a serialized HogQL property filter object with a 'type' of one of: 'event', 'hogql', 'person' (e.g. {"key": "$browser", "operator": "exact", "type": "event", "value": ["Firefox"]}). */
       filters?: unknown;
       /**
@@ -73382,7 +73518,7 @@ export namespace Schemas {
       prompt: string;
     } | {
       /**
-         * Hog source code. Must return a boolean or a finite number matching output_type, or null for allowed N/A. Output settings determine which boolean counts as a failure.
+         * Hog source code. Return a boolean, finite number, or category keys matching output_type. Categorical single selection accepts one key or a one-item list; multiple selection accepts a list, including []. Return null only for allowed N/A. Output settings determine which boolean counts as a failure.
          * @minLength 1
          */
       source: string;
@@ -73391,24 +73527,53 @@ export namespace Schemas {
       source?: 'user_messages';
     };
 
+    export type PatchedEvaluationOutputConfigOptionsItem = {
+      /**
+         * Stable category key.
+         * @minLength 1
+         * @maxLength 128
+         * @pattern ^[a-z0-9]+(?:[_-][a-z0-9]+)*$
+         */
+      key: string;
+      /**
+         * Category display label.
+         * @minLength 1
+         * @maxLength 256
+         */
+      label: string;
+    };
+
     /**
-     * Optional numeric passing rule. Null removes the rule; historical scores use the current rule.
-     * @nullable
+     * Select one category or multiple categories. Multiple selection allows an empty result. Defaults to single.
+     */
+    export type PatchedEvaluationOutputConfigSelectionMode = typeof PatchedEvaluationOutputConfigSelectionMode[keyof typeof PatchedEvaluationOutputConfigSelectionMode];
+
+
+    export const PatchedEvaluationOutputConfigSelectionMode = {
+      Single: 'single',
+      Multiple: 'multiple',
+    } as const;
+
+    /**
+     * Optional numeric or categorical passing rule. Null removes the rule; historical results use the current rule.
      */
     export type PatchedEvaluationOutputConfigPassingRule = {
       /** Pass at or above (gte), or at or below (lte), the threshold. */
       operator: 'gte' | 'lte';
       /** Finite passing threshold within any configured score bounds. */
       threshold: number;
+    } | {
+      /** Passing category keys. With keys selected, results must be non-empty and contain only these keys. If no passing keys are selected, only an empty result passes. */
+      categories: string[];
     } | null;
 
     /**
-     * Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': only min/max/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. Do not send true_is_failure for numeric output. For 'sentiment': {}.
+     * Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': only min/max/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. For 'categorical': options [{key, label}], selection_mode (single or multiple), allows_na, and optional passing_rule {categories: [key]}. Do not send true_is_failure for numeric or categorical output. For 'sentiment': {}.
      */
     export type PatchedEvaluationOutputConfig = {
       /** Whether the evaluation can return N/A for non-applicable generations. */
       allows_na?: boolean;
-      /** Boolean output only. Omit for numeric and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
+      /** Boolean output only. Omit for numeric, categorical, and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
       true_is_failure?: boolean;
       /**
          * Inclusive minimum numeric score. Omit for no lower bound.
@@ -73428,9 +73593,14 @@ export namespace Schemas {
          */
       step?: number | null;
       /**
-         * Optional numeric passing rule. Null removes the rule; historical scores use the current rule.
-         * @nullable
+         * Categorical output options. Keys identify stored results; labels are displayed to users.
+         * @minItems 1
+         * @maxItems 100
          */
+      options?: PatchedEvaluationOutputConfigOptionsItem[];
+      /** Select one category or multiple categories. Multiple selection allows an empty result. Defaults to single. */
+      selection_mode?: PatchedEvaluationOutputConfigSelectionMode;
+      /** Optional numeric or categorical passing rule. Null removes the rule; historical results use the current rule. */
       passing_rule?: PatchedEvaluationOutputConfigPassingRule;
     };
 
@@ -73497,13 +73667,14 @@ export namespace Schemas {
       evaluation_type?: EvaluationTypeEnum;
       /** Configuration dict. For 'llm_judge': {prompt}; for 'hog': {source}; for 'sentiment': {source: 'user_messages'}. */
       evaluation_config?: PatchedEvaluationEvaluationConfig;
-      /** Output format: 'boolean', 'numeric' for a finite score, or 'sentiment' for sentiment analysis.
+      /** Output format: 'boolean', 'numeric' for a finite score, 'categorical' for category keys, or 'sentiment' for sentiment analysis.
        *
        * * `boolean` - Boolean (Pass/Fail)
        * * `numeric` - Numeric
+       * * `categorical` - Categorical
        * * `sentiment` - Sentiment */
       output_type?: OutputTypeEnum;
-      /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': only min/max/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. Do not send true_is_failure for numeric output. For 'sentiment': {}. */
+      /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': only min/max/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. For 'categorical': options [{key, label}], selection_mode (single or multiple), allows_na, and optional passing_rule {categories: [key]}. Do not send true_is_failure for numeric or categorical output. For 'sentiment': {}. */
       output_config?: PatchedEvaluationOutputConfig;
       /** Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads. */
       conditions?: EvaluationCondition[];
@@ -74711,6 +74882,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly email_sending_resumed_at?: string | null;
+      /** Newest task this loop workflow created, as its last run. Null when the workflow is not a loop or has not run. */
+      readonly last_run?: HogFlowLastRun | null;
     }
 
     /**
@@ -90456,6 +90629,134 @@ export namespace Schemas {
     }
 
     /**
+     * * `default` - Default
+     * * `custom` - Custom
+     */
+    export type ScoutRubricSourceEnum = typeof ScoutRubricSourceEnum[keyof typeof ScoutRubricSourceEnum];
+
+
+    export const ScoutRubricSourceEnum = {
+      Default: 'default',
+      Custom: 'custom',
+    } as const;
+
+    export interface ScoutRubricCriterion {
+      /**
+         * Stable criterion identifier.
+         * @maxLength 80
+         * @pattern ^[a-z][a-z0-9_-]{0,79}$
+         */
+      id: string;
+      /**
+         * Short name for the criterion.
+         * @maxLength 120
+         */
+      title: string;
+      /**
+         * What this criterion measures.
+         * @maxLength 1000
+         */
+      description: string;
+      /**
+         * The evidence needed to pass this criterion.
+         * @maxLength 2000
+         */
+      pass_condition: string;
+      /**
+         * When this criterion applies or cannot be assessed.
+         * @maxLength 1000
+         */
+      applicability: string;
+      /** Whether future evaluations should use this criterion. */
+      enabled: boolean;
+      /** Shared default or scout-specific criterion.
+       *
+       * * `default` - Default
+       * * `custom` - Custom */
+      source: ScoutRubricSourceEnum;
+    }
+
+    /**
+     * * `queued` - Queued
+     * * `running` - Running
+     * * `completed` - Completed
+     * * `failed` - Failed
+     */
+    export type ScoutRubricGenerationStatusEnum = typeof ScoutRubricGenerationStatusEnum[keyof typeof ScoutRubricGenerationStatusEnum];
+
+
+    export const ScoutRubricGenerationStatusEnum = {
+      Queued: 'queued',
+      Running: 'running',
+      Completed: 'completed',
+      Failed: 'failed',
+    } as const;
+
+    export interface ScoutRubricGeneration {
+      /** Identifier for this generation attempt. */
+      id: string;
+      /** Background generation status.
+       *
+       * * `queued` - Queued
+       * * `running` - Running
+       * * `completed` - Completed
+       * * `failed` - Failed */
+      status: ScoutRubricGenerationStatusEnum;
+      /** When generation was requested. */
+      requested_at: string;
+      /**
+         * When generation completed or failed.
+         * @nullable
+         */
+      completed_at: string | null;
+      /**
+         * Task performing the investigation, once created.
+         * @nullable
+         */
+      task_id: string | null;
+      /**
+         * Task run performing the investigation, once created.
+         * @nullable
+         */
+      task_run_id: string | null;
+      /**
+         * Failure message and suggested next step.
+         * @nullable
+         */
+      error: string | null;
+      /** Draft criteria awaiting review and explicit saving. */
+      suggestions: ScoutRubricCriterion[];
+      /** Investigation summary and limitations. */
+      summary: string;
+    }
+
+    export interface ScoutRubricDocument {
+      /** Scout config that owns this rubric. */
+      config_id: string;
+      /** Scout skill name. */
+      skill_name: string;
+      /**
+         * Saved rubric revision. Zero means it has not been saved.
+         * @minimum 0
+         */
+      revision: number;
+      /** Saved criteria, or enabled defaults before the first save. */
+      criteria: ScoutRubricCriterion[];
+      /** Latest background generation, if any. */
+      generation: ScoutRubricGeneration | null;
+    }
+
+    export interface ScoutRubricSave {
+      /**
+         * Revision read by the editor; stale saves return 409.
+         * @minimum 0
+         */
+      revision: number;
+      /** Complete set of criteria to save. */
+      criteria: ScoutRubricCriterion[];
+    }
+
+    /**
      * Request body for the batched emissions / emission-reports lookups: the set of run UUIDs to
      * resolve in one call. Collapses the findings UI's old per-run fan-out (one request — and for the
      * reports lookup, one ClickHouse round-trip — per emitted run) into a single request.
@@ -100975,24 +101276,53 @@ export namespace Schemas {
       temperature?: number | null;
     }
 
+    export type TestHogRequestOutputConfigOptionsItem = {
+      /**
+         * Stable category key.
+         * @minLength 1
+         * @maxLength 128
+         * @pattern ^[a-z0-9]+(?:[_-][a-z0-9]+)*$
+         */
+      key: string;
+      /**
+         * Category display label.
+         * @minLength 1
+         * @maxLength 256
+         */
+      label: string;
+    };
+
     /**
-     * Optional numeric passing rule. Null removes the rule; historical scores use the current rule.
-     * @nullable
+     * Select one category or multiple categories. Multiple selection allows an empty result. Defaults to single.
+     */
+    export type TestHogRequestOutputConfigSelectionMode = typeof TestHogRequestOutputConfigSelectionMode[keyof typeof TestHogRequestOutputConfigSelectionMode];
+
+
+    export const TestHogRequestOutputConfigSelectionMode = {
+      Single: 'single',
+      Multiple: 'multiple',
+    } as const;
+
+    /**
+     * Optional numeric or categorical passing rule. Null removes the rule; historical results use the current rule.
      */
     export type TestHogRequestOutputConfigPassingRule = {
       /** Pass at or above (gte), or at or below (lte), the threshold. */
       operator: 'gte' | 'lte';
       /** Finite passing threshold within any configured score bounds. */
       threshold: number;
+    } | {
+      /** Passing category keys. With keys selected, results must be non-empty and contain only these keys. If no passing keys are selected, only an empty result passes. */
+      categories: string[];
     } | null;
 
     /**
-     * Output settings used to validate the preview, including numeric bounds and allows_na.
+     * Output settings used to validate the preview, including bounds, categories, and allows_na.
      */
     export type TestHogRequestOutputConfig = {
       /** Whether the evaluation can return N/A for non-applicable generations. */
       allows_na?: boolean;
-      /** Boolean output only. Omit for numeric and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
+      /** Boolean output only. Omit for numeric, categorical, and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
       true_is_failure?: boolean;
       /**
          * Inclusive minimum numeric score. Omit for no lower bound.
@@ -101012,9 +101342,14 @@ export namespace Schemas {
          */
       step?: number | null;
       /**
-         * Optional numeric passing rule. Null removes the rule; historical scores use the current rule.
-         * @nullable
+         * Categorical output options. Keys identify stored results; labels are displayed to users.
+         * @minItems 1
+         * @maxItems 100
          */
+      options?: TestHogRequestOutputConfigOptionsItem[];
+      /** Select one category or multiple categories. Multiple selection allows an empty result. Defaults to single. */
+      selection_mode?: TestHogRequestOutputConfigSelectionMode;
+      /** Optional numeric or categorical passing rule. Null removes the rule; historical results use the current rule. */
       passing_rule?: TestHogRequestOutputConfigPassingRule;
     };
 
@@ -101036,15 +101371,16 @@ export namespace Schemas {
     }
 
     export interface TestHogRequest {
-      /** Expected output: boolean or numeric. Sentiment is not supported by Hog.
+      /** Expected output: boolean, numeric, or categorical. Sentiment is not supported by Hog.
        *
        * * `boolean` - Boolean (Pass/Fail)
-       * * `numeric` - Numeric */
+       * * `numeric` - Numeric
+       * * `categorical` - Categorical */
       output_type?: HogEvaluationOutputTypeEnum;
-      /** Output settings used to validate the preview, including numeric bounds and allows_na. */
+      /** Output settings used to validate the preview, including bounds, categories, and allows_na. */
       output_config?: TestHogRequestOutputConfig;
       /**
-         * Hog source code to test. Must return a boolean or a finite number matching output_type, or null for allowed N/A. Output settings determine which boolean counts as a failure.
+         * Hog source code to test. Return a boolean, finite number, or category keys matching output_type. Categorical single selection accepts one key or a one-item list; multiple selection accepts a list, including []. Return null only for allowed N/A. Output settings determine which boolean counts as a failure.
          * @minLength 1
          */
       source: string;
@@ -101069,6 +101405,11 @@ export namespace Schemas {
     }
 
     export interface TestHogResultItem {
+      /**
+         * Selected category keys. An empty list is an applicable result; null means no categorical result was produced.
+         * @nullable
+         */
+      categories?: string[] | null;
       /**
          * Raw numeric score, or null when no numeric score was produced.
          * @nullable
@@ -107178,49 +107519,6 @@ export namespace Schemas {
     export const OrgOrganizationsAdvancedActivityLogsListSchema = {
       Ocsf: 'ocsf',
     } as const;
-
-    export type OrgOrganizationsBatchExportsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type OrgOrganizationsBatchExportsLogsRetrieveParams = {
-    /**
-     * Only return entries after this ISO 8601 timestamp. Defaults to 7 days ago; pass an explicit value to read further back.
-     */
-    after?: string;
-    /**
-     * Only return entries before this ISO 8601 timestamp.
-     */
-    before?: string;
-    /**
-     * Filter logs to a specific execution instance.
-     * @minLength 1
-     */
-    instance_id?: string;
-    /**
-     * Comma-separated log levels to include, e.g. 'WARN,ERROR'. Valid levels: DEBUG, LOG, INFO, WARN, ERROR.
-     * @minLength 1
-     */
-    level?: string;
-    /**
-     * Maximum number of log entries to return (1-500, default 50).
-     * @minimum 1
-     * @maximum 500
-     */
-    limit?: number;
-    /**
-     * Case-insensitive substring search across log messages.
-     * @minLength 1
-     */
-    search?: string;
-    };
 
     export type BillingAlertsListParams = {
     /**
@@ -113562,6 +113860,10 @@ export namespace Schemas {
      * Pass `true` to return broadcasts plus the ordinary workflows the broadcasts UI can render: a batch trigger and a single email step.
      */
     broadcast_eligible?: boolean;
+    /**
+     * Comma-separated broadcast statuses as the broadcasts UI shows them: draft, scheduled, sending, sent, failed, archived. Scheduled, sending, sent and failed come from the latest run and whether a schedule still has sends to come.
+     */
+    broadcast_status?: string;
     created_at?: string;
     /**
      * Filter to workflows created by the user with this uuid.

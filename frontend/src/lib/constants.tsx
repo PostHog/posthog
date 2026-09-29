@@ -269,6 +269,7 @@ export const FEATURE_FLAGS = {
     BACKFILL_WORKFLOWS_DESTINATION: 'backfill-workflows-destination', // owner: #team-batch-exports
     BILLING_ALERTS: 'billing-alerts', // owner: #team-billing, gates the Billing > Alerts tab
     BILLING_REAL_TIME_USAGE: 'billing-real-time-usage', // owner: #team-billing, gates the Real-time usage scene
+    BROADCASTS_AI_FIRST_NEW: 'broadcasts-ai-first-new', // owner: @dmarchuk #team-workflows
     CDP_DWH_TABLE_SOURCE: 'cdp-dwh-table-source', // owner: #team-workflows-cdp
     CDP_DWH_VIEW_SOURCE: 'cdp-dwh-view-source', // owner: #team-workflows-cdp
     CDP_HOG_SOURCES: 'cdp-hog-sources', // owner #team-workflows-cdp
@@ -362,6 +363,7 @@ export const FEATURE_FLAGS = {
     LINKS: 'links', // owner: @marconlp #team-link (team doesn't exist for now, maybe will come back in the future)
     LIVE_DEBUGGER: 'live-debugger', // owner: @marcecoll
     LIVE_EVENTS_RICH_FILTERS: 'live-events-rich-filters', // owner: @jordanm-posthog #team-web-analytics
+    LLM_ANALYTICS_CATEGORICAL_EVALS: 'llm-analytics-categorical-evaluations', // owner: #team-ai-observability
     LLM_ANALYTICS_CLUSTERING_ADMIN: 'llm-analytics-clustering-admin', // owner: #team-ai-observability
     LLM_ANALYTICS_COMMUNITY_SKILLS: 'llm-analytics-community-skills', // owner: #team-ai-observability
     LLM_ANALYTICS_DATASETS: 'llm-analytics-datasets', // owner: #team-ai-observability #team-posthog-ai
@@ -522,6 +524,7 @@ export const FEATURE_FLAGS = {
     SSO_SETTINGS_REDESIGN: 'sso-settings-redesign', // owner: @reecejones #team-platform-features
     STREAMLIT_APPS: 'streamlit-apps', // owner: @sakce
     SUBSCRIPTION_AI_PROMPT: 'ai-subscriptions', // owner: #team-analytics-platform, gates AI prompt-based subscriptions
+    SUBSCRIPTION_SUMMARY_COPY_EXPERIMENT: 'subscription-summary-copy-experiment',
     SUBSCRIPTION_SLACK_GALLERY: 'subscription-slack-gallery', // owner: #team-analytics-platform, enables gallery delivery after the worker rollout completes
     SURVEY_HEADLINE_SUMMARY: 'survey-headline-summary', // owner: @adboio #team-surveys
     SURVEYS_ERROR_TRACKING_CROSS_SELL: 'surveys-in-error-tracking', // owner: @adboio #team-surveys
