@@ -631,18 +631,6 @@ class HeatmapPreflightSustainedRateThrottle(_TeamBucketRateThrottle):
     rate = "300/hour"
 
 
-# Each insight tag suggestion makes up to three model calls on the project's gateway budget, so the
-# budget is per project. A per-key bucket would give each new personal API key a full extra budget.
-class MetadataSuggestionBurstRateThrottle(_TeamBucketRateThrottle):
-    scope = "product_analytics_metadata_suggestion_burst"
-    rate = "30/minute"
-
-
-class MetadataSuggestionSustainedRateThrottle(_TeamBucketRateThrottle):
-    scope = "product_analytics_metadata_suggestion_sustained"
-    rate = "300/hour"
-
-
 # The llms.txt fetch pulls a caller-supplied file of up to 1 MB from an arbitrary host, holding a web
 # worker for the whole transfer, so like the heatmap pre-flight its budget is about worker occupancy.
 # It is not covered by the project-global Burst/Sustained pair, which only ever throttles personal

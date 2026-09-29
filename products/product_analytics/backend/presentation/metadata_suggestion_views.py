@@ -8,14 +8,13 @@ from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import APIException, PermissionDenied, ValidationError
 from rest_framework.response import Response
-from rest_framework.throttling import BaseThrottle
 
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.exceptions_capture import capture_exception
 from posthog.llm.system_one import SystemOneNotConfigured, SystemOneRequestFailed
 from posthog.models import Tag
-from posthog.rate_limit import MetadataSuggestionBurstRateThrottle, MetadataSuggestionSustainedRateThrottle
+from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
 
 from products.product_analytics.backend.presentation.metadata_suggestions import (
     MAX_TAGS,
@@ -91,12 +90,9 @@ class MetadataSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     """Tag suggestions for an insight from the Jev decision model. Jev only judges the project's
     existing tags, so a suggestion never invents a tag."""
 
-    scope_object = "insight"
-    scope_object_read_actions = ["tags"]
-    scope_object_write_actions: list[str] = []
-
-    def get_throttles(self) -> list[BaseThrottle]:
-        return [MetadataSuggestionBurstRateThrottle(), MetadataSuggestionSustainedRateThrottle()]
+    # Only the insight page calls this, so personal API keys are refused and the endpoint stays out of the public docs.
+    scope_object = "INTERNAL"
+    throttle_classes = [AIBurstRateThrottle, AISustainedRateThrottle]
 
     @validated_request(
         request_serializer=InsightMetadataSuggestionRequestSerializer,
@@ -104,7 +100,7 @@ class MetadataSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             200: OpenApiResponse(response=InsightTagSuggestionSerializer, description="The tags that apply."),
             400: OpenApiResponse(description="The query is not an insight query, or the insight is too large."),
             403: OpenApiResponse(description="AI processing is not approved, or the project is not in the rollout."),
-            429: OpenApiResponse(description="The project asked for too many suggestions. Try again later."),
+            429: OpenApiResponse(description="You asked for too many suggestions. Try again later."),
             503: OpenApiResponse(description="The model is busy. The same request can succeed on a retry."),
         },
         summary="Suggest insight tags",
@@ -113,7 +109,7 @@ class MetadataSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             "insight. Returns the tags above the confidence threshold. No new tags are invented."
         ),
     )
-    @action(methods=["POST"], detail=False, required_scopes=["insight:read"])
+    @action(methods=["POST"], detail=False)
     def tags(self, request: ValidatedRequest, **kwargs) -> Response:
         if not self.organization.is_ai_data_processing_approved:
             raise PermissionDenied("AI data processing must be approved by your organization")

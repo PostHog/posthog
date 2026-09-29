@@ -106,6 +106,22 @@ class TestMetadataSuggestionsApi(APIBaseTest):
         assert decide_mock.call_args_list
         assert all("other-team-secret" not in json.dumps(call.kwargs["state"]) for call in decide_mock.call_args_list)
 
+    @parameterized.expand([("all_scopes", ["*"]), ("insight_read", ["insight:read"])])
+    @patch(CONFIGURED, return_value=True)
+    @patch(FLAG, return_value=True)
+    def test_personal_api_key_is_refused(
+        self, _name: str, scopes: list[str], _flag: MagicMock, _configured: MagicMock
+    ) -> None:
+        key = self.create_personal_api_key_with_scopes(scopes)
+        self.client.logout()
+        with _jev() as decide:
+            response = self.client.post(
+                f"{self.base_url}/tags/", {"query": _QUERY}, format="json", HTTP_AUTHORIZATION=f"Bearer {key}"
+            )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        decide.assert_not_called()
+
     @parameterized.expand(
         [
             ("invalid_query", {"query": {"kind": "Nope"}}),
