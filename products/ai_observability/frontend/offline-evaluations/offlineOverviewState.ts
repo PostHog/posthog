@@ -66,10 +66,16 @@ export function offlineFiltersFromUrl(search: Record<string, unknown>): OfflineE
     }
     return Object.fromEntries(
         FILTER_KEYS.flatMap((key) => {
-            const value = shared[key]
+            const raw = shared[key]
+            const value = key === 'search' && Array.isArray(raw) && raw.length === 1 ? raw[0] : raw
             return typeof value === 'string' && value ? [[key, value]] : []
         })
     )
+}
+
+export function offlineFiltersToUrl(filters: OfflineExperimentFilters): Record<string, unknown> {
+    // The router decodes text such as "00123" or "true" as a number or boolean, but it keeps a JSON array exactly.
+    return { ...filters, search: filters.search ? [filters.search] : undefined }
 }
 
 export function offlineListClockFromUrl(search: Record<string, unknown>): string | null {

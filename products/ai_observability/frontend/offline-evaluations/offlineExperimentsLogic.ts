@@ -14,6 +14,7 @@ import type {
 import {
     cleanOfflineFilters,
     offlineFiltersFromUrl,
+    offlineFiltersToUrl,
     offlineCursorStackFromUrl,
     offlineListClockFromUrl,
     OFFLINE_ALL_UPLOAD_STATES,
@@ -466,7 +467,7 @@ export const offlineExperimentsLogic = kea<offlineExperimentsLogicType>([
         const location = (): [string, Record<string, unknown>, Record<string, unknown>, { replace: boolean }] => [
             urls.aiObservabilityOfflineEvaluations(),
             {
-                ...values.filters,
+                ...offlineFiltersToUrl(values.filters),
                 scores: values.scorerIds?.join(','),
                 cursor_stack: values.cursorStack.length ? values.cursorStack : undefined,
                 list_now: values.cursorStack.length ? values.resolvedNow : undefined,

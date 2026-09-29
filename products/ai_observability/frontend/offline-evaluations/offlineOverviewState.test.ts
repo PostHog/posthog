@@ -1,5 +1,8 @@
+import { decodeParams, encodeParams } from 'kea-router'
+
 import {
     offlineFiltersFromUrl,
+    offlineFiltersToUrl,
     offlinePreferencesKey,
     readOfflineScorerPreferences,
     saveOfflineScorerPreferences,
@@ -40,6 +43,11 @@ describe('offline overview preferences', () => {
                 statuses: '',
             })
         ).toEqual({ search: 'check' })
+    })
+
+    it.each(['00123', 'true', '[draft]'])('keeps the experiment search %p in shared URLs', (search) => {
+        const url = encodeParams(offlineFiltersToUrl({ search, date_from: '-7d' }), '?')
+        expect(offlineFiltersFromUrl(decodeParams(url, '?'))).toEqual({ search, date_from: '-7d' })
     })
 
     it.each([
