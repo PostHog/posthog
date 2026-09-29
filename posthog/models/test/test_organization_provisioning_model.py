@@ -17,6 +17,7 @@ class TestOrganizationProvisioningModel(BaseTest):
             ("vercel_without_application", OrganizationProvisioning.Partner.VERCEL, False, True),
             ("provisioning_api_without_application", OrganizationProvisioning.Partner.PROVISIONING_API, False, False),
             ("vercel_with_application", OrganizationProvisioning.Partner.VERCEL, True, False),
+            ("unknown_partner_with_application", "verce", True, False),
         ]
     )
     def test_application_must_match_partner(self, _name, partner, with_application, allowed):

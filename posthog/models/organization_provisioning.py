@@ -32,7 +32,7 @@ class OrganizationProvisioning(models.Model):
         constraints = [
             models.CheckConstraint(
                 condition=Q(partner="vercel", application__isnull=True)
-                | (~Q(partner="vercel") & Q(application__isnull=False)),
+                | Q(partner__in=["provisioning_api", "stripe_projects"], application__isnull=False),
                 name="org_provisioning_application_matches_partner",
             )
         ]
