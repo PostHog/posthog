@@ -40,6 +40,14 @@ TOOL_DISABLED_CODE = -32002
 BATCH_REJECTED_CODE = -32000
 METHOD_NOT_FOUND_CODE = -32601
 
+# SEP-2243 operation headers. Modern MCP clients send them on every request, and
+# servers that implement the spec reject a request without them.
+PROTOCOL_VERSION_HEADER = "MCP-Protocol-Version"
+MCP_METHOD_HEADER = "Mcp-Method"
+MCP_NAME_HEADER = "Mcp-Name"
+# Methods whose `Mcp-Name` header mirrors a params field.
+NAME_HEADER_PARAM = {"tools/call": "name", "prompts/get": "name", "resources/read": "uri"}
+
 
 def _normalized_origin(url: str) -> tuple[str, str, int | None] | None:
     parsed = urlparse(url)
@@ -482,6 +490,34 @@ def enforce_tool_approval(
     return HttpResponse(json.dumps(blocked), content_type="application/json", status=200)
 
 
+def _mcp_protocol_headers(request_headers: Any, data: dict[str, Any] | list[Any]) -> dict[str, str]:
+    """The client's MCP protocol headers that are safe to send upstream.
+
+    Tool policy reads the body, so `Mcp-Method` and `Mcp-Name` go upstream only
+    when they match the body. A header that names a different tool could
+    otherwise route a lax upstream around the policy check. When a header does
+    not match, the proxy drops it and a conforming upstream rejects the request.
+    """
+    headers: dict[str, str] = {}
+    protocol_version = request_headers.get(PROTOCOL_VERSION_HEADER)
+    if protocol_version:
+        headers[PROTOCOL_VERSION_HEADER] = protocol_version
+
+    if not isinstance(data, dict):
+        return headers
+    method = data.get("method")
+    if not isinstance(method, str) or request_headers.get(MCP_METHOD_HEADER) != method:
+        return headers
+    headers[MCP_METHOD_HEADER] = method
+
+    name_param = NAME_HEADER_PARAM.get(method)
+    params = data.get("params")
+    name = params.get(name_param) if name_param and isinstance(params, dict) else None
+    if isinstance(name, str) and request_headers.get(MCP_NAME_HEADER) == name:
+        headers[MCP_NAME_HEADER] = name
+    return headers
+
+
 def _write_audit_events(
     installation: MCPServerInstallation,
     gateway_server: MCPGatewayServer,
@@ -589,6 +625,7 @@ def proxy_mcp_request(
     headers = {
         "Content-Type": "application/json",
         "Accept": "application/json, text/event-stream",
+        **_mcp_protocol_headers(request.headers, data),
         **auth_headers,
     }
 
