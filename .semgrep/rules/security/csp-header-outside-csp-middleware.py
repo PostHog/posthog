@@ -52,7 +52,8 @@ def ok_public_survey_policy(request, response):
 def ok_workflow_asset_policy(response):
     # ok: csp-header-outside-csp-middleware
     response["Content-Security-Policy"] = (
-        "sandbox; default-src 'none'; img-src https: data:; style-src 'unsafe-inline'"
+        "sandbox allow-popups allow-popups-to-escape-sandbox; "
+        "default-src 'none'; img-src https: data:; style-src 'unsafe-inline'"
     )
 
 

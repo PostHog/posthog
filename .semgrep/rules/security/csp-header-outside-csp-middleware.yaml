@@ -30,8 +30,9 @@ rules:
           - pattern-not: $RESPONSE["Content-Security-Policy"] = artifact_csp(...)
           - pattern-not: $RESPONSE["Content-Security-Policy"] = _public_survey_csp(...)
           - pattern-not: >-
-                $RESPONSE["Content-Security-Policy"] = "sandbox; default-src 'none'; img-src https:
-                data:; style-src 'unsafe-inline'"
+                $RESPONSE["Content-Security-Policy"] = "sandbox allow-popups
+                allow-popups-to-escape-sandbox; default-src 'none'; img-src https: data:; style-src
+                'unsafe-inline'"
       paths:
           exclude:
               # The app and admin policies, and the middleware that attaches them.

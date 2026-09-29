@@ -1,8 +1,10 @@
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
 
+import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
+from lxml import html as lxml_html
 from parameterized import parameterized
 from rest_framework import status
 
@@ -12,6 +14,7 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.test.persons import create_person
 
+from products.workflows.backend.api.message_assets import with_new_tab_link_target
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 
@@ -181,20 +184,40 @@ class TestMessageAssets(ClickhouseTestMixin, APIBaseTest):
         res = self.client.get(f"{self._base()}/assets/content/?invocation_id=inv-1&action_id=step-a")
         assert res.status_code == status.HTTP_200_OK
         assert res["Content-Type"] == "text/html; charset=utf-8"
-        assert res.content == b"<html><body>Hello Bob</body></html>"
+        assert b"<body>Hello Bob</body>" in res.content
         # Sandbox at the response layer so direct navigation to this URL still can't
-        # run scripts as the viewer — the iframe's `sandbox=""` alone doesn't protect
-        # someone who opens the asset URL in a new tab. Regressing this reintroduces
+        # run scripts as the viewer. The iframe sandbox alone doesn't protect someone who
+        # opens the asset URL in a new tab. Granting either capability below reintroduces
         # stored-XSS in captured email HTML.
-        assert "sandbox" in res["Content-Security-Policy"]
+        csp = res["Content-Security-Policy"]
+        assert csp.startswith("sandbox ")
+        assert "allow-scripts" not in csp
+        assert "allow-same-origin" not in csp
         assert res["X-Content-Type-Options"] == "nosniff"
+
+    @parameterized.expand(
+        [
+            ("with_head", "<html><head><title>Hi</title></head><body>hi</body></html>"),
+            ("without_head", "<div>hi</div>"),
+            ("doctype_without_head", '<!doctype html><meta charset="utf-8"><pre>hi</pre>'),
+        ]
+    )
+    def test_content_sends_link_clicks_to_a_new_tab(self, _name: str, html: str):
+        self._seed("inv-1", action_id="step-a", html=html)
+        res = self.client.get(f"{self._base()}/assets/content/?invocation_id=inv-1&action_id=step-a")
+        assert res.status_code == status.HTTP_200_OK
+        # Without both of these, a click on a link in the viewer navigates the viewer's own
+        # iframe, and the destination refuses to be framed, so the viewer goes blank.
+        assert '<head><base target="_blank">' in res.content.decode()
+        assert "allow-popups allow-popups-to-escape-sandbox" in res["Content-Security-Policy"]
 
     def test_content_returns_latest_version_html(self):
         self._seed("inv-1", action_id="step-a", html="<p>old</p>", version=1)
         self._seed("inv-1", action_id="step-a", html="<p>new</p>", version=2)
         res = self.client.get(f"{self._base()}/assets/content/?invocation_id=inv-1&action_id=step-a")
         assert res.status_code == status.HTTP_200_OK
-        assert res.content == b"<p>new</p>"
+        assert b"<p>new</p>" in res.content
+        assert b"<p>old</p>" not in res.content
 
     def test_content_404_for_unknown_asset(self):
         res = self.client.get(f"{self._base()}/assets/content/?invocation_id=nope&action_id=step-a")
@@ -335,3 +358,107 @@ class TestPersonEmails(ClickhouseTestMixin, APIBaseTest):
         )
         assert res.status_code == 403, res.json()
         assert "person:read" in res.json().get("detail", "")
+
+
+def _assert_every_link_opens_in_a_new_tab(html: str) -> None:
+    document = lxml_html.document_fromstring(html)
+    # Browsers use the first base target for links that have no target of their own.
+    base_targets = [base.get("target") for base in document.iter("base")]
+    assert base_targets[0] == "_blank" and not any(base_targets[1:]), base_targets
+    assert all(link.get("target") == "_blank" for link in document.iter("a", "area")), html
+
+
+class TestWithNewTabLinkTarget:
+    @parameterized.expand(
+        [
+            ("same_tab", '<a href="https://x.com" target="_self">Go</a>'),
+            ("single_quoted_top", "<a target='_top' href=\"https://x.com\">Go</a>"),
+            ("unquoted_parent", '<a href="https://x.com" target=_parent>Go</a>'),
+            ("uppercase", '<A HREF="https://x.com" TARGET="_self">Go</A>'),
+            ("named_window", '<a href="https://x.com" target="x">Go</a>'),
+            ("image_map_area", '<map name="m"><area href="https://x.com" target="_self"></map>'),
+            ("link_without_target", '<a href="https://x.com">Go</a>'),
+            # Browsers read a target in each of these. A named target left in place would keep
+            # `window.opener` in the new tab.
+            ("slash_before_target", '<a href="https://x.com"/target="x">Go</a>'),
+            ("no_space_before_target", '<a href="https://x.com"target="x">Go</a>'),
+            ("slash_after_tag_name", '<a/target="x" href="https://x.com">Go</a>'),
+            ("stray_quote_in_unquoted_href", "<a href=https://x.com/it's target=x>Go</a>"),
+            (
+                "base_target_before_head",
+                '<base target="x"><html><head></head><body><a href="https://x.com">Go</a></body></html>',
+            ),
+            (
+                "head_tag_inside_comment",
+                '<html><!-- <head> --><head></head><body><a href="https://x.com">Go</a></body></html>',
+            ),
+        ]
+    )
+    def test_opens_every_link_in_a_new_tab(self, _name: str, html: str):
+        output = with_new_tab_link_target(html)
+        _assert_every_link_opens_in_a_new_tab(output)
+        assert "https://x.com" in output
+
+    def test_keeps_a_tracking_href_that_contains_target(self):
+        href = "https://ph.test/redirect?id=1&target=https%3A%2F%2Fx.com"
+        output = with_new_tab_link_target(f'<a href="{href}" target="_self">Go</a>')
+        assert [link.get("href") for link in lxml_html.document_fromstring(output).iter("a")] == [href]
+
+    @parameterized.expand(
+        [
+            # The shape of captured plain-text emails, push previews and oversized placeholders.
+            ("doctype_without_head", '<!doctype html><meta charset="utf-8"><pre>hi</pre>', "<!DOCTYPE html>\n"),
+            (
+                "xml_declaration",
+                '<?xml version="1.0" encoding="utf-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" '
+                '"http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html><head></head><body>hi</body></html>',
+                '<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN"',
+            ),
+        ]
+    )
+    def test_keeps_the_doctype_first(self, _name: str, html: str, expected_prefix: str):
+        # Anything before the doctype makes the browser render the page in quirks mode.
+        assert with_new_tab_link_target(html).startswith(expected_prefix)
+
+    @parameterized.expand(
+        [
+            ("content_after_html_end_tag", "<html><body><p>one</p></body></html><p>tail</p>", "<p>one</p><p>tail</p>"),
+            ("non_utf8_meta_charset", '<head><meta charset="iso-8859-1"></head><body>café 😀</body>', "café 😀"),
+            ("nul_character", "<p>a\x00b</p>", "<p>ab</p>"),
+            ("escaped_plain_text", "<pre>1 &lt; 2 &amp;&amp; x</pre>", "<pre>1 &lt; 2 &amp;&amp; x</pre>"),
+            (
+                "outlook_conditional_comment",
+                '<body><!--[if mso]><v:roundrect href="https://x.com"><![endif]--><p>hi</p></body>',
+                '<!--[if mso]><v:roundrect href="https://x.com"><![endif]-->',
+            ),
+            ("non_link_element", '<form target="_self"></form>', '<form target="_self"></form>'),
+        ]
+    )
+    def test_keeps_the_email_content(self, _name: str, html: str, expected_fragment: str):
+        assert expected_fragment in with_new_tab_link_target(html)
+
+    @parameterized.expand([("empty", ""), ("whitespace", "  \n "), ("only_a_comment", "<!-- hi -->")])
+    def test_serves_an_empty_page_for_an_email_with_no_elements(self, _name: str, html: str):
+        assert with_new_tab_link_target(html) == ""
+
+    def test_never_serves_a_link_past_the_parser_depth_limit_with_its_own_target(self):
+        # lxml stops building the tree at about 255 levels and drops the rest. A parser upgrade
+        # must not start passing that part through unrewritten.
+        html = "<div>" * 300 + '<a href="https://x.com" target="x">Go</a>' + "</div>" * 300
+        output = with_new_tab_link_target(html)
+        _assert_every_link_opens_in_a_new_tab(output)
+        assert 'target="x"' not in output
+
+    @parameterized.expand(
+        [
+            ("unclosed_link_tag_run", "<a " * 32000),
+            ("unclosed_head_tag_run", "<head " * 16000),
+            ("link_tag_run_before_an_unclosed_quote", "<!-- " + "<a " * 32000 + "' -->"),
+            ("unclosed_end_tag_run", "</body " * 16000),
+        ]
+    )
+    @pytest.mark.timeout(1, func_only=True)
+    def test_malformed_html_stays_fast(self, _name: str, html: str):
+        # The endpoint runs this in the request, so malformed HTML must not make the cost grow
+        # with the square of the body size.
+        with_new_tab_link_target(html)
