@@ -48,7 +48,11 @@ from products.experiments.backend.experiment_service import (
     _merge_saved_metric_links,
     _resolve_scalar_updates,
 )
-from products.experiments.backend.metric_validation import is_events_node_actions_node_confusion
+from products.experiments.backend.metric_validation import (
+    extract_entity_nodes,
+    is_events_node_actions_node_confusion,
+    logger as metric_validation_logger,
+)
 from products.experiments.backend.models.experiment import (
     EXPOSURE_FROZEN_COHORT_KEY,
     EXPOSURE_FROZEN_GROUP_KEY,
@@ -740,6 +744,21 @@ class TestExperimentService(APIBaseTest):
             ("non_object", [[1]], "Saved metric must be an object"),
             ("metadata_not_object", [{"id": 1, "metadata": "primary"}], "Metadata must be an object"),
             ("metadata_missing_type", [{"id": 1, "metadata": {"xxx": "primary"}}], "Metadata must have a type key"),
+            (
+                "breakdown_limit_not_a_number",
+                [{"id": 1, "metadata": {"type": "primary", "breakdown_limit": "abc"}}],
+                "Invalid saved metric metadata at index 0: [{'loc': ('breakdown_limit',)",
+            ),
+            (
+                "unknown_attribution_type",
+                [{"id": 1, "metadata": {"type": "primary", "breakdownAttributionType": "bogus"}}],
+                "Invalid saved metric metadata at index 0: [{",
+            ),
+            (
+                "breakdown_without_property",
+                [{"id": 1, "metadata": {"type": "primary", "breakdowns": [{"type": "event"}]}}],
+                "Invalid saved metric metadata at index 0: [{'loc': ('breakdowns', 0, 'property')",
+            ),
         ]
     )
     def test_create_experiment_validates_saved_metrics_payload(
@@ -6852,12 +6871,9 @@ class TestExperimentService(APIBaseTest):
         # bypasses that check, we want to skip the value (don't crash, don't add a
         # non-string to the lookup set) and log so we can find the offending caller.
         # This is purely about the *incoming* payload shape — no DB lookup happens
-        # in `_extract_entity_nodes`.
-        from products.experiments.backend.experiment_service import logger as service_logger
-
-        service = self._service()
-        with patch.object(service_logger, "warning") as mock_warning:
-            event_names = service._extract_entity_nodes(
+        # in `extract_entity_nodes`.
+        with patch.object(metric_validation_logger, "warning") as mock_warning:
+            event_names = extract_entity_nodes(
                 [
                     {
                         "kind": "ExperimentMetric",

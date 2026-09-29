@@ -7,7 +7,7 @@ order stays in one place, matching the frontend resolver in experimentMetricsLog
 """
 
 from datetime import datetime
-from typing import cast
+from typing import Any, cast
 
 from django.conf import settings
 from django.contrib import messages
@@ -29,7 +29,7 @@ from products.experiments.backend.recalculation import (
     request_recalculation,
     start_metrics_recalculation_workflow,
 )
-from products.experiments.backend.temporal.metric_resolution import build_metric, find_metric_dict
+from products.experiments.backend.temporal.metric_resolution import build_metric, scheduled_metric_definitions
 
 
 def format_duration(started_at: datetime | None, completed_at: datetime | None) -> str | None:
@@ -52,10 +52,10 @@ def format_duration(started_at: datetime | None, completed_at: datetime | None) 
     return " ".join(parts)
 
 
-def _metric_name(experiment: Experiment, metric_uuid: str) -> str:
+def _metric_name(definitions: dict[str, dict[str, Any]], metric_uuid: str) -> str:
     """Resolve a metric_uuid to the title a user sees, falling back to the uuid for a metric that no
     longer resolves on the experiment (removed after the run)."""
-    metric_dict = find_metric_dict(experiment, metric_uuid)
+    metric_dict = definitions.get(metric_uuid)
     if metric_dict is None:
         return metric_uuid
     if metric_dict.get("name"):
@@ -80,6 +80,7 @@ def _resolve_failures(recalc: ExperimentMetricsRecalculation, results: list[dict
 
     # Union of every uuid that failed either way, so a discovery-step failure with no result row still shows.
     failed_uuids = set(metric_errors.keys()) | set(failed_row_message.keys())
+    definitions = scheduled_metric_definitions(recalc.experiment) if failed_uuids else {}
     failures = []
     for metric_uuid in failed_uuids:
         error = None
@@ -92,7 +93,7 @@ def _resolve_failures(recalc: ExperimentMetricsRecalculation, results: list[dict
         failures.append(
             {
                 "metric_uuid": metric_uuid,
-                "metric_name": _metric_name(recalc.experiment, metric_uuid),
+                "metric_name": _metric_name(definitions, metric_uuid),
                 "error": error,
             }
         )

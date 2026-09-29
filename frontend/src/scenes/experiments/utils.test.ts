@@ -1018,16 +1018,38 @@ describe('getOrderedMetricsWithResults', () => {
             [
                 'attribution step zero is explicit',
                 funnelWithSavedOverrides,
+                {
+                    breakdownAttributionType: BreakdownAttributionType.Step,
+                    breakdownAttributionValue: 0,
+                    breakdowns: [{ property: '$browser', type: 'event' }],
+                },
                 { breakdownAttributionType: BreakdownAttributionType.Step, breakdownAttributionValue: 0 },
-                { breakdownAttributionType: BreakdownAttributionType.Step, breakdownAttributionValue: 0 },
-                { breakdown_limit: 5, breakdowns: [] },
+                { breakdown_limit: 5, breakdowns: [{ property: '$browser', type: 'event' }] },
             ],
             [
                 'attribution on a mean metric is ignored',
                 savedMean,
-                { breakdownAttributionType: BreakdownAttributionType.LastTouch, breakdownAttributionValue: 1 },
+                {
+                    breakdownAttributionType: BreakdownAttributionType.LastTouch,
+                    breakdownAttributionValue: 1,
+                    breakdowns: [{ property: '$browser', type: 'event' }],
+                },
                 {},
-                { breakdowns: [] },
+                { breakdowns: [{ property: '$browser', type: 'event' }] },
+            ],
+            [
+                'limit and attribution without link breakdowns are ignored',
+                funnelWithSavedOverrides,
+                { breakdownAttributionType: BreakdownAttributionType.LastTouch, breakdown_limit: 20, breakdowns: [] },
+                { breakdownAttributionType: BreakdownAttributionType.Step, breakdownAttributionValue: 2 },
+                { breakdown_limit: 5, breakdowns: [] },
+            ],
+            [
+                'a link whose query has not loaded resolves without its saved values',
+                undefined as unknown as ExperimentMetric,
+                { breakdowns: [{ property: '$browser', type: 'event' }], breakdown_limit: 20 },
+                {},
+                { breakdown_limit: 20, breakdowns: [{ property: '$browser', type: 'event' }] },
             ],
         ])('resolves link overrides: %s', (_name, query, overrides, expectedAttribution, expectedBreakdownFilter) => {
             const resolved: Record<string, unknown> = {
@@ -1044,7 +1066,7 @@ describe('getOrderedMetricsWithResults', () => {
             )
             expect(attribution).toEqual(expectedAttribution)
             expect(resolved.breakdownFilter).toEqual(expectedBreakdownFilter)
-            expect(resolved.uuid).toBe(query.uuid)
+            expect(resolved.uuid).toBe(query?.uuid)
         })
     })
 

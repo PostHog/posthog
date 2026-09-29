@@ -76,6 +76,7 @@ from products.experiments.backend.setup_context import (
     SdkLibCategory,
     SetupContextSectionStatus,
 )
+from products.experiments.backend.temporal.metric_resolution import saved_metric_links
 from products.feature_flags.backend.api.feature_flag import MinimalFeatureFlagSerializer
 from products.feature_flags.backend.models.feature_flag import FeatureFlag, experiment_eligibility_error
 
@@ -636,6 +637,9 @@ class ExperimentSerializer(ExperimentBaseSerializer):
         saved_metrics = data.get("saved_metrics", [])
         with tracer.start_as_current_span("ExperimentSerializer.saved_metric_fingerprints") as span:
             span.set_attribute("saved_metric_count", len(saved_metrics))
+            stored_queries = (
+                {link.id: link.saved_metric.query for link in saved_metric_links(instance)} if saved_metrics else {}
+            )
             for saved_metric in saved_metrics:
                 if saved_metric.get("query"):
                     apply_metric_date_range(saved_metric["query"], new_date_range)
@@ -643,9 +647,11 @@ class ExperimentSerializer(ExperimentBaseSerializer):
                     # Add fingerprint to saved metric returned from API so that the frontend knows what
                     # timeseries records to query. Computed on the effective definition (with the link
                     # overrides), the same dict the daily discovery fingerprints, so the chart read finds
-                    # the rows the daily workflow wrote.
+                    # the rows the daily workflow wrote. The action names are part of the hash, and the
+                    # serialized query carries the refreshed names, so the hash reads the stored query.
+                    stored_query = stored_queries.get(saved_metric["id"]) or saved_metric["query"]
                     saved_metric["query"]["fingerprint"] = compute_metric_fingerprint(
-                        resolve_saved_metric_definition(saved_metric["query"], saved_metric.get("metadata")),
+                        resolve_saved_metric_definition(stored_query, saved_metric.get("metadata")),
                         instance.start_date,
                         get_experiment_stats_method(instance),
                         instance.exposure_criteria,

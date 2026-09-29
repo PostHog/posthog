@@ -47,7 +47,6 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.utils import str_to_bool
 
-from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models import EventDefinition, effective_project_id_expr
 from products.experiments.backend.flag_cleanup import build_cleanup_prompt, cleanup_plan
@@ -62,7 +61,12 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
     resolve_default_exposure_event,
 )
 from products.experiments.backend.metric_utils import filter_metric_group_ids_by_event
-from products.experiments.backend.metric_validation import parse_and_validate_metric
+from products.experiments.backend.metric_validation import (
+    extract_entity_nodes,
+    parse_and_validate_metric,
+    validate_metric_action_ids,
+    validate_saved_metric_link_overrides,
+)
 from products.experiments.backend.models.experiment import (
     EXPOSURE_FROZEN_COHORT_KEY,
     EXPOSURE_FROZEN_GROUP_KEY,
@@ -78,7 +82,6 @@ from products.experiments.backend.models.experiment import (
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.result_serialization import strip_step_sessions
-from products.experiments.backend.temporal.metric_resolution import ExperimentMetric
 from products.experiments.backend.warehouse_access_control import enforce_warehouse_metric_access
 from products.feature_flags.backend.api.feature_flag import parse_created_by_ids
 from products.feature_flags.backend.facade.api import (
@@ -760,18 +763,16 @@ class ExperimentService:
             )
 
     @staticmethod
-    def validate_experiment_metrics(metrics: list | None) -> list[ExperimentMetric]:
-        """Validate metric payloads accepted by the API layer and return the parsed metrics."""
+    def validate_experiment_metrics(metrics: list | None) -> None:
+        """Validate metric payloads accepted by the API layer."""
         if metrics is None:
-            return []
+            return
 
         if not isinstance(metrics, list):
             raise ValidationError("Metrics must be a list")
 
-        return [
+        for i, metric in enumerate(metrics):
             parse_and_validate_metric(metric, error_prefix=f"Invalid metric at index {i}: ")
-            for i, metric in enumerate(metrics)
-        ]
 
     VALID_STATS_METHODS = {"bayesian", "frequentist"}
 
@@ -966,7 +967,7 @@ class ExperimentService:
         if not isinstance(saved_metrics_ids, list):
             raise ValidationError("Saved metrics must be a list")
 
-        for saved_metric in saved_metrics_ids:
+        for i, saved_metric in enumerate(saved_metrics_ids):
             if not isinstance(saved_metric, dict):
                 raise ValidationError("Saved metric must be an object")
             if "id" not in saved_metric:
@@ -975,6 +976,10 @@ class ExperimentService:
                 raise ValidationError("Metadata must be an object")
             if "metadata" in saved_metric and "type" not in saved_metric["metadata"]:
                 raise ValidationError("Metadata must have a type key")
+            if "metadata" in saved_metric:
+                validate_saved_metric_link_overrides(
+                    saved_metric["metadata"], error_prefix=f"Invalid saved metric metadata at index {i}: "
+                )
 
         saved_metrics = ExperimentSavedMetric.objects.filter(
             id__in=[saved_metric["id"] for saved_metric in saved_metrics_ids],
@@ -982,92 +987,6 @@ class ExperimentService:
         )
         if saved_metrics.count() != len(saved_metrics_ids):
             raise ValidationError("Saved metric does not exist or does not belong to this project")
-
-    @staticmethod
-    def _extract_entity_nodes(metrics: list[dict] | None) -> tuple[set[str], set[int]]:
-        """Extract event names and action IDs from all EventsNode/ActionsNode refs in metrics."""
-        event_names: set[str] = set()
-        action_ids: set[int] = set()
-        if not metrics:
-            return event_names, action_ids
-
-        for metric in metrics:
-            nodes: list[dict] = []
-            metric_type = metric.get("metric_type")
-            if metric_type == "mean":
-                if source := metric.get("source"):
-                    nodes.append(source)
-            elif metric_type == "funnel":
-                nodes.extend(metric.get("series") or [])
-            elif metric_type == "ratio":
-                if num := metric.get("numerator"):
-                    nodes.append(num)
-                if den := metric.get("denominator"):
-                    nodes.append(den)
-            elif metric_type == "retention":
-                if se := metric.get("start_event"):
-                    nodes.append(se)
-                if ce := metric.get("completion_event"):
-                    nodes.append(ce)
-
-            for node in nodes:
-                kind = node.get("kind")
-                if kind == "EventsNode":
-                    event = node.get("event")
-                    # Treat None and empty/whitespace-only strings as "no event"
-                    # (semantically equivalent to "All events"). The pydantic
-                    # schema permits "" but it can't reference a real event.
-                    if isinstance(event, str) and event.strip():
-                        event_names.add(event)
-                    elif event is not None and not isinstance(event, str):
-                        # Pydantic should have rejected non-str/None upstream;
-                        # log so we can catch any path that bypassed validation
-                        # rather than silently dropping the value.
-                        logger.warning(
-                            "experiment_metric_unexpected_event_type",
-                            event_type=type(event).__name__,
-                            event_value=repr(event)[:100],
-                        )
-                elif kind == "ActionsNode":
-                    if (action_id := node.get("id")) is not None:
-                        action_ids.add(int(action_id))
-
-        return event_names, action_ids
-
-    @classmethod
-    def validate_metric_action_ids(
-        cls, metrics: list[dict] | None, team_id: int, *, known_action_ids: set[int] | None = None
-    ) -> None:
-        """Validate that all ActionsNode IDs reference existing, non-deleted actions for the team.
-
-        Actions are explicitly created entities with stable IDs, so a reference to a
-        nonexistent action is almost certainly a mistake, so we raise a hard validation error.
-
-        ``known_action_ids`` exempts ids already persisted on the experiment, so an
-        update is checked for what it introduces rather than for everything it
-        resends. Without it, deleting a referenced action makes every later metric
-        edit fail on the resent arrays. See ``update_experiment``.
-        """
-        _, action_ids = cls._extract_entity_nodes(metrics)
-        if known_action_ids:
-            action_ids -= known_action_ids
-        if not action_ids:
-            return
-
-        existing_ids = set(
-            Action.objects.filter(
-                id__in=action_ids,
-                team_id=team_id,
-                deleted=False,
-            ).values_list("id", flat=True)
-        )
-        missing = action_ids - existing_ids
-        if missing:
-            missing_str = ", ".join(str(aid) for aid in sorted(missing))
-            raise ValidationError(
-                f"Action(s) with ID {missing_str} not found or deleted. "
-                "Each ActionsNode must reference an existing action belonging to this project."
-            )
 
     def validate_metric_event_names(
         self, metrics: list[dict] | None, *, known_event_names: set[str] | None = None
@@ -1089,7 +1008,7 @@ class ExperimentService:
         multi-team project can pick an event ingested by a sibling team. We
         mirror that scope here to avoid rejecting legitimate selections.
         """
-        all_event_names, _ = self._extract_entity_nodes(metrics)
+        all_event_names, _ = extract_entity_nodes(metrics)
         event_names = all_event_names - known_event_names if known_event_names else all_event_names
         if not event_names:
             return
@@ -1182,8 +1101,8 @@ class ExperimentService:
         running_time_calculation = running_time_calculation or {}
         self.validate_experiment_metrics(metrics)
         self.validate_experiment_metrics(metrics_secondary)
-        self.validate_metric_action_ids(metrics, self.team.id)
-        self.validate_metric_action_ids(metrics_secondary, self.team.id)
+        validate_metric_action_ids(metrics, self.team.id)
+        validate_metric_action_ids(metrics_secondary, self.team.id)
         if not allow_unknown_events:
             self.validate_metric_event_names(metrics)
             self.validate_metric_event_names(metrics_secondary)
@@ -3409,14 +3328,14 @@ class ExperimentService:
         # sections are pooled: moving a metric between them changes which array holds
         # it, not which entity it references. Read before the update is applied, so
         # these are the stored references.
-        persisted_event_names, persisted_action_ids = self._extract_entity_nodes(
+        persisted_event_names, persisted_action_ids = extract_entity_nodes(
             [*(experiment.metrics or []), *(experiment.metrics_secondary or [])]
         )
 
         if "metrics" in update_data:
             update_data["metrics"] = self._assign_uuids_to_metrics(update_data["metrics"], seen=seen_metric_uuids)
             self.validate_experiment_metrics(update_data["metrics"])
-            self.validate_metric_action_ids(update_data["metrics"], self.team.id, known_action_ids=persisted_action_ids)
+            validate_metric_action_ids(update_data["metrics"], self.team.id, known_action_ids=persisted_action_ids)
             if not allow_unknown_events:
                 self.validate_metric_event_names(update_data["metrics"], known_event_names=persisted_event_names)
         if "metrics_secondary" in update_data:
@@ -3424,7 +3343,7 @@ class ExperimentService:
                 update_data["metrics_secondary"], seen=seen_metric_uuids
             )
             self.validate_experiment_metrics(update_data["metrics_secondary"])
-            self.validate_metric_action_ids(
+            validate_metric_action_ids(
                 update_data["metrics_secondary"], self.team.id, known_action_ids=persisted_action_ids
             )
             if not allow_unknown_events:

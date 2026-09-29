@@ -1043,17 +1043,20 @@ export function resolveSharedMetric({
     query,
     metadata,
 }: Pick<ExperimentSavedMetric, 'query' | 'metadata'>): ExperimentMetric {
+    const breakdowns = metadata?.breakdowns || []
+    const hasBreakdowns = breakdowns.length > 0
     return {
         ...query,
-        ...(isExperimentFunnelMetric(query) &&
+        ...(hasBreakdowns &&
+            query?.metric_type === ExperimentMetricType.FUNNEL &&
             metadata?.breakdownAttributionType != null && {
                 breakdownAttributionType: metadata.breakdownAttributionType,
                 breakdownAttributionValue: metadata.breakdownAttributionValue ?? undefined,
             }),
         breakdownFilter: {
-            ...query.breakdownFilter,
-            breakdowns: metadata?.breakdowns || [],
-            ...(metadata?.breakdown_limit != null && { breakdown_limit: metadata.breakdown_limit }),
+            ...query?.breakdownFilter,
+            breakdowns,
+            ...(hasBreakdowns && metadata?.breakdown_limit != null && { breakdown_limit: metadata.breakdown_limit }),
         },
     } as ExperimentMetric
 }

@@ -1,25 +1,32 @@
-"""Intrinsic validation for an experiment metric definition.
+"""Validation for an experiment metric definition, shared by the metric write paths.
 
 Inline metrics (on the experiment) and saved/shared metrics (ExperimentSavedMetric.query) are the same
-metric types, so both write paths parse and validate through `parse_and_validate_metric`. Checks that need
-context (team ownership, permissions, whether a referenced event or action exists) stay with the callers.
+metric types, so both write paths parse and validate through `parse_and_validate_metric` and check
+referenced actions through `validate_metric_action_ids`. Checks that need a user or that the caller can
+waive (team ownership, permissions, whether a referenced event exists) stay with the callers.
 """
 
 import pydantic
+import structlog
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
+    Breakdown,
+    BreakdownAttributionType,
     ExperimentFunnelMetric,
     ExperimentMeanMetric,
     ExperimentMetric as ExperimentMetricUnion,
     ExperimentRetentionMetric,
 )
 
+from products.actions.backend.models.action import Action
 from products.experiments.backend.hogql_queries.base_query_utils import is_threshold_supported_math
 from products.experiments.backend.hogql_queries.funnel_validation import FunnelDWValidator
 from products.experiments.backend.hogql_queries.retention_validation import retention_metric_error
 from products.experiments.backend.models.experiment import LEGACY_METRIC_KINDS
 from products.experiments.backend.temporal.metric_resolution import METRIC_BUILDERS, ExperimentMetric
+
+logger = structlog.get_logger(__name__)
 
 # Cap reported pydantic errors so a funnel with many steps (each producing union-variant
 # errors) cannot blow up the response size. The first N errors are the most actionable.
@@ -105,7 +112,7 @@ def parse_and_validate_metric(metric: object, *, error_prefix: str) -> Experimen
         raise ValidationError(f"{error_prefix}must be a dict")
 
     kind = metric.get("kind")
-    if kind in LEGACY_METRIC_KINDS:
+    if isinstance(kind, str) and kind in LEGACY_METRIC_KINDS:
         raise ValidationError(
             f"{error_prefix}legacy metric kind '{kind}' is no longer supported. Use 'ExperimentMetric' instead."
         )
@@ -131,3 +138,113 @@ def parse_and_validate_metric(metric: object, *, error_prefix: str) -> Experimen
     if error:
         raise ValidationError(f"{error_prefix}{error}")
     return parsed
+
+
+class _SavedMetricLinkOverrides(pydantic.BaseModel):
+    """The link metadata keys that `resolve_saved_metric_definition` applies to the saved query, typed
+    as the metric schema types them. Other keys, such as `type`, are not overrides."""
+
+    model_config = pydantic.ConfigDict(extra="ignore")
+
+    breakdowns: list[Breakdown] | None = pydantic.Field(default=None, max_length=3)
+    breakdown_limit: int | None = None
+    breakdownAttributionType: BreakdownAttributionType | None = None
+    breakdownAttributionValue: int | None = None
+
+
+def validate_saved_metric_link_overrides(metadata: dict, *, error_prefix: str) -> None:
+    """Validate the per-experiment overrides on a saved metric link.
+
+    Every calculation applies the overrides to the saved query. An override that the metric schema
+    rejects makes each calculation of that metric fail until someone edits the link.
+    """
+    try:
+        _SavedMetricLinkOverrides.model_validate(metadata)
+    except pydantic.ValidationError as e:
+        raise ValidationError(f"{error_prefix}{_pydantic_error_message(e)}")
+
+
+def extract_entity_nodes(metrics: list[dict] | None) -> tuple[set[str], set[int]]:
+    """Extract event names and action IDs from all EventsNode/ActionsNode refs in metrics."""
+    event_names: set[str] = set()
+    action_ids: set[int] = set()
+    if not metrics:
+        return event_names, action_ids
+
+    for metric in metrics:
+        nodes: list[dict] = []
+        metric_type = metric.get("metric_type")
+        if metric_type == "mean":
+            if source := metric.get("source"):
+                nodes.append(source)
+        elif metric_type == "funnel":
+            nodes.extend(metric.get("series") or [])
+        elif metric_type == "ratio":
+            if num := metric.get("numerator"):
+                nodes.append(num)
+            if den := metric.get("denominator"):
+                nodes.append(den)
+        elif metric_type == "retention":
+            if se := metric.get("start_event"):
+                nodes.append(se)
+            if ce := metric.get("completion_event"):
+                nodes.append(ce)
+
+        for node in nodes:
+            kind = node.get("kind")
+            if kind == "EventsNode":
+                event = node.get("event")
+                # Treat None and empty/whitespace-only strings as "no event"
+                # (semantically equivalent to "All events"). The pydantic
+                # schema permits "" but it can't reference a real event.
+                if isinstance(event, str) and event.strip():
+                    event_names.add(event)
+                elif event is not None and not isinstance(event, str):
+                    # Pydantic should have rejected non-str/None upstream;
+                    # log so we can catch any path that bypassed validation
+                    # rather than silently dropping the value.
+                    logger.warning(
+                        "experiment_metric_unexpected_event_type",
+                        event_type=type(event).__name__,
+                        event_value=repr(event)[:100],
+                    )
+            elif kind == "ActionsNode":
+                if (action_id := node.get("id")) is not None:
+                    action_ids.add(int(action_id))
+
+    return event_names, action_ids
+
+
+def validate_metric_action_ids(
+    metrics: list[dict] | None, team_id: int, *, known_action_ids: set[int] | None = None
+) -> None:
+    """Validate that all ActionsNode IDs reference existing, non-deleted actions for the team.
+
+    Actions are explicitly created entities with stable IDs, so a reference to a
+    nonexistent action is almost certainly a mistake, so we raise a hard validation error.
+
+    ``known_action_ids`` exempts ids already persisted on the experiment or the saved
+    metric, so an update is checked for what it introduces rather than for everything it
+    resends. Without it, deleting a referenced action makes every later metric
+    edit fail on the resent arrays. See ``update_experiment``.
+    """
+    _, action_ids = extract_entity_nodes(metrics)
+    if known_action_ids:
+        action_ids -= known_action_ids
+    if not action_ids:
+        return
+
+    existing_ids = set(
+        Action.objects.filter(
+            id__in=action_ids,
+            team_id=team_id,
+            deleted=False,
+        ).values_list("id", flat=True)
+    )
+    missing = action_ids - existing_ids
+    if missing:
+        missing_str = ", ".join(str(aid) for aid in sorted(missing))
+        raise ValidationError(
+            f"Action(s) with ID {missing_str} not found or deleted. "
+            "Each ActionsNode must reference an existing action belonging to this project."
+        )

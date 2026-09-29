@@ -599,7 +599,7 @@ describe('experimentLogic', () => {
                 metric_type: ExperimentMetricType.MEAN,
                 source: { kind: NodeKind.EventsNode, event: '$pageview' },
             },
-            metadata: { type: 'primary', breakdowns: [breakdown] },
+            metadata: { type: 'primary', breakdowns: [breakdown], breakdown_limit: 20 },
             created_at: '2024-01-01T00:00:00Z',
         } as unknown as ExperimentSavedMetric
 
@@ -626,7 +626,7 @@ describe('experimentLogic', () => {
                     metric_type: ExperimentMetricType.MEAN,
                     source: { kind: NodeKind.EventsNode, event: '$pageview' },
                     name: 'Shared conversion metric (copy)',
-                    breakdownFilter: { breakdowns: [breakdown] },
+                    breakdownFilter: { breakdowns: [breakdown], breakdown_limit: 20 },
                 },
             ])
             // The original shared metric link is left untouched

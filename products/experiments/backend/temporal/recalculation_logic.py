@@ -46,8 +46,7 @@ from products.experiments.backend.models.experiment import (
 from products.experiments.backend.temporal.metric_resolution import (
     build_metric,
     find_metric_dict,
-    is_scheduled_metric,
-    resolve_experiment_metrics,
+    resolve_scheduled_metrics,
 )
 from products.experiments.backend.temporal.models import (
     CONCURRENCY_LIMIT_RETRY_DELAY_SECONDS,
@@ -133,8 +132,7 @@ def discover_experiment_metrics(experiment: Experiment) -> list[ExperimentMetric
     """
     return [
         ExperimentMetricToRecalculate(experiment_id=experiment.id, metric_uuid=metric.uuid, metric_type=metric.role)
-        for metric in resolve_experiment_metrics(experiment)
-        if is_scheduled_metric(metric.definition)
+        for metric in resolve_scheduled_metrics(experiment)
     ]
 
 

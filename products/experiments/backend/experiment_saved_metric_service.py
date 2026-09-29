@@ -9,9 +9,13 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.models.team.team import Team
 
-from products.experiments.backend.metric_validation import parse_and_validate_metric
+from products.experiments.backend.metric_utils import without_action_names
+from products.experiments.backend.metric_validation import (
+    extract_entity_nodes,
+    parse_and_validate_metric,
+    validate_metric_action_ids,
+)
 from products.experiments.backend.models.experiment import ExperimentSavedMetric, saved_metric_has_legacy_query
-from products.experiments.backend.temporal.metric_resolution import ExperimentMetric
 from products.experiments.backend.warehouse_access_control import enforce_warehouse_metric_access
 
 
@@ -23,11 +27,11 @@ class ExperimentSavedMetricService:
         self.user = user
 
     @classmethod
-    def validate_query(cls, query: dict | None) -> ExperimentMetric:
+    def validate_query(cls, query: dict | None) -> None:
         """Validate saved metric queries accepted by the API layer."""
         if not query:
             raise ValidationError("Query is required to create a saved metric")
-        return parse_and_validate_metric(query, error_prefix="Invalid metric: ")
+        parse_and_validate_metric(query, error_prefix="Invalid metric: ")
 
     @transaction.atomic
     def create_saved_metric(
@@ -39,6 +43,7 @@ class ExperimentSavedMetricService:
     ) -> ExperimentSavedMetric:
         """Create a saved metric with full business-logic validation."""
         normalized_query = self.normalize_query_for_write(query)
+        validate_metric_action_ids([normalized_query], self.team.id)
         enforce_warehouse_metric_access([normalized_query], team=self.team, user=self.user)
 
         return ExperimentSavedMetric.objects.create(
@@ -59,6 +64,8 @@ class ExperimentSavedMetricService:
             update_data["query"] = self.normalize_query_for_write(
                 update_data["query"], existing_query=saved_metric.query
             )
+            _, stored_action_ids = extract_entity_nodes([saved_metric.query] if saved_metric.query else [])
+            validate_metric_action_ids([update_data["query"]], self.team.id, known_action_ids=stored_action_ids)
             enforce_warehouse_metric_access([update_data["query"]], team=self.team, user=self.user)
 
         for attr, value in update_data.items():
@@ -85,7 +92,12 @@ class ExperimentSavedMetricService:
         # Clients resend the whole query on any edit, including a rename or a tag change. A stored
         # query that comes back unchanged is not validated again, so a rule added after it was saved
         # does not block those edits.
-        if existing_query is None or query != existing_query:
+        is_unchanged = (
+            bool(query)
+            and existing_query is not None
+            and without_action_names(query) == without_action_names(existing_query)
+        )
+        if not is_unchanged:
             cls.validate_query(query)
 
         normalized_query = dict(query)

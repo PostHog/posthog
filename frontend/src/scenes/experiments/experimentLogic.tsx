@@ -134,6 +134,7 @@ import {
     conflictPreservedFields,
     isExperimentConflictError,
     isLegacyExperiment,
+    resolveSharedMetric,
     sharedMetricsToExperimentMetrics,
     toConcurrencyPayload,
     toFlagVariantsInput,
@@ -1769,19 +1770,10 @@ export const experimentLogic = kea<experimentLogicType>([
                     const query = savedMetric.query
                     const name = `${savedMetric.name || getDefaultMetricTitle(query)} (copy)`
 
-                    /**
-                     * Build a single-use (inline) copy of the shared metric. The shared metric's
-                     * breakdowns live on the join metadata, so merge them into breakdownFilter here
-                     * the same way we do when rendering shared metrics.
-                     */
                     const newMetric = {
-                        ...query,
+                        ...resolveSharedMetric(savedMetric),
                         uuid: newUuid,
                         name,
-                        breakdownFilter: {
-                            ...query?.breakdownFilter,
-                            breakdowns: savedMetric.metadata?.breakdowns || [],
-                        },
                     }
                     metrics.push(newMetric)
 

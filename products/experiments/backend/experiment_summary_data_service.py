@@ -38,6 +38,7 @@ from products.experiments.backend.hogql_queries.experiment_query_runner import E
 from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
 from products.experiments.backend.metric_utils import get_default_metric_title
 from products.experiments.backend.models.experiment import Experiment, get_experiment_rule, metric_display_rank
+from products.experiments.backend.temporal.metric_resolution import resolve_saved_metric_definition
 
 
 @dataclass
@@ -282,6 +283,7 @@ class ExperimentSummaryDataService:
             query = link.saved_metric.query
             if not query:
                 continue
+            query = resolve_saved_metric_definition(query, link.metadata)
             # The display name lives on the saved metric model, not in its query dict —
             # without it the summary falls back to raw event names.
             if link.saved_metric.name:

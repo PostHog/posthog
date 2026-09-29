@@ -66,7 +66,12 @@ class TestMetricResolution(BaseTest):
 
     def test_prefetched_links_resolve_without_queries(self):
         saved_uuid = str(uuid.uuid4())
-        self._attach_saved(self._experiment(), {"uuid": saved_uuid, "metric_type": "mean"}, {"breakdown_limit": 3})
+        breakdowns = [{"property": "$browser", "type": "event"}]
+        self._attach_saved(
+            self._experiment(),
+            {"uuid": saved_uuid, "metric_type": "mean"},
+            {"breakdowns": breakdowns, "breakdown_limit": 3},
+        )
         experiment = Experiment.objects.prefetch_related("experimenttosavedmetric_set__saved_metric").get(
             team=self.team
         )
@@ -74,7 +79,7 @@ class TestMetricResolution(BaseTest):
         with self.assertNumQueries(0):
             definitions = scheduled_metric_definitions(experiment)
 
-        assert definitions[saved_uuid]["breakdownFilter"] == {"breakdowns": [], "breakdown_limit": 3}
+        assert definitions[saved_uuid]["breakdownFilter"] == {"breakdowns": breakdowns, "breakdown_limit": 3}
 
     def test_saved_metric_breakdowns_merged_from_link_metadata(self):
         experiment = self._experiment()
@@ -151,16 +156,31 @@ _FUNNEL_WITH_SAVED_OVERRIDES: dict[str, Any] = {
         (
             "attribution_step_zero_is_explicit",
             _FUNNEL_WITH_SAVED_OVERRIDES,
+            {
+                "breakdownAttributionType": "step",
+                "breakdownAttributionValue": 0,
+                "breakdowns": [{"property": "$browser", "type": "event"}],
+            },
             {"breakdownAttributionType": "step", "breakdownAttributionValue": 0},
-            {"breakdownAttributionType": "step", "breakdownAttributionValue": 0},
-            {"breakdown_limit": 5, "breakdowns": []},
+            {"breakdown_limit": 5, "breakdowns": [{"property": "$browser", "type": "event"}]},
         ),
         (
             "attribution_on_a_mean_metric_is_ignored",
             {"uuid": "saved-mean", "metric_type": "mean"},
-            {"breakdownAttributionType": "last_touch", "breakdownAttributionValue": 1},
+            {
+                "breakdownAttributionType": "last_touch",
+                "breakdownAttributionValue": 1,
+                "breakdowns": [{"property": "$browser", "type": "event"}],
+            },
             {},
-            {"breakdowns": []},
+            {"breakdowns": [{"property": "$browser", "type": "event"}]},
+        ),
+        (
+            "limit_and_attribution_without_link_breakdowns_are_ignored",
+            _FUNNEL_WITH_SAVED_OVERRIDES,
+            {"breakdownAttributionType": "last_touch", "breakdown_limit": 20, "breakdowns": []},
+            {"breakdownAttributionType": "step", "breakdownAttributionValue": 2},
+            {"breakdown_limit": 5, "breakdowns": []},
         ),
     ]
 )

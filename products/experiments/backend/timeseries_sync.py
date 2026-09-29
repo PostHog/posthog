@@ -31,10 +31,9 @@ from products.experiments.backend.models.experiment import (
 from products.experiments.backend.recalculation import get_active_recalculation
 from products.experiments.backend.temporal.metric_resolution import (
     is_daily_timeseries_metric,
-    scheduled_metric_definitions,
+    resolve_scheduled_metrics,
 )
 from products.experiments.backend.temporal.recalc_fingerprint import compute_recalc_fingerprint
-from products.experiments.backend.temporal.recalculation_logic import discover_experiment_metrics
 
 logger = structlog.get_logger(__name__)
 
@@ -73,14 +72,12 @@ def sync_timeseries_recalculation(
         stats_method = get_experiment_stats_method(experiment)
         metric_uuids: list[str] = []
         points: dict[str, tuple[str, ExperimentMetricResult]] = {}
-        definitions = scheduled_metric_definitions(experiment)
-        for metric in discover_experiment_metrics(experiment):
-            metric_dict = definitions.get(metric.metric_uuid)
-            if metric_dict is None or not is_daily_timeseries_metric(metric_dict):
+        for metric in resolve_scheduled_metrics(experiment):
+            if not is_daily_timeseries_metric(metric.definition):
                 continue
-            metric_uuids.append(metric.metric_uuid)
+            metric_uuids.append(metric.uuid)
             config_fp = compute_metric_fingerprint(
-                metric_dict,
+                metric.definition,
                 experiment.start_date,
                 stats_method,
                 experiment.exposure_criteria,
@@ -90,7 +87,7 @@ def sync_timeseries_recalculation(
             row = (
                 ExperimentMetricResult.objects.filter(
                     experiment=experiment,
-                    metric_uuid=metric.metric_uuid,
+                    metric_uuid=metric.uuid,
                     fingerprint=config_fp,
                     status=ExperimentMetricResult.Status.COMPLETED,
                     query_to__gte=run_started_at,
@@ -100,7 +97,7 @@ def sync_timeseries_recalculation(
                 .first()
             )
             if row is not None:
-                points[metric.metric_uuid] = (compute_recalc_fingerprint(config_fp), row)
+                points[metric.uuid] = (compute_recalc_fingerprint(config_fp), row)
 
         if not points:
             return None

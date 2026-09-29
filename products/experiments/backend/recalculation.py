@@ -38,7 +38,10 @@ from products.experiments.backend.models.experiment import (
     ExperimentMetricsRecalculation,
 )
 from products.experiments.backend.result_serialization import strip_step_sessions
-from products.experiments.backend.temporal.metric_resolution import scheduled_metric_definitions
+from products.experiments.backend.temporal.metric_resolution import (
+    resolve_scheduled_metrics,
+    scheduled_metric_definitions,
+)
 from products.experiments.backend.temporal.models import ExperimentMetricsRecalculationWorkflowInputs
 from products.experiments.backend.temporal.recalc_fingerprint import compute_recalc_fingerprint
 from products.experiments.backend.temporal.recalculation_logic import discover_experiment_metrics
@@ -447,19 +450,15 @@ def build_timeseries_cold_start_payload(experiment: Experiment) -> dict | None:
     and completed_at both pin to the freshest point's date. GET never triggers anything itself.
     """
     with team_scope(experiment.team_id, canonical=True):
-        metrics = discover_experiment_metrics(experiment)
-        definitions = scheduled_metric_definitions(experiment)
+        metrics = resolve_scheduled_metrics(experiment)
         stats_method = get_experiment_stats_method(experiment)
 
         now = timezone.now()
         results: list[dict] = []
         latest_query_to = None
         for metric in metrics:
-            metric_dict = definitions.get(metric.metric_uuid)
-            if metric_dict is None:
-                continue
             config_fp = compute_metric_fingerprint(
-                metric_dict,
+                metric.definition,
                 experiment.start_date,
                 stats_method,
                 experiment.exposure_criteria,
@@ -469,7 +468,7 @@ def build_timeseries_cold_start_payload(experiment: Experiment) -> dict | None:
             row = (
                 ExperimentMetricResult.objects.filter(
                     experiment=experiment,
-                    metric_uuid=metric.metric_uuid,
+                    metric_uuid=metric.uuid,
                     fingerprint=config_fp,
                     status=ExperimentMetricResult.Status.COMPLETED,
                     # Bounded on both sides: the backfill writes end-of-day points, so today's point can carry
