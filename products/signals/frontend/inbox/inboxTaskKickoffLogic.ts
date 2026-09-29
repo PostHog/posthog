@@ -766,11 +766,8 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                     cache.disposables.add(() => stream.mount(), OPTIMISTIC_REPORT_STREAM, {
                         pauseOnPageHidden: false,
                     })
-                    // Echo the prompt that was sent, not the raw question. The thread pairs an
-                    // optimistic message to its wire echo by message text, and the only part it
-                    // strips before comparing is the `wrapWithPosthogContext` block. A raw question
-                    // never matches the report framing around it, so its message would stay
-                    // unpaired and sit at the foot of the thread for the rest of the run.
+                    // The thread pairs this with its wire echo by message text, so it has to be the
+                    // prompt that was sent rather than the question inside it.
                     stream.actions.startOptimisticRun(discussPrompt)
                     actions.openReportTask(report, taskId, runId, streamKey)
                 }
