@@ -1,7 +1,14 @@
 import errno
+from pathlib import Path
+from typing import NamedTuple, cast
 
 import pytest
 from unittest.mock import patch
+
+from django.test import override_settings
+
+import pyarrow as pa
+import deltalake
 
 from posthog.models import Organization, Team
 from posthog.temporal.common.errors import NonReportableError
@@ -16,17 +23,28 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
     calculate_table_size_activity,
 )
 
+_DELTA_TABLE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table"
+
 
 def _team() -> Team:
     return Team.objects.create(organization=Organization.objects.create(name="org"), name="t")
 
 
-def _schema_table_job(team: Team) -> tuple[ExternalDataSchema, DataWarehouseTable, ExternalDataJob]:
+class _SchemaTableJob(NamedTuple):
+    schema: ExternalDataSchema
+    table: DataWarehouseTable
+    job: ExternalDataJob
+
+
+def _schema_table_job(
+    team: Team, *, table_format: str = "Parquet", queryable_folder: str | None = None
+) -> _SchemaTableJob:
     table = DataWarehouseTable(
         name="stripe_charge",
-        format="Parquet",
+        format=table_format,
         team=team,
         url_pattern="https://posthog-owned.example/team/stripe_charge",
+        queryable_folder=queryable_folder,
     )
     table.save(internally_computed_url_pattern=True)
     source = ExternalDataSource.objects.create(source_id="src", connection_id="conn", team=team, source_type="Stripe")
@@ -34,7 +52,7 @@ def _schema_table_job(team: Team) -> tuple[ExternalDataSchema, DataWarehouseTabl
     job = ExternalDataJob.objects.create(
         team=team, pipeline=source, schema=schema, status=ExternalDataJob.Status.COMPLETED
     )
-    return schema, table, job
+    return _SchemaTableJob(schema, table, job)
 
 
 # transaction=True: the activity calls close_old_connections(), which breaks the atomic wrapper
@@ -113,3 +131,59 @@ class TestCalculateTableSizeActivity:
                     CalculateTableSizeActivityInputs(team_id=team.id, schema_id=str(schema.id), job_id=str(job.id))
                 )
         assert not isinstance(exc_info.value, NonReportableError)
+
+    def test_reads_the_size_of_the_live_files_from_the_delta_log(self, tmp_path: Path) -> None:
+        # An S3 listing of the query folder pages through every object and takes minutes on a large
+        # table. The Delta log already carries the size of each live file, and the query folder holds
+        # exactly those files, so the two numbers agree. Regression: counting files the log no longer
+        # lists (an overwritten generation still on disk) would inflate the size.
+        team = _team()
+        schema, table, job = _schema_table_job(
+            team, table_format="DeltaS3Wrapper", queryable_folder="stripe_charge__query_a"
+        )
+        delta_dir = tmp_path / schema.folder_path() / "stripe_charge"
+        deltalake.write_deltalake(str(delta_dir), pa.table({"amount": list(range(2000))}))
+        deltalake.write_deltalake(str(delta_dir), pa.table({"amount": [1, 2, 3]}), mode="overwrite")
+        live_bytes = sum(
+            cast(
+                list[int],
+                pa.table(deltalake.DeltaTable(str(delta_dir)).get_add_actions(flatten=True))
+                .column("size_bytes")
+                .to_pylist(),
+            )
+        )
+        all_bytes = sum(path.stat().st_size for path in delta_dir.glob("*.parquet"))
+        assert all_bytes > live_bytes
+
+        with (
+            override_settings(BUCKET_URL=str(tmp_path)),
+            patch.object(calc, "get_size_of_folder", side_effect=AssertionError("must not list S3")),
+            patch(f"{_DELTA_TABLE_MODULE}.delta_storage_options", return_value={}),
+        ):
+            calculate_table_size_activity(
+                CalculateTableSizeActivityInputs(team_id=team.id, schema_id=str(schema.id), job_id=str(job.id))
+            )
+
+        table.refresh_from_db()
+        assert table.size_in_s3_mib == live_bytes / (1024 * 1024)
+
+    def test_falls_back_to_listing_when_there_is_no_delta_log(self, tmp_path: Path) -> None:
+        # A DeltaS3Wrapper table whose folder holds no `_delta_log` (a legacy layout) must keep the
+        # size the listing gives instead of recording zero.
+        team = _team()
+        schema, table, job = _schema_table_job(
+            team, table_format="DeltaS3Wrapper", queryable_folder="stripe_charge__query_a"
+        )
+
+        with (
+            override_settings(BUCKET_URL=str(tmp_path)),
+            patch.object(calc, "get_size_of_folder", return_value=3.5) as listing,
+            patch(f"{_DELTA_TABLE_MODULE}.delta_storage_options", return_value={}),
+        ):
+            calculate_table_size_activity(
+                CalculateTableSizeActivityInputs(team_id=team.id, schema_id=str(schema.id), job_id=str(job.id))
+            )
+
+        listing.assert_called_once_with(f"{tmp_path}/{schema.folder_path()}/stripe_charge__query_a")
+        table.refresh_from_db()
+        assert table.size_in_s3_mib == 3.5

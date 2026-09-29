@@ -279,16 +279,22 @@ class TestAgentProxyCallback(TestCase):
             int(turn_completed is False),
         )
 
-    def test_awaiting_input_signals_turn_end_but_skips_push_for_background_run(self) -> None:
+    @parameterized.expand([("omitted", None, False), ("succeeded", True, True), ("not_succeeded", False, False)])
+    def test_awaiting_input_signals_turn_end_but_skips_push_for_background_run(
+        self, _name: str, turn_succeeded: bool | None, expected_succeeded: bool
+    ) -> None:
+        body = self._body(kind="awaiting_input", agent_active=False)
+        if turn_succeeded is not None:
+            body["turn_succeeded"] = turn_succeeded
         with (
             patch("products.tasks.backend.push_dispatcher.notify_task_run_turn_completed") as notify,
             patch.object(TaskRun, "signal_agent_turn_completed") as signal_turn_completed,
         ):
-            response = self._post(self._body(kind="awaiting_input", agent_active=False), token=self._token())
+            response = self._post(body, token=self._token())
         self.assertEqual(response.status_code, 200)
         self.assertFalse(response.json()["dispatched"])
         notify.assert_not_called()
-        signal_turn_completed.assert_called_once()
+        signal_turn_completed.assert_called_once_with(succeeded=expected_succeeded)
 
     def test_turn_failed_signals_workflow_completion_as_failed(self) -> None:
         with patch(
