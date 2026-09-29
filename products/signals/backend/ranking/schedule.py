@@ -42,6 +42,9 @@ async def create_inbox_ranking_scoring_schedule(client: Client) -> None:
         policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
     )
     if await a_schedule_exists(client, INBOX_RANKING_SCORING_SCHEDULE_ID):
+        # Keep the live state, so a deploy does not resume a schedule that an operator paused.
+        description = await client.get_schedule_handle(INBOX_RANKING_SCORING_SCHEDULE_ID).describe()
+        schedule.state = description.schedule.state
         await a_update_schedule(client, INBOX_RANKING_SCORING_SCHEDULE_ID, schedule)
     else:
         await a_create_schedule(client, INBOX_RANKING_SCORING_SCHEDULE_ID, schedule, trigger_immediately=False)
