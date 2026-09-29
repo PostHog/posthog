@@ -1035,6 +1035,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             cache.reviewBlockReported = true
             // pinned: analytics event name
             posthog.capture('broadcast launch blocked', {
+                broadcast_id: values.broadcastId,
                 path: broadcastPath(values.broadcastId),
                 blocking_issues: issues,
             })
@@ -1407,6 +1408,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 const composerDraft = loadComposerDraft(broadcastId)
                 // pinned: analytics event name
                 posthog.capture('broadcast launched', {
+                    broadcast_id: broadcastId,
                     path: broadcastPath(broadcastId),
                     schedule_mode: values.scheduleMode,
                     audience_filter_count: values.audienceProperties.length,
@@ -1580,7 +1582,7 @@ function captureLaunchFailed(
     reason: 'audience_over_limit' | 'edited_elsewhere' | 'error'
 ): void {
     // pinned: analytics event name
-    posthog.capture('broadcast launch failed', { path: broadcastPath(broadcastId), reason })
+    posthog.capture('broadcast launch failed', { broadcast_id: broadcastId, path: broadcastPath(broadcastId), reason })
 }
 
 function getSaveQueue(cache: Record<string, any>, values: broadcastWizardLogicType['values']): ResourceSaveQueue {
