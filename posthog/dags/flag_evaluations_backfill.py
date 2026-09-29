@@ -186,8 +186,8 @@ SELECT {"count()" if dry_run else _COPIED_COLUMNS}
 FROM {EVENTS_DATA_TABLE()}
 PREWHERE event = %(event)s
     AND timestamp >= %(day_start)s AND timestamp < %(day_end)s{team_filter}
-    AND uuid NOT IN (
-        SELECT uuid FROM {FLAG_EVALUATIONS_DATA_TABLE}
+    AND (team_id, uuid) NOT IN (
+        SELECT team_id, uuid FROM {FLAG_EVALUATIONS_DATA_TABLE}
         WHERE timestamp >= %(day_start)s AND timestamp < %(day_end)s{team_filter}
     )
 WHERE JSONType(properties, '$feature_flag') = 'String'

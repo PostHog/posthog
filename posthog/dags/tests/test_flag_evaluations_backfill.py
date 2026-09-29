@@ -90,12 +90,16 @@ INSIDE_RECENT = flag_called("inside_recent", TEAM_ONE, timedelta(days=2, hours=1
 INSIDE_TEAM_THREE = flag_called("inside_team_three", TEAM_THREE, timedelta(days=30))
 INSIDE_OLD = flag_called("inside_old", TEAM_TWO, timedelta(days=60))
 ALREADY_FORKED = flag_called("already_forked", TEAM_ONE, timedelta(days=5))
+# An import in the captured format keeps the source event's uuid, so a second team can hold the
+# same uuid on the same shard and day.
+ALREADY_FORKED_UUID_IN_TEAM_TWO = replace(ALREADY_FORKED, team_id=TEAM_TWO)
 
 SOURCE_EVENTS = [
     INSIDE_RECENT,
     INSIDE_TEAM_THREE,
     INSIDE_OLD,
     ALREADY_FORKED,
+    ALREADY_FORKED_UUID_IN_TEAM_TWO,
     SourceEvent(
         label="numeric_flag_key",
         team_id=TEAM_ONE,
@@ -133,7 +137,7 @@ FORKED_ROW = StoredRow(
     label=ALREADY_FORKED.label, flag_key="", response="", session_id="", inserted_at_is_timestamp=True
 )
 
-DEFAULT_WINDOW_COPIES = (INSIDE_RECENT, INSIDE_TEAM_THREE, INSIDE_OLD)
+DEFAULT_WINDOW_COPIES = (INSIDE_RECENT, INSIDE_TEAM_THREE, INSIDE_OLD, ALREADY_FORKED_UUID_IN_TEAM_TWO)
 
 
 def seed_source_events(cluster: ClickhouseCluster, now: datetime, events: list[SourceEvent]) -> None:
@@ -223,7 +227,9 @@ def days_before(now: datetime, days: int) -> str:
             (INSIDE_OLD,),
             id="explicit_window_includes_start_day_and_excludes_end_day",
         ),
-        pytest.param(lambda now: {"team_ids": [TEAM_TWO]}, 1, (INSIDE_OLD,), id="team_ids"),
+        pytest.param(
+            lambda now: {"team_ids": [TEAM_TWO]}, 1, (INSIDE_OLD, ALREADY_FORKED_UUID_IN_TEAM_TWO), id="team_ids"
+        ),
         pytest.param(lambda now: {"team_id_chunks": 3}, 1, DEFAULT_WINDOW_COPIES, id="team_id_chunks"),
         pytest.param(lambda now: {"dry_run": True}, 1, (), id="dry_run"),
     ],
