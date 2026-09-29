@@ -47,6 +47,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.rep
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock import (
     get_v3_pipeline_lock_holder,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.keyset_full_load_flag import (
+    is_keyset_full_load_enabled,
+)
 from products.warehouse_sources.backend.temporal.data_imports.util import retry_internal_db_operation
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.check_billing_limits import (
     billing_limit_reached,
@@ -329,6 +332,12 @@ class CreateExternalDataJobModelActivityOutputs:
     # Computed here because this activity already resolves the repair gates the decision needs.
     # Defaults False so a payload from a worker that predates the field takes the full path.
     fast_return_eligible: bool = False
+    # True when this team and source may read a full load with keyset pages. The retry budget needs it
+    # because the resumable allowance only earns itself on a run that actually resumes, and the read
+    # path decides that from the same flag. Evaluated here because the budget is set when the import
+    # activity is scheduled, before that activity can evaluate anything. Defaults False so an older
+    # payload keeps the smaller budget.
+    keyset_full_load_enabled: bool = False
     # The workflow hands this to the import, which resets only while the schema is still due. Nothing is
     # stored on the schema, so a run that stops before the wipe leaves no reset behind for later runs.
     scheduled_full_refresh: bool = False
@@ -490,6 +499,7 @@ def create_external_data_job_model_activity(
             statistics_needed=statistics_needed,
             person_property_sync_enabled=person_property_sync_enabled,
             fast_return_eligible=fast_return_eligible,
+            keyset_full_load_enabled=is_keyset_full_load_enabled(inputs.team_id, str(source.source_type)),
             scheduled_full_refresh=scheduled_full_refresh,
             repartition_needed=repartition_needed,
             billing_limit_checked=True,

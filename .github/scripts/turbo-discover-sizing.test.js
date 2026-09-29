@@ -7,7 +7,7 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
 
-const { pruneDeadDurations, getSegmentDuration, calculateShards, resolveProductSizing, buildMatrix, productSplitShards, PRODUCT_JOB_OVERHEAD_SECONDS, TARGET_WALL_SECONDS } = require('./turbo-discover.js')
+const { pruneDeadDurations, getSegmentDuration, calculateShards, resolveProductSizing, buildMatrix, productSplitShards, narrowedJsonTargetsShards, DJANGO_FALLBACK_SHARDS, PRODUCT_JOB_OVERHEAD_SECONDS, TARGET_WALL_SECONDS } = require('./turbo-discover.js')
 
 // A path that exists in every checkout, so the existence check is deterministic.
 const LIVE_FILE = '.github/scripts/turbo-discover.js'
@@ -51,6 +51,11 @@ test('getSegmentDuration still applies the segment exclude rules under an allowl
 
 // Sizing to the shared flat wall target: every shard carries
 // (target - overhead) of work, so walls land near the target in every lane.
+test('a narrowed events_json list without durations takes the fallback shard count, not one shard', () => {
+    assert.equal(narrowedJsonTargetsShards(['posthog/hogql'], null), DJANGO_FALLBACK_SHARDS.JsonTargets)
+    assert.equal(narrowedJsonTargetsShards([], null), 0)
+})
+
 test('calculateShards sizes shards to the flat wall target', () => {
     // 105 min of work, 5 min overhead: each shard gets 7 min of tests,
     // walls land at the 12 min target.

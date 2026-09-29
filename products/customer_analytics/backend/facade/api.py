@@ -187,11 +187,11 @@ from products.notebooks.backend.facade import (
 # the notebooks legacy-leak interface block.
 from products.notebooks.backend.models import ResourceNotebook
 from products.warehouse_sources.backend.facade.hooks import WarehouseBinding, saved_query_binding, schema_binding
-from products.workflows.backend.services.template_input_usage import (
-    HogFlowReference,
+from products.workflows.backend.facade.api import (
     filter_hog_flow_references_by_access_level,
     get_hog_flows_referencing_template_input_keys,
 )
+from products.workflows.backend.facade.contracts import HogFlowReference
 
 from . import contracts
 
@@ -206,7 +206,7 @@ if TYPE_CHECKING:
     from posthog.models.user import User
 
     from products.customer_analytics.backend.models import CustomPropertyValue
-    from products.workflows.backend.services.account_audience import AccountAudienceFilters
+    from products.workflows.backend.facade.contracts import AccountAudienceFilters
 
 
 def _to_account_properties(properties: _ModelAccountProperties) -> contracts.AccountProperties:
