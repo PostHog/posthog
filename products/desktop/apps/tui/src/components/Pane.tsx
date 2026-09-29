@@ -5,6 +5,7 @@ import { type ActionsLine, actionsSheet, openActions } from "../actions";
 import { type ChatView, overlayBottom } from "../chatView";
 import type { Composer } from "../composer";
 import { faint } from "../faint";
+import type { LocalSession } from "../local";
 import {
   type CloudRuns,
   emptyRunView,
@@ -28,6 +29,7 @@ const CHIP_COLORS = {
 function useRunView(
   runs: CloudRuns | null,
   task: Task | undefined,
+  local: LocalSession | undefined,
 ): { view: RunView; loadOlder: () => void } {
   const taskId = task?.id;
   const run = task?.latest_run;
@@ -37,6 +39,7 @@ function useRunView(
   // Keyed on ids only: each list refresh brings a new task object for the same run.
   useEffect(() => {
     setView(emptyRunView);
+    if (local) return local.watch(setView);
     if (!taskId || !cloudRunId || !runs) return;
     const current = runs.watch(taskId, cloudRunId, setView);
     subscription.current = current;
@@ -44,7 +47,7 @@ function useRunView(
       subscription.current = null;
       current.stop();
     };
-  }, [runs, taskId, cloudRunId]);
+  }, [runs, taskId, cloudRunId, local]);
   return { view, loadOlder: () => void subscription.current?.loadOlder() };
 }
 
@@ -53,6 +56,8 @@ export function Pane({
   paneTaskId,
   task,
   runs,
+  local,
+  newChatPlace,
   chat,
   composer,
   pending,
@@ -71,6 +76,10 @@ export function Pane({
   task: Task | undefined;
   // Null while signed out.
   runs: CloudRuns | null;
+  // Set when this pane shows a chat running on this machine.
+  local: LocalSession | undefined;
+  // Where a new chat typed here would run.
+  newChatPlace: "local" | "cloud";
   chat: ChatView;
   composer: Composer;
   // A message just sent from this pane that the run has not echoed yet.
@@ -96,7 +105,8 @@ export function Pane({
   const paneSize = useBoxMetrics(pane);
   const width = Math.max(0, paneSize.width - 2);
   const height = Math.max(0, paneSize.height - 1);
-  const { view, loadOlder } = useRunView(runs, task);
+  const { view, loadOlder } = useRunView(runs, task, local);
+  const isLocalPane = paneTaskId?.startsWith("local:") ?? false;
   const transcript = useMemo(
     () =>
       task
@@ -120,9 +130,14 @@ export function Pane({
         transcript.turnOpen,
         transcript.lastTurn,
       )
-    : pending
-      ? ({ text: "Starting cloud run…", tone: "working" } as const)
-      : null;
+    : local
+      ? runNotice(view, lines, transcript.turnOpen, transcript.lastTurn)
+      : pending
+        ? ({
+            text: isLocalPane ? "Starting local agent…" : "Starting cloud run…",
+            tone: "working",
+          } as const)
+        : null;
   const noticeKey = notice ? `${notice.tone}:${notice.text}` : "";
   // Keeps a working notice's spinner turning.
   useAnimation({ interval: 80, isActive: notice?.tone === "working" });
@@ -158,16 +173,20 @@ export function Pane({
   // A blank row on top separates floating suggestions from the chat they cover.
   const popupLines =
     drawn.popup.length > 0 ? [" ", ...drawn.popup.map(shade)] : [];
+  // A local agent is live once started; a cloud run once its sandbox reports in.
   const live =
     (view.status === "queued" || view.status === "in_progress") &&
-    view.entries.some((entry) => entry.type === "pi_run_started");
+    (local
+      ? view.loaded
+      : view.entries.some((entry) => entry.type === "pi_run_started"));
+  const runIds = task?.latest_run
+    ? { taskId: task.id, runId: task.latest_run.id }
+    : local && paneTaskId
+      ? { taskId: paneTaskId, runId: "local" }
+      : null;
   useEffect(() => {
-    if (live && task?.latest_run) onRunLive(task.id, task.latest_run.id);
-    onTurn(
-      live && transcript.turnOpen && task?.latest_run
-        ? { taskId: task.id, runId: task.latest_run.id }
-        : null,
-    );
+    if (live && runIds) onRunLive(runIds.taskId, runIds.runId);
+    onTurn(live && transcript.turnOpen ? runIds : null);
   });
   const offer = openActions(lines);
   useEffect(() => {
@@ -202,9 +221,15 @@ export function Pane({
       popupLines.length > 0 ? (
         popupContent
       ) : (
-        <Text dimColor>Type a message to start a cloud run.</Text>
+        <Text dimColor>
+          {newChatPlace === "local"
+            ? `Type a message to start a local chat in ${process.cwd()}.`
+            : "Type a message to start a cloud run."}
+        </Text>
       );
-  else if (paneTaskId && !task && !pending)
+  else if (isLocalPane && !local)
+    content = <Spinner label="Starting local agent…" />;
+  else if (paneTaskId && !task && !local && !pending)
     content = <Spinner label="Loading chat" />;
   else if (task && !run)
     content = <Text dimColor>This task has no runs yet.</Text>;
