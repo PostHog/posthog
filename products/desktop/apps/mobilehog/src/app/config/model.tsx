@@ -6,6 +6,7 @@ import { ScrollView, Text, View } from "react-native";
 import { SheetHeader } from "@/components/SheetHeader";
 import { SheetRow, sheetStyles } from "@/components/SheetRow";
 import { useComposer } from "@/lib/composer";
+import { shortModelName } from "@/lib/models";
 import { useModels } from "@/lib/queries";
 
 export default function ModelPage() {
@@ -34,7 +35,7 @@ export default function ModelPage() {
                 key={option.value}
                 first={index === 0}
                 radio={option.value === model}
-                label={option.name}
+                label={shortModelName(option.value)}
                 trailing={modelCostInfo(option.value)?.multiplierLabel}
                 onPress={() => {
                   setModel(option.value);
