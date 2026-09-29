@@ -730,6 +730,24 @@ def _promote_staged_cursor(export_signal: ExportSignalMessage) -> None:
         )
 
 
+def _commit_loaded_cursor(export_signal: ExportSignalMessage, schema: ExternalDataSchema) -> None:
+    """Move the schema's watermark to the cursor through the rows this write loaded.
+
+    Only an extraction whose batches never split a cursor value sends one (see `PipelineV3._process_batch`).
+    A later run then reads strictly after the loaded rows, even when this run never completes.
+    """
+    if export_signal.incremental_last_value is None:
+        return
+    if schema.advance_incremental_field_last_value(export_signal.incremental_last_value):
+        logger.debug(
+            "loaded_cursor_committed",
+            run_uuid=export_signal.run_uuid,
+            batch_index=export_signal.batch_index,
+            team_id=export_signal.team_id,
+            external_data_schema_id=export_signal.schema_id,
+        )
+
+
 def _mark_job_failed(export_signal: ExportSignalMessage, error: Exception) -> None:
     # Short-circuit if the job is already FAILED: redelivered DLQ'd messages
     # (the retry state stays in Redis until its 72h TTL) would otherwise spam
@@ -888,6 +906,14 @@ def combine_export_signals(signals: list[ExportSignalMessage]) -> ExportSignalMe
         data_folder=tail.data_folder or head.data_folder,
         schema_path=tail.schema_path or head.schema_path,
         cumulative_row_count=tail.cumulative_row_count,
+        incremental_last_value=next(
+            (
+                signal.incremental_last_value
+                for signal in reversed(signals)
+                if signal.incremental_last_value is not None
+            ),
+            None,
+        ),
     )
 
 
@@ -1064,6 +1090,10 @@ def _process_message_reported(
         # on the write marker would leave a full refresh staged and never swapped in.
         report_phase("deliver")
         deliver_batch_to_destinations(export_signal)
+
+        if already_processed:
+            # The loader can stop between the delta commit and the cursor commit, so a redelivery commits it again.
+            _commit_loaded_cursor(export_signal, schema)
 
         if already_processed and not export_signal.is_final_batch:
             IDEMPOTENCY_HIT_TOTAL.labels(team_id=team_id_str, schema_id=schema_id_str).inc()
@@ -1252,6 +1282,7 @@ def _process_message_reported(
         # than through the write again.
         for run_uuid, index in members:
             mark_batch_as_processed(export_signal.team_id, export_signal.schema_id, run_uuid, index)
+        _commit_loaded_cursor(export_signal, schema)
 
         # file_count is the signal that shows a table fragmenting during a long load, so it stays —
         # but listing every file costs O(files in table), which is the very thing it measures. Sample

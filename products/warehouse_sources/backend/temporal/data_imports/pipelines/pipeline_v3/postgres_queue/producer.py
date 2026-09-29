@@ -237,7 +237,7 @@ class PostgresProducer:
         incremental_last_value: Any = None,
     ) -> None:
         metadata: dict[str, Any] = {}
-        # The cursor through this batch. A retried append attempt reads after the newest batch an earlier attempt queued.
+        # The cursor through this batch's rows, which the loader commits once the batch loads.
         if incremental_last_value is not None:
             metadata["incremental_last_value"] = incremental_last_value
         if data_folder is not None:

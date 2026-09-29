@@ -923,6 +923,7 @@ class TestPendingBatchToExportSignal:
                 "data_folder": "/tmp/data",
                 "primary_keys": ["id"],
                 "cdc_write_mode": "upsert",
+                "incremental_last_value": 1_700,
             },
             latest_attempt=2,
         )
@@ -942,6 +943,7 @@ class TestPendingBatchToExportSignal:
         assert signal["data_folder"] == "/tmp/data"
         assert signal["primary_keys"] == ["id"]
         assert signal["cdc_write_mode"] == "upsert"
+        assert signal["incremental_last_value"] == 1_700
 
 
 @pytest.mark.django_db(transaction=True)

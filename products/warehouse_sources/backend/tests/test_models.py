@@ -1306,7 +1306,7 @@ class TestStagedIncrementalCursor:
         return schema
 
     @contextmanager
-    def _staged_in_memory(self, schema: ExternalDataSchema) -> Iterator[None]:
+    def _staged_in_memory(self, schema: ExternalDataSchema) -> Iterator[MagicMock]:
         def apply(schema_id: Any, team_id: Any, *, mutate: Any, **_: Any) -> dict[str, Any]:
             mutate(schema.sync_type_config)
             return schema.sync_type_config
@@ -1314,8 +1314,8 @@ class TestStagedIncrementalCursor:
         with patch(
             "products.warehouse_sources.backend.models.external_data_schema.update_sync_type_config_keys",
             side_effect=apply,
-        ):
-            yield
+        ) as write:
+            yield write
 
     def test_stage_writes_run_uuid_and_last_value(self) -> None:
         schema = self._make_schema()
@@ -1357,21 +1357,40 @@ class TestStagedIncrementalCursor:
         ]
 
     @pytest.mark.parametrize(
-        "field_type,current,candidate,expected",
+        "field_type,current,candidate,advances",
         [
-            (IncrementalFieldType.Integer, None, 3_000, 3_000),
-            (IncrementalFieldType.Integer, 500, 3_000, 3_000),
-            (IncrementalFieldType.Integer, 5_000, 3_000, 5_000),
-            (None, 5_000, 3_000, 5_000),
+            (IncrementalFieldType.Integer, None, 3_000, True),
+            (IncrementalFieldType.Integer, 500, 3_000, True),
+            (IncrementalFieldType.Integer, 3_000, 3_000, False),
+            (IncrementalFieldType.Integer, 5_000, 3_000, False),
+            (None, 5_000, 3_000, False),
         ],
     )
-    def test_advance_never_moves_the_watermark_back(
-        self, field_type: IncrementalFieldType | None, current: int | None, candidate: int, expected: int
+    def test_advance_writes_only_a_watermark_past_the_current_one(
+        self, field_type: IncrementalFieldType | None, current: int | None, candidate: int, advances: bool
     ) -> None:
         schema = self._make_schema(incremental_field_type=field_type, incremental_field_last_value=current)
-        with self._staged_in_memory(schema):
-            schema.advance_incremental_field_last_value(candidate)
-        assert schema.sync_type_config["incremental_field_last_value"] == expected
+        with self._staged_in_memory(schema) as write:
+            assert schema.advance_incremental_field_last_value(candidate) is advances
+        assert schema.sync_type_config["incremental_field_last_value"] == (candidate if advances else current)
+        assert write.called is advances
+
+    def test_advance_from_a_stale_copy_keeps_the_newer_stored_watermark(self) -> None:
+        schema = self._make_schema(
+            incremental_field_type=IncrementalFieldType.Integer, incremental_field_last_value=500
+        )
+        stored = {**schema.sync_type_config, "incremental_field_last_value": 5_000}
+
+        def apply(schema_id: Any, team_id: Any, *, mutate: Any, **_: Any) -> dict[str, Any]:
+            mutate(stored)
+            return stored
+
+        with patch(
+            "products.warehouse_sources.backend.models.external_data_schema.update_sync_type_config_keys",
+            side_effect=apply,
+        ):
+            assert schema.advance_incremental_field_last_value(3_000) is False
+        assert stored["incremental_field_last_value"] == 5_000
 
     def test_stage_does_not_park_a_cursor_that_holds_no_value(self) -> None:
         schema = self._make_schema(incremental_staged={"run_uuid": "run-1"})

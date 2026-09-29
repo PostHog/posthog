@@ -1044,20 +1044,26 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         self.sync_type_config = update_sync_type_config_keys(self.id, self.team_id, mutate=mutate)
         return found
 
-    def advance_incremental_field_last_value(self, last_value: Any) -> None:
-        """Move the watermark forward to `last_value` for rows that are already loaded. Never moves it back."""
+    def advance_incremental_field_last_value(self, last_value: Any) -> bool:
+        """Move the watermark forward to `last_value` for rows that are already loaded. Returns whether it moved.
+
+        Writes only a value past the current watermark, so a batch that loads late never moves it back.
+        """
         serialized = self.serialize_incremental_value(last_value)
+        # Checked on this copy first, so a batch that does not move the watermark takes no row lock.
+        if not _moves_watermark_forward(self.sync_type_config, serialized):
+            return False
+
+        advanced = False
 
         def mutate(config: dict[str, Any]) -> None:
-            field_type = config.get("incremental_field_type")
-            current = config.get("incremental_field_last_value")
-            # Unlike a promotion, this value can come from an attempt that read without a usable watermark,
-            # so a pair that cannot be ordered keeps the current watermark.
-            if current is not None and _compare_incremental_values(current, serialized, field_type) is None:
-                return
-            _advance_promoted_cursor(config, "incremental_field_last_value", serialized, "last", field_type)
+            nonlocal advanced
+            if _moves_watermark_forward(config, serialized):
+                config["incremental_field_last_value"] = serialized
+                advanced = True
 
         self.sync_type_config = update_sync_type_config_keys(self.id, self.team_id, mutate=mutate)
+        return advanced
 
     def serialize_incremental_value(self, value: Any) -> Any:
         incremental_field_type = self.sync_type_config.get("incremental_field_type")
@@ -1330,6 +1336,16 @@ def _advance_promoted_cursor(
     # watermark. Keeping the current value would freeze it for good.
     if comparison is None or (kind == "last" and comparison < 0) or (kind == "earliest" and comparison > 0):
         config[key] = value
+
+
+def _moves_watermark_forward(config: dict[str, Any], candidate: Any) -> bool:
+    current = config.get("incremental_field_last_value")
+    if current is None:
+        return True
+    # Unlike a promotion, a pair that cannot be ordered keeps the current watermark. The run's promotion
+    # still advances it when the run completes.
+    comparison = _compare_incremental_values(current, candidate, config.get("incremental_field_type"))
+    return comparison is not None and comparison < 0
 
 
 def _compare_incremental_values(current: Any, candidate: Any, field_type: IncrementalFieldType | None) -> int | None:

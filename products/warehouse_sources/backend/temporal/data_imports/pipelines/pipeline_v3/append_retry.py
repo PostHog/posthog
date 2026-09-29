@@ -66,10 +66,10 @@ def settle_append_retry(
 ) -> int | None:
     """Make a retried append attempt continue after exactly the rows its earlier attempts loaded.
 
-    An append writes every row it gets, and the cursor is only committed when the load finishes. So a
-    retry that reads from the committed cursor appends again every row an earlier attempt loaded. This
-    fences the earlier attempts, supersedes their unloaded batches, waits for any batch still being
-    written, and commits the cursor of the last loaded batch.
+    The loader commits each loaded batch's cursor as the watermark (see `_commit_loaded_cursor`), so the
+    watermark covers every loaded row once no earlier batch can still load. This fences the earlier
+    attempts, supersedes their unloaded batches, waits for any batch still being written, and then
+    reloads the watermark.
 
     Returns the rows the earlier attempts loaded, or None when the run reads from the stored cursor as
     before. Only a source that returns rows sorted by the cursor can resume: its batches never split a
@@ -109,11 +109,10 @@ def settle_append_retry(
                 f"Earlier attempts of job {job_id} still have unsettled batches after {timeout_seconds}s"
             )
 
-    if earlier.loaded_rows == 0:
-        return 0
-    if earlier.loaded_last_value is None:
-        # Batches queued without a cursor, by a build from before cursors were recorded.
+    if earlier.loaded_rows > 0 and earlier.loaded_last_value is None:
+        # Batches queued without a cursor, by a build from before cursors were recorded, so the loader
+        # never committed one and the retry reads their rows again.
         return None
 
-    schema.advance_incremental_field_last_value(earlier.loaded_last_value)
+    schema.refresh_from_db(fields=["sync_type_config"])
     return earlier.loaded_rows

@@ -835,6 +835,65 @@ class TestProcessMessages:
         assert [call.args[0].run_uuid for call in mock_trigger.call_args_list] == completed_runs
 
 
+def _cursor_messages(cursors: list[int | None]) -> list[dict[str, Any]]:
+    return [
+        {**message, "incremental_last_value": cursor}
+        for message, cursor in zip(_set_messages(len(cursors), sync_type="append", final=False), cursors)
+    ]
+
+
+class TestLoadedCursorCommit:
+    # The loader owns an append's watermark: a batch's cursor is committed once its rows are in the table,
+    # so a retry or the next run reads strictly after them. Missing a path means those rows are read again.
+
+    @parameterized.expand(
+        [
+            ("fresh_batch", [9], False, [9]),
+            ("redelivered_batch", [9], True, [9]),
+            ("set_commits_its_last_cursor", [5, 9], False, [9]),
+            ("batch_without_a_cursor", [None], False, []),
+        ]
+    )
+    @patch(f"{_PROCESSOR}.posthoganalytics")
+    @patch(f"{_PROCESSOR}.mark_batch_as_processed")
+    @patch(f"{_PROCESSOR}.read_parquet", return_value=pa.table({"id": [1]}))
+    @patch(f"{_PROCESSOR}.is_batch_already_processed")
+    @patch(f"{_PROCESSOR}.DeltaWriter")
+    @patch(f"{_PROCESSOR}.DeltaTableRef")
+    @patch(f"{_PROCESSOR}.ExternalDataJob")
+    def test_commits_the_cursor_of_the_loaded_rows(
+        self,
+        _case: str,
+        cursors: list[int | None],
+        already_processed: bool,
+        committed: list[int],
+        mock_job_model: MagicMock,
+        mock_helper_cls: MagicMock,
+        mock_writer_cls: MagicMock,
+        mock_already: MagicMock,
+        _read: MagicMock,
+        _mark_processed: MagicMock,
+        _analytics: MagicMock,
+    ) -> None:
+        job = MagicMock()
+        mock_job_model.objects.prefetch_related.return_value.get.return_value = job
+        mock_already.return_value = already_processed
+        delta_table = MagicMock()
+        delta_table.schema.return_value = pa.schema([pa.field("id", pa.int64())])
+        delta_table.file_uris.return_value = []
+        mock_helper_cls.return_value.get_delta_table = AsyncMock(return_value=None)
+        mock_writer_cls.return_value.write = AsyncMock(return_value=delta_table)
+
+        messages = _cursor_messages(cursors)
+        if len(messages) == 1:
+            process_message(messages[0])
+        else:
+            process_messages(messages)
+
+        advance = job.schema.advance_incremental_field_last_value
+        assert [call.args[0] for call in advance.call_args_list] == committed
+
+
 def _run_total_rows(run_uuid: str) -> int:
     return 1000 + int(run_uuid[-1])
 

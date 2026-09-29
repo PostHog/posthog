@@ -694,6 +694,7 @@ class PendingBatch:
             "cdc_write_mode": self.metadata.get("cdc_write_mode"),
             "cdc_table_mode": self.metadata.get("cdc_table_mode"),
             "destination_ids": self.destination_ids or [],
+            "incremental_last_value": self.metadata.get("incremental_last_value"),
         }
 
 
