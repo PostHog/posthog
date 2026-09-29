@@ -7,9 +7,12 @@ from unittest.mock import patch
 
 from posthog.models import Organization, Team, User
 from posthog.models.team.extensions import get_or_create_team_extension
-from posthog.temporal.experiments.activities import _get_experiment_regular_metrics_for_hour_sync
+from posthog.temporal.experiments.activities import (
+    _get_experiment_regular_metrics_for_hour_sync,
+    _get_experiment_saved_metrics_for_hour_sync,
+)
 
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.models.experiment import Experiment, ExperimentSavedMetric, ExperimentToSavedMetric
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
@@ -27,13 +30,19 @@ def _create_running_experiment(team, user, flag_key, metrics=None):
     )
 
 
-# Access the underlying sync function, patching out close_old_connections which kills the test DB connection
+# Access the underlying sync functions, patching out close_old_connections which kills the test DB connection
 _raw_sync = _get_experiment_regular_metrics_for_hour_sync.func  # type: ignore[attr-defined]
+_raw_saved_sync = _get_experiment_saved_metrics_for_hour_sync.func  # type: ignore[attr-defined]
 
 
 def _get_metrics_sync(hour):
     with patch("posthog.temporal.experiments.activities.close_old_connections"):
         return _raw_sync(hour)
+
+
+def _get_saved_metrics_sync(hour):
+    with patch("posthog.temporal.experiments.activities.close_old_connections"):
+        return _raw_saved_sync(hour)
 
 
 @pytest.mark.django_db
@@ -45,6 +54,7 @@ class TestRecalculationTimeFilter:
 
         config = get_or_create_team_extension(team, TeamExperimentsConfig)
         config.experiment_recalculation_time = time(5, 0, 0)
+        config.experiment_recalculation_times = ["05:00:00"]
         config.save()
 
         _create_running_experiment(team, user, "custom-hour")
@@ -57,6 +67,47 @@ class TestRecalculationTimeFilter:
 
         assert team.experiment_set.first().id in experiment_ids_hour_5
         assert team.experiment_set.first().id not in experiment_ids_hour_2
+
+    def test_team_with_two_recalculation_times_matched_at_both_hours(self):
+        org = Organization.objects.create(name="Test Org Two Times")
+        team = Team.objects.create(organization=org, name="Team Two Times")
+        user = User.objects.create(email="twotimes@test.com")
+
+        config = get_or_create_team_extension(team, TeamExperimentsConfig)
+        config.experiment_recalculation_time = time(8, 0, 0)
+        config.experiment_recalculation_times = ["08:00:00", "20:00:00"]
+        config.save()
+
+        _create_running_experiment(team, user, "two-times")
+
+        experiment_id = team.experiment_set.first().id
+        assert experiment_id in {r.experiment_id for r in _get_metrics_sync(hour=8)}
+        assert experiment_id in {r.experiment_id for r in _get_metrics_sync(hour=20)}
+        assert experiment_id not in {r.experiment_id for r in _get_metrics_sync(hour=2)}
+        assert experiment_id not in {r.experiment_id for r in _get_metrics_sync(hour=14)}
+
+    def test_saved_metrics_follow_two_recalculation_times(self):
+        org = Organization.objects.create(name="Test Org Saved")
+        team = Team.objects.create(organization=org, name="Team Saved Two Times")
+        user = User.objects.create(email="savedtwotimes@test.com")
+
+        config = get_or_create_team_extension(team, TeamExperimentsConfig)
+        config.experiment_recalculation_time = time(8, 0, 0)
+        config.experiment_recalculation_times = ["08:00:00", "20:00:00"]
+        config.save()
+
+        experiment = _create_running_experiment(team, user, "saved-two-times")
+        saved_metric = ExperimentSavedMetric.objects.create(
+            team=team,
+            name="Saved metric",
+            query={"metric_type": "mean", "uuid": "saved-uuid-1", "source": {"kind": "EventsNode", "event": "test"}},
+            created_by=user,
+        )
+        ExperimentToSavedMetric.objects.create(experiment=experiment, saved_metric=saved_metric)
+
+        assert experiment.id in {r.experiment_id for r in _get_saved_metrics_sync(hour=8)}
+        assert experiment.id in {r.experiment_id for r in _get_saved_metrics_sync(hour=20)}
+        assert experiment.id not in {r.experiment_id for r in _get_saved_metrics_sync(hour=2)}
 
     def test_team_with_no_config_row_defaults_to_hour_2(self):
         org = Organization.objects.create(name="Test Org 2")

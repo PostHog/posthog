@@ -248,7 +248,7 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
     context = SlackThreadContext.from_mapping(mapping, user_message_ts=input.user_message_ts)
     # Mention resolution, most precise first: the echoed message's recorded
     # sender, then the live/mapping actors for pre-rollout runs. Resolved before the
-    # handler so the footer's links are gated on whoever this reply is actually for.
+    # handler so the handler knows whoever this reply is actually for.
     mention_from_message = get_message_actor(input.run_id, input.message_id) if input.message_id else None
     target = (
         mention_from_message
