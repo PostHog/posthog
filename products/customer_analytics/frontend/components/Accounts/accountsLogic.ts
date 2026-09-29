@@ -1656,11 +1656,25 @@ export const accountsLogic = kea<accountsLogicType>([
                 actions.setAssignedToFilter([])
             }
         },
+        // Unchecking "My accounts" widens the list to all accounts, unless the user chose "assigned" first.
         setAssignedToCurrentUser: ({ value }) => {
-            actions.setAssignedToFilter(value && values.currentUserId !== null ? [values.currentUserId] : [])
+            if (value) {
+                const assignedChosenBefore = values.assignmentStatus === 'assigned'
+                actions.setAssignedToFilter(values.currentUserId !== null ? [values.currentUserId] : [])
+                cache.assignedChosenBeforeMyAccounts = assignedChosenBefore
+                return
+            }
+            const keepAssigned = !!cache.assignedChosenBeforeMyAccounts
+            actions.setAssignedToFilter([])
+            if (!keepAssigned && values.assignmentStatus === 'assigned') {
+                actions.setAssignmentStatus('all')
+            }
         },
         setAssignedToFilter: ({ value }) => {
             persistViewStateAndUrl(actions, cache.applyingViewState, values.viewStateHydrated)
+            if (!values.assignedToCurrentUser) {
+                cache.assignedChosenBeforeMyAccounts = false
+            }
             if (value.length > 0 && values.assignmentStatus !== 'assigned') {
                 actions.setAssignmentStatus('assigned')
             }

@@ -535,12 +535,22 @@ describe('accountsLogic', () => {
             expect(logic.values.assignedToCurrentUser).toBe(false)
         })
 
-        it('toggling the checkbox off clears the filter', () => {
-            logic.actions.setAssignedToCurrentUser(true)
-            logic.actions.setAssignedToCurrentUser(false)
-            expect(logic.values.assignedToFilter).toEqual([])
-            expect(assignedToFilterOf(logic.values.accountsQuerySource)).toBeUndefined()
-        })
+        it.each([
+            ['all', 'all'],
+            ['unassigned', 'all'],
+            ['assigned', 'assigned'],
+        ] as const)(
+            'toggling the checkbox off from status %s clears the filter and restores status %s',
+            async (statusBefore, statusAfter) => {
+                logic.actions.setAssignmentStatus(statusBefore)
+                logic.actions.setAssignedToCurrentUser(true)
+                logic.actions.setAssignedToCurrentUser(false)
+                await expectLogic(logic).toFinishAllListeners()
+                expect(logic.values.assignedToFilter).toEqual([])
+                expect(logic.values.assignmentStatus).toBe(statusAfter)
+                expect(assignedToFilterOf(logic.values.accountsQuerySource)).toBeUndefined()
+            }
+        )
 
         it('the Assigned to picker accepts explicit ids', () => {
             logic.actions.setAssignedToFilter([7, 9])

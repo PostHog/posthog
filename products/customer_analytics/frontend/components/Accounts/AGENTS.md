@@ -80,6 +80,7 @@ A single canonical state on `accountsLogic` drives the assigned/unassigned choic
 The shared `AccountAssignmentFilter` in `frontend/src/lib/components/` renders three mutually exclusive choices: **Unassigned only** (`unassigned`), **Assigned to anyone** (`assigned`), and **All assignment statuses** (`all`). It also renders the member picker.
 `accountsTableQuery.ts` maps each status to a query filter: `all` omits the assignment filter entirely (both assigned and unassigned show), `assigned` emits `{ kind: 'assigned' }`, and `unassigned` emits `{ kind: 'unassigned' }`.
 Selecting users or checking "My accounts" narrows the assigned status to those user ids (`{ kind: 'assigned_to' }`) — both force the status to `assigned`; leaving the assigned status clears the user list.
+Unchecking "My accounts" returns the status to `all`, unless the status was already `assigned` before the user checked it. The checkbox stays clickable while the list loads, and a new query aborts the previous one, so the latest click wins.
 Legacy compatibility: a saved view or shared link created before this field defaulted to assigned-only, so any persisted filters object with no `assignmentStatus` resolves to `assigned` (an old `unassigned: true` resolves to `unassigned`) — they never silently broaden to `all`.
 New saved views always store `assignmentStatus`; in the URL hash the default `all` is only written once another filter is present (so a pure-default view keeps an empty hash), and an empty hash restores as `all`.
 

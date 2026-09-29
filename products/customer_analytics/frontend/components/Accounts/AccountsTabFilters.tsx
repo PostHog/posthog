@@ -153,7 +153,6 @@ export function AccountsTabFilters(): JSX.Element {
                         }}
                         label="My accounts"
                         info="Shortcut for Assigned to: you — accounts where you are the CSM or account executive"
-                        disabledReason={accountsLoading ? 'Loading…' : undefined}
                         data-attr="accounts-my-accounts-filter"
                     />
 
