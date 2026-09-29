@@ -87,7 +87,8 @@ export function ExperimentWizardGuide(): JSX.Element {
                 ))}
             </ul>
 
-            {openMax && (
+            {/* Once the draft is saved there's nothing left for PostHog AI to set up */}
+            {openMax && currentStep !== 'implementation' && (
                 <div className="flex flex-col gap-2 pt-3 border-t border-dashed border-primary">
                     <div className="text-sm text-default">Rather describe it? PostHog AI can set it up for you.</div>
                     <div>
