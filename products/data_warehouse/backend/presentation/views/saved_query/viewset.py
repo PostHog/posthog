@@ -271,6 +271,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         from products.data_modeling.backend.facade.api import (
             MissingDagNodeError,
             clear_incremental_state,
+            ensure_dag_node,
             materialize_saved_query,
         )
 
@@ -289,9 +290,12 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         try:
             materialize_saved_query(saved_query, triggered_by_id=request.user.pk)
         except MissingDagNodeError:
-            raise exceptions.ValidationError(
-                detail="This view isn't fully set up to materialize. Save the query again, then try syncing."
-            )
+            # The save-time sync is best effort, so a query whose dependencies did not resolve
+            # arrives here with no node. Build it now, or report what stops it from being built.
+            blocked = ensure_dag_node(self.team_id, saved_query.pk)
+            if blocked is not None:
+                raise exceptions.ValidationError(detail=blocked)
+            materialize_saved_query(saved_query, triggered_by_id=request.user.pk)
 
         log_activity(
             organization_id=self.team.organization_id,
@@ -436,8 +440,16 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
             UnsatisfiableFrequencyError,
             UnsupportedFrequencyTargetError,
             check_saved_query_frequency_target,
+            ensure_dag_node,
             saved_query_target_bounds,
         )
+
+        # The node is what a run materializes, so a query with none can only fail after the enable
+        # has already written is_materialized=True. Ask for it here, where the reason it cannot
+        # have one is still in hand. The cadence bounds below read the node too.
+        blocked = ensure_dag_node(self.team_id, saved_query.pk)
+        if blocked is not None:
+            raise serializers.ValidationError(blocked)
 
         if sync_frequency_interval is not None:
             # Ask before writing, so the ordinary refusal never has to be undone below. Names only

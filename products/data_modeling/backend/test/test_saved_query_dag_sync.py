@@ -16,6 +16,7 @@ from products.data_modeling.backend.logic.saved_query_dag_sync import (
     blocked_lineage_node_id,
     delete_node_from_dag,
     describe_dependents,
+    ensure_dag_node,
     get_dag_id,
     get_dependent_saved_queries,
     sync_saved_query_to_dag,
@@ -46,6 +47,7 @@ class TestSyncSavedQueryToDag(BaseTest):
             ),
             ("ticket_summary", "SELECT id, tags.names, assignee.role_name FROM system.support_tickets"),
             ("customer_tasks", "SELECT id, name, account_id FROM system.customer_tasks"),
+            ("source_schemas", "SELECT id, name, status FROM system.source_schemas"),
         ]
     )
     def test_saved_query_resolution_requires_explicit_data_modeling_system_allowlist(
@@ -782,3 +784,47 @@ class TestGraphMutationTriggers(BaseTest):
         with mock.patch(f"{module}.maybe_reconcile_dag") as reconcile:
             sync_saved_query_to_dag(saved_query, reconcile=False)
         reconcile.assert_not_called()
+
+
+@pytest.mark.django_db
+class TestEnsureDagNode(BaseTest):
+    def test_creates_the_node_a_failed_save_time_sync_left_behind(self):
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            name="recovered_view",
+            team=self.team,
+            query={"query": "SELECT 1", "kind": "HogQLQuery"},
+        )
+
+        assert ensure_dag_node(self.team.pk, saved_query.pk) is None
+        assert Node.objects.filter(team=self.team, saved_query=saved_query).exists()
+
+    def test_names_the_dependency_that_cannot_be_resolved(self):
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            name="broken_view",
+            team=self.team,
+            query={"query": "SELECT 1 FROM no_such_table", "kind": "HogQLQuery"},
+        )
+
+        blocked = ensure_dag_node(self.team.pk, saved_query.pk)
+
+        assert blocked is not None
+        assert "no_such_table" in blocked
+        assert not Node.objects.filter(team=self.team, saved_query=saved_query).exists()
+
+    def test_hides_the_detail_of_an_error_that_is_not_user_safe(self):
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            name="exploding_view",
+            team=self.team,
+            query={"query": "SELECT 1", "kind": "HogQLQuery"},
+        )
+        secret = RuntimeError("s3://internal-bucket/path")
+
+        with mock.patch(
+            "products.data_modeling.backend.logic.saved_query_dag_sync.get_parents_from_model_query",
+            side_effect=secret,
+        ):
+            blocked = ensure_dag_node(self.team.pk, saved_query.pk)
+
+        assert blocked is not None
+        assert "internal-bucket" not in blocked
+        assert "RuntimeError" in blocked

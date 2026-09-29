@@ -6,11 +6,14 @@ from django.db import connection, transaction
 from django.db.models import Q, QuerySet
 
 import structlog
+from prometheus_client import Counter
 
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import SavedQuery as HogQLSavedQuery
 from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
-from posthog.hogql.errors import QueryError
+from posthog.hogql.errors import ExposedHogQLError, QueryError
+
+from posthog.exceptions_capture import capture_exception
 
 from products.data_modeling.backend.facade.contracts import Dependent
 from products.data_modeling.backend.facade.system_tables import DATA_MODELING_ALLOWED_SYSTEM_TABLES
@@ -28,6 +31,12 @@ if TYPE_CHECKING:
     from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
 logger = structlog.get_logger(__name__)
+
+SAVED_QUERY_DAG_SYNC_FAILURES = Counter(
+    "data_modeling_saved_query_dag_sync_failures_total",
+    "Saved-query DAG syncs that failed, by exception class, leaving the query with no node.",
+    labelnames=["reason"],
+)
 
 
 def materializes(saved_query: "DataWarehouseSavedQuery") -> bool:
@@ -553,3 +562,65 @@ def promote_dag_view_nodes_to_matview(dag: DAG) -> int:
     until that sweep and only goes dark afterwards.
     """
     return _promote_view_nodes(Node.objects.filter(dag=dag))
+
+
+def record_dag_sync_failure(team_id: int, saved_query_id: UUID | str, saved_query_name: str, error: Exception) -> None:
+    """Record a DAG sync failure a caller is about to swallow, against the query it happened on.
+
+    The sync is best effort, so the caller keeps the save. It leaves the query with no node, which
+    only shows up later as a materialization that cannot be scheduled. Nothing connects the two
+    unless the capture names the query.
+    """
+    SAVED_QUERY_DAG_SYNC_FAILURES.labels(reason=type(error).__name__).inc()
+    capture_exception(
+        error,
+        {"saved_query_id": str(saved_query_id), "saved_query_name": saved_query_name, "team_id": team_id},
+    )
+    logger.exception(
+        "failed_to_sync_saved_query_to_dag",
+        team_id=team_id,
+        saved_query_id=str(saved_query_id),
+        error=str(error),
+    )
+
+
+def _resolution_reason(error: Exception) -> str:
+    """The part of a resolution failure that is safe to show.
+
+    Resolution runs the HogQL planner, so an unexposed error can carry internal table names and
+    stack traces. Everything else keeps only its class name, and the full cause stays in error
+    tracking.
+    """
+    if isinstance(error, ExposedHogQLError | UnknownParentError):
+        return str(error)
+    return f"Unexpected {type(error).__name__}."
+
+
+def ensure_dag_node(team_id: int, saved_query_id: UUID | str) -> str | None:
+    """Make sure the saved query has a node to materialize, and say why it cannot have one.
+
+    Returns None when a node exists or when this call created one, and otherwise a message for the
+    person who asked. The sync at save time is best effort, so a query whose dependencies did not
+    resolve arrives at materialization with no node and no reason anyone can read.
+    """
+    from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+
+    if Node.objects.filter(team_id=team_id, saved_query_id=saved_query_id).exists():
+        return None
+    saved_query = DataWarehouseSavedQuery.objects.filter(team_id=team_id, id=saved_query_id).first()
+    if saved_query is None:
+        # Deleted since the caller read it. Its own lookup reports that better than a message here.
+        return None
+    if saved_query.managed_viewset_id is not None:
+        # A managed viewset owns where its queries sit in the graph, so a user-initiated sync must
+        # not place one.
+        return "This view is managed by PostHog, so it can't be materialized on its own."
+    try:
+        sync_saved_query_to_dag(saved_query)
+    except Exception as e:
+        record_dag_sync_failure(team_id, saved_query_id, saved_query.name, e)
+        return (
+            f"Can't set this view up to materialize. {_resolution_reason(e)} "
+            "Update the query so every table it reads resolves, then try again."
+        )
+    return None
