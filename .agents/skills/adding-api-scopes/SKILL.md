@@ -65,6 +65,7 @@ The groups make a long list readable, so a person can find a product quickly.
 
 - A custom `@action` without `required_scopes`. Tokens get a 403.
 - A read scope on an action that changes data.
+- An MCP tool scope that differs from its endpoint's `scope_object`.
 - A group that makes no sense for the object, or a new group that should not exist. The group test only checks that each object has exactly one group. Check that it sits where a person would look for it, and that a new group has at least two objects. See "Choose a group".
 - A wrong or unclear label.
 
