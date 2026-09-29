@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 
-import { LemonButton, LemonCheckbox, LemonInput, LemonModal } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonInput, LemonModal, LemonSwitch } from '@posthog/lemon-ui'
 
 import { DatePicker } from 'lib/components/DatePicker/DatePicker'
 import { dayjs } from 'lib/dayjs'
@@ -67,7 +67,8 @@ export type OnQuarantine = (
     reason: string,
     identifiers: string[],
     expiresAt: string | null,
-    sourceRunId: string | null
+    sourceRunId: string | null,
+    notifyOwners: boolean
 ) => void
 
 interface QuarantineModalProps {
@@ -114,6 +115,7 @@ export function QuarantineModal({
 
     const [reason, setReason] = useState(initialReason ?? '')
     const [includeSibling, setIncludeSibling] = useState(true)
+    const [notifyOwners, setNotifyOwners] = useState(false)
     const [expiresAt, setExpiresAt] = useState<dayjs.Dayjs | null>(() => computeDefaultExpiry(initialExpiresAt))
 
     // Re-prefill if the parent swaps which entry we're acting on mid-session.
@@ -125,6 +127,7 @@ export function QuarantineModal({
         }
         setReason(initialReason ?? '')
         setIncludeSibling(true)
+        setNotifyOwners(false)
         setExpiresAt(computeDefaultExpiry(initialExpiresAt))
     }, [initialReason, initialExpiresAt, isOpen])
 
@@ -137,7 +140,13 @@ export function QuarantineModal({
         if (!isExtend && sibling && includeSibling) {
             identifiers.push(sibling)
         }
-        onQuarantine(reason, identifiers, expiresAt ? expiresAt.toISOString() : null, sourceRunId ?? null)
+        onQuarantine(
+            reason,
+            identifiers,
+            expiresAt ? expiresAt.toISOString() : null,
+            sourceRunId ?? null,
+            !isExtend && notifyOwners
+        )
         onClose()
     }
 
@@ -214,6 +223,26 @@ export function QuarantineModal({
                         maxDate={dayjs().add(1, 'year')}
                     />
                 </div>
+
+                {!isExtend && (
+                    <LemonSwitch
+                        checked={notifyOwners}
+                        onChange={setNotifyOwners}
+                        bordered
+                        fullWidth
+                        data-attr="visual-review-quarantine-notify-owners"
+                        label={
+                            <div>
+                                <div className="text-sm font-medium">Notify the owning team in Slack</div>
+                                <div className="text-xs text-muted font-normal">
+                                    Posts to the team's channel now, with your name, instead of waiting for the Monday
+                                    digest. Skipped if the story has no owner in owners.yaml or the project has no Slack
+                                    integration.
+                                </div>
+                            </div>
+                        }
+                    />
+                )}
             </div>
         </LemonModal>
     )

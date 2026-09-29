@@ -109,6 +109,17 @@ Set it through the repo API (`PATCH /api/projects/:team_id/visual_review/repos/:
 The beat task runs on Monday morning and fans out only to the repositories that are on.
 A repository that owes nothing posts nothing.
 
+### Quarantine notice
+
+The quarantine dialog has a "Notify the owning team in Slack" switch, off by default.
+When it is on, the quarantine request carries `notify_owners: true`, and a Celery task, `notify quarantine owners`, runs after the row commits.
+The task finds the owning team the same way as the digest, and posts to the same channel: the team's `notifications` channel under the `visual_review` producer, so a team that opted out of the digest gets no notice either.
+The message names the person who quarantined, as a Slack mention when their PostHog email matches a member of the same workspace, and shows the story, the reason, the expiry, and a button to the snapshot.
+The dialog sends one request per theme variant, so the task sends one notice per story within ten minutes and skips the rest.
+It works for Storybook runs only, and it is best effort: a story with no owning team, a project with no Slack integration, or a refused post sends nothing, and nothing retries.
+The weekly digest still lists the quarantine before it expires.
+Each attempt emits a `vr_quarantine_owner_notice` event with its outcome.
+
 `./manage.py visual_review_debt_digest --repo owner/name [--mode preview]` runs one repository by hand on any day, whatever `debt_digest_enabled` says, because a run somebody starts is already a decision to send it.
 `--mode preview`, the default, prints and logs the plain text behind every message without posting.
 `--mode live` posts.

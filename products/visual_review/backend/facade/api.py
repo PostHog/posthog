@@ -855,6 +855,7 @@ def quarantine_identifier(
         source=source,
         user_id=user_id,
         team_id=team_id,
+        notify_owners=input.notify_owners,
     )
     user_basic_infos = _fetch_user_basic_infos({user_id})
     return _to_quarantined_entry(entry, user_basic_infos)

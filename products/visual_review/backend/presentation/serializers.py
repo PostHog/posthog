@@ -363,6 +363,15 @@ class QuarantineInputSerializer(DataclassSerializer):
             "used to surface a 'view the failing run' link later."
         ),
     )
+    notify_owners = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Post the quarantine to the Slack channel of the team that owns the story, naming the user "
+            "who quarantined it. Best effort: skipped when the story has no owning team or the project "
+            "has no Slack integration."
+        ),
+    )
 
     class Meta:
         dataclass = QuarantineInput

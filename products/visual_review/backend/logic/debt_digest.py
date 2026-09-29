@@ -48,8 +48,7 @@ from django.conf import settings
 from django.utils import timezone
 
 import structlog
-from owners_yaml.resolver import Purpose, team_channel
-from owners_yaml.schema import Producer, TeamEntry
+from owners_yaml.schema import TeamEntry
 
 from posthog.dataclasses import frozen
 from posthog.egress.limiter.policies import Priority
@@ -71,7 +70,6 @@ from posthog.slack.channels import (
     divider_block,
     fetch_channel_map,
     fields_block,
-    find_channel,
     header_block,
     post_message,
     post_with_join,
@@ -83,15 +81,10 @@ from posthog.utils import human_list, pluralize
 from ..facade.contracts import FLAKINESS_EXPIRY_SOON_DAYS, TOLERATION_PILEUP_WINDOW_DAYS
 from ..facade.enums import RunType
 from ..models import QuarantinedIdentifier, Repo, Run
-from . import quarantine, run_queries, story_index, toleration
+from . import quarantine, run_queries, story_index, team_channels, toleration
+from .team_channels import Delivery
 
 logger = structlog.get_logger(__name__)
-
-# The digest is automation, so it asks the registry where automation posts rather than where the
-# team's people are. That falls back to the people channel when a team never separates the two.
-_CHANNEL_PURPOSE: Purpose = "notifications"
-# Named so a team can keep this digest out of its channel while other bots keep posting there.
-_PRODUCER: Producer = "visual_review"
 
 # Whose digest carries the items no team owns. The people who built the product can read a story
 # name and find who to ask; nobody else can. Routed like any other team, so there is no second
@@ -261,14 +254,6 @@ class Post:
     replies: list[SlackMessage]
     item_count: int
     triage_count: int
-
-
-@frozen
-class Delivery:
-    """Where one team's digest goes."""
-
-    channel_id: str
-    channel_name: str
 
 
 def _snapshot_url(repo: Repo, run_type: str, identifier: str) -> str:
@@ -789,21 +774,7 @@ def resolve_channel(
     team_slug: str, registry: Mapping[str, TeamEntry], channels_by_name: Mapping[str, SlackChannel]
 ) -> Delivery | None:
     """The team's own notifications channel, or None when it opted out or the name does not resolve."""
-    answer = team_channel(team_slug, registry, _CHANNEL_PURPOSE, _PRODUCER)
-    if answer.channel is None:
-        logger.info("visual_review.debt_digest_team_opted_out", team_slug=team_slug)
-        return None
-    name = answer.channel.removeprefix("#")
-    match = find_channel(channels_by_name, name, allow_shared=False)
-    if match.channel is None:
-        logger.info(
-            "visual_review.debt_digest_channel_unusable",
-            team_slug=team_slug,
-            channel_name=name,
-            reason=match.reason,
-        )
-        return None
-    return Delivery(channel_id=match.channel.channel_id, channel_name=name)
+    return team_channels.resolve_team_channel(team_slug, registry, channels_by_name, feature="debt_digest")
 
 
 def plan_posts(repo: Repo, digests: RepoDigests, now: datetime) -> list[Post]:

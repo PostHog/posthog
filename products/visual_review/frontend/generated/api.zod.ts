@@ -41,6 +41,8 @@ export const visualReviewReposQuarantineCreateBodyIdentifierMax = 512
 
 export const visualReviewReposQuarantineCreateBodyReasonMax = 255
 
+export const visualReviewReposQuarantineCreateBodyNotifyOwnersDefault = false
+
 export const VisualReviewReposQuarantineCreateBody = /* @__PURE__ */ zod.object({
     identifier: zod
         .string()
@@ -55,6 +57,12 @@ export const VisualReviewReposQuarantineCreateBody = /* @__PURE__ */ zod.object(
         .nullish()
         .describe(
             "Optional pointer to the run whose failing snapshot prompted this quarantine — used to surface a 'view the failing run' link later."
+        ),
+    notify_owners: zod
+        .boolean()
+        .default(visualReviewReposQuarantineCreateBodyNotifyOwnersDefault)
+        .describe(
+            'Post the quarantine to the Slack channel of the team that owns the story, naming the user who quarantined it. Best effort: skipped when the story has no owning team or the project has no Slack integration.'
         ),
     expires_at: zod.iso.datetime({ offset: true }).nullish(),
 })

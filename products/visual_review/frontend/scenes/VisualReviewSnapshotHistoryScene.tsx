@@ -14,6 +14,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { QuarantineAction } from '../components/QuarantineAction'
+import type { OnQuarantine } from '../components/QuarantineModal'
 import { SnapshotChangeBadge, hasSnapshotChangeBadge } from '../components/SnapshotChangeBadge'
 import { VisualReviewTabs } from '../components/VisualReviewTabs'
 import type { QuarantinedIdentifierEntryApi, SnapshotHistoryEntryApi } from '../generated/api.schemas'
@@ -192,7 +193,7 @@ function QuarantineSection({
     label?: string | null
     quarantineEntry: QuarantinedIdentifierEntryApi | null
     isQuarantined: boolean
-    onQuarantine: (reason: string, identifiers: string[], expiresAt: string | null, sourceRunId: string | null) => void
+    onQuarantine: OnQuarantine
     onUnquarantine: () => void
 }): JSX.Element {
     if (isQuarantined && quarantineEntry) {

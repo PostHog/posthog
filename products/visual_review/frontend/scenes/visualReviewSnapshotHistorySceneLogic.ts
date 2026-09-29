@@ -146,10 +146,12 @@ export interface visualReviewSnapshotHistorySceneLogicActions {
         reason: string,
         identifiers: string[],
         expiresAt: string | null,
-        sourceRunId?: string | null
+        sourceRunId?: string | null,
+        notifyOwners?: boolean
     ) => {
         expiresAt: string | null
         identifiers: string[]
+        notifyOwners: boolean
         reason: string
         sourceRunId: string | null
     }
@@ -198,12 +200,14 @@ export const visualReviewSnapshotHistorySceneLogic = kea<visualReviewSnapshotHis
             reason: string,
             identifiers: string[],
             expiresAt: string | null,
-            sourceRunId: string | null = null
+            sourceRunId: string | null = null,
+            notifyOwners: boolean = false
         ) => ({
             reason,
             identifiers,
             expiresAt,
             sourceRunId,
+            notifyOwners,
         }),
         unquarantineIdentifier: true,
         unquarantineSibling: true,
@@ -354,7 +358,7 @@ export const visualReviewSnapshotHistorySceneLogic = kea<visualReviewSnapshotHis
         ],
     }),
     listeners(({ actions, values, props }) => ({
-        quarantineIdentifier: async ({ reason, identifiers, expiresAt, sourceRunId }) => {
+        quarantineIdentifier: async ({ reason, identifiers, expiresAt, sourceRunId, notifyOwners }) => {
             try {
                 await Promise.all(
                     identifiers.map((identifier) =>
@@ -369,6 +373,8 @@ export const visualReviewSnapshotHistorySceneLogic = kea<visualReviewSnapshotHis
                                 // Forward the prior source when extending — keeps the "view
                                 // the failing run" link intact across renewals.
                                 source_run_id: sourceRunId,
+                                // Theme variants of one story share a team, and the backend sends it one notice.
+                                notify_owners: notifyOwners,
                             }
                         )
                     )

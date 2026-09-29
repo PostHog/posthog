@@ -180,10 +180,12 @@ export interface visualReviewRunSceneLogicActions {
         reason: string,
         identifiers: string[],
         expiresAt: string | null,
-        sourceRunId?: string | null
+        sourceRunId?: string | null,
+        notifyOwners?: boolean
     ) => {
         expiresAt: string | null
         identifiers: string[]
+        notifyOwners: boolean
         reason: string
         sourceRunId: string | null
     }
@@ -265,12 +267,14 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
             reason: string,
             identifiers: string[],
             expiresAt: string | null,
-            sourceRunId: string | null = null
+            sourceRunId: string | null = null,
+            notifyOwners: boolean = false
         ) => ({
             reason,
             identifiers,
             expiresAt,
             sourceRunId,
+            notifyOwners,
         }),
         unquarantineSnapshot: (snapshot: SnapshotApi) => ({ snapshot }),
         recomputeRun: true,
@@ -645,7 +649,7 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                 lemonToast.error(e?.detail || e?.message || 'Failed to mark as tolerated')
             }
         },
-        quarantineSnapshot: async ({ reason, identifiers, expiresAt, sourceRunId }) => {
+        quarantineSnapshot: async ({ reason, identifiers, expiresAt, sourceRunId, notifyOwners }) => {
             const { run } = values
             if (!run) {
                 return
@@ -663,6 +667,8 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                             reason,
                             expires_at: expiresAt,
                             source_run_id: effectiveSourceRunId,
+                            // Theme variants of one story share a team, and the backend sends it one notice.
+                            notify_owners: notifyOwners,
                         })
                     )
                 )

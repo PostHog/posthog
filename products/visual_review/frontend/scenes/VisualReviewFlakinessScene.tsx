@@ -313,14 +313,21 @@ export function VisualReviewFlakinessScene(): JSX.Element {
                                                     initialReason={entry.quarantine?.reason}
                                                     initialExpiresAt={entry.quarantine?.expires_at}
                                                     sourceRunId={entry.quarantine?.source_run?.id ?? null}
-                                                    onQuarantine={(reason, identifiers, expiresAt, sourceRunId) => {
+                                                    onQuarantine={(
+                                                        reason,
+                                                        identifiers,
+                                                        expiresAt,
+                                                        sourceRunId,
+                                                        notifyOwners
+                                                    ) => {
                                                         identifiers.forEach((identifier) =>
                                                             quarantineIdentifier(
                                                                 identifier,
                                                                 entry.run_type,
                                                                 reason,
                                                                 expiresAt,
-                                                                sourceRunId
+                                                                sourceRunId,
+                                                                notifyOwners
                                                             )
                                                         )
                                                     }}

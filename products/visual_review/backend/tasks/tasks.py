@@ -241,3 +241,19 @@ def send_visual_review_debt_digest(team_id: int, repo_id: str) -> None:
         return
 
     debt_digest.send_debt_digest(repo, mode=debt_digest.MODE_LIVE)
+
+
+@shared_task(
+    name="products.visual_review.backend.tasks.notify_quarantine_owners",
+    ignore_result=True,
+)
+@with_team_scope()
+def notify_quarantine_owners(team_id: int, entry_id: str) -> None:
+    """Tell the team that owns a just-quarantined story, in its Slack channel."""
+    from ..logic import quarantine_notice  # noqa: PLC0415 — avoids the logic/tasks circular import
+
+    try:
+        quarantine_notice.send_quarantine_notice(UUID(entry_id), team_id)
+    except Exception:
+        # Nothing retries a notice. The weekly digest still lists the quarantine before it expires.
+        logger.warning("visual_review.quarantine_notice_failed", entry_id=entry_id, team_id=team_id, exc_info=True)

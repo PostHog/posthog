@@ -291,6 +291,8 @@ export interface QuarantineInputApi {
      * @nullable
      */
     source_run_id?: string | null
+    /** Post the quarantine to the Slack channel of the team that owns the story, naming the user who quarantined it. Best effort: skipped when the story has no owning team or the project has no Slack integration. */
+    notify_owners?: boolean
     /** @nullable */
     expires_at?: string | null
 }

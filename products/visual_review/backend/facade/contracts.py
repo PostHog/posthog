@@ -446,6 +446,8 @@ class QuarantineInput:
     # "what was wrong" later. Omitted when quarantining from the snapshot
     # history page where no run is in context.
     source_run_id: UUID | None = None
+    # Post the quarantine to the Slack channel of the team that owns the story.
+    notify_owners: bool = False
 
 
 @dataclass(frozen=True)
