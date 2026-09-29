@@ -36,18 +36,24 @@ DEFAULT_TIMEOUT_SECONDS = 30.0
 
 
 def decisions_available_here() -> bool:
-    """Dark launch: local development and the US cloud only, so no flag or setting can bring it up in the EU."""
-    return bool(settings.DEBUG) or (settings.CLOUD_DEPLOYMENT or "").upper() == "US"
+    """Decisions are available in local development and the supported cloud regions."""
+    return bool(settings.DEBUG) or (settings.CLOUD_DEPLOYMENT or "").upper() in {"US", "EU"}
 
 
 def decisions_enabled(team_id: int) -> bool:
     """DEBUG bypasses the flag: the analytics SDK is disabled in local dev, where the surface has to be exercisable."""
     if not decisions_available_here():
         return False
-    if settings.DEBUG:
-        return True
     try:
-        team = Team.objects.only("uuid", "organization_id").get(id=team_id)
+        team = (
+            Team.objects.select_related("organization")
+            .only("uuid", "organization_id", "organization__is_ai_data_processing_approved")
+            .get(id=team_id)
+        )
+        if not team.organization.is_ai_data_processing_approved:
+            return False
+        if settings.DEBUG:
+            return True
         return bool(
             posthoganalytics.feature_enabled(
                 DECISIONS_FEATURE_FLAG,

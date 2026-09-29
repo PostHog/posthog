@@ -422,7 +422,9 @@
          "posthog_insightviewed"."team_id",
          "posthog_insightviewed"."user_id",
          "posthog_insightviewed"."insight_id",
-         "posthog_insightviewed"."last_viewed_at"
+         "posthog_insightviewed"."last_viewed_at",
+         "posthog_insightviewed"."source",
+         "posthog_insightviewed"."dashboard_id"
   FROM "posthog_insightviewed"
   WHERE ("posthog_insightviewed"."insight_id" = 99999
          AND "posthog_insightviewed"."team_id" = 99999
@@ -3009,7 +3011,9 @@
          "posthog_insightviewed"."team_id",
          "posthog_insightviewed"."user_id",
          "posthog_insightviewed"."insight_id",
-         "posthog_insightviewed"."last_viewed_at"
+         "posthog_insightviewed"."last_viewed_at",
+         "posthog_insightviewed"."source",
+         "posthog_insightviewed"."dashboard_id"
   FROM "posthog_insightviewed"
   WHERE ("posthog_insightviewed"."insight_id" = 99999
          AND "posthog_insightviewed"."team_id" = 99999
@@ -4943,7 +4947,9 @@
          "posthog_insightviewed"."team_id",
          "posthog_insightviewed"."user_id",
          "posthog_insightviewed"."insight_id",
-         "posthog_insightviewed"."last_viewed_at"
+         "posthog_insightviewed"."last_viewed_at",
+         "posthog_insightviewed"."source",
+         "posthog_insightviewed"."dashboard_id"
   FROM "posthog_insightviewed"
   WHERE ("posthog_insightviewed"."insight_id" = 99999
          AND "posthog_insightviewed"."team_id" = 99999
@@ -6015,7 +6021,9 @@
          "posthog_insightviewed"."team_id",
          "posthog_insightviewed"."user_id",
          "posthog_insightviewed"."insight_id",
-         "posthog_insightviewed"."last_viewed_at"
+         "posthog_insightviewed"."last_viewed_at",
+         "posthog_insightviewed"."source",
+         "posthog_insightviewed"."dashboard_id"
   FROM "posthog_insightviewed"
   WHERE ("posthog_insightviewed"."insight_id" = 99999
          AND "posthog_insightviewed"."team_id" = 99999
@@ -10703,7 +10711,9 @@
          "posthog_insightviewed"."team_id",
          "posthog_insightviewed"."user_id",
          "posthog_insightviewed"."insight_id",
-         "posthog_insightviewed"."last_viewed_at"
+         "posthog_insightviewed"."last_viewed_at",
+         "posthog_insightviewed"."source",
+         "posthog_insightviewed"."dashboard_id"
   FROM "posthog_insightviewed"
   WHERE ("posthog_insightviewed"."insight_id" = 99999
          AND "posthog_insightviewed"."team_id" = 99999
@@ -11760,7 +11770,9 @@
          "posthog_insightviewed"."team_id",
          "posthog_insightviewed"."user_id",
          "posthog_insightviewed"."insight_id",
-         "posthog_insightviewed"."last_viewed_at"
+         "posthog_insightviewed"."last_viewed_at",
+         "posthog_insightviewed"."source",
+         "posthog_insightviewed"."dashboard_id"
   FROM "posthog_insightviewed"
   WHERE ("posthog_insightviewed"."insight_id" = 99999
          AND "posthog_insightviewed"."team_id" = 99999

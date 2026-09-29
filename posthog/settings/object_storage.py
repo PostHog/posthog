@@ -176,3 +176,11 @@ if TEST or DEBUG:
     )
 else:
     DICTIONARY_STAGING_S3_ENDPOINT = os.getenv("DICTIONARY_STAGING_S3_ENDPOINT", "") or None
+
+# Replay Vision labeling benchmark. Frozen cases are written under this bucket and prefix; an empty bucket
+# disables the build. The prefix must sit outside the exports lifecycle rule, since a benchmark version is kept.
+REPLAY_VISION_BENCHMARK_BUCKET = os.getenv("REPLAY_VISION_BENCHMARK_BUCKET", "")
+REPLAY_VISION_BENCHMARK_PREFIX = os.getenv("REPLAY_VISION_BENCHMARK_PREFIX", "replay-vision-benchmark")
+# The labeling suite's benchmark export API (MLHog labeling/replay/EXPORT.md), and a read-scoped `lbl_` token for it.
+REPLAY_VISION_BENCHMARK_LABELING_URL = os.getenv("REPLAY_VISION_BENCHMARK_LABELING_URL", "")
+REPLAY_VISION_BENCHMARK_LABELING_TOKEN = os.getenv("REPLAY_VISION_BENCHMARK_LABELING_TOKEN", "")

@@ -1,12 +1,13 @@
 import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
 
 import api, { PaginatedResponse } from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { GENERATED_DASHBOARD_PREFIX } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { isUserLoggedIn } from 'lib/utils/getAppContext'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 import { idToKey } from 'lib/utils/objects'
@@ -20,6 +21,14 @@ import { getQueryBasedDashboard } from '~/queries/nodes/InsightViz/utils'
 import { DashboardBasicType, DashboardTile, DashboardType, InsightShortId, InsightModel } from '~/types'
 
 import type { Node } from '../queries/schema/schema-general'
+
+function reportDashboardPinToggled(dashboardId: number, pinned: boolean, source: DashboardEventSource): void {
+    posthog.capture(`dashboard pin toggled`, {
+        dashboard_id: dashboardId,
+        pinned,
+        source,
+    })
+}
 
 /** A dashboard's folder is its file system path without the dashboard's own name, so the two move together. */
 function filedAt<T extends DashboardBasicType | DashboardType>(dashboard: T, path: string): T {
@@ -463,12 +472,12 @@ export const dashboardsModel = kea<dashboardsModelType>([
                 refreshTreeItem('dashboard', id)
                 const updatedAttribute = Object.keys(payload)[0]
                 if (updatedAttribute === 'name' || updatedAttribute === 'description' || updatedAttribute === 'tags') {
-                    eventUsageLogic.actions.reportDashboardFrontEndUpdate(
-                        id,
-                        updatedAttribute,
-                        values.rawDashboards[id]?.[updatedAttribute]?.length || 0,
-                        payload[updatedAttribute].length
-                    )
+                    posthog.capture(`dashboard frontend updated`, {
+                        dashboard_id: id,
+                        attribute: updatedAttribute,
+                        original_length: values.rawDashboards[id]?.[updatedAttribute]?.length || 0,
+                        new_length: payload[updatedAttribute].length,
+                    })
                     if (updatedAttribute === 'tags') {
                         actions.loadTags()
                     }
@@ -527,7 +536,7 @@ export const dashboardsModel = kea<dashboardsModelType>([
                 const response = await api.update(`api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}`, {
                     pinned: true,
                 })
-                eventUsageLogic.actions.reportDashboardPinToggled(id, true, source)
+                reportDashboardPinToggled(id, true, source)
                 return getQueryBasedDashboard(response)!
             },
             unpinDashboard: async ({ id, source }) => {
@@ -538,7 +547,7 @@ export const dashboardsModel = kea<dashboardsModelType>([
                         pinned: false,
                     }
                 )
-                eventUsageLogic.actions.reportDashboardPinToggled(id, false, source)
+                reportDashboardPinToggled(id, false, source)
                 return getQueryBasedDashboard(response)!
             },
             duplicateDashboard: async ({ id, name, show, duplicateTiles }) => {

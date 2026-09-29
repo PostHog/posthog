@@ -31,6 +31,7 @@ from products.data_warehouse.backend.logic.data_load.service import (
     a_unpause_external_data_schedule,
     bulk_sync_cdc_extraction_schedules,
     bulk_update_external_data_job_schedules,
+    cdc_extraction_schedule_exists,
     cdc_extraction_schedule_has_running_action,
     cdc_min_interval,
     get_discover_schemas_schedule,
@@ -604,3 +605,14 @@ def test_triggering_capture_raises_any_other_temporal_error() -> None:
         pytest.raises(RPCError),
     ):
         trigger_cdc_extraction_schedule(str(uuid.uuid4()))
+
+
+@pytest.mark.parametrize("exists", [True, False])
+def test_reporting_whether_a_source_still_has_its_capture_schedule(exists: bool) -> None:
+    # The caller recreates a missing one, so it needs to know without starting a run.
+    source_id = str(uuid.uuid4())
+
+    with patch(f"{SERVICE}.external_data_workflow_exists", return_value=exists) as workflow_exists:
+        assert cdc_extraction_schedule_exists(source_id) is exists
+
+    workflow_exists.assert_called_once_with(_get_cdc_extraction_schedule_id(source_id))
