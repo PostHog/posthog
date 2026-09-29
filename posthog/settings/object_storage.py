@@ -110,6 +110,11 @@ INBOX_RANKING_PROMOTION_MIN_DAYS = get_from_env("INBOX_RANKING_PROMOTION_MIN_DAY
 # The family whose champion the serving manifest serves. The scoring sweep reads the manifest
 # from the deployment's own object store, so this is the only place the served family is chosen.
 INBOX_RANKING_SERVED_FAMILY = os.getenv("INBOX_RANKING_SERVED_FAMILY", "report_embeddings")
+# A second deployment's object store that receives a copy of every serving publish, so a region
+# that does not train still serves the trained models. Reached via ambient AWS config. Unset means
+# no mirror.
+INBOX_RANKING_SERVING_MIRROR_BUCKET = os.getenv("INBOX_RANKING_SERVING_MIRROR_BUCKET", "")
+INBOX_RANKING_SERVING_MIRROR_REGION = os.getenv("INBOX_RANKING_SERVING_MIRROR_REGION", "")
 # Scorer (products/signals/backend/ranking/scorer.py): report ids per ClickHouse vector read. A
 # larger call is paged at this size. The sweep also gives one scorer call at most this many ids, which
 # bounds the vectors and matrices one call holds.
