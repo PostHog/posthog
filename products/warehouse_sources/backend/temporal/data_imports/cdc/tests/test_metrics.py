@@ -20,6 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.activities imp
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import ChangeEventBatcher
 from products.warehouse_sources.backend.temporal.data_imports.cdc.types import ChangeEvent
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.config import PostgresCDCConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.position import PgLSN
 
 _ACTIVITIES = "products.warehouse_sources.backend.temporal.data_imports.cdc.activities"
 
@@ -46,7 +47,6 @@ class TestMetricsOutsideActivityContext:
         metrics.get_sweeper_duration_metric().record(2.0)
 
     def test_gauges_set_without_raising(self):
-        metrics.get_deferred_runs_depth_metric(1, "s").set(2)
         metrics.get_wal_lag_metric(1, "s").set(1024)
 
 
@@ -106,7 +106,6 @@ def _make_schema(cdc_mode="streaming"):
     schema.cdc_table_mode = "consolidated"
     schema.enabled_columns = None
     schema.incremental_field = None
-    schema.resolved_s3_folder_name = None
     schema.save = MagicMock()
     return schema
 
@@ -123,34 +122,21 @@ def _extract_patches(source, schemas, events):
     adapter = MagicMock()
     adapter.create_reader.return_value = reader
     adapter.is_slot_invalidation_error.return_value = False
-
-    s3 = MagicMock()
-    batch_result = MagicMock(
-        s3_path="s3://b/p.parquet", row_count=len(events), byte_size=512, batch_index=0, timestamp_ns=1
-    )
-    s3.write_batch.return_value = batch_result
-    s3.write_schema.return_value = "s3://b/schema.json"
-    s3.get_data_folder.return_value = "s3://b/"
-
-    job = MagicMock()
-    job.id = uuid.uuid4()
+    adapter.position_to_seq.side_effect = lambda position: PgLSN.deserialize(position).value
 
     with (
         patch(f"{_ACTIVITIES}.close_old_connections"),
         patch(f"{_ACTIVITIES}.ExternalDataSource") as MockSource,
         patch.object(CDCExtractActivity, "_get_cdc_schemas", return_value=schemas),
         patch.object(CDCExtractActivity, "_update_schema_sync_type_config"),
-        # The success repaint runs a locked DB transaction; these metric smoke tests are DB-less.
-        patch(f"{_ACTIVITIES}.complete_schema_run", return_value=True),
-        patch(f"{_ACTIVITIES}.mark_schema_running_unless_halted", return_value=True),
+        patch(f"{_ACTIVITIES}.convert_legacy_cdc_state"),
         patch(f"{_ACTIVITIES}.get_cdc_adapter", return_value=adapter),
-        patch(f"{_ACTIVITIES}.S3BatchWriter", return_value=s3),
-        patch(f"{_ACTIVITIES}.PostgresProducer"),
-        patch(f"{_ACTIVITIES}.ExternalDataJob") as MockJob,
+        patch(f"{_ACTIVITIES}.CDCBufferWriter") as MockBufferWriter,
     ):
         MockSource.objects.get.return_value = source
-        MockJob.objects.create.return_value = job
-        yield adapter, reader, s3
+        # The real meter records only a float.
+        MockBufferWriter.return_value.write_batch.return_value.write_duration_seconds = 0.01
+        yield reader
 
 
 class TestExtractionMetricsSmoke:
@@ -161,10 +147,18 @@ class TestExtractionMetricsSmoke:
         with _extract_patches(source, [_make_schema()], events):
             env.run(cdc_extract_activity, CDCExtractInput(team_id=1, source_id=source.id))
 
-        names = _emitted_names(buffer)
+        updates = buffer.retrieve_updates()
+        names = {update.metric.name for update in updates}
         assert "cdc_events_extracted_total" in names
         assert "cdc_slot_advance_total" in names
         assert "cdc_extraction_duration_seconds" in names
+        # Dashboards filter the buffer metrics on this label.
+        assert {
+            (u.metric.name, u.attributes.get("lane")) for u in updates if u.metric.name.startswith("cdc_buffer_")
+        } == {
+            ("cdc_buffer_files_written_total", "ingress"),
+            ("cdc_buffer_write_duration_seconds", "ingress"),
+        }
 
     def test_no_changes_run_emits_duration(self, metric_env):
         env, buffer = metric_env
@@ -177,7 +171,7 @@ class TestExtractionMetricsSmoke:
     def test_failure_run_emits_duration_and_reraises(self, metric_env):
         env, buffer = metric_env
         source = _make_source()
-        with _extract_patches(source, [_make_schema()], []) as (_, reader, _s3):
+        with _extract_patches(source, [_make_schema()], []) as reader:
             reader.read_changes.side_effect = RuntimeError("boom")
             with pytest.raises(RuntimeError, match="boom"):
                 env.run(cdc_extract_activity, CDCExtractInput(team_id=1, source_id=source.id))
@@ -188,7 +182,7 @@ class TestExtractionMetricsSmoke:
         env, buffer = metric_env
         source = _make_source()
         events = [_make_event(position="0/100")]
-        with _extract_patches(source, [_make_schema()], events) as (_, reader, _s3):
+        with _extract_patches(source, [_make_schema()], events) as reader:
             reader.confirm_position.side_effect = RuntimeError("advance failed")
             with pytest.raises(RuntimeError, match="advance failed"):
                 env.run(cdc_extract_activity, CDCExtractInput(team_id=1, source_id=source.id))

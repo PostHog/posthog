@@ -1288,6 +1288,18 @@ export namespace Schemas {
     }
 
     /**
+     * * `custom_property` - Custom property
+     * * `relationship` - Relationship
+     */
+    export type AccountPropertyPinKindEnum = typeof AccountPropertyPinKindEnum[keyof typeof AccountPropertyPinKindEnum];
+
+
+    export const AccountPropertyPinKindEnum = {
+      CustomProperty: 'custom_property',
+      Relationship: 'relationship',
+    } as const;
+
+    /**
      * A team-defined account relationship type (CSM, Onboarding manager, ...).
      */
     export interface AccountRelationshipDefinition {
@@ -2277,22 +2289,6 @@ export namespace Schemas {
       kind?: 'relationship';
     }
 
-    export interface AccountsTableSearchFilter {
-      kind?: 'search';
-      query: string;
-    }
-
-    export interface AccountsTableTagsFilter {
-      kind?: 'tags';
-      /** Match accounts carrying any of these tag names. */
-      tagNames: string[];
-    }
-
-    export const AccountsTableUnassignedFilterValue = {
-      kind: 'unassigned',
-    } as const;
-    export type AccountsTableUnassignedFilter = typeof AccountsTableUnassignedFilterValue;
-
     export type AccountsTableRelationshipOperator = typeof AccountsTableRelationshipOperator[keyof typeof AccountsTableRelationshipOperator];
 
 
@@ -2309,6 +2305,22 @@ export namespace Schemas {
       operator: AccountsTableRelationshipOperator;
       userIds?: number[] | null;
     }
+
+    export interface AccountsTableSearchFilter {
+      kind?: 'search';
+      query: string;
+    }
+
+    export interface AccountsTableTagsFilter {
+      kind?: 'tags';
+      /** Match accounts carrying any of these tag names. */
+      tagNames: string[];
+    }
+
+    export const AccountsTableUnassignedFilterValue = {
+      kind: 'unassigned',
+    } as const;
+    export type AccountsTableUnassignedFilter = typeof AccountsTableUnassignedFilterValue;
 
     /**
      * Requested direct Account fields, keyed by their typed field reference.
@@ -2395,6 +2407,8 @@ export namespace Schemas {
     export interface AccountsTableQuery {
       /** Columns to load for each account. Account identity fields are always returned. */
       columns: (AccountsTableAccountFieldColumn | AccountsTableTagsColumn | AccountsTableNoteCountColumn | AccountsTableRelationshipColumn | AccountsTableCustomPropertyColumn | AccountsTableCustomPropertyHistoryColumn)[];
+      /** Nonempty property-filter groups are ORed together; filters within each group use AND. Global filters still apply. */
+      filterGroups?: ((AccountsTableAccountFieldFilter | AccountsTableRelationshipFilter | AccountsTableCustomPropertyFilter)[])[] | null;
       /** Filters are combined with AND. Values within tag and assignment filters use OR. */
       filters?: (AccountsTableSearchFilter | AccountsTableTagsFilter | AccountsTableAssignedToFilter | AccountsTableAssignedFilter | AccountsTableUnassignedFilter | AccountsTableRelationshipFilter | AccountsTableAccountIdFilter | AccountsTableAccountFieldFilter | AccountsTableCustomPropertyFilter)[] | null;
       /** Include churned accounts. Churned accounts are hidden by default. */
@@ -25905,6 +25919,11 @@ export namespace Schemas {
          * @nullable
          */
       source_type?: string | null;
+      /**
+         * How a sync issue's table is kept up to date, for example 'incremental' or 'webhook'. A webhook table is pushed to rather than pulled on a schedule. Null for other types.
+         * @nullable
+         */
+      sync_type?: string | null;
       /** Why it is unhealthy. One of: failed, disabled, degraded, billing_limit. */
       status: string;
       /**
@@ -25913,7 +25932,7 @@ export namespace Schemas {
          */
       error: string | null;
       /**
-         * When it last failed.
+         * When a sync issue's table last synced successfully. Null if it never has.
          * @nullable
          */
       failed_at: string | null;
@@ -27088,7 +27107,7 @@ export namespace Schemas {
     export interface DataWarehouseSavedQuery {
       readonly id: string;
       /** @nullable */
-      deleted?: boolean | null;
+      readonly deleted: boolean | null;
       /**
          * Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node.
          * @maxLength 128
@@ -27154,12 +27173,12 @@ export namespace Schemas {
          */
       readonly latest_history_id: string | null;
       /**
-         * If true, skip column inference and validation. For saving drafts.
+         * If true, skip column inference and external table discovery. On update, also skip the query revision conflict check. Query validation and revision updates still run.
          * @nullable
          */
       soft_update?: boolean | null;
       /**
-         * Optional DAG to place this view into
+         * DAG in this project to place the view into. Null uses the default DAG. Managed DAGs are not allowed.
          * @nullable
          */
       dag_id?: string | null;
@@ -40574,10 +40593,10 @@ export namespace Schemas {
       Product: 'product',
     } as const;
 
-    export type Kind1 = typeof Kind1[keyof typeof Kind1];
+    export type Kind2 = typeof Kind2[keyof typeof Kind2];
 
 
-    export const Kind1 = {
+    export const Kind2 = {
       ExperimentEventExposureConfig: 'ExperimentEventExposureConfig',
       ActionsNode: 'ActionsNode',
     } as const;
@@ -40588,7 +40607,7 @@ export namespace Schemas {
       /** Action ID. Required when kind is 'ActionsNode'. */
       id?: number | null;
       /** Defaults to 'ExperimentEventExposureConfig' when omitted. Pass 'ActionsNode' for an action-based exposure. */
-      kind?: Kind1 | null;
+      kind?: Kind2 | null;
       /** Property filters (event, person, and other supported types). Pass an empty array if no filters needed. */
       properties: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter | BehavioralPropertyFilter)[];
     }
@@ -40602,10 +40621,10 @@ export namespace Schemas {
       multiple_variant_handling?: MultipleVariantHandling | null;
     }
 
-    export type Kind = typeof Kind[keyof typeof Kind];
+    export type Kind1 = typeof Kind1[keyof typeof Kind1];
 
 
-    export const Kind = {
+    export const Kind1 = {
       EventsNode: 'EventsNode',
       ActionsNode: 'ActionsNode',
     } as const;
@@ -40615,7 +40634,7 @@ export namespace Schemas {
       event?: string | null;
       /** Action ID. Required for ActionsNode. */
       id?: number | null;
-      kind: Kind;
+      kind: Kind1;
       /** How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'. */
       math?: ExperimentMetricMathType | null;
       /** Group type index to aggregate over. Required when math is 'unique_group'. */
@@ -40638,10 +40657,10 @@ export namespace Schemas {
       Retention: 'retention',
     } as const;
 
-    export type Kind2 = typeof Kind2[keyof typeof Kind2];
+    export type Kind3 = typeof Kind3[keyof typeof Kind3];
 
 
-    export const Kind2 = {
+    export const Kind3 = {
       EventsNode: 'EventsNode',
       ActionsNode: 'ActionsNode',
       ExperimentExposureNode: 'ExperimentExposureNode',
@@ -40653,7 +40672,7 @@ export namespace Schemas {
       /** Action ID. Required for ActionsNode. */
       id?: number | null;
       /** Pass 'ExperimentExposureNode' to start retention from the experiment's own exposure event; the other fields then stay unset. */
-      kind: Kind2;
+      kind: Kind3;
       /** How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'. */
       math?: ExperimentMetricMathType | null;
       /** Group type index to aggregate over. Required when math is 'unique_group'. */
@@ -41228,48 +41247,48 @@ export namespace Schemas {
     }
 
     /**
-     * * `manual` - Manual
-     * * `agent_mcp` - Agent (MCP)
-     * * `cold_run` - Cold Run
-     * * `stale_refresh` - Stale Refresh
-     * * `auto_refresh` - Auto Refresh
-     * * `experiment_config_change` - Experiment Config Change
-     * * `metric_config_change` - Metric Config Change
-     * * `config_change` - Config Change
-     * * `experiment_launch` - Experiment Launch
-     * * `experiment_stop` - Experiment Stop
-     * * `experiment_update` - Experiment Update
-     * * `timeseries_sync` - Timeseries Sync
+     * POST response: the job just queued, or the one already active. It carries no results or live progress yet.
      */
-    export type ExperimentMetricsRecalculationTriggerEnum = typeof ExperimentMetricsRecalculationTriggerEnum[keyof typeof ExperimentMetricsRecalculationTriggerEnum];
-
-
-    export const ExperimentMetricsRecalculationTriggerEnum = {
-      Manual: 'manual',
-      AgentMcp: 'agent_mcp',
-      ColdRun: 'cold_run',
-      StaleRefresh: 'stale_refresh',
-      AutoRefresh: 'auto_refresh',
-      ExperimentConfigChange: 'experiment_config_change',
-      MetricConfigChange: 'metric_config_change',
-      ConfigChange: 'config_change',
-      ExperimentLaunch: 'experiment_launch',
-      ExperimentStop: 'experiment_stop',
-      ExperimentUpdate: 'experiment_update',
-      TimeseriesSync: 'timeseries_sync',
-    } as const;
-
-    /**
-     * * `recalculation` - recalculation
-     * * `timeseries_fallback` - timeseries_fallback
-     */
-    export type ResultSourceEnum = typeof ResultSourceEnum[keyof typeof ResultSourceEnum];
-
-
-    export const ResultSourceEnum = {
-      Recalculation: 'recalculation',
-      TimeseriesFallback: 'timeseries_fallback',
-    } as const;
+    export interface ExperimentMetricsRecalculationJob {
+      /** Unique identifier for this recalculation job */
+      readonly id: string;
+      /** ID of the experiment being recalculated */
+      readonly experiment_id: number;
+      /** Current status of the recalculation job
+       *
+       * * `pending` - Pending
+       * * `in_progress` - In Progress
+       * * `completed` - Completed
+       * * `failed` - Failed */
+      readonly status: MetricsRecalculationStatusEnum;
+      /** Total number of metrics to recalculate */
+      readonly total_metrics: number;
+      /** Number of metrics with a COMPLETED result row in this run (derived, not stored) */
+      readonly completed_metrics: number;
+      /** Number of failed metrics in this run (derived): FAILED result rows plus discovery-step failures that never made it to a result row */
+      readonly failed_metrics: number;
+      /** Map of metric_uuid to error details */
+      readonly metric_errors: unknown;
+      /** When the job was created */
+      readonly created_at: string;
+      /**
+         * When processing started
+         * @nullable
+         */
+      readonly started_at: string | null;
+      /**
+         * When processing completed
+         * @nullable
+         */
+      readonly completed_at: string | null;
+      /**
+         * Upper time bound the metrics in this run were calculated against (the data freshness cutoff). Shared by every metric in the run; null until processing starts
+         * @nullable
+         */
+      readonly query_to: string | null;
+      /** True if returning an existing job rather than a newly created one */
+      readonly is_existing: boolean;
+    }
 
     /**
      * * `pending` - pending
@@ -41307,9 +41326,21 @@ export namespace Schemas {
     }
 
     /**
-     * Serializer for metrics recalculation status responses.
+     * * `recalculation` - recalculation
+     * * `timeseries_fallback` - timeseries_fallback
      */
-    export interface ExperimentMetricsRecalculation {
+    export type ResultSourceEnum = typeof ResultSourceEnum[keyof typeof ResultSourceEnum];
+
+
+    export const ResultSourceEnum = {
+      Recalculation: 'recalculation',
+      TimeseriesFallback: 'timeseries_fallback',
+    } as const;
+
+    /**
+     * GET latest: the newest terminal run, or the timeseries fallback, plus a pointer to any active run.
+     */
+    export interface ExperimentMetricsRecalculationLatest {
       /** Unique identifier for this recalculation job */
       readonly id: string;
       /** ID of the experiment being recalculated */
@@ -41329,23 +41360,6 @@ export namespace Schemas {
       readonly failed_metrics: number;
       /** Map of metric_uuid to error details */
       readonly metric_errors: unknown;
-      /** Transient retry state per metric_uuid: {attempt, max_attempts, error_type, message, next_retry_at}. message is a user-safe description of the error that triggered the retry. Present only while a metric is between failed attempts; cleared when it succeeds or fails terminally, so treat entries for metrics that already have a result as stale. */
-      readonly metric_retries: unknown;
-      /** What triggered this recalculation
-       *
-       * * `manual` - Manual
-       * * `agent_mcp` - Agent (MCP)
-       * * `cold_run` - Cold Run
-       * * `stale_refresh` - Stale Refresh
-       * * `auto_refresh` - Auto Refresh
-       * * `experiment_config_change` - Experiment Config Change
-       * * `metric_config_change` - Metric Config Change
-       * * `config_change` - Config Change
-       * * `experiment_launch` - Experiment Launch
-       * * `experiment_stop` - Experiment Stop
-       * * `experiment_update` - Experiment Update
-       * * `timeseries_sync` - Timeseries Sync */
-      readonly trigger: ExperimentMetricsRecalculationTriggerEnum;
       /** When the job was created */
       readonly created_at: string;
       /**
@@ -41363,8 +41377,20 @@ export namespace Schemas {
          * @nullable
          */
       readonly query_to: string | null;
-      /** True if returning an existing job rather than a newly created one */
-      readonly is_existing: boolean;
+      /** Transient retry state per metric_uuid: {attempt, max_attempts, error_type, message, next_retry_at}. message is a user-safe description of the error that triggered the retry. Present only while a metric is between failed attempts; cleared when it succeeds or fails terminally, so treat entries for metrics that already have a result as stale. */
+      readonly metric_retries: unknown;
+      /** Per-metric results computed by this run, scoped by the run's recalc fingerprint */
+      readonly results: readonly MetricRecalculationResult[];
+      /**
+         * Rows read by the run's metric queries so far, both finished and currently running. Cumulative and roughly monotonic across the run; the primary live progress signal
+         * @nullable
+         */
+      rows_read?: number | null;
+      /**
+         * ClickHouse's total_rows_approx across running queries plus the final read_rows of finished ones. A soft ceiling revised mid-scan, so it can exceed or trail rows_read; treat rows_read as the reliable signal
+         * @nullable
+         */
+      estimated_rows_total?: number | null;
       /** Run currently executing for this experiment, if any; poll it by id for live progress */
       readonly active_run: ActiveRecalculationRun | null;
       /** Where these results came from: 'recalculation' for a real metrics-recalculation run, 'timeseries_fallback' for a cold-start placeholder built from the latest daily timeseries data.
@@ -41372,6 +41398,50 @@ export namespace Schemas {
        * * `recalculation` - recalculation
        * * `timeseries_fallback` - timeseries_fallback */
       readonly result_source: ResultSourceEnum;
+    }
+
+    /**
+     * GET by id: one run with its per-metric results, retry state and live query progress.
+     */
+    export interface ExperimentMetricsRecalculationRun {
+      /** Unique identifier for this recalculation job */
+      readonly id: string;
+      /** ID of the experiment being recalculated */
+      readonly experiment_id: number;
+      /** Current status of the recalculation job
+       *
+       * * `pending` - Pending
+       * * `in_progress` - In Progress
+       * * `completed` - Completed
+       * * `failed` - Failed */
+      readonly status: MetricsRecalculationStatusEnum;
+      /** Total number of metrics to recalculate */
+      readonly total_metrics: number;
+      /** Number of metrics with a COMPLETED result row in this run (derived, not stored) */
+      readonly completed_metrics: number;
+      /** Number of failed metrics in this run (derived): FAILED result rows plus discovery-step failures that never made it to a result row */
+      readonly failed_metrics: number;
+      /** Map of metric_uuid to error details */
+      readonly metric_errors: unknown;
+      /** When the job was created */
+      readonly created_at: string;
+      /**
+         * When processing started
+         * @nullable
+         */
+      readonly started_at: string | null;
+      /**
+         * When processing completed
+         * @nullable
+         */
+      readonly completed_at: string | null;
+      /**
+         * Upper time bound the metrics in this run were calculated against (the data freshness cutoff). Shared by every metric in the run; null until processing starts
+         * @nullable
+         */
+      readonly query_to: string | null;
+      /** Transient retry state per metric_uuid: {attempt, max_attempts, error_type, message, next_retry_at}. message is a user-safe description of the error that triggered the retry. Present only while a metric is between failed attempts; cleared when it succeeds or fails terminally, so treat entries for metrics that already have a result as stale. */
+      readonly metric_retries: unknown;
       /** Per-metric results computed by this run, scoped by the run's recalc fingerprint */
       readonly results: readonly MetricRecalculationResult[];
       /**
@@ -41385,6 +41455,38 @@ export namespace Schemas {
          */
       estimated_rows_total?: number | null;
     }
+
+    /**
+     * * `manual` - Manual
+     * * `agent_mcp` - Agent (MCP)
+     * * `cold_run` - Cold Run
+     * * `stale_refresh` - Stale Refresh
+     * * `auto_refresh` - Auto Refresh
+     * * `experiment_config_change` - Experiment Config Change
+     * * `metric_config_change` - Metric Config Change
+     * * `config_change` - Config Change
+     * * `experiment_launch` - Experiment Launch
+     * * `experiment_stop` - Experiment Stop
+     * * `experiment_update` - Experiment Update
+     * * `timeseries_sync` - Timeseries Sync
+     */
+    export type ExperimentMetricsRecalculationTriggerEnum = typeof ExperimentMetricsRecalculationTriggerEnum[keyof typeof ExperimentMetricsRecalculationTriggerEnum];
+
+
+    export const ExperimentMetricsRecalculationTriggerEnum = {
+      Manual: 'manual',
+      AgentMcp: 'agent_mcp',
+      ColdRun: 'cold_run',
+      StaleRefresh: 'stale_refresh',
+      AutoRefresh: 'auto_refresh',
+      ExperimentConfigChange: 'experiment_config_change',
+      MetricConfigChange: 'metric_config_change',
+      ConfigChange: 'config_change',
+      ExperimentLaunch: 'experiment_launch',
+      ExperimentStop: 'experiment_stop',
+      ExperimentUpdate: 'experiment_update',
+      TimeseriesSync: 'timeseries_sync',
+    } as const;
 
     /**
      * * `uploading` - Uploading
@@ -48269,6 +48371,15 @@ export namespace Schemas {
       /** @nullable */
       readonly notebook: string | null;
     }
+
+    export type FlagEvaluationsModeEnum = typeof FlagEvaluationsModeEnum[keyof typeof FlagEvaluationsModeEnum];
+
+
+    export const FlagEvaluationsModeEnum = {
+      Number0: 0,
+      Number1: 1,
+      Number2: 2,
+    } as const;
 
     export interface FlagValueItem {
       name: unknown;
@@ -73162,7 +73273,7 @@ export namespace Schemas {
     export interface PatchedDataWarehouseSavedQuery {
       readonly id?: string;
       /** @nullable */
-      deleted?: boolean | null;
+      readonly deleted?: boolean | null;
       /**
          * Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node.
          * @maxLength 128
@@ -73228,12 +73339,12 @@ export namespace Schemas {
          */
       readonly latest_history_id?: string | null;
       /**
-         * If true, skip column inference and validation. For saving drafts.
+         * If true, skip column inference and external table discovery. On update, also skip the query revision conflict check. Query validation and revision updates still run.
          * @nullable
          */
       soft_update?: boolean | null;
       /**
-         * Optional DAG to place this view into
+         * DAG in this project to place the view into. Null uses the default DAG. Managed DAGs are not allowed.
          * @nullable
          */
       dag_id?: string | null;
@@ -76782,6 +76893,16 @@ export namespace Schemas {
       campaign_field_preferences?: MarketingAnalyticsCampaignFieldPreferences;
     }
 
+    export interface TeamCustomerAnalyticsPinnedAccountProperty {
+      /** Definition type for this default pinned account property.
+       *
+       * * `custom_property` - Custom property
+       * * `relationship` - Relationship */
+      kind: AccountPropertyPinKindEnum;
+      /** Project-scoped custom property or relationship definition UUID. */
+      id: string;
+    }
+
     export interface TeamCustomerAnalyticsConfig {
       /** Event used as the activity signal (DAU/WAU/MAU). */
       activity_event?: unknown;
@@ -76798,6 +76919,8 @@ export namespace Schemas {
          * @nullable
          */
       account_group_type_index?: number | null;
+      /** Ordered account properties shown until a user saves a personal pinned-property selection. Pass an empty list to show no properties by default. */
+      default_pinned_properties?: TeamCustomerAnalyticsPinnedAccountProperty[];
     }
 
     export interface TeamWorkflowsConfig {
@@ -77642,6 +77765,8 @@ export namespace Schemas {
          */
       readonly user_access_level?: string | null;
       readonly managed_viewsets?: PatchedProjectBackwardCompatManagedViewsets;
+      /** Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table. */
+      readonly flag_evaluations_mode?: FlagEvaluationsModeEnum;
       revenue_analytics_config?: TeamRevenueAnalyticsConfig;
       marketing_analytics_config?: TeamMarketingAnalyticsConfig;
       customer_analytics_config?: TeamCustomerAnalyticsConfig;
@@ -80229,24 +80354,12 @@ export namespace Schemas {
       readonly requires_credential_review?: boolean;
     }
 
-    /**
-     * * `custom_property` - Custom property
-     * * `relationship` - Relationship
-     */
-    export type PinnedAccountPropertyKindEnum = typeof PinnedAccountPropertyKindEnum[keyof typeof PinnedAccountPropertyKindEnum];
-
-
-    export const PinnedAccountPropertyKindEnum = {
-      CustomProperty: 'custom_property',
-      Relationship: 'relationship',
-    } as const;
-
     export interface PinnedAccountProperty {
       /** Definition type for this pinned account property.
        *
        * * `custom_property` - Custom property
        * * `relationship` - Relationship */
-      kind: PinnedAccountPropertyKindEnum;
+      kind: AccountPropertyPinKindEnum;
       /** Team-scoped custom property or relationship definition UUID. */
       id: string;
     }
@@ -82556,6 +82669,8 @@ export namespace Schemas {
          */
       readonly user_access_level: string | null;
       readonly managed_viewsets: ProjectBackwardCompatManagedViewsets;
+      /** Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table. */
+      readonly flag_evaluations_mode: FlagEvaluationsModeEnum;
       revenue_analytics_config?: TeamRevenueAnalyticsConfig;
       marketing_analytics_config?: TeamMarketingAnalyticsConfig;
       customer_analytics_config?: TeamCustomerAnalyticsConfig;
@@ -97861,6 +97976,12 @@ export namespace Schemas {
       max_feature_flags_override: number | null;
       /** The flag-count limit actually enforced for this team: the override when one is set, otherwise the global MAX_FEATURE_FLAGS_PER_TEAM setting. */
       effective_max_feature_flags: number;
+      /** Which table the $feature_flag_called data of this team's organization is read from. Every team of an organization shares one mode. 0 reads events, 1 and 2 read flag_evaluations. 2 is reserved for ingestion to stop writing $feature_flag_called to events. Ingestion ignores 2 until that support deploys, so 2 acts as 1 until then. This is the stored mode: while the FLAG_EVALUATIONS_USAGE_TAB_FORCE_EVENTS instance setting is on, an organization on 1 has its Usage tab read events anyway.
+       *
+       * * `0` - Events
+       * * `1` - Read flag evaluations
+       * * `2` - Flag evaluations only */
+      flag_evaluations_mode: FlagEvaluationsModeEnum;
       /** Number of feature flags the team has today, excluding soft-deleted ones, counted the same way the limit is enforced. */
       feature_flag_count: number;
     }
@@ -111513,6 +111634,15 @@ export namespace Schemas {
      */
     cutoff_days?: number;
     /**
+     * Which runs to return: 'import' for warehouse source syncs, 'model' for materialized view runs, 'all' for both. Defaults to 'all'.
+     *
+     * * `all` - all
+     * * `import` - import
+     * * `model` - model
+     * @minLength 1
+     */
+    kind?: DataWarehouseCompletedActivityRetrieveKind;
+    /**
      * Max rows to return. Capped at 50 server-side. Defaults to 20.
      */
     limit?: number;
@@ -111529,6 +111659,15 @@ export namespace Schemas {
      */
     outcome?: DataWarehouseCompletedActivityRetrieveOutcome;
     };
+
+    export type DataWarehouseCompletedActivityRetrieveKind = typeof DataWarehouseCompletedActivityRetrieveKind[keyof typeof DataWarehouseCompletedActivityRetrieveKind];
+
+
+    export const DataWarehouseCompletedActivityRetrieveKind = {
+      All: 'all',
+      Import: 'import',
+      Model: 'model',
+    } as const;
 
     export type DataWarehouseCompletedActivityRetrieveOutcome = typeof DataWarehouseCompletedActivityRetrieveOutcome[keyof typeof DataWarehouseCompletedActivityRetrieveOutcome];
 

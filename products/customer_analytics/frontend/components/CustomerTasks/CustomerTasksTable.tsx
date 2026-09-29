@@ -69,12 +69,19 @@ export function CustomerTasksTable({
                     <div className="CustomerTasksTable__narrow-assignee">
                         <CustomerTaskAssigneeSelect task={task} logic={logic} />
                     </div>
+                    {context === 'account' && (
+                        <div className="CustomerTasksTable__narrow-controls flex-wrap items-center gap-1">
+                            <CustomerTaskStatusSelect task={task} logic={logic} />
+                            <CustomerTaskDueAtInput task={task} logic={logic} timezone={timezone} />
+                        </div>
+                    )}
                 </div>
             ),
         },
         {
             title: 'Status',
             key: 'status',
+            className: 'CustomerTasksTable__status',
             width: 130,
             sorter: true,
             render: (_, task) => <CustomerTaskStatusSelect task={task} logic={logic} />,
@@ -106,6 +113,7 @@ export function CustomerTasksTable({
         {
             title: 'Due',
             key: 'due_at',
+            className: 'CustomerTasksTable__due',
             width: 170,
             sorter: true,
             render: (_, task) => <CustomerTaskDueAtInput task={task} logic={logic} timezone={timezone} />,
@@ -141,7 +149,7 @@ export function CustomerTasksTable({
         </div>
     )
     return (
-        <div className="CustomerTasksTable" data-attr="customer-tasks-table">
+        <div className={`CustomerTasksTable CustomerTasksTable--${context}`} data-attr="customer-tasks-table">
             <div className="mb-4 flex items-center justify-between gap-2">
                 <CustomerTasksFilters logic={logic} context={context} canViewAll={canViewAll} />
                 {canCreate && (

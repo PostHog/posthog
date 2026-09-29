@@ -10,8 +10,13 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 import { humanFriendlyNumber, humanizeBytes } from 'lib/utils/numbers'
 
+import {
+    EXCEPTION_CODE_LABELS,
+    PrecomputePathStats,
+    queryPerformanceLogic,
+} from 'products/experiments/frontend/scenes/queryPerformanceLogic'
+
 import { PrecomputeTrends } from './PrecomputeTrends'
-import { EXCEPTION_CODE_LABELS, PrecomputePathStats, queryPerformanceLogic } from './queryPerformanceLogic'
 
 const TIME_RANGE_OPTIONS = [
     { label: '1h', hours: 1 },
