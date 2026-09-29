@@ -151,6 +151,11 @@ Use the same session directory to judge existing `result.json` files without rer
 
 `--judge-results` accepts multiple files for the same scout.
 It reuses the pinned rubric, or generates it once if the session has none.
+`--rubric-only` and `--judge-results` validate the manifest and the saved skill/reference files, including their paths,
+checksums, and UTF-8 contents. They do not load or validate saved state or event tables, which are not inputs to these modes.
+Their provenance records `validation_scope: instructions`; it does not claim that the case can be restored.
+Normal execution, `--validate-only`, and `--preflight-only` still require the complete case to pass strict validation.
+Historical judgments use the cutoffs and evidence recorded in each result; `--target-cutoff` does not shift saved results.
 Failed historical executions remain execution failures with ungraded criteria.
 New judgment files record both the source-result hash and the session-rubric hash.
 These modes use the shared private eval service lifecycle, so its ordinary environment prerequisites still apply.

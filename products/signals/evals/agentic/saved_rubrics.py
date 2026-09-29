@@ -24,13 +24,13 @@ from products.signals.evals.agentic.rubric_judge import (
 from products.signals.evals.agentic.rubric_session import RubricSession, RubricSnapshot, SessionRubric, write_judgment
 
 if TYPE_CHECKING:
-    from products.signals.evals.agentic.saved_case import SavedScoutCase
+    from products.signals.evals.agentic.saved_case import SavedScoutInstructions
 
 
 class SavedRubrics:
     def __init__(
         self,
-        saved: SavedScoutCase,
+        saved: SavedScoutInstructions,
         session_dir: Path,
         output_dir: Path,
         *,

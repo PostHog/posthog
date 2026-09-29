@@ -16,7 +16,7 @@ from products.posthog_ai.eval_harness.harness.ports import LLM_GATEWAY_PORT
 if TYPE_CHECKING:
     from openai.types.chat import ChatCompletionMessageParam
 
-JUDGE_VERSION = "scout-rubric-judge-v1"
+JUDGE_VERSION = "scout-rubric-judge-v2"
 DEFAULT_JUDGE_MODEL = "gpt-6-sol"
 DEFAULT_MAX_INPUT_BYTES = 8 * 1024 * 1024
 DEFAULT_MAX_INPUT_TOKENS = 980_000
@@ -279,6 +279,13 @@ Use unknown when the captured evidence cannot establish applicability or the pas
 Use not_applicable only when the criterion's applicability explicitly excludes this case; justify with evidence.
 An absent report is not an automatic failure: apply the canonical instructions and investigate whether silence was permitted.
 Required work demonstrably omitted is fail. An uncaptured history, source, or tool result is unknown, not proof of omission.
+For a conditional obligation, establish its trigger before checking compliance. A rule governing a future action does not
+itself require that action. An untriggered subcondition cannot fail an otherwise applicable criterion; assess its remaining
+requirements under the criterion's stated applicability.
+Read canonical requirements together, including their conditions and exceptions. Distinguish the permitted targets of a
+finding from the supporting evidence the scout must inspect. Do not turn a limit on findings into a prohibition on required
+context gathering. When a rubric or instruction conflict prevents a supported interpretation, use unknown and cite the
+conflicting requirements rather than silently choosing the stricter rule.
 Execution failures are separate from quality. Tool errors are evidence to assess in context, not automatic quality failures.
 A report or summary establishes what the scout claimed, not whether that claim is true. Factual support requires inspected
 source or tool evidence; repeated assertions in narration do not replace that evidence.

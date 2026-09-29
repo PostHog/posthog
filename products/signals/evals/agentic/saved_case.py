@@ -351,16 +351,11 @@ class RestoredEventSummary:
         }
 
 
-class SavedScoutCase:
-    def __init__(
-        self, path: Path, manifest: SavedCaseManifest, state: SavedState, *, manifest_sha256: str | None = None
-    ) -> None:
+class SavedScoutInstructions:
+    def __init__(self, path: Path, manifest: SavedCaseManifest, *, manifest_sha256: str | None = None) -> None:
         self.path = path
         self.manifest = manifest
-        self.state = state
         self.manifest_sha256 = manifest_sha256
-        self.event_count = 0
-        self.event_names: set[str] = set()
 
     @property
     def skill_name(self) -> str:
@@ -377,17 +372,47 @@ class SavedScoutCase:
     @property
     def metadata(self) -> dict[str, JsonValue]:
         return {
+            "validation_scope": "instructions",
             "schema_version": self.manifest.schema_version,
             "case_id": self.manifest.case_id,
             "manifest_sha256": self.manifest_sha256,
             "source_cutoff": self.manifest.source_cutoff.isoformat(),
-            "state_table_sha256": {name: file.sha256 for name, file in self.manifest.state.tables.items()},
-            "event_sha256": [file.sha256 for file in self.manifest.events],
-            "event_count": self.event_count,
             "skill_name": self.skill_name,
             "skill_version": self.skill_version,
             "skill_body_sha256": self.manifest.skill.body.sha256,
             "skill_file_sha256": {file.path: file.content.sha256 for file in self.manifest.skill.files},
+        }
+
+    @classmethod
+    def load(cls, path: Path) -> Self:
+        path = path.resolve(strict=True)
+        manifest_bytes = path.read_bytes()
+        manifest = SavedCaseManifest.model_validate_json(manifest_bytes)
+        paths = [file.path for file in manifest.skill.files]
+        if len(paths) != len(set(paths)):
+            raise ValueError("The skill contains duplicate support file paths.")
+        for reference in [manifest.skill.body, *[file.content for file in manifest.skill.files]]:
+            reference.resolve(path.parent).read_text(encoding="utf-8")
+        return cls(path, manifest, manifest_sha256=hashlib.sha256(manifest_bytes).hexdigest())
+
+
+class SavedScoutCase(SavedScoutInstructions):
+    def __init__(
+        self, path: Path, manifest: SavedCaseManifest, state: SavedState, *, manifest_sha256: str | None = None
+    ) -> None:
+        super().__init__(path, manifest, manifest_sha256=manifest_sha256)
+        self.state = state
+        self.event_count = 0
+        self.event_names: set[str] = set()
+
+    @property
+    def metadata(self) -> dict[str, JsonValue]:
+        return {
+            **super().metadata,
+            "validation_scope": "full_case",
+            "state_table_sha256": {name: file.sha256 for name, file in self.manifest.state.tables.items()},
+            "event_sha256": [file.sha256 for file in self.manifest.events],
+            "event_count": self.event_count,
         }
 
     @classmethod

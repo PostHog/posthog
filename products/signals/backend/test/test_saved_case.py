@@ -41,6 +41,7 @@ from products.signals.evals.agentic.saved_case import (
     SavedEvent,
     SavedModel,
     SavedScoutCase,
+    SavedScoutInstructions,
     SavedState,
     state_table,
 )
@@ -414,6 +415,16 @@ class TestSavedCaseValidation(SimpleTestCase):
 
             with self.assertRaises(ValueError):
                 SavedScoutCase.load(path)
+
+            if failure in {"missing_reference", "missing_content_reference"}:
+                instructions = SavedScoutInstructions.load(path)
+                self.assertEqual(instructions.metadata["validation_scope"], "instructions")
+                self.assertEqual(
+                    instructions.metadata["manifest_sha256"], hashlib.sha256(path.read_bytes()).hexdigest()
+                )
+                self.assertEqual(instructions.metadata["source_cutoff"], SOURCE.isoformat())
+                for field in ("event_count", "event_sha256", "state_table_sha256"):
+                    self.assertNotIn(field, instructions.metadata)
 
 
 class TestSavedCaseRestore(ClickhouseTestMixin, BaseTest):

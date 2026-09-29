@@ -21,7 +21,7 @@ from products.posthog_ai.eval_harness.engines.braintrust import PrivateBraintrus
 from products.posthog_ai.eval_harness.engines.types import CaseHooks, CaseSpec, ExperimentResult, ExperimentSpec
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.harness.ports import LLM_GATEWAY_PORT
-from products.signals.evals.agentic.saved_case import SavedScoutCase
+from products.signals.evals.agentic.saved_case import SavedScoutCase, SavedScoutInstructions
 from products.signals.evals.agentic.saved_rubrics import SavedRubrics, SavedRubricScorer
 from products.signals.evals.saved_scout import SavedScoutSuite
 
@@ -203,8 +203,21 @@ class TestSavedScoutRubrics(SimpleTestCase):
 
     @parameterized.expand(["completed", "execution_failed", "wrong_scout"])
     async def test_rejudging_preserves_saved_bytes_and_checks_result_identity(self, outcome: str) -> None:
+        instructions = SavedScoutInstructions.load(self.saved.path)
+        self.pipeline = SavedRubrics(instructions, self.directory / "session", self.directory / "run")
         rubric = await self.pipeline.prepare()
-        output = {**self._output(), "rubric_judgment": {"old_verdict": "must not become evidence"}}
+        self.assertEqual(rubric.document.source["validation_scope"], "instructions")
+        self.assertEqual(rubric.document.source["manifest_sha256"], self.saved.manifest_sha256)
+        self.assertEqual(rubric.document.source["source_cutoff"], self.saved.manifest.source_cutoff.isoformat())
+        target_cutoff = "2026-03-04T05:00:00+00:00"
+        output = {
+            **self._output(),
+            "seed": {
+                "source_cutoff": self.saved.manifest.source_cutoff.isoformat(),
+                "target_cutoff": target_cutoff,
+            },
+            "rubric_judgment": {"old_verdict": "must not become evidence"},
+        }
         source = {
             "metadata": {"skill_name": "different-scout" if outcome == "wrong_scout" else self.saved.skill_name},
             "output": None if outcome == "execution_failed" else output,
@@ -230,6 +243,11 @@ class TestSavedScoutRubrics(SimpleTestCase):
             else:
                 self.assertIsNone(judgment.error)
                 self.assertNotIn("old_verdict", sidecar["model_response"]["prompt"])
+                evidence = json.loads(sidecar["model_response"]["prompt"].rsplit("\n", 1)[1])
+                self.assertEqual(evidence["output"]["seed"]["target_cutoff"], target_cutoff)
+                self.assertEqual(
+                    evidence["output"]["seed"]["source_cutoff"], self.saved.manifest.source_cutoff.isoformat()
+                )
         self.assertEqual(path.read_bytes(), original)
 
     @parameterized.expand(["judge_provider", "judge_format"])

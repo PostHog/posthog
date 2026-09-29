@@ -24,7 +24,7 @@ from products.posthog_ai.eval_harness.harness.transcript import RunTranscript
 if TYPE_CHECKING:
     from products.posthog_ai.eval_harness.harness.context import EvalContext
     from products.signals.evals.agentic.retained_repository import RetainedScoutRepository
-    from products.signals.evals.agentic.saved_case import SavedScoutCase
+    from products.signals.evals.agentic.saved_case import SavedScoutInstructions
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 logger = logging.getLogger(__name__)
@@ -68,7 +68,7 @@ def parse_cutoff(value: str) -> datetime:
     return result.astimezone(UTC)
 
 
-def preflight_saved_case(saved: SavedScoutCase, options: HarnessOptions) -> None:
+def preflight_saved_case(saved: SavedScoutInstructions, options: HarnessOptions) -> None:
     if saved.manifest.repository is not None and options.provider != "docker":
         raise PreflightError("Retained code repositories require --provider docker.")
     load_env_file()
@@ -142,7 +142,7 @@ async def private_backend_gateway(ctx: EvalContext) -> AsyncIterator[None]:
 class SavedScoutSuite:
     def __init__(
         self,
-        saved: SavedScoutCase,
+        saved: SavedScoutInstructions,
         target_cutoff: datetime,
         output_dir: Path,
         retained: RetainedScoutRepository | None,
@@ -175,10 +175,16 @@ class SavedScoutSuite:
         from products.posthog_ai.eval_harness.engines.types import CaseHooks  # noqa: PLC0415
         from products.posthog_ai.eval_harness.workflow import WorkflowPrivateEval  # noqa: PLC0415
         from products.signals.evals.agentic.runners import run_scout  # noqa: PLC0415
+        from products.signals.evals.agentic.saved_case import SavedScoutCase  # noqa: PLC0415
         from products.signals.evals.agentic.saved_rubrics import SavedRubrics, SavedRubricScorer  # noqa: PLC0415
         from products.tasks.backend.facade.agents import CustomPromptSandboxContext  # noqa: PLC0415
 
-        scout_case = self.saved.to_scout_case(self.target_cutoff)
+        execution_case: SavedScoutCase | None = None
+        if not self.rubric_only and not self.judge_results:
+            if not isinstance(self.saved, SavedScoutCase):
+                raise TypeError("Scout execution requires a fully validated SavedScoutCase")
+            execution_case = self.saved
+        scout_case = execution_case.to_scout_case(self.target_cutoff) if execution_case is not None else None
         rubrics = SavedRubrics(
             self.saved,
             self.session_dir,
@@ -187,30 +193,6 @@ class SavedScoutSuite:
             judge_model=self.judge_model,
             max_input_tokens=self.judge_max_input_tokens,
         )
-
-        async def task(
-            case: SandboxedEvalCase,
-            context: CustomPromptSandboxContext,
-            eval_context: EvalContext,
-            hooks: CaseHooks,
-        ) -> dict[str, object]:
-            hooks.metadata.update(self.saved.metadata)
-            hooks.metadata["target_cutoff"] = self.target_cutoff.isoformat()
-            hooks.metadata["session_rubric_sha256"] = rubric.sha256
-            hooks.metadata["session_rubric_path"] = str(rubric.path)
-            output = await run_scout(scout_case, context, eval_context)
-            if not output.get("run_id") or not output.get("task_run_id") or not output.get("raw_log"):
-                raise EvalTaskError("The scout did not produce an agent run and transcript", output)
-            task_run = output.get("artifacts", {}).get("task_run", {})
-            if task_run.get("status") != "completed":
-                raise EvalTaskError(f"The scout task did not complete: {task_run.get('status')}", output)
-            output["exit_code"] = 0
-            if self.retained is not None:
-                output.setdefault("artifacts", {})["repository"] = {
-                    **self.retained.metadata,
-                    "verified_sandboxes": self.retained.verified_sandboxes,
-                }
-            return output
 
         async with private_backend_gateway(ctx):
             rubric = await rubrics.prepare()
@@ -227,6 +209,32 @@ class SavedScoutSuite:
                 if errors:
                     raise RuntimeError("Some saved results could not be judged; inspect the private judgment files")
                 return
+            assert execution_case is not None and scout_case is not None
+
+            async def task(
+                case: SandboxedEvalCase,
+                context: CustomPromptSandboxContext,
+                eval_context: EvalContext,
+                hooks: CaseHooks,
+            ) -> dict[str, object]:
+                hooks.metadata.update(self.saved.metadata)
+                hooks.metadata["target_cutoff"] = self.target_cutoff.isoformat()
+                hooks.metadata["session_rubric_sha256"] = rubric.sha256
+                hooks.metadata["session_rubric_path"] = str(rubric.path)
+                output = await run_scout(scout_case, context, eval_context)
+                if not output.get("run_id") or not output.get("task_run_id") or not output.get("raw_log"):
+                    raise EvalTaskError("The scout did not produce an agent run and transcript", output)
+                task_run = output.get("artifacts", {}).get("task_run", {})
+                if task_run.get("status") != "completed":
+                    raise EvalTaskError(f"The scout task did not complete: {task_run.get('status')}", output)
+                output["exit_code"] = 0
+                if self.retained is not None:
+                    output.setdefault("artifacts", {})["repository"] = {
+                        **self.retained.metadata,
+                        "verified_sandboxes": self.retained.verified_sandboxes,
+                    }
+                return output
+
             scorer = SavedRubricScorer(rubrics, rubric)
             result = await WorkflowPrivateEval(
                 experiment_name="signals-saved-scout",
@@ -236,7 +244,7 @@ class SavedScoutSuite:
                         prompt=f"Scout run: {scout_case.skill_name}",
                         project_data="empty",
                         metadata=self.saved.metadata,
-                        setup=lambda context: self.saved.restore(context, target_cutoff=self.target_cutoff),
+                        setup=lambda context: execution_case.restore(context, target_cutoff=self.target_cutoff),
                     )
                 ],
                 scorers=[scorer],
@@ -256,7 +264,7 @@ class SavedScoutSuite:
 
 
 def run_saved_case(
-    saved: SavedScoutCase,
+    saved: SavedScoutInstructions,
     options: HarnessOptions,
     target_cutoff: datetime,
     output_dir: Path,
@@ -268,6 +276,12 @@ def run_saved_case(
     judge_model: str = "gpt-6-sol",
     judge_max_input_tokens: int = 980_000,
 ) -> int:
+    from products.signals.evals.agentic.saved_case import (  # noqa: PLC0415 — saved input validation is optional for --help
+        SavedScoutCase,
+    )
+
+    if not rubric_only and not judge_results and not isinstance(saved, SavedScoutCase):
+        raise TypeError("Scout execution requires a fully validated SavedScoutCase")
     preflight_saved_case(saved, options)
     os.environ.update(
         SANDBOX_PROVIDER=SANDBOX_PROVIDER_SETTING[options.provider],
@@ -375,14 +389,17 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--judge-max-input-tokens must be positive")
     options = parse_args(harness_args)
 
-    from products.signals.evals.agentic.saved_case import (
-        SavedScoutCase,  # noqa: PLC0415 — validation is optional for --help
+    from products.signals.evals.agentic.saved_case import (  # noqa: PLC0415 — validation is optional for --help
+        SavedScoutCase,
+        SavedScoutInstructions,
     )
 
     os.umask(0o077)
     case_path = require_private_path(args.case)
     output_dir = require_private_path(args.output_dir)
-    saved = SavedScoutCase.load(case_path)
+    model_only = args.rubric_only or bool(args.judge_results)
+    source_type = SavedScoutInstructions if model_only else SavedScoutCase
+    saved = source_type.load(case_path)
     judge_results = tuple(require_private_path(path).resolve(strict=True) for path in (args.judge_results or ()))
     target_cutoff = args.target_cutoff or saved.manifest.source_cutoff
     if args.validate_only:
@@ -425,6 +442,7 @@ def main(argv: list[str] | None = None) -> int:
             source_files[name] = hashlib.sha256(content).hexdigest()
     history = {
         "started_at": datetime.now(UTC).isoformat(),
+        "mode": "rubric_only" if args.rubric_only else "judge_results" if args.judge_results else "scout",
         "case_path": str(case_path),
         "case_sha256": saved.manifest_sha256,
         "skill_sha256": saved.manifest.skill.body.sha256,
@@ -432,7 +450,7 @@ def main(argv: list[str] | None = None) -> int:
         "source_commit": commit,
         "source_patch_sha256": hashlib.sha256(patch).hexdigest(),
         "untracked_source_files": source_files,
-        "target_cutoff": target_cutoff.isoformat(),
+        "target_cutoff": None if model_only else target_cutoff.isoformat(),
         "session_dir": str(output_dir),
         "rubric_model": args.rubric_model,
         "judge_model": args.judge_model,
