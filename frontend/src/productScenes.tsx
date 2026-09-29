@@ -39,6 +39,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
     Alerts: () => import('../../products/alerts/frontend/AlertsScene'),
     PrecomputeDebug: () => import('../../products/analytics_platform/frontend/PrecomputeDebugScene'),
     Annotations: () => import('../../products/annotations/frontend/pages/Annotations'),
+    Autoresearch: () => import('../../products/autoresearch/frontend/AutoresearchScene'),
     BusinessKnowledge: () => import('../../products/business_knowledge/frontend/scenes/sources/BusinessKnowledgeScene'),
     BusinessKnowledgePlayground: () =>
         import('products/business_knowledge/frontend/scenes/playground/BusinessKnowledgePlaygroundScene'),
@@ -99,6 +100,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
     ErrorTrackingFingerprint: () =>
         import('../../products/error_tracking/frontend/scenes/ErrorTrackingFingerprintScene/ErrorTrackingFingerprintScene'),
     Experiments: () => import('../../products/experiments/frontend/scenes/ExperimentsScene'),
+    ExperimentsStaffTools: () => import('../../products/experiments/frontend/scenes/ExperimentsStaffToolsScene'),
     FeatureFlagTemplates: () => import('../../products/feature_flags/frontend/FeatureFlagTemplatesScene'),
     FeatureFlagsStaffTools: () => import('../../products/feature_flags/frontend/staff/FeatureFlagsStaffToolsScene'),
     Game368Hedgehogs: () => import('../../products/games/368Hedgehogs/368Hedgehogs'),
