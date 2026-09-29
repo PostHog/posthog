@@ -48,7 +48,7 @@ import json
 import datetime
 from collections.abc import Mapping, Sequence
 from types import MappingProxyType
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pandas as pd
 import dagster
@@ -59,7 +59,6 @@ from botocore.exceptions import ClientError
 from posthog import settings
 from posthog.dataclasses import frozen
 from posthog.storage import object_storage
-from posthog.storage.object_storage import ObjectStorageClient
 
 from products.signals.backend.ranking.features import (
     EMBEDDING_COLUMN,
@@ -162,6 +161,9 @@ from products.signals.dags.inbox_ranking.training.unseen import (
     unseen_pool,
     with_model_names,
 )
+
+if TYPE_CHECKING:
+    from posthog.storage.object_storage import ObjectStorageClient
 
 EXAMPLES_TABLE = "inbox_ranking_training_examples"
 MODELS_TABLE = "inbox_ranking_models"
@@ -816,7 +818,7 @@ SERVING_MANIFEST_ASSET = "inbox_ranking_serving_manifest"
 
 @frozen
 class _ServingStore:
-    storage: ObjectStorageClient
+    storage: "ObjectStorageClient"
     bucket: str
 
 
