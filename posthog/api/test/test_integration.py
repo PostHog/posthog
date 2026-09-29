@@ -84,7 +84,7 @@ from products.batch_exports.backend.facade.contracts import DestinationType
 from products.cdp.backend.models import HogFunction
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.tasks.backend.facade.contracts import InProgressGithubRunsDTO
-from products.workflows.backend.facade.contracts import EmailDomainVerification, WorkflowSummary
+from products.workflows.backend.facade.contracts import WorkflowSummary
 from products.workflows.backend.facade.testing import create_workflow_for_test
 
 
@@ -716,7 +716,7 @@ class TestEmailIntegration:
     def test_email_verify_updates_integration(self, mock_create_email_domain, mock_verify_email_domain):
 
         # Mock the verify_email_domain method to return a test result
-        expected_result: EmailDomainVerification = {
+        expected_result = {
             "status": "success",
             "dnsRecords": [],
         }

@@ -1,5 +1,5 @@
 from collections.abc import Iterable
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 from django.db.models import F
@@ -9,12 +9,8 @@ from posthog.ingress.contracts import WebhookDelivery
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.workflows.backend.facade.contracts import (
-    EmailDomainDnsRecord,
-    EmailDomainVerification,
     RecentWorkflow,
     TierDecision,
-    TwilioAccount,
-    TwilioPhoneNumber,
     WorkflowActivitySummary,
     WorkflowSummary,
 )
@@ -269,7 +265,7 @@ def update_ses_mail_from_subdomain(domain: str, *, mail_from_subdomain: str) -> 
     providers.SESProvider().update_mail_from_subdomain(domain, mail_from_subdomain=mail_from_subdomain)
 
 
-def verify_ses_email_domain(domain: str, *, mail_from_subdomain: str, team_id: int) -> EmailDomainVerification:
+def verify_ses_email_domain(domain: str, *, mail_from_subdomain: str, team_id: int) -> dict[str, Any]:
     from products.workflows.backend import providers  # noqa: PLC0415
 
     return providers.SESProvider().verify_email_domain(domain, mail_from_subdomain=mail_from_subdomain, team_id=team_id)
@@ -281,19 +277,19 @@ def delete_ses_identity(identity: str) -> None:
     providers.SESProvider().delete_identity(identity)
 
 
-def get_maildev_mock_dns_records() -> list[EmailDomainDnsRecord]:
+def get_maildev_mock_dns_records() -> list[dict[str, Any]]:
     from products.workflows.backend import providers  # noqa: PLC0415
 
-    return providers.MAILDEV_MOCK_DNS_RECORDS
+    return cast(list[dict[str, Any]], providers.MAILDEV_MOCK_DNS_RECORDS)
 
 
-def get_twilio_phone_numbers(*, account_sid: str, auth_token: str) -> list[TwilioPhoneNumber]:
+def get_twilio_phone_numbers(*, account_sid: str, auth_token: str) -> list[dict]:
     from products.workflows.backend import providers  # noqa: PLC0415
 
     return providers.TwilioProvider(account_sid=account_sid, auth_token=auth_token).get_phone_numbers()
 
 
-def get_twilio_account_info(*, account_sid: str, auth_token: str) -> TwilioAccount:
+def get_twilio_account_info(*, account_sid: str, auth_token: str) -> dict:
     from products.workflows.backend import providers  # noqa: PLC0415
 
     return providers.TwilioProvider(account_sid=account_sid, auth_token=auth_token).get_account_info()

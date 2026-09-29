@@ -1,6 +1,6 @@
 """Native email-sending integration (SES / maildev) and its cleanup signal."""
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from django.conf import settings
 from django.db import models, transaction
@@ -15,9 +15,6 @@ from posthog.models.user import User
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
 
 from . import model
-
-if TYPE_CHECKING:
-    from products.workflows.backend.facade.contracts import EmailDomainVerification
 
 
 class EmailIntegration:
@@ -122,7 +119,7 @@ class EmailIntegration:
 
         return self.integration
 
-    def verify(self) -> "EmailDomainVerification":
+    def verify(self):
         domain = self.integration.config.get("domain")
         provider = self.integration.config.get("provider", "ses")
         mail_from_subdomain = self.integration.config.get("mail_from_subdomain", "feedback")
