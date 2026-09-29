@@ -77,7 +77,7 @@ export function AboutStep(): JSX.Element {
 
             <LemonField.Pure
                 label={
-                    <span>
+                    <span className="whitespace-nowrap">
                         Experiment name
                         <RequiredMark />
                     </span>
@@ -135,8 +135,8 @@ export function AboutStep(): JSX.Element {
             ) : (
                 <LemonField.Pure
                     label={
-                        <div className="flex items-center justify-between w-full">
-                            <span className="flex items-center gap-1">
+                        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 w-full">
+                            <span className="flex items-center gap-1 whitespace-nowrap">
                                 <span>
                                     Feature flag key
                                     <RequiredMark />
