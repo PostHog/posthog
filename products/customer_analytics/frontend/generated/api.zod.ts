@@ -450,6 +450,16 @@ export const CalendarSyncBackfillCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Calendar-sync controls for Customer analytics settings. Sync runs on an hourly
+ * Temporal schedule; this surface only offers the manual "sync now" escape hatch.
+ * @summary Set Google account sync interval
+ */
+export const CalendarSyncIntervalCreateBody = /* @__PURE__ */ zod.object({
+    integration_id: zod.number().describe('Id of the connected Google account.'),
+    sync_interval_minutes: zod.number().describe('Minutes between scheduled syncs: 5, 15, 30, or 60.'),
+})
+
+/**
  * Start a sync run for one connected Google Calendar immediately, outside the hourly schedule.
  * @summary Sync a connected calendar now
  */

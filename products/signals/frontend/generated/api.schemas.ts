@@ -238,6 +238,28 @@ export const ValueFormatEnumApi = {
 } as const
 
 /**
+ * * `at_most` - at_most
+ * * `at_least` - at_least
+ */
+export type GoalDirectionEnumApi = (typeof GoalDirectionEnumApi)[keyof typeof GoalDirectionEnumApi]
+
+export const GoalDirectionEnumApi = {
+    AtMost: 'at_most',
+    AtLeast: 'at_least',
+} as const
+
+/**
+ * * `whole_window` - whole_window
+ * * `per_interval` - per_interval
+ */
+export type GoalGrainEnumApi = (typeof GoalGrainEnumApi)[keyof typeof GoalGrainEnumApi]
+
+export const GoalGrainEnumApi = {
+    WholeWindow: 'whole_window',
+    PerInterval: 'per_interval',
+} as const
+
+/**
  * Snapshot-only metric shape for report lists.
  *
  * Omitting query definitions keeps the paginated inbox payload bounded.
@@ -306,6 +328,35 @@ export interface ReportMetricListApi {
      * @nullable
      */
     caption?: string | null
+    /**
+     * Proposed threshold after release. Informational only; does not schedule a check.
+     * @nullable
+     */
+    goal_value?: number | null
+    /** Whether success means at most or at least goal_value.
+     *
+     * * `at_most` - at_most
+     * * `at_least` - at_least */
+    goal_direction?: GoalDirectionEnumApi | null
+    /** Whether the goal compares with the whole query window or each chart bucket.
+     *
+     * * `whole_window` - whole_window
+     * * `per_interval` - per_interval */
+    goal_grain?: GoalGrainEnumApi
+    /**
+     * Suggested days after release before assessing impact, not a monitoring schedule.
+     * @minimum 1
+     * @maximum 30
+     * @nullable
+     */
+    decision_window_days?: number | null
+    /**
+     * Optional number of qualifying observations before assessing impact.
+     * @minimum 1
+     * @maximum 1000
+     * @nullable
+     */
+    minimum_data_points?: number | null
 }
 
 export type SignalReportAssignmentPrStateEnumApi =
@@ -735,6 +786,35 @@ export interface ReportMetricApi {
      * @nullable
      */
     caption?: string | null
+    /**
+     * Proposed threshold after release. Informational only; does not schedule a check.
+     * @nullable
+     */
+    goal_value?: number | null
+    /** Whether success means at most or at least goal_value.
+     *
+     * * `at_most` - at_most
+     * * `at_least` - at_least */
+    goal_direction?: GoalDirectionEnumApi | null
+    /** Whether the goal compares with the whole query window or each chart bucket.
+     *
+     * * `whole_window` - whole_window
+     * * `per_interval` - per_interval */
+    goal_grain?: GoalGrainEnumApi
+    /**
+     * Suggested days after release before assessing impact, not a monitoring schedule.
+     * @minimum 1
+     * @maximum 30
+     * @nullable
+     */
+    decision_window_days?: number | null
+    /**
+     * Optional number of qualifying observations before assessing impact.
+     * @minimum 1
+     * @maximum 1000
+     * @nullable
+     */
+    minimum_data_points?: number | null
 }
 
 export interface SignalReportApi {
@@ -2494,6 +2574,7 @@ export interface SignalReportStateRequestApi {
  * * `code_review` - Code Review
  * * `related_to` - Related To
  * * `report_link` - Report Link
+ * * `autostart_skip` - Autostart Skip
  * * `work_claim` - Work Claim
  * * `work_release` - Work Release
  * * `pull_request` - Pull Request
@@ -2506,6 +2587,7 @@ export interface SignalReportStateRequestApi {
  * * `implementation_replacement` - Implementation Replacement
  * * `implementation_handover` - Implementation Handover
  * * `ranking_score` - Ranking Score
+ * * `impact_measurement_plan` - Impact Measurement Plan
  */
 export type SignalReportArtefactArtefactTypeEnumApi =
     (typeof SignalReportArtefactArtefactTypeEnumApi)[keyof typeof SignalReportArtefactArtefactTypeEnumApi]
@@ -2529,6 +2611,7 @@ export const SignalReportArtefactArtefactTypeEnumApi = {
     CodeReview: 'code_review',
     RelatedTo: 'related_to',
     ReportLink: 'report_link',
+    AutostartSkip: 'autostart_skip',
     WorkClaim: 'work_claim',
     WorkRelease: 'work_release',
     PullRequest: 'pull_request',
@@ -2541,6 +2624,7 @@ export const SignalReportArtefactArtefactTypeEnumApi = {
     ImplementationReplacement: 'implementation_replacement',
     ImplementationHandover: 'implementation_handover',
     RankingScore: 'ranking_score',
+    ImpactMeasurementPlan: 'impact_measurement_plan',
 } as const
 
 export type SignalReportArtefactApiContent = { [key: string]: unknown } | unknown[]
@@ -2597,7 +2681,7 @@ export interface PaginatedSignalReportArtefactListApi {
 export interface SignalReportArtefactLogCreateApi {
     /** Active claim to attribute this work to. Must belong to the caller and report. */
     claim_id?: string
-    /** The artefact type. One of: actionability_judgment, channel_assignment, code_reference, commit, dismissal, note, priority_judgment, related_to, repo_selection, safety_judgment, signal_finding, suggested_reviewers. Log types accumulate; status types (safety_judgment, actionability_judgment, priority_judgment, repo_selection, suggested_reviewers, channel_assignment) are latest-wins — appending a new version supersedes the previous one as the report's canonical status. */
+    /** The artefact type. One of: actionability_judgment, channel_assignment, code_reference, commit, dismissal, impact_measurement_plan, note, priority_judgment, related_to, repo_selection, safety_judgment, signal_finding, suggested_reviewers. Log types accumulate; status types (safety_judgment, actionability_judgment, priority_judgment, repo_selection, suggested_reviewers, channel_assignment) are latest-wins — appending a new version supersedes the previous one as the report's canonical status. */
     artefact_type: string
     /** The artefact payload as a JSON object or array; shape depends on artefact_type and is validated against its schema. */
     content: unknown
@@ -4607,6 +4691,133 @@ export interface ProjectProfileApi {
     payload?: ProjectProfilePayloadApi
 }
 
+/**
+ * * `default` - Default
+ * * `custom` - Custom
+ */
+export type ScoutRubricSourceEnumApi = (typeof ScoutRubricSourceEnumApi)[keyof typeof ScoutRubricSourceEnumApi]
+
+export const ScoutRubricSourceEnumApi = {
+    Default: 'default',
+    Custom: 'custom',
+} as const
+
+export interface ScoutRubricCriterionApi {
+    /**
+     * Stable criterion identifier.
+     * @maxLength 80
+     * @pattern ^[a-z][a-z0-9_-]{0,79}$
+     */
+    id: string
+    /**
+     * Short name for the criterion.
+     * @maxLength 120
+     */
+    title: string
+    /**
+     * What this criterion measures.
+     * @maxLength 1000
+     */
+    description: string
+    /**
+     * The evidence needed to pass this criterion.
+     * @maxLength 2000
+     */
+    pass_condition: string
+    /**
+     * When this criterion applies or cannot be assessed.
+     * @maxLength 1000
+     */
+    applicability: string
+    /** Whether future evaluations should use this criterion. */
+    enabled: boolean
+    /** Shared default or scout-specific criterion.
+     *
+     * * `default` - Default
+     * * `custom` - Custom */
+    source: ScoutRubricSourceEnumApi
+}
+
+/**
+ * * `queued` - Queued
+ * * `running` - Running
+ * * `completed` - Completed
+ * * `failed` - Failed
+ */
+export type ScoutRubricGenerationStatusEnumApi =
+    (typeof ScoutRubricGenerationStatusEnumApi)[keyof typeof ScoutRubricGenerationStatusEnumApi]
+
+export const ScoutRubricGenerationStatusEnumApi = {
+    Queued: 'queued',
+    Running: 'running',
+    Completed: 'completed',
+    Failed: 'failed',
+} as const
+
+export interface ScoutRubricGenerationApi {
+    /** Identifier for this generation attempt. */
+    id: string
+    /** Background generation status.
+     *
+     * * `queued` - Queued
+     * * `running` - Running
+     * * `completed` - Completed
+     * * `failed` - Failed */
+    status: ScoutRubricGenerationStatusEnumApi
+    /** When generation was requested. */
+    requested_at: string
+    /**
+     * When generation completed or failed.
+     * @nullable
+     */
+    completed_at: string | null
+    /**
+     * Task performing the investigation, once created.
+     * @nullable
+     */
+    task_id: string | null
+    /**
+     * Task run performing the investigation, once created.
+     * @nullable
+     */
+    task_run_id: string | null
+    /**
+     * Failure message and suggested next step.
+     * @nullable
+     */
+    error: string | null
+    /** Draft criteria awaiting review and explicit saving. */
+    suggestions: ScoutRubricCriterionApi[]
+    /** Investigation summary and limitations. */
+    summary: string
+}
+
+export interface ScoutRubricDocumentApi {
+    /** Scout config that owns this rubric. */
+    config_id: string
+    /** Scout skill name. */
+    skill_name: string
+    /**
+     * Saved rubric revision. Zero means it has not been saved.
+     * @minimum 0
+     */
+    revision: number
+    /** Saved criteria, or enabled defaults before the first save. */
+    criteria: ScoutRubricCriterionApi[]
+    /** Latest background generation, if any. */
+    generation: ScoutRubricGenerationApi | null
+}
+
+export interface ScoutRubricSaveApi {
+    /**
+     * Revision read by the editor; stale saves return 409.
+     * @minimum 0
+     */
+    revision: number
+    /** Complete set of criteria to save. */
+    criteria: ScoutRubricCriterionApi[]
+}
+
 export type SignalScoutRunSummaryApiMetadataDerived = {
     has_emit_report: boolean
     has_edit_report: boolean
@@ -4977,6 +5188,35 @@ export interface ReportMetricWriteApi {
      * @nullable
      */
     caption?: string | null
+    /**
+     * Proposed threshold after release. Informational only; does not schedule a check.
+     * @nullable
+     */
+    goal_value?: number | null
+    /** Whether success means at most or at least goal_value.
+     *
+     * * `at_most` - at_most
+     * * `at_least` - at_least */
+    goal_direction?: GoalDirectionEnumApi | null
+    /** Whether the goal compares with the whole query window or each chart bucket.
+     *
+     * * `whole_window` - whole_window
+     * * `per_interval` - per_interval */
+    goal_grain?: GoalGrainEnumApi
+    /**
+     * Suggested days after release before assessing impact, not a monitoring schedule.
+     * @minimum 1
+     * @maximum 30
+     * @nullable
+     */
+    decision_window_days?: number | null
+    /**
+     * Optional number of qualifying observations before assessing impact.
+     * @minimum 1
+     * @maximum 1000
+     * @nullable
+     */
+    minimum_data_points?: number | null
     /** Legacy optional comparison. New report metrics must omit it. */
     comparison?: ReportMetricComparisonApi | null
 }
@@ -5600,6 +5840,20 @@ export interface ScoutCheckSummaryApi {
      * @nullable
      */
     last_outcome: string | null
+    /** Where the check is in its run cycle. `waiting_on_report`: pending, no fix to measure yet. `paused`: active, but its report is suppressed or its horizon passed, so nothing runs it. `scheduled`: active, not due yet. `due`: due now, so a run on the check's scout may record the verdict. `queued`: a run was dispatched and has not started. `running`: the dispatched run started and has time left. `stale`: the dispatched run recorded nothing in its window, so the coordinator dispatches again. Any other value is the terminal status. */
+    run_state: string
+    /** True while an `agent` check waits on a dispatched run to record its verdict. */
+    waiting_on_run: boolean
+    /**
+     * The scout run the coordinator dispatched for the check, once it started. Null while queued.
+     * @nullable
+     */
+    dispatched_run_id: string | null
+    /**
+     * When the coordinator last dispatched a run for the check. Null when no run waits.
+     * @nullable
+     */
+    dispatched_at: string | null
 }
 
 /**
@@ -6488,6 +6742,12 @@ export type SignalsScoutNotesListParams = {
      * @minLength 1
      */
     skill_name?: string
+    /**
+     * Return only the notes whose content contains this text, case-insensitively. Pass an entity (an error id, a flag key, a page path, an event name) to find the notes about it, including older ones the newest-first cap would hide.
+     * @minLength 1
+     * @maxLength 200
+     */
+    text?: string
 }
 
 export type SignalsScoutProjectProfileGetParams = {

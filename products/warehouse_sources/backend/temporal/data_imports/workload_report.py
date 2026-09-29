@@ -36,6 +36,8 @@ from structlog import get_logger
 from posthog.redis import get_client
 from posthog.web_memory_sampler import current_rss_mb
 
+from products.warehouse_sources.backend.temporal.data_imports.batch_phase import report_batch_phase
+
 LOGGER = get_logger(__name__)
 
 # Keys live longer than any plausible gap between a death and its retry (heartbeat timeout is minutes),
@@ -74,10 +76,15 @@ def _redis_client() -> Any | None:
 
 
 def report_phase(phase: str) -> None:
-    """Record the current phase from anywhere inside a reporting activity; no-op outside one."""
+    """Record the current phase from anywhere inside a reporting activity; no-op outside one.
+
+    Inside the load consumer the same report also moves the batch's phase record, so one call
+    site serves both the Redis workload sample and the consumer's watchdog.
+    """
     reporter = _current_reporter.get()
     if reporter is not None:
         reporter.set_phase(phase)
+    report_batch_phase(phase)
 
 
 def report_buffer_bytes(buffer_bytes: int) -> None:

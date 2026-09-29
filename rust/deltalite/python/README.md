@@ -101,10 +101,20 @@ rejected (raising `DeltaLiteError`) rather than silently double-inserted.
 | `.upsert(data, primary_keys, partition_key=None, **opts)` | Insert-or-replace `data` by key. Returns `UpsertStats`. See knobs below. |
 | `.version()` | Current table version (`int`). |
 | `.reload()` | Bring the table state up to date with the log (incremental; falls back to a full re-open). |
+| `.table_id()` | The table id from the metadata action (`str`). |
+| `.configuration()` | Table configuration, `delta.*` properties and custom keys (`dict[str, str]`). |
 | `.schema_arrow()` | Table schema as a pyarrow `Schema`. |
+| `.schema_json()` | Table schema as the Delta JSON document (`str`), as `DeltaTable.schema().to_json()` returns it. |
 | `.partition_columns()` | Partition column names (`list[str]`). |
+| `.num_files()` | Number of active data files (`int`). |
+| `.files()` | Active data files as dicts: `path` (relative to the table root), `size`, `modification_time` (epoch ms), `partition_values` (`dict[str, str \| None]`). |
 | `.file_uris()` | URIs of the table's active data files. |
 | `.history(limit)` | Recent commit history entries. |
+
+`version`, `table_id`, `configuration`, `schema_*`, `partition_columns`,
+`num_files`, `files` and `file_uris` read the loaded snapshot in memory and do
+no I/O; call `reload()` first when the table may have moved. `history` reads the
+log.
 
 ### `UpsertStats`
 
@@ -112,12 +122,14 @@ Returned by `upsert`. Counts: `version`, `partitions_touched`, `files_added`,
 `files_removed`, `files_carried_over`, `files_probed`, `rows_updated`,
 `rows_inserted`, `rows_copied`, `source_rows`, `null_pk_rows`. Per-phase
 wall-clock timings (milliseconds): `ingest_ms` (importing the pyarrow source),
-`open_ms` (snapshot refreshes around the upsert), `relax_ms` (nullability-relax
-check), `plan_ms` (listing + pruning files), `rewrite_ms` (reading + rewriting
-the touched partitions), `commit_ms` (committing to the Delta log),
-`maintenance_ms` (checkpoint/log cleanup, non-zero only on checkpoint-boundary
-commits). `columns_relaxed` counts non-nullable columns flipped to nullable
-before the write.
+`initial_open_ms` (the full snapshot load in `DeltaLiteTable.open`, reported on
+the first upsert through a handle and `0` afterwards, so a sum over a handle's
+upserts counts it once), `open_ms` (snapshot refreshes around the upsert),
+`relax_ms` (nullability-relax check), `plan_ms` (listing + pruning files),
+`rewrite_ms` (reading + rewriting the touched partitions), `commit_ms`
+(committing to the Delta log), `maintenance_ms` (checkpoint/log cleanup,
+non-zero only on checkpoint-boundary commits). `columns_relaxed` counts
+non-nullable columns flipped to nullable before the write.
 
 ### Exceptions
 
@@ -161,13 +173,24 @@ budgets:
 `DELTALITE_MAX_SOURCE_BYTES`, `DELTALITE_MULTIPART_THRESHOLD_BYTES`,
 `DELTALITE_MULTIPART_PART_SIZE_BYTES`.
 
+**Checkpoint prefetch.** Opening or reloading a table reads its latest
+checkpoint Parquet file whole in one GET and serves the Parquet reader's many
+small range reads from memory, instead of one round trip per footer, metadata
+block and column chunk. `DELTALITE_CHECKPOINT_PREFETCH_MAX_BYTES` (128 MiB)
+bounds the total checkpoint bytes cached by one table load; larger files or
+multipart checkpoints that exhaust the budget fall back to range reads, and `0`
+disables the prefetch. Cached bytes also reserve space from
+`DELTALITE_PROCESS_MAX_BUFFERED_BYTES`, so concurrent table opens share the
+process-wide budget. The bytes are released as soon as the load finishes.
+
 ## Metrics
 
 deltalite emits via the Rust [`metrics`](https://docs.rs/metrics) facade (static
 labels only): `deltalite_upserts_total` (`outcome`, `prune_strategy`,
 `error_kind`), `deltalite_upsert_duration_seconds`,
-`deltalite_files_{added,removed,carried_over,probed}_total`, and
-`deltalite_rows_{updated,inserted,copied}_total`.
+`deltalite_files_{added,removed,carried_over,probed}_total`,
+`deltalite_rows_{updated,inserted,copied}_total`, and
+`deltalite_checkpoint_prefetch_total` (`outcome`).
 
 ## Compatibility & status
 

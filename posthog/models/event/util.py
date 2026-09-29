@@ -174,6 +174,12 @@ def bulk_create_events(
             timestamp = timestamp.replace(tzinfo=ZoneInfo(team_timezone))
         # Format for ClickHouse
         timestamp = timestamp.astimezone(ZoneInfo("UTC")).strftime("%Y-%m-%d %H:%M:%S.%f")
+        created_at = event.get("created_at")
+        created_at = (
+            created_at.astimezone(UTC).strftime("%Y-%m-%d %H:%M:%S.%f")
+            if isinstance(created_at, datetime)
+            else timestamp
+        )
 
         elements_chain = ""
         if tentative_elements_chain := event.get("elements_chain"):
@@ -281,7 +287,7 @@ def bulk_create_events(
             "team_id": team_id,
             "distinct_id": str(event["distinct_id"]),
             "elements_chain": elements_chain,
-            "created_at": format_clickhouse_timestamp(event["created_at"]) if event.get("created_at") else timestamp,
+            "created_at": created_at,
             "person_id": event["person_id"] if event.get("person_id") else str(uuid.uuid4()),
             "person_properties": json.dumps(event["person_properties"]) if event.get("person_properties") else "{}",
             "person_created_at": (

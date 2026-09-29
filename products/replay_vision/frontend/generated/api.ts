@@ -567,8 +567,8 @@ export const getVisionObservationsSearchViewedCreateUrl = (projectId: string) =>
 }
 
 /**
- * Record that the Search tab showed suggestions for this scope. A viewed scanner is what the scheduled
- * refresher keeps up to date, so the stamp lives on a CSRF-protected POST rather than the read.
+ * Record that the Search tab showed suggestions for this scope. The scheduled refresher serves viewed
+ * scanners first, so the stamp lives on a CSRF-protected POST rather than the read.
  */
 export const visionObservationsSearchViewedCreate = async (
     projectId: string,

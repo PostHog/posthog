@@ -9,6 +9,8 @@ from typing import Any, ClassVar
 from braintrust import EvalAsync, EvalCase, EvalHooks
 from braintrust.framework import EvalResultWithSummary, Evaluator, ReporterDef
 
+# Imported for its side effect: braintrust's offline summary crashes on a skipped score.
+from . import braintrust_patches  # noqa: F401
 from .types import (
     AggregateMetric,
     AggregateScore,
@@ -97,6 +99,8 @@ class BraintrustEngine:
       not be coroutines.
     - **``update=True``.** Experiment names stay runtime/model-agnostic so history
       lines up across runs; updating keeps that history rather than forking it.
+    - **``braintrust_patches``.** Importing that module replaces braintrust's
+      offline summary, which crashes on a skipped score. See its docstring.
     """
 
     name: ClassVar[str] = "braintrust"
@@ -142,8 +146,9 @@ class BraintrustEngine:
     def _translate(self, result: EvalResultWithSummary) -> ExperimentResult:
         """Map braintrust's ``EvalResultWithSummary`` onto the neutral model.
 
-        ``score=None`` is preserved per-case (braintrust drops it from the
-        aggregate); a task exception becomes ``CaseResult.error`` as a string so
+        ``score=None`` is preserved per-case (the aggregate drops it, online
+        through braintrust and offline through ``braintrust_patches``); a task
+        exception becomes ``CaseResult.error`` as a string so
         callers never re-handle a live ``Exception``; ``summary.raw`` is the
         braintrust summary's ``as_dict()`` so the jsonl export round-trips
         byte-for-byte through ``EvalSummary.as_json()``.
