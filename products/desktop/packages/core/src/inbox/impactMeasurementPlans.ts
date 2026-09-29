@@ -47,7 +47,7 @@ function formatCurrency(value: number, currency: string): string | null {
   }
 }
 
-export function formatImpactMeasurementValue(
+function formatImpactMeasurementValue(
   plan: Pick<ImpactMeasurementPlanContent, "value_format" | "unit">,
   value: number,
 ): string {
