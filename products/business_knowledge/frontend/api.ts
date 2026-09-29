@@ -23,7 +23,7 @@ import type {
     CrawlModeEnumApi,
     KnowledgeSourceApi,
     PlaygroundChatApi,
-    PlaygroundChatListApi,
+    PaginatedPlaygroundChatListListApi,
     SandboxQuestionApi,
     KnowledgeSourceDocumentApi,
 } from './generated/api.schemas'
@@ -133,9 +133,8 @@ export async function deleteSource(id: string): Promise<void> {
     await businessKnowledgeSourcesDestroy(String(getCurrentTeamId()), id)
 }
 
-export async function listPlaygroundChats(): Promise<PlaygroundChatListApi[]> {
-    const response = await businessKnowledgePlaygroundChatsList(String(getCurrentTeamId()))
-    return response.results
+export async function listPlaygroundChats(offset: number = 0): Promise<PaginatedPlaygroundChatListListApi> {
+    return await businessKnowledgePlaygroundChatsList(String(getCurrentTeamId()), { offset })
 }
 
 export async function createPlaygroundChat(): Promise<PlaygroundChatApi> {

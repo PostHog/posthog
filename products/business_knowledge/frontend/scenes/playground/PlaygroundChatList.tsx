@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconMessage, IconPlusSmall, IconSearch, IconTrash } from '@posthog/icons'
-import { LemonDialog, LemonInput, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonInput, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { Link } from 'lib/lemon-ui/Link'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -14,10 +14,19 @@ import { businessKnowledgePlaygroundLogic } from './businessKnowledgePlaygroundL
 import { formatChatAge } from './playgroundDisplay'
 
 export function PlaygroundChatList(): JSX.Element {
-    const { chats, chatsLoading, chatGroups, chatSearch, chatId, chatHasOpenTurn, deletingChatId } = useValues(
-        businessKnowledgePlaygroundLogic
-    )
-    const { newChat, deleteChat, setChatSearch } = useActions(businessKnowledgePlaygroundLogic)
+    const {
+        chats,
+        chatsLoading,
+        chatGroups,
+        chatSearch,
+        chatId,
+        chatHasOpenTurn,
+        deletingChatId,
+        nextChatsOffset,
+        loadingMoreChats,
+        moreChatsError,
+    } = useValues(businessKnowledgePlaygroundLogic)
+    const { newChat, deleteChat, setChatSearch, loadMoreChats } = useActions(businessKnowledgePlaygroundLogic)
 
     const confirmDelete = (id: string): void => {
         LemonDialog.open({
@@ -39,8 +48,8 @@ export function PlaygroundChatList(): JSX.Element {
                     type="search"
                     size="small"
                     className="min-h-[30px] min-w-0 flex-1"
-                    placeholder="Filter chats"
-                    aria-label="Filter chats"
+                    placeholder="Filter loaded chats"
+                    aria-label="Filter loaded chats"
                     value={chatSearch}
                     onChange={setChatSearch}
                     fullWidth
@@ -131,6 +140,22 @@ export function PlaygroundChatList(): JSX.Element {
                             </Collapsible.Panel>
                         </Collapsible>
                     ))
+                )}
+                {moreChatsError && (
+                    <p role="alert" className="px-2 text-xs text-danger">
+                        {moreChatsError}
+                    </p>
+                )}
+                {nextChatsOffset !== null && (
+                    <LemonButton
+                        size="small"
+                        center
+                        loading={loadingMoreChats}
+                        disabledReason={chatsLoading ? 'Wait for chats to load' : undefined}
+                        onClick={loadMoreChats}
+                    >
+                        Load more chats
+                    </LemonButton>
                 )}
             </div>
         </aside>
