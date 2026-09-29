@@ -17,8 +17,6 @@ export const BI_QUERY_LIMITS = [100, 1000, 10000, 50000] as const
 
 export type BIQueryLimit = (typeof BI_QUERY_LIMITS)[number]
 
-export const PIVOT_TABLE_QUERY_LIMIT: BIQueryLimit = 1000
-
 export type BISortDirection = 'asc' | 'desc'
 
 export interface BISort {
@@ -115,10 +113,6 @@ export const DEFAULT_BI_CONFIG: BIConfig = {
 
 export function normalizeBIConfig(config: BIConfig): BIConfig {
     let normalized = config
-    if (normalized.chartType === ChartDisplayType.TwoDimensionalHeatmap && normalized.limit > PIVOT_TABLE_QUERY_LIMIT) {
-        normalized = { ...normalized, limit: PIVOT_TABLE_QUERY_LIMIT }
-    }
-
     const sort = normalized.sort
     if (sort && !getBISortOptions(normalized).some((option) => option.key === sort.key)) {
         normalized = { ...normalized, sort: null }
