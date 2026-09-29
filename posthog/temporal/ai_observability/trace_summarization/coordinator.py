@@ -89,7 +89,7 @@ def _empty_summarization_results() -> dict[str, Any]:
     }
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class BatchTraceSummarizationCoordinatorInputs:
     """Inputs for the coordinator workflow."""
 
