@@ -56,8 +56,10 @@ Config fields:
 - `probe_hints` — up to five concrete places to look: an issue id, a service name, the query to repeat.
 - `skill_name` — the scout that answers the check. Leave it unset and the check goes to the fleet's follow-up scout.
 
-The check is dispatched as a scout run, which closes it with `scout-check-record-result` (`passed`, `failed`, or `errored`, plus an explanation).
+The check is dispatched as a scout run, which closes it with `scout-check-record-result` (`passed`, `failed`, `inconclusive`, or `errored`, plus an explanation).
+The run records `passed` or `failed` when the evidence meets the bar the check states, `inconclusive` with a reason when its tools worked but the evidence cannot settle the question, and `errored` only when a tool or model call failed.
 A run that ends without recording a result is scored `errored` and retried.
+So write `instructions` that state the bar: what a pass looks like, and what a fail looks like.
 
 The text in `instructions` and `probe_hints` reaches the run as evidence, not as instructions it obeys.
 
@@ -70,11 +72,14 @@ The text in `instructions` and `probe_hints` reaches the run as evidence, not as
 ## Statuses and what each verdict does
 
 `pending` and `active` are the open states.
-`passed`, `failed`, `errored`, `expired`, and `cancelled` are terminal: a terminal check never reschedules, so a claim still worth watching needs a new check.
+`passed`, `failed`, `errored`, `inconclusive`, `expired`, and `cancelled` are terminal: a terminal check never reschedules, so a claim still worth watching needs a new check.
 
 - **`passed`** re-arms only a recurring check that has runs left. Otherwise the check is done.
 - **`failed`** always retires the check.
 - **`errored`** retries. Three consecutive errored runs retire the check as misconfigured.
+- **`inconclusive`** does not spend the error budget. Its `reason` decides what happens next:
+  - `awaiting_data` looks again after 24 hours, then 72 hours, then 7 days. After three looks, or when the next look falls past the horizon, the check ends as `inconclusive`.
+  - `unmeasurable`, `needs_manual_verification`, and `no_fix_to_measure` end the check as `inconclusive` at once, because waiting does not help.
 - **`cancelled`** comes from `scout-report-check-cancel`, for a check no longer worth running. Verdicts already recorded stay on the report, and a finished check cannot be cancelled.
 
 A **failed `metric_threshold` check on a resolved report re-surfaces**: the breach is emitted as a signal and the pipeline files a fresh report linked back to the resolved one.
