@@ -8,6 +8,7 @@ import { AppState } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { useAuth } from "@/lib/auth";
+import { usePrefs } from "@/lib/prefs";
 import { useRepo } from "@/lib/repo";
 import { useSessions } from "@/lib/session";
 import { colors } from "@/lib/theme";
@@ -24,10 +25,12 @@ function AuthGate() {
   const router = useRouter();
 
   const hydrateRepo = useRepo((s) => s.hydrate);
+  const hydratePrefs = usePrefs((s) => s.hydrate);
   useEffect(() => {
     hydrate();
     hydrateRepo();
-  }, [hydrate, hydrateRepo]);
+    hydratePrefs();
+  }, [hydrate, hydrateRepo, hydratePrefs]);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -75,6 +78,16 @@ export default function RootLayout() {
           >
             <Stack.Screen name="login" options={{ animation: "fade" }} />
             <Stack.Screen name="(drawer)" />
+            <Stack.Screen
+              name="settings"
+              options={{
+                presentation: "formSheet",
+                sheetAllowedDetents: [0.6, 1],
+                sheetGrabberVisible: true,
+                sheetCornerRadius: 32,
+                contentStyle: { backgroundColor: colors.bg },
+              }}
+            />
           </Stack>
         </QueryClientProvider>
       </KeyboardProvider>

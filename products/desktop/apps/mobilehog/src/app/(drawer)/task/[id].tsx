@@ -1,46 +1,28 @@
 import { useLocalSearchParams } from "expo-router";
 import { useEffect, useRef, useState } from "react";
-import {
-  ActivityIndicator,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
+import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { KeyboardStickyView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ChatHeader } from "@/components/ChatHeader";
 import { Composer } from "@/components/Composer";
 import { DrawerScene } from "@/components/DrawerScene";
-import { Transcript } from "@/components/Transcript";
+import { FadeScrim } from "@/components/FadeScrim";
+import { Hedgehog } from "@/components/Hedgehog";
+import { StatusLine, Transcript } from "@/components/Transcript";
 import { DEFAULT_MODEL } from "@/config";
+import { usePrefs } from "@/lib/prefs";
 import { useTask } from "@/lib/queries";
 import { useSessions } from "@/lib/session";
 import { colors, fonts } from "@/lib/theme";
 
-function statusLine(
-  runStatus: string | null,
-  stage: string | null,
-  turnActive: boolean,
-  awaitingInput: boolean,
-  connected: boolean,
-): string {
-  if (runStatus === "queued" || runStatus === "not_started")
-    return "Starting sandbox";
-  if (runStatus === "completed") return "Run finished";
-  if (runStatus === "failed") return "Run failed";
-  if (runStatus === "cancelled") return "Run stopped";
-  if (awaitingInput) return "Waiting for you";
-  if (turnActive) return stage ? stage : "Working";
-  if (!connected) return "Connecting";
-  return "Idle";
-}
-
 export default function TaskScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const insets = useSafeAreaInsets();
-  const task = useTask(id);
+  // Placeholder chats have no task yet; the store holds their session.
+  const isPending = id.startsWith("new-");
+  const task = useTask(isPending ? "" : id);
   const session = useSessions((s) => s.sessions[id]);
+  const hedgehogMode = usePrefs((s) => s.hedgehogMode);
   const { connect, disconnect, sendPrompt, cancelTurn, respondToPermission } =
     useSessions();
   const [model, setModel] = useState(
@@ -52,6 +34,7 @@ export default function TaskScreen() {
   const didInitialScroll = useRef(false);
   const pendingScrollTo = useRef<string | null>(null);
   const [viewportHeight, setViewportHeight] = useState(0);
+  const [composerHeight, setComposerHeight] = useState(0);
   const topPadding = insets.top + 70;
 
   const runId = task.data?.latest_run?.id;
@@ -67,6 +50,14 @@ export default function TaskScreen() {
   }, [task.data?.latest_run?.model]);
 
   const blocks = session?.blocks;
+  // Walks while thinking or using tools; stands still once text is streaming.
+  const tail = blocks?.[blocks.length - 1];
+  const streamingText = tail?.kind === "agent" && !tail.complete;
+  const walking = !!session?.turnActive && !streamingText;
+  const booting =
+    !!session &&
+    (session.runStatus === "queued" || session.runStatus === "not_started") &&
+    !blocks?.some((block) => block.kind !== "user");
   useEffect(() => {
     if (blocks && blocks.length > 0 && !didInitialScroll.current) {
       didInitialScroll.current = true;
@@ -94,64 +85,75 @@ export default function TaskScreen() {
     });
   };
 
-  const subtitle = session
-    ? statusLine(
-        session.runStatus,
-        session.stage,
-        session.turnActive,
-        session.awaitingInput,
-        session.connected,
-      )
-    : "Loading";
-
   return (
     <DrawerScene>
       <ChatHeader />
-      {!session || (session.blocks.length === 0 && !session.connected) ? (
-        <View style={styles.loading}>
-          <ActivityIndicator color={colors.inkMute} />
-          <Text style={styles.loadingText}>
-            {task.error ? task.error.message : subtitle}
-          </Text>
-        </View>
-      ) : (
-        <ScrollView
-          ref={scrollRef}
-          onLayout={(event) =>
-            setViewportHeight(event.nativeEvent.layout.height)
-          }
-          contentContainerStyle={[
-            styles.scroll,
-            {
-              paddingTop: topPadding,
-              // Room to pin a fresh message near the top of the screen.
-              paddingBottom: Math.max(24, viewportHeight - 200),
-            },
-          ]}
-          keyboardDismissMode="interactive"
-        >
+      <ScrollView
+        ref={scrollRef}
+        onLayout={(event) => setViewportHeight(event.nativeEvent.layout.height)}
+        contentContainerStyle={[
+          styles.scroll,
+          {
+            paddingTop: topPadding,
+            // Clear the floating composer, and leave room to pin a fresh
+            // message near the top of the screen.
+            paddingBottom: Math.max(composerHeight + 16, viewportHeight - 200),
+          },
+        ]}
+        keyboardDismissMode="interactive"
+      >
+        {session ? (
           <Transcript
             session={session}
+            workingLabel={
+              session.resuming
+                ? "Reconnecting"
+                : booting
+                  ? "Starting sandbox"
+                  : session.connected
+                    ? "Working"
+                    : "Connecting"
+            }
             onPermission={(toolCallId, optionId) =>
               respondToPermission(id, toolCallId, optionId)
             }
             onUserLayout={onUserLayout}
           />
-          {session.error ? (
-            <Text style={styles.error}>{session.error}</Text>
-          ) : null}
-        </ScrollView>
-      )}
-      <KeyboardStickyView offset={{ closed: 0, opened: insets.bottom }}>
-        <View style={[styles.composer, { paddingBottom: insets.bottom + 8 }]}>
-          <Composer
-            placeholder="Reply"
-            model={model}
-            onModelChange={setModel}
-            onSend={send}
-            onStop={() => cancelTurn(id)}
-            busy={session?.turnActive}
-          />
+        ) : (
+          <View style={styles.loading}>
+            <StatusLine
+              label={task.error ? task.error.message : "Loading"}
+              active={!task.error}
+            />
+          </View>
+        )}
+        {session?.error ? (
+          <Text style={styles.error}>{session.error}</Text>
+        ) : null}
+      </ScrollView>
+      <KeyboardStickyView
+        offset={{ closed: 0, opened: insets.bottom }}
+        style={styles.dock}
+      >
+        <View
+          style={[styles.composer, { paddingBottom: insets.bottom + 8 }]}
+          onLayout={(event) =>
+            setComposerHeight(event.nativeEvent.layout.height)
+          }
+        >
+          {session && hedgehogMode ? <Hedgehog walking={walking} /> : null}
+          <View>
+            <FadeScrim style={styles.scrim} />
+            <Composer
+              placeholder="Reply"
+              model={model}
+              onModelChange={setModel}
+              onSend={send}
+              onStop={isPending ? undefined : () => cancelTurn(id)}
+              busy={session?.turnActive}
+              sending={isPending}
+            />
+          </View>
         </View>
       </KeyboardStickyView>
     </DrawerScene>
@@ -159,8 +161,7 @@ export default function TaskScreen() {
 }
 
 const styles = StyleSheet.create({
-  loading: { flex: 1, alignItems: "center", justifyContent: "center", gap: 10 },
-  loadingText: { color: colors.inkMute, fontFamily: fonts.sans, fontSize: 13 },
+  loading: { paddingHorizontal: 18 },
   scroll: { gap: 14 },
   error: {
     color: colors.danger,
@@ -168,6 +169,14 @@ const styles = StyleSheet.create({
     fontSize: 13,
     paddingHorizontal: 18,
     marginTop: 8,
+  },
+  dock: { position: "absolute", left: 0, right: 0, bottom: 0 },
+  scrim: {
+    position: "absolute",
+    top: -40,
+    bottom: -60,
+    left: -12,
+    right: -12,
   },
   composer: { paddingHorizontal: 12 },
 });
