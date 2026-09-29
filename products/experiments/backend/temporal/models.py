@@ -219,7 +219,7 @@ class ExperimentPrecomputeEnrollmentCensusInputs:
 SCHEDULED_RECALCULATION_WORKFLOW_NAME = "experiment-scheduled-recalculation-workflow"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class ScheduledRecalculationWorkflowInputs:
     """Input to the scheduled recalculation coordinator."""
 
