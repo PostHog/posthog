@@ -8,6 +8,8 @@ import { BindLogic } from 'kea'
 import { expectLogic, partial } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -885,7 +887,7 @@ describe('experimentWizardLogic', () => {
             sessionStorage.clear()
             useMocks(apiMocks)
             initKeaTests()
-            // The checkbox's disabledReason fails closed when the app context carries no access
+            // The toggle's disabledReason fails closed when the app context carries no access
             // levels, which would swallow every click; grant what the backend grants an editor.
             appContextBeforeGrant = window.POSTHOG_APP_CONTEXT
             window.POSTHOG_APP_CONTEXT = {
@@ -927,40 +929,68 @@ describe('experimentWizardLogic', () => {
             )
         }
 
+        const setArm = (arm: 'control' | 'test'): void => {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.EXPERIMENT_WIZARD_REPLAY_VISION_CARD], {
+                [FEATURE_FLAGS.EXPERIMENT_WIZARD_REPLAY_VISION_CARD]: arm,
+            })
+        }
+
+        // `control` keeps the checkbox, `test` shows the card with a toggle
+        const turnOn = async (arm: 'control' | 'test'): Promise<void> => {
+            await userEvent.click(
+                arm === 'test'
+                    ? screen.getByLabelText('Watch participant behavior with Replay Vision')
+                    : screen.getByText('Watch participant behavior with Replay Vision')
+            )
+        }
+
         it.each([
-            {
-                desc: 'a tick without org AI consent opens the consent popover instead of arming the scanner',
-                accepted: false,
-                expectedArmed: false,
-            },
-            {
-                desc: 'a tick with org AI consent arms the scanner without the popover',
-                accepted: true,
-                expectedArmed: true,
-            },
-        ])('$desc', async ({ accepted, expectedArmed }) => {
-            ;(global as any).__consentAccepted = accepted
+            { arm: 'control' as const, accepted: false, expectedArmed: false },
+            { arm: 'control' as const, accepted: true, expectedArmed: true },
+            { arm: 'test' as const, accepted: false, expectedArmed: false },
+            { arm: 'test' as const, accepted: true, expectedArmed: true },
+        ])(
+            'in $arm, turning it on with org AI consent $accepted arms the scanner: $expectedArmed',
+            async ({ arm, accepted, expectedArmed }) => {
+                ;(global as any).__consentAccepted = accepted
+                setArm(arm)
 
-            renderAnalyticsStep()
-            await userEvent.click(screen.getByText('Watch participant behavior with Replay Vision'))
+                renderAnalyticsStep()
+                await turnOn(arm)
 
-            // Without the gate the unconsented tick lands in the logic, and the save path then
-            // creates a scanner the backend refuses with the consent 400.
-            expect(logic.values.createReplayVisionScanner).toBe(expectedArmed)
-            const popoverPrompt = screen.queryByText(/needs your approval/)
-            if (accepted) {
-                expect(popoverPrompt).not.toBeInTheDocument()
-            } else {
-                expect(popoverPrompt).toBeInTheDocument()
+                // Without the gate the unconsented click lands in the logic, and the save path then
+                // creates a scanner the backend refuses with the consent 400.
+                expect(logic.values.createReplayVisionScanner).toBe(expectedArmed)
+                const popoverPrompt = screen.queryByText(/needs your approval/)
+                if (accepted) {
+                    expect(popoverPrompt).not.toBeInTheDocument()
+                } else {
+                    expect(popoverPrompt).toBeInTheDocument()
+                }
             }
-        })
+        )
 
-        it('shows the per-session price next to the checkbox', () => {
+        it.each(['control' as const, 'test' as const])('shows the per-session price in %s', (arm) => {
             ;(global as any).__consentAccepted = true
+            setArm(arm)
 
             renderAnalyticsStep()
 
             expect(screen.getByText(/Each scanned session costs/)).toBeInTheDocument()
+        })
+
+        it('shows the card with a toggle only in the test arm', () => {
+            ;(global as any).__consentAccepted = true
+            setArm('test')
+
+            renderAnalyticsStep()
+
+            expect(screen.getByLabelText('Watch participant behavior with Replay Vision')).toHaveAttribute(
+                'role',
+                'switch'
+            )
+            expect(screen.queryByRole('checkbox')).not.toBeInTheDocument()
+            expect(screen.getByText('Learn more about Replay Vision')).toBeInTheDocument()
         })
     })
 })
