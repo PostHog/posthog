@@ -39,8 +39,16 @@ The sidebar row uses the manifest color. Scene titles, search and other surfaces
 When the two disagree, the product shows two colors across the app.
 Always give both a light and a dark variable, because a single value is reused for dark mode and reads poorly there.
 
-**Starred entries follow the product.** A star stores only `iconType || type` and `href`.
-The file tree looks up the product by `href` (`getProductIcon` in `defaultTree.tsx`) and uses its icon and color, and it wraps custom icons in `ProductIconWrapper`.
+**Starred entries follow the product.** A star is a `FileSystemShortcut` row. It stores only the product name as `path`, `iconType || type` as `type`, and `href`.
+Stars come from two writers:
+
+- The frontend (`shortcutFromEntry` in `ProjectTree/utils.tsx`) sets `href`. The customize dialog saves all its changes in one `file_system_shortcut/bulk_update/` call.
+- The backend (`star_custom_products` in `posthog/models/file_system/starred_products.py`) stars new custom products for simple sidebar users. It sets no `href`, because product URLs exist only in the frontend.
+
+When shortcuts load, `withProductShortcutHref` in `defaultTree.tsx` fills in a missing `href` by product name.
+The file tree then looks up the product by `href` (`getSidebarProduct` in `defaultTree.tsx`) and uses its current name, tags, icon and color. It wraps custom icons in `ProductIconWrapper`.
+The sidebar rows and the customize dialog match a star to a product by name or `href` (`findProductShortcut` in `ProjectTree/utils.tsx`).
+A star keeps the name it had when a user starred it. So when you rename a product, stars created before the rename match only by `href`. Keep the `href` stable, or old stars lose their product.
 Do not add a per-surface icon override. Fix the manifest and the map, and the star follows.
 
 **Pinned rows stay neutral.** Home, Self-driving and Activity and people have no color on purpose.
