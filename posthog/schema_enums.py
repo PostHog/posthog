@@ -2441,6 +2441,7 @@ class ProductKey(StrEnum):
     LLM_ANALYTICS = "llm_analytics"
     ALERTS = "alerts"
     ANNOTATIONS = "annotations"
+    AUTORESEARCH = "autoresearch"
     BUSINESS_KNOWLEDGE = "business_knowledge"
     COHORTS = "cohorts"
     COMMENTS = "comments"
