@@ -483,7 +483,8 @@ class TestHogFlowAPI(APIBaseTest):
         )
 
         with patch(
-            "products.workflows.backend.presentation.views.hog_flow.list_workflow_last_runs", return_value={loop.id: last_run}
+            "products.workflows.backend.presentation.views.hog_flow.list_workflow_last_runs",
+            return_value={loop.id: last_run},
         ) as lookup:
             response = self.client.get(f"/api/projects/{self.team.id}/hog_flows")
 
