@@ -21,6 +21,7 @@ export interface Session {
   // OAuth sessions only; a local dev key never expires.
   refreshToken?: string;
   expiresAt?: number;
+  scopedTeams?: number[];
   projectId: number;
   projectName: string;
   userId: number;
@@ -40,6 +41,11 @@ interface AuthState {
   ) => Promise<void>;
   // Swaps an expired OAuth access token; returns the new bearer.
   refresh: () => Promise<string>;
+  selectProject: (
+    projectId: number,
+    projectName: string,
+    identity: string,
+  ) => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -101,6 +107,7 @@ async function describeSession(base: {
   apiKey: string;
   refreshToken?: string;
   expiresAt?: number;
+  scopedTeams?: number[];
   projectId?: number;
 }): Promise<Session> {
   const meResponse = await fetch(`${base.host}/api/users/@me/`, {
@@ -228,26 +235,65 @@ export const useAuth = create<AuthState>((set, get) => {
           refreshToken: tokens.refresh_token,
           expiresAt: Date.now() + tokens.expires_in * 1000,
           projectId: tokens.scoped_teams?.[0],
+          scopedTeams: tokens.scoped_teams,
         });
       }),
 
     refresh: async () => {
-      const { session: current, generation } = get();
+      const { session: current } = get();
       if (!current?.refreshToken || current.region === "local") {
         throw new Error("Session cannot be refreshed");
       }
       const tokens = await refreshOAuth(current.region, current.refreshToken);
-      if (get().session !== current)
-        throw new Error("Session changed. Sign in again.");
-      const session: Session = {
-        ...current,
-        apiKey: tokens.access_token,
-        refreshToken: tokens.refresh_token || current.refreshToken,
-        expiresAt: Date.now() + tokens.expires_in * 1000,
-      };
-      await commit(session, generation);
-      return session.apiKey;
+      await queueStorageWrite(async () => {
+        const assertCurrent = (): Session => {
+          const latest = get().session;
+          if (
+            !latest ||
+            latest.host !== current.host ||
+            latest.userId !== current.userId ||
+            latest.apiKey !== current.apiKey ||
+            latest.refreshToken !== current.refreshToken
+          ) {
+            throw new Error("Session changed. Sign in again.");
+          }
+          return latest;
+        };
+        const session: Session = {
+          ...assertCurrent(),
+          apiKey: tokens.access_token,
+          refreshToken: tokens.refresh_token || current.refreshToken,
+          expiresAt: Date.now() + tokens.expires_in * 1000,
+          scopedTeams: tokens.scoped_teams ?? current.scopedTeams,
+        };
+        await SecureStore.setItemAsync(SESSION_KEY, JSON.stringify(session));
+        assertCurrent();
+        set({ session });
+      });
+      return tokens.access_token;
     },
+
+    selectProject: (projectId, projectName, identity) =>
+      queueStorageWrite(async () => {
+        const assertCurrent = (): void => {
+          if (sessionIdentity(get()) !== identity || !get().session) {
+            throw new Error("Session changed. Open Settings again.");
+          }
+        };
+        assertCurrent();
+        const current = requireSession();
+        if (current.projectId === projectId) return;
+        if (
+          current.scopedTeams?.length &&
+          !current.scopedTeams.includes(projectId)
+        ) {
+          throw new Error("This project is not available for this sign-in.");
+        }
+        const session = { ...current, projectId, projectName };
+        await SecureStore.setItemAsync(SESSION_KEY, JSON.stringify(session));
+        assertCurrent();
+        set({ session, generation: get().generation + 1 });
+      }),
 
     logout: async () => {
       set({ session: null, generation: get().generation + 1, hydrated: true });

@@ -22,9 +22,20 @@ Repository selection and seen reports use storage keys scoped to the host, proje
 The old unscoped values are not loaded.
 Appearance remains a device preference.
 Late authentication results cannot restore a session after logout.
+Settings > Project lists projects available to the current sign-in.
+The selected project persists across restarts and token refreshes.
+Switching projects clears the previous project's cached data and navigation state.
+Cloud sign-in lists only projects included in the OAuth grant.
 
 Before sharing a build:
 
+- Sign in with access to multiple projects. Open Settings > Project, search, and select another project.
+  Confirm that tasks, spaces, reports, and repository choices belong to the selected project.
+  Restart the app and confirm that it keeps the selected project.
+- Switch projects while a token refresh or task request is pending.
+  The old project must not return, and old results must not appear in the new project.
+- Disconnect the network before opening the project list or selecting a project.
+  Confirm that the app shows an error, keeps the current project, and permits another attempt.
 - Sign in, open a task and a report, select a repository, then log out and sign in with another account.
   No data or selection from the first account should appear.
 - Log out while token refresh or a task command is pending.
