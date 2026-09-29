@@ -29,7 +29,9 @@ FINISHED_ACTIVITY_CACHE_SECONDS = 60 * 60
 
 BK_MCP_SCOPE = "business_knowledge:read"
 # The PostHog MCP server reads /api/users/@me/ to start a session, so without user:read it never connects.
-BK_MCP_SCOPES = [BK_MCP_SCOPE, "user:read"]
+# It reads the project to find its organization, and the business knowledge tools sit behind a flag
+# targeted by organization, so without project:read the search tool is hidden.
+BK_MCP_SCOPES = [BK_MCP_SCOPE, "user:read", "project:read"]
 BK_SEARCH_TOOL = "business-knowledge-documents-search"
 BK_WINDOW_TOOL = "business-knowledge-document-window-retrieve"
 DOCS_SEARCH_TOOL = "docs-search"
@@ -43,11 +45,15 @@ BK_HIDDEN_TOOLS = [
     "llma-personal-spend",
     "reminder-get",
     "reminders-list",
+    "project-get",
+    "mcp-connections-list",
+    "mcp-connection-tools-list",
     "tasks-list",
     "tasks-retrieve",
     "tasks-runs-list",
     "tasks-runs-retrieve",
     "tasks-runs-session-logs-retrieve",
+    "tasks-artifacts-list",
     "tasks-config-list",
     "tasks-me-config-list",
     "tasks-models-retrieve",
