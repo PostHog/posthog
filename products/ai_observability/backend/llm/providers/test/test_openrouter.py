@@ -6,7 +6,11 @@ from django.core.cache import cache
 import httpx
 from parameterized import parameterized
 
-from products.ai_observability.backend.llm.errors import UnsupportedModelError
+from products.ai_observability.backend.llm.errors import (
+    ModelNotFoundError,
+    StructuredOutputParseError,
+    UnsupportedModelError,
+)
 from products.ai_observability.backend.llm.providers.openai import OpenAIAdapter
 from products.ai_observability.backend.llm.providers.openrouter import (
     NON_CHAT_MODELS_CACHE_KEY,
@@ -131,24 +135,48 @@ class TestOpenRouterHeaders:
 
 
 class TestOpenRouterNonChatModels:
-    @parameterized.expand([("decision_model", "typesafe/jev-1.13", True), ("chat_model", "openai/gpt-4o", False)])
-    def test_complete_rejects_non_chat_models_before_calling(self, _name, model, rejected):
+    @parameterized.expand(
+        [
+            (
+                "not_found_on_decision_model",
+                ModelNotFoundError("typesafe/jev-1.13"),
+                "typesafe/jev-1.13",
+                UnsupportedModelError,
+            ),
+            (
+                "parse_error_on_decision_model",
+                StructuredOutputParseError("bad"),
+                "typesafe/jev-1.13",
+                UnsupportedModelError,
+            ),
+            ("empty_reply_on_decision_model", MagicMock(parsed=None), "typesafe/jev-1.13", UnsupportedModelError),
+            ("error_on_chat_model", ModelNotFoundError("openai/gpt-4o"), "openai/gpt-4o", ModelNotFoundError),
+        ]
+    )
+    def test_complete_maps_failures_of_non_chat_models(self, _name, outcome, model, expected):
         request = MagicMock(model=model)
         with (
-            patch.object(OpenAIAdapter, "complete") as mock_complete,
+            patch.object(
+                OpenAIAdapter,
+                "complete",
+                side_effect=outcome if isinstance(outcome, Exception) else None,
+                return_value=outcome,
+            ),
             patch(
                 "products.ai_observability.backend.llm.providers.openrouter._non_chat_model_ids",
                 return_value=frozenset({"typesafe/jev-1.13"}),
             ),
+            pytest.raises(expected),
         ):
-            if rejected:
-                with pytest.raises(UnsupportedModelError):
-                    OpenRouterAdapter().complete(request, "sk-or-test-key", MagicMock())
-                mock_complete.assert_not_called()
-            else:
-                assert (
-                    OpenRouterAdapter().complete(request, "sk-or-test-key", MagicMock()) is mock_complete.return_value
-                )
+            OpenRouterAdapter().complete(request, "sk-or-test-key", MagicMock())
+
+    def test_successful_complete_skips_the_catalogue(self):
+        with (
+            patch.object(OpenAIAdapter, "complete", return_value=MagicMock(parsed=MagicMock())),
+            patch("products.ai_observability.backend.llm.providers.openrouter._non_chat_model_ids") as mock_ids,
+        ):
+            OpenRouterAdapter().complete(MagicMock(model="openai/gpt-4o"), "sk-or-test-key", MagicMock())
+        mock_ids.assert_not_called()
 
     def test_catalogue_keeps_only_models_without_text_output(self):
         mock_response = MagicMock()
