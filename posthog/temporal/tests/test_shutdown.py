@@ -10,7 +10,7 @@ from temporalio.common import RetryPolicy
 from temporalio.exceptions import ActivityError, ApplicationError
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from posthog.temporal.tests.utils.workflow import Waiter, WaitInputs, WaitMode, WaitWorkflow
+from posthog.temporal.waiter.workflow import Waiter, WaitInputs, WaitMode, WaitWorkflow
 
 
 @pytest.mark.asyncio

@@ -130,7 +130,3 @@ class WaitWorkflow(PostHogWorkflow):
 
 
 WAITER = Waiter()
-
-WORKFLOWS = [WaitWorkflow]
-
-ACTIVITIES = [WAITER.wait_for_activity, WAITER.wait_for_activity_sync]
