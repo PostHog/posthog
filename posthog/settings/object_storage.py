@@ -110,17 +110,24 @@ INBOX_RANKING_PROMOTION_MIN_DAYS = get_from_env("INBOX_RANKING_PROMOTION_MIN_DAY
 # The family whose champion the serving manifest serves. The scoring sweep reads the manifest
 # from the deployment's own object store, so this is the only place the served family is chosen.
 INBOX_RANKING_SERVED_FAMILY = os.getenv("INBOX_RANKING_SERVED_FAMILY", "report_embeddings")
+# A second deployment's object store that receives a copy of every serving publish, so a region
+# that does not train still serves the trained models. Reached via ambient AWS config. Unset means
+# no mirror.
+INBOX_RANKING_SERVING_MIRROR_BUCKET = os.getenv("INBOX_RANKING_SERVING_MIRROR_BUCKET", "")
+INBOX_RANKING_SERVING_MIRROR_REGION = os.getenv("INBOX_RANKING_SERVING_MIRROR_REGION", "")
 # Scorer (products/signals/backend/ranking/scorer.py): report ids per ClickHouse vector read. A
 # larger call is paged at this size. The sweep also gives one scorer call at most this many ids, which
 # bounds the vectors and matrices one call holds.
 INBOX_RANKING_SCORING_BATCH_SIZE = get_from_env("INBOX_RANKING_SCORING_BATCH_SIZE", 500, type_cast=int)
 # Scoring sweep (products/signals/backend/ranking/sweep.py). Off by default: the schedule still
-# ticks, but the activity returns before it reads or writes anything. The max age keeps the vector
-# read inside a few weekly partitions and well inside the 3-month vector TTL. The per-tick cap
+# ticks, but the activity returns before it reads or writes anything. The 7-day max age keeps the
+# vector read to at most two weekly partitions, because the rolling window crosses one Monday
+# boundary. It also stays well inside the 3-month vector TTL. An older report keeps its latest
+# score and does not get a new score after a manifest change. The per-tick cap
 # makes the first run after enabling drain the backlog over several ticks.
 INBOX_RANKING_SCORING_ENABLED = get_from_env("INBOX_RANKING_SCORING_ENABLED", False, type_cast=str_to_bool)
 INBOX_RANKING_SCORING_INTERVAL_MINUTES = get_from_env("INBOX_RANKING_SCORING_INTERVAL_MINUTES", 15, type_cast=int)
-INBOX_RANKING_SCORING_MAX_AGE_DAYS = get_from_env("INBOX_RANKING_SCORING_MAX_AGE_DAYS", 30, type_cast=int)
+INBOX_RANKING_SCORING_MAX_AGE_DAYS = get_from_env("INBOX_RANKING_SCORING_MAX_AGE_DAYS", 7, type_cast=int)
 INBOX_RANKING_SCORING_MAX_REPORTS_PER_TICK = get_from_env(
     "INBOX_RANKING_SCORING_MAX_REPORTS_PER_TICK", 2000, type_cast=int
 )

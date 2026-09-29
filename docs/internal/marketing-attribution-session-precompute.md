@@ -63,6 +63,10 @@ Late-arriving events and session updates therefore do not depend on a cached dim
 A missing cache window at a calendar boundary does not switch this route back to the legacy live query.
 The report's date range and timezone remain unchanged.
 
+Eligible live-session queries limit ClickHouse execution to 16 threads and enable aggregation in storage order where the grouping keys permit it.
+This limits partial aggregation states and temporary spill files while preserving the existing spill threshold and timeout.
+Cached reads and ineligible queries keep the default execution settings.
+
 The initial rollout keeps the cached reader's eligibility restrictions, including date-boundary, access-control, test-account, range, and session-modifier checks.
 Conversion goals that depend on session fields or deferred action expressions also use legacy live attribution, preserving its wider session-ID lookup window.
 Ineligible queries continue to use legacy live attribution.
