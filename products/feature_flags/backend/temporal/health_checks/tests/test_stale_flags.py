@@ -37,6 +37,12 @@ from products.surveys.backend.models import Survey
 
 FULL_ROLLOUT_FILTERS = {"groups": [{"properties": [], "rollout_percentage": 100}]}
 LIVE_GATE_TARGET = "products.feature_flags.backend.temporal.health_checks.stale_flags.get_feature_flag_or_none"
+# Two ways the gate reaches no answer: the flag is absent from a loaded definition set, or the
+# SDK holds an empty set, which it keeps with no personal API key or after a 401 or a 402.
+UNDECIDED_GATE_STATES = [
+    ("flag_absent", LIVE_GATE_TARGET, None),
+    ("definitions_empty", "posthoganalytics.feature_flag_definitions", []),
+]
 LOADED_DEFINITIONS = [{"key": LIVE_GATE_FLAG}]
 
 
@@ -684,7 +690,10 @@ class TestStaleFlagsDetect(BaseTest):
         assert results == {}
         assert queries.captured_queries == []
 
-    def test_live_gate_raises_rather_than_resolve_issues_it_cannot_decide_on(self) -> None:
+    @parameterized.expand(UNDECIDED_GATE_STATES)
+    def test_live_gate_raises_rather_than_resolve_issues_it_cannot_decide_on(
+        self, _name: str, target: str, value: Any
+    ) -> None:
         self._create_flag("archived-flag", **stale_by_usage())
         HealthIssue.objects.create(
             team=self.team,
@@ -695,27 +704,29 @@ class TestStaleFlagsDetect(BaseTest):
             status=HealthIssue.Status.ACTIVE,
         )
 
-        with patch(LIVE_GATE_TARGET, return_value=None), capture_logs() as logs:
+        with patch(target, return_value=value), capture_logs() as logs:
             with self.assertRaises(RuntimeError):
                 self._detect()
 
         assert HealthIssue.objects.filter(team=self.team, status=HealthIssue.Status.ACTIVE).count() == 1
         assert "stale_feature_flags_live_gate_undecided_with_active_issues" in [log["event"] for log in logs]
 
-    def test_live_gate_stays_quiet_when_it_cannot_decide_and_no_issue_is_open(self) -> None:
+    @parameterized.expand(UNDECIDED_GATE_STATES)
+    def test_live_gate_stays_quiet_when_it_cannot_decide_and_no_issue_is_open(
+        self, _name: str, target: str, value: Any
+    ) -> None:
         self._create_flag("no-flag-yet", **stale_by_usage())
 
-        with patch(LIVE_GATE_TARGET, return_value=None):
+        with patch(target, return_value=value):
             results = self._detect()
 
         assert results == {}
 
-    @parameterized.expand([("missing", None), ("empty", [])])
-    def test_live_gate_raises_when_definitions_are_unavailable(self, _name: str, definitions: Any) -> None:
+    def test_live_gate_raises_when_definitions_are_unavailable(self) -> None:
         self._create_flag("definitions-down", **stale_by_usage())
 
         with (
-            patch("posthoganalytics.feature_flag_definitions", return_value=definitions),
+            patch("posthoganalytics.feature_flag_definitions", return_value=None),
             patch(LIVE_GATE_TARGET) as flag_read,
             capture_logs() as logs,
         ):

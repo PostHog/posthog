@@ -236,14 +236,20 @@ def _live_gate_team_ids(team_ids: list[int]) -> list[int]:
         # team, so every team is undecided rather than disabled.
         _refuse_to_resolve_undecided(team_ids)
         return []
-    # Falsy rather than `is None`: the SDK installs an empty list on a 401 or a 402, and an
-    # empty definition set answers the gate no better than a missing one. Checking once per
-    # batch is also what keeps `only_evaluate_locally` cheap, because the SDK calls
-    # `load_feature_flags()` whenever its definitions are None and a /flags/definitions timeout
-    # would then be paid once per team.
-    if not posthoganalytics.feature_flag_definitions():
+    definitions = posthoganalytics.feature_flag_definitions()
+    # None means the SDK has not loaded definitions yet. Checking once per batch is what keeps
+    # `only_evaluate_locally` cheap, because the SDK calls `load_feature_flags()` whenever its
+    # definitions are None and a /flags/definitions timeout would then be paid once per team.
+    # The raise lets the activity retry find the loaded set.
+    if definitions is None:
         logger.warning("stale_feature_flags_live_gate_definitions_unavailable", team_count=len(team_ids))
         raise RuntimeError(f"{LIVE_GATE_FLAG} is unreadable: the SDK holds no flag definitions")
+    # The SDK keeps an empty list when it has no personal API key, after a 401 or a 402, and when
+    # the project holds no flags. The gate flag is absent from it, so every team is undecided.
+    # Raising regardless would fail every run on an instance that can never enable a team.
+    if not definitions:
+        _refuse_to_resolve_undecided(team_ids)
+        return []
 
     enabled: list[int] = []
     undecided: list[int] = []
