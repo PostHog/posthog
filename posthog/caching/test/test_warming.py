@@ -1,7 +1,7 @@
 from datetime import UTC, datetime, timedelta
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from posthog.hogql.errors import QueryError
 
@@ -128,6 +128,22 @@ class TestScheduleWarmingForTeamsTask(APIBaseTest):
         self.organization = self.create_organization_with_features([])
         self.team1 = self.create_team_with_organization(organization=self.organization)
         self.team2 = self.create_team_with_organization(organization=self.organization)
+
+    @patch("posthog.caching.warming.chain")
+    @patch("posthog.caching.warming.ph_scoped_capture")
+    @patch("posthog.caching.warming.teams_enabled_for_cache_warming", return_value=[])
+    @patch("posthog.caching.warming.largest_teams")
+    @patch("posthog.caching.warming.insights_to_keep_fresh")
+    def test_reports_selected_contexts_separately(
+        self, candidates: MagicMock, teams: MagicMock, _enabled: MagicMock, capture: MagicMock, _chain: MagicMock
+    ) -> None:
+        teams.return_value = [self.team1.pk]
+        candidates.return_value = iter([(1234, None), (1234, 5678), (2345, 5678)])
+        schedule_warming_for_teams_task()
+        properties = capture.return_value.__enter__.return_value.call_args.kwargs["properties"]
+        assert properties["count"] == 3
+        assert properties["standalone_count"] == 1
+        assert properties["dashboard_count"] == 2
 
     @patch("posthog.caching.warming.largest_teams")
     @patch("posthog.caching.warming.insights_to_keep_fresh")

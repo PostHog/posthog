@@ -53,6 +53,7 @@ _SKILLS_DIR = Path(__file__).resolve().parent.parent.parent / "skills"
 _FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 # Bundled subdirs walked recursively, in lockstep with the scout sync's `_ALLOWED_BUNDLE_SUBDIRS`.
 _ALLOWED_BUNDLE_SUBDIRS = ("references", "scripts")
+_BYTECODE_CACHE_DIR = "__pycache__"
 # Per-skill contract limits, mirroring `products/skills/backend/api/skill_services.py` (the seed
 # bypasses the service layer, so they're checked at parse time).
 _MAX_SKILL_BODY_BYTES = 1_000_000
@@ -165,7 +166,7 @@ def _parse_canonical_skill(skill_dir: Path, *, prefix: str) -> CanonicalSkill:
         if not subdir.is_dir():
             continue
         for file_path in sorted(subdir.rglob("*")):
-            if not file_path.is_file():
+            if not file_path.is_file() or _BYTECODE_CACHE_DIR in file_path.relative_to(subdir).parts:
                 continue
             rel_path = file_path.relative_to(skill_dir).as_posix()
             if len(rel_path) > _MAX_SKILL_FILE_PATH_LENGTH:

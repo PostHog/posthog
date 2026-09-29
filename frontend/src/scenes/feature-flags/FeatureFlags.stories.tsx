@@ -180,6 +180,27 @@ export const StaleFeatureFlag: Story = {
     },
 }
 
+export const StaleFeatureFlagWithAiAssessment: Story = {
+    parameters: {
+        pageUrl: urls.featureFlag(STALE_FLAG_ID),
+        featureFlags: [
+            FEATURE_FLAGS.REALTIME_COHORT_FLAG_TARGETING,
+            FEATURE_FLAGS.PHAI_SANDBOX_MODE,
+            FEATURE_FLAGS.FEATURE_FLAG_CLEANUP_ASSESSMENT,
+        ],
+    },
+    play: async ({ canvasElement }) => {
+        await waitFor(
+            () => {
+                if (!canvasElement.querySelector('[data-attr="feature-flag-stale-banner-review-cleanup"]')) {
+                    throw new Error('AI assessment action not rendered')
+                }
+            },
+            { timeout: 30000 }
+        )
+    },
+}
+
 export const FeatureFlagNotFound: Story = {
     parameters: {
         pageUrl: urls.featureFlag(1111111111111),
