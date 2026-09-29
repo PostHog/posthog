@@ -4623,7 +4623,7 @@ class TestChunkedRereadAfterRecoveryConflict:
 
         # Rows at or below the checkpoint are never re-read, which is what makes a resumed load
         # append-safe: the pipeline appends after batch 0 rather than overwriting.
-        assert ids and min(ids) > 2
+        assert ids and all(isinstance(row_id, int) and row_id > 2 for row_id in ids)
 
 
 class TestCheckKeysetPagePlan:
