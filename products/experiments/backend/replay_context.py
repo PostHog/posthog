@@ -75,9 +75,12 @@ def session_variant(linkage: ExperimentExposureLinkage, distinct_id: str) -> str
     )
     assert isinstance(candidate, ast.SelectQuery)
     select = exposed_persons_select(linkage, include_multiple_variant=False, candidate_distinct_ids=candidate)
-    settings = None
-    if linkage.live_scan_max_memory_bytes is not None:
-        settings = HogQLGlobalSettings(max_memory_usage=linkage.live_scan_max_memory_bytes)
+    # Under a "break" timeout profile a timed-out scan returns partial rows, which would read as a
+    # complete attribution (or as "unexposed"); a timeout must fail the lookup instead.
+    settings = HogQLGlobalSettings(
+        timeout_overflow_mode="throw",
+        max_memory_usage=linkage.live_scan_max_memory_bytes,
+    )
     response = execute_hogql_query(select, team=linkage.context.team, settings=settings)
     rows = response.results or []
     if not rows:
@@ -127,10 +130,20 @@ def experiment_prompt_context(team: Team, *, experiment_id: int) -> ExperimentPr
         for definition in flag.variants
         if definition.get("key") in requestable
     )
-    primary_metric_names = tuple(
-        metric.get("name") or get_default_metric_title(metric)
-        for metric in experiment.metrics or []
-        if isinstance(metric, dict)
+    # Saved metrics live on a junction table, classified primary/secondary by the link's
+    # metadata.type, so reading experiment.metrics alone would drop them from the prompt.
+    saved_primary_names = tuple(
+        link.saved_metric.name
+        for link in experiment.experimenttosavedmetric_set.select_related("saved_metric").all()
+        if (link.metadata or {}).get("type", "primary") == "primary"
+    )
+    primary_metric_names = (
+        tuple(
+            metric.get("name") or get_default_metric_title(metric)
+            for metric in experiment.metrics or []
+            if isinstance(metric, dict)
+        )
+        + saved_primary_names
     )
     return ExperimentPromptContext(
         id=experiment.pk,

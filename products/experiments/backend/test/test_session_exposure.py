@@ -277,9 +277,7 @@ class TestExposedPopulationSelects(BaseTest):
         single = resolve_exposure_linkage(self.team, experiment_id=experiment.pk, variant="test")
         assert single.requested_variants == ["test"]
 
-        listed = resolve_exposure_linkage(
-            self.team, experiment_id=experiment.pk, variants=["test", "control", "test"]
-        )
+        listed = resolve_exposure_linkage(self.team, experiment_id=experiment.pk, variants=["test", "control", "test"])
         assert listed.requested_variants == ["test", "control"]
         assert _variant_filter(exposed_distinct_ids_select(listed)) == ["test", "control"]
 

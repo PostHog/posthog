@@ -77,7 +77,9 @@ class ExperimentStatus:
 
     @property
     def is_active(self) -> bool:
-        """True while the experiment collects exposures a replay surface can watch."""
+        """True until the experiment ends or is archived. A paused experiment (its flag turned
+        off) stays active: it collects no exposures while paused, but it resumes without a
+        lifecycle change, so a watcher should keep watching."""
         return self.start_date is not None and self.end_date is None and not self.archived
 
 

@@ -7,7 +7,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.test.persons import create_person
 
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.models.experiment import Experiment, ExperimentSavedMetric, ExperimentToSavedMetric
 from products.experiments.backend.replay_context import (
     experiment_prompt_context,
     experiment_status,
@@ -74,6 +74,11 @@ class TestExperimentReplayContext(BaseTest):
                 },
             ],
         )
+        for name, link_type in (("Checkout conversion", "primary"), ("Support tickets", "secondary")):
+            saved = ExperimentSavedMetric.objects.create(team=self.team, name=name, query={"kind": "ExperimentMetric"})
+            ExperimentToSavedMetric.objects.create(
+                experiment=experiment, saved_metric=saved, metadata={"type": link_type}
+            )
 
         context = experiment_prompt_context(self.team, experiment_id=experiment.pk)
 
@@ -85,7 +90,7 @@ class TestExperimentReplayContext(BaseTest):
             ("control", "Current checkout", 50.0),
             ("test", "One-click checkout", 40.0),
         ]
-        assert context.primary_metric_names == ("Purchases", "Mean purchase")
+        assert context.primary_metric_names == ("Purchases", "Mean purchase", "Checkout conversion")
 
         experiment.deleted = True
         experiment.save()
