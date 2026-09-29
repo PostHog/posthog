@@ -1,7 +1,7 @@
 import type { Task } from "@posthog/shared";
 import { Box, Text, useAnimation, useBoxMetrics } from "ink";
 import { type ReactElement, useEffect, useMemo, useRef, useState } from "react";
-import { type ActionsLine, canRun, openActions } from "../actions";
+import { type ActionsLine, actionsSheet, openActions } from "../actions";
 import type { ChatView } from "../chatView";
 import type { Composer } from "../composer";
 import { faint } from "../faint";
@@ -13,6 +13,7 @@ import {
   runNotice,
   withListedRun,
 } from "../runs";
+import { renderSheet, type Sheet } from "../sheet";
 import { transcriptFrom, withPending } from "../transcript";
 import { Spinner } from "./Spinner";
 
@@ -49,6 +50,7 @@ export function Pane({
   pending,
   onOffer,
   picker,
+  modal,
   focused,
 }: {
   title: string;
@@ -61,6 +63,8 @@ export function Pane({
   pending: string | null;
   onOffer: (offer: ActionsLine | null) => void;
   picker: { index: number; dismissed: Set<string> };
+  // A sheet the app opened for this pane, such as the model picker.
+  modal: { sheet: Sheet; index: number } | null;
   focused: boolean;
 }): ReactElement {
   // A split can hand a pane half a row; the title stays on top and the chat on the bottom, so the spare row falls between them.
@@ -130,10 +134,18 @@ export function Pane({
   useEffect(() => {
     onOffer(offer);
   });
-  const pickerOpen = offer !== null && !picker.dismissed.has(offer.id);
-  const pickerRows = pickerOpen ? offer.actions.length + 1 : 0;
-  const chatHeight =
-    height - composerLines.length - pickerRows - (view.error ? 1 : 0);
+  // A modal sheet takes the composer's place; an offer sheet sits above the composer.
+  const offerOpen = offer !== null && !picker.dismissed.has(offer.id);
+  const sheetLines =
+    width <= 0
+      ? []
+      : modal
+        ? renderSheet(modal.sheet, modal.index, width).map(shade)
+        : offerOpen
+          ? renderSheet(actionsSheet(offer), picker.index, width).map(shade)
+          : [];
+  const bottomLines = modal ? sheetLines : [...sheetLines, ...composerLines];
+  const chatHeight = height - bottomLines.length - (view.error ? 1 : 0);
 
   let content: ReactElement;
   if (!paneTaskId && !pending)
@@ -185,29 +197,9 @@ export function Pane({
         >
           {content}
         </Box>
-        {pickerOpen &&
-          offer.actions.map((action, index) => {
-            const selected = focused && index === picker.index;
-            return (
-              <Text
-                key={`${offer.id}:${action.label}`}
-                wrap="truncate-end"
-                dimColor={!focused || !canRun(action)}
-              >
-                {selected ? "› " : "  "}
-                <Text inverse={selected}>{action.label}</Text>
-                {!canRun(action) && " (PostHog Desktop only)"}
-              </Text>
-            );
-          })}
-        {pickerOpen && (
-          <Text dimColor wrap="truncate-end">
-            ↑↓ choose · Enter open · Esc dismiss
-          </Text>
-        )}
-        {composerLines.map((line, index) => (
+        {bottomLines.map((line, index) => (
           // biome-ignore lint/suspicious/noArrayIndexKey: rows are positions on screen
-          <Text key={`composer-${index}`} wrap="truncate-end">
+          <Text key={`bottom-${index}`} wrap="truncate-end">
             {line}
           </Text>
         ))}

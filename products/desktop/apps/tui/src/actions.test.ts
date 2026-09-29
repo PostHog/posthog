@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canRun, openActions, pickerKey } from "./actions";
+import { type ActionsLine, actionsSheet, canRun, openActions } from "./actions";
 import type { ShowAction, TranscriptLine } from "./transcript";
 
 const compose: ShowAction = {
@@ -36,14 +36,16 @@ describe("canRun", () => {
   });
 });
 
-describe("pickerKey", () => {
-  it.each([
-    ["\x1b[A", "up"],
-    ["\x1b[B", "down"],
-    ["\r", "choose"],
-    ["\x1b", "dismiss"],
-    ["a", null],
-  ])("maps %j", (sequence, expected) => {
-    expect(pickerKey(sequence)).toBe(expected);
+describe("actionsSheet", () => {
+  it("lists the offered actions, greying out the ones only the desktop app can run", () => {
+    const sheet = actionsSheet(actions as ActionsLine);
+    expect(sheet.items).toEqual([
+      { label: "Try again", detail: undefined, disabled: undefined },
+      {
+        label: "Open inbox",
+        detail: undefined,
+        disabled: "PostHog Desktop only",
+      },
+    ]);
   });
 });

@@ -9,7 +9,7 @@ import {
   useInput,
 } from "ink";
 import { type ReactElement, useEffect, useMemo, useRef, useState } from "react";
-import { type ActionsLine, canRun, pickerKey } from "../actions";
+import { type ActionsLine, actionsSheet, canRun } from "../actions";
 import type { PiChats } from "../chats";
 import { ChatView } from "../chatView";
 import { Composer, isAppKey, isTyping } from "../composer";
@@ -39,6 +39,7 @@ import {
   type Wheel,
 } from "../mouse";
 import type { CloudRuns } from "../runs";
+import { moveCursor, type Sheet, type SheetKey, sheetKey } from "../sheet";
 import { DoublePress, shortcutFor } from "../shortcuts";
 import {
   activateRow,
@@ -53,6 +54,12 @@ import { Pane } from "./Pane";
 import { HEADER_GAP, Sidebar } from "./Sidebar";
 
 const PAGE_SIZE = 10;
+
+interface OpenModal {
+  sheet: Sheet;
+  index: number;
+  choose: (index: number) => void;
+}
 const REFRESH_MS = 10_000;
 const CLOSE_CONFIRM_MS = 1_000;
 const SEND_ERROR_MS = 8_000;
@@ -110,6 +117,14 @@ export function App({
     new Map(),
   );
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
+  // Modal sheets the app opened, one per pane; they take the pane's keys until closed.
+  const [modals, setModals] = useState<Map<string, OpenModal>>(new Map());
+  const closeModal = (paneId: string): void =>
+    setModals((current) => {
+      const next = new Map(current);
+      next.delete(paneId);
+      return next;
+    });
   // The cursor follows a row's identity, since previewing a chat can move rows.
   const [selected, setSelected] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -406,39 +421,76 @@ export function App({
       composerFor(paneId).handleInput(sequence);
       return;
     }
-    const key = pickerKey(sequence);
-    if (navigating && (key === "up" || key === "down")) return;
+    const key = sheetKey(sequence);
+    const modal = modals.get(paneId);
+    if (modal) {
+      if (key) onModalKey(paneId, modal, key);
+      return;
+    }
+    if (navigating && (key?.kind === "up" || key?.kind === "down")) return;
     const composer = composerFor(paneId);
     const offer = offers.current.get(paneId);
-    // With an open offer and nothing typed, arrows and Enter drive the picker.
-    if (offer && !dismissed.has(offer.id) && key && composer.isEmpty()) {
-      onPick(paneId, offer, key);
+    // With an open offer and nothing typed, arrows and Enter drive its sheet.
+    if (
+      offer &&
+      !dismissed.has(offer.id) &&
+      key &&
+      key.kind !== "number" &&
+      composer.isEmpty()
+    ) {
+      onOfferKey(paneId, offer, key);
       return;
     }
     composer.handleInput(sequence);
   };
 
-  const onPick = (
+  const onModalKey = (
+    paneId: string,
+    modal: OpenModal,
+    key: SheetKey,
+  ): void => {
+    if (key.kind === "up" || key.kind === "down") {
+      const index = moveCursor(
+        modal.sheet,
+        modal.index,
+        key.kind === "up" ? -1 : 1,
+      );
+      setModals((current) => new Map(current).set(paneId, { ...modal, index }));
+      return;
+    }
+    if (key.kind === "dismiss") {
+      closeModal(paneId);
+      return;
+    }
+    const index = key.kind === "number" ? key.index : modal.index;
+    const item = modal.sheet.items[index];
+    if (!item || item.disabled) return;
+    closeModal(paneId);
+    modal.choose(index);
+  };
+
+  const onOfferKey = (
     paneId: string,
     offer: ActionsLine,
-    key: "up" | "down" | "choose" | "dismiss",
+    key: SheetKey,
   ): void => {
+    const sheet = actionsSheet(offer);
     const index = pickerIndex.get(paneId) ?? 0;
-    const last = offer.actions.length - 1;
-    if (key === "up" || key === "down") {
-      const next = Math.min(last, Math.max(0, index + (key === "up" ? -1 : 1)));
+    if (key.kind === "up" || key.kind === "down") {
+      const next = moveCursor(sheet, index, key.kind === "up" ? -1 : 1);
       setPickerIndex((indexes) => new Map(indexes).set(paneId, next));
       return;
     }
-    const action = offer.actions[Math.min(index, last)];
-    if (key === "choose" && !canRun(action)) return;
+    const action = offer.actions[Math.min(index, offer.actions.length - 1)];
+    if (key.kind === "choose" && !canRun(action)) return;
     setDismissed((ids) => new Set(ids).add(offer.id));
-    if (key === "choose" && action.kind === "compose") {
+    if (key.kind === "choose" && action.kind === "compose") {
       const next = newChat(layout);
       setLayout(next);
       composerFor(activeWorkspace(next).focusedPaneId).setText(action.prompt);
     }
   };
+
   const handlers = useRef({ onClick, onWheel, onKey, onSubmit });
   handlers.current = { onClick, onWheel, onKey, onSubmit };
 
@@ -501,6 +553,7 @@ export function App({
               index: pickerIndex.get(node.id) ?? 0,
               dismissed,
             }}
+            modal={modals.get(node.id) ?? null}
             focused={!sidebarFocused && node.id === workspace.focusedPaneId}
           />
         </Box>

@@ -1,4 +1,4 @@
-import { matchesKey } from "@earendil-works/pi-tui";
+import type { Sheet } from "./sheet";
 import type { ShowAction, TranscriptLine } from "./transcript";
 
 export type ActionsLine = Extract<TranscriptLine, { kind: "actions" }>;
@@ -18,12 +18,14 @@ export function canRun(action: ShowAction): boolean {
   return action.kind === "compose";
 }
 
-export function pickerKey(
-  sequence: string,
-): "up" | "down" | "choose" | "dismiss" | null {
-  if (matchesKey(sequence, "up")) return "up";
-  if (matchesKey(sequence, "down")) return "down";
-  if (matchesKey(sequence, "enter")) return "choose";
-  if (matchesKey(sequence, "escape")) return "dismiss";
-  return null;
+export function actionsSheet(offer: ActionsLine): Sheet {
+  return {
+    title: "Suggested actions",
+    items: offer.actions.map((action) => ({
+      label: action.label,
+      detail: action.kind === "compose" ? action.description : undefined,
+      disabled: canRun(action) ? undefined : "PostHog Desktop only",
+    })),
+    footer: "Enter to open · Esc to dismiss · or type a reply",
+  };
 }
