@@ -59,12 +59,14 @@ describe('broadcastWizardLogic', () => {
     let latest: HogFlowApi
     let releaseCreate: () => void
     let patchedSubjects: string[]
+    let patchedNames: string[]
     let holdPatch: Promise<void> | null
     let onPatchStarted: (() => void) | null
     let failPatches: number
 
     beforeEach(() => {
         patchedSubjects = []
+        patchedNames = []
         holdPatch = null
         onPatchStarted = null
         failPatches = 0
@@ -84,7 +86,14 @@ describe('broadcastWizardLogic', () => {
             },
             patch: {
                 '/api/projects/:team_id/hog_flows/:id/': async ({ request }) => {
-                    const body = (await request.json()) as { actions: any[] }
+                    const body = (await request.json()) as { actions?: any[]; name?: string }
+                    if (!body.actions) {
+                        patchedNames.push(body.name ?? '')
+                        return [
+                            200,
+                            savedBroadcast({ name: body.name ?? '', subject: '', updatedAt: '2026-09-24T10:00:05Z' }),
+                        ]
+                    }
                     const subject = body.actions.find((action) => action.type === 'function_email').config.inputs.email
                         .value.subject
                     if (failPatches > 0) {
@@ -144,6 +153,28 @@ describe('broadcastWizardLogic', () => {
                 })
         }
     )
+
+    it.each([
+        { case: 'a renamed draft', status: 'draft', name: 'Spring sale, final', saved: ['Spring sale, final'] },
+        { case: 'an unchanged name', status: 'draft', name: 'Spring sale', saved: [] },
+        { case: 'a blank name', status: 'draft', name: '  ', saved: [] },
+        { case: 'a live broadcast', status: 'active', name: 'Spring sale, final', saved: [] },
+    ])('saves the name on blur only for $case', async ({ status, name, saved }) => {
+        logic.actions.draftAutosaved({
+            ...savedBroadcast({ name: 'Spring sale', subject: '', updatedAt: '2026-09-24T10:00:00Z' }),
+            status: status as HogFlowApi['status'],
+        })
+        logic.actions.setName(name)
+
+        await expectLogic(logic, () => {
+            logic.actions.saveName()
+        }).toFinishAllListeners()
+
+        expect(patchedNames).toEqual(saved)
+        if (saved.length) {
+            expect(logic.values.broadcast?.name).toEqual(name)
+        }
+    })
 
     it('moves a new broadcast onto its draft URL once the draft is created', async () => {
         router.actions.push('/broadcasts/new')
