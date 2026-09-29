@@ -759,11 +759,6 @@ ignore_imports = [
     "products.workflows.backend.presentation.views.hog_flow -> products.workflows.backend.utils.durations",
     "products.workflows.backend.presentation.views.hog_flow -> products.workflows.backend.utils.email_sending_tiers",
     "products.workflows.backend.presentation.views.hog_flow -> products.workflows.backend.utils.rrule_utils",
-    "products.workflows.backend.presentation.views.hog_flow_batch_job -> products.workflows.backend.models.hog_flow_batch_job",
-    "products.workflows.backend.presentation.views.workflow_scout_runs -> products.workflows.backend.models",
-    "products.workflows.backend.presentation.views.workflow_scout_runs -> products.workflows.backend.service_jwt",
-    "products.workflows.backend.presentation.views.workflow_tasks -> products.workflows.backend.models",
-    "products.workflows.backend.presentation.views.workflow_tasks -> products.workflows.backend.service_jwt",
     # TODO: access-control presentation wave — the consolidated RBAC viewsets carry their ORM
     # access with them. Thin them to parse -> facade -> serialize and delete each entry.
     "products.access_control.backend.presentation.access_control -> products.access_control.backend.models.access_control",

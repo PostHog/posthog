@@ -32,3 +32,12 @@ class HogFlowTemplateExitCondition(models.TextChoices):
     TRIGGER_NOT_MATCHED = "exit_on_trigger_not_matched"
     TRIGGER_NOT_MATCHED_OR_CONVERSION = "exit_on_trigger_not_matched_or_conversion"
     ONLY_AT_END = "exit_only_at_end"
+
+
+class HogFlowBatchJobState(models.TextChoices):
+    WAITING = "waiting"
+    QUEUED = "queued"
+    ACTIVE = "active"
+    COMPLETED = "completed"
+    CANCELLED = "cancelled"
+    FAILED = "failed"

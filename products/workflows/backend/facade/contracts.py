@@ -1,11 +1,15 @@
 from dataclasses import dataclass
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Literal, Protocol
+from typing import TYPE_CHECKING, Any, Literal, NotRequired, Protocol, TypedDict
 from uuid import UUID
 
 from posthog.dataclasses import frozen
 
-from products.workflows.backend.facade.enums import HogFlowTemplateExitCondition, HogFlowTemplateScope
+from products.workflows.backend.facade.enums import (
+    HogFlowBatchJobState,
+    HogFlowTemplateExitCondition,
+    HogFlowTemplateScope,
+)
 
 if TYPE_CHECKING:
     from posthog.models.team.team import Team
@@ -32,6 +36,33 @@ class WorkflowActivitySummary:
     total_count: int
     active_count: int
     recent: tuple[RecentWorkflow, ...]
+
+
+@frozen
+class WorkflowTaskDailyLimits:
+    """A team's daily caps on tasks created by workflows. None means the default cap applies."""
+
+    per_workflow: int | None
+    per_team: int | None
+
+
+@frozen
+class WorkflowBatchJob:
+    """One batch run of a workflow.
+
+    ``created_by`` carries the core ``User`` row rather than a projection of it, so the
+    presentation layer keeps serializing it through core's ``UserBasicSerializer`` and the
+    generated ``UserBasic`` component stays as it was.
+    """
+
+    id: UUID
+    hog_flow_id: UUID
+    status: HogFlowBatchJobState
+    filters: dict[str, Any]
+    variables: dict[str, Any]
+    created_at: datetime
+    updated_at: datetime
+    created_by: "User | None"
 
 
 @dataclass(frozen=True)
@@ -148,3 +179,39 @@ class WorkflowTemplate:
     actions: list[dict[str, Any]] | dict[str, Any]
     abort_action: str | None
     variables: list[dict[str, Any]] | None
+
+
+# The provider payloads below are TypedDicts, not frozen dataclasses: the email-verify endpoint
+# returns them as JSON without a serializer, so the keys are the API response keys.
+
+EmailDomainVerificationStatus = Literal["success", "failed", "pending"]
+
+
+class EmailDomainDnsRecord(TypedDict):
+    """One DNS record the customer adds before the domain can send email."""
+
+    type: Literal["verification", "dkim", "mail_from", "dmarc"]
+    recordType: Literal["TXT", "CNAME", "MX"]
+    recordHostname: str
+    recordValue: str
+    status: Literal["success", "pending"]
+    priority: NotRequired[int]
+
+
+class EmailDomainVerification(TypedDict):
+    status: EmailDomainVerificationStatus
+    dnsRecords: list[EmailDomainDnsRecord]
+
+
+class TwilioPhoneNumber(TypedDict):
+    """The fields callers read. The Twilio payload has more keys."""
+
+    sid: str
+    phone_number: str
+    friendly_name: str
+
+
+class TwilioAccount(TypedDict, total=False):
+    """Empty when the Twilio request fails."""
+
+    sid: str

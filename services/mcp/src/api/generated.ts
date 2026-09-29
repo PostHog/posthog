@@ -50500,6 +50500,7 @@ export namespace Schemas {
     } as const;
 
     export interface HogFlowBatchJob {
+      /** ID of the batch run. */
       readonly id: string;
       /** Not currently tracked — stays at its initial value. Use the workflow logs/metrics endpoints for run outcome.
        *
@@ -50516,8 +50517,11 @@ export namespace Schemas {
       readonly filters: unknown;
       /** Variable value overrides applied to this run. */
       variables?: unknown;
+      /** When the batch run was created. */
       readonly created_at: string;
+      /** User who started the batch run. */
       readonly created_by: UserBasic;
+      /** When the batch run was last updated. */
       readonly updated_at: string;
     }
 
