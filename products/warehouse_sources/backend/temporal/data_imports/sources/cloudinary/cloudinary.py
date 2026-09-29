@@ -10,6 +10,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     JSONResponseCursorPaginator,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 
@@ -56,7 +57,7 @@ def cloudinary_source(
     team_id: int,
     job_id: str,
     resumable_source_manager: ResumableSourceManager[CloudinaryResumeConfig],
-):
+) -> Resource:
     config: RESTAPIConfig = {
         "client": {
             "base_url": base_url(cloud_name, region),
