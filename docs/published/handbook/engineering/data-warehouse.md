@@ -122,6 +122,7 @@ Each event counts at most once for its matched platform, even if it has both a p
 Custom source mappings select which platform's signals apply; another platform's identifier cannot make that source paid.
 This check retains the UTM source catalogue's time window and top-500 limit, so it does not discover untagged sources or verify billable clicks.
 Missing signals mean insufficient evidence to recommend a connection, not proof that traffic is organic.
+The medium count describes only matched events in the lookback window; zero can also mean no events matched that integration.
 This changes setup recommendations and diagnostic actions, not report attribution or connected-source sync checks.
 
 ## Importing your local Postgres instance

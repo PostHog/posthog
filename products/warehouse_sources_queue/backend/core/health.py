@@ -13,7 +13,7 @@ logger = structlog.get_logger(__name__)
 class HealthState:
     """Tracks the health state of the consumer service."""
 
-    def __init__(self, timeout_seconds: float = 60.0):
+    def __init__(self, timeout_seconds: float = 60.0) -> None:
         self._timeout_seconds = timeout_seconds
         self._created_at: float = time.monotonic()
         self._last_heartbeat: Optional[float] = None
@@ -95,7 +95,7 @@ def start_health_server(port: int, health_state: HealthState) -> threading.Threa
     server = HTTPServer(("0.0.0.0", port), HealthCheckHandler)
     server.timeout = 1.0
 
-    def serve_forever():
+    def serve_forever() -> None:
         logger.info("health_server_started", port=port)
         server.serve_forever()
 

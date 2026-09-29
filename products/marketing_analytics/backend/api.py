@@ -740,9 +740,8 @@ class AttributionHealthEntrySerializer(serializers.Serializer):
     )
     events_matched_tagged_medium_last_7d = serializers.IntegerField(
         help_text=(
-            "Of the matched events, how many carry any utm_medium. A zero paid count does not prove organic "
-            "traffic, even when this count is non-zero: it only means no paid signal was found. Both zero means "
-            "the team doesn't tag medium."
+            "Matched events carrying any utm_medium in the lookback window. Zero means no matched event "
+            "carried a medium, including when no events matched. Missing paid signals do not prove organic traffic."
         )
     )
 
