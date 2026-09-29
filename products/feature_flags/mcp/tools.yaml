@@ -733,9 +733,8 @@ tools:
             the flag was called), NOT rollout completeness. To determine whether a flag is fully rolled out / GA, use
             the returned `rollout` object: `effectively_full_rollout` (true when targeted to everyone with no
             conditions), `has_targeting_conditions`, `max_rollout_percentage`, and `is_multivariate`. To scan the whole
-            project for stale flags, use `feature-flag-get-all` with `active: "STALE"`. For a never-called flag, that
-            filter reads the release conditions. A flag with an empty `groups` list in `filters` is not returned, even
-            when this tool calls it stale.
+            project for stale flags, use `feature-flag-get-all` with `active: "STALE"`. That filter does not return a
+            never-called flag with an empty `groups` list in `filters`, even when this tool calls it stale.
         param_overrides:
             id:
                 cast: string-int
