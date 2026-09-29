@@ -1255,11 +1255,11 @@ export interface eventUsageLogicActions {
         context: ExperimentWatchHighlightContext
         experimentId: ExperimentIdType
     }
-    reportExperimentWizardStarted: () => {
-        value: true
-    }
     reportExperimentWizardAskAiClicked: (currentStep: string) => {
         currentStep: string
+    }
+    reportExperimentWizardStarted: () => {
+        value: true
     }
     reportExperimentsListAiBadgeClicked: () => {
         value: true
