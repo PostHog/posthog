@@ -26,6 +26,7 @@ export function OfflineExperimentContent(props: OfflineExperimentLogicProps): JS
         experimentLoading,
         experimentError,
         summaries,
+        summaryCount,
         summaryCountLoading,
         summariesError,
         inspector,
@@ -153,7 +154,8 @@ export function OfflineExperimentContent(props: OfflineExperimentLogicProps): JS
                 )
             )}
             <section>
-                <details open={summaries.length <= 10} className="rounded border p-3">
+                {/* Refresh empties the summaries but keeps the last total, so the open prop does not change and React keeps the state the user chose. */}
+                <details open={(summaryCount ?? summaries.length) <= 10} className="rounded border p-3">
                     <summary className="cursor-pointer font-medium">{`Scorer summaries${summaries.length ? ` (${summaries.length})` : ''}${summaryCountLoading ? ' · Loading all scorers…' : ''}`}</summary>
                     {summariesError && (
                         <LemonBanner type="error" action={{ children: 'Try again', onClick: refresh }}>
