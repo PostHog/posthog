@@ -38,8 +38,6 @@ type TestAccountFilterProps = Partial<LemonSwitchProps> & {
     /** Runs instead of navigating to project settings when the gear is clicked. Surfaces that hold
      * unsaved state, such as a wizard step, use this to configure the filters without leaving. */
     onConfigure?: () => void
-    /** Show the settings link as a new-tab icon instead of a gear, like other links that open in a new tab.
-     * Only applies when the icon navigates to settings (no `onConfigure`). */
     settingsLinkIcon?: 'gear' | 'new-tab'
 }
 

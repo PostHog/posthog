@@ -386,8 +386,7 @@ export function ExposureCriteriaPanel({ experiment, onChange, compact }: Exposur
                         bordered={false}
                         fullWidth
                         settingsLinkIcon="new-tab"
-                        // The label would otherwise stretch across the row, making the whole row a click target.
-                        // Keep it to its text and push the switch to the right, level with the selects above.
+                        // Keep the label to its text, or the whole row becomes a click target for the switch
                         labelClassName="text-secondary font-normal !flex-none"
                         className="p-0 justify-between"
                     />

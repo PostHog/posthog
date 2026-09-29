@@ -18,7 +18,6 @@ import { VariantsPanelLinkFeatureFlag } from '../../ExperimentForm/VariantsPanel
 import { getFlagVariants } from '../../utils'
 import { experimentWizardLogic } from '../experimentWizardLogic'
 
-/** Marks a required field with a small asterisk. Screen readers hear "(required)" instead. */
 function RequiredMark(): JSX.Element {
     return (
         <>
