@@ -153,9 +153,7 @@ class PostgresProducer:
         if held is None:
             return False
         self._held = None
-        self._insert(
-            held[0], is_final_batch=False, cumulative_row_count=held[1], incremental_last_value=held[2]
-        )
+        self._insert(held[0], is_final_batch=False, cumulative_row_count=held[1], incremental_last_value=held[2])
         return True
 
     def send_final_batch(
@@ -217,12 +215,15 @@ class PostgresProducer:
         #
         # A full_refresh is the exception: this run's batch 0 overwrites the table, so
         # an older attempt's loaded rows are gone either way and sparing it only leaves
-        # its batches clogging the serial per-(team, schema) gate.
+        # its batches clogging the serial per-(team, schema) gate. So is an append run that
+        # got here: it reads again from the stored cursor, so every spared batch it lets
+        # load is appended twice. An append retry that can continue after the older
+        # attempt runs as a resume and never reaches this.
         superseded = BatchQueue.supersede_other_runs(
             self._conn,
             job_id=self._job_id,
             current_run_uuid=self._run_uuid,
-            spare_runs_with_progress=self._sync_type != "full_refresh",
+            spare_runs_with_progress=self._sync_type not in ("full_refresh", "append"),
         )
         if superseded > 0:
             self._logger.info("superseded_old_run_batches", count=superseded)

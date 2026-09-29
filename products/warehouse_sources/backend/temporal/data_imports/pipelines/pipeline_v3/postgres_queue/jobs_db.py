@@ -1494,8 +1494,9 @@ class BatchQueue:
         so every row an older attempt loaded is discarded the moment this run starts. Sparing
         those runs protects nothing, and leaves their batches to drain through the serial
         per-(team, schema) gate — holding the queue head for hours to write data that has
-        already been thrown away. Incremental and CDC keep the sparing rule, because their
-        partially merged work survives into the new run.
+        already been thrown away. A non-resume ``append`` run drops it too: it reads again from
+        the stored cursor, so every spared batch that loads is appended twice. Incremental and
+        CDC keep the sparing rule, because their partially merged work survives into the new run.
         """
         progress_guard = (
             f"""AND NOT EXISTS (

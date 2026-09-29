@@ -376,6 +376,23 @@ class TestPartitionMeasurementPreservesConcurrentKeys(BaseTest):
         schema.refresh_from_db()
         assert schema.sync_type_config["cdc_snapshot_lane"] == "buffer"
 
+    def test_a_cursor_staged_after_the_loader_loaded_its_copy_still_promotes(self) -> None:
+        schema = ExternalDataSchema.objects.create(
+            team_id=self.team.pk,
+            source=self.source,
+            name="events",
+            sync_type="append",
+            sync_type_config={"incremental_field": "id", "incremental_field_type": IncrementalFieldType.Integer},
+        )
+        loader_copy = ExternalDataSchema.objects.get(id=schema.id)
+
+        ExternalDataSchema.objects.get(id=schema.id).stage_incremental_field_value("run-1", 42)
+        loader_copy.set_partitioning_enabled(["id"], 1, None, "md5", None)
+
+        schema.refresh_from_db()
+        assert schema.promote_staged_incremental_values("run-1") is True
+        assert schema.sync_type_config["incremental_field_last_value"] == 42
+
 
 class TestExternalDataSchemaOOMEvent(BaseTest):
     def _source(self, team_id: int | None = None) -> ExternalDataSource:

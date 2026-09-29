@@ -743,7 +743,8 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         partition_format: Optional[PartitionFormat],
     ) -> None:
         # Merged under the row lock rather than saved from this copy, which the loader holds for the
-        # whole run while CDC capture writes the same JSON (the snapshot marker among it).
+        # whole run while extraction stages its cursor and CDC capture writes the snapshot marker into
+        # the same JSON. A save from this copy would erase both.
         self.sync_type_config = update_sync_type_config_keys(
             self.id,
             self.team_id,
