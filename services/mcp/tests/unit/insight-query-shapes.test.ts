@@ -36,7 +36,15 @@ const SAVED_DATA_VISUALIZATION_NODE = {
     source: { kind: 'HogQLQuery', query: 'select day, country, count() from events group by day, country' },
     display: 'ActionsLineGraph',
     chartSettings: {
-        xAxis: { column: 'day', settings: { formatting: { prefix: '' }, display: { label: 'Day' } } },
+        xAxis: {
+            column: 'day',
+            savedAxisMetadata: true,
+            settings: {
+                savedSettingsMetadata: true,
+                formatting: { prefix: '', savedFormattingMetadata: true },
+                display: { label: 'Day', savedDisplayMetadata: true },
+            },
+        },
         yAxis: [
             {
                 column: 'count()',
