@@ -3487,3 +3487,55 @@ describe("manual scout run refusals", () => {
     },
   );
 });
+
+describe("report read sync", () => {
+  it("batches simultaneous report reads and resolves duplicate callers", async () => {
+    const fetch = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(
+          JSON.stringify({ states: { first: true, second: false } }),
+          { headers: { "Content-Type": "application/json" } },
+        ),
+      );
+    const client = new PostHogAPIClient(
+      "https://example.com",
+      async () => "test-token",
+      async () => "test-token",
+      1,
+      { fetch },
+    );
+    expect(
+      await Promise.all([
+        client.getReportReadState("first"),
+        client.getReportReadState("second"),
+        client.getReportReadState("first"),
+      ]),
+    ).toEqual([true, false, true]);
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({
+      report_ids: ["first", "second"],
+    });
+  });
+
+  it("rejects every waiting caller when read sync fails", async () => {
+    const fetch = vi
+      .fn()
+      .mockResolvedValue(new Response("Unavailable", { status: 503 }));
+    const client = new PostHogAPIClient(
+      "https://example.com",
+      async () => "test-token",
+      async () => "test-token",
+      1,
+      { fetch },
+    );
+    const outcomes = await Promise.allSettled([
+      client.getReportReadState("first"),
+      client.getReportReadState("second"),
+    ]);
+    expect(outcomes.map((outcome) => outcome.status)).toEqual([
+      "rejected",
+      "rejected",
+    ]);
+  });
+});

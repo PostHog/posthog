@@ -1,4 +1,5 @@
 import { useNavigation } from "expo-router";
+import type { ReactNode } from "react";
 import { StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { GlassCircleButton } from "@/components/Glass";
@@ -6,9 +7,10 @@ import { MenuIcon } from "@/components/Icons";
 
 interface ChatHeaderProps {
   inline?: boolean;
+  actions?: ReactNode;
 }
 
-export function ChatHeader({ inline = false }: ChatHeaderProps) {
+export function ChatHeader({ inline = false, actions }: ChatHeaderProps) {
   const navigation = useNavigation<{ openDrawer: () => void }>();
   const insets = useSafeAreaInsets();
   return (
@@ -20,10 +22,14 @@ export function ChatHeader({ inline = false }: ChatHeaderProps) {
       ]}
       pointerEvents="box-none"
     >
-      <GlassCircleButton onPress={() => navigation.openDrawer()}>
+      <GlassCircleButton
+        accessibilityLabel="Open menu"
+        onPress={() => navigation.openDrawer()}
+      >
         <MenuIcon />
       </GlassCircleButton>
       <View style={{ flex: 1 }} pointerEvents="none" />
+      {actions}
     </View>
   );
 }

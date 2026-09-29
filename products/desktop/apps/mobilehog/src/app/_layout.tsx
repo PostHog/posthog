@@ -1,15 +1,22 @@
 import { QueryClientProvider } from "@tanstack/react-query";
 import { useFonts } from "expo-font";
-import { Stack, useRouter, useSegments } from "expo-router";
+import {
+  type ErrorBoundaryProps,
+  Stack,
+  useRouter,
+  useSegments,
+} from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
 import { useEffect } from "react";
-import { AppState } from "react-native";
+import { AppState, Pressable, Text, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { getAccountQueryClient } from "@/lib/accountLifecycle";
+import { captureFailure, identifyAnalytics } from "@/lib/analytics";
 import { sessionIdentity, useAuth } from "@/lib/auth";
 import { usePushNotifications } from "@/lib/notifications";
+import { useOfflineWorkspace } from "@/lib/offline";
 import { usePrefs } from "@/lib/prefs";
 import { keys } from "@/lib/queries";
 import { useRepo } from "@/lib/repo";
@@ -27,7 +34,11 @@ function AuthGate() {
   const hydrateRepo = useRepo((s) => s.hydrate);
   const hydratePrefs = usePrefs((s) => s.hydrate);
   const hydrateSeen = useSeenReports((s) => s.hydrate);
+  useEffect(() => {
+    identifyAnalytics(session);
+  }, [session]);
   usePushNotifications();
+  useOfflineWorkspace();
   useEffect(() => {
     hydrate();
     hydratePrefs();
@@ -130,5 +141,34 @@ export default function RootLayout() {
         </QueryClientProvider>
       </KeyboardProvider>
     </GestureHandlerRootView>
+  );
+}
+
+export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
+  useEffect(() => captureFailure("render_screen", error), [error]);
+  return (
+    <View
+      style={{
+        flex: 1,
+        padding: 32,
+        gap: 20,
+        justifyContent: "center",
+        backgroundColor: colors.bg,
+      }}
+    >
+      <Text style={{ color: colors.ink, fontSize: 22 }}>
+        Could not load this screen
+      </Text>
+      <Text style={{ color: colors.inkSoft, fontSize: 16 }}>
+        Your saved draft is still on this device.
+      </Text>
+      <Pressable
+        accessibilityRole="button"
+        style={{ minHeight: 48 }}
+        onPress={retry}
+      >
+        <Text style={{ color: colors.accent, fontSize: 18 }}>Try again</Text>
+      </Pressable>
+    </View>
   );
 }

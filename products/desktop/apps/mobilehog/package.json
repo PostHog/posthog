@@ -70,7 +70,11 @@
     "react-native-web": "~0.21.2",
     "react-native-webview": "13.16.1",
     "react-native-worklets": "0.10.0",
-    "zustand": "^4.5.7"
+    "zustand": "^4.5.7",
+    "posthog-react-native": "4.75.0",
+    "expo-network": "~57.0.2",
+    "expo-application": "~57.0.3",
+    "expo-localization": "~57.0.1"
   },
   "devDependencies": {
     "@types/react": "^19.2.0",

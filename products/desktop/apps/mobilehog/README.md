@@ -38,7 +38,9 @@ pnpm dlx eas-cli build --platform ios --profile preview
 ```
 
 Follow EAS prompts to register your device, then install the build from its link.
-Preview builds do not need Metro. Over-the-air updates are disabled, so pull the branch and create a new build to receive changes.
+Preview builds do not need Metro. Install a new native build once to enable compatible updates.
+After that, **Settings → App → Check for updates** can download a published update and restart the app when you choose.
+Updates use the build channel and a native fingerprint. Changes to native modules or permissions still need a new build.
 The production profile is for distribution through Apple; it does not install directly from an EAS link.
 
 The older app in `apps/mobile` has a different bundle ID, `com.posthog.code.mobile`.
@@ -58,17 +60,20 @@ The app cannot use permissions that your account or project does not have.
 ## Tasks and chat
 
 - **Recent Tasks** lists your cloud tasks in the selected project, across all spaces. Pull to refresh or return to the app to load changes.
-- Use **Search** to search your task titles and descriptions. Before you enter text, it shows recent searches saved on this device.
+- Use **Search** for task titles and descriptions, Self-driving report titles and summaries, or messages saved on this phone. Message search covers up to 20 opened conversations, not all server history. Select a result to open the matching message. Before you enter text, Search shows recent searches.
 - Start a task from the main menu. Select a repository and model, then send your request.
 - New tasks use the server's Personal default. Mobile does not show space controls or labels.
 - Open an existing task to read it and send replies. Tasks from Desktop must use cloud runs and remain accessible to your account.
+- Use the Recent Tasks menu to filter by status or open Archived. The task menu can rename, archive, or restore a task. Archiving does not stop a running task.
 - Select **+** to attach photos. You can send text, photos, or both. Remove a preview before sending to exclude that photo.
 - Select the microphone to dictate. Select Stop or wait for recognition to finish. Edit the resulting text, then select Send.
 - While the agent works, you can read earlier messages. Select **Latest message** to return to the end.
 
 Photo attachments support JPEG, PNG, GIF, and WebP. iOS converts HEIC selections to JPEG.
-You can attach up to three photos, with a combined size below 5 MB. A failed photo send keeps the draft while the screen remains open.
-Drafts are not saved across app termination.
+You can attach up to three photos, with a combined size below 5 MB. Text and photo drafts survive app restarts.
+Drafts are scoped to the account, project, and task. They expire after seven days without edits. Signing out removes drafts and cached conversations.
+When offline, you can read saved content and edit drafts. Send is disabled until the connection returns. Failed sends keep the draft; the app does not resend it automatically.
+If a request reached the server but its response was lost, check Recent Tasks or the conversation before sending again.
 
 Dictation uses the device's speech recognition service with English (`en-US`).
 It requests microphone and speech recognition permission when you first use it.
@@ -79,7 +84,7 @@ This is speech-to-text input, not a voice conversation with the agent.
 ## Self-driving
 
 The list shows actionable reports for which you are a suggested reviewer.
-Select a report to read its full details. Opening it marks it as read on this device.
+Select a report to read its full details. Opening it marks it as read for your account.
 
 Use the sort control to choose **Newest first**, **Oldest first**, **Priority**, or **Recently updated**.
 Sorting applies on the server, including reports you have not loaded yet. Newest first is the default.
@@ -88,8 +93,15 @@ Use **Load more** to read older pages.
 The **⋯** menu contains **Triage reports** and a counted action to mark loaded reports as read.
 Triage is optional. It lets you review reports one at a time and dismiss them or start a task.
 The read action asks for confirmation and leaves reports in the list. It does not dismiss them.
-Read state is saved per account and project on this device, for up to 500 reports. It does not sync with Desktop.
-Dismissal changes the report for the project.
+Read state syncs with Desktop when both apps and the backend include the read-state API. The phone keeps up to 500 local indicators for offline use. Failed sync does not hide loaded reports.
+The menu also contains Unread and History views. History contains dismissed and resolved reports. Mark unread keeps a report for later.
+Dismissal changes the report for the project and can close its pull request. Undo restores the report; it does not reopen a closed pull request.
+
+## Review a result
+
+Open a task, then **⋯ → Review result** to read its pull request summary, check result, and changed files.
+Expand a file to read the diff. Large and binary changes must open in GitHub. Review requires the task's GitHub integration and the new backend endpoint.
+The review is read-only; use **Open in GitHub** for approvals, comments, or merging. Pull to refresh before acting on a check result.
 
 ## Activity
 
@@ -121,9 +133,19 @@ Test with the app in the background and a cloud task owned by the same account. 
 There is no notification diagnostic control in the app. Registration failures go to developer logs without device tokens.
 
 This app is iOS-first. Android and browser builds are not supported release targets.
-It needs network access for tasks and reports. It does not run local repositories, local tasks, or worktrees on the phone.
+It needs network access to send tasks or refresh reports. Saved lists and message text remain available offline; image and chart caches are not guaranteed. It does not run local repositories, local tasks, or worktrees on the phone.
 Mobile-created runs request a **Created with PostHog Mobile** PR footer; this requires the matching backend and agent deployment.
 This does not change the GitHub author or commit signature.
+
+## Release and diagnostics
+
+Copy `.env.example` to `.env` for the shared PostHog telemetry destination. Configure the same `EXPO_PUBLIC_POSTHOG_API_KEY` and `EXPO_PUBLIC_POSTHOG_HOST` in EAS before a release build.
+Without those values, telemetry is disabled. The SDK records send outcomes, connection failures, and JavaScript errors. It excludes prompts, search text, photos, tokens, response bodies, and exception text. Session Replay is disabled.
+
+The PostHog Expo and Metro plugins add source-map support. Native upload hooks are enabled only when `POSTHOG_CLI_TOKEN` is present during prebuild, so local builds do not need upload credentials. Install `posthog-cli` on the build worker and set its `POSTHOG_CLI_TOKEN`, `POSTHOG_CLI_ENV_ID`, and `POSTHOG_CLI_HOST` through build secrets for uploads. Never put the CLI token in an `EXPO_PUBLIC_` variable.
+Native crashes and native symbol uploads are not enabled. Validate source-map resolution in the release project before distribution.
+
+Publish an update only after release checks, first on the preview channel. The installed build must have the same native fingerprint. Do not publish private test fixtures or user screenshots.
 
 ## Use a local backend
 

@@ -20,6 +20,7 @@ export function TaskListRow({
   return (
     <Pressable
       accessibilityRole="button"
+      accessibilityLabel={`${task.title || "Untitled task"}. ${status?.replaceAll("_", " ") ?? "Not started"}`}
       onPress={onPress}
       style={({ pressed }) => [styles.row, pressed && { opacity: 0.5 }]}
     >
@@ -37,6 +38,7 @@ export function TaskListRow({
             "Untitled task"}
         </Text>
         <Text style={styles.meta} numberOfLines={1}>
+          {status?.replaceAll("_", " ") ?? "Not started"} ·{" "}
           {formatRelativeAge(task.last_activity_at || task.updated_at)}
         </Text>
         {preview && task.description_preview ? (

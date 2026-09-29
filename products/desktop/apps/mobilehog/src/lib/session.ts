@@ -49,6 +49,7 @@ export interface TaskSession {
 
 interface SessionState {
   sessions: Record<string, TaskSession>;
+  restore: (saved: { taskId: string; runId: string; blocks: Block[] }) => void;
   reset: () => void;
   // A chat that exists on screen before its task does. `adopt` moves it under
   // the real task id once the run is created; `fail` leaves the prompt with an error.
@@ -283,6 +284,19 @@ export const useSessions = create<SessionState>((set, get) => {
 
   return {
     sessions: {},
+    restore: (saved) => {
+      if (get().sessions[saved.taskId]?.blocks.length) return;
+      set((state) => ({
+        sessions: {
+          ...state.sessions,
+          [saved.taskId]: {
+            ...emptySession(saved.taskId, saved.runId),
+            ...state.sessions[saved.taskId],
+            blocks: saved.blocks,
+          },
+        },
+      }));
+    },
 
     reset: () => {
       generation += 1;
@@ -337,7 +351,10 @@ export const useSessions = create<SessionState>((set, get) => {
       set((state) => ({
         sessions: {
           ...state.sessions,
-          [task.id]: emptySession(task.id, runId),
+          [task.id]: {
+            ...emptySession(task.id, runId),
+            blocks: existing?.blocks ?? [],
+          },
         },
       }));
       watch(task.id, runId);
@@ -405,11 +422,9 @@ export const useSessions = create<SessionState>((set, get) => {
             await resumeRun(taskId, wirePrompt, displayText);
           } catch (resumeError) {
             if (generation !== currentGeneration) return null;
-            if (photos.length) echoes.delete(displayText);
+            echoes.delete(displayText);
             patch(taskId, (current) => ({
-              blocks: photos.length
-                ? current.blocks.filter((block) => block.id !== localId)
-                : current.blocks,
+              blocks: current.blocks.filter((block) => block.id !== localId),
               resuming: false,
               turnActive: false,
               error:
@@ -417,19 +432,17 @@ export const useSessions = create<SessionState>((set, get) => {
                   ? resumeError.message
                   : String(resumeError),
             }));
-            if (photos.length) throw resumeError;
+            throw resumeError;
           }
           return localId;
         }
         echoes.delete(displayText);
         patch(taskId, (current) => ({
-          blocks: photos.length
-            ? current.blocks.filter((block) => block.id !== localId)
-            : current.blocks,
+          blocks: current.blocks.filter((block) => block.id !== localId),
           turnActive: false,
           error: error instanceof Error ? error.message : String(error),
         }));
-        if (photos.length) throw error;
+        throw error;
       }
       return localId;
     },

@@ -52,16 +52,16 @@ Task completion from Desktop or mobile uses the same server-side owner notificat
 The app registers after sign-in and retries when it becomes active. Notification permissions stay in iOS settings. Expo push delivery can be tested on a supported iOS simulator or a physical device; it needs a push-enabled native build.
 To check cross-device delivery, start a cloud task from Desktop, put the mobile app in the background, and confirm that the completion alert arrives and opens that task. Server delivery metrics count Expo acceptance, not confirmed device delivery.
 
-## Inbox and task conversations
+## Self-driving and task conversations
 
-Inbox lists actionable reports where the signed-in user is a suggested reviewer, highest priority first.
-Opening a report marks it read on this device. Read actions clear the new-item indicators without dismissing the reports.
-Tapping a report in the list opens its full detail directly. The Triage button opens the swipe deck separately.
+Self-driving lists actionable reports where the signed-in user is a suggested reviewer. Newest first is the default; the sort menu also offers Priority.
+Opening a report marks it read for the current account and syncs with Desktop. Read actions clear the new-item indicators without dismissing the reports.
+Tapping a report in the list opens its full detail directly. The options menu opens the optional triage deck.
 Dismiss changes the report state for the project. Activity read state is stored on the server.
 Both lists support refresh and loading older items.
 Read actions appear only when visible items are unread.
 Empty lists have a centered explanation. Loading and request failures have separate states.
-The empty Inbox does not show report instructions or review actions.
+The empty Self-driving list does not show report instructions or review actions.
 
 Task conversations keep the header and reply box outside the scrolling messages.
 Conversations have no new-chat shortcut; use the drawer to start another task. The reply box has no top divider.
@@ -146,3 +146,17 @@ Type checks alone do not validate WebView messages, native appearance, or cloud 
 
 Dictation needs a new native build. Existing sign-ins need renewed authorization for saved insights.
 The [app README](../../products/desktop/apps/mobilehog/README.md) covers setup and feature limits.
+
+## Drafts, recovery, and review
+
+- Write a new-task draft and a reply with a photo. Close and reopen the app. Confirm that both drafts remain in their own composers. Send one; only that draft clears.
+- Switch projects and accounts with a draft open. The next account must not show it. Sign out and confirm that draft files and cached conversations are removed.
+- Open tasks and Self-driving, then disconnect the network. Saved content remains readable, drafts remain editable, and Send is disabled. Reconnect; the app must not send the draft by itself.
+- Interrupt a send. The draft must remain. Check for server acceptance before retrying when the result is uncertain.
+- Rename, archive, and restore a task. Confirm the same state in Desktop and use each status filter. Archived running tasks must keep running.
+- Mark a report read on mobile and check Desktop, then reverse the direction. Mark unread, dismiss, undo, and restore from History. Another user's read state must not change.
+- Search report text and a saved message. The result must open the report or matching conversation text. Offline message search must not claim to cover all server history.
+- Review a task with multiple changed files, failed checks, and a large or binary diff. Load another page and open GitHub. A task without a pull request must show an explanation.
+- Use large text and VoiceOver to operate task menus, search tabs, the composer, and report actions. Check reduced motion and a narrow device in both appearances.
+- Install a preview build, publish a compatible test update, and use Settings to apply it. A native-module change must produce a different fingerprint and require a new build.
+- In the configured telemetry project, confirm that a test failure resolves to source code. Inspect the event payload: no prompt, image, token, search text, response body, or exception text may be present.

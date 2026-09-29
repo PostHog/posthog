@@ -1139,6 +1139,8 @@ import type { SignalReportOrderingField } from "./signal-types";
 export type { SignalReportOrderingField };
 
 export interface SignalReportsQueryParams {
+  unread?: boolean;
+  search?: string;
   limit?: number;
   offset?: number;
   status?: CommaSeparatedSignalReportStatuses | string;
