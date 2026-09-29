@@ -80,12 +80,19 @@ class ReadRefusedError(RuntimeError):
     """The check-runs API keeps refusing the token, so no verdict can be read."""
 
 
+class ReadFailedError(RuntimeError):
+    """One read of the check-runs API failed, so this poll cannot tell which checks exist."""
+
+
 @dataclass(frozen=True)
 class CheckRun:
     id: int
     # The conclusion once the check completed, its status before that.
     state: str
     details_url: str
+    app_id: int = DEPOT_APP_ID
+    # The job attempt in a mirrored check's URL. Depot's own checks carry none.
+    attempt: str = ""
 
     @classmethod
     def from_api(cls, run: dict[str, Any]) -> "CheckRun":
@@ -94,17 +101,21 @@ class CheckRun:
         parsed = urllib.parse.urlparse(url)
         query = urllib.parse.parse_qs(parsed.query)
         match = re.fullmatch(rf"/orgs/{re.escape(DEPOT_ORG)}/workflows/([a-z0-9]+)", parsed.path)
+        attempt = ""
         if parsed.scheme == "https" and parsed.netloc == "depot.dev" and match:
             job = query.get("job", [""])[0]
             url = f"https://depot.dev/orgs/{DEPOT_ORG}/workflows/{match[1]}"
             if re.fullmatch(r"[a-z0-9]+", job):
                 url += f"?job={job}"
+            attempt = query.get("attempt", [""])[0]
         else:
             url = ""
         return cls(
             id=int(run["id"]),
             state=state if state in PENDING_STATES | CONCLUSIONS else "unknown",
             details_url=url,
+            app_id=int(run["app"]["id"]),
+            attempt=attempt if re.fullmatch(r"[a-z0-9]+", attempt) else "",
         )
 
     @property
@@ -136,10 +147,27 @@ def wait_check_name(pr_number: int, event_at: str) -> str:
     return f"{DEPOT_WORKFLOW} / {WAIT_JOB}{EVENT_SUFFIX.format(pr=pr_number, event_at=event_at)}"
 
 
+def current_check(checks: Iterable[CheckRun], workflow: str | None) -> CheckRun | None:
+    """The check of the newest attempt of one job in `workflow`, from either app that posts it.
+
+    Depot posts one check per job attempt but can deliver it late, so its check ids do not order
+    its checks against the mirror's. The mirror posts one check per attempt that ran, in order,
+    but a post can fail. The mirror decides while it has posted at least as many attempts as
+    Depot shows. Otherwise the mirror missed an attempt, and Depot's newest check decides.
+    """
+    own = [check for check in checks if workflow is not None and check.depot_workflow == workflow]
+    mirrored = [check for check in own if check.app_id == MIRROR_APP_ID]
+    native = [check for check in own if check.app_id != MIRROR_APP_ID]
+    if mirrored and len(native) <= len({check.attempt or str(check.id) for check in mirrored}):
+        return max(mirrored, key=lambda check: check.id)
+    return max(native, key=lambda check: check.id, default=None)
+
+
 def newest_live(runs: Sequence[CheckRun]) -> CheckRun | None:
     """The newest run that was not cancelled, or the newest cancelled run when every run was."""
-    live = [run for run in runs if run.state != "cancelled"]
-    return max(live or runs, key=lambda run: run.id, default=None)
+    current = [check for workflow in {run.depot_workflow for run in runs} if (check := current_check(runs, workflow))]
+    live = [run for run in current if run.state != "cancelled"]
+    return max(live or current, key=lambda run: run.id, default=None)
 
 
 def progress(wait: CheckRun | None, checks: Iterable[CheckRun]) -> Progress:
@@ -152,13 +180,7 @@ def progress(wait: CheckRun | None, checks: Iterable[CheckRun]) -> Progress:
         return Progress(Phase.STARTING, wait.state, wait.details_url)
     if wait.state != "success":
         return Progress(Phase.DECLINED, wait.state, wait.details_url)
-    workflow = wait.depot_workflow
-    # A retried Depot job posts a new check in the same workflow, so the newest one is current.
-    check = max(
-        (run for run in checks if workflow is not None and run.depot_workflow == workflow),
-        key=lambda run: run.id,
-        default=None,
-    )
+    check = current_check(checks, wait.depot_workflow)
     if check is None or check.state in PENDING_STATES:
         return Progress(Phase.RUNNING, check.state if check else "", wait.details_url)
     if check.state == "cancelled":
@@ -218,18 +240,17 @@ class CheckRunReader:
             return error.code, "", {}
 
     def read(self, name: str) -> list[CheckRun]:
-        """The first app in `app_ids` that has the check wins, and later apps are not read.
+        """Every app's checks of `name`. `current_check` picks the current one per workflow.
 
-        Depot can deliver its copy of an old attempt after a newer one, so check ids do not order
-        the two apps' copies. A failed read before any copy is found reads as no check, which keeps polling.
+        A failed read of any app raises, because the other app's checks alone can hold a stale attempt.
         """
+        runs: list[CheckRun] = []
         for app_id in self._app_ids:
-            runs = self._read_app(name, app_id)
-            if runs is None:
-                return []
-            if runs:
-                return runs
-        return []
+            app_runs = self._read_app(name, app_id)
+            if app_runs is None:
+                raise ReadFailedError(f"Cannot read {name}")
+            runs.extend(app_runs)
+        return runs
 
     def _read_app(self, name: str, app_id: int) -> list[CheckRun] | None:
         """Read every page, reusing a cached answer only when the API confirms it with 304."""
@@ -307,15 +328,7 @@ def racing_wait(reader: CheckReader, event: Event, followed: set[str]) -> str | 
 
 def prerequisite_failure(reader: CheckReader, wait: CheckRun, current: Progress) -> Progress:
     for name in PREREQUISITES:
-        latest = max(
-            (
-                check
-                for check in reader.read(f"{DEPOT_WORKFLOW} / {name}")
-                if check.depot_workflow == wait.depot_workflow
-            ),
-            key=lambda check: check.id,
-            default=None,
-        )
+        latest = current_check(reader.read(f"{DEPOT_WORKFLOW} / {name}"), wait.depot_workflow)
         if latest and latest.state == "failure":
             return Progress(Phase.FINISHED, "failure", current.details_url, name, latest.id)
     return current
@@ -340,26 +353,32 @@ def poll(
     start = clock()
     event_name = wait_check_name(event.pr_number, event.event_at)
     followed = {event_name}
+    current = Progress(Phase.ABSENT)
     while True:
-        wait = newest_live(reader.read(event_name))
-        checks = reader.read(check_name) if wait and wait.state == "success" else []
-        current = progress(wait, checks)
-        # Depot cancels its own run only after a deterministic prerequisite failure. A gate that
-        # failed without the cancel can follow a retryable one, so it keeps the retry options.
-        if current.phase == Phase.CANCELLED and wait and wait.state == "success":
-            current = prerequisite_failure(reader, wait, current)
-        sys.stdout.write(f"Depot run for this event: {current.phase.value} {current.state}".rstrip() + "\n")
-        elapsed = clock() - start
-        if current.phase in (Phase.FINISHED, Phase.DECLINED):
-            return current
-        if current.phase in (Phase.ABSENT, Phase.CANCELLED) and elapsed >= absent_minutes * 60:
-            racing = racing_wait(reader, event, followed)
-            if racing is None:
+        try:
+            wait = newest_live(reader.read(event_name))
+            checks = reader.read(check_name) if wait and wait.state == "success" else []
+            current = progress(wait, checks)
+            # Depot cancels its own run only after a deterministic prerequisite failure. A gate that
+            # failed without the cancel can follow a retryable one, so it keeps the retry options.
+            if current.phase == Phase.CANCELLED and wait and wait.state == "success":
+                current = prerequisite_failure(reader, wait, current)
+            sys.stdout.write(f"Depot run for this event: {current.phase.value} {current.state}".rstrip() + "\n")
+            elapsed = clock() - start
+            if current.phase in (Phase.FINISHED, Phase.DECLINED):
                 return current
-            sys.stdout.write(f"Depot kept a racing event of this commit instead. Following: {racing}\n")
-            followed.add(racing)
-            event_name = racing
-            continue
+            if current.phase in (Phase.ABSENT, Phase.CANCELLED) and elapsed >= absent_minutes * 60:
+                racing = racing_wait(reader, event, followed)
+                if racing is None:
+                    return current
+                sys.stdout.write(f"Depot kept a racing event of this commit instead. Following: {racing}\n")
+                followed.add(racing)
+                event_name = racing
+                continue
+        except ReadFailedError as error:
+            # A failed read says nothing about the run, so it must not end the wait as absent.
+            sys.stdout.write(f"::warning::{error}. Reading again.\n")
+            elapsed = clock() - start
         if elapsed >= deadline_minutes * 60:
             return current
         # The checked job only posts its check when the matrix is done, so once Depot has
