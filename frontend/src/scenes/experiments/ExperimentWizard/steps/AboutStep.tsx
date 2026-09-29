@@ -83,8 +83,10 @@ export function AboutStep(): JSX.Element {
                     </span>
                 }
                 error={nameError}
+                htmlFor="experiment-wizard-name"
             >
                 <LemonInput
+                    id="experiment-wizard-name"
                     placeholder="e.g. New checkout flow test"
                     value={experiment.name}
                     onChange={(value) => {
@@ -103,8 +105,14 @@ export function AboutStep(): JSX.Element {
                 />
             </LemonField.Pure>
 
-            <LemonField.Pure label="Hypothesis" info="Describe what you expect to happen and why." showOptional>
+            <LemonField.Pure
+                label="Hypothesis"
+                info="Describe what you expect to happen and why."
+                showOptional
+                htmlFor="experiment-wizard-hypothesis"
+            >
                 <LemonTextArea
+                    id="experiment-wizard-hypothesis"
                     placeholder="We believe that ... will result in ... because ..."
                     value={experiment.description ?? ''}
                     onChange={(value) => setExperimentValue('description', value)}
@@ -150,6 +158,7 @@ export function AboutStep(): JSX.Element {
                         </div>
                     }
                     error={featureFlagKeyError}
+                    htmlFor="experiment-wizard-flag-key"
                     renderError={
                         existingFlag
                             ? (error) => (
@@ -170,6 +179,9 @@ export function AboutStep(): JSX.Element {
                     }
                 >
                     <LemonInput
+                        id="experiment-wizard-flag-key"
+                        // The label also holds the "Select existing flag" prompt, so name the input on its own
+                        aria-label="Feature flag key (required)"
                         placeholder="e.g. new-checkout-flow-test"
                         value={experiment.feature_flag_key ?? ''}
                         onChange={(value) => {
