@@ -47,6 +47,9 @@ export function GenerationEvalRunsTable({
             render: (_, run) => (
                 <EvaluationResultTag
                     run={run}
+                    categoryOptions={
+                        evaluations?.find((evaluation) => evaluation.id === run.evaluation_id)?.output_config.options
+                    }
                     passingRule={
                         evaluations?.find((evaluation) => evaluation.id === run.evaluation_id)?.output_config
                             .passing_rule

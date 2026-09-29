@@ -36,10 +36,12 @@ use deltalake::kernel::{Action, MetadataExt as _, Remove, StructType};
 use deltalake::protocol::checkpoints::{cleanup_metadata, create_checkpoint};
 use deltalake::protocol::{DeltaOperation, SaveMode};
 use deltalake::table::config::TablePropertiesExt;
+use deltalake::table::state::DeltaTableState;
 use deltalake::writer::{DeltaWriter, RecordBatchWriter};
 use deltalake::{DeltaTable, ObjectStore, PartitionFilter, PartitionValue, Path};
 use futures::{StreamExt, TryStreamExt};
 use metrics::{counter, histogram};
+use parquet::arrow::arrow_reader::ArrowReaderMetadata;
 use parquet::arrow::async_reader::ParquetObjectReader;
 use parquet::arrow::ParquetRecordBatchStreamBuilder;
 use parquet::arrow::ProjectionMask;
@@ -64,6 +66,12 @@ const WHOLE_TABLE: &str = "__deltalite_whole_table__";
 const INITIAL_DECODE_ESTIMATE_BYTES: usize = 4 * 1024 * 1024;
 /// First-iteration pre-decode reservation for narrow PK-column probe batches.
 const INITIAL_PROBE_ESTIMATE_BYTES: usize = 256 * 1024;
+
+/// Tail bytes fetched when a data file is opened. Without a hint parquet reads the
+/// 8-byte trailer first and the metadata second: two round trips per open. 64 KiB covers
+/// the footer of a file with on the order of a hundred columns, and over-fetching on a
+/// small file costs bytes, which are cheap, not a round trip, which is not.
+const FOOTER_SIZE_HINT: usize = 64 * 1024;
 
 /// Read batch size (in rows) that keeps a decoded batch near `target_bytes`, derived from
 /// the widest row group's average *uncompressed* bytes/row.
@@ -255,6 +263,11 @@ pub struct UpsertStats {
     /// (initial refresh, conflict-retry refreshes, post-commit refresh). Set by
     /// [`crate::handle::TableHandle::upsert`]; 0 when the core `upsert` runs directly.
     pub open_ms: u64,
+    /// Wall-clock ms of the full snapshot load that opened the handle. Reported on the
+    /// first upsert through a [`crate::handle::TableHandle`] and 0 on every later one,
+    /// so summing it over a handle's upserts gives the open cost exactly once; 0 when
+    /// the core `upsert` runs directly.
+    pub initial_open_ms: u64,
     /// Wall-clock ms spent importing the caller's source data into Arrow batches. Set
     /// by the language binding that owns the import; 0 when unset.
     pub ingest_ms: u64,
@@ -321,6 +334,9 @@ struct TargetFile {
     size: u64,
     stats: Option<String>,
     remove: Remove,
+    /// Footer the probe parsed, handed to the rewrite so a hit file is opened once. Lives
+    /// only as long as this partition's rewrite: the reader task consumes it.
+    metadata: Option<Arc<ParquetMetaData>>,
 }
 
 /// Which rows of one source batch belong to a partition. Chosen so the common shapes
@@ -574,6 +590,22 @@ pub async fn upsert_cached(
     opts: UpsertOptions,
     relax_cache: &mut RelaxCache,
 ) -> Result<UpsertStats> {
+    upsert_cached_with_state(table, source_batches, source_schema, opts, relax_cache)
+        .await
+        .map(|(stats, _)| stats)
+}
+
+/// [`upsert_cached`] that also returns the table state delta-rs derived for the commit
+/// it wrote (what every delta-rs operation returns as its resulting table), so a
+/// long-lived handle can adopt it instead of reading the log again. When delta-rs had to
+/// retry the commit behind another writer, the state includes that writer's commit.
+pub async fn upsert_cached_with_state(
+    table: &DeltaTable,
+    source_batches: Vec<RecordBatch>,
+    source_schema: SchemaRef,
+    opts: UpsertOptions,
+    relax_cache: &mut RelaxCache,
+) -> Result<(UpsertStats, DeltaTableState)> {
     let started = Instant::now();
     let strategy = opts.prune_strategy.as_str();
     let result = upsert_with_relax(table, source_batches, source_schema, opts, relax_cache).await;
@@ -581,7 +613,7 @@ pub async fn upsert_cached(
     // Static label values only -- no per-call allocation (rust/CLAUDE.md).
     histogram!("deltalite_upsert_duration_seconds").record(started.elapsed().as_secs_f64());
     match &result {
-        Ok(stats) => {
+        Ok((stats, _)) => {
             counter!("deltalite_upserts_total", "outcome" => "ok", "prune_strategy" => strategy)
                 .increment(1);
             counter!("deltalite_files_added_total").increment(stats.files_added as u64);
@@ -623,12 +655,12 @@ async fn upsert_with_relax(
     source_schema: SchemaRef,
     opts: UpsertOptions,
     relax_cache: &mut RelaxCache,
-) -> Result<UpsertStats> {
+) -> Result<(UpsertStats, DeltaTableState)> {
     let relax_started = Instant::now();
     let relax = columns_needing_relax(table, &source_batches, &source_schema, relax_cache).await?;
     if relax.is_empty() {
         let relax_ms = relax_started.elapsed().as_millis() as u64;
-        let mut stats = upsert_inner(table, source_batches, source_schema, opts).await?;
+        let (mut stats, state) = upsert_inner(table, source_batches, source_schema, opts).await?;
         stats.relax_ms = relax_ms;
         // Our own commit added no nulls to the verified-clean columns (the source was
         // checked above; existing rows only move between files), so the memo may follow
@@ -637,19 +669,20 @@ async fn upsert_with_relax(
         if let Ok(committed) = u64::try_from(stats.version) {
             relax_cache.advance_own_commit(committed);
         }
-        return Ok(stats);
+        return Ok((stats, state));
     }
 
     relax_columns_to_nullable(table, &relax).await?;
     // Re-read the log so the writer (and every schema derived from the table) observes
-    // the relaxed metadata; the borrowed handle still sees the old snapshot.
+    // the relaxed metadata; the borrowed handle still sees the old snapshot. The state
+    // the upsert's commit then yields sits on top of the relax commit, so it is complete.
     let mut fresh = table.clone();
     fresh.update_incremental(None).await?;
     let relax_ms = relax_started.elapsed().as_millis() as u64;
-    let mut stats = upsert_inner(&fresh, source_batches, source_schema, opts).await?;
+    let (mut stats, state) = upsert_inner(&fresh, source_batches, source_schema, opts).await?;
     stats.columns_relaxed = relax.len();
     stats.relax_ms = relax_ms;
-    Ok(stats)
+    Ok((stats, state))
 }
 
 /// Non-nullable table columns that verifiably contain nulls -- in the incoming batch
@@ -780,7 +813,7 @@ async fn upsert_inner(
     mut source_batches: Vec<RecordBatch>,
     source_schema: SchemaRef,
     opts: UpsertOptions,
-) -> Result<UpsertStats> {
+) -> Result<(UpsertStats, DeltaTableState)> {
     if opts.primary_keys.is_empty() {
         return Err(Error::Generic(
             "primary_keys must not be empty for an upsert".into(),
@@ -1038,7 +1071,7 @@ async fn upsert_inner(
         commit_ms = stats.commit_ms,
         "upsert committed"
     );
-    Ok(stats)
+    Ok((stats, finalized.snapshot))
 }
 
 /// Checkpoint and expired-log cleanup after a durable commit, tolerating failure: the
@@ -1369,8 +1402,31 @@ async fn list_partition_files(
             size: v.size() as u64,
             stats: v.stats(),
             remove: v.remove_action(true),
+            metadata: None,
         })
         .collect())
+}
+
+/// Open a Parquet stream builder for `f`. A footer the probe already parsed is reused
+/// without I/O; otherwise the footer is read with [`FOOTER_SIZE_HINT`] so it arrives in
+/// one round trip.
+async fn open_builder(
+    store: &Arc<dyn ObjectStore>,
+    f: &TargetFile,
+) -> Result<ParquetRecordBatchStreamBuilder<ParquetObjectReader>> {
+    let path = Path::parse(&f.path)
+        .map_err(|e| Error::Generic(format!("bad data file path {:?}: {e}", f.path)))?;
+    let reader = ParquetObjectReader::new(store.clone(), path).with_file_size(f.size);
+    if let Some(meta) = &f.metadata {
+        let arrow_meta = ArrowReaderMetadata::try_new(meta.clone(), Default::default())?;
+        return Ok(ParquetRecordBatchStreamBuilder::new_with_metadata(
+            reader, arrow_meta,
+        ));
+    }
+    Ok(
+        ParquetRecordBatchStreamBuilder::new(reader.with_footer_size_hint(FOOTER_SIZE_HINT))
+            .await?,
+    )
 }
 
 /// Drop files whose Add-action stats prove they hold no match: min/max disjointness on
@@ -1600,11 +1656,9 @@ async fn probe_file(
     partition_value: &str,
     opts: &UpsertOptions,
     budgets: &Budgets,
-) -> Result<bool> {
-    let path = Path::parse(&f.path)
-        .map_err(|e| Error::Generic(format!("bad data file path {:?}: {e}", f.path)))?;
-    let reader = ParquetObjectReader::new(store.clone(), path).with_file_size(f.size);
-    let builder = ParquetRecordBatchStreamBuilder::new(reader).await?;
+) -> Result<(bool, Arc<ParquetMetaData>)> {
+    let builder = open_builder(store, f).await?;
+    let metadata = builder.metadata().clone();
     let file_schema = builder.schema().clone();
 
     let mut pk_types: Vec<DataType> = Vec::with_capacity(opts.primary_keys.len());
@@ -1629,7 +1683,7 @@ async fn probe_file(
         } else {
             // The column is physically absent (file predates schema evolution): every
             // row has NULL for this PK component, and NULL never matches.
-            return Ok(false);
+            return Ok((false, metadata));
         }
     }
 
@@ -1644,7 +1698,7 @@ async fn probe_file(
             partition_value,
             &pk_types,
         )?;
-        return pkset.contains_any_columns(&cols, 1);
+        return Ok((pkset.contains_any_columns(&cols, 1)?, metadata));
     }
 
     let mask = ProjectionMask::roots(builder.parquet_schema(), projection);
@@ -1681,14 +1735,15 @@ async fn probe_file(
         let hit = pkset.contains_any_columns(&cols, batch.num_rows())?;
         drop(permit);
         if hit {
-            return Ok(true);
+            return Ok((true, metadata));
         }
     }
-    Ok(false)
+    Ok((false, metadata))
 }
 
 /// Probe `files` with bounded concurrency, splitting them into (files that contain at
-/// least one match, count of files proven match-free). Order is preserved.
+/// least one match, count of files proven match-free). Order is preserved. A kept file
+/// carries the footer its probe parsed; a skipped file's footer is dropped here.
 #[allow(clippy::too_many_arguments)]
 async fn probe_files(
     store: &Arc<dyn ObjectStore>,
@@ -1700,31 +1755,33 @@ async fn probe_files(
     opts: &UpsertOptions,
     budgets: &Budgets,
 ) -> Result<(Vec<TargetFile>, usize)> {
-    let results: Vec<(TargetFile, bool)> = futures::stream::iter(files.into_iter().map(|f| {
-        let store = store.clone();
-        async move {
-            let hit = probe_file(
-                &store,
-                &f,
-                pkset,
-                table_schema,
-                partition_col,
-                partition_value,
-                opts,
-                budgets,
-            )
-            .await?;
-            Ok::<_, Error>((f, hit))
-        }
-    }))
-    .buffered(opts.probe_concurrency.max(1))
-    .try_collect()
-    .await?;
+    let results: Vec<(TargetFile, bool, Arc<ParquetMetaData>)> =
+        futures::stream::iter(files.into_iter().map(|f| {
+            let store = store.clone();
+            async move {
+                let (hit, metadata) = probe_file(
+                    &store,
+                    &f,
+                    pkset,
+                    table_schema,
+                    partition_col,
+                    partition_value,
+                    opts,
+                    budgets,
+                )
+                .await?;
+                Ok::<_, Error>((f, hit, metadata))
+            }
+        }))
+        .buffered(opts.probe_concurrency.max(1))
+        .try_collect()
+        .await?;
 
     let mut keep = Vec::new();
     let mut skipped = 0usize;
-    for (f, hit) in results {
+    for (mut f, hit, metadata) in results {
         if hit {
+            f.metadata = Some(metadata);
             keep.push(f);
         } else {
             skipped += 1;
@@ -1757,10 +1814,7 @@ async fn filter_file(
     budgets: Budgets,
     tx: mpsc::UnboundedSender<(RecordBatch, BudgetPermit)>,
 ) -> Result<FileOutcome> {
-    let path = Path::parse(&f.path)
-        .map_err(|e| Error::Generic(format!("bad data file path {:?}: {e}", f.path)))?;
-    let reader = ParquetObjectReader::new(store, path).with_file_size(f.size);
-    let builder = ParquetRecordBatchStreamBuilder::new(reader).await?;
+    let builder = open_builder(&store, &f).await?;
     let batch_rows = byte_bounded_batch_rows(
         builder.metadata(),
         INITIAL_DECODE_ESTIMATE_BYTES,
@@ -2350,6 +2404,7 @@ mod tests {
             size: 1,
             stats: stats.map(|s| s.to_string()),
             remove: Remove::default(),
+            metadata: None,
         }
     }
 

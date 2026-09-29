@@ -75,6 +75,28 @@ function makeEvaluationRunRow({
 }
 
 describe('mapEvaluationRunRow', () => {
+    it.each([
+        ['["resolved"]', ['resolved']],
+        ['[]', []],
+        [null, []],
+        ['invalid', null],
+        ['[1]', null],
+    ])('preserves categorical JSON %p without confusing empty and absent results', (raw, expected) => {
+        const row = makeEvaluationRunRow({ result: null, resultType: 'categorical' })
+        row[18] = raw
+        expect(mapEvaluationRunRow(row)).toMatchObject({
+            result_type: 'categorical',
+            categories: expected,
+            result: null,
+        })
+    })
+
+    it.each([false, 'false'])('keeps an inapplicable categorical result as N/A (%p)', (applicable) => {
+        const row = makeEvaluationRunRow({ result: null, resultType: 'categorical', applicable })
+        row[18] = null
+        expect(mapEvaluationRunRow(row).categories).toBeNull()
+    })
+
     it.each([0, 0.5, -2, '0', '0.5', '-2'])('keeps numeric score %p and its original bounds', (score) => {
         const row = makeEvaluationRunRow({ result: null, resultType: 'numeric' })
         row[15] = score
