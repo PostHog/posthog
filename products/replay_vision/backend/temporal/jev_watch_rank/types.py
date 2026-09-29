@@ -16,6 +16,8 @@ class JevWatchRankSweepResult(BaseModel, frozen=True):
     # Windows whose every row the judged set already holds, so no Jev call was spent.
     scanners_skipped_unchanged: int = 0
     observations_judged: int = 0
+    # Rows abandoned after MAX_JUDGE_ATTEMPTS failed judgments; they settle into the filler tier.
+    observations_given_up: int = 0
     # Scanners skipped because their cache could not be read (judging over an unseen cache would
     # overwrite it), plus writes that failed after judging.
     cache_errors: int = 0

@@ -16,6 +16,11 @@ WINDOW_SCAN_CAP = 1000
 # New rows judged per scanner per sweep. Judgments accumulate in the cache, so this caps the hourly
 # Jev spend, not the coverage: a backlog drains at this rate across later sweeps, newest first.
 MAX_JUDGED_PER_SCANNER = 100
+# The newest-first pick would retry a deterministically failing batch every hour and starve older
+# rows for the whole window. After this many failed judgments a row is recorded as judged with no
+# score, so it settles into the recency filler tier like a prose-less row; the cache TTL makes it
+# eligible again if the cache ever rebuilds.
+MAX_JUDGE_ATTEMPTS = 3
 # Bound one sweep. The flag gates per team, so at experiment scale these caps are slack; they exist
 # so a misconfigured flag rollout cannot turn the sweep into an unbounded flag-check or Jev fan-out.
 MAX_TEAMS_PER_SWEEP = 2000

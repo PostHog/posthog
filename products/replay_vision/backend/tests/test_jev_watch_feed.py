@@ -5,11 +5,14 @@ from uuid import uuid4
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.conf import settings
 from django.test import SimpleTestCase
 from django.utils import timezone
 
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
+
+from posthog.redis import get_client
 
 from products.ml_inference.backend.facade.contracts import (
     DecisionRequest,
@@ -20,7 +23,7 @@ from products.ml_inference.backend.facade.contracts import (
 from products.replay_vision.backend.jev_watch_feed import (
     WINDOW_CHUNK_SIZE,
     judge_scanner_window,
-    load_judged_ids,
+    load_judged_state,
     load_scanner_watch_ranks,
     load_watch_ranks,
     rank_watch_feed_by_jev,
@@ -34,6 +37,7 @@ from products.replay_vision.backend.models.replay_observation import (
 )
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
 from products.replay_vision.backend.temporal.jev_watch_rank.activities import _judge_watch_ranks
+from products.replay_vision.backend.temporal.jev_watch_rank.constants import MAX_JUDGE_ATTEMPTS
 from products.replay_vision.backend.temporal.jev_watch_rank.types import JevWatchRankSweepInputs
 from products.replay_vision.backend.tests.helpers import snapshot_for as _snapshot_for
 
@@ -266,16 +270,41 @@ class TestWatchRankCache(SimpleTestCase):
     def test_stored_ranks_round_trip_and_malformed_values_are_dropped_or_clamped(self) -> None:
         team_id = 990_001
         scanner_id, other_scanner_id, missing_scanner_id = uuid4(), uuid4(), uuid4()
-        store_watch_ranks(team_id, scanner_id, {"obs-a", "obs-b", "obs-low"}, {"obs-a": 0.9, "obs-b": 7.0}, "jevk5")
-        store_watch_ranks(team_id, other_scanner_id, {"obs-c"}, {"obs-c": 0.4}, "jevk5")
+        store_watch_ranks(
+            team_id, scanner_id, {"obs-a", "obs-b", "obs-low"}, {"obs-a": 0.9, "obs-b": 7.0}, {"obs-f": 2}, "jevk5"
+        )
+        store_watch_ranks(team_id, other_scanner_id, {"obs-c"}, {"obs-c": 0.4}, {}, "jevk5")
         loaded = load_watch_ranks(team_id, [scanner_id, other_scanner_id, missing_scanner_id])
         assert loaded == {"obs-a": 0.9, "obs-b": 1.0, "obs-c": 0.4}
         # The feed's per-request keys carry only the watchable map; the judged set remembers every
-        # row the sweep has bought, including the sub-threshold ones the feed never needs.
-        assert load_judged_ids(team_id, scanner_id) == {"obs-a", "obs-b", "obs-low"}
-        assert load_judged_ids(team_id, missing_scanner_id) == set()
+        # row the sweep has bought, including the sub-threshold ones the feed never needs, plus the
+        # attempt counts for rows whose judgment keeps failing.
+        judged_state = load_judged_state(team_id, scanner_id)
+        assert judged_state.ids == {"obs-a", "obs-b", "obs-low"}
+        assert judged_state.attempts == {"obs-f": 2}
+        assert load_judged_state(team_id, missing_scanner_id).ids == set()
         # Another team's cache never leaks in.
         assert load_watch_ranks(team_id + 1, [scanner_id]) == {}
+
+    def test_a_partial_store_failure_leaves_rows_rejudgeable(self) -> None:
+        # The judged marker is written last: when the watchable write lands and the judged write
+        # fails, the next sweep re-buys the batch. The reverse order would mark the rows judged
+        # with their scores lost forever.
+        team_id = 990_002
+        scanner_id = uuid4()
+        inner = get_client(settings.REPLAY_VISION_REDIS_URL)
+
+        class _JudgedWritesFail:
+            def setex(self, key: str, ttl: Any, value: str) -> None:
+                if ":judged:" in key:
+                    raise ConnectionError("redis down")
+                inner.setex(key, ttl, value)
+
+        with patch("products.replay_vision.backend.jev_watch_feed.get_client", return_value=_JudgedWritesFail()):
+            with self.assertRaises(ConnectionError):
+                store_watch_ranks(team_id, scanner_id, {"obs-a"}, {"obs-a": 0.9}, {}, "jevk5")
+        assert load_watch_ranks(team_id, [scanner_id]) == {"obs-a": 0.9}
+        assert load_judged_state(team_id, scanner_id).ids == set()
 
     def test_a_read_failure_raises_for_the_sweep_and_stays_soft_for_the_feed(self) -> None:
         # An unreachable cache must not read as an empty one: the sweep would re-buy the scanner's
@@ -286,7 +315,7 @@ class TestWatchRankCache(SimpleTestCase):
             side_effect=ConnectionError("redis down"),
         ):
             with self.assertRaises(ConnectionError):
-                load_judged_ids(1, scanner_id)
+                load_judged_state(1, scanner_id)
             with self.assertRaises(ConnectionError):
                 load_scanner_watch_ranks(1, scanner_id)
             assert load_watch_ranks(1, [scanner_id]) == {}
@@ -401,13 +430,13 @@ class TestJevWatchRankSweep(BaseTest):
             model=ScannerModel.GEMINI_3_8_FLASH,
         )
         self._succeeded_observation(scanner, "s1", "The user hit an error at checkout.")
-        store_watch_ranks(self.team.id, scanner.id, {"judged-earlier"}, {"judged-earlier": 0.9}, "jevk5")
+        store_watch_ranks(self.team.id, scanner.id, {"judged-earlier"}, {"judged-earlier": 0.9}, {}, "jevk5")
 
         activities = "products.replay_vision.backend.temporal.jev_watch_rank.activities"
         with (
             patch(f"{activities}.watch_feed_ranker", return_value="jev-shadow"),
             patch(f"{activities}.decision_api.decisions_available_here", return_value=True),
-            patch(f"{activities}.load_judged_ids", side_effect=ConnectionError("redis down")),
+            patch(f"{activities}.load_judged_state", side_effect=ConnectionError("redis down")),
             patch(_API) as api,
         ):
             result = async_to_sync(_judge_watch_ranks)(JevWatchRankSweepInputs())
@@ -415,3 +444,42 @@ class TestJevWatchRankSweep(BaseTest):
         assert result.cache_errors == 1
         assert result.scanners_judged == 0
         assert load_watch_ranks(self.team.id, [scanner.id]) == {"judged-earlier": 0.9}
+
+    def test_a_batch_that_keeps_failing_is_abandoned_after_max_attempts(self) -> None:
+        # A deterministically failing batch must not stay newest-unjudged forever, re-bought every
+        # hour while older rows starve. After MAX_JUDGE_ATTEMPTS it joins the judged set with no
+        # score and the sweep moves on.
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        scanner = ReplayScanner.objects.create(
+            team=self.team,
+            name="s",
+            scanner_type=ScannerType.SUMMARIZER,
+            scanner_config={"prompt": "p", "length": "short"},
+            model=ScannerModel.GEMINI_3_8_FLASH,
+        )
+        self._succeeded_observation(scanner, "s1", "The user hit an error at checkout.")
+
+        activities = "products.replay_vision.backend.temporal.jev_watch_rank.activities"
+        for attempt in range(1, MAX_JUDGE_ATTEMPTS + 1):
+            with (
+                patch(f"{activities}.watch_feed_ranker", return_value="jev-shadow"),
+                patch(f"{activities}.decision_api.decisions_available_here", return_value=True),
+                patch(_API) as api,
+                patch("posthoganalytics.capture"),
+            ):
+                api.decide_when_available.side_effect = DecisionsDisabledError(self.team.id)
+                result = async_to_sync(_judge_watch_ranks)(JevWatchRankSweepInputs())
+            assert result.failed_chunks == 1, attempt
+            assert result.observations_given_up == (1 if attempt == MAX_JUDGE_ATTEMPTS else 0), attempt
+
+        with (
+            patch(f"{activities}.watch_feed_ranker", return_value="jev-shadow"),
+            patch(f"{activities}.decision_api.decisions_available_here", return_value=True),
+            patch(_API) as api,
+        ):
+            result = async_to_sync(_judge_watch_ranks)(JevWatchRankSweepInputs())
+        # The abandoned row is judged with no score: no more Jev spend, filler tier in the feed.
+        api.decide_when_available.assert_not_called()
+        assert result.scanners_skipped_unchanged == 1
+        assert load_watch_ranks(self.team.id, [scanner.id]) == {}

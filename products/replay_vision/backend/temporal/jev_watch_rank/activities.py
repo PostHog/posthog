@@ -33,7 +33,7 @@ from products.replay_vision.backend.jev_watch_feed import (
     JEV_WATCHABLE_MIN,
     WINDOW_CHUNK_SIZE,
     judge_scanner_window,
-    load_judged_ids,
+    load_judged_state,
     load_scanner_watch_ranks,
     refresh_watch_ranks_ttl,
     store_watch_ranks,
@@ -43,6 +43,7 @@ from products.replay_vision.backend.models.replay_observation import Observation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
 from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.jev_watch_rank.constants import (
+    MAX_JUDGE_ATTEMPTS,
     MAX_JUDGED_PER_SCANNER,
     MAX_SCANNERS_PER_SWEEP,
     MAX_TEAMS_PER_SWEEP,
@@ -117,6 +118,7 @@ async def _judge_watch_ranks(inputs: JevWatchRankSweepInputs) -> JevWatchRankSwe
     scanners_judged = 0
     scanners_skipped_unchanged = 0
     observations_judged = 0
+    observations_given_up = 0
     cache_errors = 0
     failed_chunks = 0
     input_tokens = 0
@@ -154,7 +156,7 @@ async def _judge_watch_ranks(inputs: JevWatchRankSweepInputs) -> JevWatchRankSwe
             # therefore grows across sweeps at MAX_JUDGED_PER_SCANNER per hour whatever the
             # scanner's volume, and a fully judged window costs nothing.
             try:
-                judged = await asyncio.to_thread(load_judged_ids, team_id, scanner_id)
+                judged_state = await asyncio.to_thread(load_judged_state, team_id, scanner_id)
                 cached_watchable = await asyncio.to_thread(load_scanner_watch_ranks, team_id, scanner_id)
             except Exception:
                 # A cache the sweep cannot read must not be judged over or written: without the
@@ -166,6 +168,7 @@ async def _judge_watch_ranks(inputs: JevWatchRankSweepInputs) -> JevWatchRankSwe
                 )
                 cache_errors += 1
                 continue
+            judged = judged_state.ids
             unjudged_ids = [row_id for row_id in window_ids if str(row_id) not in judged][:MAX_JUDGED_PER_SCANNER]
             if not unjudged_ids:
                 await asyncio.to_thread(refresh_watch_ranks_ttl, team_id, scanner_id)
@@ -182,11 +185,28 @@ async def _judge_watch_ranks(inputs: JevWatchRankSweepInputs) -> JevWatchRankSwe
                 **{oid: p for oid, p in cached_watchable.items() if oid in window_strs},
                 **{oid: p for oid, p in judgment.probabilities.items() if p >= JEV_WATCHABLE_MIN},
             }
-            all_judged = (judged & window_strs) | set(judgment.probabilities) | set(judgment.skipped_no_prose)
-            if all_judged:
+            # A row whose judgment failed retries on later sweeps, but only MAX_JUDGE_ATTEMPTS
+            # times: the newest-first pick would otherwise retry a deterministically failing batch
+            # every hour and starve older rows. An exhausted row is recorded as judged with no
+            # score, so it settles into the filler tier like a prose-less row.
+            failed_ids = (
+                {str(row_id) for row_id in unjudged_ids} - set(judgment.probabilities) - set(judgment.skipped_no_prose)
+            )
+            updated_attempts = {oid: judged_state.attempts.get(oid, 0) + 1 for oid in failed_ids}
+            exhausted = {oid for oid, count in updated_attempts.items() if count >= MAX_JUDGE_ATTEMPTS}
+            attempts = {
+                oid: count
+                for oid, count in judged_state.attempts.items()
+                if oid in window_strs and oid not in failed_ids
+            } | {oid: count for oid, count in updated_attempts.items() if count < MAX_JUDGE_ATTEMPTS}
+            observations_given_up += len(exhausted)
+            all_judged = (
+                (judged & window_strs) | set(judgment.probabilities) | set(judgment.skipped_no_prose) | exhausted
+            )
+            if all_judged or attempts:
                 try:
                     await asyncio.to_thread(
-                        store_watch_ranks, team_id, scanner_id, all_judged, watchable, judgment.model
+                        store_watch_ranks, team_id, scanner_id, all_judged, watchable, attempts, judgment.model
                     )
                 except Exception:
                     # The batch is re-bought next run, which beats one write failure ending the sweep.
@@ -226,6 +246,7 @@ async def _judge_watch_ranks(inputs: JevWatchRankSweepInputs) -> JevWatchRankSwe
         scanners_judged=scanners_judged,
         scanners_skipped_unchanged=scanners_skipped_unchanged,
         observations_judged=observations_judged,
+        observations_given_up=observations_given_up,
         cache_errors=cache_errors,
         failed_chunks=failed_chunks,
         input_tokens=input_tokens,
@@ -242,6 +263,7 @@ async def _judge_watch_ranks(inputs: JevWatchRankSweepInputs) -> JevWatchRankSwe
         scanners_judged=result.scanners_judged,
         scanners_skipped_unchanged=result.scanners_skipped_unchanged,
         observations_judged=result.observations_judged,
+        observations_given_up=result.observations_given_up,
         cache_errors=result.cache_errors,
         failed_chunks=result.failed_chunks,
         input_tokens=result.input_tokens,

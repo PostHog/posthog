@@ -321,10 +321,14 @@ def refresh_watch_ranks_ttl(team_id: int, scanner_id: UUID) -> None:
 
 
 def store_watch_ranks(
-    team_id: int, scanner_id: UUID, judged_ids: Collection[str], watchable: dict[str, float], model: str | None
+    team_id: int,
+    scanner_id: UUID,
+    judged_ids: Collection[str],
+    watchable: dict[str, float],
+    attempts: dict[str, int],
+    model: str | None,
 ) -> None:
     client = get_client(settings.REPLAY_VISION_REDIS_URL)
-    client.setex(_judged_key(team_id, scanner_id), WATCH_RANK_TTL, json.dumps({"ids": sorted(judged_ids)}))
     client.setex(
         _watchable_key(team_id, scanner_id),
         WATCH_RANK_TTL,
@@ -336,10 +340,28 @@ def store_watch_ranks(
             }
         ),
     )
+    # The judged marker is written last on purpose: a partial failure then leaves scores without
+    # the marker, so the batch is re-bought next sweep. The reverse order would mark rows judged
+    # with their scores lost forever. (Not one MULTI: the two keys hash to different slots, so a
+    # transaction would break on a cluster.)
+    client.setex(
+        _judged_key(team_id, scanner_id),
+        WATCH_RANK_TTL,
+        json.dumps({"ids": sorted(judged_ids), "attempts": attempts}),
+    )
 
 
-def load_judged_ids(team_id: int, scanner_id: UUID) -> set[str]:
-    """Every observation id the sweep has judged for this scanner. A missing key is an empty set.
+@frozen
+class JudgedState:
+    """What the sweep already bought for one scanner: the judged observation ids, and how many
+    times each still-unjudged row's judgment has failed."""
+
+    ids: set[str]
+    attempts: dict[str, int]
+
+
+def load_judged_state(team_id: int, scanner_id: UUID) -> JudgedState:
+    """The sweep's judged set and attempt counts for this scanner. A missing key is empty state.
 
     A Redis read failure raises: an unreadable cache must not read as an empty one, or the sweep
     re-buys the scanner's judgments and its next write replaces entries it never saw. A stored
@@ -347,13 +369,26 @@ def load_judged_ids(team_id: int, scanner_id: UUID) -> set[str]:
     """
     value = get_client(settings.REPLAY_VISION_REDIS_URL).get(_judged_key(team_id, scanner_id))
     if not value:
-        return set()
+        return JudgedState(ids=set(), attempts={})
     try:
-        stored = json.loads(value).get("ids")
+        stored = json.loads(value)
     except Exception:
         logger.exception("Jev watch rank judged-set malformed", team_id=team_id)
-        return set()
-    return {str(judged_id) for judged_id in stored} if isinstance(stored, list) else set()
+        return JudgedState(ids=set(), attempts={})
+    raw_ids = stored.get("ids")
+    raw_attempts = stored.get("attempts")
+    return JudgedState(
+        ids={str(judged_id) for judged_id in raw_ids} if isinstance(raw_ids, list) else set(),
+        attempts=(
+            {
+                str(observation_id): count
+                for observation_id, count in raw_attempts.items()
+                if isinstance(count, int) and not isinstance(count, bool)
+            }
+            if isinstance(raw_attempts, dict)
+            else {}
+        ),
+    )
 
 
 def _parse_watchable(value: Any) -> dict[str, float]:
