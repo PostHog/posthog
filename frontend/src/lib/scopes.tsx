@@ -534,6 +534,7 @@ export const API_SCOPE_GROUPS: APIScopeGroup[] = [
             'customer_profile_config',
             'usage_metric',
             'ticket',
+            'support_ticket',
         ],
     },
     {
