@@ -309,6 +309,7 @@ class TestSearchIntentPrompt(SimpleTestCase):
         with (
             patch("posthog.taxonomic_search_intent.prompt.fetch_search_intent_prompt", slow_fetch),
             patch.object(refresher._executor, "submit", side_effect=lambda fn: fetches.append(submit(fn))),
+            patch("posthog.taxonomic_search_intent.prompt.connections.close_all") as close_connections,
         ):
             assert refresher.current() is BUNDLED_SEARCH_INTENT_PROMPT
             assert refresher.current() is BUNDLED_SEARCH_INTENT_PROMPT
@@ -317,3 +318,14 @@ class TestSearchIntentPrompt(SimpleTestCase):
 
             assert refresher.current() == managed
             assert len(fetches) == 1
+            close_connections.assert_called_once_with()
+
+    @patch("posthog.taxonomic_search_intent.prompt.connections.close_all")
+    @patch("posthog.taxonomic_search_intent.prompt.fetch_search_intent_prompt", side_effect=ConnectionError)
+    def test_failed_refresh_closes_worker_connection(self, _fetch_prompt, close_connections) -> None:
+        refresher = _PromptRefresher()
+
+        refresher._refresh()
+
+        assert refresher.current() is BUNDLED_SEARCH_INTENT_PROMPT
+        close_connections.assert_called_once_with()

@@ -14,6 +14,8 @@ from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
+from django.db import connections
+
 import structlog
 from posthoganalytics.ai.prompts import PromptResult
 
@@ -146,6 +148,8 @@ class _PromptRefresher:
         except Exception:
             logger.exception("taxonomic_search_intent_prompt_refresh_failed")
             prompt = None
+        finally:
+            connections.close_all()
         with self._lock:
             if prompt is not None and (prompt.version is not None or self._prompt.version is None):
                 self._prompt = prompt

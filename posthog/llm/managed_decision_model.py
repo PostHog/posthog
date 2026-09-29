@@ -3,6 +3,8 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
+from django.db import connections
+
 import structlog
 import posthoganalytics
 
@@ -66,6 +68,8 @@ class ManagedDecisionModel:
             model = self.fetch()
         except Exception:
             logger.exception("managed_decision_model_refresh_failed", prompt_name=self.prompt_name)
+        finally:
+            connections.close_all()
         with self._lock:
             if model is not None:
                 self._model = model

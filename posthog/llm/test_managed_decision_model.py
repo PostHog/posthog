@@ -51,16 +51,18 @@ class TestManagedDecisionModel(SimpleTestCase):
     def test_missing_prompt_and_failed_refresh_keep_last_model(self, read_prompt) -> None:
         managed = ManagedDecisionModel("emoji-search-suggestions")
         read_prompt.return_value = {"config": {"model": NEW_MODEL}}
-        managed._refresh()
+        with patch("posthog.llm.managed_decision_model.connections.close_all") as close_connections:
+            managed._refresh()
 
-        read_prompt.return_value = None
-        managed._refresh()
-        assert managed.current() == NEW_MODEL
-        with self.assertRaisesRegex(RuntimeError, "version 3 was not found"):
-            managed.fetch(version=3)
+            read_prompt.return_value = None
+            managed._refresh()
+            assert managed.current() == NEW_MODEL
+            with self.assertRaisesRegex(RuntimeError, "version 3 was not found"):
+                managed.fetch(version=3)
 
-        read_prompt.side_effect = ConnectionError("unavailable")
-        managed._refresh()
+            read_prompt.side_effect = ConnectionError("unavailable")
+            managed._refresh()
+            assert close_connections.call_count == 3
         assert managed.current() == NEW_MODEL
 
     @patch("posthog.llm.managed_decision_model.get_prompt_by_name_from_cache")
