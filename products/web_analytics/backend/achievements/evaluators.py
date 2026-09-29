@@ -9,6 +9,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.property import action_to_expr
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.dataclasses import frozen
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -148,7 +149,10 @@ def evaluate_cumulative_pageviews(ctx: EvalContext, prior: PriorProgress) -> Tra
     until = timezone.now() - INGESTION_LAG
     since = _parse_timestamp(prior.checkpoint.get("counted_through")) or prior.last_computed_at
     total = prior.value if since is not None else 0
-    with get_achievement_query_limiter().run(team_id=ctx.team.id):
+    with (
+        tags_context(product=Product.WEB_ANALYTICS, feature=Feature.ENRICHMENT),
+        get_achievement_query_limiter().run(team_id=ctx.team.id),
+    ):
         for team in _project_environment_teams(ctx.team):
             query = parse_select(
                 "SELECT count() FROM events WHERE and(event IN ('$pageview', '$screen'), {window}, {test})",
@@ -211,7 +215,10 @@ def evaluate_conversions(ctx: EvalContext, prior: PriorProgress) -> TrackEvaluat
         since = max(counted_through.astimezone(UTC).replace(hour=0, minute=0, second=0, microsecond=0), window_start)
 
     rescanned: dict[str, list[int]] = {}
-    with get_achievement_query_limiter().run(team_id=ctx.team.id):
+    with (
+        tags_context(product=Product.WEB_ANALYTICS, feature=Feature.ENRICHMENT),
+        get_achievement_query_limiter().run(team_id=ctx.team.id),
+    ):
         for team in _project_environment_teams(ctx.team):
             query = parse_select(
                 "SELECT toDate(toTimeZone(timestamp, 'UTC')) AS day FROM events WHERE and({window}, {events}, {test}) GROUP BY day",
