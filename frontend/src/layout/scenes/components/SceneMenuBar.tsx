@@ -100,6 +100,8 @@ export function SceneMenuBar({ children, className }: SceneMenuBarProps): JSX.El
                 data-scene-layout={layout}
                 className={cn(
                     'scene-menu-bar px-0.5 py-0.5 border-b border-primary flex items-center justify-between',
+                    // Below `lg` the navigation toggle floats over the top-left corner of the scene.
+                    'max-lg:pl-10',
                     // Bleed past the scene container's padding so the bar feels full-width — only
                     // safe when the layout actually has padding to cancel. Unpadded layouts
                     // (app-raw, plain, etc.) would overflow.
@@ -127,6 +129,8 @@ export function SceneMenuBar({ children, className }: SceneMenuBarProps): JSX.El
 }
 
 const RIGHT_TRIGGER_CLASSES = 'px-2 h-7 rounded-sm text-xs font-medium inline-flex items-center gap-1 text-foreground'
+// The right links drop to icons in a narrow scene so the bar never pushes the scene sideways.
+const RIGHT_TRIGGER_LABEL_CLASSES = 'hidden @min-[36rem]/main-content:inline'
 
 function SceneMenuBarRightLinks(): JSX.Element {
     const { openSidePanel } = useActions(sidePanelStateLogic)
@@ -138,21 +142,23 @@ function SceneMenuBarRightLinks(): JSX.Element {
             {settingsUrl && (
                 <Button
                     data-attr="scene-menu-bar-settings"
+                    aria-label="Settings"
                     className={RIGHT_TRIGGER_CLASSES}
                     onClick={() => captureSceneMenuBar('scene menu bar right link clicked', { link: 'settings' })}
                     render={<LinkPrimitive to={settingsUrl} />}
                 >
-                    Settings
+                    <span className={RIGHT_TRIGGER_LABEL_CLASSES}>Settings</span>
                     <IconGear />
                 </Button>
             )}
             <Button
                 data-attr="scene-menu-bar-docs"
+                aria-label="Docs"
                 className={RIGHT_TRIGGER_CLASSES}
                 onClick={() => captureSceneMenuBar('scene menu bar right link clicked', { link: 'docs' })}
                 render={<LinkPrimitive to="https://posthog.com/docs" target="_blank" />}
             >
-                Docs
+                <span className={RIGHT_TRIGGER_LABEL_CLASSES}>Docs</span>
                 <IconExternal />
             </Button>
             <Button
@@ -162,9 +168,10 @@ function SceneMenuBarRightLinks(): JSX.Element {
                     openSidePanel(SidePanelTab.Support)
                 }}
                 data-attr="scene-menu-bar-support"
+                aria-label="Support"
                 className={RIGHT_TRIGGER_CLASSES}
             >
-                Support
+                <span className={RIGHT_TRIGGER_LABEL_CLASSES}>Support</span>
                 <IconSidePanel />
             </Button>
             <Button
@@ -174,11 +181,12 @@ function SceneMenuBarRightLinks(): JSX.Element {
                     openSidePanel(SidePanelTab.Max)
                 }}
                 data-attr="scene-menu-bar-ai"
+                aria-label="PostHog AI"
                 className={RIGHT_TRIGGER_CLASSES}
                 variant="outline"
             >
                 <IconSparkles className="text-ai group-hover/button-primitive:animate-hue-rotate" />
-                PostHog AI
+                <span className={RIGHT_TRIGGER_LABEL_CLASSES}>PostHog AI</span>
             </Button>
         </div>
     )
