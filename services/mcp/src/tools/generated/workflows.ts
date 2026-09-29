@@ -183,6 +183,7 @@ const workflowsList = (): ToolBase<
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/`,
                 query: {
                     broadcast_eligible: params.broadcast_eligible,
+                    broadcast_status: params.broadcast_status,
                     created_at: params.created_at,
                     created_by: params.created_by,
                     id: params.id,
