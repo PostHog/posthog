@@ -14,9 +14,9 @@ scanner's own recent sessions rather than standing alone. The hourly Temporal sw
 (`temporal/jev_watch_rank/`) judges only the rows without a cached probability and merges the
 results into a Redis cache, so coverage accumulates across sweeps at a bounded hourly cost whatever
 the scanner's volume. The cache exists because the feed API is synchronous over up to 1,000 rows
-and must not make model calls, and the scan pipeline must not either. The two rankers share nothing
-but the `WatchFeedEntry` shape, so switching the flag switches the whole ranking, not one component
-of it.
+and must not make model calls, and the scan pipeline must not either. The two rankers share only the
+`WatchFeedEntry` shape and the feed's presentation contract (the filler floor and the notable-reason
+bar), so switching the flag switches the whole ranking, not one component of it.
 """
 
 import json
@@ -45,7 +45,7 @@ from products.ml_inference.backend.facade.contracts import (
     NoulAnswer,
 )
 from products.ml_inference.backend.facade.enums import DecisionQuestionType
-from products.replay_vision.backend.watch_feed import WatchFeedEntry
+from products.replay_vision.backend.watch_feed import NOTABLE_MIN_SCORE, WatchFeedEntry, _trim_filler
 
 logger = structlog.get_logger(__name__)
 
@@ -438,7 +438,16 @@ def load_watch_ranks(team_id: int, scanner_ids: list[UUID]) -> dict[str, float]:
 def _scan_notability_reason(row: dict[str, Any]) -> str | None:
     result = row.get("scanner_result")
     output = result.get("model_output") if isinstance(result, dict) else None
-    reason = output.get("notability_reason") if isinstance(output, dict) else None
+    if not isinstance(output, dict):
+        return None
+    # The scan writes a notability_reason on every session (including "nothing stands out"), so
+    # only carry it when the scan itself found the session notable — the same bar the weighted
+    # ranker applies. Jev can rate a session watchable relative to a dull window while the scan's
+    # own sentence says the opposite, and that sentence must not lead the card.
+    notability = output.get("notability")
+    if not isinstance(notability, int | float) or isinstance(notability, bool) or notability < NOTABLE_MIN_SCORE:
+        return None
+    reason = output.get("notability_reason")
     return reason if isinstance(reason, str) and reason.strip() else None
 
 
@@ -471,7 +480,9 @@ def rank_watch_feed_by_jev(rows: list[dict[str, Any]], probabilities: dict[str, 
     arm measures Jev's judgment without any component of the weighted score mixed in. Rows without
     evidence sort below every watchable row by recency, with the same filler reasons the weighted
     ranker uses: rows the model rated below `JEV_WATCHABLE_MIN`, rows without a cached probability
-    (not yet swept, or the cache went cold), and rows outside the sweep's window.
+    (not yet swept, or the cache went cold), and rows outside the sweep's window. Filler is trimmed
+    to the same floor as the weighted feed, so a cold cache yields 3 newest clips, not a full page
+    of them.
     """
     watchable: list[tuple[float, Any, Any, WatchFeedEntry]] = []
     filler: list[tuple[bool, Any, WatchFeedEntry]] = []
@@ -493,6 +504,7 @@ def rank_watch_feed_by_jev(rows: list[dict[str, Any]], probabilities: dict[str, 
             filler.append((not viewed, row["created_at"], entry))
     watchable.sort(key=lambda item: (item[0], item[1]), reverse=True)
     filler.sort(key=lambda item: (item[0], item[1]), reverse=True)
-    return _spread_scanners([(scanner_id, entry) for _, _, scanner_id, entry in watchable]) + [
-        entry for *_, entry in filler
-    ]
+    return _trim_filler(
+        _spread_scanners([(scanner_id, entry) for _, _, scanner_id, entry in watchable])
+        + [entry for *_, entry in filler]
+    )

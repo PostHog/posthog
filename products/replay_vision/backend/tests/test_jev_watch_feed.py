@@ -175,6 +175,7 @@ def _feed_row(
     viewed: bool = False,
     scanner: str = "scanner-a",
     notability: str | None = None,
+    notability_score: float = 0.9,
 ) -> dict[str, Any]:
     row: dict[str, Any] = {
         "id": observation_id,
@@ -183,15 +184,16 @@ def _feed_row(
         "feed_viewed": viewed,
     }
     if notability is not None:
-        row["scanner_result"] = {"model_output": {"notability_reason": notability}}
+        row["scanner_result"] = {"model_output": {"notability_reason": notability, "notability": notability_score}}
     return row
 
 
 class TestRankWatchFeedByJev(SimpleTestCase):
-    def test_watchable_rows_rank_by_probability_and_the_rest_follow_by_recency(self) -> None:
+    def test_watchable_rows_rank_by_probability_and_filler_pads_only_to_the_floor(self) -> None:
         # A judged-low row falls to the same recency filler tier as an unjudged one, so a stale low
         # judgment never outranks a fresh observation the sweep has not seen yet, and its card never
-        # claims the model judged it worth watching.
+        # claims the model judged it worth watching. Filler then pads the findings only up to the
+        # feed's floor, newest first, so the older filler rows drop.
         ranked = rank_watch_feed_by_jev(
             [
                 _feed_row("old-unjudged", 50),
@@ -202,13 +204,7 @@ class TestRankWatchFeedByJev(SimpleTestCase):
             ],
             {"judged-low": 0.2, "high": 0.7, "higher": 0.9},
         )
-        assert [entry.observation_id for entry in ranked] == [
-            "higher",
-            "high",
-            "new-unjudged",
-            "judged-low",
-            "old-unjudged",
-        ]
+        assert [entry.observation_id for entry in ranked] == ["higher", "high", "new-unjudged"]
         # The scan's own sentence rides along so the card can explain the pick; a row without one
         # carries only the kind and probability.
         assert ranked[0].reason == {
@@ -218,7 +214,14 @@ class TestRankWatchFeedByJev(SimpleTestCase):
         }
         assert ranked[1].reason == {"kind": "jev_watchable", "jev_probability": 0.7}
         assert ranked[2].reason == {"kind": "unviewed_recent"}
-        assert ranked[3].reason == {"kind": "unviewed_recent"}
+
+    def test_a_cold_cache_returns_the_filler_floor_not_a_full_page(self) -> None:
+        # With no cached judgments every row is filler: the feed shows the same 3-row floor as the
+        # weighted ranker, unviewed rows first and newest first, instead of a whole page of "new
+        # since you last looked" cards.
+        rows = [_feed_row(f"row-{index}", index, viewed=index == 0) for index in range(20)]
+        ranked = rank_watch_feed_by_jev(rows, {})
+        assert [entry.observation_id for entry in ranked] == ["row-1", "row-2", "row-3"]
 
     def test_one_scanner_cannot_flood_the_top_of_the_evidence_tier(self) -> None:
         # One incident's near-identical sessions must leave room for other scanners' findings, and
@@ -244,7 +247,9 @@ class TestRankWatchFeedByJev(SimpleTestCase):
     def test_a_viewed_row_is_docked_inside_the_watchable_tier_only(self) -> None:
         ranked = rank_watch_feed_by_jev(
             [
-                _feed_row("viewed-strong", 30, viewed=True),
+                # The scan itself found nothing notable, so its sentence must not lead a card Jev
+                # rated watchable relative to a dull window.
+                _feed_row("viewed-strong", 30, viewed=True, notability="Nothing stands out.", notability_score=0.2),
                 _feed_row("unviewed-mid", 20),
                 # Raw probability decides the tier, so the dock cannot push a watchable row into filler.
                 _feed_row("viewed-borderline", 15, viewed=True),
@@ -254,16 +259,14 @@ class TestRankWatchFeedByJev(SimpleTestCase):
             {"viewed-strong": 0.95, "unviewed-mid": 0.6, "viewed-borderline": 0.55},
         )
         # 0.95 - 0.3 dock = 0.65 still beats 0.6; 0.55 - 0.3 = 0.25 stays watchable, ordered last.
+        # Three findings meet the floor, so no filler row survives the trim.
         assert [entry.observation_id for entry in ranked] == [
             "viewed-strong",
             "unviewed-mid",
             "viewed-borderline",
-            "unviewed-filler",
-            "viewed-filler",
         ]
+        assert ranked[0].reason == {"kind": "jev_watchable", "jev_probability": 0.95}
         assert ranked[2].reason == {"kind": "jev_watchable", "jev_probability": 0.55}
-        assert ranked[3].reason == {"kind": "unviewed_recent"}
-        assert ranked[4].reason == {"kind": "recent"}
 
 
 class TestWatchRankCache(SimpleTestCase):
