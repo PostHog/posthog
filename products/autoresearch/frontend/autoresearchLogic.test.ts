@@ -2,6 +2,8 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { productSetupStatusLogic } from 'lib/components/ProductEmptyState/productSetupStatusLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/queries/schema/schema-general'
@@ -31,6 +33,8 @@ describe('autoresearchLogic', () => {
     beforeEach(() => {
         jest.clearAllMocks()
         initKeaTests()
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.AUTORESEARCH], { [FEATURE_FLAGS.AUTORESEARCH]: true })
     })
 
     function statusLogicValues(): string {
@@ -114,6 +118,27 @@ describe('autoresearchLogic', () => {
             }
         }
         expect(apiCall).toHaveBeenCalledTimes(1)
+    })
+
+    it('does not load the list with the flag off', async () => {
+        featureFlagLogic.actions.setFeatureFlags([], {})
+        router.actions.push(urls.autoresearch())
+        const logic = autoresearchLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(mockList).not.toHaveBeenCalled()
+    })
+
+    it('updates a row as soon as its pause succeeds', async () => {
+        mockList.mockResolvedValueOnce({ results: [{ id: 'p1', name: 'Model', status: 'running' }], next: null })
+        mockList.mockReturnValue(new Promise(() => {}))
+        ;(autoresearchPauseCreate as jest.Mock).mockResolvedValue({ id: 'p1', name: 'Model', status: 'paused' })
+        const logic = autoresearchLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadPipelinesSuccess'])
+        logic.actions.pausePipeline(logic.values.pipelines[0])
+        await expectLogic(logic).toDispatchActions(['pipelineUpdated'])
+        expect(logic.values.pipelines[0].status).toBe('paused')
     })
 
     it('loads once when mounted on the list route', async () => {
