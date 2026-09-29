@@ -15,6 +15,7 @@ from posthog.temporal.common.logger import get_logger
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema, process_incremental_value
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.db_retry import (
     retry_on_operational_error,
 )
@@ -25,7 +26,12 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers 
     sync_revenue_analytics_views,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import set_initial_sync_complete
-from products.warehouse_sources.backend.temporal.data_imports.util import prepare_s3_files_for_querying
+from products.warehouse_sources.backend.temporal.data_imports.query_folder_state import QueryFolderPointerHistory
+from products.warehouse_sources.backend.temporal.data_imports.schema_flags import is_schema_flag_enabled
+from products.warehouse_sources.backend.temporal.data_imports.util import (
+    DOUBLE_BUFFERED_QUERY_FOLDERS_FLAG,
+    prepare_s3_files_for_querying,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 if TYPE_CHECKING:
@@ -165,6 +171,7 @@ async def _seed_cdc_companion_from_snapshot(
         DELETED_COLUMN,
         SCD2_VALID_FROM_COLUMN,
         SCD2_VALID_TO_COLUMN,
+        companion_resource_name as build_companion_resource_name,
     )
     from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
     from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.writer import DeltaWriter
@@ -187,7 +194,7 @@ async def _seed_cdc_companion_from_snapshot(
     }
     read_columns = [c for c in dataset.schema.names if c not in cdc_meta_cols]
 
-    companion_resource_name = f"{schema.name}_cdc"
+    companion_resource_name = build_companion_resource_name(schema.name)
     companion_ref = DeltaTableRef(
         resource_name=companion_resource_name,
         job=job,
@@ -269,36 +276,31 @@ async def _run_delta_maintenance(
     delta_table_ref: "DeltaTableRef",
     is_cdc_companion: bool,
     logger: FilteringBoundLogger,
+    partition_count_fallback: int | None,
 ) -> None:
-    from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (  # noqa: PLC0415 — keeps the heavy deltalake dep off this module's top-level import path
-        is_transient_maintenance_error,
-    )
     from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.maintenance import (  # noqa: PLC0415 — keeps the heavy deltalake dep off this module's top-level import path
         DeltaMaintenance,
     )
 
-    maintenance = DeltaMaintenance(delta_table_ref)
-    if schema.is_cdc:
-        # CDC finals land once per tick per changed schema, so unconditional compaction would run
-        # near-continuously after mostly-tiny merges. Use threshold/cadence maintenance instead:
-        # compact when fragmented, otherwise vacuum once enough commits have accrued.
-        logger.debug("Running threshold-based delta maintenance")
-        with POST_LOAD_DURATION_SECONDS.labels(operation="maintenance").time():
-            await maintenance.run_scheduled(schema, is_cdc_companion=is_cdc_companion)
-    else:
-        logger.debug("Triggering compaction and vacuuming on delta table")
-        try:
-            with POST_LOAD_DURATION_SECONDS.labels(operation="compact").time():
-                await maintenance.compact_table()
-        except Exception as e:
-            if is_transient_maintenance_error(e):
-                # A rate-limited or connectivity blip talking to our own S3 bucket (or a concurrent
-                # maintenance pass losing a file race) isn't a bug - the next sync's maintenance pass
-                # retries the same idempotent cleanup.
-                logger.warning(f"Compaction skipped: transient infra error: {e}")
-            else:
-                capture_exception(e)
-                logger.exception(f"Compaction failed: {e}", exc_info=e)
+    # Threshold maintenance for every sync type: most final batches leave the table with nothing
+    # to compact, and an unconditional compact still lists and plans every file. Compact when
+    # fragmented, otherwise vacuum once enough commits have accrued; see DeltaMaintenance.run_scheduled.
+    logger.debug("Running threshold-based delta maintenance")
+    with POST_LOAD_DURATION_SECONDS.labels(operation="maintenance").time():
+        await DeltaMaintenance(delta_table_ref).run_scheduled(
+            schema, is_cdc_companion=is_cdc_companion, partition_count_fallback=partition_count_fallback
+        )
+
+
+def _stored_sync_type_config(schema_id: Any, team_id: int) -> Any:
+    """Read the schema's `sync_type_config` as committed rather than from the in-memory schema: the
+    query folder pointer record was written by whichever run flipped the pointer, which a long-lived
+    schema object may predate."""
+    return (
+        ExternalDataSchema.objects.filter(id=schema_id, team_id=team_id)
+        .values_list("sync_type_config", flat=True)
+        .first()
+    )
 
 
 async def _publish_queryable_files(
@@ -336,12 +338,22 @@ async def _publish_queryable_files(
             lambda: schema.table.queryable_folder if schema.table else None
         )()
 
+    double_buffer = await database_sync_to_async_pool(is_schema_flag_enabled)(
+        schema, DOUBLE_BUFFERED_QUERY_FOLDERS_FLAG
+    )
+    pointer_history = None
+    if double_buffer:
+        sync_type_config = await database_sync_to_async_pool(_stored_sync_type_config)(schema.id, job.team_id)
+        pointer_history = QueryFolderPointerHistory.from_config(
+            sync_type_config, f"{NamingConvention.normalize_identifier(resource_name)}__query"
+        )
+
     # File URIs are listed after delta maintenance so the queryable folder serves the compacted
     # layout rather than the pre-compaction small files.
     file_uris = await delta_table_ref.get_file_uris()
     logger.debug(f"Preparing S3 files - total parquet files: {len(file_uris)}")
     with POST_LOAD_DURATION_SECONDS.labels(operation="prepare_s3").time():
-        return await prepare_s3_files_for_querying(
+        folder = await prepare_s3_files_for_querying(
             await database_sync_to_async_pool(job.folder_path)(),
             resource_name,
             file_uris,
@@ -349,7 +361,10 @@ async def _publish_queryable_files(
             existing_queryable_folder=existing_queryable_folder,
             logger=logger,
             refresh_file_uris=delta_table_ref.get_file_uris,
+            double_buffer=double_buffer,
+            pointer_history=pointer_history,
         )
+    return folder
 
 
 async def _finalize_sync_bookkeeping(
@@ -378,6 +393,7 @@ async def _finalize_sync_bookkeeping(
 async def _register_table(
     job: ExternalDataJob,
     schema: ExternalDataSchema,
+    delta_table_ref: "DeltaTableRef",
     row_count: int,
     table_schema_dict: dict[str, str],
     resource: "Optional[SourceResponse]",
@@ -387,6 +403,11 @@ async def _register_table(
     from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import (
         validate_schema_and_update_table,
     )
+
+    # The handle is already open from the maintenance step, so the schema comes from the in-memory
+    # snapshot rather than from another log read.
+    delta_table = await delta_table_ref.get_delta_table()
+    delta_schema_json = delta_table.schema().to_json() if delta_table is not None else None
 
     logger.debug("Validating schema and updating table")
     with POST_LOAD_DURATION_SECONDS.labels(operation="validate_schema").time():
@@ -399,6 +420,7 @@ async def _register_table(
             queryable_folder=queryable_folder,
             table_format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
             primary_keys=resource.primary_keys if resource is not None else None,
+            delta_schema_json=delta_schema_json,
         )
     logger.debug("Finished validating schema and updating table")
 
@@ -602,7 +624,7 @@ async def run_post_load_operations(
 ) -> Optional[str]:
     """
     Orchestrator that runs all post-load operations, in order:
-        1. Delta maintenance (threshold-based for CDC schemas, unconditional compaction otherwise)
+        1. Delta maintenance (compact when fragmented, otherwise vacuum on commit cadence)
         2. Prepare S3 files for querying
         3. Sync bookkeeping (last_synced_at, initial_sync_complete, desc-sort incremental finalization)
         4. Register the table (skipped for CDC companion writes and cdc_only initial loads)
@@ -634,17 +656,20 @@ async def run_post_load_operations(
     is_initial_load = not schema.initial_sync_complete
 
     # Zero rows means the Delta table is untouched: nothing to compact, and republishing
-    # would only orphan a fresh copy of every parquet file. Registration already no-ops at
-    # zero rows. Bookkeeping and POST_LOAD_STEPS still run below, because those repair
-    # managed views and watermarks rather than describing what this run wrote. Opt-in
-    # because only the v2 pipeline's row_count is ground truth for what the run wrote; the
-    # v3 consumer's can read 0 for a batch that did write data.
+    # would only orphan a fresh copy of every parquet file. A schema with a linked table
+    # has nothing to repoint either. Bookkeeping and POST_LOAD_STEPS still run below,
+    # because those repair managed views and watermarks rather than describing what this
+    # run wrote. Opt-in because only the v2 pipeline's row_count is ground truth for what
+    # the run wrote; the v3 consumer's can read 0 for a batch that did write data.
     if (
         allow_zero_row_skip
         and row_count == 0
         and not is_cdc_schema
         and not is_cdc_companion
         and schema.initial_sync_complete
+        # An unlinked schema has nothing queryable, and skipping registration strands it: the next
+        # zero-row run skips again.
+        and schema.table_id is not None
         and schema.repartition_pending is None
         and schema.repartition_swap is None
         and schema.delta_revive_required is None
@@ -655,7 +680,13 @@ async def run_post_load_operations(
         await _run_post_load_steps(job, schema, source, delta_table_ref, is_cdc_companion, logger)
         return None
 
-    await _run_delta_maintenance(schema, delta_table_ref, is_cdc_companion, logger)
+    await _run_delta_maintenance(
+        schema,
+        delta_table_ref,
+        is_cdc_companion,
+        logger,
+        partition_count_fallback=resource.partition_count if resource is not None else None,
+    )
 
     queryable_folder = await _publish_queryable_files(
         job, schema, delta_table_ref, resource_name, is_cdc_companion, logger
@@ -669,7 +700,9 @@ async def run_post_load_operations(
     is_cdc_only_initial = cdc_write_mode is None and is_cdc_schema and schema.cdc_table_mode == "cdc_only"
 
     if not is_cdc_companion and not is_cdc_only_initial:
-        await _register_table(job, schema, row_count, table_schema_dict, resource, queryable_folder, logger)
+        await _register_table(
+            job, schema, delta_table_ref, row_count, table_schema_dict, resource, queryable_folder, logger
+        )
 
     if is_cdc_companion or is_cdc_schema:
         await _run_cdc_post_load(

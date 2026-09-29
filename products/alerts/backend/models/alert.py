@@ -154,7 +154,8 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
 
     last_notified_at = models.DateTimeField(null=True, blank=True)
     last_checked_at = models.DateTimeField(null=True, blank=True)
-    # UTC time for when next alert check is due
+    # UTC time for when next alert check is due. Null only before the first
+    # check, when created_at is the scheduler's due-age lower bound.
     next_check_at = models.DateTimeField(null=True, blank=True)
     # UTC time until when we shouldn't check alert/notify user
     snoozed_until = models.DateTimeField(null=True, blank=True)

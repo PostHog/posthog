@@ -39,6 +39,7 @@ const ERROR_SCENES: string[] = [
     Scene.Error404,
     Scene.ErrorNetwork,
     Scene.ErrorProjectUnavailable,
+    Scene.ErrorProjectAccessDenied,
     Scene.ErrorAccessDenied,
 ]
 
@@ -47,6 +48,7 @@ const ERROR_SCENES: string[] = [
 const HIGH_TRAFFIC_SCENES: [name: string, path: string][] = [
     ['home', '/home'],
     ['max (/ai)', '/ai'],
+    ['max task (/ai?task=0199ed4a-5c03-0000-3220-df21df612e95)', '/ai?task=0199ed4a-5c03-0000-3220-df21df612e95'],
     ['insights', '/insights'],
     ['insight (new)', '/insights/new'],
     ['dashboards', '/dashboard'],
@@ -56,7 +58,7 @@ const HIGH_TRAFFIC_SCENES: [name: string, path: string][] = [
     ['feature flags', '/feature_flags'],
     ['experiments', '/experiments'],
     ['surveys', '/surveys'],
-    ['activity explore', '/activity/explore'],
+    ['activity events', '/activity/events'],
     ['error tracking', '/error_tracking'],
     ['sql editor', '/sql'],
     ['engineering analytics', '/engineering-analytics'],

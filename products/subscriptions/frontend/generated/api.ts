@@ -11,9 +11,10 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     PaginatedSubscriptionDeliveryListApi,
     PaginatedSubscriptionListApi,
-    PatchedSubscriptionApi,
+    PatchedSubscriptionWriteApi,
     SubscriptionApi,
     SubscriptionDeliveryApi,
+    SubscriptionWriteApi,
     SubscriptionsDeliveriesListParams,
     SubscriptionsListParams,
     SubscriptionsSummaryQuotaRetrieve200,
@@ -69,14 +70,14 @@ export const getSubscriptionsCreateUrl = (projectId: string) => {
 
 export const subscriptionsCreate = async (
     projectId: string,
-    subscriptionApi: NonReadonly<SubscriptionApi>,
+    subscriptionWriteApi: NonReadonly<SubscriptionWriteApi>,
     options?: RequestInit
 ): Promise<SubscriptionApi> => {
     return apiMutator<SubscriptionApi>(getSubscriptionsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(subscriptionApi),
+        body: JSON.stringify(subscriptionWriteApi),
     })
 }
 
@@ -102,14 +103,14 @@ export const getSubscriptionsUpdateUrl = (projectId: string, id: number) => {
 export const subscriptionsUpdate = async (
     projectId: string,
     id: number,
-    subscriptionApi: NonReadonly<SubscriptionApi>,
+    subscriptionWriteApi: NonReadonly<SubscriptionWriteApi>,
     options?: RequestInit
 ): Promise<SubscriptionApi> => {
     return apiMutator<SubscriptionApi>(getSubscriptionsUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(subscriptionApi),
+        body: JSON.stringify(subscriptionWriteApi),
     })
 }
 
@@ -120,14 +121,14 @@ export const getSubscriptionsPartialUpdateUrl = (projectId: string, id: number) 
 export const subscriptionsPartialUpdate = async (
     projectId: string,
     id: number,
-    patchedSubscriptionApi?: NonReadonly<PatchedSubscriptionApi>,
+    patchedSubscriptionWriteApi?: NonReadonly<PatchedSubscriptionWriteApi>,
     options?: RequestInit
 ): Promise<SubscriptionApi> => {
     return apiMutator<SubscriptionApi>(getSubscriptionsPartialUpdateUrl(projectId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedSubscriptionApi),
+        body: JSON.stringify(patchedSubscriptionWriteApi),
     })
 }
 

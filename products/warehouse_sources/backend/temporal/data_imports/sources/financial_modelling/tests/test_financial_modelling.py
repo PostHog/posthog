@@ -1,9 +1,10 @@
+from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any
 
 import pytest
-from freezegun import freeze_time
-from unittest.mock import MagicMock
+import time_machine
+from unittest.mock import MagicMock, patch
 
 import requests
 from parameterized import parameterized
@@ -15,6 +16,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.financial_
     _build_url,
     _extract_rows,
     _fetch_page,
+    _FiscalQuarter,
+    _recent_quarters,
     _to_date,
     _window_params,
     financial_modelling_source,
@@ -116,8 +119,12 @@ class TestToDate:
         assert _to_date(value) == expected
 
 
-@freeze_time("2024-06-15")
 class TestWindowParams:
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self):
+        with time_machine.travel("2024-06-15", tick=False):
+            yield
+
     def test_non_windowed_endpoint_returns_empty(self) -> None:
         config = FINANCIAL_MODELLING_ENDPOINTS["company_profiles"]
         assert (
@@ -143,6 +150,31 @@ class TestWindowParams:
         assert params["from"] == "2022-06-16"
 
 
+def _quarters(*pairs: tuple[int, int]) -> list[_FiscalQuarter]:
+    return [_FiscalQuarter(year=year, quarter=quarter) for year, quarter in pairs]
+
+
+class TestRecentQuarters:
+    @parameterized.expand(
+        [
+            # The quarter `today` falls in is still open, so the walk starts at the one before it.
+            ("mid_q2", date(2024, 5, 20), ((2024, 1), (2023, 4), (2023, 3))),
+            ("first_day_of_q1_rolls_back_a_year", date(2024, 1, 1), ((2023, 4), (2023, 3), (2023, 2))),
+            ("last_day_of_q4", date(2024, 12, 31), ((2024, 3), (2024, 2), (2024, 1))),
+        ]
+    )
+    def test_walks_back_from_the_last_completed_quarter(
+        self, _name: str, today: date, expected: tuple[tuple[int, int], ...]
+    ) -> None:
+        assert _recent_quarters(3, today) == _quarters(*expected)
+
+    def test_spans_multiple_year_boundaries(self) -> None:
+        quarters = _recent_quarters(8, date(2024, 5, 20))
+        assert quarters[0] == _FiscalQuarter(year=2024, quarter=1)
+        assert quarters[-1] == _FiscalQuarter(year=2022, quarter=2)
+        assert len(set(quarters)) == 8
+
+
 class _FakeResumableManager:
     def __init__(self, state: FinancialModellingResumeConfig | None = None) -> None:
         self._state = state
@@ -159,53 +191,52 @@ class _FakeResumableManager:
 
 
 def _collect(
-    endpoint: str, symbols: list[str], manager: _FakeResumableManager, monkeypatch: Any, by_symbol: dict[str, Any]
+    endpoint: str, symbols: list[str], manager: _FakeResumableManager, by_symbol: dict[str, Any]
 ) -> list[dict]:
     def fake_fetch(session: Any, path: str, params: dict[str, Any], api_key: str, logger: Any) -> Any:
         key = params.get("symbol", path)
         return by_symbol[key]
 
-    monkeypatch.setattr(financial_modelling, "_fetch_page", fake_fetch)
-
     rows: list[dict] = []
-    for table in get_rows(
-        api_key="k",
-        endpoint=endpoint,
-        symbols=symbols,
-        logger=MagicMock(),
-        resumable_source_manager=manager,  # type: ignore[arg-type]
-    ):
-        rows.extend(table.to_pylist())
+    with patch.object(financial_modelling, "_fetch_page", fake_fetch):
+        for table in get_rows(
+            api_key="k",
+            endpoint=endpoint,
+            symbols=symbols,
+            logger=MagicMock(),
+            resumable_source_manager=manager,  # type: ignore[arg-type]
+        ):
+            rows.extend(table.to_pylist())
     return rows
 
 
 class TestGetRowsFanOut:
-    def test_fans_out_over_each_symbol_and_injects_symbol(self, monkeypatch: Any) -> None:
+    def test_fans_out_over_each_symbol_and_injects_symbol(self) -> None:
         by_symbol = {
             "AAPL": [{"symbol": "AAPL", "companyName": "Apple"}],
             "MSFT": [{"symbol": "MSFT", "companyName": "Microsoft"}],
         }
-        rows = _collect("company_profiles", ["AAPL", "MSFT"], _FakeResumableManager(), monkeypatch, by_symbol)
+        rows = _collect("company_profiles", ["AAPL", "MSFT"], _FakeResumableManager(), by_symbol)
         assert {r["symbol"] for r in rows} == {"AAPL", "MSFT"}
 
-    def test_symbol_injected_when_missing_from_row(self, monkeypatch: Any) -> None:
+    def test_symbol_injected_when_missing_from_row(self) -> None:
         # historical_prices rows arrive without a symbol; the fan-out injects it.
         by_symbol = {"AAPL": {"symbol": "AAPL", "historical": [{"date": "2024-01-02", "close": 10}]}}
-        rows = _collect("historical_prices", ["AAPL"], _FakeResumableManager(), monkeypatch, by_symbol)
+        rows = _collect("historical_prices", ["AAPL"], _FakeResumableManager(), by_symbol)
         assert rows == [{"date": "2024-01-02", "close": 10, "symbol": "AAPL"}]
 
-    def test_saves_resume_state_advancing_per_symbol(self, monkeypatch: Any) -> None:
+    def test_saves_resume_state_advancing_per_symbol(self) -> None:
         manager = _FakeResumableManager()
         by_symbol = {
             "AAPL": [{"symbol": "AAPL"}],
             "MSFT": [{"symbol": "MSFT"}],
             "GOOGL": [{"symbol": "GOOGL"}],
         }
-        _collect("company_profiles", ["AAPL", "MSFT", "GOOGL"], manager, monkeypatch, by_symbol)
+        _collect("company_profiles", ["AAPL", "MSFT", "GOOGL"], manager, by_symbol)
         # State is saved after every symbol except the last (no point bookmarking past the end).
         assert [s.symbol_index for s in manager.saved] == [1, 2]
 
-    def test_resumes_from_saved_symbol_index(self, monkeypatch: Any) -> None:
+    def test_resumes_from_saved_symbol_index(self) -> None:
         manager = _FakeResumableManager(FinancialModellingResumeConfig(symbol_index=1))
         fetched: list[str] = []
 
@@ -213,27 +244,173 @@ class TestGetRowsFanOut:
             fetched.append(params["symbol"])
             return [{"symbol": params["symbol"]}]
 
-        monkeypatch.setattr(financial_modelling, "_fetch_page", fake_fetch)
-        list(
-            get_rows(
-                api_key="k",
-                endpoint="company_profiles",
-                symbols=["AAPL", "MSFT", "GOOGL"],
-                logger=MagicMock(),
-                resumable_source_manager=manager,  # type: ignore[arg-type]
+        with patch.object(financial_modelling, "_fetch_page", fake_fetch):
+            list(
+                get_rows(
+                    api_key="k",
+                    endpoint="company_profiles",
+                    symbols=["AAPL", "MSFT", "GOOGL"],
+                    logger=MagicMock(),
+                    resumable_source_manager=manager,  # type: ignore[arg-type]
+                )
             )
-        )
         # AAPL (index 0) is skipped because the bookmark resumes at index 1.
         assert fetched == ["MSFT", "GOOGL"]
 
 
-class TestGetRowsMarketWide:
-    def test_single_request_no_symbol(self, monkeypatch: Any) -> None:
+class TestGetRowsRequestParams:
+    def _params_for(self, endpoint: str, **kwargs: Any) -> dict[str, Any]:
+        captured: dict[str, Any] = {}
+
+        def fake_fetch(session: Any, path: str, params: dict[str, Any], api_key: str, logger: Any) -> Any:
+            captured.update(params)
+            return []
+
+        with patch.object(financial_modelling, "_fetch_page", fake_fetch):
+            list(
+                get_rows(
+                    api_key="k",
+                    endpoint=endpoint,
+                    symbols=["AAPL"],
+                    logger=MagicMock(),
+                    resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
+                    **kwargs,
+                )
+            )
+        return captured
+
+    @parameterized.expand(
+        [
+            ("key_metrics",),
+            ("ratios",),
+            ("dividends",),
+            ("earnings",),
+            ("splits",),
+            ("historical_market_capitalization",),
+        ]
+    )
+    def test_requests_the_maximum_page_size(self, endpoint: str) -> None:
+        # These endpoints have no page cursor, so dropping `limit` truncates the symbol's history
+        # to FMP's small default instead of failing.
+        assert self._params_for(endpoint)["limit"] == "1000"
+
+    @parameterized.expand(
+        [
+            ("key_metrics",),
+            ("ratios",),
+            ("dividends",),
+            ("earnings",),
+            ("key_metrics_ttm",),
+            ("splits",),
+            ("market_capitalization",),
+        ]
+    )
+    def test_no_date_window_is_sent(self, endpoint: str) -> None:
+        # None of these accept `from`/`to`, so a watermark must not leak into the query.
+        params = self._params_for(
+            endpoint,
+            should_use_incremental_field=True,
+            db_incremental_field_last_value="2024-01-01",
+        )
+        assert "from" not in params
+        assert "to" not in params
+
+    def test_ttm_endpoint_sends_only_the_symbol(self) -> None:
+        assert self._params_for("key_metrics_ttm") == {"symbol": "AAPL"}
+
+    def test_market_cap_history_keeps_the_limit_alongside_the_window(self) -> None:
+        # The endpoint's `limit` defaults to 100, so dropping it would truncate the requested window
+        # rather than fail.
+        params = self._params_for(
+            "historical_market_capitalization",
+            should_use_incremental_field=True,
+            db_incremental_field_last_value="2024-01-01",
+        )
+        assert params["from"] == "2024-01-01"
+        assert params["limit"] == "1000"
+
+    @parameterized.expand([("company_profiles",), ("splits",), ("market_capitalization",)])
+    def test_non_quarterly_endpoints_send_no_period(self, endpoint: str) -> None:
+        params = self._params_for(endpoint)
+        assert "year" not in params
+        assert "quarter" not in params
+
+
+class TestWindowFitsInsideTheLimit:
+    @parameterized.expand(
+        [
+            (name,)
+            for name, config in FINANCIAL_MODELLING_ENDPOINTS.items()
+            if config.default_lookback_days is not None and "limit" in config.extra_params
+        ]
+    )
+    def test_first_window_cannot_outgrow_the_page(self, endpoint: str) -> None:
+        # These endpoints do not paginate, so a lookback wider than `limit` rows silently drops the
+        # oldest days and the watermark then skips past them for good.
+        config = FINANCIAL_MODELLING_ENDPOINTS[endpoint]
+        assert config.default_lookback_days is not None
+        assert config.default_lookback_days <= int(config.extra_params["limit"])
+
+
+class TestGetRowsQuarterFanOut:
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self) -> Iterator[None]:
+        with time_machine.travel("2024-06-15", tick=False):
+            yield
+
+    def _requests_for(self, endpoint: str, symbols: list[str], manager: _FakeResumableManager) -> list[dict[str, Any]]:
+        captured: list[dict[str, Any]] = []
+
+        def fake_fetch(session: Any, path: str, params: dict[str, Any], api_key: str, logger: Any) -> Any:
+            captured.append(dict(params))
+            return []
+
+        with patch.object(financial_modelling, "_fetch_page", fake_fetch):
+            list(
+                get_rows(
+                    api_key="k",
+                    endpoint=endpoint,
+                    symbols=symbols,
+                    logger=MagicMock(),
+                    resumable_source_manager=manager,  # type: ignore[arg-type]
+                )
+            )
+        return captured
+
+    def test_requests_every_quarter_for_every_symbol(self) -> None:
+        # The endpoint answers for one quarter at a time, so a missing quarter is a silent hole in
+        # the series rather than an error.
+        requests_made = self._requests_for("institutional_positions_summary", ["AAPL", "MSFT"], _FakeResumableManager())
+        quarters = FINANCIAL_MODELLING_ENDPOINTS["institutional_positions_summary"].quarters_lookback
+        assert quarters is not None
+        assert len(requests_made) == 2 * quarters
+        assert {(r["symbol"], r["year"], r["quarter"]) for r in requests_made[:2]} == {
+            ("AAPL", "2024", "1"),
+            ("AAPL", "2023", "4"),
+        }
+
+    def test_bookmark_advances_once_per_symbol_not_per_quarter(self) -> None:
+        # Resume state indexes symbols; saving per quarter would skip the rest of a symbol's series
+        # after an interruption.
         manager = _FakeResumableManager()
-        by_path = {"earnings-calendar": [{"symbol": "AAPL", "date": "2024-01-01"}]}
-        rows = _collect("earnings_calendar", [], manager, monkeypatch, by_path)
-        assert rows == [{"symbol": "AAPL", "date": "2024-01-01"}]
-        # Market-wide endpoints fan out over nothing, so no resume bookmark is saved.
+        self._requests_for("institutional_positions_summary", ["AAPL", "MSFT", "GOOGL"], manager)
+        assert [state.symbol_index for state in manager.saved] == [1, 2]
+
+
+class TestGetRowsMarketWide:
+    @parameterized.expand(
+        [
+            ("earnings_calendar", "earnings-calendar", {"symbol": "AAPL", "date": "2024-01-01"}),
+            ("available_exchanges", "available-exchanges", {"exchange": "AMEX", "name": "NYSE Arca"}),
+            ("available_sectors", "available-sectors", {"sector": "Basic Materials"}),
+            ("available_industries", "available-industries", {"industry": "Steel"}),
+        ]
+    )
+    def test_single_request_no_symbol(self, endpoint: str, path: str, row: dict[str, Any]) -> None:
+        # These endpoints take no symbol, so the row must not gain one and no bookmark is saved.
+        manager = _FakeResumableManager()
+        rows = _collect(endpoint, [], manager, {path: [row]})
+        assert rows == [row]
         assert manager.saved == []
 
 
@@ -258,6 +435,13 @@ class TestFinancialModellingSourceResponse:
         [
             ("stock_list", ["symbol"]),
             ("income_statements", ["symbol", "date", "period"]),
+            ("key_metrics", ["symbol", "date", "period"]),
+            ("ratios", ["symbol", "date", "period"]),
+            # The TTM endpoints return one always-current row per symbol, with no fiscal date.
+            ("key_metrics_ttm", ["symbol"]),
+            ("ratios_ttm", ["symbol"]),
+            ("dividends", ["symbol", "date"]),
+            ("earnings", ["symbol", "date"]),
             ("historical_prices", ["symbol", "date"]),
             ("earnings_calendar", ["symbol", "date"]),
         ]
@@ -283,10 +467,11 @@ class TestFinancialModellingSourceResponse:
         assert response.partition_mode == "datetime"
         assert response.partition_keys == ["date"]
 
-    def test_unpartitioned_endpoint_has_no_partitioning(self) -> None:
+    @parameterized.expand([("company_profiles",), ("key_metrics_ttm",), ("ratios_ttm",)])
+    def test_unpartitioned_endpoint_has_no_partitioning(self, endpoint: str) -> None:
         response = financial_modelling_source(
             api_key="k",
-            endpoint="company_profiles",
+            endpoint=endpoint,
             symbols=["AAPL"],
             logger=MagicMock(),
             resumable_source_manager=MagicMock(),

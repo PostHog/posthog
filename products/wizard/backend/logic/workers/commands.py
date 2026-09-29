@@ -115,8 +115,9 @@ def build_git_diff_command(repository_path: str) -> str:
     # stdout into memory, so the byte cap is enforced sandbox-side. The sentinel extra byte lets
     # the artifact step tell "at the limit" from "oversized"; && preserves git's exit code.
     return (
-        f"cd {shlex.quote(repository_path)} && git add -N --all && "
-        f"git diff --binary --no-ext-diff HEAD > {shlex.quote(WIZARD_DIFF_OUTPUT_PATH)} && "
+        f"cd {shlex.quote(repository_path)} && "
+        "git diff --cached --binary --no-ext-diff --no-renames HEAD "
+        f"> {shlex.quote(WIZARD_DIFF_OUTPUT_PATH)} && "
         f"head -c {MAX_GIT_DIFF_BYTES + 1} {shlex.quote(WIZARD_DIFF_OUTPUT_PATH)}"
     )
 

@@ -10,6 +10,7 @@ DATA_MODELING_ALLOWED_SYSTEM_TABLES: frozenset[str] = frozenset(
         "account_relationships",
         "accounts",
         "custom_property_definitions",
+        "customer_tasks",
         "feature_request_account_links",
         "feature_requests",
         "support_tickets",

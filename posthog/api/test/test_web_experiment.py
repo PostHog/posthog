@@ -231,6 +231,18 @@ class TestWebExperiment(APIBaseTest):
         assert response_data["id"] == experiment_id
         assert response_data["name"] == "Test Experiment"
 
+    def test_list_pages_experiments_with_equal_created_at(self):
+        ids = [self._create_web_experiment(f"Experiment {index}").json()["id"] for index in range(3)]
+        WebExperiment.objects.filter(id__in=ids).update(created_at=datetime(2026, 1, 1, tzinfo=UTC))
+
+        paged_ids: list[int] = []
+        for offset in range(len(ids)):
+            page = self.client.get(f"/api/projects/{self.team.id}/web_experiments/?limit=1&offset={offset}")
+            assert page.status_code == status.HTTP_200_OK
+            paged_ids.extend(result["id"] for result in page.json()["results"])
+
+        assert paged_ids == sorted(ids, reverse=True)
+
     def test_web_experiments_endpoint_returns_correct_exposure_values(self):
         """Test that the web_experiments endpoint returns the actual rollout percentages from the feature flag"""
         # Create experiment

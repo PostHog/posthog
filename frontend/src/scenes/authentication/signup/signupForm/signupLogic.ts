@@ -13,6 +13,7 @@ import { CLOUD_HOSTNAMES, FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { splitFullName } from 'lib/utils/strings'
 import { getRelativeNextPath } from 'lib/utils/url'
+import { readPendingOAuthConnection } from 'scenes/authentication/shared/pendingOAuthConnectionLogic'
 import {
     clearPendingVerificationEmail,
     setPendingVerificationEmail,
@@ -426,6 +427,7 @@ export const signupLogic = kea<signupLogicType>([
                 actions.setPasskeyError(null)
                 let precheckResponse: SignupEmailPrecheckResponse
                 try {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                     precheckResponse = await api.create<SignupEmailPrecheckResponse>('api/signup/precheck', {
                         email,
                     })
@@ -485,7 +487,8 @@ export const signupLogic = kea<signupLogicType>([
                 name: '',
                 organization_name: '',
                 role_at_organization: '',
-                referral_source: '',
+                // The partner that started the OAuth connection is where this person heard about PostHog
+                referral_source: readPendingOAuthConnection()?.clientName ?? '',
                 referral_source_ai_prompt: '',
             } as SignupPanelOnboardingForm,
             errors: ({ name, role_at_organization }) => ({
@@ -524,6 +527,7 @@ export const signupLogic = kea<signupLogicType>([
                         signupData.challenge_nonce = values.challengeNonce
                     }
 
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                     const res = await api.create('api/signup/', signupData)
 
                     if (!payload.organization_name?.trim()) {
@@ -626,6 +630,7 @@ export const signupLogic = kea<signupLogicType>([
         resendPendingInvite: async ({ email }, breakpoint) => {
             actions.setPendingInviteResending(true)
             try {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                 await api.create('api/signup/resend-invite', { email })
                 breakpoint()
                 actions.setPendingInviteResent(true)
@@ -673,6 +678,7 @@ export const signupLogic = kea<signupLogicType>([
 
             try {
                 // Step 1: Begin registration - get options from server
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                 const beginResponse = await api.create<RegistrationBeginResponse>(
                     'api/webauthn/signup-register/begin/',
                     { email }
@@ -699,6 +705,7 @@ export const signupLogic = kea<signupLogicType>([
                 })
 
                 // Step 3: Complete registration - send attestation to server
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                 await api.create('api/webauthn/signup-register/complete/', attestation)
 
                 actions.setPasskeyRegistered(true)

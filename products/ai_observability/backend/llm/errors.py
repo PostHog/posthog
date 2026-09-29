@@ -41,6 +41,13 @@ class ProviderConnectionError(LLMError):
     and should not log it as an exception since it's usually resolved on the next attempt."""
 
 
+class ProviderConfigurationError(LLMError):
+    """Raised when a provider key's stored configuration cannot be used as it stands — a base URL
+    that no longer passes the SSRF allowlist, or a required endpoint that was never set. The user
+    has to change the key, so callers should surface the message as a 400 rather than an internal
+    error: the configuration will not fix itself on a retry."""
+
+
 class ProviderMismatchError(LLMError):
     """Raised when request provider doesn't match provider key's provider"""
 
@@ -80,6 +87,23 @@ _CONTEXT_WINDOW_ERROR_MARKERS = (
 def is_context_window_error_message(message: str) -> bool:
     lowered = message.lower()
     return any(marker in lowered for marker in _CONTEXT_WINDOW_ERROR_MARKERS)
+
+
+class OutputTokenLimitError(LLMError):
+    """Raised when the model stopped because it hit its output token limit.
+
+    Providers report an exhausted output budget in a 400 or through a `length` finish reason,
+    which the OpenAI SDK raises as `LengthFinishReasonError`. Rejected token settings stay
+    separate because the request must change before the model can generate a reply.
+    """
+
+
+_OUTPUT_LIMIT_ERROR_MARKERS = ("output limit was reached",)
+
+
+def is_output_limit_error_message(message: str) -> bool:
+    lowered = message.lower()
+    return any(marker in lowered for marker in _OUTPUT_LIMIT_ERROR_MARKERS)
 
 
 class ModelPermissionError(LLMError):
@@ -141,6 +165,8 @@ def user_facing_error_message(error: Exception | None) -> str:
         return "The provider is rate limiting this key. Wait a moment, then try again."
     if isinstance(error, ContextWindowExceededError):
         return "This conversation is too long for the model's context window. Shorten it, then try again."
+    if isinstance(error, OutputTokenLimitError):
+        return "The model ran out of room before it finished its reply. Ask for a shorter answer, then try again."
     if isinstance(error, ProviderConnectionError):
         return "Could not reach the model provider. Try again."
     if isinstance(error, StructuredOutputParseError):
@@ -178,3 +204,18 @@ def stream_error_chunk(
         type="error",
         data={"error": user_facing_error_message(mapped if mapped is not None else error)},
     )
+
+
+def error_field_for_message(
+    table: tuple[tuple[str, str], ...],
+    error_message: str | None,
+) -> str | None:
+    """Map a `validate_key` error message to the UI form field that should be highlighted.
+
+    Each provider owns its own prefix table, because the messages are the provider's. Keep a
+    table aligned with the `return` statements in that provider's `validate_key`: editing a
+    message string there without updating the table silently breaks field routing.
+    """
+    if not error_message:
+        return None
+    return next((field for prefix, field in table if error_message.startswith(prefix)), None)

@@ -11,7 +11,7 @@ Endpoints:
 
 import time
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 from django.core.cache import cache
 
@@ -49,17 +49,27 @@ from posthog.rate_limit import (
     AIObservabilitySummarizationSustainedThrottle,
 )
 
+from products.access_control.backend.facade.api import (
+    get_restricted_properties_with_group_type_index_for_team,
+    split_restricted_property_names,
+)
 from products.ai_observability.backend.api.metrics import llma_track_latency
 from products.ai_observability.backend.summarization.budget import bounded_text_repr, text_repr_budget
 from products.ai_observability.backend.summarization.llm import summarize
 from products.ai_observability.backend.summarization.models import SummarizationMode
-from products.ai_observability.backend.summarization.utils import get_summary_cache_key
+from products.ai_observability.backend.summarization.utils import (
+    get_summarization_lookup_date_range,
+    get_summary_cache_key,
+)
 from products.ai_observability.backend.text_repr.formatters import (
     FormatterOptions,
     format_event_text_repr,
     format_trace_text_repr,
     llm_trace_to_formatter_format,
 )
+
+if TYPE_CHECKING:
+    from posthog.models import User
 
 logger = structlog.get_logger(__name__)
 
@@ -251,7 +261,16 @@ class AIObservabilitySummarizationViewSet(TeamAndOrgViewSetMixin, viewsets.Gener
             mode: Summary detail level ('minimal' or 'detailed')
             model: LLM model
         """
-        return get_summary_cache_key(self.team_id, summarize_type, entity_id, mode, model)
+        return get_summary_cache_key(
+            self.team_id,
+            summarize_type,
+            entity_id,
+            mode,
+            model,
+            restricted_properties=get_restricted_properties_with_group_type_index_for_team(
+                user=cast("User", self.request.user), team_id=self.team_id
+            ),
+        )
 
     def _extract_entity_id(self, summarize_type: str, data: dict) -> tuple[str, dict]:
         """Extract entity ID and validated entity data based on summarize type.
@@ -293,6 +312,7 @@ class AIObservabilitySummarizationViewSet(TeamAndOrgViewSetMixin, viewsets.Gener
         )
         runner = TraceQueryRunner(
             team=self.team,
+            user=cast("User", self.request.user),
             query=TraceQuery(traceId=trace_id, dateRange=date_range),
         )
         response = runner.calculate()
@@ -344,6 +364,7 @@ class AIObservabilitySummarizationViewSet(TeamAndOrgViewSetMixin, viewsets.Gener
                     "date_to": date_to_expr,
                 },
                 team=self.team,
+                user=cast("User", self.request.user),
             )
 
         if not result.results:
@@ -400,6 +421,7 @@ class AIObservabilitySummarizationViewSet(TeamAndOrgViewSetMixin, viewsets.Gener
                 query=query,
                 placeholders=placeholders,
                 team=self.team,
+                user=cast("User", self.request.user),
                 query_type="LLMAnalyticsSummarizationHeavyFetch",
             )
         except AIEventsExpiredError:
@@ -603,6 +625,22 @@ The response includes the structured summary, the text representation, and metad
             else:
                 data = serializer.validated_data["data"]
                 entity_id, entity_data = self._extract_entity_id(summarize_type, data)
+                restrictions = get_restricted_properties_with_group_type_index_for_team(
+                    user=cast("User", request.user), team_id=self.team_id
+                )
+                # Client payloads may contain values fetched before permissions changed, so refetch to mask them.
+                # Formatters render only event properties. Other restrictions must not force a lookup
+                # that could reject a client-only entity without protecting any formatted content.
+                if split_restricted_property_names(restrictions).event:
+                    if summarize_type == "trace":
+                        trace_id = entity_id
+                    else:
+                        generation_id = entity_id
+                        date_range = get_summarization_lookup_date_range(
+                            entity_data["event"].get("timestamp"), date_from=date_from, date_to=date_to
+                        )
+                        date_from = date_range.date_from
+                        date_to = date_range.date_to
 
             cache_key = self._get_cache_key(summarize_type, entity_id, mode, model)
             if not force_refresh:
@@ -704,7 +742,7 @@ with their titles.
         """,
         tags=["AI observability"],
     )
-    @action(detail=False, methods=["post"], url_path="batch_check")
+    @action(detail=False, methods=["post"], url_path="batch_check", required_scopes=["llm_analytics:read"])
     @llma_track_latency("llma_summarize_batch_check")
     @monitor(feature=None, endpoint="llma_summarize_batch_check", method="POST")
     def batch_check(self, request: Request, **kwargs) -> Response:

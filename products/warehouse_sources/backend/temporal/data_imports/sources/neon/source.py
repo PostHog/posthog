@@ -1,33 +1,16 @@
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
-    SourceFieldFileUploadConfig,
     SourceFieldInputConfig,
-    SourceFieldOauthAccountSelectConfig,
-    SourceFieldOauthConfig,
-    SourceFieldSelectConfig,
-    SourceFieldSSHTunnelConfig,
-    SourceFieldSwitchGroupConfig,
 )
-
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.postgres import (
     PostgresSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import PostgresSource
 from products.warehouse_sources.backend.types import ExternalDataSourceType
-
-_SourceField = (
-    SourceFieldInputConfig
-    | SourceFieldSwitchGroupConfig
-    | SourceFieldSelectConfig
-    | SourceFieldOauthConfig
-    | SourceFieldOauthAccountSelectConfig
-    | SourceFieldFileUploadConfig
-    | SourceFieldSSHTunnelConfig
-)
 
 _NEON_POOLED_HOST_CDC_ERROR = (
     "This is Neon's pooled endpoint, which doesn't support logical replication. For CDC, use the "
@@ -62,7 +45,7 @@ class NeonSource(PostgresSource):
         return ExternalDataSourceType.NEON
 
     @staticmethod
-    def _adjust_field(field: _SourceField) -> _SourceField:
+    def _adjust_field(field: FieldType) -> FieldType:
         if isinstance(field, SourceFieldInputConfig):
             if field.name == "connection_string":
                 return field.model_copy(
@@ -88,7 +71,7 @@ class NeonSource(PostgresSource):
         fields = [self._adjust_field(field) for field in super().get_source_config.fields]
 
         return SourceConfig(
-            name=SchemaExternalDataSourceType.NEON,
+            name=ExternalDataSourceType.NEON,
             category=DataWarehouseSourceCategory.DATABASES,
             keywords=["serverless postgres", "postgresql"],
             iconPath="/static/services/neon.png",
@@ -106,6 +89,7 @@ class NeonSource(PostgresSource):
         slot_name: str | None = None,
         publication_name: str | None = None,
         require_ssl: bool = True,
+        team_id: int | None = None,
     ) -> list[str]:
         # The pooled endpoint accepts normal connections, so the generic checks would pass —
         # but logical replication doesn't work through it. Fail fast without connecting.
@@ -118,4 +102,5 @@ class NeonSource(PostgresSource):
             slot_name=slot_name,
             publication_name=publication_name,
             require_ssl=require_ssl,
+            team_id=team_id,
         )

@@ -86,3 +86,27 @@ export const ScannerCrossSell: Story = {
         testOptions: { waitForSelector: '[data-attr="replay-save-filters-as-scanner"]' },
     },
 }
+
+const withPageFilter = (values: Record<string, any>[]): Record<string, any> => ({
+    pageUrl: combineUrl(urls.replay(), {
+        showFilters: true,
+        filters: {
+            date_from: '-3d',
+            date_to: null,
+            filter_test_accounts: false,
+            duration: [{ type: 'recording', key: 'duration', value: 1, operator: 'gt' }],
+            filter_group: { type: 'AND', values: [{ type: 'AND', values }] },
+        },
+    }).url,
+})
+
+export const PageFilterNudge: Story = {
+    parameters: withPageFilter([{ type: 'event', key: '$current_url', operator: 'icontains', value: '/pricing' }]),
+}
+
+export const TemplatesTab: Story = {
+    parameters: {
+        featureFlags: { [FEATURE_FLAGS.REPLAY_TEMPLATES_IN_FILTERS_PANEL_EXPERIMENT]: 'test' },
+        pageUrl: combineUrl(urls.replay(), { showFilters: true, filtersTab: 'templates' }).url,
+    },
+}

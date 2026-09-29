@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -26,6 +24,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.spacelift.
     RUNS_INCREMENTAL_LOOKBACK_SECONDS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.spacelift.spacelift import (
+    ACCOUNT_NOT_FOUND_MESSAGE,
+    INVALID_API_KEY_MESSAGE,
     SpaceliftResumeConfig,
     spacelift_source,
     validate_credentials as validate_spacelift_credentials,
@@ -50,7 +50,7 @@ class SpaceliftSource(ResumableSource[SpaceliftSourceConfig, SpaceliftResumeConf
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.SPACELIFT,
+            name=ExternalDataSourceType.SPACELIFT,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Spacelift",
             releaseStatus=ReleaseStatus.ALPHA,
@@ -104,7 +104,9 @@ Your account name is the subdomain you use to access Spacelift (e.g. `my-company
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             # Raised by the apiKeyUser token exchange when the key id/secret is wrong or revoked.
-            "Invalid Spacelift API key": "Your Spacelift API key is invalid or has been revoked. Create a new API key in your Spacelift organization settings, then reconnect.",
+            "Invalid Spacelift API key": INVALID_API_KEY_MESSAGE,
+            # Raised by the same exchange when the account subdomain names no Spacelift account.
+            "Spacelift account not found": ACCOUNT_NOT_FOUND_MESSAGE,
             # Raised when a query stays unauthorized after a fresh token, i.e. the key lacks space access.
             "Spacelift API returned unauthorized": "Your Spacelift API key does not have access to this data. Grant the key read access to the relevant spaces in Spacelift, then reconnect.",
             "Invalid Spacelift account name": "The Spacelift account name is invalid. Enter only the subdomain of your Spacelift URL (e.g. `my-company` for `my-company.app.spacelift.io`).",

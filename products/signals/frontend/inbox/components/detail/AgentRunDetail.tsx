@@ -29,6 +29,7 @@ import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { SignalCard } from '../../SignalCard'
 import { SignalReport, SignalReportStatus } from '../../types'
 import { deriveHeadline, parsePrRepoSlug, parsePrUrlParts } from '../../utils/reportPresentation'
+import { primaryReportPullRequest } from '../../utils/reportPullRequests'
 import { knownSourceProductEntries, SourceProductIconRow } from '../badges/sourceProductIcons'
 import { resolveRunVariant, RunStatusIndicator } from '../cards/runStatusVariant'
 import { DetailSection } from './DetailSection'
@@ -43,7 +44,7 @@ import { RunLogContainer } from './RunLogContainer'
  * call-to-action to open the result.
  */
 function RunOutputReadyCard({ report }: { report: SignalReport }): JSX.Element {
-    const prUrl = report.implementation_pr_url ?? null
+    const prUrl = primaryReportPullRequest(report).url ?? null
     const isPr = !!prUrl
     const prSlug = prUrl ? parsePrRepoSlug(prUrl) : null
     const prNumber = prUrl ? (parsePrUrlParts(prUrl)?.number ?? null) : null
@@ -89,7 +90,7 @@ function RunOutputReadyCard({ report }: { report: SignalReport }): JSX.Element {
  * Mirrors desktop `RunOutputWidget`.
  */
 function RunOutputWidget({ report }: { report: SignalReport }): JSX.Element {
-    if (report.status === SignalReportStatus.READY || report.implementation_pr_url) {
+    if (report.status === SignalReportStatus.READY || primaryReportPullRequest(report).url) {
         return <RunOutputReadyCard report={report} />
     }
 
@@ -136,7 +137,7 @@ function RunStateStrip({ report }: { report: SignalReport }): JSX.Element {
     const isLive =
         report.status === SignalReportStatus.IN_PROGRESS || report.status === SignalReportStatus.PENDING_INPUT
     const variant = resolveRunVariant(report.status)
-    const prSlug = report.implementation_pr_url ? parsePrRepoSlug(report.implementation_pr_url) : null
+    const prSlug = primaryReportPullRequest(report).url ? parsePrRepoSlug(primaryReportPullRequest(report).url) : null
     const timestamp = report.updated_at ?? report.created_at
 
     return (

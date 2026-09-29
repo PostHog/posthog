@@ -1,7 +1,7 @@
 import { captureElementImage } from 'lib/utils/captureElementImage'
 
 import { toolbarUploadMedia } from '~/toolbar/toolbarFetch'
-import { TOOLBAR_ID } from '~/toolbar/utils'
+import { TOOLBAR_ID, toError } from '~/toolbar/utils'
 
 export interface ElementScreenshot {
     mediaId: string
@@ -18,13 +18,23 @@ export interface CaptureOptions {
     backgroundColor?: string
 }
 
+function describeElement(element: HTMLElement): string {
+    return `${element.tagName.toLowerCase()}${element.id ? `#${element.id}` : ''}`
+}
+
 export async function captureElementScreenshot(element: HTMLElement, options?: CaptureOptions): Promise<Blob> {
-    return captureElementImage(element, {
-        type: 'image/jpeg',
-        quality: 0.7,
-        filter: screenshotFilter,
-        ...options,
-    })
+    try {
+        return await captureElementImage(element, {
+            type: 'image/jpeg',
+            quality: 0.7,
+            filter: screenshotFilter,
+            ...options,
+        })
+    } catch (error) {
+        // html-to-image rejects with a raw DOM Event when a resource on the page fails to load.
+        // Rethrow a real Error so the failure reaches error tracking with a message and a stack.
+        throw toError(error, `Failed to capture screenshot of ${describeElement(element)}`)
+    }
 }
 
 export async function uploadScreenshot(blob: Blob): Promise<ElementScreenshot> {

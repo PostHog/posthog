@@ -61,6 +61,8 @@ an agent, so it can show active setup hooks while `session/new` is still pending
 Startup subscriptions end on success or failure. Updates from an older run cannot
 change the current run's startup phase. Startup events do not count as conversation
 history during recovery.
+The model, effort and fast mode requests that follow initialization each get the same 30-second timeout.
+A failed or timed-out request stops the Claude process, and the startup fails with an error that names the request.
 
 Worktree creation shows its own preparation screen and setup output. Agent startup
 shows one status line beside a spinner: "Starting local agent" or "Running
@@ -79,6 +81,11 @@ A connected local session only waits for its first prompt when the session still
 has a prompt to send. A task description or an existing run does not imply that a
 prompt is pending. This lets an empty session open after a failed startup instead
 of keeping it in the loading view. Opening it does not resend the description.
+
+A local task without a session is idle in the space sidebar after an app restart.
+The sidebar shows startup only when a startup marker or a live session reports it.
+The open chat can still show loading while it waits for its local connection.
+The shared lifecycle state must not treat an unopened task as an active startup.
 
 New cloud runs seed the full user message before subscribing to setup progress.
 The chat renders that message immediately, including its space context chip.

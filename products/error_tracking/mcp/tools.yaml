@@ -576,6 +576,9 @@ tools:
             tightly scoped to the exact errors you want gone. Prefer raising `sampling_rate` to dampen volume over
             widening the match. Confirm with the user before changing a rule's filters in a way that could match more
             than one distinct error.
+    error-tracking-symbol-sets-bulk-check-upload-create:
+        operation: error_tracking_symbol_sets_bulk_check_upload_create
+        enabled: false
     error-tracking-symbol-sets-bulk-delete-create:
         operation: error_tracking_symbol_sets_bulk_delete_create
         enabled: false

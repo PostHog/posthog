@@ -1,7 +1,7 @@
 import importlib
 from datetime import UTC, datetime, timedelta
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import BaseTest
 
 from django.apps import apps
@@ -188,7 +188,7 @@ class TestLogsAlertEvent(BaseTest):
         defaults.update(kwargs)
         return LogsAlertEvent.objects.create(**defaults)
 
-    @freeze_time("2026-03-09T12:00:00Z")
+    @time_machine.travel("2026-03-09T12:00:00Z", tick=False)
     def test_clean_up_old_events_prunes_rows_older_than_event_retention(self):
         alert = self._create_alert()
         old_errored = self._create_check(alert, error_message="CH timeout")
@@ -205,7 +205,7 @@ class TestLogsAlertEvent(BaseTest):
         assert not LogsAlertEvent.objects.filter(pk=old_errored.pk).exists()
         assert LogsAlertEvent.objects.filter(pk=recent_transition.pk).exists()
 
-    @freeze_time("2026-03-09T12:00:00Z")
+    @time_machine.travel("2026-03-09T12:00:00Z", tick=False)
     def test_clean_up_old_events_does_not_prune_non_event_rows(self):
         # Non-event rows are the activity's problem (inline cap). If a stale OK row sits
         # in the table, clean_up_old_events should leave it alone — the activity will

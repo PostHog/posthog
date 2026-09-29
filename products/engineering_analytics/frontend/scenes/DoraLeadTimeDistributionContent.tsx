@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconChevronDown, IconChevronRight } from '@posthog/icons'
-import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
 
 import { LeadTimeBoxPlot } from '../components/LeadTimeBoxPlot'
 import { compactAgeLabel } from '../lib/format'
@@ -10,7 +10,6 @@ import { doraLogic } from './doraLogic'
 export function DoraLeadTimeDistributionContent(): JSX.Element {
     const {
         dora,
-        doraLoading,
         githubTeam,
         openToDeployBuckets,
         openToMergeBuckets,
@@ -47,9 +46,6 @@ export function DoraLeadTimeDistributionContent(): JSX.Element {
     ]
     const membershipDataMissing = !!githubTeam && !!dora && !dora.has_membership_data
 
-    if (doraLoading && !dora) {
-        return <LemonSkeleton className="h-40 w-full" />
-    }
     if (!openToDeployBuckets.some((bucket) => bucket.count > 0)) {
         return (
             <div

@@ -1,11 +1,15 @@
-"""Test-only metric row seeder for `metrics1`.
+"""Test-only metric row seeder for the metrics2 chain.
 
-Inserts rows directly via `sync_execute` rather than driving the OTLP pipe,
-so tests don't depend on capture-logs + metrics-ingestion-consumer running.
+Inserts rows into `metrics2_input` via `sync_execute` rather than driving the
+OTLP pipe, so tests don't depend on capture-logs + metrics-ingestion-consumer
+running. `metrics2_input` is the Null-engine table the Kafka MV writes to, so one
+insert fans out through the same MVs production uses: `metrics2` (data points),
+`metric_series2` (labels, one row per series) and `metric_attributes2` (the
+attribute rollups).
 
 The shape mirrors what `rust/capture-logs/src/metric_record.rs` emits — every
-later query-runner PR (filters, group-by, rate, histogram_quantile) leans on
-this to plant deterministic fixtures with specific labels and timestamps.
+query-runner test (filters, group-by, rate, histogram_quantile) leans on this
+to plant deterministic fixtures with specific labels and timestamps.
 """
 
 from __future__ import annotations
@@ -19,69 +23,48 @@ from typing import Any
 
 from posthog.clickhouse.client import sync_execute
 
+# `metrics2` and `metric_series2` hardcode `TTL original_expiry_timestamp`
+# instead of going through `ttl_period()`, so the seeder has to keep its rows
+# alive itself. A far-future expiry pins that independent of the wall clock.
+_EXPIRY = dt.datetime(2200, 1, 1, tzinfo=dt.UTC)
 
-def _series_fingerprint(
-    metric_name: str, service_name: str, resource_attributes: Mapping[str, str], attributes: Mapping[str, str]
-) -> int:
-    """A deterministic UInt64 fingerprint for the (metric, label-set) tuple.
 
-    The seeder owns both the series and its samples, so this only has to be
-    stable per label-set (distinct sets -> distinct fingerprints) — it does NOT
-    have to equal ClickHouse's `cityHash64`, which the real ingest MV computes.
-    """
-    key = repr((metric_name, service_name, sorted(resource_attributes.items()), sorted(attributes.items())))
+def _fingerprint(*parts: Any) -> int:
+    key = repr(parts)
     return int.from_bytes(hashlib.blake2b(key.encode(), digest_size=8).digest(), "big")
 
 
-def _attribute_map_str_with_type_tags(labels: Mapping[str, str]) -> dict[str, str]:
-    """`attributes_map_str` stores keys with a trailing 5-char type tag (e.g.
-    `container__str`), matching the Kafka MV's `concat(k, '__str')`. The
-    ClickHouse table exposes a stripped ALIAS column `attributes` via
-    `left(k, -5)`. The seeder accepts user-friendly names (`container`) and
-    appends the `__str` tag so lookups via the ALIAS work as expected.
-    """
-    return {f"{key}__str": value for key, value in labels.items()}
-
-
-def truncate_metrics_tables() -> None:
-    """Clear every table the seeders write, so leftovers can't leak between tests."""
-    for table in ("metrics1", "metric_series1", "metric_samples1"):
-        sync_execute(f"TRUNCATE TABLE IF EXISTS {table}")
-
-
-def _insert_series_row(
-    *,
-    team_id: int,
+def _series_fingerprint(
     metric_name: str,
-    fingerprint: int,
     metric_type: str,
-    unit: str,
-    aggregation_temporality: str,
-    is_monotonic: bool,
     service_name: str,
     resource_attributes: Mapping[str, str],
     attributes: Mapping[str, str],
-    last_seen: dt.datetime,
-) -> None:
-    """Insert the `metric_series1` row for one (metric, label-set).
+) -> int:
+    """A deterministic UInt64 fingerprint for the (metric, type, label-set) tuple.
 
-    `attributes` goes in untagged — the `__str` suffixes are a `metrics1`
-    storage detail, and the ingest MV writes the series map without them.
+    Same inputs as `compute_series_fingerprint` in capture-logs, so two seeded
+    series collide exactly when the real ingest would merge them. Ingest
+    fingerprints before it stamps the synthetic `$originalTimestamp` attribute
+    on a skewed point, so that key is left out here too. It does NOT have to
+    equal the Rust hash: the seeder owns both the series and its samples, so it
+    only has to be stable per label-set.
     """
-    series_row = {
-        "team_id": team_id,
-        "metric_name": metric_name,
-        "series_fingerprint": fingerprint,
-        "metric_type": metric_type,
-        "unit": unit,
-        "aggregation_temporality": aggregation_temporality,
-        "is_monotonic": is_monotonic,
-        "service_name": service_name,
-        "resource_attributes": dict(resource_attributes),
-        "attributes": dict(attributes),
-        "last_seen": last_seen.strftime("%Y-%m-%d %H:%M:%S.%f"),
-    }
-    sync_execute("INSERT INTO metric_series1 FORMAT JSONEachRow " + json.dumps(series_row))
+    identity_attributes = sorted((k, v) for k, v in attributes.items() if k != "$originalTimestamp")
+    return _fingerprint(
+        metric_name, metric_type, service_name, sorted(resource_attributes.items()), identity_attributes
+    )
+
+
+def truncate_metrics_tables() -> None:
+    """Clear every table the seeder's inserts fan out into, so leftovers can't
+    leak between tests."""
+    for table in ("metrics2", "metric_series2", "metric_attributes2"):
+        sync_execute(f"TRUNCATE TABLE IF EXISTS {table}")
+
+
+def _format_timestamp(timestamp: dt.datetime) -> str:
+    return timestamp.strftime("%Y-%m-%d %H:%M:%S.%f")
 
 
 def seed_metric(
@@ -98,13 +81,13 @@ def seed_metric(
     histogram_bounds: list[float] | None = None,
     histogram_counts: list[int] | None = None,
     unit: str = "",
+    trace_id: str = "",
+    span_id: str = "",
+    count: int = 1,
 ) -> None:
-    """Insert one row per `(timestamp, value)` point into `metrics1`, plus the
-    matching `metric_series1` row.
-
-    Production fans one Kafka row into both tables, so the seeder does too —
-    anything reading `metric_series` (the name picker) sees what the raw table
-    sees.
+    """Insert one `metrics2_input` row per `(timestamp, value)` point; the
+    ingest MVs write the `metrics2` rows, the `metric_series2` row and the
+    `metric_attributes2` rollups from it.
 
     Every point in one call is a sample of the *same* series, since the series
     identity (`service_name`, `metric_type`, both attribute maps) is fixed per
@@ -112,17 +95,20 @@ def seed_metric(
     points in one bucket collapse to the last one. Seed distinct series with
     separate calls.
 
-    `labels` populates the per-data-point `attributes_map_str` map (with the
-    `__str` type-tag suffix the schema expects). `resource_labels` populates
-    `resource_attributes` directly — those are tag-free.
+    `labels` populates the per-data-point `attributes` map and `resource_labels`
+    populates `resource_attributes`.
 
     Histogram inputs (`histogram_bounds`, `histogram_counts`) are passed
     through verbatim; only relevant when `metric_type='histogram'`.
     """
-    labels = dict(labels or {})
-    attributes_map_str = _attribute_map_str_with_type_tags(labels)
+    attributes = dict(labels or {})
     resource_attributes = dict(resource_labels or {})
     points = list(points)
+    if not points:
+        return
+
+    fingerprint = _series_fingerprint(metric_name, metric_type, service_name, resource_attributes, attributes)
+    resource_fingerprint = _fingerprint(sorted(resource_attributes.items()))
 
     rows: list[dict[str, Any]] = []
     for timestamp, value in points:
@@ -130,47 +116,33 @@ def seed_metric(
             {
                 "uuid": str(uuid.uuid4()),
                 "team_id": team_id,
-                "trace_id": "",
-                "span_id": "",
-                "trace_flags": 0,
-                "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
-                "observed_timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
-                "service_name": service_name,
                 "metric_name": metric_name,
+                "series_fingerprint": fingerprint,
+                "resource_fingerprint": resource_fingerprint,
+                "timestamp": _format_timestamp(timestamp),
+                "observed_timestamp": _format_timestamp(timestamp),
+                "original_expiry_timestamp": _format_timestamp(_EXPIRY),
+                "service_name": service_name,
                 "metric_type": metric_type,
                 "value": value,
-                "count": 1,
+                "count": count,
                 "histogram_bounds": histogram_bounds or [],
                 "histogram_counts": histogram_counts or [],
+                "trace_id": trace_id,
+                "span_id": span_id,
+                "trace_flags": 0,
+                "has_labels": True,
                 "unit": unit,
                 "aggregation_temporality": aggregation_temporality,
                 "is_monotonic": is_monotonic,
-                "resource_attributes": resource_attributes,
                 "instrumentation_scope": "",
-                "attributes_map_str": attributes_map_str,
-                "attributes_map_float": {},
+                "resource_attributes": resource_attributes,
+                "attributes": attributes,
             }
         )
 
-    if not rows:
-        return
-
     payload = "\n".join(json.dumps(row) for row in rows)
-    sync_execute(f"INSERT INTO metrics1 FORMAT JSONEachRow {payload}")
-
-    _insert_series_row(
-        team_id=team_id,
-        metric_name=metric_name,
-        fingerprint=_series_fingerprint(metric_name, service_name, resource_attributes, labels),
-        metric_type=metric_type,
-        unit=unit,
-        aggregation_temporality=aggregation_temporality,
-        is_monotonic=is_monotonic,
-        service_name=service_name,
-        resource_attributes=resource_attributes,
-        attributes=labels,
-        last_seen=max(ts for ts, _ in points),
-    )
+    sync_execute(f"INSERT INTO metrics2_input FORMAT JSONEachRow {payload}")
 
 
 def seed_metric_event(
@@ -191,48 +163,23 @@ def seed_metric_event(
     histogram_bounds: list[float] | None = None,
     histogram_counts: list[int] | None = None,
 ) -> None:
-    """Insert one `metric_samples` row per `(timestamp, value)` point plus the
-    matching `metric_series` row, the way the ingest MVs split a metric.
-
-    All points here share one label-set, so they share one `series_fingerprint`
-    and one series row that the samples reference.
-    """
-    attributes = dict(attributes or {})
-    resource_attributes = dict(resource_attributes or {})
-    points = list(points)
-    if not points:
-        return
-
-    fingerprint = _series_fingerprint(metric_name, service_name, resource_attributes, attributes)
-
-    sample_rows: list[dict[str, Any]] = [
-        {
-            "team_id": team_id,
-            "metric_name": metric_name,
-            "series_fingerprint": fingerprint,
-            "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
-            "value": value,
-            "count": count,
-            "histogram_bounds": histogram_bounds or [],
-            "histogram_counts": histogram_counts or [],
-            "trace_id": trace_id,
-            "span_id": span_id,
-            "trace_flags": 0,
-        }
-        for timestamp, value in points
-    ]
-    sync_execute("INSERT INTO metric_samples1 FORMAT JSONEachRow " + "\n".join(json.dumps(r) for r in sample_rows))
-
-    _insert_series_row(
+    """`seed_metric` under the sample-oriented names the Samples tests use:
+    `attributes` / `resource_attributes` instead of `labels` / `resource_labels`,
+    and a `sum` default type."""
+    seed_metric(
         team_id=team_id,
         metric_name=metric_name,
-        fingerprint=fingerprint,
+        points=points,
+        labels=attributes,
+        resource_labels=resource_attributes,
         metric_type=metric_type,
-        unit=unit,
+        service_name=service_name,
         aggregation_temporality=aggregation_temporality,
         is_monotonic=is_monotonic,
-        service_name=service_name,
-        resource_attributes=resource_attributes,
-        attributes=attributes,
-        last_seen=max(ts for ts, _ in points),
+        histogram_bounds=histogram_bounds,
+        histogram_counts=histogram_counts,
+        unit=unit,
+        trace_id=trace_id,
+        span_id=span_id,
+        count=count,
     )

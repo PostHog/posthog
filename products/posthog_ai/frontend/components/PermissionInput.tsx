@@ -1,10 +1,9 @@
 import { useActions, useValues } from 'kea'
-import posthog from 'posthog-js'
-import type { ReactNode } from 'react'
-import { useEffect, useRef, useState } from 'react'
+import { Suspense, useEffect, useRef, useState } from 'react'
 
 import { IconWarning } from '@posthog/icons'
 import { Button } from '@posthog/quill-primitives'
+import { PostHogErrorBoundary } from '@posthog/react'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { cn } from 'lib/utils/css-classes'
@@ -30,21 +29,6 @@ interface PermissionInputProps {
 
 /** Collapsed height of the payload preview, in lines — enough to scan, never enough to bury the choices. */
 const PAYLOAD_COLLAPSED_LINES = 12
-
-/**
- * Resolves the request's inner sub-tool and, if a registered entry provides a `renderPermissionPreview`,
- * returns its node (else null). Isolated + guarded so a throwing product preview can never break the
- * approval card — the card falls back to the generic evidence block.
- */
-function renderRegisteredPermissionPreview(request: PermissionRequestRecord): ReactNode | null {
-    try {
-        const { resolvedKey, innerToolName } = resolveToolCall(request.rawToolCall)
-        return lookupToolRenderer(resolvedKey, innerToolName != null).renderPermissionPreview?.(request) ?? null
-    } catch (error) {
-        posthog.captureException(error, { feature: 'posthog_ai_permission_preview' })
-        return null
-    }
-}
 
 const FEEDBACK_PLACEHOLDER = 'Tell the agent what to do differently'
 
@@ -462,23 +446,35 @@ function PlanPermissionInput({
 }
 
 interface GenericPermissionInputProps {
+    streamKey: string
     options: ApprovalCardOption[]
     request: PermissionRequestRecord
     responding: boolean
     onRespond: (optionId: string, customInput?: string) => void
 }
 
-function GenericPermissionInput({ options, request, responding, onRespond }: GenericPermissionInputProps): JSX.Element {
+function GenericPermissionInput({
+    streamKey,
+    options,
+    request,
+    responding,
+    onRespond,
+}: GenericPermissionInputProps): JSX.Element {
     const display = getPermissionDisplay(request)
     // Only a genuine wire-level description that says more than the tool title becomes the
     // headline; a title-only request keeps the derived tool title as its headline (and the
     // evidence block skips its label) so the tool identity is stated exactly once.
     const headlineBody = request.description && request.description !== display.title ? request.description : undefined
 
-    // A product may register a richer approval preview (e.g. a config diff) for the resolved sub-tool
-    // via the tool registry. When it returns a node, it takes the evidence slot; a null return (or a
-    // throwing preview, or no registered preview) falls back to the generic evidence block.
-    const previewNode = renderRegisteredPermissionPreview(request)
+    const { resolvedKey, innerToolName } = resolveToolCall(request.rawToolCall)
+    const { PermissionPreview } = lookupToolRenderer(resolvedKey, innerToolName != null)
+    const evidence = (
+        <PermissionEvidence
+            request={request}
+            label={headlineBody ? display.title : undefined}
+            payload={display.payload}
+        />
+    )
 
     return (
         <div className="flex flex-col gap-2.5 p-3">
@@ -492,14 +488,18 @@ function GenericPermissionInput({ options, request, responding, onRespond }: Gen
                     <span>{display.title ?? 'Approval required'}</span>
                 )}
             </div>
-            {previewNode ? (
-                <div className="max-h-80 overflow-y-auto">{previewNode}</div>
+            {PermissionPreview ? (
+                <PostHogErrorBoundary
+                    key={`${streamKey}:${request.requestId}`}
+                    additionalProperties={{ feature: 'posthog_ai_permission_preview' }}
+                    fallback={evidence}
+                >
+                    <Suspense fallback={evidence}>
+                        <PermissionPreview request={request} fallback={evidence} />
+                    </Suspense>
+                </PostHogErrorBoundary>
             ) : (
-                <PermissionEvidence
-                    request={request}
-                    label={headlineBody ? display.title : undefined}
-                    payload={display.payload}
-                />
+                evidence
             )}
             <PermissionOptionRows options={options} responding={responding} onRespond={onRespond} />
         </div>
@@ -541,6 +541,7 @@ export function PermissionInput({ streamKey, request, disabled = false }: Permis
 
     return (
         <GenericPermissionInput
+            streamKey={streamKey}
             options={mappedOptions}
             request={request}
             responding={respondingToPermission}

@@ -1,7 +1,7 @@
 from typing import Any, Optional
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest import mock
 
 import requests
@@ -147,7 +147,7 @@ class TestGet:
 
 
 class TestHolidayYears:
-    @freeze_time("2026-06-15")
+    @time_machine.travel("2026-06-15", tick=False)
     def test_spans_the_configured_backfill_and_forward_window(self) -> None:
         years = _holiday_years()
 

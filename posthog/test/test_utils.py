@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any, cast
 from zoneinfo import ZoneInfo
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import call, patch
 
@@ -333,7 +333,7 @@ class TestGeneralUtils(TestCase):
 
 
 class TestRelativeDateParse(TestCase):
-    @freeze_time("2020-01-31T12:22:23")
+    @time_machine.travel("2020-01-31T12:22:23", tick=False)
     def test_hour(self):
         self.assertEqual(
             relative_date_parse("-24h", ZoneInfo("UTC")).isoformat(),
@@ -344,7 +344,7 @@ class TestRelativeDateParse(TestCase):
             "2020-01-29T12:22:23+00:00",
         )
 
-    @freeze_time("2020-01-31")
+    @time_machine.travel("2020-01-31", tick=False)
     def test_day(self):
         self.assertEqual(
             relative_date_parse("dStart", ZoneInfo("UTC")).strftime("%Y-%m-%d"),
@@ -368,7 +368,7 @@ class TestRelativeDateParse(TestCase):
             "2020-01-30T23:59:59.999999+00:00",
         )
 
-    @freeze_time("2020-01-31")
+    @time_machine.travel("2020-01-31", tick=False)
     def test_month(self):
         self.assertEqual(
             relative_date_parse("-1m", ZoneInfo("UTC")).strftime("%Y-%m-%d"),
@@ -413,21 +413,21 @@ class TestRelativeDateParse(TestCase):
             ("minus_two_end", "-2qEnd", "2019-09-30"),
         ]
     )
-    @freeze_time("2020-01-31")
+    @time_machine.travel("2020-01-31", tick=False)
     def test_quarter(self, _name, input, expected_date):
         self.assertEqual(
             relative_date_parse(input, ZoneInfo("UTC")).strftime("%Y-%m-%d"),
             expected_date,
         )
 
-    @freeze_time("2020-01-31")
+    @time_machine.travel("2020-01-31", tick=False)
     def test_quarter_human_friendly_comparison_periods_keeps_week_alignment(self):
         self.assertEqual(
             relative_date_parse("-1q", ZoneInfo("UTC"), human_friendly_comparison_periods=True).strftime("%Y-%m-%d"),
             "2019-11-01",
         )
 
-    @freeze_time("2020-01-31")
+    @time_machine.travel("2020-01-31", tick=False)
     def test_year(self):
         self.assertEqual(
             relative_date_parse("-1y", ZoneInfo("UTC")).strftime("%Y-%m-%d"),
@@ -456,14 +456,14 @@ class TestRelativeDateParse(TestCase):
             ("monday_start", 1, "2020-01-27"),
         ]
     )
-    @freeze_time("2020-01-31")
+    @time_machine.travel("2020-01-31", tick=False)
     def test_week_start(self, _name, week_start_day, expected_date):
         self.assertEqual(
             relative_date_parse("wStart", ZoneInfo("UTC"), team_week_start_day=week_start_day).strftime("%Y-%m-%d"),
             expected_date,
         )
 
-    @freeze_time("2020-01-31")
+    @time_machine.travel("2020-01-31", tick=False)
     def test_normal_date(self):
         self.assertEqual(
             relative_date_parse("2019-12-31", ZoneInfo("UTC")).strftime("%Y-%m-%d"),

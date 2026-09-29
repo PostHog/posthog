@@ -2,7 +2,7 @@ import { useValues } from 'kea'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
-import { externalDataSources } from '~/queries/schema/schema-general'
+import { ExternalDataSourceTypeEnumApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 import { getEnabledNativeMarketingSources } from '../../logic/utils'
 import { IntegrationSettingsCard } from './IntegrationSettingsCard'
@@ -10,7 +10,9 @@ import { IntegrationSettingsCard } from './IntegrationSettingsCard'
 export function MarketingIntegrationAdvancedSettings(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const enabledSources = getEnabledNativeMarketingSources(featureFlags)
-    const availableIntegrations = externalDataSources.filter((source) => enabledSources.includes(source as any))
+    const availableIntegrations = Object.values(ExternalDataSourceTypeEnumApi).filter((source) =>
+        enabledSources.includes(source as any)
+    )
 
     return (
         <div className="space-y-4">

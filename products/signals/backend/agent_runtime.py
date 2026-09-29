@@ -5,7 +5,7 @@ Each agentic step (report research, repo selection, scout, custom-agent loops) c
 different runtime/model/effort per team, with no deploy — e.g. trial Codex + gpt-5.5 on `research`
 for one team while everyone else stays on the default Claude runtime. Mirrors the `signals-scout`
 payload pattern in `scout_harness/team_limits.py`: one 100%-on payload flag, read for a synthetic
-discovery distinct_id, parsed defensively so a malformed payload falls back to the agent-server
+discovery distinct_id, parsed defensively so a malformed payload falls back to the step's
 default rather than breaking a run.
 
 Payload shape (`team_configs` maps team id — or the `*` wildcard — to per-step overrides):
@@ -30,7 +30,7 @@ fields are taken as a set so a Codex runtime never pairs with a Claude model):
     → team_configs[team_id].steps["*"]
     → team_configs["*"].steps[step]
     → team_configs["*"].steps["*"]
-    → default (agent-server Claude runtime)
+    → step default (Codex for scout rubrics; agent-server Claude runtime otherwise)
 
 A resolved override threads through `CustomPromptSandboxContext`
 (runtime_adapter/model/reasoning_effort/service_tier) → `Task.create_and_run` → the run state → the
@@ -67,6 +67,7 @@ WILDCARD = "*"
 # cost attribution; the step key here stays the bare stage.
 STEP_SCOUT = "scout"
 STEP_SCOUT_SUGGESTIONS = "scout_suggestions"
+STEP_SCOUT_RUBRICS = "scout_rubrics"
 STEP_RESEARCH = "research"
 STEP_REPO_SELECTION = "repo_selection"
 STEP_IMPLEMENTATION = "implementation"
@@ -89,6 +90,7 @@ class AgentRuntime:
 
 
 DEFAULT_RUNTIME = AgentRuntime()
+SCOUT_RUBRICS_RUNTIME = AgentRuntime(runtime_adapter="codex", model="gpt-6-sol", reasoning_effort="high")
 
 # The OpenAI service tiers a pin may name, mirroring the agent server's `ServiceTier` enum. The
 # agent server sends the value verbatim as the gateway's `X-PostHog-Service-Tier`, which fails
@@ -175,6 +177,9 @@ def resolve_agent_runtime(team_id: int, step: str) -> AgentRuntime:
 
     Reads the `signals-pipeline-models` payload once and resolves most-specific-first (see
     `_resolve_from_payload`). Any failure — unreadable/malformed payload — falls back to the
-    default; gating the runtime must never be able to fail an agentic run. Blocking network I/O
+    step default; gating the runtime must never be able to fail an agentic run. Blocking network I/O
     (the payload read), so async callers wrap this in `database_sync_to_async`."""
-    return _resolve_from_payload(_read_flag_payload(), team_id, step)
+    runtime = _resolve_from_payload(_read_flag_payload(), team_id, step)
+    if runtime == DEFAULT_RUNTIME and step == STEP_SCOUT_RUBRICS:
+        return SCOUT_RUBRICS_RUNTIME
+    return runtime

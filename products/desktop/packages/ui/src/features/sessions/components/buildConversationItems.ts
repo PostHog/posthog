@@ -43,6 +43,8 @@ export interface TurnContext {
   turnComplete: boolean;
   /** From the prompt response; null when the agent reported no gateway trace. */
   traceId?: string | null;
+  /** True for a turn with no user prompt behind it (e.g. background setup activity). */
+  isImplicit?: boolean;
 }
 
 export type ConversationItem =
@@ -305,6 +307,22 @@ export interface BuildConversationOptions {
   showDebugLogs?: boolean;
 }
 
+export function hasSetupProgressForRun(
+  events: AcpMessage[],
+  runId?: string,
+): boolean {
+  if (!runId) return false;
+  const group = `setup:${runId}`;
+
+  return events.some(({ message }) => {
+    return (
+      isJsonRpcNotification(message) &&
+      isNotification(message.method, POSTHOG_NOTIFICATIONS.PROGRESS) &&
+      (message.params as { group?: unknown } | undefined)?.group === group
+    );
+  });
+}
+
 /**
  * The single ordering policy every conversation builder reads events in:
  * ascending timestamp, ties keeping arrival order (`Array.sort` is stable).
@@ -418,7 +436,7 @@ export function buildAgentConversationItems(
   };
 }
 
-function processAgentConversationEvent(
+export function processAgentConversationEvent(
   b: ItemBuilder,
   event: AgentConversationEvent,
 ): void {
@@ -1145,6 +1163,7 @@ function ensureImplicitTurn(b: ItemBuilder, ts: number) {
     childItems,
     turnCancelled: false,
     turnComplete: false,
+    isImplicit: true,
   };
 
   b.currentTurn = {

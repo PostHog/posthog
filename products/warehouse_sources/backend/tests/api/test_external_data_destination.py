@@ -1,15 +1,24 @@
+import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
+
+from parameterized import parameterized
 from rest_framework import status
 from rest_framework.exceptions import PermissionDenied
 
+from posthog.constants import AvailableFeature
 from posthog.models.integration import Integration
+from posthog.models.user import User
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.warehouse_sources.backend.models.external_data_destination import (
     ExternalDataDestination,
     ExternalDataSchemaDestination,
     ExternalDataSourceDestination,
+    get_or_create_warehouse_destination,
 )
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -97,14 +106,65 @@ class TestExternalDataDestinationAPI(DestinationAPITestBase):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "integration" in response.json()["attr"]
 
-    def test_the_target_database_and_schema_cannot_be_changed(self) -> None:
-        destination = self._create_destination()
+    @parameterized.expand(
+        [
+            (ExternalDataDestination.Type.POSTGRES, Integration.IntegrationKind.POSTGRESQL, ("database", "schema")),
+            (ExternalDataDestination.Type.REDSHIFT, Integration.IntegrationKind.AWS_REDSHIFT, ("database", "schema")),
+            (ExternalDataDestination.Type.SNOWFLAKE, Integration.IntegrationKind.SNOWFLAKE, ("database", "schema")),
+            (ExternalDataDestination.Type.DATABRICKS, Integration.IntegrationKind.DATABRICKS, ("catalog", "schema")),
+            (
+                ExternalDataDestination.Type.BIGQUERY,
+                Integration.IntegrationKind.GOOGLE_CLOUD_SERVICE_ACCOUNT,
+                ("dataset", "project"),
+            ),
+            (ExternalDataDestination.Type.S3, Integration.IntegrationKind.AWS_S3, ("bucket", "prefix")),
+            (
+                ExternalDataDestination.Type.AZURE_BLOB,
+                Integration.IntegrationKind.AZURE_BLOB,
+                ("container_name", "prefix"),
+            ),
+        ]
+    )
+    def test_the_target_cannot_be_changed(self, destination_type: str, kind: str, fields: tuple[str, ...]) -> None:
+        # Every type pins where its rows land, on its own field names. A type missing from
+        # `RETARGETING_FIELDS_BY_TYPE` would accept a retarget silently and strand everything
+        # already written there.
+        destination = self._create_destination(
+            type=destination_type,
+            integration=self._integration(kind).pk,
+            config=dict.fromkeys(fields, "original"),
+        )
 
-        for field in ("database", "schema"):
+        for field in fields:
             response = self.client.patch(f"{self.base}/{destination.id}", {"config": {field: "somewhere_else"}})
 
-            assert response.status_code == status.HTTP_400_BAD_REQUEST, field
-            assert "config" in response.json()["attr"], field
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, f"{destination_type}.{field}"
+            assert "config" in response.json()["attr"], f"{destination_type}.{field}"
+
+    @parameterized.expand(
+        [
+            (ExternalDataDestination.Type.S3, Integration.IntegrationKind.AWS_S3, "bucket", "bucket_name"),
+            (
+                ExternalDataDestination.Type.AZURE_BLOB,
+                Integration.IntegrationKind.AZURE_BLOB,
+                "container_name",
+                "container",
+            ),
+        ]
+    )
+    def test_the_target_cannot_be_changed_through_its_alias(
+        self, destination_type: str, kind: str, stored: str, alias: str
+    ) -> None:
+        # These writers read either spelling, so guarding only the preferred one would let a
+        # retarget through under the other name.
+        destination = self._create_destination(
+            type=destination_type, integration=self._integration(kind).pk, config={stored: "original"}
+        )
+
+        response = self.client.patch(f"{self.base}/{destination.id}", {"config": {alias: "somewhere_else"}})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "config" in response.json()["attr"]
 
     def test_the_name_can_still_be_changed(self) -> None:
         destination = self._create_destination()
@@ -125,6 +185,17 @@ class TestExternalDataDestinationAPI(DestinationAPITestBase):
         )
 
         assert response.status_code == status.HTTP_200_OK, response.json()
+
+    def test_a_partial_config_update_keeps_the_fields_it_did_not_mention(self) -> None:
+        # `config` is one JSON blob. A PATCH naming only the key it means to change must not
+        # replace the whole blob and silently drop the target fields alongside it.
+        destination = self._create_destination(config={"database": "analytics", "schema": "public"})
+
+        response = self.client.patch(f"{self.base}/{destination.id}", {"config": {"ssl_mode": "require"}})
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        destination.refresh_from_db()
+        assert destination.config == {"database": "analytics", "schema": "public", "ssl_mode": "require"}
 
     def test_delete_detaches_everything_that_synced_to_it(self) -> None:
         destination = self._create_destination()
@@ -177,6 +248,164 @@ class TestExternalDataDestinationAPI(DestinationAPITestBase):
         assert response.status_code == status.HTTP_403_FORBIDDEN
         destination.refresh_from_db()
         assert destination.name == "analytics postgres"
+
+
+class TestSyncedSources(DestinationAPITestBase):
+    def _listing(self) -> dict:
+        results = self.client.get(self.base).json()["results"]
+        return {row["name"]: row["synced_sources"] for row in results}
+
+    def test_a_source_linked_to_a_destination_is_listed_against_it(self) -> None:
+        destination = self._create_destination()
+        ExternalDataSourceDestination.objects.for_team(self.team.pk).create(
+            team_id=self.team.pk, source=self.source, destination=destination
+        )
+
+        listed = self._listing()["analytics postgres"]
+
+        assert [entry["source_type"] for entry in listed] == ["Stripe"]
+        assert listed[0]["via_table_override"] is False
+
+    def test_a_source_reaching_it_only_through_one_table_is_marked_as_such(self) -> None:
+        destination = self._create_destination()
+        ExternalDataSchemaDestination.objects.for_team(self.team.pk).create(
+            team_id=self.team.pk, schema=self.schema, destination=destination
+        )
+
+        listed = self._listing()["analytics postgres"]
+
+        assert [entry["via_table_override"] for entry in listed] == [True]
+
+    def test_a_source_nobody_configured_is_listed_against_the_posthog_warehouse(self) -> None:
+        # It has no links, but it is not syncing nowhere: it writes to the warehouse by default,
+        # so deleting or editing that destination does affect it.
+        get_or_create_warehouse_destination(self.team.pk)
+
+        listed = self._listing()["PostHog warehouse"]
+
+        assert [entry["source_type"] for entry in listed] == ["Stripe"]
+
+    def test_a_configured_source_stops_counting_against_the_warehouse(self) -> None:
+        get_or_create_warehouse_destination(self.team.pk)
+        destination = self._create_destination()
+        ExternalDataSourceDestination.objects.for_team(self.team.pk).create(
+            team_id=self.team.pk, source=self.source, destination=destination
+        )
+
+        listed = self._listing()
+
+        assert listed["PostHog warehouse"] == []
+        assert [entry["source_type"] for entry in listed["analytics postgres"]] == ["Stripe"]
+
+    def test_a_deleted_source_is_not_listed(self) -> None:
+        destination = self._create_destination()
+        ExternalDataSourceDestination.objects.for_team(self.team.pk).create(
+            team_id=self.team.pk, source=self.source, destination=destination
+        )
+        self.source.deleted = True
+        self.source.save(update_fields=["deleted"])
+
+        assert self._listing()["analytics postgres"] == []
+
+    def test_listing_destinations_does_not_query_per_destination(self) -> None:
+        # The point of the prefetch: adding destinations must not add queries per row, or this
+        # scene degrades as a project grows.
+        get_or_create_warehouse_destination(self.team.pk)
+        first = self._create_destination(name="one", integration=self._integration().pk)
+        ExternalDataSourceDestination.objects.for_team(self.team.pk).create(
+            team_id=self.team.pk, source=self.source, destination=first
+        )
+
+        def count_queries() -> int:
+            with CaptureQueriesContext(connection) as captured:
+                self.client.get(self.base)
+            return len(captured)
+
+        with_two = count_queries()
+        for index in range(6):
+            self._create_destination(name=f"extra {index}", integration=self._integration().pk)
+        with_eight = count_queries()
+
+        assert with_eight == with_two
+
+
+@pytest.mark.ee
+class TestSyncedSourcesAccessControl(DestinationAPITestBase):
+    """A source blocked from a viewer must not leak its id/name/type through synced_sources
+    just because it shares a destination with a source that viewer can see."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+
+        self.viewer = User.objects.create_and_join(self.organization, "viewer@posthog.com", "testtest")
+        # Resource-level viewer access by default (needed just to list destinations at all —
+        # the endpoint requires it, see `requires_resource_level_access` above), plus an
+        # explicit `none` grant blocking one specific source below in each test.
+        AccessControl.objects.create(
+            team=self.team,
+            resource="external_data_source",
+            resource_id=None,
+            access_level="viewer",
+            organization_member=self.organization.memberships.get(user=self.viewer),
+        )
+
+    def test_a_source_the_viewer_cannot_see_is_omitted(self) -> None:
+        hidden_source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="hidden",
+            connection_id="hidden-conn",
+            status="Running",
+            source_type=ExternalDataSourceType.STRIPE,
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="external_data_source",
+            resource_id=str(hidden_source.id),
+            access_level="none",
+            organization_member=self.organization.memberships.get(user=self.viewer),
+        )
+        destination = self._create_destination()
+        ExternalDataSourceDestination.objects.for_team(self.team.pk).create(
+            team_id=self.team.pk, source=self.source, destination=destination
+        )
+        ExternalDataSourceDestination.objects.for_team(self.team.pk).create(
+            team_id=self.team.pk, source=hidden_source, destination=destination
+        )
+
+        self.client.force_login(self.viewer)
+        results = self.client.get(self.base).json()["results"]
+        listed = next(row for row in results if row["name"] == "analytics postgres")["synced_sources"]
+
+        assert [entry["id"] for entry in listed] == [str(self.source.id)]
+
+    def test_the_unconfigured_warehouse_source_is_omitted_when_hidden(self) -> None:
+        hidden_source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="hidden",
+            connection_id="hidden-conn",
+            status="Running",
+            source_type=ExternalDataSourceType.STRIPE,
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="external_data_source",
+            resource_id=str(hidden_source.id),
+            access_level="none",
+            organization_member=self.organization.memberships.get(user=self.viewer),
+        )
+        get_or_create_warehouse_destination(self.team.pk)
+
+        self.client.force_login(self.viewer)
+        results = self.client.get(self.base).json()["results"]
+        listed = next(row for row in results if row["name"] == "PostHog warehouse")["synced_sources"]
+
+        assert [entry["id"] for entry in listed] == [str(self.source.id)]
+        assert str(hidden_source.id) not in [entry["id"] for entry in listed]
 
 
 class TestDestinationLinkEndpoints(DestinationAPITestBase):

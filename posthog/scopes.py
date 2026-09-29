@@ -1,4 +1,4 @@
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from typing import Literal, get_args
 
 ## API Scopes
@@ -7,13 +7,13 @@ from typing import Literal, get_args
 # Typically each object should have `read` and `write` scopes, but some objects may have more specific scopes
 
 # WARNING: Make sure to keep in sync with the frontend!
-# - frontend/src/lib/scopes.tsx
+# - frontend/src/lib/scopes.tsx (an `API_SCOPES` row and a group in `API_SCOPE_GROUPS`)
 # - frontend/src/types.ts (`export type APIScopeObject`)
 #
 # The MCP `OAUTH_SCOPES_SUPPORTED` list at
 # `services/mcp/src/lib/oauth-scopes.generated.ts` is generated from
-# `get_scope_descriptions()` below via `bin/build-mcp-oauth-scopes.py`. Run
-# `hogli build:openapi` to regenerate after editing this file.
+# `get_scope_descriptions()` below via `posthog/scopes_projection.py`. Run
+# `hogli build:projections` to regenerate after editing this file.
 APIScopeObject = Literal[
     "action",
     "access_control",
@@ -40,6 +40,7 @@ APIScopeObject = Literal[
     "customer_profile_config",
     "data_catalog",
     "data_catalog_approval",
+    "data_deletion",
     "dashboard",
     "event_filter",
     "dashboard_template",
@@ -87,8 +88,10 @@ APIScopeObject = Literal[
     "marketing_analytics",
     "mcp_builtin_agent",
     "mcp_analytics",
+    "mcp_registry",
     "metrics",
     "notebook",
+    "offline_evaluation_ingestion",
     "organization",
     "organization_integration",
     "organization_member",
@@ -134,6 +137,7 @@ APIScopeObject = Literal[
     "web_analytics",
     "webhook",
     "wizard_session",
+    "wizard_run",
 ]
 
 
@@ -208,6 +212,7 @@ INTERNAL_API_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset(
 OAUTH_HIDDEN_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset(
     {
         "wizard_session",
+        "wizard_run",
         "query_performance",
         # Staff-only managed-migrations (batch import) support diagnostics, also gated by
         # `is_staff`. Distinct from the public `batch_import` object on purpose: that one is
@@ -234,6 +239,7 @@ PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[APIScopeObject, APIS
     # Read-only export of experiment definitions (list/retrieve), so services syncing
     # experiments into a warehouse don't need a credential tied to one person's account.
     ("experiment", "read"),
+    ("offline_evaluation_ingestion", "write"),
 ]
 
 # Server-side scope assignment string-set constants (see RFC: server-side scope
@@ -327,7 +333,7 @@ def downgrade_scopes_to_read_only(scope_str: str) -> str:
 # These match what django-oauth-toolkit's OIDC layer accepts at the /authorize
 # endpoint. Duplicating the list as plain tuple (rather than importing from
 # oauth_toolkit) keeps `posthog.scopes` importable without Django setup, which
-# the MCP codegen relies on (see `bin/build-mcp-oauth-scopes.py`).
+# the MCP projection relies on (see `posthog/scopes_projection.py`).
 OIDC_SCOPES: tuple[str, ...] = ("openid", "profile", "email")
 
 
@@ -410,6 +416,15 @@ def grantable_ceiling(app_scopes: Iterable[str]) -> frozenset[str]:
 
 def _with_read_halves(scopes: frozenset[str]) -> frozenset[str]:
     return frozenset(scopes | {scope.replace(":write", ":read") for scope in scopes if scope.endswith(":write")})
+
+
+def scopes_not_covered(held_scopes: Iterable[str], required_scopes: Iterable[str]) -> list[str]:
+    """The required scopes that the held scopes do not cover, in the order given. A `:write` scope
+    covers the matching `:read`. APIScopePermission and project secret API key issuance share this
+    rule, so an issued key cannot get a scope that the issuing credential cannot use. Callers handle
+    `*` themselves, because APIScopePermission does not let `*` reach INTERNAL scope objects."""
+    covered = _with_read_halves(frozenset(held_scopes))
+    return [scope for scope in required_scopes if scope not in covered]
 
 
 def scopes_within_ceiling(
@@ -521,6 +536,45 @@ def clamp_scopes_to_ceiling(
     return sorted(granted | always_allowed)
 
 
+# How many real scopes a request has to carry before its trailing fragment reads as a cut
+# URL rather than as a junk token. A false positive costs the app's whole ceiling, while a
+# missed one only costs a short consent list, so the bar sits well above the length any
+# deliberate request reaches by accident.
+MIN_SCOPES_BEFORE_TRUNCATION = 20
+
+
+def is_truncated_scope_request(requested: Sequence[str]) -> bool:
+    """Whether a `scope` list looks cut off mid-token rather than merely stale.
+
+    A client pinning a retired or renamed scope is routine, and `clamp_scopes_to_ceiling`
+    drops those one at a time. A cut-off request is a different failure: something in the
+    path truncated the authorization URL, so the last token is a fragment and every scope
+    after it is gone, with no way to tell how many. Dropping the fragment the same way
+    hands the user a short consent list and a half-working client, with no error anywhere.
+
+    The signal is a final token that is a strict prefix of a real scope, with every token
+    before it a real scope. A fragment can only ever be last, because the cut takes the
+    rest of the string with it, and requiring a clean head keeps a client with one stale
+    scope from reading as truncated. `requested` must preserve request order.
+
+    The head also has to be long: `MIN_SCOPES_BEFORE_TRUNCATION` real scopes have to come
+    through before a trailing fragment counts. Scope names are short common words, so a
+    two-token request like `openid insight` prefixes a real scope by coincidence, and
+    reading that as truncation hands the caller the app's whole ceiling. A URL that was
+    actually cut carries most of the list before the cut, so the length is what separates
+    the two.
+    """
+    if len(requested) <= MIN_SCOPES_BEFORE_TRUNCATION:
+        return False
+
+    *head, tail = requested
+    known = ALL_SCOPES | ALWAYS_ALLOWED_SCOPES | {"*"}
+    if not tail or tail in known or not all(scope in known for scope in head):
+        return False
+
+    return any(scope.startswith(tail) for scope in known)
+
+
 def narrow_scopes_to_ceiling(original: Iterable[str], app_scopes: Iterable[str]) -> list[str] | None:
     """Cap previously-granted scopes at an app's current ceiling (refresh-time).
 
@@ -562,7 +616,7 @@ def get_oauth_scopes_supported() -> list[str]:
 
     Used by the authorization server's `/.well-known/oauth-authorization-server`
     endpoint and by the MCP server's `/.well-known/oauth-protected-resource`
-    (the latter generated at build time via `bin/build-mcp-oauth-scopes.py` so
+    (the latter generated at build time via `posthog/scopes_projection.py` so
     the protected resource cannot drift out of subset of the AS).
 
     Resource scopes are built from `UNPRIVILEGED_SCOPES`, so the list excludes

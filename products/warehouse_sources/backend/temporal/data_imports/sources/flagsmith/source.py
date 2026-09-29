@@ -1,16 +1,14 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from posthog.cloud_utils import is_cloud
+
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
-from posthog.cloud_utils import is_cloud
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -43,6 +41,11 @@ _PARENT_PROBE_PATHS = {
     "organisation": "/organisations/",
     "project": "/projects/",
     "environment": "/projects/",
+    "identity": "/projects/",
+    "environment_feature": "/projects/",
+    "versioned_environment_feature": "/projects/",
+    "project_feature_environment": "/projects/",
+    "project_segment_environment": "/projects/",
 }
 
 
@@ -62,12 +65,12 @@ class FlagsmithSource(ResumableSource[FlagsmithSourceConfig, FlagsmithResumeConf
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.FLAGSMITH,
+            name=ExternalDataSourceType.FLAGSMITH,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             keywords=["feature flags", "remote config"],
             label="Flagsmith",
             releaseStatus=ReleaseStatus.ALPHA,
-            caption="""Enter your Flagsmith organisation API key to pull your projects, environments, feature flags, flag states, segments, and audit log into the PostHog Data warehouse.
+            caption="""Enter your Flagsmith organisation API key to pull your projects, environments, feature flags, flag states, segments, identities, and audit log into the PostHog Data warehouse.
 
 Create an organisation API key under **Organisation Settings > API Keys** in your Flagsmith dashboard. Note that organisation API keys grant admin access to every project in the organisation, so store them carefully.
 

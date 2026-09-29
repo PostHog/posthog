@@ -51,7 +51,7 @@ export interface ConfigVersionApi {
     name: string
     /** Server-assigned version identity, e.g. v3. */
     version: string
-    /** System prompt; {email} is replaced with the signup email domain at runtime. At most 20000 characters. */
+    /** System prompt; {email} is replaced with the signup email domain at runtime. When the prompt asks for it, the model may call web_search and fetch_page (run through Firecrawl) to look things up; each call costs Firecrawl credits. At most 20000 characters. */
     prompt_text: string
     /** Gateway model id this version was authored against. */
     model: string
@@ -116,7 +116,7 @@ export interface RunRequestApi {
      */
     label: string
     /**
-     * System prompt; {email} is replaced with the signup email domain at runtime. At most 20000 characters.
+     * System prompt; {email} is replaced with the signup email domain at runtime. When the prompt asks for it, the model may call web_search and fetch_page (run through Firecrawl) to look things up; each call costs Firecrawl credits. At most 20000 characters.
      * @maxLength 20000
      */
     prompt_text: string
@@ -149,7 +149,7 @@ export interface SaveRequestApi {
      */
     version?: string
     /**
-     * System prompt; {email} is replaced with the signup email domain at runtime. At most 20000 characters.
+     * System prompt; {email} is replaced with the signup email domain at runtime. When the prompt asks for it, the model may call web_search and fetch_page (run through Firecrawl) to look things up; each call costs Firecrawl credits. At most 20000 characters.
      * @maxLength 20000
      */
     prompt_text: string
@@ -162,6 +162,196 @@ export interface SaveRequestApi {
     input_fields?: string[]
     /** Output schema: list of {key, type, description}. type is 'boolean', 'number', or 'string'. This is the classifier's entire output contract - the label is a human name and is never an output key, so renaming a label changes nothing about what a version computes. Keys must match ^[a-z][a-z0-9_]*$, be unique, and not be 'meta' or 'inputs'. At most 20 fields. */
     output_fields: OutputFieldApi[]
+}
+
+export interface RescoreRequestApi {
+    /** Organization to re-score, from the $group_key of the wizard's $groupidentify event. */
+    organization_id: string
+}
+
+/**
+ * * `disabled` - disabled
+ * * `no_enrichment_record` - no_enrichment_record
+ * * `dispatch_backlog_full` - dispatch_backlog_full
+ * * `dispatch_failed` - dispatch_failed
+ */
+export type RescoreResponseReasonEnumApi =
+    (typeof RescoreResponseReasonEnumApi)[keyof typeof RescoreResponseReasonEnumApi]
+
+export const RescoreResponseReasonEnumApi = {
+    Disabled: 'disabled',
+    NoEnrichmentRecord: 'no_enrichment_record',
+    DispatchBacklogFull: 'dispatch_backlog_full',
+    DispatchFailed: 'dispatch_failed',
+} as const
+
+export interface RescoreResponseApi {
+    /** Whether the re-score workflow was dispatched. */
+    queued: boolean
+    /** Why nothing was dispatched. Null when queued.
+     *
+     * * `disabled` - disabled
+     * * `no_enrichment_record` - no_enrichment_record
+     * * `dispatch_backlog_full` - dispatch_backlog_full
+     * * `dispatch_failed` - dispatch_failed */
+    reason: RescoreResponseReasonEnumApi | null
+}
+
+export interface ScoringActivateRequestApi {
+    /** Saved scoring version to activate for subsequent evaluations. */
+    config_id: string
+}
+
+export interface ScoringConfigApi {
+    /** Saved scoring configuration identifier. */
+    id: string
+    /** Name of this immutable scoring version. */
+    version: string
+    /** Editable Hog scoring formula. */
+    readonly source: string
+    /** Whether scoring uses this version. */
+    is_active: boolean
+    /** When this version was saved. */
+    created_at: string
+    /**
+     * Author email, or null for imported configurations.
+     * @nullable
+     */
+    readonly created_by_email: string | null
+}
+
+export interface ScoringConfigListResponseApi {
+    /** Saved configurations, newest first. */
+    results: ScoringConfigApi[]
+    /** Hog source for the default ICP scoring policy. */
+    default_source: string
+}
+
+export interface ScoringPreviewRequestApi {
+    /**
+     * Hog formula to compile and execute.
+     * @maxLength 30000
+     */
+    source: string
+    /** Configuration whose curated tags and investors to use for the draft. */
+    base_config_id: string
+    /**
+     * Number of recent companies to preview.
+     * @minimum 1
+     * @maximum 10
+     */
+    sample?: number
+}
+
+/**
+ * Points for each scoring component.
+ * @nullable
+ */
+export type ScoringOutcomeApiComponents = { [key: string]: number } | null
+
+/**
+ * Named diagnostic values returned by the formula.
+ */
+export type ScoringOutcomeApiFlags = { [key: string]: boolean | number | string | null }
+
+export interface ScoringOutcomeApi {
+    /** Scored, disqualified, missing-company, or insufficient-data status. */
+    status: string
+    /**
+     * Total ICP score, or null when the company cannot be scored.
+     * @nullable
+     */
+    score: number | null
+    /**
+     * Points for each scoring component.
+     * @nullable
+     */
+    components: ScoringOutcomeApiComponents
+    /** Named diagnostic values returned by the formula. */
+    flags: ScoringOutcomeApiFlags
+    /**
+     * Reason for disqualification, or null when absent.
+     * @nullable
+     */
+    dq_reason: string | null
+}
+
+/**
+ * @nullable
+ */
+export type ScoringPreviewRowApiInputsCompany = { [key: string]: unknown } | null
+
+export type ScoringPreviewRowApiInputsSignup = {
+    role: string
+    domain: string
+    wizard_ai_sdk: boolean
+}
+
+export type ScoringPreviewRowApiInputsEnrichments = { [key: string]: { [key: string]: unknown } }
+
+export type ScoringPreviewRowApiInputsLists = { [key: string]: string[] }
+
+/**
+ * Saved company facts, signup answers, enrichment outputs, and curated lists supplied to the formula.
+ */
+export type ScoringPreviewRowApiInputs = {
+    /** @nullable */
+    company: ScoringPreviewRowApiInputsCompany
+    signup: ScoringPreviewRowApiInputsSignup
+    enrichments: ScoringPreviewRowApiInputsEnrichments
+    lists: ScoringPreviewRowApiInputsLists
+}
+
+export interface ScoringPreviewRowApi {
+    /** Company name from the archived enrichment. */
+    company: string
+    /**
+     * Company signup domain.
+     * @nullable
+     */
+    domain: string | null
+    /** Saved company facts, signup answers, enrichment outputs, and curated lists supplied to the formula. */
+    inputs: ScoringPreviewRowApiInputs
+    /** Result from the active formula on these inputs. */
+    active: ScoringOutcomeApi | null
+    /** Result from the draft formula, or null on failure. */
+    preview: ScoringOutcomeApi | null
+    /**
+     * Formula error for this company, or null on success.
+     * @nullable
+     */
+    error: string | null
+}
+
+export interface ScoringPreviewSummaryApi {
+    /** Number of companies in the sample. */
+    evaluated: number
+    /** Companies whose draft result differs from the active formula. */
+    changed: number
+    /** Companies whose active or draft formula failed. */
+    errors: number
+}
+
+export interface ScoringPreviewResponseApi {
+    /** Read-only comparison using saved company facts and labels. */
+    results: ScoringPreviewRowApi[]
+    /** Counts for this preview. */
+    summary: ScoringPreviewSummaryApi
+}
+
+export interface ScoringSaveRequestApi {
+    /**
+     * Hog formula to compile and execute.
+     * @maxLength 30000
+     */
+    source: string
+    /**
+     * Unique name for the new scoring version.
+     * @maxLength 128
+     */
+    version: string
+    /** Configuration whose curated tags and investors to retain. */
+    base_config_id: string
 }
 
 export interface ProductPushCampaignApi {

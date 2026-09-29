@@ -17,7 +17,7 @@ interface UseCreatePrReportOptions {
   cloudRepository: string | null;
   surface?: InboxReportActionSurface;
   triageId?: string;
-  /** Fires once the implementation task exists (the chat dock binds to it). */
+  /** Fires after the implementation task starts successfully. */
   onTaskCreated?: (task: Task) => void;
 }
 
@@ -142,7 +142,7 @@ export function useCreatePrReport({
     buildInput,
     analyticsExtras,
     redirectOnSuccess: false,
-    onTaskCreated,
+    onTaskStarted: onTaskCreated,
   });
 
   const createPrReport = useCallback(

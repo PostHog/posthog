@@ -1,4 +1,4 @@
-from freezegun import freeze_time
+import time_machine
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
@@ -21,7 +21,7 @@ class TestTokenBucket(SimpleTestCase):
         self.addCleanup(TEST_reset_scripts)
 
     def test_burst_then_deny_with_accurate_retry_after(self) -> None:
-        with freeze_time("2026-01-01 00:00:00"):
+        with time_machine.travel("2026-01-01 00:00:00", tick=False):
             for _ in range(ONE_PER_SECOND.burst):
                 decision = consume("bucket:burst", ONE_PER_SECOND)
                 assert isinstance(decision, BucketDecision)
@@ -35,24 +35,24 @@ class TestTokenBucket(SimpleTestCase):
             assert denied.reset == ONE_PER_SECOND.burst
 
     def test_continuous_refill_and_burst_cap(self) -> None:
-        with freeze_time("2026-01-01 00:00:00") as frozen:
+        with time_machine.travel("2026-01-01 00:00:00", tick=False) as frozen:
             for _ in range(ONE_PER_SECOND.burst):
                 consume("bucket:refill", ONE_PER_SECOND)
 
-            frozen.tick(5)
+            frozen.shift(5)
             decision = consume("bucket:refill", ONE_PER_SECOND)
             assert isinstance(decision, BucketDecision)
             assert decision.allowed
             assert decision.remaining == 4
 
             # A long idle refills to capacity, never beyond it.
-            frozen.tick(100_000)
+            frozen.shift(100_000)
             decision = consume("bucket:refill", ONE_PER_SECOND)
             assert isinstance(decision, BucketDecision)
             assert decision.remaining == ONE_PER_SECOND.burst - 1
 
     def test_refund_returns_tokens_capped_at_capacity(self) -> None:
-        with freeze_time("2026-01-01 00:00:00"):
+        with time_machine.travel("2026-01-01 00:00:00", tick=False):
             for _ in range(3):
                 consume("bucket:refund", ONE_PER_SECOND)
             assert refund("bucket:refund", ONE_PER_SECOND) == 8
@@ -61,7 +61,7 @@ class TestTokenBucket(SimpleTestCase):
             assert refund("bucket:never-charged", ONE_PER_SECOND) == ONE_PER_SECOND.burst
 
     def test_peek_reads_without_charging(self) -> None:
-        with freeze_time("2026-01-01 00:00:00"):
+        with time_machine.travel("2026-01-01 00:00:00", tick=False):
             fresh = peek("bucket:peek", ONE_PER_SECOND)
             assert isinstance(fresh, BucketDecision)
             assert fresh.allowed

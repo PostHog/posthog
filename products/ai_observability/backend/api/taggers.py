@@ -1,6 +1,7 @@
 import json
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
+from django.core.validators import EMPTY_VALUES
 from django.db import transaction
 from django.db.models import Q, QuerySet
 
@@ -29,7 +30,7 @@ from posthog.clickhouse.query_tagging import (
     tag_queries,
 )
 from posthog.event_usage import report_user_action
-from posthog.permissions import AccessControlPermission
+from posthog.permissions import AccessControlPermission, PostHogFeatureFlagPermission
 from posthog.temporal.ai_observability.message_utils import extract_text_from_messages
 from posthog.temporal.ai_observability.run_evaluation import extract_event_io
 from posthog.temporal.ai_observability.run_tagger import run_hog_tagger
@@ -41,6 +42,9 @@ from ..models.model_configuration import LLMModelConfiguration
 from ..models.provider_keys import LLMProvider, LLMProviderKey
 from ..models.taggers import Tagger, TaggerType, validate_tagger_config
 from .metrics import llma_track_latency
+
+if TYPE_CHECKING:
+    from posthog.models import User
 
 logger = structlog.get_logger(__name__)
 
@@ -309,10 +313,21 @@ class TaggerSerializer(TaggerBaseWriteSerializer):
         read_only_fields = ["id", "created_at", "updated_at", "created_by"]
 
 
+class StableOrderingFilter(django_filters.OrderingFilter):
+    """Append the primary key so tied rows keep a total order across paginated requests."""
+
+    def filter(self, qs: QuerySet, value: Any) -> QuerySet:
+        ordering = [self.get_ordering_value(param) for param in value or [] if param not in EMPTY_VALUES]
+        if not ordering:
+            return qs
+
+        return qs.order_by(*ordering, "id")
+
+
 class TaggerFilter(django_filters.FilterSet):
     search = django_filters.CharFilter(method="filter_search", help_text="Search in name or description")
     enabled = django_filters.BooleanFilter(help_text="Filter by enabled status")
-    order_by = django_filters.OrderingFilter(
+    order_by = StableOrderingFilter(
         fields=(
             ("created_at", "created_at"),
             ("updated_at", "updated_at"),
@@ -391,7 +406,8 @@ class TestHogTaggerResponseSerializer(serializers.Serializer):
 
 class TaggerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     scope_object = "tagger"
-    permission_classes = [IsAuthenticated, AccessControlPermission]
+    permission_classes = [IsAuthenticated, AccessControlPermission, PostHogFeatureFlagPermission]
+    posthog_feature_flag = "llm-analytics-tags"
     serializer_class = TaggerSerializer
     queryset = Tagger.objects.all()
     filter_backends = [DjangoFilterBackend]
@@ -408,7 +424,7 @@ class TaggerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDes
         queryset = (
             queryset.filter(team_id=self.team_id)
             .select_related("created_by", "model_configuration", "model_configuration__provider_key")
-            .order_by("-created_at")
+            .order_by("-created_at", "id")
         )
         if not self.action.endswith("update"):
             queryset = queryset.filter(deleted=False)
@@ -591,7 +607,7 @@ class TaggerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDes
         )
 
         tag_queries(product=Product.LLM_ANALYTICS, feature=QueryFeature.QUERY)
-        response = execute_hogql_query(query=query, team=team, limit_context=None)
+        response = execute_hogql_query(query=query, team=team, user=cast("User", request.user), limit_context=None)
 
         if not response.results:
             return Response({"results": [], "message": "No recent AI events found in the last 7 days"})

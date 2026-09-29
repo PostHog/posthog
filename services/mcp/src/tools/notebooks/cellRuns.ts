@@ -156,14 +156,6 @@ export function wrapRunResultAsInformational<T extends object>(result: T): WithI
  * identically to cells run in the editor.
  */
 export function buildResultProp(envelope: Schemas.NotebookSQLV2Envelope): Record<string, unknown> {
-    return {
-        columns: envelope.columns ?? [],
-        types: envelope.types ?? [],
-        row_count: envelope.row_count ?? 0,
-        first_page: envelope.first_page ?? [],
-        has_more: envelope.has_more ?? false,
-        stdout: envelope.stdout ?? '',
-        stderr: envelope.stderr ?? '',
-        media: envelope.media ?? [],
-    }
+    return notebookResultPreview(envelope)
 }
+import { notebookResultPreview } from 'products/notebooks/notebookResultPreview'

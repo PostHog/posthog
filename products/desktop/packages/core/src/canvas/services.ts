@@ -13,7 +13,10 @@ import type {
   CanvasStateEntry,
   CanvasStateScope,
   CanvasVersion,
+  CanvasView,
   DashboardRecord,
+  PublishProjectInput,
+  PublishProjectResult,
 } from "./dashboardSchemas";
 import type {
   CanvasAgentRequestResult,
@@ -23,6 +26,7 @@ import type {
   CanvasDataQueryInput,
   CanvasDataResult,
   CanvasLoadInsightInput,
+  SavedInsight,
 } from "./freeformSchemas";
 import type {
   CanvasLayout,
@@ -45,6 +49,9 @@ export interface IDashboardsService {
   listComponents(input: { search?: string }): Promise<DashboardRecord[]>;
   listAll(): Promise<DashboardRecord[]>;
   get(id: string): Promise<DashboardRecord | null>;
+  publishProject(input: PublishProjectInput): Promise<PublishProjectResult>;
+  // Everything needed to open a canvas, in one round trip.
+  view(id: string): Promise<CanvasView>;
   create(input: {
     channelId: string;
     name: string;
@@ -109,6 +116,7 @@ export interface IDashboardsService {
     provider: string;
     tool: string;
     arguments: Record<string, unknown>;
+    approval_token?: string;
   }): Promise<CanvasConnectorCallResult>;
   // Read the canvas's source project (the head, or a historical version).
   getSource(input: { id: string; versionId?: string }): Promise<CanvasSource>;
@@ -145,6 +153,7 @@ export interface IDashboardsService {
 export interface ICanvasDataService {
   query(input: CanvasDataQueryInput): Promise<CanvasDataResult>;
   loadInsight(input: CanvasLoadInsightInput): Promise<CanvasDataResult>;
+  listSavedInsights(search?: string): Promise<SavedInsight[]>;
   capture(input: CanvasCaptureInput): Promise<CanvasCaptureResult>;
   captureConfig(): Promise<CanvasCaptureConfig>;
 }

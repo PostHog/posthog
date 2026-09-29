@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -44,7 +42,7 @@ class DopplerSource(ResumableSource[DopplerSourceConfig, DopplerResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.DOPPLER,
+            name=ExternalDataSourceType.DOPPLER,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Doppler",
             releaseStatus=ReleaseStatus.ALPHA,
@@ -105,12 +103,7 @@ Use a [personal token](https://docs.doppler.com/docs/personal-tokens) or a [serv
                 supports_append=False,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
                 should_sync_default=endpoint_config.should_sync_default,
-                description=(
-                    "Workplace activity log of project, config, and access changes. Incremental syncs "
-                    "stop paging once they reach already-synced entries."
-                    if endpoint == "activity_logs"
-                    else None
-                ),
+                description=endpoint_config.description,
             )
 
         schemas = [_build_schema(endpoint) for endpoint in ENDPOINTS]

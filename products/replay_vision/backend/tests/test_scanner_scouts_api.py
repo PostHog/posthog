@@ -58,7 +58,7 @@ class TestScannerScoutCreate(_VisionAPITestCase):
         with team_scope(self.team.id):
             config = SignalScoutConfig.objects.get(skill_name="signals-scout-daily-digest")
         assert config.output_destinations == {
-            "slack": {"integration_id": integration.id, "channel": "CSCOUTS|#scout-findings", "thread_reports": False}
+            "slack": {"integration_id": integration.id, "channel": "CSCOUTS|#scout-findings", "thread_reports": True}
         }
 
     def test_a_scout_can_be_created_with_a_model_pin(self) -> None:
@@ -159,6 +159,24 @@ class TestScannerScoutCreate(_VisionAPITestCase):
         response = self.client.post(
             self._scouts_url(str(self.scanner.id)), data=self._payload(**overrides), format="json"
         )
+        assert response.status_code == 400, response.json()
+
+    def test_a_scout_with_only_a_display_name_gets_a_derived_name_and_keeps_its_label(self) -> None:
+        payload = self._payload(display_name="Checkout digest")
+        del payload["name"]
+        response = self.client.post(self._scouts_url(str(self.scanner.id)), data=payload, format="json")
+        assert response.status_code == 201, response.json()
+
+        with team_scope(self.team.id):
+            config = SignalScoutConfig.objects.get(skill_name=response.json()["config"]["skill_name"])
+        assert config.display_name == "Checkout digest"
+        assert config.skill_name.endswith("checkout-digest")
+        assert config.source_id == str(self.scanner.id)
+
+    def test_a_scout_with_neither_name_nor_display_name_is_rejected(self) -> None:
+        payload = self._payload()
+        del payload["name"]
+        response = self.client.post(self._scouts_url(str(self.scanner.id)), data=payload, format="json")
         assert response.status_code == 400, response.json()
 
     def test_a_scout_that_already_exists_without_an_owner_is_not_adopted(self) -> None:

@@ -14,10 +14,13 @@ from products.warehouse_sources.backend.types import IncrementalField, Increment
 #   - "sales_report":     `/v1/salesReports`, which is not a collection at all — one request per report date
 #                         returns a gzipped TSV file. Walked forward a day at a time from the watermark.
 #   - "analytics_report": Apple's Analytics Reports API, an asynchronous request/poll/download flow.
-#                         Per app: ensure an ONGOING report request exists (the one account mutation this
-#                         source makes), find the named report under it, list its DAILY instances, then
-#                         download and parse each instance's file segments. Walked forward by instance
-#                         processing date from the watermark.
+#                         Per app: ensure an ONGOING report request exists, find the named report under
+#                         it, list its DAILY instances, then download and parse each instance's file
+#                         segments. Walked forward by instance processing date from the watermark. On a
+#                         fresh table (first sync, resync, or full refresh) a ONE_TIME_SNAPSHOT request
+#                         is also ensured and, once Apple generates it, backfills history older than
+#                         the ongoing stream. Report request creation is the only account mutation this
+#                         source makes.
 EndpointKind = Literal["collection", "app_fanout", "sales_report", "analytics_report"]
 
 # Apple caps most collection pages at 200 resources.
@@ -69,6 +72,9 @@ class AppStoreConnectEndpointConfig:
     # Column that carries the id of the `data` resource referencing each included row, so
     # the table joins back to its parent without a per-row request.
     included_parent_column: str = "parent_id"
+    # Column holding the app's id, so a "collection" endpoint can honor the source's app id
+    # filter. Unset on the account-wide collections whose rows carry no app dimension.
+    app_id_column: Optional[str] = None
     # Analytics Reports API selectors, only meaningful for the "analytics_report" kind.
     # Acceptable report names in preference order: Apple exposes most reports as separate
     # "<name> Standard" / "<name> Detailed" resources, but a few (App Crashes, App Clip
@@ -127,6 +133,7 @@ APP_STORE_CONNECT_ENDPOINTS: dict[str, AppStoreConnectEndpointConfig] = {
         kind="collection",
         primary_keys=["id"],
         path="/v1/apps",
+        app_id_column="id",
     ),
     # Every version record per app — release type, review state, release dates.
     "app_store_versions": AppStoreConnectEndpointConfig(

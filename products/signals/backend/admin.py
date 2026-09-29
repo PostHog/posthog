@@ -5,6 +5,8 @@ from django.contrib import admin
 from django.urls import reverse
 from django.utils.html import format_html
 
+from posthog.slack.formatting import channel_id_from_target
+
 from .models import (
     SignalReport,
     SignalReportArtefact,
@@ -21,7 +23,7 @@ class SignalReportArtefactInline(admin.TabularInline):
     model = SignalReportArtefact
     extra = 0
     fields = ("id", "type", "content_preview", "created_at")
-    readonly_fields = fields
+    readonly_fields = (*fields, "claim", "pull_request")
     can_delete = False
 
     @admin.display(description="Content preview")
@@ -242,7 +244,7 @@ class SignalTeamConfigAdminForm(forms.ModelForm):
         if not value:
             return None
         # Only the channel id is required; an optional "|#name" suffix is allowed for readability.
-        channel_id = value.split("|", 1)[0].strip()
+        channel_id = channel_id_from_target(value)
         if not _SLACK_CHANNEL_ID_RE.match(channel_id):
             raise forms.ValidationError(
                 "Use 'CHANNELID|#name' form, or just the channel id. The id looks like 'C0123ABCD' "
@@ -264,10 +266,11 @@ class SignalTeamConfigAdmin(admin.ModelAdmin):
     )
     list_display_links = ("id",)
     search_fields = ("id", "team__name", "team__organization__name", "default_slack_notification_channel")
-    raw_id_fields = ("team",)
+    raw_id_fields = ("team", "issue_tracking_integration")
     # autostart_base_branches is free-form JSON with no form-level shape check; a non-dict value would
     # crash the autostart worker (it calls .get() on it). It's owned by the API, so keep it read-only here.
-    readonly_fields = ("id", "autostart_base_branches", "created_at", "updated_at")
+    # issue_tracking_config is the same: the API validates it against the chosen provider.
+    readonly_fields = ("id", "autostart_base_branches", "issue_tracking_config", "created_at", "updated_at")
     list_select_related = ("team", "team__organization")
     show_full_result_count = False
 

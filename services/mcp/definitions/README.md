@@ -115,6 +115,10 @@ tools:
       include: [id, key, name] # keep only these fields (dot-path wildcards supported)
       exclude: [filters.groups.*.properties] # remove these fields
       # include and exclude are mutually exclusive
+      strip_nulls: true # remove keys whose value is `null`, applied after include/exclude
+      # Use it on tools that echo a nested serializer schema, where the unset optional fields
+      # dominate the payload. Rejected with `list: true`, where per-row null removal makes the
+      # TOON table larger. Use `exclude` to drop the fields on a list tool instead.
     requires_ai_consent: true # gate behind org AI data processing consent
     param_overrides: # override individual param descriptions or schemas
       name:

@@ -308,4 +308,115 @@ class TestAshbySourceResponse:
     def test_all_endpoints_buildable(self, MockSession) -> None:
         for endpoint in ENDPOINTS:
             response = _source(endpoint)
-            assert response.primary_keys == ["id"]
+            # A table with no primary key can never merge or dedupe a re-yielded page.
+            assert response.primary_keys
+
+
+class TestFanOut:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_calls_the_child_once_per_parent_and_injects_the_parent_id(self, MockSession) -> None:
+        session = MockSession.return_value
+        snapshots = _wire(
+            session,
+            [
+                _page([{"id": "app-1"}, {"id": "app-2"}], more=False),
+                _page([{"id": "h-1", "stageNumber": 0}], more=False),
+                _page([{"id": "h-2", "stageNumber": 0}], more=False),
+            ],
+        )
+
+        rows = _rows(_source("application_history"))
+
+        # application.listHistory rows carry no applicationId, so the fan-out has to add it —
+        # without it the table can't be joined back to applications and its key isn't unique.
+        assert rows == [
+            {"id": "h-1", "stageNumber": 0, "applicationId": "app-1"},
+            {"id": "h-2", "stageNumber": 0, "applicationId": "app-2"},
+        ]
+        assert [snapshot["url"] for snapshot in snapshots] == [
+            f"{ASHBY_BASE_URL}/application.list",
+            f"{ASHBY_BASE_URL}/application.listHistory",
+            f"{ASHBY_BASE_URL}/application.listHistory",
+        ]
+        assert snapshots[1]["json"] == {"applicationId": "app-1", "limit": 100}
+        assert snapshots[2]["json"] == {"applicationId": "app-2", "limit": 100}
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_unpaginated_child_sends_only_the_resolve_param(self, MockSession) -> None:
+        # interviewStage.list takes interviewPlanId and nothing else — Ashby rejects a `limit`.
+        session = MockSession.return_value
+        snapshots = _wire(
+            session,
+            [
+                _page([{"id": "plan-1"}], more=False),
+                _page([{"id": "stage-1", "interviewPlanId": "plan-1"}], more=False),
+            ],
+        )
+
+        rows = _rows(_source("interview_stages"))
+
+        assert rows == [{"id": "stage-1", "interviewPlanId": "plan-1"}]
+        assert snapshots[1]["json"] == {"interviewPlanId": "plan-1"}
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resumes_at_the_parent_that_was_in_progress(self, MockSession) -> None:
+        session = MockSession.return_value
+        snapshots = _wire(
+            session,
+            [
+                _page([{"id": "app-1"}, {"id": "app-2"}], more=False),
+                _page([{"id": "h-2"}], more=False),
+            ],
+        )
+        manager = _make_manager(AshbyResumeConfig(parent_index=1, child_cursor="half-way"))
+
+        rows = _rows(_source("application_history", manager))
+
+        assert rows == [{"id": "h-2", "applicationId": "app-2"}]
+        assert snapshots[1]["json"]["cursor"] == "half-way"
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_checkpoints_each_finished_parent_against_its_page_cursor(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _page([{"id": "app-1"}], more=True, next_cursor="p2"),
+                _page([{"id": "h-1"}], more=False),
+                _page([{"id": "app-2"}], more=False),
+                _page([{"id": "h-2"}], more=False),
+            ],
+        )
+        manager = _make_manager()
+
+        _rows(_source("application_history", manager))
+
+        # The second parent is recorded against "p2" — the cursor that fetched the page it is on,
+        # not the one that fetched the page before it.
+        assert manager.save_state.call_args_list == [
+            mock.call(AshbyResumeConfig(parent_cursor=None, parent_index=1)),
+            mock.call(AshbyResumeConfig(parent_cursor="p2", parent_index=1)),
+        ]
+
+
+class TestNestedRows:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_interview_events_are_read_from_the_schedule_listing(self, MockSession) -> None:
+        session = MockSession.return_value
+        snapshots = _wire(
+            session,
+            [
+                _page(
+                    [
+                        {"id": "sched-1", "interviewEvents": [{"id": "ev-1"}, {"id": "ev-2"}]},
+                        {"id": "sched-2", "interviewEvents": []},
+                    ],
+                    more=False,
+                )
+            ],
+        )
+
+        rows = _rows(_source("interview_events"))
+
+        assert rows == [{"id": "ev-1"}, {"id": "ev-2"}]
+        assert snapshots[0]["url"] == f"{ASHBY_BASE_URL}/interviewSchedule.list"

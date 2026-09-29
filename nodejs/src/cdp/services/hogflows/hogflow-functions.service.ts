@@ -126,6 +126,7 @@ export class HogFlowFunctionsService {
                 attempts: 0,
                 actionId: invocation.state.currentAction?.id,
                 actionStepCount: invocation.state.actionStepCount,
+                customerTaskIdempotencyVersion: invocation.state.customerTaskIdempotencyVersion,
                 rerunAttempts: invocation.state.rerunAttempts,
             },
         }

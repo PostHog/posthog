@@ -97,6 +97,22 @@ export function hasActiveInboxFilters(
 }
 
 /**
+ * What "filtered" counts as for the reports list: exactly the controls its
+ * filter menu shows. Pass it straight to the store hook, so every surface
+ * drawing that list agrees, and the selector keeps one identity.
+ */
+export function hasActiveReportsListFilters(
+  state: InboxSignalsFilterState,
+): boolean {
+  return hasActiveInboxFilters(state, {
+    includePrFilter: false,
+    includeSourceFilter: false,
+    includeReportStateFilter: true,
+    includeSearchFilter: false,
+  });
+}
+
+/**
  * v2 dropped per-status and per-reviewer filter UI; surviving consumers are sort,
  * search, source-product, and priority. Bumping the persist version drops the
  * old `statusFilter` / `suggestedReviewerFilter` / `hasInitializedSuggestedReviewerFilter`

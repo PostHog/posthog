@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { router } from 'kea-router'
 
 import { initKeaTests } from '~/test/init'
@@ -148,6 +148,27 @@ describe('LemonTable', () => {
         expect(spanningCell).not.toHaveClass('whitespace-nowrap')
     })
 
+    it.each([
+        ['auto', '1%'],
+        ['fixed', '3rem'],
+    ] as const)('reserves toggle space and expands rows with %s layout', (tableLayout, toggleWidth) => {
+        render(
+            <LemonTable
+                rowKey="id"
+                dataSource={DATA.slice(0, 1)}
+                columns={COLUMNS}
+                tableLayout={tableLayout}
+                expandable={{ expandedRowRender: (row) => <span>{row.name} details</span> }}
+            />
+        )
+
+        expect(document.querySelector('colgroup > col:first-child')).toHaveStyle({ width: toggleWidth })
+        fireEvent.click(screen.getByTitle('Show more'))
+        expect(screen.getByText('alpha details')).toBeInTheDocument()
+        fireEvent.click(screen.getByTitle('Show less'))
+        expect(screen.queryByText('alpha details')).not.toBeInTheDocument()
+    })
+
     it('keeps headers, expanded rows, and empty states aligned when the row expansion toggle is hidden', () => {
         const { rerender } = render(
             <LemonTable
@@ -212,5 +233,63 @@ describe('LemonTable', () => {
         const groupingRow = document.querySelector('tr.LemonTable__row--grouping')!
         const spannedColumns = Array.from(groupingRow.querySelectorAll('th')).reduce((sum, th) => sum + th.colSpan, 0)
         expect(spannedColumns).toBe(3)
+    })
+
+    describe('sticky header', () => {
+        const renderWithWidths = (props: { stickyHeader?: boolean }, tableWidth: number, viewportWidth = 500): void => {
+            jest.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockImplementation(function (this: HTMLElement) {
+                return this.tagName === 'TABLE' ? tableWidth : 0
+            })
+            jest.spyOn(Element.prototype, 'clientWidth', 'get').mockImplementation(function (this: Element) {
+                return this.classList.contains('ScrollableShadows__inner') ? viewportWidth : 0
+            })
+            render(<LemonTable rowKey="id" dataSource={DATA} columns={COLUMNS} {...props} />)
+        }
+
+        afterEach(() => {
+            jest.restoreAllMocks()
+        })
+
+        it('pins the header when the table fits its container', () => {
+            renderWithWidths({ stickyHeader: true }, 400)
+            expect(document.querySelector('.LemonTable')).toHaveClass('LemonTable--sticky-header')
+        })
+
+        it('keeps horizontal scrolling instead when the table is wider than its container', () => {
+            renderWithWidths({ stickyHeader: true }, 800)
+            expect(document.querySelector('.LemonTable')).not.toHaveClass('LemonTable--sticky-header')
+        })
+
+        it('switches between pinning and horizontal scrolling when the table or its container resizes', () => {
+            const resizeCallbacks: (() => void)[] = []
+            jest.spyOn(globalThis, 'ResizeObserver').mockImplementation((callback: ResizeObserverCallback) => {
+                resizeCallbacks.push(() => callback([], {} as ResizeObserver))
+                return { observe: () => null, unobserve: () => null, disconnect: () => null } as ResizeObserver
+            })
+            let tableWidth = 400
+            jest.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockImplementation(function (this: HTMLElement) {
+                return this.tagName === 'TABLE' ? tableWidth : 0
+            })
+            jest.spyOn(Element.prototype, 'clientWidth', 'get').mockImplementation(function (this: Element) {
+                return this.classList.contains('ScrollableShadows__inner') ? 500 : 0
+            })
+            render(<LemonTable rowKey="id" dataSource={DATA} columns={COLUMNS} stickyHeader />)
+            const table = document.querySelector('.LemonTable')
+            expect(table).toHaveClass('LemonTable--sticky-header')
+            expect(resizeCallbacks.length).toBeGreaterThan(0)
+
+            tableWidth = 800
+            act(() => resizeCallbacks.forEach((callback) => callback()))
+            expect(table).not.toHaveClass('LemonTable--sticky-header')
+
+            tableWidth = 400
+            act(() => resizeCallbacks.forEach((callback) => callback()))
+            expect(table).toHaveClass('LemonTable--sticky-header')
+        })
+
+        it('does not pin the header by default', () => {
+            renderWithWidths({}, 400)
+            expect(document.querySelector('.LemonTable')).not.toHaveClass('LemonTable--sticky-header')
+        })
     })
 })

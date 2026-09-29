@@ -24,7 +24,7 @@ Sync code-quality data from your self-hosted [SonarQube Server](https://www.sona
 
 ## Prerequisites
 
-- A running SonarQube Server instance reachable from the public internet.
+- A running SonarQube Server instance reachable from the public internet. For SonarQube Cloud (`sonarcloud.io` or `sonarqube.us`), use the Sonar Cloud source instead.
 - A user token generated in SonarQube. The token inherits the permissions of the user who created it, so it can read the projects, issues, and rules that user can see.
 - To sync the **users** table, the token's user needs the _Administer System_ permission. All other tables only need normal browse access.
 
@@ -53,6 +53,7 @@ You'll need:
 
 ## Troubleshooting
 
+- **Setup rejects a SonarQube Cloud URL.** This source reads SonarQube Server. Cloud needs an organization key on every request, so connect it with the Sonar Cloud source instead.
 - **The users table fails to sync.** `/api/users/search` requires the _Administer System_ permission. Either grant it to the token's user or leave the users table unselected — it's off by default.
 - **Fewer issues than expected on a large project.** SonarQube caps issue search at 10,000 results per query window. PostHog automatically pages past this by re-windowing on the issue creation date, so all issues are synced; if you still see gaps, check that the token can browse the affected projects.
 

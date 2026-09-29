@@ -2,13 +2,21 @@ import json
 from datetime import datetime
 from html import escape
 
-from freezegun import freeze_time
+import time_machine
 from unittest.mock import patch
 
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase
 from django.test.client import RequestFactory
 
-from posthog.api.csp import parse_report_to, parse_report_uri, process_csp_report, sample_csp_report
+from parameterized import parameterized
+
+from posthog.api.csp import (
+    parse_report_to,
+    parse_report_uri,
+    process_csp_report,
+    sample_csp_report,
+    sanitize_report_url,
+)
 from posthog.sampling import sample_on_property
 
 
@@ -273,7 +281,7 @@ class TestCSPModule(TestCase):
         assert event["properties"]["$session_id"] == "test-session"
         assert event["properties"]["$csp_version"] == "1"
 
-    @freeze_time("2023-01-01 12:00:00")
+    @time_machine.travel("2023-01-01 12:00:00", tick=False)
     def test_sample_csp_report(self):
         trunc_date_iso_format = datetime(2023, 1, 1, 12, 0, 0).isoformat()
 
@@ -581,13 +589,13 @@ class TestCSPModule(TestCase):
         }
 
         # First minute
-        with freeze_time("2023-01-01 12:00:00"):
+        with time_machine.travel("2023-01-01 12:00:00", tick=False):
             properties_copy1 = properties.copy()
             sample_csp_report(properties_copy1, 0.5, add_metadata=True)
             sampling_key1 = properties_copy1.get("csp_sampling_key")
 
         # Second minute
-        with freeze_time("2023-01-01 12:01:00"):
+        with time_machine.travel("2023-01-01 12:01:00", tick=False):
             properties_copy2 = properties.copy()
             sample_csp_report(properties_copy2, 0.5, add_metadata=True)
             sampling_key2 = properties_copy2.get("csp_sampling_key")
@@ -601,7 +609,7 @@ class TestCSPModule(TestCase):
         assert sampling_key1 is not None and "https://example.com/page" in sampling_key1
         assert sampling_key2 is not None and "https://example.com/page" in sampling_key2
 
-    @freeze_time("2023-01-01 12:00:00")
+    @time_machine.travel("2023-01-01 12:00:00", tick=False)
     def test_sampling_consistency_within_same_minute(self):
         properties1 = {
             "document_url": "https://example.com/page",
@@ -642,7 +650,7 @@ class TestCSPModule(TestCase):
         ]
 
         for url, time_string, expected_result, expected_hash_mod in deterministic_test_cases:
-            with freeze_time(time_string):
+            with time_machine.travel(time_string, tick=False):
                 properties = {"document_url": url, "effective_directive": "script-src"}
                 result = sample_csp_report(properties, 0.5)
                 assert result == expected_result, (
@@ -661,7 +669,7 @@ class TestCSPModule(TestCase):
         sampled_out_results = []
 
         for time_string, expected_result in time_sampling_pairs:
-            with freeze_time(time_string):
+            with time_machine.travel(time_string, tick=False):
                 properties = {"document_url": url, "effective_directive": "script-src"}
                 result = sample_csp_report(properties, 0.5)
                 assert result == expected_result, f"Failed deterministic test for {url} at {time_string}"
@@ -676,9 +684,40 @@ class TestCSPModule(TestCase):
         assert len(sampled_out_results) > 0, f"URL {url} should be sampled OUT at least once"
 
         # Verify consistency within the same minute (time component doesn't change within a minute)
-        with freeze_time("2023-01-01 12:00:00"):
+        with time_machine.travel("2023-01-01 12:00:00", tick=False):
             properties1 = {"document_url": "https://example.com/test", "effective_directive": "script-src"}
             result1 = sample_csp_report(properties1.copy(), 0.5)
             result2 = sample_csp_report(properties1.copy(), 0.5)
 
             assert result1 == result2, "Same URL+time should produce consistent sampling results within the same minute"
+
+
+class TestSanitizeReportUrl(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                "django_reset_token",
+                "https://app.example.com/reset/0198aaaa-bbbb-cccc-dddd-eeeeffff0000/abc123-0f0f0f0f0f0f0f0f",
+                "https://app.example.com/reset/<redacted>/<redacted>",
+            ),
+            # token_urlsafe output lacks a digit about once in 165 sharing tokens.
+            (
+                "sharing_token_without_a_digit",
+                "https://app.example.com/shared/AbcdEfghIjklMnop_QrstUvwxYz-AbCd",
+                "https://app.example.com/shared/<redacted>",
+            ),
+            (
+                "percent_encoded_token_character",
+                "https://app.example.com/reset/0198aaaa-bbbb-cccc-dddd-eeeeffff0000/abc123%2D0f0f0f0f0f0f0f0f",
+                "https://app.example.com/reset/<redacted>/<redacted>",
+            ),
+            # Triage groups reports by route, so a long lowercase route name must survive.
+            (
+                "long_route_names",
+                "https://app.example.com/project/2/session-recordings/authorize_and_redirect",
+                "https://app.example.com/project/2/session-recordings/authorize_and_redirect",
+            ),
+        ]
+    )
+    def test_masks_tokens_but_keeps_route_names(self, _name: str, url: str, expected: str) -> None:
+        assert sanitize_report_url(url) == expected

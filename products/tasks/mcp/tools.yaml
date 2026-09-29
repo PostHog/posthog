@@ -166,6 +166,12 @@ tools:
             `runtime_adapter`/`model`/`reasoning_effort`, `repositories` (at most 1, may be empty for a connector-only
             loop), `visibility` (`personal` or `team`), `behaviors` (PR creation, CI watch, auto-fix) and `triggers`.
         feature_flag: loops
+        hidden_when_flag_on: loops-hog-flows
+        superseded_by:
+            - workflows-create
+        redirect_hint:
+            'Loops in this project run on workflows: read the building-loops skill, then use the workflows tools with
+            origin_product "loops".'
         confirmed_action:
             message: >
                 About to create the loop '{name}', a persistent automation that will run unattended with your GitHub and
@@ -185,6 +191,12 @@ tools:
             Soft-delete a loop and pause every trigger's schedule so it stops firing. Only the loop owner or a project
             admin can delete a loop.
         feature_flag: loops
+        hidden_when_flag_on: loops-hog-flows
+        superseded_by:
+            - workflows-archive
+        redirect_hint:
+            'Loops in this project run on workflows: read the building-loops skill, then use the workflows tools with
+            origin_product "loops".'
     loops-list:
         operation: loops_list
         enabled: true
@@ -201,6 +213,12 @@ tools:
             loop. Returns loop config, trigger summaries, and run bookkeeping (`last_run_at`, `last_run_status`,
             `consecutive_failures`).
         feature_flag: loops
+        hidden_when_flag_on: loops-hog-flows
+        superseded_by:
+            - workflows-list
+        redirect_hint:
+            'Loops in this project run on workflows: read the building-loops skill, then use the workflows tools with
+            origin_product "loops".'
     loops-partial-update:
         operation: loops_partial_update
         enabled: true
@@ -217,6 +235,13 @@ tools:
             member takes ownership and re-validates repositories and connectors against that member's own access.
             Editing a loop never affects its in-flight or queued runs; every run snapshots its config at fire time.
         feature_flag: loops
+        hidden_when_flag_on: loops-hog-flows
+        superseded_by:
+            - workflows-patch-graph
+            - workflows-update
+        redirect_hint:
+            'Loops in this project run on workflows: read the building-loops skill, then use the workflows tools with
+            origin_product "loops".'
     loops-preview-create:
         operation: loops_preview_create
         enabled: true
@@ -232,6 +257,12 @@ tools:
             schedule fire when omitted) without creating a task, run, or any other side effect. Use it to check a loop's
             prompt before enabling it.
         feature_flag: loops
+        hidden_when_flag_on: loops-hog-flows
+        superseded_by:
+            - workflows-test-run
+        redirect_hint:
+            'Loops in this project run on workflows: read the building-loops skill, then use the workflows tools with
+            origin_product "loops".'
     loops-retrieve:
         operation: loops_retrieve
         enabled: true
@@ -247,6 +278,12 @@ tools:
             Get a specific loop by ID, including its full config (instructions, model, repositories, triggers,
             behaviors, connectors, notifications) and run bookkeeping.
         feature_flag: loops
+        hidden_when_flag_on: loops-hog-flows
+        superseded_by:
+            - workflows-get
+        redirect_hint:
+            'Loops in this project run on workflows: read the building-loops skill, then use the workflows tools with
+            origin_product "loops".'
     loops-run-create:
         operation: loops_run_create
         enabled: true
@@ -262,6 +299,14 @@ tools:
             current config snapshot and returns it. Subject to the same usage-gate, overlap policy and rate limits as
             trigger-fired runs.
         feature_flag: loops
+        hidden_when_flag_on: loops-hog-flows
+        superseded_by:
+            - workflows-test-run
+        redirect_hint:
+            'Loops in this project run on workflows: read the building-loops skill, then use the workflows tools with
+            origin_product "loops". A test run steps one node at a time and mocks outbound calls, so it checks the graph
+            and creates no task run. To fire a loop for real, use Run now on an enabled schedule loop in PostHog
+            Desktop, or wait for its trigger.'
     loops-runs-retrieve:
         operation: loops_runs_retrieve
         enabled: true
@@ -277,8 +322,21 @@ tools:
         description: >
             List a loop's run history, newest first, cursor-paginated. Each entry carries the run's status, branch,
             error message and output (including any PR URL), so an agent can check whether a loop's runs succeeded and
-            what they produced.
+            what they produced. Set status=failed to find failure records without reading canvas state. Keep the status
+            filter unchanged when following next_cursor. Use these records and the loop's last_run_status, last_error,
+            and consecutive_failures for current health; an enabled schedule alone does not show successful work.
         feature_flag: loops
+        hidden_when_flag_on: loops-hog-flows
+        superseded_by:
+            - tasks-list
+            - tasks-runs-retrieve
+            - workflows-list-invocations
+        redirect_hint:
+            'Loops in this project run on workflows: read the building-loops skill, then use the workflows tools with
+            origin_product "loops". For run history, call tasks-list with the hog_flow_id of the loop and archived set
+            to all: it lists the tasks the loop created, newest first, each with the status and error of its latest run.
+            Then call tasks-runs-retrieve on a run for its branch and output, including any PR URL.
+            workflows-list-invocations carries the engine outcome only, with no task output.'
     loops-skill-bundles-update:
         operation: loops_skill_bundles_update
         enabled: false
@@ -372,6 +430,9 @@ tools:
     task-channels-provision-defaults-create:
         operation: task_channels_provision_defaults_create
         enabled: false
+    task-channels-setup-create:
+        operation: task_channels_setup_create
+        enabled: false
     task-channels-star-create:
         operation: task_channels_star_create
         enabled: false
@@ -435,12 +496,9 @@ tools:
         enrich_url: '{id}'
         title: Create task
         description: >
-            Create an agent task in the current project — a unit of work an AI agent picks up and actions, such as
-            investigating an inbox report, fixing an error, or opening a pull request. `description` is the prompt
-            handed to the agent, so make it specific and actionable. Pass `repository` in `organization/repo` format for
-            code tasks so the agent knows where to work; omit it for investigation-only tasks. This creates the task
-            record only — it does not start the agent. Returns the created task including its URL; open that URL to
-            start the run. Requires the calling token's organization to have Tasks access enabled.
+            Create a task without starting a run. Set `description` to the agent's instructions. For code tasks, set
+            `repository` to `organization/repo`. A person can start the task at the returned URL. Use
+            `tasks-create-and-run` to start a run immediately when that tool is available.
         include_params:
             - title
             - description
@@ -462,8 +520,47 @@ tools:
                 - origin_product
                 - repository
                 - internal
+                - latest_run.id
+                - latest_run.stage
+                - latest_run.status
+                - run_error
                 - created_at
                 - updated_at
+    tasks-create-and-run:
+        operation: tasks_create
+        enabled: true
+        scopes:
+            - task:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        input_schema: TaskAgentCreateSchema
+        enrich_url: '{id}'
+        title: Create task and start or schedule run
+        description: >
+            Create a task and start its first background run, or set `scheduled_at` for a one-off run within 30 days.
+            Times without an offset use UTC. Confirm the returned time; execution starts at or after that time. Omit
+            model fields to use saved defaults. Use `tasks-models-retrieve` before an explicit model choice. Set
+            `description` to the agent's instructions. For code tasks, set `repository` to `organization/repo`. Omit
+            `branch` to use the default branch. Check `run_error` if the run does not start. Poll `tasks-runs-list` or
+            `tasks-runs-retrieve` for progress. If the response is lost, search for the task before you retry. A
+            repeated call can create another task.
+        feature_flag: tasks-mcp-agent-run-start
+        response:
+            include:
+                - id
+                - task_number
+                - title
+                - description
+                - repository
+                - latest_run.id
+                - latest_run.stage
+                - latest_run.status
+                - run_error
+                - latest_run.scheduled_at
+                - latest_run.model
+                - latest_run.reasoning_effort
     tasks-destroy:
         operation: tasks_destroy
         enabled: false
@@ -486,7 +583,10 @@ tools:
             Search agent tasks before starting related work. Use `search` to match task titles and descriptions, and
             `channel` to limit results to the current space. The results identify who created each task and whether its
             latest run is active. Supports additional filtering by status, repository, creator, origin product, and
-            archived or internal state. Requires the calling token's organization to have Tasks access enabled.
+            archived or internal state. Requires the calling token's organization to have Tasks access enabled. To
+            inspect failures in a space, set channel, status=failed, internal=all, and archived=all. For workflow-backed
+            loops, also set hog_flow_id. The latest_run includes the stored error and completion time even if the run
+            stopped before writing canvas state. Use tasks-runs-list for earlier runs of a task.
         feature_flag: tasks
         response:
             include:
@@ -502,6 +602,9 @@ tools:
                 - created_by.last_name
                 - latest_run.id
                 - latest_run.status
+                - latest_run.error_message
+                - latest_run.created_at
+                - latest_run.completed_at
                 - created_at
                 - updated_at
     tasks-me-config-create:
@@ -612,7 +715,38 @@ tools:
                 - latest_run.state.sandbox_url
     tasks-run-create:
         operation: tasks_run_create
-        enabled: false
+        enabled: true
+        scopes:
+            - task:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        input_schema: TaskAgentRunCreateSchema
+        enrich_url: '{id}'
+        title: Start or schedule task run
+        description: >
+            Start a cloud run for an existing task, or set `scheduled_at` for a one-off run within 30 days. Times
+            without an offset use UTC. Confirm the returned time; execution starts at or after that time. Omit model
+            fields to use saved defaults, or the previous run's model on resume. Use `tasks-models-retrieve` before an
+            explicit model choice. Use `pending_user_message` for follow-up work and `resume_from_run_id` to continue a
+            prior run. Poll `tasks-runs-list` or `tasks-runs-retrieve` for progress. Check `run_error` for a start
+            failure. If the response is lost, check the runs before you retry. A repeated call can start another run.
+        feature_flag: tasks-mcp-agent-run-start
+        response:
+            include:
+                - run_error
+                - id
+                - task_number
+                - title
+                - description
+                - repository
+                - latest_run.id
+                - latest_run.stage
+                - latest_run.status
+                - latest_run.scheduled_at
+                - latest_run.model
+                - latest_run.reasoning_effort
     tasks-runs-analysis-activity-create:
         operation: tasks_runs_analysis_activity_create
         enabled: false
@@ -689,6 +823,9 @@ tools:
                 - environment
                 - error_message
                 - state.sandbox_environment_id
+                - scheduled_at
+                - model
+                - reasoning_effort
                 - created_at
                 - updated_at
                 - completed_at
@@ -767,6 +904,9 @@ tools:
     tasks-runs-set-output-partial-update:
         operation: tasks_runs_set_output_partial_update
         enabled: false
+    tasks-runs-set-summary-partial-update:
+        operation: tasks_runs_set_summary_partial_update
+        enabled: false
     tasks-runs-start-create:
         operation: tasks_runs_start_create
         enabled: false
@@ -775,6 +915,9 @@ tools:
         enabled: false
     tasks-runs-stream-token-retrieve:
         operation: tasks_runs_stream_token_retrieve
+        enabled: false
+    tasks-runs-subscription-token-create:
+        operation: tasks_runs_subscription_token_create
         enabled: false
     tasks-runs-task-session-retrieve:
         operation: tasks_runs_task_session_retrieve

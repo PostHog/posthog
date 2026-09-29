@@ -79,6 +79,7 @@ const ALL_FEATURES = [
     AvailableFeature.AUTOMATIC_PROVISIONING,
     AvailableFeature.SSO_ENFORCEMENT,
     AvailableFeature.SAML,
+    AvailableFeature.OIDC,
     AvailableFeature.SCIM,
     AvailableFeature.XAA_AUTHENTICATION,
 ]

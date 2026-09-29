@@ -21,12 +21,10 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
 } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { ChannelBreadcrumb } from "@posthog/ui/features/canvas/components/ChannelBreadcrumb";
+import { CopyCanvasLinkButton } from "@posthog/ui/features/canvas/components/CopyCanvasLinkButton";
 import { iconForTemplate } from "@posthog/ui/features/canvas/components/canvasTemplateIcon";
 import { NewCanvasMenu } from "@posthog/ui/features/canvas/components/NewCanvasMenu";
 import { SpaceHeaderRow } from "@posthog/ui/features/canvas/components/SpaceHeaderRow";
@@ -44,6 +42,7 @@ import {
   useDashboardMutations,
 } from "@posthog/ui/features/canvas/hooks/useDashboards";
 import { useSelectedCanvasId } from "@posthog/ui/features/canvas/hooks/useSelectedCanvasId";
+import { useWorkLayout } from "@posthog/ui/features/canvas/hooks/useWorkLayout";
 import { useCanvasChatPanelStore } from "@posthog/ui/features/canvas/stores/canvasChatPanelStore";
 import {
   useDashboardEditStore,
@@ -64,6 +63,7 @@ import {
   PRIVATE_SPACE_MENTIONS_DISABLED,
 } from "@posthog/ui/features/sessions/mentionAvailability";
 import { useTasks } from "@posthog/ui/features/tasks/useTasks";
+import { ChromeBar } from "@posthog/ui/primitives/ChromeBar";
 import { toast } from "@posthog/ui/primitives/toast";
 import { track } from "@posthog/ui/shell/analytics";
 import { Flex } from "@radix-ui/themes";
@@ -93,7 +93,9 @@ function FreeformEditControls({
   const editing = useIsDashboardEditing(dashboardId);
   const setEditing = useDashboardEditStore((s) => s.setEditing);
   const openChat = useCanvasChatPanelStore((state) => state.openChat);
+  const openBlocks = useCanvasChatPanelStore((state) => state.openBlocks);
   const { dashboard } = useDashboard(dashboardId);
+  const builtByAgent = !!dashboard?.generationTaskId;
   const { setPinned, invalidateDashboards } = useDashboardMutations();
   const isPinned = dashboard?.pinnedAt != null;
   // "Delete…" opens a confirmation rather than deleting inline — the canvas and
@@ -164,22 +166,6 @@ function FreeformEditControls({
 
   return (
     <div className="no-drag flex items-center gap-2">
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <Button
-              size="icon-sm"
-              aria-label="Copy link to canvas"
-              onClick={() =>
-                void copyCanvasLink(channelId, dashboardId, "canvas")
-              }
-            >
-              <LinkIcon size={14} />
-            </Button>
-          }
-        />
-        <TooltipContent side="bottom">Copy link to canvas</TooltipContent>
-      </Tooltip>
       <DropdownMenu>
         <DropdownMenuTrigger
           render={
@@ -266,7 +252,8 @@ function FreeformEditControls({
             dashboard_id: dashboardId,
             editing: !editing,
           });
-          if (!editing) openChat();
+          if (!editing && builtByAgent) openChat();
+          if (!editing && !builtByAgent) openBlocks();
           setEditing(dashboardId, !editing);
         }}
       >
@@ -329,6 +316,9 @@ function CanvasBreadcrumb({
       leafLabel={name}
       editScopeKey={dashboardId}
       onRename={(next) => void renameDashboard(dashboardId, next)}
+      leafTrailing={
+        <CopyCanvasLinkButton channelId={channelId} dashboardId={dashboardId} />
+      }
       trailing={
         <>
           {commentTaskId && (
@@ -349,6 +339,7 @@ function CanvasBreadcrumb({
 
 export function ShellLayout() {
   const spacesLayout = useChannelsLayout();
+  const workLayout = useWorkLayout();
   const pathname = useRouterState({
     select: (s) =>
       s.location.pathname.startsWith("/spaces/") ? s.location.pathname : "",
@@ -400,7 +391,7 @@ export function ShellLayout() {
   // The canvases grid (its own sub-route now that the channel index is the
   // static homepage, which carries its own header content).
   const isDashboardsGrid =
-    Boolean(channelId) && pathname === `${base}/canvases`;
+    !workLayout && Boolean(channelId) && pathname === `${base}/canvases`;
 
   // Whether the single toolbar should render: the canvases grid, or any single
   // canvas (so Edit lives here too).
@@ -420,7 +411,7 @@ export function ShellLayout() {
           canvas actions (Edit / New canvas) on the right.
           Freeform canvases own their own date control in-app (DateTimePicker). */}
       {showToolbar && (
-        <div className="flex h-10 shrink-0 items-center border-border border-b px-3">
+        <ChromeBar inset="title">
           {isDashboardDetail && toolbarDashboardId && toolbarChannelId ? (
             <CanvasBreadcrumb
               channelName={toolbarChannelName}
@@ -441,7 +432,7 @@ export function ShellLayout() {
               trailing={<NewCanvasMenu channelId={channelId} />}
             />
           ) : null}
-        </div>
+        </ChromeBar>
       )}
       {/* The right panel lays itself over this row's right edge and pins its
           switcher to the row's top right, so the row is its positioning context

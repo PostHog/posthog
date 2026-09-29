@@ -195,13 +195,11 @@ jobs:
                   done
 
             - name: Install Playwright
+              if: matrix.arch == 'arm64'
               run: pnpm --filter code exec playwright install
 
-            - name: Install Rosetta for the x64 smoke test
-              if: matrix.arch == 'x64'
-              run: pgrep -xq oahd || sudo softwareupdate --install-rosetta --agree-to-license
-
             - name: Smoke test packaged app
+              if: matrix.arch == 'arm64'
               env:
                   CI: true
                   E2E_APP_ARCH: ${{ matrix.arch }}
@@ -225,6 +223,70 @@ jobs:
                       products/desktop/apps/code/out/*.blockmap
                       products/desktop/apps/code/out/latest-mac.yml
                   compression-level: 0
+                  retention-days: 7
+
+    smoke-macos-x64:
+        needs: [build-macos]
+        runs-on: macos-15-intel
+        timeout-minutes: 30
+        permissions:
+            contents: read
+        defaults:
+            run:
+                working-directory: products/desktop
+        steps:
+            - name: Checkout
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: products/desktop
+                  sparse-checkout-cone-mode: false
+                  persist-credentials: false
+
+            - name: Check the runner is native Intel
+              run: |
+                  if [[ "$(sysctl -n hw.optional.arm64 2>/dev/null || echo 0)" == "1" ]]; then
+                    echo "FAIL: this runner is Apple silicon, so the x64 app would run under Rosetta"
+                    exit 1
+                  fi
+                  sysctl -n machdep.cpu.brand_string
+
+            - name: Setup pnpm
+              uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+              with:
+                  package_json_file: products/desktop/package.json
+
+            - name: Setup Node.js
+              uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+              with:
+                  node-version: 22
+
+            - name: Install e2e dependencies
+              run: pnpm install --frozen-lockfile --ignore-scripts --filter code
+
+            - name: Download the x64 app
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              with:
+                  name: code-macos-x64
+                  path: /tmp/e2e-app
+
+            - name: Extract the x64 app
+              run: |
+                  mkdir -p apps/code/out/mac
+                  ditto -x -k /tmp/e2e-app/*-mac.zip apps/code/out/mac
+                  lipo -archs apps/code/out/mac/PostHog.app/Contents/MacOS/PostHog
+
+            - name: Smoke test packaged app
+              env:
+                  CI: true
+                  E2E_APP_ARCH: x64
+              run: pnpm --filter code exec playwright test --config=tests/e2e/playwright.config.ts tests/e2e/tests/smoke.spec.ts
+
+            - name: Upload Playwright report
+              if: failure()
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+              with:
+                  name: build-test-playwright-macos-x64
+                  path: products/desktop/apps/code/playwright-report/
                   retention-days: 7
 
     build-windows:
@@ -253,6 +315,12 @@ jobs:
             VITE_POSTHOG_API_HOST: ${{ vars.VITE_POSTHOG_API_HOST }}
             VITE_POSTHOG_UI_HOST: ${{ vars.VITE_POSTHOG_UI_HOST }}
             VITE_POSTHOG_BUILD_CHANNEL: test
+            # Signing credentials reach manual runs only. A label persists across
+            # later pushes, so a labeled PR build would hand the production
+            # signing secret to code nobody re-approved.
+            AZURE_TENANT_ID: ${{ github.event_name == 'workflow_dispatch' && secrets.DESKTOP_AZURE_CODESIGN_TENANT_ID || '' }}
+            AZURE_CLIENT_ID: ${{ github.event_name == 'workflow_dispatch' && secrets.DESKTOP_AZURE_CODESIGN_CLIENT_ID || '' }}
+            AZURE_CLIENT_SECRET: ${{ github.event_name == 'workflow_dispatch' && secrets.DESKTOP_AZURE_CODESIGN_CLIENT_SECRET || '' }}
         steps:
             - name: Checkout
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -321,6 +389,12 @@ jobs:
                     exit 1
                   }
                   echo "OK: renderer bundle"
+
+            - name: Verify signatures
+              if: github.event_name == 'workflow_dispatch'
+              shell: pwsh
+              run: |
+                  & "$env:GITHUB_WORKSPACE/.github/scripts/desktop/verify-windows-signatures.ps1" -OutDir apps/code/out
 
             - name: Upload artifacts
               uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -449,7 +523,7 @@ jobs:
         # Update the sticky comment once every build finishes, on success OR
         # failure, so a failed re-run replaces a prior "ready" comment instead of
         # leaving it pointing at stale artifacts. Runs only for labeled PRs.
-        needs: [build-macos, build-windows, build-linux]
+        needs: [build-macos, smoke-macos-x64, build-windows, build-linux]
         if: ${{ !cancelled() && github.event_name == 'pull_request' && needs.build-macos.result != 'skipped' }}
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
@@ -461,7 +535,7 @@ jobs:
               env:
                   GH_TOKEN: ${{ github.token }}
                   PR_NUMBER: ${{ github.event.pull_request.number }}
-                  MACOS_RESULT: ${{ needs.build-macos.result }}
+                  MACOS_RESULT: ${{ needs.build-macos.result == 'success' && needs.smoke-macos-x64.result || needs.build-macos.result }}
                   WINDOWS_RESULT: ${{ needs.build-windows.result }}
                   LINUX_RESULT: ${{ needs.build-linux.result }}
               run: |

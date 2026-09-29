@@ -27,7 +27,7 @@ use crate::stage2::state::{Stage2Ownership, Stage2State};
 use crate::store::{
     BehavioralKey, PersonRecordKey, ReadLane, Stage2Key, StagedBatch, StoreError, StoreHandle,
 };
-use crate::workers::stage2_person_inputs::ReferenceSource;
+use crate::workers::composition_inputs::ReferenceSource;
 
 /// `affected_leaves` is the touched `(leaf, person)` set; `lane` is the read lane every recompute
 /// read runs on. Every caller passes `Event`: the seed paths, which read on `Maintenance`, go
@@ -504,7 +504,8 @@ pub(crate) async fn commit_stage2_writes(
 }
 
 /// One cohort's recomputed membership for one person, diffed against the stored `cf_stage2` bit.
-/// Shared by Stage 2 composition and the cascade handler so the two recompute paths cannot diverge.
+/// Shared by Stage 2 composition, the cascade handler and reconcile's page reader, so those
+/// recompute paths cannot diverge on what a diff means.
 pub(crate) struct RecomputeDiff {
     pub new_bit: bool,
     pub prior_bit: bool,

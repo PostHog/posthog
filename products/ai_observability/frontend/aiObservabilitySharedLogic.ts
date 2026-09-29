@@ -597,9 +597,14 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
                     ? date_to
                     : INITIAL_DATE_TO
                 : values.dateFilter.dateTo
-            const filterTestAccountsValue = [true, 'true', 1, '1'].includes(
-                filter_test_accounts as string | number | boolean
-            )
+            // A DataTable `person` cell mounts this logic on whatever scene renders it, so the team
+            // default is applied only once a route of this product matches. Applying it on mount would
+            // write this product's params over that scene's URL and drop its `#q=` state.
+            const filterTestAccountsValue =
+                filter_test_accounts === undefined && !cache.enteredAIObservabilityRoute
+                    ? values.filterTestAccountsDefault
+                    : [true, 'true', 1, '1'].includes(filter_test_accounts as string | number | boolean)
+            markAIObservabilityRouteEntered()
             const newSearchQuery = typeof trace_search === 'string' ? trace_search : ''
 
             const filtersChanged = !objectsEqual(parsedFilters, values.propertyFilters)
@@ -631,9 +636,17 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
                             cleanParams[key] = value
                         }
                     }
-                    router.actions.replace(router.values.location.pathname, cleanParams)
+                    router.actions.replace(router.values.location.pathname, cleanParams, router.values.hashParams)
                 }
             }
+        }
+
+        function markAIObservabilityRouteEntered(): void {
+            if (cache.enteredAIObservabilityRoute) {
+                return
+            }
+            cache.enteredAIObservabilityRoute = true
+            globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.TrackCosts)
         }
 
         function clearDashboardTimer(): void {
@@ -750,6 +763,7 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
                     trace_search:
                         (searchQuery ?? (router.values.searchParams.trace_search as string | undefined)) || undefined,
                 },
+                router.values.hashParams,
             ],
             setPropertyFilters: ({ propertyFilters }) => [
                 router.values.location.pathname,
@@ -757,6 +771,7 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
                     ...sharedSearchParams(),
                     filters: propertyFilters.length > 0 ? propertyFilters : undefined,
                 },
+                router.values.hashParams,
             ],
             setDates: ({ dateFrom, dateTo }) => [
                 router.values.location.pathname,
@@ -765,6 +780,7 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
                     date_from: dateFrom === INITIAL_EVENTS_DATE_FROM ? undefined : dateFrom || undefined,
                     date_to: dateTo || undefined,
                 },
+                router.values.hashParams,
             ],
             setDashboardDates: ({ dateFrom, dateTo }) => [
                 router.values.location.pathname,
@@ -773,6 +789,7 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
                     date_from: dateFrom ?? 'all',
                     date_to: dateTo || undefined,
                 },
+                router.values.hashParams,
             ],
             setShouldFilterTestAccounts: ({ shouldFilterTestAccounts }) => [
                 router.values.location.pathname,
@@ -780,6 +797,7 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
                     ...sharedSearchParams(),
                     filter_test_accounts: shouldFilterTestAccounts ? 'true' : undefined,
                 },
+                router.values.hashParams,
             ],
             setSearchQuery: ({ searchQuery }) => [
                 router.values.location.pathname,
@@ -787,6 +805,7 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
                     ...sharedSearchParams(),
                     trace_search: searchQuery || undefined,
                 },
+                router.values.hashParams,
             ],
         }
     }),
@@ -822,12 +841,6 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
 
         detectAIEventsIfProjectKnown()
         registerSetupPoll()
-        globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.TrackCosts)
-
-        const urlHasTestAccountsParam = 'filter_test_accounts' in router.values.searchParams
-        if (!urlHasTestAccountsParam && values.filterTestAccountsDefault !== values.shouldFilterTestAccounts) {
-            actions.setShouldFilterTestAccounts(values.filterTestAccountsDefault)
-        }
     }),
 
     beforeUnmount(({ cache }) => {

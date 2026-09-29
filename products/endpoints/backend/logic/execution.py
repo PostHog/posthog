@@ -944,6 +944,8 @@ class EndpointExecutionService(PydanticModelMixin):
         offset: int | None = None,
     ) -> Response:
         """Execute query directly against ClickHouse."""
+        if is_api_key_access_method(get_query_tag_value("access_method")):
+            tag_queries(api_queries_budgeted=True)
         strategy: EndpointQueryStrategy | None = None
         try:
             strategy = strategy_for(endpoint, version, self.team)

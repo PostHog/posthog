@@ -21,7 +21,14 @@ class ConnectorTool:
 
 
 ConnectorCallStatus = Literal[
-    "ok", "not_connected", "needs_reauth", "blocked", "tool_missing", "write_blocked", "upstream_error"
+    "ok",
+    "not_connected",
+    "needs_reauth",
+    "needs_approval",
+    "blocked",
+    "tool_missing",
+    "write_blocked",
+    "upstream_error",
 ]
 
 
@@ -34,6 +41,7 @@ class ConnectorCallOutcome:
     structured_content: Any = None
     is_error: bool = False
     detail: str = ""
+    approval_token: str | None = field(default=None, repr=False)
 
 
 @dataclass(frozen=True)

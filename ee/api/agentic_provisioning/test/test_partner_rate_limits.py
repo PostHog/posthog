@@ -1,7 +1,7 @@
 from datetime import timedelta
 from urllib.parse import urlencode
 
-from freezegun import freeze_time
+import time_machine
 
 from django.core.cache import cache
 from django.utils import timezone
@@ -94,7 +94,7 @@ class TestPartnerRateLimits(ProvisioningTestBase):
         assert partner.partner_tier == tier
         burst = ACCOUNT_REQUESTS_BURST_BY_TIER[tier]
 
-        with freeze_time("2026-01-01 00:00:00"):
+        with time_machine.travel("2026-01-01 00:00:00", tick=False):
             for _ in range(burst):
                 charge_partner_by_name("account_requests", partner)
 
@@ -110,7 +110,7 @@ class TestPartnerRateLimits(ProvisioningTestBase):
         # to ceil(5 * 3/10) = 2, regardless of the partner's tier.
         self.partner_app.update_provisioning_rate_limits(account_requests=3)
 
-        with freeze_time("2026-01-01 00:00:00"):
+        with time_machine.travel("2026-01-01 00:00:00", tick=False):
             for _ in range(2):
                 charge_partner_by_name("account_requests", self.partner_app)
 
@@ -122,13 +122,13 @@ class TestPartnerRateLimits(ProvisioningTestBase):
     def test_zero_override_disables_limiting(self):
         self.partner_app.update_provisioning_rate_limits(account_requests=0)
 
-        with freeze_time("2026-01-01 00:00:00"):
+        with time_machine.travel("2026-01-01 00:00:00", tick=False):
             for _ in range(100):
                 charge_partner_by_name("account_requests", self.partner_app)
 
     def test_separate_buckets_per_endpoint(self):
         self.partner_app.update_provisioning_rate_limits(account_requests=1, resource_creates=1)
-        with freeze_time("2026-01-01 00:00:00"):
+        with time_machine.travel("2026-01-01 00:00:00", tick=False):
             charge_partner_by_name("account_requests", self.partner_app)
 
             with self.assertRaises(ProvisioningError):
@@ -140,7 +140,7 @@ class TestPartnerRateLimits(ProvisioningTestBase):
         self.partner_app.update_provisioning_rate_limits(account_requests=1)
         other_partner.update_provisioning_rate_limits(account_requests=1)
 
-        with freeze_time("2026-01-01 00:00:00"):
+        with time_machine.travel("2026-01-01 00:00:00", tick=False):
             charge_partner_by_name("account_requests", self.partner_app)
 
             with self.assertRaises(ProvisioningError):

@@ -34,7 +34,7 @@ Use property filters via the `query.filterGroup` field to narrow results. Only i
 When using a property filter, you should:
 
 - **Choose the right type.** Log property types are:
-  - `log` — filters the log body/message. Use key "message" for this type.
+  - `log` — filters the log body or a top-level log column. Use key "message" for the body text, or "pattern" and "pattern_version" (returned by `logs-patterns`), "severity_level", "service_name", "trace_id", "span_id".
   - `log_attribute` — filters log-level attributes (e.g. "k8s.container.name", "http.method").
   - `log_resource_attribute` — filters resource-level attributes (e.g. k8s labels, deployment info).
 - **Use `logs-attributes-list` to discover available attribute keys** before building filters.

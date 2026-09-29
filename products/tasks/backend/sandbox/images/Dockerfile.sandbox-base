@@ -3,7 +3,7 @@
 FROM golang:1.23 AS agent-shadow-builder
 
 WORKDIR /src
-COPY products/desktop/packages/agent-shadow/ ./
+COPY packages/agent/agent-shadow/ ./
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /agent-shadow .
 
 FROM ubuntu:24.04
@@ -84,12 +84,13 @@ RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - && \
     rm -rf /var/lib/apt/lists/*
 
 # Install additional language package managers
-RUN npm install -g yarn pnpm typescript ts-node nodemon
+ARG PNPM_VERSION=10.34.5
+RUN npm install -g yarn "pnpm@${PNPM_VERSION}" typescript ts-node nodemon
 
 # Install ruff and ty
 # uv comes from its pinned, registry-verified official image (same pattern as the
 # main Dockerfile) rather than piping a remote installer script to a shell.
-COPY --from=ghcr.io/astral-sh/uv:0.11.15 /uv /uvx /usr/local/bin/
+COPY --from=ghcr.io/astral-sh/uv:0.12.13 /uv /uvx /usr/local/bin/
 ARG RUFF_VERSION=0.14.11
 ARG TY_VERSION=0.0.29
 RUN UV_TOOL_BIN_DIR=/usr/local/bin uv tool install "ruff==${RUFF_VERSION}" && \
@@ -155,14 +156,26 @@ RUN set -eux; \
 ###
 
 # Set up /scripts as a Node.js project and install @posthog/agent.
-# AGENT_VERSION changes on agent releases; COMMIT_HASH invalidates the layer for
-# PostHog-side image changes that keep the agent version unchanged.
-ARG AGENT_VERSION=latest
+# AGENT_VERSION is pinned, not "latest": the CD workflow used to resolve the
+# npm "latest" dist-tag at build time, so any @posthog/agent release reached
+# every sandbox image with no PostHog commit or review. Bump this deliberately
+# in a reviewed PR when picking up a new agent release. COMMIT_HASH invalidates
+# the layer for PostHog-side image changes that keep the agent version unchanged.
+ARG AGENT_VERSION=2.4.233
+ARG AGENT_TARBALL_SHA256="0cdf40af3ae9c6cfbf9cd1450827a2f89f0034638c8d66fdfe03447e3c601215"
+ARG AGENT_TARBALL_URL=https://github.com/PostHog/posthog/releases/download/agent-v${AGENT_VERSION}/posthog-agent-${AGENT_VERSION}.tgz
 ARG COMMIT_HASH
 RUN mkdir -p /scripts && \
     cd /scripts && \
     npm init -y && \
-    CACHE_BUST=${COMMIT_HASH} npm install "@posthog/agent@${AGENT_VERSION}"
+    if [ -n "${AGENT_TARBALL_SHA256}" ] && curl -fsSL --retry 3 --retry-all-errors -o /tmp/posthog-agent.tgz "${AGENT_TARBALL_URL}"; then \
+      echo "${AGENT_TARBALL_SHA256}  /tmp/posthog-agent.tgz" | sha256sum -c - && \
+      CACHE_BUST=${COMMIT_HASH} npm install /tmp/posthog-agent.tgz && \
+      rm /tmp/posthog-agent.tgz; \
+    else \
+      CACHE_BUST=${COMMIT_HASH} npm install "@posthog/agent@${AGENT_VERSION}"; \
+    fi && \
+    npm pkg set "dependencies.@posthog/agent=${AGENT_VERSION}"
 
 # Install pre-built skills (PostHog + context-mill) into the plugin directory.
 # The dist/skills/ directory is populated by the CD workflow's build_skills job.
@@ -185,6 +198,8 @@ RUN chmod +x /opt/posthog/bin/git
 # non-interactive `bash -c`; the agent's interactive shell needs this shim).
 COPY products/tasks/backend/sandbox/images/gh-guard.sh /opt/posthog/bin/gh
 RUN chmod +x /opt/posthog/bin/gh
+COPY products/tasks/backend/sandbox/images/hogli-shim.sh /opt/posthog/bin/hogli
+RUN chmod +x /opt/posthog/bin/hogli
 COPY products/tasks/backend/sandbox/images/cpu_billing_sampler.py /usr/local/bin/posthog-cpu-billing-sampler
 RUN chmod +x /usr/local/bin/posthog-cpu-billing-sampler
 COPY --from=agent-shadow-builder /agent-shadow /usr/local/bin/agent-shadow
@@ -199,6 +214,11 @@ WORKDIR /tmp/workspace
 
 RUN python3 --version && \
     node --version && \
-    npm --version
+    npm --version && \
+    installed="$(node -p "require('/scripts/node_modules/@posthog/agent/package.json').version")" && \
+    if [ "$installed" != "${AGENT_VERSION}" ]; then \
+      echo "installed @posthog/agent $installed, expected ${AGENT_VERSION}" >&2; exit 1; \
+    fi && \
+    /scripts/node_modules/.bin/agent-server --help >/dev/null
 
 CMD ["/bin/bash"]

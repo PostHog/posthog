@@ -1,5 +1,5 @@
 # serializer version: 1
-# name: TestExperimentBreakdown.test_funnel_metric_with_breakdown_0_new_query_builder
+# name: TestExperimentBreakdown.test_funnel_metric_with_breakdown
   '''
   WITH base_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
@@ -157,7 +157,7 @@
                        use_hive_partitioning=0
   '''
 # ---
-# name: TestExperimentBreakdown.test_mean_metric_breakdown_with_changing_property_values_0_new_query_builder
+# name: TestExperimentBreakdown.test_mean_metric_breakdown_with_changing_property_values
   '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
@@ -1164,7 +1164,7 @@
                        use_hive_partitioning=0
   '''
 # ---
-# name: TestExperimentBreakdown.test_retention_metric_with_breakdown_0_new_query_builder
+# name: TestExperimentBreakdown.test_retention_metric_with_breakdown
   '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
@@ -1334,7 +1334,7 @@
                        use_hive_partitioning=0
   '''
 # ---
-# name: TestExperimentBreakdown.test_retention_metric_with_two_breakdowns_0_new_query_builder
+# name: TestExperimentBreakdown.test_retention_metric_with_two_breakdowns
   '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,

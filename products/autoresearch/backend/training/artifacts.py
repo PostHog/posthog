@@ -144,6 +144,8 @@ class ArtifactBundle:
     @classmethod
     def from_files(cls, files: dict[str, bytes]) -> ArtifactBundle:
         missing = [name for name in BUNDLE_FILES if name not in files]
+        if missing and files:
+            raise PartialBundle(f"Bundle is missing required files: {', '.join(missing)}")
         if missing:
             raise BundleNotFound(f"Bundle is missing required files: {', '.join(missing)}")
         return cls(
@@ -162,6 +164,16 @@ class ArtifactBundle:
 
 class BundleNotFound(Exception):
     """Raised when a bundle prefix has no (or an incomplete) set of files."""
+
+
+class PartialBundle(BundleNotFound):
+    """
+    Raised when a prefix holds some bundle files but not all three.
+
+    A caller that treats a missing bundle as "the agent did not upload one" must not treat
+    this the same way. An interrupted upload would then take the legacy recipe path and
+    serve an implementation the agent never wrote.
+    """
 
 
 def bundle_prefix(*, team_id: int, pipeline_id: str, training_run_id: str) -> str:

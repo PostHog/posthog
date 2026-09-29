@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest import mock
 
 import requests
@@ -223,7 +223,7 @@ class TestIterExportWindow:
 
 
 class TestEventsWindowing:
-    @freeze_time("2026-06-04 12:00:00")
+    @time_machine.travel("2026-06-04 12:00:00", tick=False)
     def test_windows_advance_and_state_is_saved_per_window(self) -> None:
         manager = mock.MagicMock(spec=ResumableSourceManager)
         manager.can_resume.return_value = False
@@ -262,7 +262,7 @@ class TestEventsWindowing:
             datetime(2026, 6, 4, 11, tzinfo=UTC).isoformat(),
         ]
 
-    @freeze_time("2026-06-04 12:00:00")
+    @time_machine.travel("2026-06-04 12:00:00", tick=False)
     def test_resume_state_takes_precedence_over_incremental_value(self) -> None:
         manager = mock.MagicMock(spec=ResumableSourceManager)
         manager.can_resume.return_value = True
@@ -290,7 +290,7 @@ class TestEventsWindowing:
         manager.load_state.assert_called_once()
         assert windows == [("20260604T09", "20260604T10")]
 
-    @freeze_time("2026-06-04 12:00:00")
+    @time_machine.travel("2026-06-04 12:00:00", tick=False)
     def test_full_refresh_starts_from_lookback_window(self) -> None:
         manager = mock.MagicMock(spec=ResumableSourceManager)
         manager.can_resume.return_value = False

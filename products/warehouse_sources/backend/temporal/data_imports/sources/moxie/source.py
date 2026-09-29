@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -93,7 +91,7 @@ class MoxieSource(SimpleSource[MoxieSourceConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.MOXIE,
+            name=ExternalDataSourceType.MOXIE,
             category=DataWarehouseSourceCategory.CRM,
             label="Moxie",
             releaseStatus=ReleaseStatus.ALPHA,
@@ -102,6 +100,7 @@ class MoxieSource(SimpleSource[MoxieSourceConfig]):
 
 Go to **Workspace settings > Connected Apps > Integrations** in Moxie and click **Enable Custom Integration** to see your workspace's base URL and API key.""",
             iconPath="/static/services/moxie.png",
+            docsUrl="https://posthog.com/docs/cdp/sources/moxie",
             fields=cast(
                 list[FieldType],
                 [

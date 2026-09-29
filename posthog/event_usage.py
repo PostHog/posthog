@@ -15,6 +15,7 @@ from rest_framework.authentication import SessionAuthentication
 
 from posthog.clickhouse.query_tagging import get_query_tag_value
 from posthog.constants import POSTHOG_INTERNAL_EMAIL_SUFFIX
+from posthog.helpers.oauth_pending_connection import PendingOAuthConnection
 from posthog.models import Organization, User
 from posthog.models.activity_logging.model_activity import is_impersonated_session
 from posthog.models.team import Team
@@ -44,6 +45,7 @@ def report_user_signed_up(
     role_at_organization: str = "",  # select input to ask what the user role is at the org
     referral_source: str = "",  # free text input to ask users where did they hear about us
     referral_source_ai_prompt: str = "",  # prompt they used when discovering PostHog via AI
+    oauth_connection: Optional[PendingOAuthConnection] = None,  # the app whose OAuth request sent them to sign up
 ) -> None:
     """
     Reports that a new user has joined. Only triggered when a new user is actually created (i.e. when an existing user
@@ -67,6 +69,9 @@ def report_user_signed_up(
         "referral_source_ai_prompt": referral_source_ai_prompt,
         "is_email_verified": user.is_email_verified,
     }
+    if oauth_connection is not None:
+        props["signup_oauth_client_name"] = oauth_connection.client_name
+        props["signup_oauth_client_id"] = oauth_connection.client_id
     if user_analytics_metadata is not None:
         props.update(user_analytics_metadata)
 
@@ -145,6 +150,47 @@ def report_user_logged_in(
         distinct_id=user.distinct_id,
         event="user logged in",
         properties={"social_provider": social_provider},
+        groups=groups(user.current_organization, user.current_team),
+    )
+
+
+def report_user_email_change_requested(user: User, *, verification_required: bool) -> None:
+    """Triggered when a user stages a new login email.
+
+    `verification_required` is False on an instance without email configured, where the new address
+    is written straight to the account and no code goes out.
+    """
+    if not user.distinct_id:
+        return
+
+    posthoganalytics.capture(
+        distinct_id=user.distinct_id,
+        event="user email change requested",
+        properties={
+            "verification_required": verification_required,
+            "$set": user.get_analytics_metadata(),
+        },
+        groups=groups(user.current_organization, user.current_team),
+    )
+
+
+def report_user_identity_change_refused(user: User, *, field: str, reason: str) -> None:
+    """Triggered when the API refuses to change the login email or the password.
+
+    `reason` is `token_auth` for a personal API key or OAuth token, or `stale_reauth` when the
+    session has not re-authenticated recently enough. See `UserViewSet.guard_identity_change`.
+    """
+    if not user.distinct_id:
+        return
+
+    posthoganalytics.capture(
+        distinct_id=user.distinct_id,
+        event="user identity change refused",
+        properties={
+            "field": field,
+            "reason": reason,
+            "$set": user.get_analytics_metadata(),
+        },
         groups=groups(user.current_organization, user.current_team),
     )
 
