@@ -201,13 +201,16 @@ def _sitemaps_from_robots(robots_text: str, *, origin: str) -> list[str]:
     return sitemaps
 
 
+def _local_name(tag: str) -> str:
+    return tag.rsplit("}", 1)[-1].lower()
+
+
 def _is_sitemap(xml_text: str) -> bool:
     try:
         root = ET.fromstring(xml_text)
     except (DefusedParseError, DefusedXmlException):
         return False
-    root_name = root.tag.rsplit("}", 1)[-1].lower()
-    return root_name in {"urlset", "sitemapindex"}
+    return _local_name(root.tag) in {"urlset", "sitemapindex"}
 
 
 def _verified_sitemaps(candidates: list[str], *, deadline: float, budget: _RequestBudget) -> list[str]:
@@ -301,23 +304,23 @@ def _fetch_sitemap(url: str, *, deadline: float) -> str | None:
     return response.body.decode("utf-8", errors="replace")
 
 
-def _is_on_site(url: str, origin: str) -> bool:
+def _is_on_site(url: str, *, origin_scheme: str, origin_host: str) -> bool:
     try:
         parsed = urlparse(url)
         port = parsed.port
     except ValueError:
         return False
     scheme = parsed.scheme.lower()
-    if scheme not in _DEFAULT_PORTS or port not in (None, _DEFAULT_PORTS[scheme]):
-        return False
-    if scheme != urlparse(origin).scheme.lower():
+    if scheme != origin_scheme or scheme not in _DEFAULT_PORTS or port not in (None, _DEFAULT_PORTS[scheme]):
         return False
     host = site_host(url)
-    return bool(host) and host == site_host(origin)
+    return bool(host) and host == origin_host
 
 
 def read_sitemap_urls(source_urls: list[str], *, origin: str) -> list[str]:
     deadline = time.monotonic() + _MAX_SITEMAP_SECONDS
+    origin_scheme = urlparse(origin).scheme.lower()
+    origin_host = site_host(origin)
     queued = list(dict.fromkeys(url for url in source_urls if has_same_public_origin(url, origin)))[
         :_MAX_SITEMAP_FETCHES
     ]
@@ -333,12 +336,12 @@ def read_sitemap_urls(source_urls: list[str], *, origin: str) -> list[str]:
             root = ET.fromstring(text)
         except (DefusedParseError, DefusedXmlException):
             continue
-        is_index = root.tag.rsplit("}", 1)[-1].lower() == "sitemapindex"
+        is_index = _local_name(root.tag) == "sitemapindex"
         for element in root.iter():
-            if element.tag.rsplit("}", 1)[-1].lower() != "loc" or not element.text:
+            if _local_name(element.tag) != "loc" or not element.text:
                 continue
             location = element.text.strip()
-            if not _is_on_site(location, origin):
+            if not _is_on_site(location, origin_scheme=origin_scheme, origin_host=origin_host):
                 continue
             if is_index:
                 if location not in seen_sitemaps and len(seen_sitemaps) < _MAX_SITEMAP_FETCHES:
