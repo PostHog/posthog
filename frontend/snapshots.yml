@@ -5809,7 +5809,7 @@ snapshots:
     mcp-apps-error-tracking--stack-trace--light:
         hash: v1.k794b7964.ad8da946c8891849416cc66d17c77e44dc83e62d5b71cb2eb433779d1ddc0cb3.s-3zNqXOIZXWGTq1Ts0ETT809GtSjhzHcG4PbGrfgDo
     mcp-apps-error-tracking--with-breakdown--light:
-        hash: v1.k794b7964.89cc56703a997481c9d7772e11829461aca0ec7733d9d2a5d44b5f0d63effaaf._yOi6jRRM9AA2yn-3wrQ-8K4o3Ky2VvSBYz8MGseChQ
+        hash: v1.k794b7964.1dd412a9421bb62e86ff964b3a0449375c9429b972a66fe3074db04bc7d7dd97.qWnA19cd9of2KGwgsVLoFh0yzOSwj8lWaSr2cDaW4_0
     mcp-apps-error-tracking--with-external-links--light:
         hash: v1.k794b7964.1c438b81ddecf6cd51016c53d57b3a80c7a60aab20f69a4629f52d9366452c72.alkUqUY-JcNO_PquFIaJSqBh0hBs4BbMf4NNbwjkHI4
     mcp-apps-experiments--completed--light:
