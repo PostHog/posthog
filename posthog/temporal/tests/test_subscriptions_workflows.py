@@ -30,6 +30,7 @@ from posthog.models import OrganizationMembership
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.integration import Integration
 from posthog.slo.types import SloArea, SloConfig, SloOperation, SloOutcome
+from posthog.temporal.common.posthog_client import is_expected_activity_failure
 from posthog.temporal.common.slo_interceptor import SloInterceptor
 from posthog.temporal.exports.activities import export_asset_activity
 from posthog.temporal.exports.types import ExportError
@@ -88,7 +89,11 @@ from products.exports.backend.temporal.subscriptions.workflows import (
 )
 from products.product_analytics.backend.facade.models import Insight
 
-from ee.tasks.subscriptions.auto_disable import AI_CONSENT_REVOKED_DISABLE_REASON, SLACK_DISCONNECTED_DISABLE_REASON
+from ee.tasks.subscriptions.auto_disable import (
+    AI_CONSENT_REVOKED_DISABLE_REASON,
+    INVALID_EMAIL_RECIPIENTS_DISABLE_REASON,
+    SLACK_DISCONNECTED_DISABLE_REASON,
+)
 from ee.tasks.subscriptions.slack_subscriptions import SlackDeliveryResult
 from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
 
@@ -184,6 +189,41 @@ async def test_email_delivery_error_is_non_retryable(team, user) -> None:
 
     assert error.value.non_retryable is True
     assert error.value.details[0]["recipient_results"][0]["status"] == "failed"
+    assert is_expected_activity_failure(error.value)
+
+
+async def test_invalid_email_recipients_are_skipped(team, user) -> None:
+    subscription = await sync_to_async(create_subscription)(team=team, target_value="1,a@posthog.com")
+    inputs = DeliverSubscriptionInputs(subscription_id=subscription.id, exported_asset_ids=[], total_insight_count=0)
+    sent: list[str] = []
+
+    async def send(email: str) -> None:
+        sent.append(email)
+
+    result = await deliver_email(subscription, inputs, [], send)
+
+    assert sent == ["a@posthog.com"]
+    assert [(r.recipient, r.status) for r in result.recipient_results] == [
+        ("1", "failed"),
+        ("a@posthog.com", "success"),
+    ]
+
+
+async def test_no_valid_email_recipient_disables_subscription(team, user) -> None:
+    subscription = await sync_to_async(create_subscription)(team=team, created_by=user, target_value="1")
+    inputs = DeliverSubscriptionInputs(subscription_id=subscription.id, exported_asset_ids=[], total_insight_count=0)
+    send = AsyncMock()
+
+    with patch("products.exports.backend.temporal.subscriptions.delivery_common._capture_delivery_failed_event"):
+        result = await deliver_email(subscription, inputs, [], send)
+
+    send.assert_not_called()
+    assert result.recipient_results[0].error == {
+        "message": INVALID_EMAIL_RECIPIENTS_DISABLE_REASON.description,
+        "type": INVALID_EMAIL_RECIPIENTS_DISABLE_REASON.key,
+    }
+    await sync_to_async(subscription.refresh_from_db)()
+    assert subscription.enabled is False
 
 
 async def test_mixed_permanent_and_transient_failures_are_retryable(team, user) -> None:

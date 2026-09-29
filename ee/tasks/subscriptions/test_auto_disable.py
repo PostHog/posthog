@@ -42,10 +42,12 @@ class TestValidateReEnable:
             ("teams_passes", "teams", None, None),
             ("webhook_no_integration_rejected", "webhook", None, "this delivery channel is not currently supported"),
             ("webhook_with_integration_rejected", "webhook", 42, "this delivery channel is not currently supported"),
+            ("email_with_one_valid_recipient_passes", "email", None, None, "1,a@example.com"),
+            ("email_without_valid_recipient_rejected", "email", None, "add at least one valid email address", "1"),
         ]
     )
-    def test_validate_re_enable(self, _label, target_type, integration_id, expected):
-        result = validate_re_enable(target_type, integration_id)
+    def test_validate_re_enable(self, _label, target_type, integration_id, expected, target_value=None):
+        result = validate_re_enable(target_type, integration_id, target_value)
         if expected is None:
             assert result is None
         else:

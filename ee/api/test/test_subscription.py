@@ -1008,6 +1008,26 @@ class TestSubscriptionTemporal(APILicensedTest):
         assert Subscription.objects.get(id=sub_id).target_type == Subscription.SubscriptionTarget.TEAMS
         assert Subscription.objects.get(id=sub_id).target_value == VALID_TEAMS_WEBHOOK_URL
 
+    @parameterized.expand(
+        [
+            ("not_an_address", "1", "These are not valid email addresses: 1."),
+            ("one_bad_in_list", "a@example.com, nope", "These are not valid email addresses: nope."),
+            ("only_separators", " , ", "Add at least one email address."),
+        ]
+    )
+    def test_email_subscription_rejects_invalid_recipients(self, _name, target_value, expected_detail):
+        create_response = self._create_subscription(target_value=target_value)
+        sub_id = self._create_subscription().json()["id"]
+        patch_response = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{sub_id}", {"target_value": target_value}
+        )
+
+        for response in (create_response, patch_response):
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+            assert response.json()["attr"] == "target_value"
+            assert response.json()["detail"] == expected_detail
+        assert Subscription.objects.get(id=sub_id).target_value == "test@posthog.com"
+
     def test_cannot_create_teams_subscription_with_a_lookalike_url(self):
         response = self._create_subscription(target_type="teams", target_value="https://evilpowerautomate.com/x")
 
