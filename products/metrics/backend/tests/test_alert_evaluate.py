@@ -25,7 +25,11 @@ from products.alerts.backend.facade.temporal import (
     SOURCE_EVALUATION_TIMEOUT,
 )
 from products.alerts.backend.models import PlatformAlert, PlatformAlertConfiguration
-from products.metrics.backend.alert_source_cycle import BATCH_QUERY_BUDGET_SECONDS, MAX_QUERY_SECONDS
+from products.metrics.backend.alert_source_cycle import (
+    BATCH_QUERY_BUDGET_SECONDS,
+    CONDITION_BATCH_BUDGET,
+    MAX_QUERY_SECONDS,
+)
 from products.metrics.backend.facade.contracts import MetricPoint, MetricSeries
 from products.metrics.backend.facade.temporal import SOURCE_EVALUATION_ACTIVITIES, SOURCE_EVALUATION_WORKFLOWS
 from products.metrics.backend.temporal.alert_evaluate import (
@@ -43,6 +47,10 @@ class TestEvaluationTimeoutLadder(SimpleTestCase):
         assert EVALUATE_SCHEDULE_TO_CLOSE > EVALUATE_START_TO_CLOSE
         assert (EVALUATE_SCHEDULE_TO_CLOSE - EVALUATE_START_TO_CLOSE).total_seconds() >= BATCH_QUERY_BUDGET_SECONDS / 2
         assert SOURCE_EVALUATION_TIMEOUT > EVALUATION_BUDGET
+        assert (
+            CONDITION_BATCH_BUDGET.total_seconds() + BATCH_QUERY_BUDGET_SECONDS
+            < EVALUATE_START_TO_CLOSE.total_seconds()
+        )
 
 
 _CYCLE = "products.metrics.backend.alert_source_cycle"

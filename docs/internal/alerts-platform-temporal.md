@@ -290,6 +290,27 @@ the clause whose series is evaluated. The window rules differ from logs below th
 Nothing creates a metrics platform configuration yet except `upsert_configuration`, so a production tick finds
 no metrics demand until one is written by hand.
 
+## Hog conditions
+
+A configuration with `condition_type="hog"` carries a Hog program, compiled to bytecode when the configuration is
+written (`products/alerts/backend/facade/conditions.py`). The program runs after the query and before the lifecycle,
+inside the same sync evaluate activity, once per evaluated window, and returns one boolean. The lifecycle keeps
+N-of-M, cooldown, mute and resolve, so a condition changes what "breached" means and nothing else.
+
+The program sees `value`, `values` (newest first, 1-indexed in Hog), `previous`, `window` (`min`, `max`, `avg`, `sum`,
+`count`), `labels`, `threshold` (`count`, `operator`) and `timestamp`. It cannot fetch, capture, sleep or run anything.
+
+Two limits keep a condition from delaying another alert. A CPU budget of `CONDITION_BATCH_BUDGET` (2 s) is shared
+by every condition in one batch; once it is spent, a check that has not started keeps its due time and is counted in
+`alerts_platform_checks_skipped_total{reason="condition_budget"}`. A wall timeout of `CONDITION_RUN_TIMEOUT` (1 s)
+per run stops a runaway loop. The CPU budget is the primary limit: measured under fifty activity threads, a correct
+0.15 ms program waited over 200 ms for the GIL at p99, so a short wall timeout fails correct programs. A timeout with
+little CPU behind it is therefore reported as transient and holds the failure counter; a timeout the program earned,
+a memory limit, a runtime error or a non-boolean answer fail the check and count toward BROKEN.
+
+`alerts_platform_condition_duration_ms{source}` and `alerts_platform_condition_failures_total{source,reason}` record
+the cost and the failures.
+
 ### Every check produces an outcome
 
 A check the source cannot evaluate still records what it decided, and the two cases decide differently.
