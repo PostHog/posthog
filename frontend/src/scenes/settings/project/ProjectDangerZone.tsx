@@ -102,7 +102,6 @@ export function ProjectDangerZone(): JSX.Element {
 
     const disabledReason =
         restrictedReason ||
-        (currentProject?.is_pending_deletion ? 'This project is already being deleted.' : null) ||
         (isLastProjectWithSubscription
             ? 'This is the last project in your organization, which has an active subscription.'
             : null)
