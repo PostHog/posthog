@@ -5,6 +5,7 @@ The focused [readability pass](#readability-pass-2026-09-29) completed 40 furthe
 Its final eight preserved the baseline content grades and improved readability. The broader gates
 below describe the preceding prompt version; this pass did not rerun that full suite.
 Rubric generation now defaults to GPT-6 Sol at high effort. Explicit runtime overrides still apply.
+Two [additional Sol checks](#additional-sol-checks) covered other scouts, with and without history.
 
 2026-09-28: retain the integrated two-step generator for editable rubric drafts. It passed the
 registered broad content gates, native API generation and the real browser
@@ -594,3 +595,22 @@ recorded separately. No independent provider cleanup query is claimed.
 The public analytics example was rendered in the current editor with replayed API responses and
 unedited Sol output. This checks the displayed result, not a fresh browser-to-backend generation.
 Private source context, transcripts, outputs and detailed reviews remain outside version control.
+
+### Additional Sol checks
+
+After selecting Sol/high, two additional scouts used the same writing instructions: one without
+history and one with five saved run summaries. Fresh prompts came from the local copies, and the
+runtime came from the product resolver. Both outputs preserved the source rules and retained all
+five suggestions. The saved-history output was clear as returned. The no-history output needed one
+small wording edit to a report-related title and description. Neither output was manually rewritten.
+
+Across these six final-prompt Sol cases, five were rated Clear and one needed a small wording edit.
+These remain supervised drafts, not guaranteed polished text for every scout. The reviewer recommended
+keeping the prompt and Sol/high without another revision for that isolated wording issue.
+
+One local collection-script error interrupted the saved-history attempt after its initial draft;
+the failed attempt was retained and repeated with the same prompt and runtime. Two extra sandbox
+allocations created during startup were cleaned through the existing worker. All three attempts are
+terminal and all five sandbox ledger records are closed. Captured requests, selected text and runtime
+matched the frozen inputs; no format correction was needed. The local scout configs stayed disabled,
+non-emitting and unchanged. This checks the sandbox flow, not another browser-triggered generation.
