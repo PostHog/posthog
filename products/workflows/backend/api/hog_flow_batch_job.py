@@ -33,8 +33,10 @@ class HogFlowBatchJobSerializer(serializers.ModelSerializer):
         extra_kwargs = {
             "status": {
                 "help_text": (
-                    "Not currently tracked — stays at its initial value. Use the workflow logs/metrics "
-                    "endpoints for run outcome."
+                    "Lifecycle of the run: 'queued' once dispatched, then 'completed', 'failed', or "
+                    "'cancelled'. A run whose audience fan-out never started is reported as 'failed', and "
+                    "disabling or archiving the workflow reports its unfinished runs as 'cancelled'. Use the "
+                    "workflow logs/metrics endpoints for per-message outcome."
                 )
             },
             "hog_flow": {"help_text": "ID of the workflow this batch run belongs to."},
@@ -51,6 +53,21 @@ class HogFlowBatchJobSerializer(serializers.ModelSerializer):
         validated_data["team_id"] = team_id
 
         return super().create(validated_data=validated_data)
+
+
+class HogFlowBatchJobStatusUpdateResponseSerializer(serializers.Serializer):
+    """
+    Response from the internal batch run status endpoint the workflow workers write to.
+    """
+
+    id = serializers.UUIDField(help_text="ID of the batch run.")
+    status = serializers.ChoiceField(
+        choices=HogFlowBatchJob.State.choices,
+        help_text="The batch run's status after this request. An already-terminal run keeps the status it had.",
+    )
+    no_op = serializers.BooleanField(
+        help_text="True when the run was already terminal, so this request changed nothing."
+    )
 
 
 class HogFlowBatchJobCancelResponseSerializer(serializers.Serializer):

@@ -1690,7 +1690,7 @@ export const HogFlowsBatchJobsCreateBody = /* @__PURE__ */ zod.object({
         )
         .optional()
         .describe(
-            'Not currently tracked — stays at its initial value. Use the workflow logs\/metrics endpoints for run outcome.\n\n\* `waiting` - Waiting\n\* `queued` - Queued\n\* `active` - Active\n\* `completed` - Completed\n\* `cancelled` - Cancelled\n\* `failed` - Failed'
+            "Lifecycle of the run: 'queued' once dispatched, then 'completed', 'failed', or 'cancelled'. A run whose audience fan-out never started is reported as 'failed', and disabling or archiving the workflow reports its unfinished runs as 'cancelled'. Use the workflow logs\/metrics endpoints for per-message outcome.\n\n\* `waiting` - Waiting\n\* `queued` - Queued\n\* `active` - Active\n\* `completed` - Completed\n\* `cancelled` - Cancelled\n\* `failed` - Failed"
         ),
     hog_flow: zod.uuid().describe('ID of the workflow this batch run belongs to.'),
     variables: zod.unknown().optional().describe('Variable value overrides applied to this run.'),
