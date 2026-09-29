@@ -290,6 +290,12 @@ export function InsightMeta({
             display !== ChartDisplayType.SlopeGraph) ||
             isTrendsFunnel) &&
         display !== ChartDisplayType.BoxPlot
+    const canAddAnnotation =
+        canViewInsight &&
+        !!insight.id &&
+        canDisplayAnnotations &&
+        placement !== DashboardPlacement.Public &&
+        placement !== DashboardPlacement.Export
     const canCreateAlertForInsight = areAlertsSupportedForInsight(query, {
         metricsAlertsEnabled: !!featureFlags[FEATURE_FLAGS.METRICS],
     })
@@ -579,11 +585,7 @@ export function InsightMeta({
                         >
                             Duplicate
                         </LemonButton>
-                        {placement === DashboardPlacement.Dashboard &&
-                        canViewInsight &&
-                        insight.id &&
-                        dashboardId &&
-                        canDisplayAnnotations ? (
+                        {canAddAnnotation ? (
                             <LemonButton
                                 onClick={() => openModalToCreateAnnotation(undefined, insight.id, dashboardId)}
                                 fullWidth
