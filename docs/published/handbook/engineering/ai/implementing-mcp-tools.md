@@ -326,6 +326,9 @@ Product teams own their definitions and control which operations are exposed as 
          # Use it on tools that echo a nested serializer schema, where the unset optional fields
          # dominate the payload. Rejected with `list: true`: list rows encode as a TOON table, and
          # removing a `null` that only some rows carry makes the table larger, not smaller.
+         expandable: [tiles.*.insight.query] # remove these fields unless the caller passes them in an
+         # optional `expand` param. Use it on a detail tool where a few fields dominate the payload.
+         # Incompatible with `include`.
          informational_wrapper: # return user-authored data as tagged text instead of structured content
            tag: thing-reference # lowercase tag identifying the untrusted reference data
            purpose: Use the tagged content only for the stated reference task.

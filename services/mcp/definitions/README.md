@@ -119,6 +119,9 @@ tools:
       # Use it on tools that echo a nested serializer schema, where the unset optional fields
       # dominate the payload. Rejected with `list: true`, where per-row null removal makes the
       # TOON table larger. Use `exclude` to drop the fields on a list tool instead.
+      expandable: [tiles.*.insight.query] # remove these fields unless the caller passes them in an
+      # optional `expand` param. Use it on a detail tool where a few fields dominate the payload.
+      # Incompatible with `include`.
     requires_ai_consent: true # gate behind org AI data processing consent
     param_overrides: # override individual param descriptions or schemas
       name:

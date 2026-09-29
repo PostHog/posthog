@@ -215,6 +215,13 @@ export const ToolConfigSchema = z
                  */
                 strip_nulls: z.boolean().optional(),
                 /**
+                 * Dot-path patterns of response fields to remove unless the caller asks for them. Codegen adds
+                 * an optional `expand` request param constrained to these paths. Use it on a detail tool where
+                 * a few fields dominate the payload but an agent needs them only for some tasks.
+                 * Incompatible with `include`.
+                 */
+                expandable: z.array(z.string()).optional(),
+                /**
                  * Dot-path allowlist for the compact text projection the model reads, applied to each item in
                  * `results`. The structured payload stays whole, so a UI app still renders every field. Use it
                  * on a list tool whose rows are far larger than what a reader needs to choose between them —
@@ -235,6 +242,10 @@ export const ToolConfigSchema = z
             .strict()
             .refine((data) => !(data.include?.length && data.exclude?.length), {
                 message: 'response.include and response.exclude are mutually exclusive',
+            })
+            .refine((data) => !(data.expandable?.length && data.include?.length), {
+                message:
+                    'response.expandable removes fields by default, so it cannot be combined with response.include',
             })
             .refine((data) => !(data.selectable && !data.include?.length), {
                 message: 'response.selectable requires response.include (the allowlist to select from)',
