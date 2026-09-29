@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
 import { LemonSelect, LemonSwitch, Tooltip } from '@posthog/lemon-ui'
 
@@ -37,13 +38,17 @@ function TriggerSettings({
 }): JSX.Element {
     const { updateRepoConfig, triggerLabelEditStarted } = useActions(stamphogSceneLogic)
     const disabledReason = managerDisabledReason(toAccessControlLevel(repo.user_access_level)) ?? updatingReason
+    const [labelFieldResets, setLabelFieldResets] = useState(0)
 
     const saveTriggerLabel = (value: string): void => {
         const trimmed = value.trim()
         // Save only real changes. A save with no edit must not re-PATCH, and the API rejects a blank label.
         if (trimmed && trimmed !== repo.trigger_label) {
             updateRepoConfig(repo.id, { trigger_label: trimmed })
+            return
         }
+        // EditableField keeps showing a draft it did not save, so remount it to show the stored label again.
+        setLabelFieldResets((count) => count + 1)
     }
 
     return (
@@ -71,6 +76,7 @@ function TriggerSettings({
                     // A changed label silently stops reviews on pull requests that carry the old one, so a
                     // change takes the pencil and an explicit save, never a stray blur.
                     <EditableField
+                        key={labelFieldResets}
                         name="trigger_label"
                         value={repo.trigger_label ?? ''}
                         placeholder="Trigger label"
