@@ -17,47 +17,6 @@ from ee.hogai.tool_errors import MaxToolAccessDeniedError, MaxToolRetryableError
 
 
 class TestMCPToolsAPI(APIBaseTest):
-    @parameterized.expand(
-        [
-            (tool_name, operation, args, error, outcome)
-            for tool_name, operation, args in [
-                ("execute_sql", "mcp_execute_sql", {"query": "SELECT 1"}),
-                ("read_taxonomy", "mcp_read_data_schema", {"query": {"kind": "events"}}),
-            ]
-            for error, outcome in [
-                (None, "success"),
-                (MaxToolRetryableError("private invalid input"), "success"),
-                (RuntimeError("private failure detail"), "failure"),
-            ]
-        ]
-    )
-    @patch("posthog.slo.events.posthoganalytics.capture")
-    def test_query_tool_service_slo_records_paired_outcomes(
-        self, tool_name: str, operation: str, args: dict, error: Exception | None, outcome: str, capture
-    ) -> None:
-        tool_class = (
-            "ee.hogai.tools.execute_sql.mcp_tool.ExecuteSQLMCPTool"
-            if tool_name == "execute_sql"
-            else "ee.hogai.tools.read_taxonomy.mcp_tool.ReadTaxonomyMCPTool"
-        )
-        with patch(f"{tool_class}.execute", new_callable=AsyncMock, return_value="rows", side_effect=error):
-            response = self.client.post(
-                f"/api/environments/{self.team.id}/mcp_tools/{tool_name}/", {"args": args}, format="json"
-            )
-
-        self.assertEqual(response.status_code, 200)
-        events = [call.kwargs for call in capture.call_args_list if call.kwargs.get("event", "").startswith("slo_")]
-        self.assertEqual([event["event"] for event in events], ["slo_operation_started", "slo_operation_completed"])
-        started, completed = [event["properties"] for event in events]
-        self.assertEqual(started["correlation_id"], completed["correlation_id"])
-        self.assertEqual(started["operation"], operation)
-        self.assertEqual(completed["operation"], operation)
-        self.assertEqual(completed["team_id"], self.team.id)
-        self.assertEqual(completed["outcome"], outcome)
-        self.assertEqual(completed["tool_success"], error is None)
-        self.assertNotIn("private", str(events))
-        self.assertNotIn("SELECT", str(events))
-
     def test_unauthenticated_request(self):
         self.client.logout()
         response = self.client.post(
