@@ -52,7 +52,9 @@ export function PlaygroundThread(): JSX.Element {
             ) : null}
             <Composer.Frame>
                 <Composer.Field>
-                    <Composer.Placeholder>Ask about this project's business knowledge</Composer.Placeholder>
+                    <Composer.Placeholder>
+                        Ask anything about your business using this project's business knowledge
+                    </Composer.Placeholder>
                     <Composer.Textarea
                         autoFocus
                         // pinned: autocapture / Playwright key. Do not rename.
@@ -74,7 +76,7 @@ export function PlaygroundThread(): JSX.Element {
                 <div className="flex w-full max-w-2xl flex-col items-center gap-4">
                     <Welcome
                         headline="Ask about your business knowledge"
-                        subheadline="Answers use only this project's business knowledge. PostHog documentation is not searched."
+                        subheadline="Answers use only this project's business knowledge."
                     />
                     {composer}
                 </div>
