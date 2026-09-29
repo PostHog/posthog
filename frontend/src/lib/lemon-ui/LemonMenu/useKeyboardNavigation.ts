@@ -29,11 +29,13 @@ export function useKeyboardNavigation<R extends HTMLElement = HTMLElement, I ext
             // The document listener sees a shadow host as the target, for example in the toolbar.
             const target = e.composedPath()[0]
             const targetItemIndex = itemsRef.current.findIndex((item) => item.current === target)
-            if (e.defaultPrevented || (target !== referenceRef.current && targetItemIndex === -1)) {
+            // A trigger component can put its ref on a wrapper around the focused button, for example ToolbarButton.
+            const fromTrigger = target instanceof Node && !!referenceRef.current?.contains(target)
+            if (e.defaultPrevented || (!fromTrigger && targetItemIndex === -1)) {
                 return
             }
             let fromIndex = targetItemIndex
-            if (target === referenceRef.current) {
+            if (fromTrigger) {
                 // A closed menu has no mounted items, so leave the key to the parent menu or the page.
                 if (!itemsRef.current.some((item) => item.current)) {
                     return

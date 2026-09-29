@@ -2,7 +2,7 @@ import '@testing-library/jest-dom'
 
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { useRef, useState } from 'react'
+import { ButtonHTMLAttributes, forwardRef, useRef, useState } from 'react'
 
 import { FloatingContainerContext } from 'lib/hooks/useFloatingContainerContext'
 
@@ -134,6 +134,28 @@ describe('LemonMenu', () => {
         expect(screen.getByText('Third').closest('button')).toHaveFocus()
         await userEvent.keyboard('{ArrowUp}')
         expect(second).toHaveFocus()
+    })
+
+    it('accepts arrow keys from a button inside a wrapper trigger', async () => {
+        const WrappedButton = forwardRef<HTMLDivElement, ButtonHTMLAttributes<HTMLButtonElement>>(
+            function WrappedButton(props, ref) {
+                return (
+                    <div ref={ref}>
+                        <button type="button" {...props} />
+                    </div>
+                )
+            }
+        )
+        render(
+            <LemonMenu items={[{ label: 'First' }, { label: 'Second' }]}>
+                <WrappedButton>Open</WrappedButton>
+            </LemonMenu>
+        )
+
+        await userEvent.click(screen.getByText('Open'))
+        const first = (await screen.findByText('First')).closest('button')
+        await userEvent.keyboard('{ArrowDown}')
+        expect(first).toHaveFocus()
     })
 
     it('navigates portal items inside a shadow root', async () => {
