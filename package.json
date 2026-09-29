@@ -102,7 +102,7 @@
         "!(posthog/hogql/grammar/*|products/*/skills/*/scripts/*|products/stamphog/packages/*/*)*.{py,pyi}": [
             "bin/hogli lint:python:fix",
             "bin/hogli format:python",
-            "uv run --no-sync ty check"
+            "uv run --no-sync ty check --force-exclude"
         ],
         "{posthog/templates,products/*/backend/templates}/**/*.html": "bin/hogli format:html",
         "*.{md,mdx}": "bin/hogli format:markdown"
