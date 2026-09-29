@@ -37,33 +37,115 @@ describe('modelsLineageLogic', () => {
         logic.unmount()
     })
 
-    // A big DAG has many substring hits for a term; flying to all of them zooms back out to the
-    // unreadable overview. Every hit keeps its ring, but the viewport lands on the closest name only.
-    it.each([
-        ['leads', new Set(['1', '2', '3']), new Set(['1'])],
-        ['website_leads', new Set(['1', '2']), new Set(['1'])],
-    ])('rings every %p match but focuses the single closest name', async (term, highlighted, focused) => {
+    it('ranks plain search results without moving the graph', async () => {
         await expectLogic(logic, () => {
-            logic.actions.setDebouncedSearchTerm(term)
+            logic.actions.setSearchTerm('leads')
+            logic.actions.setDebouncedSearchTerm('leads')
         }).toMatchValues({
-            highlightedNodeIds: highlighted,
-            focusNodeIds: focused,
+            searchResults: [NODES[0], NODES[1], NODES[2]],
+            showSearchResults: true,
+            selectedSearchResult: NODES[0],
+            highlightedNodeIds: new Set(['1', '2', '3']),
+            focusNodeIds: undefined,
+            searchFocusRequest: null,
         })
     })
 
-    it('skips a closest match the type filter hid, so the viewport still moves', async () => {
+    it('filters search results by type and resets an explicit selection', async () => {
+        logic.actions.setSearchTerm('leads')
+        logic.actions.setDebouncedSearchTerm('leads')
+        logic.actions.focusSearchResult('1', 'keyboard')
+
         await expectLogic(logic, () => {
             logic.actions.setTypeFilter(['view'])
-            logic.actions.setDebouncedSearchTerm('website_leads')
         }).toMatchValues({
-            focusNodeIds: new Set(['2']),
+            searchResults: [NODES[1], NODES[2]],
+            selectedSearchResultId: null,
+            selectedSearchResult: NODES[1],
+            searchFocusRequest: null,
         })
     })
 
-    it('fits the whole surviving cone for a lineage selector instead of one node', async () => {
+    it('changes and wraps the selected result without creating a focus request', async () => {
+        logic.actions.setSearchTerm('leads')
+        logic.actions.setDebouncedSearchTerm('leads')
+
         await expectLogic(logic, () => {
+            logic.actions.moveSearchResult('previous', false)
+        })
+            .toFinishAllListeners()
+            .toMatchValues({
+                selectedSearchResultId: '3',
+                selectedSearchResult: NODES[2],
+                searchFocusRequest: null,
+            })
+
+        await expectLogic(logic, () => {
+            logic.actions.moveSearchResult('next', false)
+        })
+            .toFinishAllListeners()
+            .toMatchValues({
+                selectedSearchResultId: '1',
+                selectedSearchResult: NODES[0],
+                searchFocusRequest: null,
+            })
+    })
+
+    it('increments focus requests for selected results', async () => {
+        logic.actions.setSearchTerm('leads')
+        logic.actions.setDebouncedSearchTerm('leads')
+        logic.actions.focusSearchResult('1', 'keyboard')
+
+        await expectLogic(logic).toMatchValues({
+            selectedSearchResultId: '1',
+            searchFocusRequest: { nodeId: '1', requestId: 1 },
+        })
+
+        await expectLogic(logic, () => {
+            logic.actions.focusSearchResult('2', 'click')
+        }).toMatchValues({
+            selectedSearchResultId: '2',
+            searchFocusRequest: { nodeId: '2', requestId: 2 },
+        })
+
+        await expectLogic(logic, () => {
+            logic.actions.selectSearchResult('3')
+        }).toMatchValues({
+            selectedSearchResultId: '3',
+            searchFocusRequest: null,
+        })
+    })
+
+    it('keeps filters cleared when a search debounce is pending', async () => {
+        logic.actions.setSearchTerm('+website_leads')
+        logic.actions.resetFilters()
+
+        await expectLogic(logic).delay(300).toMatchValues({
+            searchTerm: '',
+            debouncedSearchTerm: '',
+        })
+    })
+
+    it('shows an empty result panel for an unmatched plain search', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.setSearchTerm('missing')
+            logic.actions.setDebouncedSearchTerm('missing')
+        }).toMatchValues({
+            searchResults: [],
+            showSearchResults: true,
+            selectedSearchResult: null,
+            focusNodeIds: undefined,
+        })
+    })
+
+    it('keeps the full cone behavior for lineage selectors', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.setSearchTerm('+website_leads')
             logic.actions.setDebouncedSearchTerm('+website_leads')
         }).toMatchValues({
+            searchResults: [],
+            showSearchResults: false,
+            selectedSearchResult: null,
             highlightedNodeIds: new Set(),
             focusNodeIds: new Set(['1', '4']),
         })

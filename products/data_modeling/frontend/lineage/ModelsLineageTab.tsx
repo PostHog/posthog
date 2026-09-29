@@ -11,6 +11,7 @@ import { DataModelingNodeType } from '~/types'
 
 import { LineageGraph } from './LineageGraph'
 import { lineageNodeUrl } from './lineageNodeUrl'
+import { LineageSearchResults } from './LineageSearchResults'
 import { LINEAGE_FILTER_TYPES, modelsLineageLogic } from './modelsLineageLogic'
 import { NODE_TYPE_TAG_SETTINGS } from './nodeStyles'
 import { NodeTypeLegend } from './NodeTypeLegend'
@@ -30,12 +31,24 @@ export function ModelsLineageTab(): JSX.Element {
         typeFilter,
         legendCollapsed,
         highlightedNodeIds,
+        searchResults,
+        showSearchResults,
+        selectedSearchResult,
+        searchFocusRequest,
         focusNodeIds,
         visibleNodes,
         visibleEdges,
         isFiltered,
     } = useValues(modelsLineageLogic)
-    const { setSearchTerm, setTypeFilter, toggleLegendCollapsed, resetFilters } = useActions(modelsLineageLogic)
+    const {
+        setSearchTerm,
+        setDebouncedSearchTerm,
+        setTypeFilter,
+        moveSearchResult,
+        focusSearchResult,
+        toggleLegendCollapsed,
+        resetFilters,
+    } = useActions(modelsLineageLogic)
 
     return (
         <div className="flex flex-col gap-2">
@@ -44,8 +57,26 @@ export function ModelsLineageTab(): JSX.Element {
                     type="search"
                     size="small"
                     placeholder="Search, or +name for upstream"
+                    aria-label="Search models"
                     value={searchTerm}
                     onChange={setSearchTerm}
+                    onKeyDown={(event) => {
+                        if (
+                            showSearchResults &&
+                            searchResults.length > 0 &&
+                            (event.key === 'ArrowUp' || event.key === 'ArrowDown')
+                        ) {
+                            event.preventDefault()
+                            moveSearchResult(event.key === 'ArrowUp' ? 'previous' : 'next', false)
+                        } else if (event.key === 'Enter' && selectedSearchResult) {
+                            event.preventDefault()
+                            focusSearchResult(selectedSearchResult.id, 'keyboard')
+                        } else if (event.key === 'Escape' && searchTerm) {
+                            event.preventDefault()
+                            setSearchTerm('')
+                            setDebouncedSearchTerm('')
+                        }
+                    }}
                     className="w-72"
                     data-attr="models-lineage-search"
                 />
@@ -76,11 +107,21 @@ export function ModelsLineageTab(): JSX.Element {
                     </>
                 )}
             </div>
-            <div className="h-[calc(100vh-20rem)] min-h-[400px] w-full border rounded bg-bg-light overflow-hidden">
+            <div className="relative h-[calc(100vh-20rem)] min-h-[400px] w-full border rounded bg-bg-light overflow-hidden">
+                {showSearchResults && !nodesLoading && (
+                    <LineageSearchResults
+                        results={searchResults}
+                        selectedResultId={selectedSearchResult?.id}
+                        onSelect={(nodeId) => focusSearchResult(nodeId, 'click')}
+                        onPrevious={() => moveSearchResult('previous', true)}
+                        onNext={() => moveSearchResult('next', true)}
+                    />
+                )}
                 <LineageGraph
                     nodes={visibleNodes}
                     edges={visibleEdges}
                     focusNodeIds={focusNodeIds}
+                    searchFocusRequest={searchFocusRequest}
                     variant="canvas"
                     interactive
                     showControls
@@ -92,6 +133,7 @@ export function ModelsLineageTab(): JSX.Element {
                     }
                     nodeState={(node) => ({
                         isHighlighted: highlightedNodeIds.has(node.id),
+                        isSelected: selectedSearchResult?.id === node.id,
                         isRunning: node.last_run_status === 'Running',
                     })}
                     onNodeClick={(node) => router.actions.push(lineageNodeUrl(node))}

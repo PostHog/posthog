@@ -119,9 +119,12 @@ export const SearchFocus: Story = {
         const canvas = within(canvasElement)
         await canvas.findByText('monthly_report')
         const graph = canvasElement.querySelector<HTMLElement>('.react-flow')!
-        const target = graph.querySelector<HTMLElement>('.react-flow__node[data-id="4"]')!
+        const target = graph.querySelector<HTMLElement>('.react-flow__node[data-id="6"]')!
         const search = canvas.getByPlaceholderText('Search, or +name for upstream')
-        fireEvent.change(search, { target: { value: 'monthly_report' } })
+        fireEvent.change(search, { target: { value: 'monthly' } })
+        await canvas.findByText('2 results')
+        fireEvent.keyDown(search, { key: 'ArrowDown' })
+        fireEvent.keyDown(search, { key: 'Enter' })
         await waitFor(() => {
             const nodeBounds = target.getBoundingClientRect()
             const graphBounds = graph.getBoundingClientRect()
