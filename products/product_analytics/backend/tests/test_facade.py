@@ -2,7 +2,7 @@ from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import time_machine
-from posthog.test.base import APIBaseTest, BaseTest
+from posthog.test.base import APIBaseTest, BaseTest, NonAtomicBaseTest
 from unittest.mock import patch
 
 from django.db import connection, transaction
@@ -75,14 +75,18 @@ class TestInsightViewedCompatibility(APIBaseTest):
         from products.product_analytics.backend.facade.api import record_insight_views
 
         insight = Insight.objects.create(team=self.team)
+        other = Insight.objects.create(team=self.team)
         latest = now()
         for at in [latest, latest - timedelta(days=1)]:
             record_insight_views(
-                team_id=self.team.pk, user_id=self.user.pk, last_viewed_at_by_insight_id={insight.pk: at}
+                team_id=self.team.pk,
+                user_id=self.user.pk,
+                last_viewed_at_by_insight_id={insight.pk: at, other.pk: at - timedelta(hours=1)},
             )
         row = InsightViewed.objects.get(insight=insight)
         assert row.source == "" and row.dashboard_id is None
         assert row.last_viewed_at == latest
+        assert InsightViewed.objects.get(insight=other).last_viewed_at == latest - timedelta(hours=1)
 
     def test_readers_deduplicate_future_contexts_and_legacy_writes_do_not_renew_them(self) -> None:
         from products.product_analytics.backend.facade.api import (
@@ -243,3 +247,28 @@ class TestRunCachedTrendsQuery(BaseTest):
             session_org_kwargs = org_limiter.return_value.run.call_args.kwargs
             assert session_team_kwargs["is_api"] is False
             assert session_org_kwargs["is_api"] is False
+
+
+class TestConcurrentLegacyInsightViews(NonAtomicBaseTest):
+    def test_concurrent_first_views_keep_one_row(self) -> None:
+        from concurrent.futures import ThreadPoolExecutor
+        from threading import Barrier
+
+        from django.db import connections
+
+        def record(insight_id: int, viewer: dict, barrier: Barrier) -> None:
+            try:
+                barrier.wait(timeout=10)
+                record_insight_view(insight_id=insight_id, **viewer)
+            finally:
+                connections.close_all()
+
+        for identified in [False, True]:
+            insight_id = Insight.objects.create(team=self.team).pk
+            viewer = {"team_id": self.team.pk, "user_id": self.user.pk} if identified else {}
+            barrier = Barrier(2)
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                futures = [executor.submit(record, insight_id, viewer, barrier) for _ in range(2)]
+                for future in futures:
+                    future.result(timeout=30)
+            assert InsightViewed.objects.filter(insight_id=insight_id).count() == 1

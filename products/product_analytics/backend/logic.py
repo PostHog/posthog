@@ -3,8 +3,9 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
-from django.db import connections, router, transaction
-from django.db.models import Max, OuterRef, QuerySet, Subquery
+from django.db import router, transaction
+from django.db.models import Case, Max, OuterRef, QuerySet, Subquery, When
+from django.db.models.functions import Greatest
 from django.utils.timezone import now
 
 from products.product_analytics.backend.facade.contracts import InsightVariableDefinition
@@ -62,27 +63,27 @@ def _record_insight_views(
     if not last_viewed_at_by_insight_id:
         return
     database = router.db_for_write(InsightViewed)
-    connection = connections[database]
-    table = connection.ops.quote_name(InsightViewed._meta.db_table)
+    views = InsightViewed.objects.using(database)
     rows = sorted(last_viewed_at_by_insight_id.items())
-    params = [value for insight_id, viewed_at in rows for value in (team_id, user_id, insight_id, viewed_at)]
-    values = ", ".join(["(%s::integer, %s::integer, %s::bigint, %s::timestamptz)"] * len(rows))
-    # Untargeted conflict handling works before and after the context-uniqueness migration.
-    # The second statement sees a concurrent winning insert after ON CONFLICT waits for it.
-    with transaction.atomic(using=database), connection.cursor() as cursor:
-        cursor.execute(
-            f"INSERT INTO {table} (team_id, user_id, insight_id, last_viewed_at) VALUES {values} ON CONFLICT DO NOTHING",
-            params,
+    # Ignoring conflicts works with both uniqueness layouts; the update sees a concurrent winning insert.
+    with transaction.atomic(using=database):
+        views.bulk_create(
+            [
+                InsightViewed(team_id=team_id, user_id=user_id, insight_id=insight_id, last_viewed_at=viewed_at)
+                for insight_id, viewed_at in rows
+            ],
+            ignore_conflicts=True,
         )
-        cursor.execute(
-            f"""UPDATE {table} AS existing
-                SET last_viewed_at = GREATEST(existing.last_viewed_at, incoming.last_viewed_at)
-                FROM (VALUES {values}) AS incoming(team_id, user_id, insight_id, last_viewed_at)
-                WHERE existing.team_id IS NOT DISTINCT FROM incoming.team_id
-                  AND existing.user_id IS NOT DISTINCT FROM incoming.user_id
-                  AND existing.insight_id = incoming.insight_id
-                  AND existing.source = '' AND existing.dashboard_id IS NULL""",
-            params,
+        views.filter(
+            team_id=team_id,
+            user_id=user_id,
+            insight_id__in=last_viewed_at_by_insight_id,
+            source="",
+            dashboard_id__isnull=True,
+        ).update(
+            last_viewed_at=Greatest(
+                "last_viewed_at", Case(*[When(insight_id=insight_id, then=viewed_at) for insight_id, viewed_at in rows])
+            )
         )
 
 
