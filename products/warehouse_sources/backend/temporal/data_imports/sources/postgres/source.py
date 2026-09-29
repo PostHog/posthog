@@ -398,6 +398,9 @@ class PostgresSource(
     def cursor_from_legacy(self, sync_type_config: Mapping[str, Any]) -> XminCursor | None:
         return xmin_cursor_from_legacy(sync_type_config)
 
+    def merge_cursors(self, current: XminCursor, candidate: XminCursor) -> XminCursor:
+        return max(current, candidate, key=lambda cursor: cursor.ceiling_xid8)
+
     def resume_covers_run(self, *, incremental_or_append: bool, keyset_full_load_enabled: bool = False) -> bool:
         # Both halves. Keyset seeking is a full-load path, so an incremental or xmin run resumes from
         # its watermark and keeps the incremental budget. And a full load only resumes once the flag

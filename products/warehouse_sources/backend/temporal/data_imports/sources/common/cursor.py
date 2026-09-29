@@ -117,6 +117,20 @@ def cursor_to_payload(cursor: SourceCursor) -> dict[str, Any]:
     return {"kind": cursor.cursor_kind, "data": dataclasses.asdict(cast(Any, cursor))}
 
 
+def merge_cursor_payloads(
+    source: object, current_payload: Any, candidate_payload: Any, logger: FilteringBoundLogger
+) -> dict[str, Any]:
+    """Merge a staged cursor against the cursor stored at promotion time."""
+    if not isinstance(source, CursorSource):
+        raise ValueError(f"{type(source).__name__} does not support source cursors")
+    cursor_class = source.cursor_class()
+    candidate = _cursor_from_payload(cursor_class, candidate_payload, logger)
+    if candidate is None:
+        raise ValueError("The staged source cursor is invalid")
+    current = _cursor_from_payload(cursor_class, current_payload, logger)
+    return cursor_to_payload(candidate if current is None else source.merge_cursors(current, candidate))
+
+
 def _cursor_from_payload(cursor_class: type[CursorT], payload: Any, logger: FilteringBoundLogger) -> CursorT | None:
     if not isinstance(payload, Mapping) or not isinstance(payload.get("data"), Mapping):
         logger.warning("Discarding a stored source cursor that is not a mapping")

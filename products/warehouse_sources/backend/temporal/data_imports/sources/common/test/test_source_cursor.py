@@ -11,6 +11,7 @@ from posthog.dataclasses import frozen
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import (
     CursorSource,
     SourceCursorManager,
+    merge_cursor_payloads,
 )
 
 
@@ -82,6 +83,15 @@ class TestSourceCursorManager:
 
     def test_nothing_staged_has_no_payload(self) -> None:
         assert _manager({}).staged_payload() is None
+
+    def test_promotion_merges_against_the_latest_stored_cursor(self) -> None:
+        current = {"kind": "offsets", "data": {"offsets": {"0": 20, "1": 5}}}
+        older_staged = {"kind": "offsets", "data": {"offsets": {"0": 10, "2": 7}}}
+
+        assert merge_cursor_payloads(_OffsetsSource(), current, older_staged, MagicMock()) == {
+            "kind": "offsets",
+            "data": {"offsets": {"0": 20, "1": 5, "2": 7}},
+        }
 
     def test_get_cursor_manager_requires_a_manager_on_the_inputs(self) -> None:
         with pytest.raises(ValueError):

@@ -1002,7 +1002,11 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
             lambda: update_sync_type_config_keys(self.id, self.team_id, mutate=mutate)
         )
 
-    def promote_staged_incremental_values(self, run_uuid: str) -> bool:
+    def promote_staged_incremental_values(
+        self,
+        run_uuid: str,
+        merge_source_cursors: Callable[[Any, Any], dict[str, Any]] | None = None,
+    ) -> bool:
         """Move the staged cursor of `run_uuid` onto the live watermark keys.
 
         Returns True when a staged cursor for the run existed, in the live slot or the parked list.
@@ -1028,9 +1032,14 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
                 _advance_promoted_cursor(
                     config, "incremental_field_earliest_value", staged["earliest_value"], "earliest", field_type
                 )
-            # The source merged its cursor against the stored one when it staged, so it replaces as is.
             if SOURCE_CURSOR_KEY in staged:
-                config[SOURCE_CURSOR_KEY] = staged[SOURCE_CURSOR_KEY]
+                candidate = staged[SOURCE_CURSOR_KEY]
+                current = config.get(SOURCE_CURSOR_KEY)
+                if current is not None:
+                    if merge_source_cursors is None:
+                        raise ValueError("Source cursor promotion requires a merger when a cursor is already stored")
+                    candidate = merge_source_cursors(current, candidate)
+                config[SOURCE_CURSOR_KEY] = candidate
             if live is not None:
                 config.pop("incremental_staged", None)
 

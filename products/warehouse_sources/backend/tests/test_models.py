@@ -1279,6 +1279,15 @@ def test_apply_incremental_lookback(value, field_type, lookback_seconds, expecte
 
 
 class TestStagedIncrementalCursor:
+    @staticmethod
+    def _merge_kafka_offsets(current: Any, candidate: Any) -> dict[str, Any]:
+        current_offsets = current["data"]["offsets"]
+        candidate_offsets = candidate["data"]["offsets"]
+        merged_offsets = dict(current_offsets)
+        for partition, offset in candidate_offsets.items():
+            merged_offsets[partition] = max(merged_offsets.get(partition, offset), offset)
+        return {"kind": "kafka", "data": {"offsets": merged_offsets}}
+
     def _make_schema(self, **config: object) -> ExternalDataSchema:
         schema = ExternalDataSchema(
             sync_type_config={
@@ -1493,24 +1502,34 @@ class TestStagedIncrementalCursor:
         assert result is False
         assert "incremental_field_last_value" not in schema.sync_type_config
 
-    def test_promote_replaces_the_source_cursor_staged_with_the_watermark(self) -> None:
-        schema = self._make_schema(source_cursor={"kind": "kafka", "data": {"offsets": {"0": 50}}})
+    def test_promote_merges_the_source_cursor_with_the_current_value(self) -> None:
+        current_cursor = {"kind": "kafka", "data": {"offsets": {"0": 50}}}
+        schema = self._make_schema(source_cursor=current_cursor)
         staged_cursor = {"kind": "kafka", "data": {"offsets": {"0": 10}}}
         with self._staged_in_memory(schema):
             schema.stage_incremental_field_value("run-1", 42)
             schema.stage_source_cursor("run-1", staged_cursor)
-            assert schema.promote_staged_incremental_values("run-1") is True
-        assert schema.sync_type_config["source_cursor"] == staged_cursor
+            assert (
+                schema.promote_staged_incremental_values("run-1", merge_source_cursors=self._merge_kafka_offsets)
+                is True
+            )
+        assert schema.sync_type_config["source_cursor"] == current_cursor
         assert schema.sync_type_config["incremental_field_last_value"] == 42
         assert "incremental_staged" not in schema.sync_type_config
 
-    def test_a_displaced_source_cursor_is_parked_and_still_promotes(self) -> None:
-        staged_cursor = {"kind": "kafka", "data": {"offsets": {"0": 10}}}
-        schema = self._make_schema(incremental_staged={"run_uuid": "run-1", "source_cursor": staged_cursor})
+    def test_an_older_displaced_source_cursor_cannot_replace_a_newer_cursor(self) -> None:
+        older_cursor = {"kind": "kafka", "data": {"offsets": {"0": 10}}}
+        newer_cursor = {"kind": "kafka", "data": {"offsets": {"0": 20}}}
+        schema = self._make_schema(
+            source_cursor=newer_cursor,
+            incremental_staged_pending=[{"run_uuid": "run-1", "source_cursor": older_cursor}],
+        )
         with self._staged_in_memory(schema):
-            schema.stage_source_cursor("run-2", {"kind": "kafka", "data": {"offsets": {"0": 20}}})
-            assert schema.promote_staged_incremental_values("run-1") is True
-        assert schema.sync_type_config["source_cursor"] == staged_cursor
+            assert (
+                schema.promote_staged_incremental_values("run-1", merge_source_cursors=self._merge_kafka_offsets)
+                is True
+            )
+        assert schema.sync_type_config["source_cursor"] == newer_cursor
 
     def test_promote_returns_false_when_no_staged(self) -> None:
         schema = self._make_schema()
