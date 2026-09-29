@@ -25,7 +25,9 @@
 //! - The matcher runs without the persons DB deadline (`PERSONS_DB_DEADLINE_MS`). When a
 //!   person's evaluation returns an error, Django leaves that person out of the cohort and
 //!   still reports the run as a success. A slow persons query must therefore finish rather
-//!   than time out.
+//!   than time out. The group type mapping lookup is the exception. This endpoint shares
+//!   `GroupTypeCacheManager` with live `/flags`, so that lookup still fails with
+//!   `client_timeout` at the cache's 5s shared fetch cap.
 //!
 //! The paged scan walks `posthog_person.id` ascending across a live table, so the run sees
 //! a moving snapshot rather than a point-in-time one: persons inserted above the current
