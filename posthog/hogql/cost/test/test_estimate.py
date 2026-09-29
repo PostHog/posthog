@@ -81,6 +81,9 @@ class TestEstimateEventsScan(BaseTest):
         self.context = HogQLContext(
             database=Database.create_for(team=self.team), team_id=self.team.pk, enable_select_queries=True
         )
+        # The granule model is about the legacy table's bloom filter index. The JSON events schema has no
+        # skip index a property filter can use, so under it nothing narrows; one case below pins that.
+        self.context.use_new_events_schema = False
         self.context.property_metadata = PropertyMetadata(
             event_properties={}, materialized_columns=lambda: MATERIALIZED_COLUMNS
         )
@@ -318,6 +321,15 @@ class TestEstimateEventsScan(BaseTest):
 
         assert estimate is not None
         assert estimate.tables == (TableScanEstimate(name="events", source="events", precision="unknown"),)
+
+    def test_the_json_events_schema_narrows_nothing_because_it_has_no_skip_index(self):
+        self.context.use_new_events_schema = True
+
+        estimate = self._estimate("SELECT count() FROM events WHERE properties.order_id = 'a1'")
+
+        assert estimate is not None
+        assert estimate.rows == 36_500_000
+        assert estimate.upper_bound is False
 
     def test_a_query_with_no_table_has_no_estimate(self):
         assert self._estimate("SELECT 1") is None

@@ -115,6 +115,7 @@ rules:
                               |CohortBackfillRun
                               |CohortBackfillRunCohort
                               |Comment
+                              |ContentAutopilotOpportunity
                               |ContentAutopilotProposal
                               |ContentAutopilotRun
                               |ContentAutopilotSiteProfile
@@ -251,6 +252,8 @@ rules:
                               |KnowledgeGapSuggestion
                               |KnowledgeLearningRun
                               |KnowledgeSource
+                              |PlaygroundChat
+                              |PlaygroundTurn
                               |Link
                               |LiveDebuggerBreakpoint
                               |LogsAlertConfiguration
@@ -550,6 +553,7 @@ rules:
                         |CohortBackfillRun
                         |CohortBackfillRunCohort
                         |Comment
+                        |ContentAutopilotOpportunity
                         |ContentAutopilotProposal
                         |ContentAutopilotRun
                         |ContentAutopilotSiteProfile
@@ -683,6 +687,8 @@ rules:
                         |KnowledgeGapSuggestion
                         |KnowledgeLearningRun
                         |KnowledgeSource
+                        |PlaygroundChat
+                        |PlaygroundTurn
                         |Link
                         |LiveDebuggerBreakpoint
                         |Loop
@@ -961,6 +967,7 @@ rules:
                               |OrganizationMembership
                               |OrganizationMemberNotificationLock
                               |OrganizationDomain
+                              |OrganizationFeatureFlagsConfig
                               |OrganizationIntegration
                               |OrganizationInvite
                               |Plugin
@@ -1037,6 +1044,7 @@ rules:
                         |OrganizationMembership
                         |OrganizationMemberNotificationLock
                         |OrganizationDomain
+                        |OrganizationFeatureFlagsConfig
                         |OrganizationIntegration
                         |OrganizationInvite
                         |Plugin

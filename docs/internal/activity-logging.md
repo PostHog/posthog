@@ -166,10 +166,62 @@ A task link appears only when the token has a server-set task binding, so intent
 The `X-PostHog-Task-Id` header cannot supply that binding, and the authenticated user remains the actor on the audit row.
 This applies to new activity rows; it does not recover intent that was discarded before the change.
 
+### Client IP
+
+`ActivityLoggingMiddleware` stores the request's client IP, and `log_activity` writes it to `ActivityLog.ip_address`.
+Only the activity log uses the rules below. Throttles, IP allowlists, and request logs read the IP from the request as before.
+
+- **Browser and API requests.** The IP comes from `get_ip_address`: the leftmost `X-Forwarded-For` entry, or `REMOTE_ADDR`.
+- **MCP requests.** The MCP server calls the API from inside the cluster, so `REMOTE_ADDR` is the MCP pod.
+  The MCP server signs the end user's IP and sends it in `X-PostHog-MCP-Client-IP`, `X-PostHog-MCP-Client-IP-Timestamp`, and `X-PostHog-MCP-Client-IP-Signature`.
+  The middleware removes these headers from every request.
+  When the signature verifies against `MCP_CLIENT_IP_SIGNING_KEYS`, the row records the signed IP.
+  Any other result keeps the `get_ip_address` value.
+  The signature format is the managed proxy format, `hex(HMAC-SHA256(key, f"{ip}:{unix_seconds}"))`, valid from 5 seconds ahead to 60 seconds old.
+  The `posthog_mcp_client_ip_verifications` counter records each outcome.
+- **Sandbox agents.** A row written with an OAuth token bound to a sandbox task keeps the request IP.
+  The token can leave the sandbox, so the IP is what tells a sandbox write apart from a write made elsewhere with the same token.
+  The audit log IP address column shows a dash for these rows, with the IP in its tooltip.
+  The User column tags a scout run "via scout <skill_name>" and any other sandbox task "via sandbox".
+
 A model with a fail-closed manager (`TeamScopedRootMixin`, `ProductTeamModel`) raises `TeamScopeError` on any query without team context.
 The mixin's before-update read is by primary key without a team filter (`unscoped()`), so a `save()` outside a request works.
 Your own reads in the same path still need `with team_scope(team_id):` or `Model.objects.for_team(team_id)`.
 See `posthog/models/scoping/README.md`.
+
+## Credential attribution
+
+A row written during a request also records the credential that authenticated the request, in `credential_type`, `credential_id` and `impersonated_by_id`.
+`ActivityLoggingMiddleware` records the session, resolved again for each row.
+The session applies only while `request.user` is still the session's user: DRF writes the principal of the authentication class that succeeded back onto the request, so a class that authenticates someone else and records nothing leaves the row `unattributed`.
+A bearer authentication class that succeeds replaces the session with its own credential through `record_activity_actor` in `posthog/models/activity_logging/utils.py`.
+The values come from the authenticated object, never from a request header, so a caller cannot choose them.
+Unlike `client`, they are evidence of which credential made a change.
+
+| `credential_type`     | `credential_id`                                                                                                          |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `session`             | the session's public id, from `session_public_id`                                                                        |
+| `personal_api_key`    | the key id                                                                                                               |
+| `oauth`               | the OAuth application UUID                                                                                               |
+| `project_secret_key`  | the key id                                                                                                               |
+| `team_secret_token`   | none                                                                                                                     |
+| `id_jag`              | the `client_id` claim                                                                                                    |
+| `internal_jwt`        | none                                                                                                                     |
+| `service_jwt`         | the audience of the scoped service JWT                                                                                   |
+| `internal_api_secret` | none                                                                                                                     |
+| `scim`                | the SCIM identity provider config id                                                                                     |
+| `vercel`              | the Vercel installation id                                                                                               |
+| `partner`             | the partner's OAuth application UUID when it proved itself with a secret or a signed assertion, none for a public client |
+| `unattributed`        | none                                                                                                                     |
+
+- A credential without a user (a project secret key, the legacy team secret token, a service JWT, the internal API secret or a SCIM token) clears any user the middleware took from a session cookie. The row has `user=None` and `is_system=True`, and it keeps the credential.
+- `impersonated_by_id` holds the staff user behind an impersonated session or an OAuth token minted during impersonation.
+- The fields are null outside a request. A row written inside a request that recorded no credential has `credential_type` `unattributed`: the request was anonymous, or its authentication class records nothing.
+- The fields are internal. The advanced activity log serializer and the notifications serializer list their fields explicitly and leave them out. The advanced serializer also builds `$activity_log_entry_created` for customer destinations.
+- A new authentication class that writes activity rows must call `record_activity_actor` when it succeeds. Otherwise its rows read `unattributed`. A partner OAuth class passes `oauth_activity_credential(access_token)`, so its rows read the same as the main OAuth path.
+
+To match a row to a session, compare `credential_id` with `session_public_id(session_key)` from `posthog/session/activity.py`.
+The login sessions API (`/api/users/@me/login_sessions/`) returns the same id and revokes a session by it.
 
 ## Product models on a separate database
 
