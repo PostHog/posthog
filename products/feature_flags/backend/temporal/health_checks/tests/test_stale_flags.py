@@ -2,7 +2,7 @@ from datetime import timedelta
 from typing import Any
 
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import call, patch
 
 from django.db import connection
 from django.test import SimpleTestCase
@@ -28,6 +28,7 @@ from products.feature_flags.backend.temporal.health_checks.stale_flags import (
     EVIDENCE_EFFECTIVELY_FULL_ROLLOUT,
     EVIDENCE_FULLY_ROLLED_OUT_WITHOUT_USAGE_DATA,
     EVIDENCE_NOT_CALLED_RECENTLY,
+    LIVE_GATE_FLAG,
     StaleFeatureFlagsCheck,
 )
 from products.feature_flags.backend.test.replay_gate_fixtures import trigger_groups
@@ -35,7 +36,8 @@ from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.models import Survey
 
 FULL_ROLLOUT_FILTERS = {"groups": [{"properties": [], "rollout_percentage": 100}]}
-GATE_TARGET = "products.feature_flags.backend.temporal.health_checks.stale_flags.get_feature_flag_or_none"
+LIVE_GATE_TARGET = "products.feature_flags.backend.temporal.health_checks.stale_flags.get_feature_flag_or_none"
+LOADED_DEFINITIONS = [{"key": LIVE_GATE_FLAG}]
 
 
 def stale_by_config() -> dict[str, Any]:
@@ -56,11 +58,13 @@ def constant_and_called() -> dict[str, Any]:
 class TestStaleFlagsDetect(BaseTest):
     def setUp(self) -> None:
         super().setUp()
-        # Under `settings.TEST` every flag read returns None, which the fail-closed gate
-        # turns into {} for every case below.
+        # `settings.TEST` disables the SDK, which leaves the gate with no definitions to read
+        # and would turn every case below into {}. Stand the three SDK states the gate checks
+        # back up so these tests exercise detection rather than the gate.
         for patcher in (
-            patch("posthoganalytics.feature_flag_definitions", return_value={}),
-            patch(GATE_TARGET, return_value=True),
+            patch("posthoganalytics.disabled", False),
+            patch("posthoganalytics.feature_flag_definitions", return_value=LOADED_DEFINITIONS),
+            patch(LIVE_GATE_TARGET, return_value=True),
         ):
             patcher.start()
             self.addCleanup(patcher.stop)
@@ -638,48 +642,102 @@ class TestStaleFlagsDetect(BaseTest):
         result = next(r for r in results[self.team.id] if r.payload["flag_id"] == flag.id)
         assert result.payload["flag_name"] == "x" * 500
 
-    def test_unreadable_flag_writes_no_issues(self) -> None:
+    def test_manual_refresh_raises_when_definitions_are_unavailable(self) -> None:
         self._create_flag("manual-refresh", **stale_by_usage())
 
         with patch("posthoganalytics.feature_flag_definitions", return_value=None):
-            evaluate_health_check_for_team(kind="stale_feature_flags", team_id=self.team.id)
+            with self.assertRaises(RuntimeError):
+                evaluate_health_check_for_team(kind="stale_feature_flags", team_id=self.team.id)
 
         assert not HealthIssue.objects.filter(team=self.team, kind="stale_feature_flags").exists()
 
-    def test_gate_reports_only_the_teams_the_flag_enables(self) -> None:
+    def test_live_gate_reports_only_the_teams_the_flag_enables(self) -> None:
         disabled_team = Team.objects.create(organization=self.organization, name="disabled")
         self._create_flag("enabled", **stale_by_usage())
         FeatureFlag.objects.create(
             team=disabled_team, key="disabled", created_by=self.user, active=True, **stale_by_usage()
         )
 
-        with patch(GATE_TARGET, side_effect=lambda _key, distinct_id, **_kw: distinct_id == f"team_{self.team.id}"):
+        with patch(
+            LIVE_GATE_TARGET, side_effect=lambda _key, distinct_id, **_kw: distinct_id == f"team-{self.team.id}"
+        ) as flag_read:
             results = self._detect([self.team.id, disabled_team.id])
 
         assert set(results) == {self.team.id}
+        # Local evaluation reads nothing but what is passed here, so dropping the project
+        # properties would leave the gate matching no one while every case above stays green.
+        assert flag_read.call_args_list[0] == call(
+            LIVE_GATE_FLAG,
+            f"team-{self.team.id}",
+            groups={"project": str(self.team.id)},
+            group_properties={"project": {"id": str(self.team.id)}},
+            only_evaluate_locally=True,
+            send_feature_flag_events=False,
+        )
 
-    def test_gate_runs_no_query_when_no_team_is_enabled(self) -> None:
+    def test_live_gate_runs_no_query_when_no_team_is_enabled(self) -> None:
         self._create_flag("enabled-but-gated", **stale_by_usage())
 
-        with patch(GATE_TARGET, return_value=False), CaptureQueriesContext(connection) as queries:
+        with patch(LIVE_GATE_TARGET, return_value=False), CaptureQueriesContext(connection) as queries:
             results = self._detect()
 
         assert results == {}
         assert queries.captured_queries == []
 
-    def test_gate_skips_every_team_when_definitions_are_unavailable(self) -> None:
-        self._create_flag("definitions-down", **stale_by_usage())
+    def test_live_gate_raises_rather_than_resolve_issues_it_cannot_decide_on(self) -> None:
+        self._create_flag("archived-flag", **stale_by_usage())
+        HealthIssue.objects.create(
+            team=self.team,
+            kind="stale_feature_flags",
+            severity=HealthIssue.Severity.INFO,
+            payload={},
+            unique_hash="already-open",
+            status=HealthIssue.Status.ACTIVE,
+        )
 
-        with (
-            patch("posthoganalytics.feature_flag_definitions", return_value=None),
-            patch(GATE_TARGET) as flag_read,
-            capture_logs() as logs,
-        ):
+        with patch(LIVE_GATE_TARGET, return_value=None), capture_logs() as logs:
+            with self.assertRaises(RuntimeError):
+                self._detect()
+
+        assert HealthIssue.objects.filter(team=self.team, status=HealthIssue.Status.ACTIVE).count() == 1
+        assert "stale_feature_flags_live_gate_undecided_with_active_issues" in [log["event"] for log in logs]
+
+    def test_live_gate_stays_quiet_when_it_cannot_decide_and_no_issue_is_open(self) -> None:
+        self._create_flag("no-flag-yet", **stale_by_usage())
+
+        with patch(LIVE_GATE_TARGET, return_value=None):
             results = self._detect()
 
         assert results == {}
+
+    @parameterized.expand([("missing", None), ("empty", [])])
+    def test_live_gate_raises_when_definitions_are_unavailable(self, _name: str, definitions: Any) -> None:
+        self._create_flag("definitions-down", **stale_by_usage())
+
+        with (
+            patch("posthoganalytics.feature_flag_definitions", return_value=definitions),
+            patch(LIVE_GATE_TARGET) as flag_read,
+            capture_logs() as logs,
+        ):
+            with self.assertRaises(RuntimeError):
+                self._detect()
+
         flag_read.assert_not_called()
-        assert [log["event"] for log in logs] == ["stale_feature_flags_gate_definitions_unavailable"]
+        assert [log["event"] for log in logs] == ["stale_feature_flags_live_gate_definitions_unavailable"]
+
+    def test_live_gate_reports_nothing_without_raising_when_the_sdk_is_disabled(self) -> None:
+        self._create_flag("capture-opted-out", **stale_by_usage())
+
+        with (
+            patch("posthoganalytics.disabled", True),
+            patch(LIVE_GATE_TARGET) as flag_read,
+        ):
+            results = self._detect()
+
+        # An opted-out instance never loads definitions, so raising would fail this check's
+        # weekly workflow forever. It also never enables a team, so there is nothing to resolve.
+        assert results == {}
+        flag_read.assert_not_called()
 
     def test_batches_multiple_teams(self) -> None:
         team_two = Team.objects.create(organization=self.organization, name="two")
@@ -808,6 +866,12 @@ class TestStaleFlagsDetect(BaseTest):
         issue_a.refresh_from_db()
         assert issue_a.status == HealthIssue.Status.RESOLVED
         assert active_issues().get(payload__flag_id=flag_a.id).id != issue_a.id
+
+        # Turning the gate off resolves the team's issues: the framework cannot tell a skipped
+        # team from a healthy one, so the flag is a kill switch that also clears the Health page.
+        with patch(LIVE_GATE_TARGET, return_value=False):
+            run()
+        assert active_issues().count() == 0
 
 
 class TestStaleFlagsContract(SimpleTestCase):
