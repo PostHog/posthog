@@ -4799,6 +4799,11 @@ export interface ScoutRubricGenerationApi {
     /** When generation was requested. */
     requested_at: string
     /**
+     * Optional priorities supplied for this generation only.
+     * @maxLength 2000
+     */
+    context: string
+    /**
      * When generation completed or failed.
      * @nullable
      */
@@ -4848,6 +4853,14 @@ export interface ScoutRubricSaveApi {
     revision: number
     /** Complete set of criteria to save. */
     criteria: ScoutRubricCriterionApi[]
+}
+
+export interface ScoutRubricGenerateApi {
+    /**
+     * Optional priorities for this generation. Suggestions still cover the scout's full job.
+     * @maxLength 2000
+     */
+    context?: string
 }
 
 export type SignalScoutRunSummaryApiMetadataDerived = {

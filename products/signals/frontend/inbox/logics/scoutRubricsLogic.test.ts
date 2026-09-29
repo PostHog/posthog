@@ -48,6 +48,7 @@ function makeGeneration(
     return {
         id: 'example-generation',
         status,
+        context: '',
         requested_at: '2026-09-01T10:00:00Z',
         completed_at: status === 'completed' ? '2026-09-01T10:01:00Z' : null,
         task_id: 'example-task',
@@ -76,10 +77,13 @@ describe('scoutRubricsLogic', () => {
     })
 
     it('restores a background generation after reopening without replacing edits when results arrive', async () => {
-        document = makeDocument({ generation: makeGeneration('running') })
+        document = makeDocument({
+            generation: { ...makeGeneration('running'), context: 'Focus from an earlier request.' },
+        })
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.generationActive).toBe(true)
+        expect(logic.values.generationContext).toBe('')
 
         logic.actions.updateCriterion(criterion.id, { title: 'My edited criterion' })
         document = makeDocument({ revision: 1, generation: makeGeneration('completed') })
@@ -189,38 +193,48 @@ describe('scoutRubricsLogic', () => {
         expect(logic.values.saveError).toBe(null)
     })
 
-    it('starts only one generation while the request is pending and allows retry after a failure', async () => {
-        let release: (() => void) | undefined
-        const pending = new Promise<void>((resolve) => {
-            release = resolve
-        })
-        let starts = 0
-        useMocks({
-            post: {
-                [GENERATE_URL]: async () => {
-                    starts += 1
-                    await pending
-                    return [503, { detail: 'Generation is unavailable. Try again.' }]
+    it.each(['', '  Check repeat findings carefully.  '])(
+        'keeps optional focus when generation fails and clears it after starting (%s)',
+        async (context) => {
+            let release: (() => void) | undefined
+            const pending = new Promise<void>((resolve) => {
+                release = resolve
+            })
+            let starts = 0
+            let submitted: unknown
+            useMocks({
+                post: {
+                    [GENERATE_URL]: async ({ request }) => {
+                        starts += 1
+                        submitted = await request.json()
+                        await pending
+                        return [503, { detail: 'Generation is unavailable. Try again.' }]
+                    },
                 },
-            },
-        })
-        logic.mount()
-        await expectLogic(logic).toFinishAllListeners()
+            })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
 
-        logic.actions.generateSuggestions()
-        logic.actions.generateSuggestions()
-        await waitFor(() => expect(starts).toBe(1))
-        expect(logic.values.generationSubmitting).toBe(true)
-        release?.()
-        await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.generationSubmitting).toBe(false)
-        expect(logic.values.generationError).toBe('Generation is unavailable. Try again.')
+            logic.actions.setGenerationContext(context)
+            expect(logic.values.hasUnsavedChanges).toBe(false)
+            logic.actions.generateSuggestions()
+            logic.actions.generateSuggestions()
+            await waitFor(() => expect(starts).toBe(1))
+            expect(logic.values.generationSubmitting).toBe(true)
+            expect(submitted).toEqual({ context: context.trim() })
+            release?.()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.generationSubmitting).toBe(false)
+            expect(logic.values.generationError).toBe('Generation is unavailable. Try again.')
+            expect(logic.values.generationContext).toBe(context)
 
-        useMocks({ post: { [GENERATE_URL]: () => [202, makeDocument({ generation: makeGeneration('queued') })] } })
-        await expectLogic(logic, () => logic.actions.generateSuggestions()).toFinishAllListeners()
-        expect(logic.values.generationActive).toBe(true)
-        expect(logic.values.generationError).toBe(null)
-    })
+            useMocks({ post: { [GENERATE_URL]: () => [202, makeDocument({ generation: makeGeneration('queued') })] } })
+            await expectLogic(logic, () => logic.actions.generateSuggestions()).toFinishAllListeners()
+            expect(logic.values.generationActive).toBe(true)
+            expect(logic.values.generationError).toBe(null)
+            expect(logic.values.generationContext).toBe('')
+        }
+    )
 
     it('does not let an older read replace a generation that has just started', async () => {
         logic.mount()

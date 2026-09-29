@@ -11,9 +11,12 @@ import {
     LemonDialog,
     LemonModal,
     LemonSkeleton,
+    LemonTextArea,
 } from '@posthog/lemon-ui'
 
-import { MAX_SCOUT_RUBRICS, scoutRubricsLogic } from '../../../logics/scoutRubricsLogic'
+import { LemonField } from 'lib/lemon-ui/LemonField'
+
+import { MAX_RUBRIC_CONTEXT_LENGTH, MAX_SCOUT_RUBRICS, scoutRubricsLogic } from '../../../logics/scoutRubricsLogic'
 import { ScoutRubricCriterionEditor } from './ScoutRubricCriterionEditor'
 
 export function ScoutRubricsModal({
@@ -38,6 +41,7 @@ export function ScoutRubricsModal({
         expandedCriterionId,
         generation,
         generationActive,
+        generationContext,
         generationSubmitting,
         generationError,
         availableSuggestions,
@@ -60,16 +64,17 @@ export function ScoutRubricsModal({
         toggleSuggestion,
         addSelectedSuggestions,
         generateSuggestions,
+        setGenerationContext,
         saveRubrics,
     } = useActions(logic)
 
     const confirmDiscard = (action: () => void): void => {
-        if (!hasUnsavedChanges) {
+        if (!hasUnsavedChanges && !generationContext.trim()) {
             action()
             return
         }
         LemonDialog.open({
-            title: 'Discard unsaved rubric changes?',
+            title: 'Discard unsaved changes?',
             description: 'Your saved rubrics and generated suggestions will still be available.',
             primaryButton: { children: 'Discard changes', status: 'danger', onClick: action },
             secondaryButton: { children: 'Keep editing' },
@@ -96,7 +101,7 @@ export function ScoutRubricsModal({
             title={`${scoutName} rubrics`}
             description="Define how this scout should be evaluated. Saving rubrics does not change its instructions."
             width={800}
-            hasUnsavedInput={hasUnsavedChanges}
+            hasUnsavedInput={hasUnsavedChanges || !!generationContext.trim()}
             onClose={() => confirmDiscard(onClose)}
             closable={!saving}
             data-attr="scout-rubrics-modal"
@@ -181,6 +186,44 @@ export function ScoutRubricsModal({
                                 )}
                             </div>
                         </div>
+
+                        {!generationActive && (
+                            <LemonCollapse
+                                embedded
+                                size="small"
+                                panels={[
+                                    {
+                                        key: 'focus',
+                                        dataAttr: 'scout-rubrics-focus-toggle',
+                                        header: 'Additional focus (optional)',
+                                        content: (
+                                            <div className="flex flex-col gap-2">
+                                                <LemonField.Pure
+                                                    label="What matters most to you?"
+                                                    htmlFor="scout-rubrics-focus"
+                                                >
+                                                    <LemonTextArea
+                                                        id="scout-rubrics-focus"
+                                                        value={generationContext}
+                                                        onChange={setGenerationContext}
+                                                        placeholder="Describe any concerns or priorities in your own words."
+                                                        minRows={3}
+                                                        maxRows={8}
+                                                        maxLength={MAX_RUBRIC_CONTEXT_LENGTH}
+                                                        disabled={saving || generationSubmitting}
+                                                        data-attr="scout-rubrics-focus"
+                                                    />
+                                                </LemonField.Pure>
+                                                <p className="mb-0 text-sm text-secondary">
+                                                    Used for this generation only. Suggestions still cover the scout's
+                                                    full job.
+                                                </p>
+                                            </div>
+                                        ),
+                                    },
+                                ]}
+                            />
+                        )}
 
                         {generationActive && (
                             <LemonBanner type="info">

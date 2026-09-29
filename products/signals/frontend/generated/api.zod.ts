@@ -1353,6 +1353,17 @@ export const SignalsScoutRubricsUpdateBody = /* @__PURE__ */ zod.object({
         .describe('Complete set of criteria to save.'),
 })
 
+export const signalsScoutRubricsGenerateBodyContextDefault = ``
+export const signalsScoutRubricsGenerateBodyContextMax = 2000
+
+export const SignalsScoutRubricsGenerateBody = /* @__PURE__ */ zod.object({
+    context: zod
+        .string()
+        .max(signalsScoutRubricsGenerateBodyContextMax)
+        .default(signalsScoutRubricsGenerateBodyContextDefault)
+        .describe("Optional priorities for this generation. Suggestions still cover the scout's full job."),
+})
+
 /**
  * Close the follow-up check this run was dispatched to answer. The run note carries the check id and what to establish; this call is the only thing that records the answer, so a run that investigates and says nothing leaves the check unanswered. The verdict lands on the report as a `check_result` entry people read in the inbox. `failed` retires the check, `passed` re-arms a recurring one, and `errored` retries it. `inconclusive` with the `awaiting_data` reason looks again later, and any other reason ends the check. Send the outcome you actually reached rather than the one that closes the loop. A run may close the check it was dispatched for, or a check on its own scout that is due or waiting on a run.
  * @summary Record the verdict on a report check

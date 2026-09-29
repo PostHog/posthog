@@ -1,5 +1,6 @@
 from products.signals.backend.scout_harness.rubrics import (
     MAX_CRITERIA as MAX_CRITERIA,
+    MAX_GENERATION_CONTEXT_LENGTH as MAX_GENERATION_CONTEXT_LENGTH,
     RUBRIC_TEAM_ID as RUBRIC_TEAM_ID,
     ScoutRubricCriterion as ScoutRubricCriterion,
     ScoutRubricDocument as ScoutRubricDocument,

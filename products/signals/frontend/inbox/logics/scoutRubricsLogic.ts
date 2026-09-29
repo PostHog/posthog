@@ -28,6 +28,7 @@ import type { ScoutRubricCriterionApi, ScoutRubricDocumentApi } from 'products/s
 
 const GENERATION_POLL_INTERVAL_MS = 10_000
 export const MAX_SCOUT_RUBRICS = 30
+export const MAX_RUBRIC_CONTEXT_LENGTH = 2000
 
 export interface ScoutRubricsLogicProps {
     teamId: number
@@ -44,6 +45,7 @@ export interface scoutRubricsLogicValues {
     expandedCriterionId: string | null
     generation: ScoutRubricDocumentApi['generation']
     generationActive: boolean
+    generationContext: string
     generationError: string | null
     generationSubmitting: boolean
     hasUnsavedChanges: boolean
@@ -138,6 +140,9 @@ export interface scoutRubricsLogicActions {
     setExpandedCriterion: (id: string | null) => {
         id: string | null
     }
+    setGenerationContext: (context: string) => {
+        context: string
+    }
     toggleSuggestion: (
         id: string,
         selected: boolean
@@ -207,6 +212,7 @@ export const scoutRubricsLogic: LogicWrapper<scoutRubricsLogicType> = kea<scoutR
         setExpandedCriterion: (id: string | null) => ({ id }),
         toggleSuggestion: (id: string, selected: boolean) => ({ id, selected }),
         addSelectedSuggestions: true,
+        setGenerationContext: (context: string) => ({ context }),
         generateSuggestions: true,
         generationRequestStarted: true,
         generationStarted: (document: ScoutRubricDocumentApi) => ({ document }),
@@ -282,6 +288,7 @@ export const scoutRubricsLogic: LogicWrapper<scoutRubricsLogicType> = kea<scoutR
             },
         ],
         generationSubmitting: [false, { generationRequestStarted: () => true, generationFinished: () => false }],
+        generationContext: ['', { setGenerationContext: (_, { context }) => context, generationStarted: () => '' }],
         generationError: [
             null as string | null,
             { generateSuggestions: () => null, generationFailed: (_, { message }) => message },
@@ -401,7 +408,9 @@ export const scoutRubricsLogic: LogicWrapper<scoutRubricsLogicType> = kea<scoutR
             const context = getContext()
             const disposables = cache.disposables
             try {
-                const document = await signalsScoutRubricsGenerate(String(props.teamId), props.configId)
+                const document = await signalsScoutRubricsGenerate(String(props.teamId), props.configId, {
+                    context: values.generationContext.trim(),
+                })
                 if (!disposables.isDisposed && getContext() === context) {
                     cache.documentVersion = (cache.documentVersion ?? 0) + 1
                     actions.generationStarted(document)
