@@ -7,6 +7,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { DEFAULT_MODEL, DEFAULT_REPOSITORY } from "@/config";
+import { type Photo, uploadStagedPhotos } from "@/lib/attachments";
 import { useAuth } from "@/lib/auth";
 import { getClient } from "@/lib/client";
 import { currentRunConfig } from "@/lib/composer";
@@ -188,6 +189,7 @@ export function useInvalidateTasks() {
 export async function createAndRunTask(input: {
   prompt: string;
   repository: string | null;
+  photos?: Photo[];
 }): Promise<Task> {
   const client = getClient();
   const task = await client.createTask({
@@ -195,8 +197,10 @@ export async function createAndRunTask(input: {
     title: input.prompt.slice(0, 100),
     repository: input.repository ?? undefined,
   });
+  const artifactIds = await uploadStagedPhotos(task.id, input.photos ?? []);
   return client.runTaskInCloud(task.id, undefined, {
     pendingUserMessage: input.prompt,
+    pendingUserArtifactIds: artifactIds.length ? artifactIds : undefined,
     ...currentRunConfig(),
   });
 }

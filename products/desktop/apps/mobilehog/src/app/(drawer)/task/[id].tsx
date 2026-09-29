@@ -15,6 +15,7 @@ import {
   type TranscriptRow,
   TranscriptRowView,
 } from "@/components/Transcript";
+import type { Photo } from "@/lib/attachments";
 import { useComposer } from "@/lib/composer";
 import { usePrefs } from "@/lib/prefs";
 import { useTask } from "@/lib/queries";
@@ -80,12 +81,12 @@ export default function TaskScreen() {
     [session, workingLabel],
   );
 
-  const send = async (text: string): Promise<void> => {
+  const send = async (text: string, photos: Photo[]): Promise<void> => {
     // The bubble lays out before the request resolves, so pick the id first.
     const blockId = `local-${Date.now()}`;
     pendingScrollTo.current = blockId;
     setPinRoom(true);
-    await sendPrompt(id, text, blockId);
+    await sendPrompt(id, text, blockId, photos);
   };
 
   // Once the sent bubble is a row, pin it near the top with a sliver of the

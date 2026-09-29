@@ -10,6 +10,7 @@ import { ChatHeader } from "@/components/ChatHeader";
 import { Composer } from "@/components/Composer";
 import { DrawerScene } from "@/components/DrawerScene";
 import { Logomark } from "@/components/Icons";
+import type { Photo } from "@/lib/attachments";
 import { sessionIdentity, useAuth } from "@/lib/auth";
 import {
   createAndRunTask,
@@ -39,16 +40,22 @@ export default function NewChatScreen() {
 
   // Open the chat immediately with the message in it; the task and its run
   // are created behind that screen, then the chat is re-keyed to the real id.
-  const send = async (text: string): Promise<void> => {
+  const send = async (text: string, photos: Photo[]): Promise<void> => {
     const identity = sessionIdentity();
     const tempId = `new-${Date.now()}`;
     const { startPending, adopt, failPending } = useSessions.getState();
-    startPending(tempId, text, `local-${Date.now()}`);
+    startPending(
+      tempId,
+      text,
+      `local-${Date.now()}`,
+      photos.length ? photos.map((photo) => photo.uri) : undefined,
+    );
     router.replace({ pathname: "/(drawer)/task/[id]", params: { id: tempId } });
     try {
       const task = await createAndRunTask({
         prompt: text,
         repository: repository.data ?? null,
+        photos,
       });
       if (sessionIdentity() !== identity) return;
       adopt(tempId, task);

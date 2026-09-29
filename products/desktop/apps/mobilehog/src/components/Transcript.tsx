@@ -2,6 +2,7 @@ import { memo, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   type ColorValue,
+  Image,
   Pressable,
   StyleSheet,
   Text,
@@ -189,11 +190,20 @@ function BlockView({ block }: { block: Block }) {
     case "user":
       return (
         <View style={styles.userRow}>
-          <View style={styles.userBubble}>
-            <Text style={styles.userText} selectable>
-              {block.text}
-            </Text>
-          </View>
+          {block.images?.length ? (
+            <View style={styles.userImages}>
+              {block.images.map((uri) => (
+                <Image key={uri} source={{ uri }} style={styles.userImage} />
+              ))}
+            </View>
+          ) : null}
+          {block.text ? (
+            <View style={styles.userBubble}>
+              <Text style={styles.userText} selectable>
+                {block.text}
+              </Text>
+            </View>
+          ) : null}
         </View>
       );
     case "agent":
@@ -531,10 +541,23 @@ function PermissionCard({
 
 const styles = StyleSheet.create({
   userRow: {
-    flexDirection: "row",
-    justifyContent: "flex-end",
+    alignItems: "flex-end",
     marginTop: 12,
     marginBottom: 6,
+  },
+  userImages: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "flex-end",
+    gap: 6,
+    maxWidth: "84%",
+    marginBottom: 6,
+  },
+  userImage: {
+    width: 120,
+    height: 120,
+    borderRadius: 16,
+    backgroundColor: colors.fill,
   },
   userBubble: {
     maxWidth: "84%",

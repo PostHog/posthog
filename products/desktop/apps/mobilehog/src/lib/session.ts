@@ -6,6 +6,7 @@ import type {
 } from "@posthog/shared";
 import * as Haptics from "expo-haptics";
 import { create } from "zustand";
+import { type Photo, uploadRunPhotos } from "@/lib/attachments";
 import { loadTranscript, saveTranscript } from "@/lib/cache";
 import { getClient } from "@/lib/client";
 import { currentRunConfig } from "@/lib/composer";
@@ -50,7 +51,12 @@ interface SessionState {
   reset: () => void;
   // A chat that exists on screen before its task does. `adopt` moves it under
   // the real task id once the run is created; `fail` leaves the prompt with an error.
-  startPending: (tempId: string, prompt: string, localId: string) => void;
+  startPending: (
+    tempId: string,
+    prompt: string,
+    localId: string,
+    images?: string[],
+  ) => void;
   adopt: (tempId: string, task: Task) => void;
   failPending: (tempId: string, message: string) => void;
   connect: (task: Task) => void;
@@ -60,6 +66,7 @@ interface SessionState {
     taskId: string,
     text: string,
     localId?: string,
+    photos?: Photo[],
   ) => Promise<string | null>;
   cancelTurn: (taskId: string) => Promise<void>;
   stopRun: (taskId: string) => Promise<void>;
@@ -285,13 +292,13 @@ export const useSessions = create<SessionState>((set, get) => {
       set({ sessions: {} });
     },
 
-    startPending: (tempId, prompt, localId) => {
+    startPending: (tempId, prompt, localId, images) => {
       set((state) => ({
         sessions: {
           ...state.sessions,
           [tempId]: {
             ...emptySession(tempId, ""),
-            blocks: [{ kind: "user", id: localId, text: prompt }],
+            blocks: [{ kind: "user", id: localId, text: prompt, images }],
             runStatus: "queued",
             turnActive: true,
             localEchoes: new Set([prompt]),
@@ -352,7 +359,12 @@ export const useSessions = create<SessionState>((set, get) => {
       for (const handle of handles.values()) handle.reconnectIfDisconnected();
     },
 
-    sendPrompt: async (taskId, text, localId = `local-${Date.now()}`) => {
+    sendPrompt: async (
+      taskId,
+      text,
+      localId = `local-${Date.now()}`,
+      photos = [],
+    ) => {
       const currentGeneration = generation;
       const session = get().sessions[taskId];
       if (!session) return null;
@@ -361,7 +373,12 @@ export const useSessions = create<SessionState>((set, get) => {
       patch(taskId, (s) => {
         const blocks = [...s.blocks];
         closeOpenAgent(blocks);
-        blocks.push({ kind: "user", id: localId, text });
+        blocks.push({
+          kind: "user",
+          id: localId,
+          text,
+          images: photos.length ? photos.map((photo) => photo.uri) : undefined,
+        });
         return {
           blocks,
           turnActive: true,
@@ -373,11 +390,18 @@ export const useSessions = create<SessionState>((set, get) => {
       });
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
       try {
+        const artifactIds = await uploadRunPhotos(
+          taskId,
+          session.runId,
+          photos,
+        );
         await getClient().sendCloudRunCommand(
           taskId,
           session.runId,
           "user_message",
-          { content: text },
+          artifactIds.length
+            ? { content: text, artifact_ids: artifactIds }
+            : { content: text },
         );
       } catch (error) {
         if (generation !== currentGeneration) return null;

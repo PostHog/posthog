@@ -10,7 +10,8 @@ export interface PlanEntry {
 }
 
 export type Block =
-  | { kind: "user"; id: string; text: string }
+  // images: local photo URIs, shown until the chat reloads.
+  | { kind: "user"; id: string; text: string; images?: string[] }
   | { kind: "agent"; id: string; text: string; complete: boolean }
   | { kind: "thought"; id: string; text: string; at: number }
   | {

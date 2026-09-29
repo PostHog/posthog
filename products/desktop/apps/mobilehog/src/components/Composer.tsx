@@ -1,32 +1,43 @@
-import { Host, Image } from "@expo/ui/swift-ui";
+import { Host, Image as SymbolImage } from "@expo/ui/swift-ui";
 import { getReasoningEffortOptions } from "@posthog/shared";
 import { useRouter } from "expo-router";
 import { useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   type ColorValue,
+  Image,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from "react-native";
+import Animated, {
+  LinearTransition,
+  ZoomIn,
+  ZoomOut,
+} from "react-native-reanimated";
 import { Glass } from "@/components/Glass";
 import { ArrowUpIcon, StopIcon } from "@/components/Icons";
+import { MAX_PHOTOS, type Photo, pickPhotos } from "@/lib/attachments";
 import { useComposer } from "@/lib/composer";
 import { shortModelName } from "@/lib/models";
 import { colors, fonts, radius } from "@/lib/theme";
 
 function Glyph({
   name,
+  size = 17,
   color = colors.ink,
 }: {
-  name: "plus" | "mic";
+  name: "plus" | "mic" | "xmark";
+  size?: number;
   color?: ColorValue;
 }) {
   return (
     <Host matchContents>
-      <Image systemName={name} size={17} color={color} />
+      <SymbolImage systemName={name} size={size} color={color} />
     </Host>
   );
 }
@@ -35,7 +46,7 @@ interface ComposerProps {
   placeholder: string;
   // Shown as a second pill when provided (null = no repository chosen).
   repository?: string | null;
-  onSend: (text: string) => void | Promise<void>;
+  onSend: (text: string, photos: Photo[]) => void | Promise<void>;
   onStop?: () => void;
   busy?: boolean;
   sending?: boolean;
@@ -53,21 +64,63 @@ export function Composer({
 }: ComposerProps) {
   const router = useRouter();
   const [text, setText] = useState("");
+  const [photos, setPhotos] = useState<Photo[]>([]);
   const { model, adapter, reasoning } = useComposer();
   const effort = getReasoningEffortOptions(adapter, model)?.find(
     (option) => option.value === reasoning,
   )?.name;
-  const canSend = text.trim().length > 0 && !sending;
+  const canSend = (text.trim().length > 0 || photos.length > 0) && !sending;
+
+  const attach = async (): Promise<void> => {
+    try {
+      const picked = await pickPhotos(MAX_PHOTOS - photos.length);
+      if (picked.length) setPhotos((current) => [...current, ...picked]);
+    } catch {
+      Alert.alert("Could not open photos", "Check photo access in Settings.");
+    }
+  };
 
   const submit = async (): Promise<void> => {
     const value = text.trim();
-    if (!value || sending) return;
+    if ((!value && !photos.length) || sending) return;
+    const attached = photos;
     setText("");
-    await onSend(value);
+    setPhotos([]);
+    await onSend(value, attached);
   };
 
   return (
     <Glass style={styles.shell}>
+      {photos.length ? (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.thumbs}
+        >
+          {photos.map((photo) => (
+            <Animated.View
+              key={photo.id}
+              entering={ZoomIn.duration(180)}
+              exiting={ZoomOut.duration(140)}
+              layout={LinearTransition.duration(180)}
+            >
+              <Image source={{ uri: photo.uri }} style={styles.thumb} />
+              <Pressable
+                accessibilityLabel="Remove photo"
+                hitSlop={8}
+                onPress={() =>
+                  setPhotos((current) =>
+                    current.filter((item) => item.id !== photo.id),
+                  )
+                }
+                style={styles.thumbRemove}
+              >
+                <Glyph name="xmark" size={10} color={colors.darkText} />
+              </Pressable>
+            </Animated.View>
+          ))}
+        </ScrollView>
+      ) : null}
       <TextInput
         value={text}
         onChangeText={setText}
@@ -79,7 +132,9 @@ export function Composer({
       />
       <View style={styles.row}>
         <Pressable
-          accessibilityLabel="Add attachment"
+          accessibilityLabel="Add photos"
+          onPress={attach}
+          disabled={photos.length >= MAX_PHOTOS}
           style={({ pressed }) => [styles.circle, pressed && { opacity: 0.6 }]}
         >
           <Glyph name="plus" />
@@ -147,7 +202,27 @@ export function Composer({
 
 const CONTROL = 36;
 
+const THUMB = 64;
+
 const styles = StyleSheet.create({
+  thumbs: { gap: 8, paddingTop: 2, paddingRight: 8 },
+  thumb: {
+    width: THUMB,
+    height: THUMB,
+    borderRadius: 14,
+    backgroundColor: colors.fill,
+  },
+  thumbRemove: {
+    position: "absolute",
+    top: 4,
+    right: 4,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: "rgba(21, 21, 21, 0.6)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
   shell: {
     borderRadius: 28,
     paddingHorizontal: 16,
