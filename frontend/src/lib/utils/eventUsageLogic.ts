@@ -1261,6 +1261,9 @@ export interface eventUsageLogicActions {
     reportExperimentWizardAskAiClicked: (currentStep: string) => {
         currentStep: string
     }
+    reportExperimentsListAiBadgeClicked: () => {
+        value: true
+    }
     reportFeatureFlagBulkCopy: (
         flagCount: number,
         projectCount: number,
@@ -1913,6 +1916,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportInsightDraftDiscarded: (draftAgeSeconds: number) => ({ draftAgeSeconds }),
         reportExperimentWizardStarted: true,
         reportExperimentWizardAskAiClicked: (currentStep: string) => ({ currentStep }),
+        reportExperimentsListAiBadgeClicked: true,
         reportExperimentViewed: (experiment: Experiment, duration: number | null) => ({ experiment, duration }),
         reportExperimentMetricBreakdownAdded: (
             experiment: Experiment,
@@ -2550,6 +2554,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportExperimentWizardAskAiClicked: ({ currentStep }) => {
             posthog.capture('experiment wizard ask ai clicked', { current_step: currentStep })
+        },
+        reportExperimentsListAiBadgeClicked: () => {
+            // The PostHog AI badge on the experiments list's "New experiment" button
+            posthog.capture('experiments list ai badge clicked')
         },
         reportExperimentViewed: ({ experiment, duration }) => {
             posthog.capture('experiment viewed', {
