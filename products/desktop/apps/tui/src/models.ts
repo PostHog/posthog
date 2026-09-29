@@ -1,4 +1,7 @@
-import { RemotePiRpcClient } from "@posthog/agent/pi/remote-rpc-client";
+import {
+  type PiRemoteRpcClient,
+  RemotePiRpcClient,
+} from "@posthog/agent/pi/remote-rpc-client";
 import type { Sheet } from "./sheet";
 
 export interface ModelChoice {
@@ -60,6 +63,16 @@ export function piControl(
       return response.result;
     },
   });
+  return controlOf(client);
+}
+
+// The same model, command and stop controls over any pi RPC client, cloud or local.
+export function controlOf(
+  client: Pick<
+    PiRemoteRpcClient,
+    "getAvailableModels" | "getState" | "setModel" | "getCommands" | "abort"
+  >,
+): PiControl {
   return {
     models: async () => {
       const [available, state] = await Promise.all([
