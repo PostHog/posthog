@@ -13,13 +13,15 @@ domain sockets.
 This uses granian's private server API. bin/test/test_granian_shared_socket.py
 checks the behaviour on Linux, so a granian upgrade that breaks it fails CI.
 
-bin/docker-server runs this instead of `granian` when
-POSTHOG_GRANIAN_SHARED_SOCKET=true. Every GRANIAN_* setting still applies.
+bin/docker-server runs this instead of bin/granian_fork.py when
+POSTHOG_GRANIAN_SHARED_SOCKET=true. Every GRANIAN_* setting still applies, and
+workers are forked the same way.
 """
 
 import socket
 
 import granian.cli
+import granian_fork
 from granian.net import SocketSpec
 from granian.server import MPServer
 
@@ -45,8 +47,8 @@ def main() -> None:
     # Fail at boot, not silently, if granian stops building its servers this way.
     if granian.cli.Server is not MPServer or not hasattr(MPServer, "_init_shared_socket"):
         raise RuntimeError("granian internals changed, the shared socket override no longer applies")
-    granian.cli.Server = SharedSocketServer
-    granian.cli.entrypoint()
+    granian.cli.Server = SharedSocketServer  # ty: ignore[invalid-assignment]
+    granian_fork.main()
 
 
 if __name__ == "__main__":

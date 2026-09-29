@@ -16,6 +16,7 @@ import unittest
 LAUNCHER = Path(__file__).resolve().parents[1] / "granian_shared_socket.py"
 
 APP = """
+import multiprocessing
 import os
 import time
 
@@ -24,6 +25,9 @@ def app(environ, start_response):
     if environ["PATH_INFO"] == "/slow":
         open(os.environ["SLOW_MARKER"], "w").close()
         time.sleep(10)
+    if environ["PATH_INFO"] == "/forked" and multiprocessing.get_start_method() != "fork":
+        start_response("500 Internal Server Error", [("Content-Type", "text/plain")])
+        return [b"not forked"]
     start_response("200 OK", [("Content-Type", "text/plain")])
     return [b"ok"]
 """
@@ -106,6 +110,9 @@ class TestGranianSharedSocket(unittest.TestCase):
 
     def test_workers_share_one_listen_socket(self) -> None:
         self.assertEqual(count_listen_sockets(self.port), 1)
+
+    def test_workers_are_forked(self) -> None:
+        self.assertEqual(get(self.port, "/forked", timeout=2), "200")
 
     def test_busy_worker_does_not_hold_new_connections(self) -> None:
         threading.Thread(target=get, args=(self.port, "/slow", 30), daemon=True).start()

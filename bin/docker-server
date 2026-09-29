@@ -56,4 +56,4 @@ if [ "${POSTHOG_GRANIAN_SHARED_SOCKET:-false}" = "true" ]; then
     exec $DROP_PRIVILEGES python ./bin/granian_shared_socket.py "$APP_TARGET"
 fi
 
-exec $DROP_PRIVILEGES granian "$APP_TARGET"
+exec $DROP_PRIVILEGES python ./bin/granian_fork.py "$APP_TARGET"
