@@ -1142,7 +1142,7 @@ describe('runStreamLogic', () => {
     })
 
     describe('pushHumanMessage', () => {
-        it('appends a human_message item ordered before subsequently ingested assistant frames', async () => {
+        it('appends a timestamped human_message item ordered before subsequently ingested assistant frames', async () => {
             await expectLogic(logic, () => {
                 logic.actions.pushHumanMessage('hello agent')
                 // The agent takes the send up and echoes it, which is what places the message.
@@ -1159,6 +1159,7 @@ describe('runStreamLogic', () => {
                 type: 'human_message',
                 text: 'hello agent',
                 complete: true,
+                startedAt: expect.any(Number),
             })
             expect(logic.values.threadItems[1].type).toEqual('assistant_message')
         })
