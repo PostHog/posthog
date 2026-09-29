@@ -4,9 +4,9 @@ sidebar: Docs
 showTitle: true
 ---
 
-PostHog accepts CloudWatch logs through an [Amazon Data Firehose](https://docs.aws.amazon.com/firehose/latest/dev/what-is-this-service.html) HTTP endpoint, so you don't have to run a forwarder. That covers Lambda, RDS, ECS, API Gateway, VPC flow logs, and anything your own code sends to a log group.
+PostHog has an HTTP endpoint that accepts deliveries from an [Amazon Data Firehose](https://docs.aws.amazon.com/firehose/latest/dev/what-is-this-service.html) stream, so you don't have to run a forwarder. A CloudWatch subscription filter copies a log group into the stream, and the stream posts batches to PostHog. Everything runs in your AWS account.
 
-A CloudWatch subscription filter copies each log group into a Firehose stream, and the stream posts batches to PostHog. Everything runs in your AWS account.
+This works for any CloudWatch log group: Lambda, RDS, ECS, API Gateway, VPC flow logs, and anything your own code writes.
 
 ## Before you start
 
