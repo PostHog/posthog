@@ -24,7 +24,7 @@ from products.signals.backend.artefact_schemas import (
     PriorityAssessment,
     SignalFinding,
 )
-from products.signals.backend.enums import REPORT_LINK_KIND_LABELS, ReportLinkKind
+from products.signals.backend.enums import ReportLinkKind
 
 # Dependency-light on purpose (see its module docstring): safe to import here without dragging
 # `posthog.schema` onto the research path.
@@ -649,7 +649,7 @@ def _render_linked_report_context(linked: list[LinkedReportContext]) -> str:
         group = [entry for entry in linked if entry.kind == kind]
         if not group:
             continue
-        heading = f"### {REPORT_LINK_KIND_LABELS[kind]}\n\n{_LINK_KIND_PROTOCOL[kind]}\n"
+        heading = f"### {kind.label}\n\n{_LINK_KIND_PROTOCOL[kind]}\n"
         group_parts: list[str] = []
         for entry in group:
             key = (kind, entry.report_id)

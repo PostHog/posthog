@@ -2,6 +2,8 @@
 
 from enum import StrEnum
 
+from posthog.enums import LabeledStrEnum
+
 
 class RunStatus(StrEnum):
     """Status of a visual review run."""
@@ -91,15 +93,16 @@ class ChangeKind(StrEnum):
     LAYOUT = "layout"
 
 
-class ShiftBandKind(StrEnum):
+class ShiftBandKind(LabeledStrEnum):
     """Whether a shift band marks rows the current image gained or lost.
 
-    Named explicitly in ENUM_NAME_OVERRIDES (ShiftBandKindEnum) so the OpenAPI
-    component does not collide with the other `kind` fields across products.
+    The OpenAPI component name (ShiftBandKindEnum) derives from this class, so it
+    does not collide with the other `kind` fields across products. Each label
+    repeats its value, because the API documents these choices as plain values.
     """
 
-    INSERTED = "inserted"
-    DELETED = "deleted"
+    INSERTED = "inserted", "inserted"
+    DELETED = "deleted", "deleted"
 
 
 class FlakinessState(StrEnum):

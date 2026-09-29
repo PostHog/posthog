@@ -39,7 +39,7 @@ from products.signals.backend.artefact_schemas import (
     ActionabilityChoice,
     Priority,
 )
-from products.signals.backend.enums import report_link_kind_choices
+from products.signals.backend.enums import ReportLinkKind
 from products.signals.backend.models import SignalReportCheck, SignalScoutConfig, SignalScoutEmission
 from products.signals.backend.report_charts import MAX_REPORT_CHARTS
 from products.signals.backend.report_metrics import MAX_REPORT_METRICS
@@ -1475,7 +1475,7 @@ class ReportLinkWriteSerializer(serializers.Serializer):
     """One typed, directed link to write on the report being emitted or edited."""
 
     kind = serializers.ChoiceField(
-        choices=report_link_kind_choices(),
+        choices=ReportLinkKind.choices,
         help_text=(
             "How this report relates to `report_id`. `depends_on` for work that cannot land "
             "until the other report's fix does, `part_of` for one piece of a larger report, "
