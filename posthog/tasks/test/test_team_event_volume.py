@@ -15,8 +15,8 @@ class TestUpdateTeamEventVolumes(ClickhouseTestMixin, BaseTest):
         TeamEventVolume.objects.unscoped().create(
             team=quiet, events_last_year=5, computed_at=timezone.now() - timedelta(days=1)
         )
-        _create_event(team=self.team, event="e", distinct_id="a")
-        _create_event(team=self.team, event="e", distinct_id="a")
+        _create_event(team=self.team, event="e", distinct_id="a", timestamp=timezone.now() - timedelta(days=1))
+        _create_event(team=self.team, event="e", distinct_id="a", timestamp=timezone.now() - timedelta(days=200))
         _create_event(team=self.team, event="e", distinct_id="a", timestamp=timezone.now() - timedelta(days=400))
         _create_event(team=self.team, event="e", distinct_id="a", timestamp=timezone.now() + timedelta(days=30))
         flush_persons_and_events()
