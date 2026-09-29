@@ -86,16 +86,38 @@ class TestMotionSource:
         assert rest_api_resource.call_args.kwargs["initial_paginator_state"] is None
 
     @pytest.mark.parametrize(
-        "state,expected_saves",
-        [({"cursor": "next-page"}, [mock.call(MotionResumeConfig(cursor="next-page"))]), ({}, []), (None, [])],
+        "state,expected_saves,expected_clears",
+        [
+            ({"cursor": "next-page"}, [mock.call(MotionResumeConfig(cursor="next-page"))], 0),
+            ({}, [], 0),
+            (None, [], 1),
+        ],
     )
-    def test_only_a_real_cursor_is_checkpointed(self, state: Optional[dict[str, Any]], expected_saves: list) -> None:
+    def test_checkpoint_lifecycle(
+        self,
+        state: Optional[dict[str, Any]],
+        expected_saves: list,
+        expected_clears: int,
+    ) -> None:
         manager = _manager()
         with mock.patch(f"{_MODULE}.rest_api_resource") as rest_api_resource:
             motion_source("key", "tasks", 1, "job", manager)
 
         rest_api_resource.call_args.kwargs["resume_hook"](state)
         assert manager.save_state.call_args_list == expected_saves
+        assert manager.clear_state.call_count == expected_clears
+
+    def test_returns_the_pipeline_source_contract(self) -> None:
+        resource = mock.MagicMock()
+        resource.column_hints = {"id": "text"}
+        with mock.patch(f"{_MODULE}.rest_api_resource", return_value=resource):
+            response = motion_source("key", "projects", 1, "job", _manager())
+
+        assert response.name == "projects"
+        assert response.items() is resource
+        assert response.primary_keys == ["id"]
+        assert response.partition_keys == ["createdTime"]
+        assert response.column_hints == {"id": "text"}
 
 
 class TestMotionCredentials:

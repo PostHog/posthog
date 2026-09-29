@@ -12,6 +12,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.motion.settings import MOTION_ENDPOINTS
 
 MOTION_BASE_URL = "https://api.usemotion.com"
@@ -46,7 +47,8 @@ def motion_source(
     job_id: str,
     resumable_source_manager: ResumableSourceManager[MotionResumeConfig],
     db_incremental_field_last_value: Optional[Any] = None,
-):
+) -> SourceResponse:
+    endpoint_config = MOTION_ENDPOINTS[endpoint]
     config: RESTAPIConfig = {
         "client": {
             "base_url": MOTION_BASE_URL,
@@ -67,14 +69,26 @@ def motion_source(
     def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
         if state and state.get("cursor"):
             resumable_source_manager.save_state(MotionResumeConfig(cursor=str(state["cursor"])))
+        elif state is None:
+            resumable_source_manager.clear_state()
 
-    return rest_api_resource(
+    resource = rest_api_resource(
         config,
         team_id,
         job_id,
         db_incremental_field_last_value,
         resume_hook=save_checkpoint,
         initial_paginator_state=initial_paginator_state,
+    )
+
+    return SourceResponse(
+        name=endpoint,
+        items=lambda: resource,
+        primary_keys=[endpoint_config.primary_key],
+        partition_mode="datetime" if endpoint_config.partition_key else None,
+        partition_format="month" if endpoint_config.partition_key else None,
+        partition_keys=[endpoint_config.partition_key] if endpoint_config.partition_key else None,
+        column_hints=resource.column_hints,
     )
 
 
