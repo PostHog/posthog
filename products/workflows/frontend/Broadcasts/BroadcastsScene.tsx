@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { LemonButton } from '@posthog/lemon-ui'
@@ -18,6 +18,7 @@ import { MessagingTabActions } from '../MessagingTabActions'
 import { MESSAGING_NAV_TAB_KEYS, MessagingNavTabKey, messagingNavTabs } from '../messagingTabs'
 import { BroadcastsFeaturePreview } from './BroadcastsFeaturePreview'
 import { BroadcastsTable } from './BroadcastsTable'
+import { newBroadcastAgentLogic } from './newBroadcastAgentLogic'
 
 export const scene: SceneExport = {
     component: BroadcastsScene,
@@ -26,6 +27,7 @@ export const scene: SceneExport = {
 
 export function BroadcastsScene(): JSX.Element {
     const { location } = useValues(router)
+    const { startNewBroadcast } = useActions(newBroadcastAgentLogic)
     // The tab routes are literal paths, so the tab is the last path segment rather than a route param.
     const lastSegment = location.pathname.split('/').pop() as MessagingNavTabKey
     const currentTab: MessagingNavTabKey | 'broadcasts' = MESSAGING_NAV_TAB_KEYS.includes(lastSegment)
@@ -44,7 +46,12 @@ export function BroadcastsScene(): JSX.Element {
                             resourceType={AccessControlResourceType.Workflow}
                             minAccessLevel={AccessControlLevel.Editor}
                         >
-                            <LemonButton data-attr="new-broadcast" to={urls.broadcastNew()} type="primary" size="small">
+                            <LemonButton
+                                data-attr="new-broadcast"
+                                onClick={startNewBroadcast}
+                                type="primary"
+                                size="small"
+                            >
                                 New broadcast
                             </LemonButton>
                         </AccessControlAction>
