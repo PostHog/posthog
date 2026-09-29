@@ -211,7 +211,11 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                         <section className="border rounded p-4 bg-surface-primary flex flex-col gap-4">
                             {/* Only a finished scan answered the prompt, so the question shows beside its answer. */}
                             {prompt && observation.status === 'succeeded' && (
-                                <ObservationPrompt prompt={prompt} question={observation.prompt_question} />
+                                <ObservationPrompt
+                                    prompt={prompt}
+                                    question={observation.prompt_question}
+                                    size="medium"
+                                />
                             )}
 
                             <ObservationUnsuccessfulScan
@@ -226,7 +230,7 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                                     <div className="flex flex-col gap-2">
                                         <ObservationHeadline observation={observation} onSeek={seekEmbeddedPlayer} />
                                         {scannerType !== 'summarizer' && reasoning && (
-                                            <LabeledRow label="Reasoning">
+                                            <LabeledRow label="Reasoning" size="medium">
                                                 <ObservationReasoning
                                                     reasoning={reasoning}
                                                     segments={reasoningSegments}

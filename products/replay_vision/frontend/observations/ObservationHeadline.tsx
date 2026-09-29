@@ -1,4 +1,4 @@
-import { IconSparkles } from '@posthog/icons'
+import { IconCheckCircle, IconQuestion, IconSparkles, IconXCircle } from '@posthog/icons'
 import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { LabeledRow } from '../components/LabeledRow'
@@ -17,11 +17,9 @@ import {
     readVerdict,
 } from '../utils/observation'
 
-// The verdict and the categories share one shape, so they read as one family; only a verdict carries color.
-// 1.5px sits between the hairline of a tag and the heavy 2px outline these used to have.
-const PILL = 'inline-flex items-center gap-1 rounded-md border-[1.5px] px-2.5 py-0.5'
-
-const CATEGORY_CLASS = 'text-sm font-semibold bg-surface-secondary border-primary text-default'
+// Filled, so each category stays visible in dark mode, where a tag's outline alone fades into the card.
+const CATEGORY_CLASS =
+    'inline-flex items-center gap-1 rounded-md border-[1.5px] border-primary bg-surface-secondary px-2.5 py-0.5 text-sm font-semibold text-default'
 
 // Only the chosen categories show here, so the classifier's label names them as assigned.
 const HEADLINE_LABEL: Record<ScannerTypeEnumApi, string> = {
@@ -32,11 +30,10 @@ const HEADLINE_LABEL: Record<ScannerTypeEnumApi, string> = {
 }
 
 // The `--success`/`--danger` family LemonTag uses. The `text-success` utility maps to a different, brighter green.
-// Dark mode has no light enough shade of either, so it deepens the tint and keeps the text white.
-const VERDICT_CLASS: Record<MonitorVerdict, string> = {
-    yes: 'bg-success-highlight border-success-dark/30 text-success-dark dark:bg-success/30 dark:border-success/70 dark:text-white',
-    no: 'bg-danger-highlight border-danger-dark/30 text-danger-dark dark:bg-danger/30 dark:border-danger/70 dark:text-white',
-    inconclusive: 'bg-surface-secondary border-primary text-secondary dark:text-default',
+const VERDICT_STYLE: Record<MonitorVerdict, { icon: typeof IconCheckCircle; className: string }> = {
+    yes: { icon: IconCheckCircle, className: 'text-success-dark dark:text-success-light' },
+    no: { icon: IconXCircle, className: 'text-danger-dark dark:text-danger-light' },
+    inconclusive: { icon: IconQuestion, className: 'text-secondary dark:text-default' },
 }
 
 function scorerScale(observation: ReplayObservationApi): { min: number; max: number | null; label: string | null } {
@@ -102,15 +99,18 @@ function HeadlineValue({
 }): JSX.Element {
     if (scannerType === 'monitor') {
         const verdict = readVerdict(observation)
-        return verdict ? (
+        if (!verdict) {
+            return <span className="text-xl font-bold text-muted">—</span>
+        }
+        const { icon: Icon, className } = VERDICT_STYLE[verdict]
+        return (
             <span
-                className={`self-start text-xl font-bold ${PILL} ${VERDICT_CLASS[verdict]}`}
+                className={`inline-flex items-center gap-1.5 text-xl font-bold ${className}`}
                 data-attr="vision-observation-verdict"
             >
+                <Icon className="text-2xl" />
                 {VERDICT_LABEL[verdict]}
             </span>
-        ) : (
-            <span className="text-xl font-bold text-muted">—</span>
         )
     }
 
@@ -134,13 +134,13 @@ function HeadlineValue({
     if (scannerType === 'classifier') {
         const tags = readFixedTags(observation)
         const freeform = readFreeformTags(observation)
+        if (tags.length === 0 && freeform.length === 0) {
+            return <span className="text-lg font-semibold text-muted">No categories</span>
+        }
         return (
-            <div className="flex flex-wrap items-center gap-2">
-                {tags.length === 0 && freeform.length === 0 && (
-                    <span className="text-lg font-semibold text-muted">No categories</span>
-                )}
+            <div className="flex flex-wrap items-center gap-1.5">
                 {tags.map((tag) => (
-                    <span key={`tag-${tag}`} className={`${CATEGORY_CLASS} ${PILL}`}>
+                    <span key={`tag-${tag}`} className={CATEGORY_CLASS}>
                         {tag}
                     </span>
                 ))}
@@ -149,7 +149,7 @@ function HeadlineValue({
                         key={`freeform-${tag}`}
                         title="Freeform category: the model came up with this one because nothing in your list matched this part of the session."
                     >
-                        <span className={`${CATEGORY_CLASS} ${PILL} cursor-help`}>
+                        <span className={`${CATEGORY_CLASS} cursor-help`}>
                             <IconSparkles className="text-sm" />
                             {tag}
                         </span>
@@ -186,6 +186,7 @@ export function ObservationHeadline({
         // The badge sits on the heading's line, so it has the same place for every scanner type.
         <LabeledRow
             label={headlineLabel(observation, scannerType)}
+            size="medium"
             aside={<ConfidenceBadge observation={observation} />}
         >
             <HeadlineValue observation={observation} scannerType={scannerType} onSeek={onSeek} />

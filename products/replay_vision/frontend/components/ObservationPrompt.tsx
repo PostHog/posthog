@@ -6,11 +6,20 @@ import { FullPromptModal } from '../replay_scanners/components/FullPromptModal'
 import { LabeledRow } from './LabeledRow'
 
 /** The question the scan answered, with the full prompt a click away from the heading. */
-export function ObservationPrompt({ prompt, question }: { prompt: string; question: string | null }): JSX.Element {
+export function ObservationPrompt({
+    prompt,
+    question,
+    size,
+}: {
+    prompt: string
+    question: string | null
+    size?: 'small' | 'medium'
+}): JSX.Element {
     const [open, setOpen] = useState(false)
     return (
         <LabeledRow
             label={question ? 'Question' : 'Prompt'}
+            size={size}
             aside={
                 <Link className="text-xs" onClick={() => setOpen(true)} data-attr="vision-observation-show-prompt">
                     Show full prompt
