@@ -35,12 +35,15 @@ class TestMotionResources:
     @pytest.mark.parametrize("endpoint", sorted(MOTION_ENDPOINTS))
     def test_rows_are_selected_from_the_endpoints_own_envelope(self, endpoint: str) -> None:
         # Motion wraps rows in a per-resource key next to `meta`, so a wrong selector yields nothing.
-        resource = get_resource(endpoint)
-        assert resource["endpoint"]["data_selector"] == f"{MOTION_ENDPOINTS[endpoint].data_key}[*]"
+        resource_endpoint = get_resource(endpoint)["endpoint"]
+        assert resource_endpoint is not None and not isinstance(resource_endpoint, str)
+        assert resource_endpoint["data_selector"] == f"{MOTION_ENDPOINTS[endpoint].data_key}[*]"
 
     def test_tasks_ask_for_every_status(self) -> None:
         # Without this param Motion omits completed work, which would silently truncate the table.
-        assert get_resource("tasks")["endpoint"]["params"] == {"includeAllStatuses": "true"}
+        resource_endpoint = get_resource("tasks")["endpoint"]
+        assert resource_endpoint is not None and not isinstance(resource_endpoint, str)
+        assert resource_endpoint["params"] == {"includeAllStatuses": "true"}
 
 
 class TestMotionSource:
@@ -52,6 +55,12 @@ class TestMotionSource:
         assert isinstance(paginator, JSONResponseCursorPaginator)
         assert paginator.cursor_path == "meta.nextCursor"
         assert paginator.cursor_param == "cursor"
+
+    def test_requests_have_a_timeout(self) -> None:
+        with mock.patch(f"{_MODULE}.rest_api_resource") as rest_api_resource:
+            motion_source("key", "tasks", 1, "job", _manager())
+
+        assert rest_api_resource.call_args.args[0]["client"]["request_timeout"] == 30
 
     def test_the_key_rides_the_header_motion_expects(self) -> None:
         with mock.patch(f"{_MODULE}.rest_api_resource") as rest_api_resource:

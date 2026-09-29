@@ -1,5 +1,6 @@
-import dataclasses
 from typing import Any, Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
@@ -17,7 +18,7 @@ MOTION_BASE_URL = "https://api.usemotion.com"
 REQUEST_TIMEOUT_SECONDS = 30
 
 
-@dataclasses.dataclass
+@frozen
 class MotionResumeConfig:
     cursor: str
 
@@ -51,6 +52,7 @@ def motion_source(
             "base_url": MOTION_BASE_URL,
             "auth": {"type": "api_key", "api_key": api_key, "name": "X-API-Key", "location": "header"},
             "paginator": JSONResponseCursorPaginator(cursor_path="meta.nextCursor", cursor_param="cursor"),
+            "request_timeout": REQUEST_TIMEOUT_SECONDS,
         },
         "resource_defaults": {"write_disposition": "replace"},
         "resources": [get_resource(endpoint)],
