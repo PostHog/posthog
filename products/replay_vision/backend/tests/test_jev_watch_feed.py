@@ -36,7 +36,7 @@ from products.replay_vision.backend.models.replay_observation import (
     ReplayObservation,
 )
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
-from products.replay_vision.backend.temporal.jev_watch_rank.activities import _judge_watch_ranks
+from products.replay_vision.backend.temporal.jev_watch_rank.activities import _judge_watch_ranks, _teams_with_scanners
 from products.replay_vision.backend.temporal.jev_watch_rank.constants import MAX_JUDGE_ATTEMPTS
 from products.replay_vision.backend.temporal.jev_watch_rank.types import JevWatchRankSweepInputs
 from products.replay_vision.backend.tests.helpers import snapshot_for as _snapshot_for
@@ -360,7 +360,11 @@ class TestJevWatchRankSweep(BaseTest):
         assert result.teams_enrolled == 0
         assert load_watch_ranks(self.team.id, [scanner.id]) == {}
 
-        with patch(flag, return_value="jev-shadow"), patch(region, return_value=False), patch(_API) as api:
+        with (
+            patch(flag, side_effect=self._flag_arm("jev-shadow")),
+            patch(region, return_value=False),
+            patch(_API) as api,
+        ):
             result = async_to_sync(_judge_watch_ranks)(JevWatchRankSweepInputs())
         # A region without the decision service does no work at all.
         api.decide_when_available.assert_not_called()
@@ -368,7 +372,11 @@ class TestJevWatchRankSweep(BaseTest):
 
         self.organization.is_ai_data_processing_approved = False
         self.organization.save()
-        with patch(flag, return_value="jev-shadow"), patch(region, return_value=True), patch(_API) as api:
+        with (
+            patch(flag, side_effect=self._flag_arm("jev-shadow")),
+            patch(region, return_value=True),
+            patch(_API) as api,
+        ):
             result = async_to_sync(_judge_watch_ranks)(JevWatchRankSweepInputs())
         # An enrolled team without AI data-processing consent sends nothing to the model.
         api.decide_when_available.assert_not_called()
@@ -377,7 +385,7 @@ class TestJevWatchRankSweep(BaseTest):
         self.organization.save()
 
         with (
-            patch(flag, return_value="jev-shadow"),
+            patch(flag, side_effect=self._flag_arm("jev-shadow")),
             patch(region, return_value=True),
             patch(_API) as api,
             patch("posthoganalytics.capture"),
@@ -389,7 +397,11 @@ class TestJevWatchRankSweep(BaseTest):
         assert result.observations_judged == 2
         assert load_watch_ranks(self.team.id, [scanner.id]) == {str(first.id): 0.7, str(second.id): 0.7}
 
-        with patch(flag, return_value="jev-shadow"), patch(region, return_value=True), patch(_API) as api:
+        with (
+            patch(flag, side_effect=self._flag_arm("jev-shadow")),
+            patch(region, return_value=True),
+            patch(_API) as api,
+        ):
             result = async_to_sync(_judge_watch_ranks)(JevWatchRankSweepInputs())
         # Every row is judged already, so the second run keeps the cache without a Jev call.
         api.decide_when_available.assert_not_called()
@@ -398,7 +410,7 @@ class TestJevWatchRankSweep(BaseTest):
 
         third = self._succeeded_observation(scanner, "s3", "The user deleted the whole workspace.")
         with (
-            patch(flag, return_value="jev-shadow"),
+            patch(flag, side_effect=self._flag_arm("jev-shadow")),
             patch(region, return_value=True),
             patch(_API) as api,
             patch("posthoganalytics.capture"),
@@ -434,7 +446,7 @@ class TestJevWatchRankSweep(BaseTest):
 
         activities = "products.replay_vision.backend.temporal.jev_watch_rank.activities"
         with (
-            patch(f"{activities}.watch_feed_ranker", return_value="jev-shadow"),
+            patch(f"{activities}.watch_feed_ranker", side_effect=self._flag_arm("jev-shadow")),
             patch(f"{activities}.decision_api.decisions_available_here", return_value=True),
             patch(f"{activities}.load_judged_state", side_effect=ConnectionError("redis down")),
             patch(_API) as api,
@@ -444,6 +456,15 @@ class TestJevWatchRankSweep(BaseTest):
         assert result.cache_errors == 1
         assert result.scanners_judged == 0
         assert load_watch_ranks(self.team.id, [scanner.id]) == {"judged-earlier": 0.9}
+
+    def _flag_arm(self, arm: str):
+        """The experiment arm for self.team only, so the pinned team 2 stays on the default arm."""
+        return lambda team_id: arm if team_id == self.team.id else "weighted-score"
+
+    def test_posthogs_own_team_is_always_swept_first(self) -> None:
+        # While the experiment is internal-only, team 2 must never fall past the team cap,
+        # whatever order the other teams come back in.
+        assert _teams_with_scanners()[0] == 2
 
     def test_a_batch_that_keeps_failing_is_abandoned_after_max_attempts(self) -> None:
         # A deterministically failing batch must not stay newest-unjudged forever, re-bought every
@@ -463,7 +484,7 @@ class TestJevWatchRankSweep(BaseTest):
         activities = "products.replay_vision.backend.temporal.jev_watch_rank.activities"
         for attempt in range(1, MAX_JUDGE_ATTEMPTS + 1):
             with (
-                patch(f"{activities}.watch_feed_ranker", return_value="jev-shadow"),
+                patch(f"{activities}.watch_feed_ranker", side_effect=self._flag_arm("jev-shadow")),
                 patch(f"{activities}.decision_api.decisions_available_here", return_value=True),
                 patch(_API) as api,
                 patch("posthoganalytics.capture"),
@@ -474,7 +495,7 @@ class TestJevWatchRankSweep(BaseTest):
             assert result.observations_given_up == (1 if attempt == MAX_JUDGE_ATTEMPTS else 0), attempt
 
         with (
-            patch(f"{activities}.watch_feed_ranker", return_value="jev-shadow"),
+            patch(f"{activities}.watch_feed_ranker", side_effect=self._flag_arm("jev-shadow")),
             patch(f"{activities}.decision_api.decisions_available_here", return_value=True),
             patch(_API) as api,
         ):

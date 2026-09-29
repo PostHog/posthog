@@ -21,6 +21,10 @@ MAX_JUDGED_PER_SCANNER = 100
 # score, so it settles into the recency filler tier like a prose-less row; the cache TTL makes it
 # eligible again if the cache ever rebuilds.
 MAX_JUDGE_ATTEMPTS = 3
+# TODO: Team 2 is PostHog's own team, pinned first while the jev ranker runs as an internal shadow
+# test, so it can never fall past the team cap. Remove the pin when the experiment opens to other
+# teams and the cap needs fair rotation instead.
+PINNED_TEAM_IDS = (2,)
 # Bound one sweep. The flag gates per team, so at experiment scale these caps are slack; they exist
 # so a misconfigured flag rollout cannot turn the sweep into an unbounded flag-check or Jev fan-out.
 MAX_TEAMS_PER_SWEEP = 2000

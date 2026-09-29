@@ -47,6 +47,7 @@ from products.replay_vision.backend.temporal.jev_watch_rank.constants import (
     MAX_JUDGED_PER_SCANNER,
     MAX_SCANNERS_PER_SWEEP,
     MAX_TEAMS_PER_SWEEP,
+    PINNED_TEAM_IDS,
     SWEEP_TIME_BUDGET,
     WATCH_RANK_WINDOW,
     WINDOW_SCAN_CAP,
@@ -61,8 +62,17 @@ logger = structlog.get_logger(__name__)
 
 def _teams_with_scanners() -> list[int]:
     """Teams that own any scanner. The scanner table is small, so this is the cheap universe to
-    flag-check; the huge observation table is only queried per team below, where its indexes hold."""
-    return list(ReplayScanner.all_origins.values_list("team_id", flat=True).distinct()[: MAX_TEAMS_PER_SWEEP + 1])
+    flag-check; the huge observation table is only queried per team below, where its indexes hold.
+
+    Ordered, so the team cap cuts deterministically instead of by whatever order Postgres returns —
+    an unordered slice could drop an enrolled team on some runs and not others. Pinned teams go
+    first, so they never fall past the cap at all.
+    """
+    team_ids = ReplayScanner.all_origins.values_list("team_id", flat=True).distinct().order_by("team_id")
+    return [
+        *PINNED_TEAM_IDS,
+        *[team_id for team_id in team_ids[: MAX_TEAMS_PER_SWEEP + 1] if team_id not in PINNED_TEAM_IDS],
+    ]
 
 
 def _team_scanner_ids(team_id: int, window_start: datetime) -> list[UUID]:
