@@ -265,7 +265,7 @@ class TestFacadeReadsAndMappers(TestCase):
             ("a_human_reader_of_a_creatorless_task", False, False),
         ]
     )
-    def test_run_detail_serves_the_boot_prompt_to_the_sandbox_only(self, _name, include_agent_state, has_creator):
+    def test_run_detail_filters_state_for_human_and_sandbox_readers(self, _name, include_agent_state, has_creator):
         # The agent reads initial_prompt_override off this payload to build its first
         # message; dropping it strips it silently and the run falls back to
         # task.description. But it embeds the triggering event wholesale (for a Slack
@@ -285,6 +285,10 @@ class TestFacadeReadsAndMappers(TestCase):
                 "systemPrompt": {"type": "preset", "preset": "claude_code", "append": "PostHog AI"},
                 "sandbox_jwt_kid": "secret",
                 "task_summary": "Private workflow context",
+                "token_cost": {"model": {"provider": {"cost_microusd": 4, "request_ids": ["request-1"]}}},
+                "compute_cost": 2,
+                "token_cost_incomplete": True,
+                "unprocessed_request_ids": ["request-2"],
                 "task_tags": ["private-tag"],
             },
         )
@@ -301,6 +305,9 @@ class TestFacadeReadsAndMappers(TestCase):
         assert ("store_skills" in detail.state) is include_agent_state
         assert ("systemPrompt" in detail.state) is include_agent_state
         assert "sandbox_jwt_kid" not in detail.state
+        assert {"token_cost", "compute_cost", "token_cost_incomplete", "unprocessed_request_ids"}.isdisjoint(
+            detail.state
+        )
         assert detail.task_summary == ("Private workflow context" if include_agent_state else None)
         assert detail.task_tags == (["private-tag"] if include_agent_state else [])
 
@@ -372,6 +379,40 @@ class TestFacadeReadsAndMappers(TestCase):
         self.assertIsNone(resumed_run)
         run.refresh_from_db()
         self.assertEqual(run.environment, TaskRun.Environment.CLOUD)
+
+    def test_list_workflow_last_runs_uses_each_workflows_newest_listed_task(self):
+        now = django_timezone.now()
+        flow_with_runs, flow_without_run, flow_not_asked = uuid4(), uuid4(), uuid4()
+        older = self._make_task(origin_product=Task.OriginProduct.WORKFLOW, hog_flow_id=flow_with_runs)
+        newer = self._make_task(origin_product=Task.OriginProduct.WORKFLOW, hog_flow_id=flow_with_runs, archived=True)
+        Task.objects.filter(pk=older.pk).update(created_at=now - timedelta(hours=2))
+        Task.objects.filter(pk=newer.pk).update(created_at=now - timedelta(hours=1))
+        TaskRun.objects.create(task=older, team=self.team, status=TaskRun.Status.COMPLETED)
+        earlier_run = TaskRun.objects.create(task=newer, team=self.team, status=TaskRun.Status.COMPLETED)
+        newest_run = TaskRun.objects.create(task=newer, team=self.team, status=TaskRun.Status.FAILED)
+        TaskRun.objects.filter(pk=earlier_run.pk).update(created_at=now - timedelta(minutes=50))
+        TaskRun.objects.filter(pk=newest_run.pk).update(created_at=now - timedelta(minutes=30))
+        # Run history hides internal tasks, so the newest task here must not count as the last run.
+        self._make_task(origin_product=Task.OriginProduct.WORKFLOW, hog_flow_id=flow_with_runs, internal=True)
+        not_started = self._make_task(origin_product=Task.OriginProduct.WORKFLOW, hog_flow_id=flow_without_run)
+        self._make_task(origin_product=Task.OriginProduct.WORKFLOW, hog_flow_id=flow_not_asked)
+
+        last_runs = facade.list_workflow_last_runs(self.team.id, self.user.id, [flow_with_runs, flow_without_run])
+
+        assert last_runs == {
+            flow_with_runs: contracts.WorkflowLastRunDTO(
+                hog_flow_id=flow_with_runs,
+                task_id=newer.id,
+                status="failed",
+                ran_at=now - timedelta(minutes=30),
+            ),
+            flow_without_run: contracts.WorkflowLastRunDTO(
+                hog_flow_id=flow_without_run,
+                task_id=not_started.id,
+                status="not_started",
+                ran_at=not_started.created_at,
+            ),
+        }
 
     def test_task_exists_and_visibility(self):
         task = self._make_task()
@@ -1207,7 +1248,13 @@ class TestFacadeReadsAndMappers(TestCase):
         else:
             self.assertNotIn("custom_image_id", new_run.state)
 
-    def test_run_task_resume_carries_self_driving_head_branch(self):
+    @parameterized.expand(
+        [
+            ("self_driving_head_branch", "posthog-self-driving/fix-abc123"),
+            ("stack_base_branch", "posthog-self-driving/schema-abc123"),
+        ]
+    )
+    def test_run_task_resume_carries_self_driving_branch_stamp(self, state_key: str, branch: str):
         # The signals review carve-out binds a PR to its run by matching the PR head ref against the
         # PATCH-protected state.self_driving_head_branch stamp. A resume mints a new run, so the
         # stamp must be copied forward or the carve-out stops matching the successor — the receiver
@@ -1219,7 +1266,7 @@ class TestFacadeReadsAndMappers(TestCase):
             task=task,
             team=self.team,
             status=TaskRun.Status.COMPLETED,
-            state={"self_driving_head_branch": "posthog-self-driving/fix-abc123"},
+            state={state_key: branch},
         )
 
         with patch("products.tasks.backend.facade.api._trigger_task_processing_workflow", return_value=None):
@@ -1232,7 +1279,7 @@ class TestFacadeReadsAndMappers(TestCase):
 
         assert result is not None and result.error is None
         new_run = task.runs.exclude(id=previous_run.id).get()
-        self.assertEqual(new_run.state.get("self_driving_head_branch"), "posthog-self-driving/fix-abc123")
+        self.assertEqual(new_run.state.get(state_key), branch)
 
     @parameterized.expand(
         [

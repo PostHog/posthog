@@ -295,7 +295,45 @@ summary = await session.send_followup(
 await session.end()
 ```
 
+Sessions with the `scout_suggestions` origin hide the agent's `finish` tool so the caller can validate and save the result before closing the sandbox.
+
 ### Reference implementation
+
+The scout rubric generator in `products/signals/backend/scout_harness/rubrics_runner.py` proposes editable criteria in a background session.
+It defaults to GPT-6 Sol at high effort through the Codex runtime.
+The `signals-pipeline-models` payload can select its adapter, model and effort through the `scout_rubrics` step without changing regular scout runs.
+The backend supplies the description, current instructions, reference text and up to five recent run summaries in the first request.
+Rubric generation requests no project-read MCP scopes because its source context is supplied up front.
+The existing sandbox still has internal credentials and tool access; this remains an accepted limitation of the staff-only v0.
+That request includes effective defaults and disabled criteria, including edits, but withholds enabled custom criteria until a second comparison step.
+Reference text comes from the exact skill version in the same project, ordered by path and limited to four files and 60,000 characters combined.
+The context marks clipped instructions, references, summaries and report identifier lists explicitly.
+It includes the scout's report capabilities and matching disposition rules from the normal scout prompt; scouts without report tools receive no report-disposition instructions.
+Historical transcripts and full report contents are not supplied or inspected.
+When no runs exist, the generator uses the description and available instructions without inventing history.
+The prompt asks for a few distinct judgments about required outcomes and decisions, preserving saved coverage, edits and disabled choices.
+Each passing condition explains the required result in plain language. For complex policies, a short description of the governing source rules follows that explanation to preserve conditions and exceptions.
+Writing instructions and a short example follow the source and schema. They ask for readable titles, descriptions, passing conditions, applicability and summaries without narrowing the source rules or losing permitted outcomes.
+Later evaluation must receive those reference instructions alongside the rubric; a tested variant's changed instructions must not silently replace them.
+Each suggestion must work independently with the saved criteria and source, and missing evaluation evidence must remain distinct from a known unmet requirement.
+Its API records a generation request before dispatching a Temporal workflow, then links the task before the agent starts.
+The agent first drafts a complete set of source-specific criteria, then receives the full saved rubric and selects which draft items add useful judgments.
+Selection returns indices rather than rewritten criteria; the backend preserves each selected item exactly and keeps draft order.
+Its summary explains the suggested checks and important evidence limits in plain language.
+An empty selection is valid when the saved rubric already supplies the draft's judgments.
+The agent can update its own task's progress before the final result.
+The summary describes supplied evidence and material limitations without grading historical runs.
+The two steps share one conditional JSON or schema correction in the same session and the original runtime limit.
+A second invalid reply fails the generation. Duplicate or out-of-range selection indices are invalid.
+The follow-up is bounded to 240,000 serialized bytes; an oversized request fails generation without truncating criteria.
+Only the validated final suggestions are stored on the scout config; a failed generation preserves the saved rubric.
+Late failure callbacks preserve results from generations that already completed or failed.
+The worker ends the session after success or failure.
+The browser can close during generation and retrieve the result later without restoring a sandbox.
+Suggestions remain separate from the saved rubric until a person selects and saves them.
+Save rubric edits before generating suggestions; generation uses the saved criteria.
+Every save must retain the shared default criteria, which owners can edit or disable.
+Revision checks protect concurrent saves, and each completion checks its generation identifier before updating the config.
 
 See `products/tasks/backend/logic/services/mts_example/` for a complete working example.
 It runs a multi-turn agent that discovers "cursed" identifiers in a repo,
@@ -671,9 +709,11 @@ sandbox shutdown. It does not test Django API authentication or LLM task executi
 
 These tests consume the published sandbox image, not the agent source in the checkout.
 The image pins the agent version in `Dockerfile.sandbox-base`.
-An agent release opens a pull request that bumps that pin, and merging it rebuilds the shared image.
+An agent release opens a pull request that bumps that pin.
+Every master push, a half-hourly schedule, and a manual dispatch compare the pin and the image inputs on master with the labels on the published images, and rebuild when they differ.
 That build checks the installed agent against the pin and starts the `agent-server` entrypoint on both architectures before the image is promoted.
 Before the pull request is approved, the bump workflow runs one Claude turn and one Codex turn from that image through the production Go ai-gateway, on the agent's default models and efforts.
+After the pull request merges, the bump workflow waits until `posthog-sandbox-base:master` reports the new version, dispatches a rebuild when it does not, and posts the outcome in the release thread.
 Running backend tests against that image alone does not validate an unpublished agent change.
 
 ## Questions?

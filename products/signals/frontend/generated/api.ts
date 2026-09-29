@@ -58,6 +58,8 @@ import type {
     ScoutMetadataApi,
     ScoutNoteApi,
     ScoutNoteCreateRequestApi,
+    ScoutRubricDocumentApi,
+    ScoutRubricSaveApi,
     ScoutRunIdsBatchRequestApi,
     ScoutRunTokenCostsApi,
     ScoutSuggestionItemApi,
@@ -85,6 +87,8 @@ import type {
     SignalReportRefundResponseApi,
     SignalReportRefundSummaryResponseApi,
     SignalReportReingestionStatusApi,
+    SignalReportSourceMetadataRequestApi,
+    SignalReportSourceMetadataResponseApi,
     SignalReportStateRequestApi,
     SignalReportSuggestedReviewersArtefactApi,
     SignalScoutConfigApi,
@@ -948,6 +952,46 @@ export const signalsReportArtefactsDestroy = async (
     })
 }
 
+export const getSignalsReportsArtefactsActivateCreateUrl = (projectId: string, reportId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/reports/${reportId}/artefacts/${id}/activate/`
+}
+
+/**
+ * Artefacts attached to a signal report.
+ *
+ * Two write surfaces, both gated by the `task:write` scope (already held by the agent tokens):
+ *
+ * - PUT edits a report's suggested reviewers: it appends a new `suggested_reviewers` status
+ *   artefact (latest-wins, so the new row becomes current) with bespoke reviewer enrichment,
+ *   merging commits/names forward from the current reviewers. Other types return 400.
+ * - POST / PATCH / DELETE manage artefacts, except for the types the pipeline owns
+ *   (`NON_WRITABLE_ARTEFACT_TYPES`) and, for DELETE, the append-only `task_run` log; all of
+ *   those return 400 naming the type.
+ *   Log entries accumulate; status types (judgments, repo selection, suggested reviewers, channel assignments)
+ *   are latest-wins, so appending a new version supersedes the previous one as the report's
+ *   canonical status. Content is validated against the type's schema. Team scoping is
+ *   enforced by `safely_get_queryset`, so an artefact id from another team / a deleted
+ *   report 404s.
+ *
+ * Writes are attributed: to the task named by the `X-PostHog-Task-Id` header (set automatically
+ * for sandbox agents) when present, else to the requesting user.
+ * @summary Activate a proposed impact measurement
+ */
+export const signalsReportsArtefactsActivateCreate = async (
+    projectId: string,
+    reportId: string,
+    id: string,
+    options?: RequestInit
+): Promise<SignalReportArtefactWriteResponseApi> => {
+    return apiMutator<SignalReportArtefactWriteResponseApi>(
+        getSignalsReportsArtefactsActivateCreateUrl(projectId, reportId, id),
+        {
+            ...options,
+            method: 'POST',
+        }
+    )
+}
+
 export const getSignalsReportArtefactsDiffUrl = (projectId: string, reportId: string, id: string) => {
     return `/api/projects/${projectId}/signals/reports/${reportId}/artefacts/${id}/diff/`
 }
@@ -1182,6 +1226,27 @@ export const signalsReportsRefundSummaryRetrieve = async (
     return apiMutator<SignalReportRefundSummaryResponseApi>(getSignalsReportsRefundSummaryRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getSignalsReportsSourceMetadataCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/reports/source_metadata/`
+}
+
+/**
+ * Read which source products contributed signals to each given report, and which scout authored it. These values come from ClickHouse, so the inbox list skips them (`include_source_metadata=false`) and calls this after the rows render. Returns one entry per requested id. An id with no signals in this project gets empty values.
+ * @summary Get the source products and authoring scout of the reports on screen
+ */
+export const signalsReportsSourceMetadataCreate = async (
+    projectId: string,
+    signalReportSourceMetadataRequestApi: SignalReportSourceMetadataRequestApi,
+    options?: RequestInit
+): Promise<SignalReportSourceMetadataResponseApi> => {
+    return apiMutator<SignalReportSourceMetadataResponseApi>(getSignalsReportsSourceMetadataCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(signalReportSourceMetadataRequestApi),
     })
 }
 
@@ -1454,7 +1519,7 @@ export const getSignalsScoutNotesListUrl = (projectId: string, params?: SignalsS
 }
 
 /**
- * Return the steering notes left for this project's scouts, newest first. Pass `skill_name` to get the notes addressed to one scout (or one pipeline audience, e.g. `pipeline:report-research`) plus the general (blank-target) fleet-wide notes — the shape a scout run reads at cold start. Omit `skill_name` to browse every note. Expired notes are excluded unless `include_expired=true`. `date_from` / `date_to` are a half-open window on `created_at` (`>= date_from`, `< date_to`); pass `date_to` (the `created_at` of the oldest note seen) to walk past the cap. Results capped at 500.
+ * Return the steering notes left for this project's scouts, newest first. Pass `skill_name` to get the notes addressed to one scout (or one pipeline audience, e.g. `pipeline:report-research`) plus the general (blank-target) fleet-wide notes — the shape a scout run reads at cold start. Omit `skill_name` to browse every note. Expired notes are excluded unless `include_expired=true`. `date_from` / `date_to` are a half-open window on `created_at` (`>= date_from`, `< date_to`); pass `date_to` (the `created_at` of the oldest note seen) to walk past the cap. Pass `text` to keep only the notes whose content contains it, case-insensitively. Results capped at 500.
  * @summary List scout notes
  */
 export const signalsScoutNotesList = async (
@@ -1535,6 +1600,54 @@ export const signalsScoutProjectProfileGet = async (
     return apiMutator<ProjectProfileApi>(getSignalsScoutProjectProfileGetUrl(projectId, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getSignalsScoutRubricsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/scout/rubrics/${id}/`
+}
+
+export const signalsScoutRubricsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ScoutRubricDocumentApi> => {
+    return apiMutator<ScoutRubricDocumentApi>(getSignalsScoutRubricsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsScoutRubricsUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/scout/rubrics/${id}/`
+}
+
+export const signalsScoutRubricsUpdate = async (
+    projectId: string,
+    id: string,
+    scoutRubricSaveApi: ScoutRubricSaveApi,
+    options?: RequestInit
+): Promise<ScoutRubricDocumentApi> => {
+    return apiMutator<ScoutRubricDocumentApi>(getSignalsScoutRubricsUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(scoutRubricSaveApi),
+    })
+}
+
+export const getSignalsScoutRubricsGenerateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/scout/rubrics/${id}/generate/`
+}
+
+export const signalsScoutRubricsGenerate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ScoutRubricDocumentApi> => {
+    return apiMutator<ScoutRubricDocumentApi>(getSignalsScoutRubricsGenerateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
     })
 }
 

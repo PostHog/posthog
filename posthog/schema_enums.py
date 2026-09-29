@@ -2121,6 +2121,7 @@ class NativeMarketingSource(StrEnum):
     APPLE_SEARCH_ADS = "AppleSearchAds"
     OPEN_AI_ADS = "OpenAIAds"
     AMAZON_ADS = "AmazonAds"
+    ROKT_ADS = "RoktAds"
 
 
 class NodeKind(StrEnum):
@@ -2224,6 +2225,7 @@ class NodeKind(StrEnum):
     MCP_TOOL_CALLS_AND_ERRORS_QUERY = "MCPToolCallsAndErrorsQuery"
     MCP_HARNESS_BREAKDOWN_QUERY = "MCPHarnessBreakdownQuery"
     MCP_MODEL_BREAKDOWN_QUERY = "MCPModelBreakdownQuery"
+    MCP_PROTOCOL_VERSION_BREAKDOWN_QUERY = "MCPProtocolVersionBreakdownQuery"
     MCP_TOOL_TOP_USERS_QUERY = "MCPToolTopUsersQuery"
     MCP_TOOL_FAILURES_QUERY = "MCPToolFailuresQuery"
     MCP_TOOL_FAILURE_OCCURRENCES_QUERY = "MCPToolFailureOccurrencesQuery"
@@ -2697,6 +2699,11 @@ class RetentionType(StrEnum):
     RETENTION_RECURRING = "retention_recurring"
     RETENTION_FIRST_TIME = "retention_first_time"
     RETENTION_FIRST_EVER_OCCURRENCE = "retention_first_ever_occurrence"
+
+
+class RoktAdsDefaultSources(StrEnum):
+    ROKT = "rokt"
+    ROKT_ADS = "rokt_ads"
 
 
 class XScale(StrEnum):
