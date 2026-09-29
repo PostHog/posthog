@@ -64,19 +64,18 @@ AI_EVENT_NAME_PREFIX = "$ai_"
 
 SDK_INFO = "posthog-capture-v1-internal/1.0"
 
-# v1 Options struct fields and their legacy property counterparts.
+# The option keys capture-rs v1 expects, and the legacy property each one replaces.
 _OPTIONS_TO_LEGACY_PROPERTY: dict[str, str] = {
     "cookieless_mode": "$cookieless_mode",
     "disable_skew_correction": "$ignore_sent_at",
     "product_tour_id": "$product_tour_id",
     "process_person_profile": "$process_person_profile",
 }
-_VALID_OPTION_KEYS = frozenset(_OPTIONS_TO_LEGACY_PROPERTY.keys())
 
-# Extra legacy aliases that must also be stripped from properties.
-_EXTRA_LEGACY_ALIASES: dict[str, str] = {
-    "disable_skew_correction": "disable_skew_adjustment",
-}
+# Bounds on the per-reason summary in `raise_for_status`, matching the posthog-rs SDK:
+# at most this many reasons are named and the rest are summed as `other`.
+_MAX_REPORTED_REASONS = 5
+_MAX_REPORTED_REASON_CHARS = 64
 
 _KNOWN_RESULT_STATUSES = frozenset({"ok", "drop", "warning", "retry"})
 
@@ -116,7 +115,7 @@ CAPTURE_V1_RESUBMIT = Counter(
 )
 CAPTURE_V1_OPTION_CONFLICT = Counter(
     "capture_v1_internal_option_conflict",
-    "Typed option input disagreed with a legacy property; explicit won.",
+    "An explicit option or field disagreed with its legacy property; the explicit value won.",
     labelnames=["event_source", "field"],
 )
 CAPTURE_V1_EVENTS_REROUTED = Counter(
@@ -199,11 +198,47 @@ class CaptureInternalResult:
             )
         failures = len(self.dropped) + len(self.retried) + len(self.unaccounted)
         if failures:
+            dropped_reasons, retried_reasons = _reason_summaries((self.dropped, self.retried), self.results)
             raise CaptureInternalError(
-                f"capture internal partial failure: {len(self.dropped)} dropped, "
-                f"{len(self.retried)} exhausted retries, {len(self.unaccounted)} unaccounted",
+                f"capture internal partial failure: {len(self.dropped)} dropped{dropped_reasons}, "
+                f"{len(self.retried)} exhausted retries{retried_reasons}, {len(self.unaccounted)} unaccounted",
                 status_code=0,
             )
+
+
+def _reason_summaries(groups: tuple[list[str], ...], results: dict[str, dict[str, Any]]) -> list[str]:
+    """Format `` (reason=count, ...)`` for each group of uuids, or ``""`` for an empty group.
+
+    The groups share one budget of named reasons, so a batch with many distinct reasons
+    still produces a short message.
+    """
+    budget = _MAX_REPORTED_REASONS
+    summaries: list[str] = []
+    for uids in groups:
+        tally: dict[str, int] = {}
+        for uid in uids:
+            reason = _reported_reason(results.get(uid, {}).get("details"))
+            tally[reason] = tally.get(reason, 0) + 1
+        if not tally:
+            summaries.append("")
+            continue
+        ranked = sorted(tally.items(), key=lambda item: (-item[1], item[0]))
+        shown = ranked[:budget]
+        budget -= len(shown)
+        parts = [f"{reason}={count}" for reason, count in shown]
+        other = sum(count for _, count in ranked[len(shown) :])
+        if other:
+            parts.append(f"other={other}")
+        summaries.append(f" ({', '.join(parts)})")
+    return summaries
+
+
+def _reported_reason(details: Any) -> str:
+    """Clip a reason from the capture response and drop unprintable characters so it cannot break the message."""
+    reason = ""
+    if isinstance(details, str):
+        reason = "".join(ch for ch in details if ch.isprintable())[:_MAX_REPORTED_REASON_CHARS]
+    return reason if reason.strip() else "unspecified"
 
 
 # --------------------------------------------------------------------------- #
@@ -235,16 +270,12 @@ def _resolve_scalar(
     field: str,
     event_source: str,
 ) -> Any:
-    """Return *explicit* if set, else *legacy*; log + count when both are set and disagree."""
+    """Return *explicit* if set, else *legacy*; count when both are set and disagree.
+
+    A conflict is only counted, never logged: a busy caller would log it once per event.
+    """
     if explicit is not None:
         if legacy is not None and legacy != explicit:
-            logger.warning(
-                "capture_internal option conflict",
-                event_source=event_source,
-                field=field,
-                explicit=explicit,
-                legacy=legacy,
-            )
             CAPTURE_V1_OPTION_CONFLICT.labels(event_source=event_source, field=field).inc()
         return explicit
     return legacy
@@ -267,46 +298,28 @@ class NormalizedEventParts:
     properties: dict[str, Any]
 
 
-def _reject_unknown_option_keys(event_dict: dict[str, Any], *, event_source: str) -> None:
-    """Refuse option keys the v1 envelope has no field for.
-
-    Split out of normalization so the batch path can run it before publishing
-    anything. It is a set difference, so running it in both places is cheaper
-    than normalizing an event twice.
-    """
-    unknown = set((event_dict.get("options") or {}).keys()) - _VALID_OPTION_KEYS
-    if unknown:
-        raise CaptureInternalError(f"capture_internal ({event_source}): unknown option key(s): {sorted(unknown)}")
-
-
 def _normalize_options_and_properties(
     event_dict: dict[str, Any],
     *,
     process_person_profile: bool,
     event_source: str,
 ) -> NormalizedEventParts:
-    """Separate typed ``options``/fields from free-form ``properties``.
+    """Separate ``options`` and top-level fields from free-form ``properties``.
+
+    Options pass through unchanged, including keys capture-rs does not know yet: capture-rs
+    validates the values and ignores unknown keys, so checking them here would only drift
+    from its rules. Each legacy property is always removed and fills its option only when
+    the option is missing or ``None``, the same as the posthog-rs SDK.
 
     Returns a ``NormalizedEventParts``. The caller's dicts are never mutated.
     """
     raw_options: dict[str, Any] = event_dict.get("options") or {}
     props: dict[str, Any] = dict(event_dict.get("properties") or {})
 
-    _reject_unknown_option_keys(event_dict, event_source=event_source)
-
-    options: dict[str, Any] = {}
-
+    options: dict[str, Any] = dict(raw_options)
     for opt_key, legacy_prop in _OPTIONS_TO_LEGACY_PROPERTY.items():
-        explicit = raw_options.get(opt_key)
         legacy = props.pop(legacy_prop, None)
-
-        alias = _EXTRA_LEGACY_ALIASES.get(opt_key)
-        if alias:
-            alias_val = props.pop(alias, None)
-            if legacy is None:
-                legacy = alias_val
-
-        resolved = _resolve_scalar(explicit, legacy, field=opt_key, event_source=event_source)
+        resolved = _resolve_scalar(raw_options.get(opt_key), legacy, field=opt_key, event_source=event_source)
         if resolved is not None:
             options[opt_key] = resolved
 
@@ -324,17 +337,10 @@ def _normalize_options_and_properties(
     )
 
     # Function-level override: when the caller says no person processing,
-    # force it even if the event-level option disagrees (but log the conflict).
+    # force it even if the event-level option disagrees (and count the conflict).
     if not process_person_profile:
         existing = options.get("process_person_profile")
         if existing not in (None, False):
-            logger.warning(
-                "capture_internal option conflict",
-                event_source=event_source,
-                field="process_person_profile",
-                explicit=f"function_param={process_person_profile}",
-                legacy=existing,
-            )
             CAPTURE_V1_OPTION_CONFLICT.labels(event_source=event_source, field="process_person_profile").inc()
         options["process_person_profile"] = False
 
@@ -397,8 +403,6 @@ def _validate_event(ev: dict[str, Any], *, event_source: str, ai_lane: bool) -> 
         distinct_id = props.get("distinct_id", "")
     if not distinct_id:
         raise CaptureInternalError(f"{fn} ({event_source}, {event_name}): distinct_id is required")
-
-    _reject_unknown_option_keys(ev, event_source=event_source)
 
     return EventIdentity(event_name=event_name, distinct_id=distinct_id)
 
@@ -887,17 +891,21 @@ def capture_batch_internal(
     and counted as rerouted; the rest of the batch goes to the analytics lane as usual.
     A uuid that appears twice in one batch is rejected before anything is sent.
 
-    event.options reference (typed options replacing legacy $-prefixed properties):
-    ┌─────────────────────────┬────────────────────────────┬──────────────┐
-    │ options key             │ replaces legacy property   │ default      │
-    ├─────────────────────────┼────────────────────────────┼──────────────┤
-    │ cookieless_mode         │ $cookieless_mode           │ None/omitted │
-    │ disable_skew_correction │ $ignore_sent_at            │ None/omitted │
-    │                         │ (alias: disable_skew_      │              │
-    │                         │  adjustment)               │              │
-    │ product_tour_id         │ $product_tour_id           │ None/omitted │
-    │ process_person_profile  │ $process_person_profile    │ see below    │
-    └─────────────────────────┴────────────────────────────┴──────────────┘
+    event.options reference (the keys capture-rs expects, each replacing a legacy
+    $-prefixed property):
+    ┌─────────────────────────┬────────────────────────────┬────────────────────────┐
+    │ options key             │ replaces legacy property   │ value                  │
+    ├─────────────────────────┼────────────────────────────┼────────────────────────┤
+    │ cookieless_mode         │ $cookieless_mode           │ bool                   │
+    │ disable_skew_correction │ $ignore_sent_at            │ bool                   │
+    │ product_tour_id         │ $product_tour_id           │ non-empty str          │
+    │ process_person_profile  │ $process_person_profile    │ bool (see below)       │
+    └─────────────────────────┴────────────────────────────┴────────────────────────┘
+
+    Options pass through unchanged, and this module does not check their values.
+    capture-rs validates them: it drops an event whose expected option it cannot read
+    (per-event result ``invalid_options``) and ignores keys it does not know. ``None``
+    counts as not set.
 
     Additional top-level event fields (also extracted from properties):
     ┌─────────────────────────┬────────────────────────────┬──────────────┐
@@ -907,15 +915,16 @@ def capture_batch_internal(
     │ window_id               │ $window_id                 │ None/omitted │
     └─────────────────────────┴────────────────────────────┴──────────────┘
 
-    When both a typed key AND its legacy $-property are present, the typed key wins
-    (a warning metric ``capture_v1_internal_option_conflict`` is emitted).  The legacy
-    property is always stripped from ``properties`` regardless.
+    When an option and its legacy $-property are both set, the option wins and
+    ``capture_v1_internal_option_conflict`` counts the conflict; nothing is logged.  The
+    legacy property is always removed from ``properties``, and it fills the option only
+    when the option is missing or ``None``.
 
     process_person_profile interaction:
         The batch-level ``process_person_profile`` param acts as a SAFETY RAIL.  When
         False (default), it forces ``options.process_person_profile = False`` for EVERY
-        event in the batch — even if the event's own options dict says True (a warning
-        is logged on conflict).  Only when the batch-level param is True does the
+        event in the batch — even if the event's own options dict says True (the
+        conflict is counted).  Only when the batch-level param is True does the
         per-event ``options.process_person_profile`` value get respected as-is.  This
         prevents accidental expensive person profile updates from internal tooling.
 
@@ -926,7 +935,7 @@ def capture_batch_internal(
             - ``properties`` (dict): event properties (required; can be empty)
             Optional per-event fields:
             - ``timestamp`` (str | datetime): defaults to now UTC if absent
-            - ``options`` (dict): typed options per table above
+            - ``options`` (dict): event options per table above, sent unchanged
             - ``session_id``, ``window_id`` (str): top-level fields per table above
             - ``event_uuid`` (str): deterministic UUID; defaults to a fresh UUIDv7
         token: API token to submit events on behalf of (required; overrides individual
@@ -950,8 +959,8 @@ def capture_batch_internal(
 
     Raises:
         CaptureInternalError: on client-side validation failures (missing/empty event_source,
-            missing token, empty batch, replay event names, unknown option keys) or
-            HTTP/transport errors.  The exception carries a ``.status_code`` attribute
+            missing token, empty batch, replay event names, non-dict ``options`` or
+            ``properties``) or HTTP/transport errors.  The exception carries a ``.status_code`` attribute
             (the HTTP status from capture-rs, or 0 for client-side/transport errors).
     """
     # Validate early so we fail fast before chunking/fan-out, not inside a worker thread.
@@ -1079,10 +1088,11 @@ def capture_internal(
         timestamp: the timestamp of the event (optional; will be set to now UTC if absent).
             Accepts datetime objects or ISO8601 strings.
         properties: event properties to submit with the event (optional; can be empty).
-            Legacy ``$``-prefixed keys that map to typed options are automatically
+            Legacy ``$``-prefixed keys that map to options are automatically
             extracted and stripped — see the options table in capture_batch_internal.
-        options: typed event options dict (optional).  See the options reference table in
-            capture_batch_internal for valid keys, legacy equivalents, and defaults.
+        options: event options dict (optional), sent unchanged.  See the options reference
+            table in capture_batch_internal for the keys capture-rs expects and their legacy
+            properties.
         session_id: session ID (optional). Preferred over ``$session_id`` in properties.
         window_id: window ID (optional). Preferred over ``$window_id`` in properties.
         event_uuid: optional deterministic UUID to assign to the event (default: capture-rs
@@ -1152,13 +1162,15 @@ def capture_ai_internal(
     A non-`$ai_` name passed here goes to the analytics lane, and an `$ai_` name
     passed to capture_internal goes to the AI lane; each reroute is counted
     (``capture_v1_internal_events_rerouted``). Prefer the matching entry point: it
-    keeps ``historical_migration`` and ``session_id`` / ``window_id`` off AI events.
+    keeps ``historical_migration`` and the ``session_id`` / ``window_id`` arguments off
+    AI events.
 
     ``historical_migration`` is not offered: AI backfills do not run through this path.
 
     Args:
-        see capture_internal.  ``session_id`` / ``window_id`` are omitted because they are
-        replay concepts and carry no meaning on the AI lane.
+        see capture_internal.  ``session_id`` / ``window_id`` are not offered as arguments,
+        but a ``$session_id`` or ``$window_id`` property still moves to the top-level
+        field, as on the analytics lane.
 
     Returns:
         CaptureInternalResult with per-event outcome, exactly as capture_internal.
