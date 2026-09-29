@@ -330,10 +330,10 @@ async def validate_schema_and_update_table(
             table_created: DataWarehouseTable | None = external_data_schema.table
             # cdc_only links the schema to its `_cdc` companion table. Reusing that link after a switch
             # to a mode that writes the consolidated table would publish the consolidated data under the
-            # companion's record, and the consolidated table would never get a record of its own.
-            if table_created is not None and table_created.name == build_table_name(
-                job.pipeline, companion_resource_name(_schema_name)
-            ):
+            # companion's record, and the consolidated table would never get a record of its own. A
+            # pinned folder can give the schema's own table that same name, and then the link is right.
+            companion_table_name = build_table_name(job.pipeline, companion_resource_name(_schema_name))
+            if table_created is not None and table_created.name == companion_table_name != table_name:
                 table_created = None
 
             if table_created is None:

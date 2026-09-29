@@ -1293,12 +1293,16 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                 instance.table.save(update_fields=["columns"])
 
         # CDC publication management: add/remove table when toggling should_sync
+        # An explicit `"sync_type": null` is saved too, so only an omitted field keeps the current type.
         is_cdc = (sync_type == ExternalDataSchema.SyncType.CDC) or (
-            sync_type is None and instance.sync_type == ExternalDataSchema.SyncType.CDC
+            "sync_type" not in data and instance.sync_type == ExternalDataSchema.SyncType.CDC
         )
-        leaving_cdc = sync_type is not None and not is_cdc and instance.sync_type == ExternalDataSchema.SyncType.CDC
+        leaving_cdc = "sync_type" in data and not is_cdc and instance.sync_type == ExternalDataSchema.SyncType.CDC
+        publication_removal: Callable[[], None] | None = None
         if (is_cdc or leaving_cdc) and source_type_supports_cdc(source.source_type):
-            self._handle_cdc_publication_change(instance, source, should_sync, sync_type, validated_data)
+            publication_removal = self._handle_cdc_publication_change(
+                instance, source, should_sync, sync_type, validated_data
+            )
 
         if trigger_refresh:
             instance.sync_type_config.update({"reset_pipeline": True})
@@ -1307,6 +1311,8 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         # Persist under a row lock, replaying only the sync_type_config keys this request changed
         # so a concurrent CDC extract activity's writes aren't reverted by the full-instance save.
         updated_instance = self._save_merging_sync_type_config(instance, validated_data, original_sync_type_config)
+        if publication_removal is not None:
+            self._run_temporal_side_effect(publication_removal)
 
         # A version repin invalidates any in-flight import: retried/resumed activities re-resolve
         # the version from the DB, so letting the run finish would mix two vendor API versions in
@@ -1578,12 +1584,17 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         should_sync: bool | None,
         sync_type: str | None,
         validated_data: dict[str, Any],
-    ) -> None:
-        """Add/remove the table from the CDC capture set when a schema is toggled, set to CDC, or moved off CDC."""
+    ) -> Callable[[], None] | None:
+        """Add/remove the table from the CDC capture set when a schema is toggled, set to CDC, or moved off CDC.
+
+        A removal comes back for the caller to run once the schema is saved. Run before the save, a
+        failed save would leave a table that capture still reads out of the publication, and the
+        changes made in the meantime would never reach it.
+        """
         adapter = get_cdc_adapter(source)
         cdc_config = adapter.parse_cdc_config(source)
         if cdc_config.management_mode != "posthog" or not cdc_config.publication_name:
-            return
+            return None
 
         _, db_schema, source_table_name = get_postgres_source_location(
             schema_name=instance.name,
@@ -1595,7 +1606,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             sync_type == ExternalDataSchema.SyncType.CDC and instance.sync_type != ExternalDataSchema.SyncType.CDC
         )
         leaving_cdc = (
-            sync_type is not None
+            "sync_type" in validated_data
             and sync_type != ExternalDataSchema.SyncType.CDC
             and instance.sync_type == ExternalDataSchema.SyncType.CDC
         )
@@ -1635,8 +1646,9 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         # Remove table from capture set when toggling sync off or moving it off CDC. Left in, capture
         # keeps decoding the table's changes only to drop them, and the source keeps streaming them.
         elif leaving_cdc or (should_sync is False and instance.should_sync):
-            adapter.remove_table(source, db_schema, source_table_name)
             instance.sync_type_config.pop(CDC_SNAPSHOT_LANE_KEY, None)
+            return lambda: adapter.remove_table(source, db_schema, source_table_name)
+        return None
 
 
 class ExternalDataSchemaListSerializer(serializers.ModelSerializer):

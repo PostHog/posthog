@@ -486,6 +486,29 @@ class TestValidateSchemaAndUpdateTable:
         )
         assert companion.queryable_folder == "orders_cdc__query_a"
 
+    def test_a_schema_whose_own_table_has_the_companion_name_keeps_it(self, team: Team) -> None:
+        schema, job = self._schema_and_job(team)
+        schema.s3_folder_name = "orders_cdc"
+        schema.save()
+        own_table = self._linked_table(team, schema, job, queryable_folder="orders_cdc__query_a")
+
+        with (
+            patch.object(DataWarehouseTable, "get_columns", return_value={}),
+            patch.object(DataWarehouseTable, "get_count", return_value=150),
+        ):
+            async_to_sync(validate_schema_and_update_table)(
+                run_id=str(job.id),
+                team_id=team.pk,
+                schema_id=schema.id,
+                row_count=10,
+                table_format=DataWarehouseTableFormat.DeltaS3Wrapper,
+                queryable_folder="orders_cdc__query_b",
+            )
+
+        schema.refresh_from_db()
+        assert schema.table_id == own_table.id
+        assert DataWarehouseTable.objects.filter(team=team, deleted=False).count() == 1
+
     @pytest.mark.parametrize(
         ("recorded_active", "expect_restart"),
         [
