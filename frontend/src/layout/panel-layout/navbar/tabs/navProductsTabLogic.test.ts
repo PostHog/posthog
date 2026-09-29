@@ -47,6 +47,7 @@ describe('navProductsTabLogic', () => {
         const expected = new Set([
             urls.projectRoot(),
             urls.activity(ActivityTab.ExploreEvents),
+            urls.persons(),
             ...registry
                 .filter((item) => item.href && (!item.flag || enabled) && !definitionsTabHrefs.has(item.href))
                 .map((item) => item.href),
@@ -64,7 +65,8 @@ describe('navProductsTabLogic', () => {
         expect(navProductsTabLogic.values.pinnedItems.map(productsItemName)).toEqual([
             'Home',
             'Self-driving',
-            'Activity and people',
+            'Activity',
+            'People and groups',
         ])
         expect(navProductsTabLogic.values.configurableProducts.map(productsItemName)).not.toContain('Home')
         const [popular] = navProductsTabLogic.values.groupedItems
