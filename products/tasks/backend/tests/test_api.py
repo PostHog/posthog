@@ -1523,6 +1523,32 @@ class TestTaskAPI(BaseTaskAPITest):
             },
         )
 
+    @parameterized.expand(
+        [
+            ("timed_out_wall_clock", {"timed_out_wall_clock": True}, "timed_out_wall_clock"),
+            ("timed_out_inactivity", {"timed_out_inactivity": True}, "timed_out_inactivity"),
+            ("sandbox_gone", {"sandbox_gone": True}, "sandbox_gone"),
+            # The sandbox is what explains the timeout, so it wins.
+            ("sandbox_gone_wins", {"sandbox_gone": True, "timed_out_wall_clock": True}, "sandbox_gone"),
+            ("genuine_failure", {"mode": "interactive"}, None),
+        ]
+    )
+    def test_failed_run_reports_the_bound_that_stopped_it(self, _name, state, expected_reason):
+        task = self.create_task("Timed out")
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.FAILED,
+            state=state,
+        )
+
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertIsNone(data["error_message"])
+        self.assertEqual(data["termination_reason"], expected_reason)
+
     def test_create_task(self):
         response = self.client.post(
             "/api/projects/@current/tasks/",

@@ -602,9 +602,10 @@ class TaskRunDetailDTO:
     parent task id (rendered as a string, matching the original ``PrimaryKeyRelatedField``).
     The SMF-derived fields are computed in the facade mapper ``_task_run_detail_to_dto``:
     ``log_url`` is a presigned S3 URL (cached); ``runtime_adapter`` / ``provider`` / ``model`` /
-    ``reasoning_effort`` are parsed off the run ``state``. ``artifacts`` carries the run's
-    artifact manifest entries verbatim. Reused by the run-detail responses and nested as
-    ``latest_run`` by the task detail response.
+    ``reasoning_effort`` are parsed off the run ``state``. ``termination_reason`` names the
+    lifecycle bound that stopped the run, derived from the workflow's state markers.
+    ``artifacts`` carries the run's artifact manifest entries verbatim. Reused by the run-detail
+    responses and nested as ``latest_run`` by the task detail response.
     """
 
     id: UUID
@@ -622,6 +623,7 @@ class TaskRunDetailDTO:
     output: dict | None
     task_summary: str | None
     state: dict
+    termination_reason: str | None = None
     artifacts: list = Field(default_factory=list)
     task_tags: list[str] = Field(default_factory=list)
     created_at: datetime | None = None

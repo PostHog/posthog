@@ -543,6 +543,25 @@ def _public_task_run_state(state: dict | None, *, include_agent_keys: bool = Fal
     return {key: value for key, value in (state or {}).items() if key in allowed}
 
 
+# The workflow records why a run ended as a state marker rather than as prose in
+# ``error_message``, and ``_TASK_RUN_PUBLIC_STATE_KEYS`` withholds those markers, so without this
+# a client sees a FAILED run with a null ``error_message`` and nothing that says why. Ordered
+# most specific first: a run whose sandbox disappeared also trips a timeout, and the lost sandbox
+# is what explains the timeout.
+TASK_RUN_TERMINATION_REASON_MARKERS = (
+    "sandbox_gone",
+    "timed_out_wall_clock",
+    "timed_out_inactivity",
+)
+
+
+def _task_run_termination_reason(state: dict | None) -> str | None:
+    """The marker naming how a run ended, or None when it ended on its own."""
+    if not isinstance(state, dict):
+        return None
+    return next((marker for marker in TASK_RUN_TERMINATION_REASON_MARKERS if state.get(marker)), None)
+
+
 def _task_run_log_url(run: TaskRun) -> str | None:
     """Presigned S3 URL for a run's log, cached. Mirrors ``TaskRunDetailSerializer.get_log_url``."""
     from posthog.storage import object_storage  # noqa: PLC0415 — keep storage deps off the api import path
@@ -615,6 +634,7 @@ def _task_run_detail_to_dto(
         task_summary=run.task_summary if can_read_summary else None,
         task_tags=run.task_tags if can_read_summary else [],
         state=_public_task_run_state(run.state, include_agent_keys=include_agent_state),
+        termination_reason=_task_run_termination_reason(run.state),
         artifacts=run.artifacts or [],
         created_at=run.created_at,
         updated_at=run.updated_at,
