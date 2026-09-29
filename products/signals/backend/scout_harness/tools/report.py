@@ -110,6 +110,7 @@ from products.signals.backend.scout_report import (
     get_scout_report_signal_count,
     get_scout_report_status,
     get_scout_report_title,
+    missing_link_targets,
     prepare_scout_supersession,
     record_content_revision,
     record_implementation_decision,
@@ -784,6 +785,16 @@ def _link_reasons(links: Sequence[ReportLink]) -> list[str]:
     A reason persists in the report-link artefact and renders in the work log that action-capable
     report agents read, so it goes in front of the judge like a reviewer reason does."""
     return [link.reason for link in links if link.reason]
+
+
+def _assert_emit_link_targets_live(team: Team, links: Sequence[ReportLink]) -> None:
+    """Reject an emit whose links name a dead or foreign report, before the judge and repo selection.
+
+    A scout can easily name a well-formed id that no longer resolves, and the write would reject it
+    only after both were paid for. Does a DB read, so callers on the async path must bridge it."""
+    missing = missing_link_targets(team_id=team.id, links=links)
+    if missing:
+        raise InvalidScoutReportError(f"Report {missing[0]} was not found in this project.")
 
 
 def _wants_repo_selection(
@@ -1554,6 +1565,8 @@ async def emit_report(
     if preflight is not None:
         return await finish(_gate_skip_result(preflight))
 
+    await database_sync_to_async(_assert_emit_link_targets_live, thread_sensitive=False)(team, built_links)
+
     task_id = await database_sync_to_async(_resolve_task_id, thread_sensitive=False)(run)
     attribution = _attribution_for(task_id)
     judgement = await judge_scout_report(
@@ -1703,6 +1716,8 @@ def emit_report_sync(
     preflight = _preflight_emit_gates(team, run)
     if preflight is not None:
         return finish(_gate_skip_result(preflight))
+
+    _assert_emit_link_targets_live(team, built_links)
 
     task_id = _resolve_task_id(run)
     attribution = _attribution_for(task_id)

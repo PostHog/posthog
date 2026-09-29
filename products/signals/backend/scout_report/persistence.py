@@ -411,6 +411,24 @@ def scout_report_exists(*, team_id: int, report_id: str) -> bool:
     return SignalReport.objects.filter(team_id=team_id, id=report_id).exists()
 
 
+def missing_link_targets(*, team_id: int, links: Sequence[ReportLink]) -> list[str]:
+    """The link targets that name no live report in this team, in the order the caller gave them.
+
+    For the emit path's pre-judge gate: a new report has no incoming links, so a dead or foreign target
+    is the only link check the write can fail. A cost gate only — `add_log` re-checks every link under
+    the team's link lock."""
+    target_ids = list(dict.fromkeys(link.report_id for link in links))
+    if not target_ids:
+        return []
+    live = {
+        str(report_id)
+        for report_id in SignalReport.objects.filter(team_id=team_id, id__in=target_ids)
+        .exclude(status=SignalReport.Status.DELETED)
+        .values_list("id", flat=True)
+    }
+    return [target_id for target_id in target_ids if target_id not in live]
+
+
 def get_scout_report_signal_count(*, team_id: int, report_id: str) -> int | None:
     """Team-scoped signal-count lookup, for the edit path's pre-judge evidence cap. Returns None when
     the report doesn't exist for the team. A cost gate only — `append_report_evidence` re-checks the

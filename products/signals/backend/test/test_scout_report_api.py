@@ -562,11 +562,12 @@ class TestScoutReportAPI(APIBaseTest):
     def test_emit_report_with_a_rejected_link_authors_no_report(self, _name: str, target_factory: Any) -> None:
         run = _make_run(self.team)
         payload = self._payload(links=[{"kind": "depends_on", "report_id": target_factory(self)}])
-        with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()) as autostart:
+        with _safe_judge() as judge, patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()) as autostart:
             response = self.client.post(self._emit_url(str(run.id)), data=payload, format="json")
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert not SignalReport.objects.filter(team=self.team, title=payload["title"]).exists()
+        judge.assert_not_awaited()
         autostart.assert_not_awaited()
 
     def test_a_links_only_edit_counts_as_an_edit(self) -> None:
