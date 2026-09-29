@@ -1,7 +1,7 @@
 from typing import Any, cast
-from unittest import mock
 
 import pytest
+from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.cloudinary.cloudinary import (
     CloudinaryResumeConfig,
