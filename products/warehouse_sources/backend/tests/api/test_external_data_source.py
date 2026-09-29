@@ -251,6 +251,43 @@ class TestExternalDataSource(APIBaseTest):
         self.assertEqual(result["status"], ExternalDataSchema.Status.FAILED)
         self.assertEqual(result["latest_error"], "boom")
 
+    @parameterized.expand(
+        [
+            ("stored_secret", "Stripe rejected key sk_test_123 for this account", "sk_test_123"),
+            (
+                "url_query_param",
+                "HTTP 503 for https://api.example.com/v1/items?api_key=abc123xyz&page=2",
+                "abc123xyz",
+            ),
+            (
+                "url_userinfo",
+                "could not connect to postgres://admin:hunter2secret@db.example.com:5432",
+                "hunter2secret",
+            ),
+            ("bearer_header", "401 Unauthorized, sent Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.payload", "eyJhbGci"),
+        ]
+    )
+    def test_latest_error_masks_credentials(self, _name, error, secret):
+        source = self._make_source("redact")
+        self._make_schema_with_table(
+            source, "Customers", status=ExternalDataSchema.Status.FAILED, latest_error=error, should_sync=True
+        )
+
+        listed = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/").json()["results"][0]
+        detail = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/").json()
+        schemas = self.client.get(f"/api/environments/{self.team.pk}/external_data_schemas/").json()["results"]
+
+        errors = [
+            listed["latest_error"],
+            listed["schemas"][0]["latest_error"],
+            detail["latest_error"],
+            detail["schemas"][0]["latest_error"],
+            schemas[0]["latest_error"],
+        ]
+        for masked in errors:
+            self.assertIn("***", masked)
+            self.assertNotIn(secret, masked)
+
     def test_list_query_count_does_not_scale_with_source_count(self):
         # Guards the prefetch design: adding sources (each with schemas + tables) must not add queries.
         # A regression to per-source credential/source lookups or the duplicate schema prefetch shows up

@@ -84,6 +84,7 @@ from products.warehouse_sources.backend.presentation.views.destination_links imp
     SchemaDestinationsSerializer,
     set_schema_destinations,
 )
+from products.warehouse_sources.backend.presentation.views.external_data_source import helpers as source_helpers
 from products.warehouse_sources.backend.presentation.views.source_api_versions import (
     ExternalDataSourceApiVersionDeprecationSerializer,
     api_version_deprecation_payload,
@@ -351,6 +352,16 @@ def schema_display_status(schema: ExternalDataSchema) -> str | None:
     if schema.status == ExternalDataSchema.Status.BILLING_LIMIT_TOO_LOW:
         return "Billing limits too low"
     return schema.status
+
+
+def redact_schema_error(schema: ExternalDataSchema, context: dict[str, Any]) -> str | None:
+    if not schema.latest_error:
+        return schema.latest_error
+    # The source serializer passes its secret values in, so embedded schemas skip a per-schema source lookup.
+    secret_values = context.get("error_redaction_values")
+    if secret_values is None:
+        secret_values = source_helpers.get_error_redaction_values(schema.source)
+    return source_helpers.redact_error_message(schema.latest_error, secret_values)
 
 
 class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
@@ -759,6 +770,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         ret["incremental_field_lookback_seconds"] = instance.incremental_field_lookback_seconds
         ret["primary_key_columns"] = instance.primary_key_columns
         ret["cdc_table_mode"] = instance.cdc_table_mode
+        ret["latest_error"] = redact_schema_error(instance, self.context)
         return ret
 
     def _run_temporal_side_effect(self, callback: Callable[[], None]) -> None:
@@ -1684,6 +1696,11 @@ class ExternalDataSchemaListSerializer(serializers.ModelSerializer):
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_status(self, schema: ExternalDataSchema) -> str | None:
         return schema_display_status(schema)
+
+    def to_representation(self, instance: ExternalDataSchema) -> dict[str, Any]:
+        ret = super().to_representation(instance)
+        ret["latest_error"] = redact_schema_error(instance, self.context)
+        return ret
 
 
 class SimpleExternalDataSchemaSerializer(serializers.ModelSerializer):
