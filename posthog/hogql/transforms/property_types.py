@@ -655,6 +655,10 @@ class PropertySwapper(CloningVisitor):
                 inner.value = zoned
                 return expr
 
+        # A computed bound on an explicit sub-microsecond datetime keeps its precision, like a direct toDateTime64 call.
+        if PropertySwapper._has_sub_microsecond_datetime(inner):
+            return expr
+
         # Precision 9 only covers 1900-2262. ClickHouse scales the column's part min/max up to the bound's
         # precision for partition pruning, so a stored timestamp after 2262 overflows the comparison.
         new_call = ast.Call(
@@ -663,6 +667,20 @@ class PropertySwapper(CloningVisitor):
             type=PropertySwapper._datetime_call_type("toDateTime64", PropertySwapper._is_nullable_bound(inner)),
         )
         return PropertySwapper._replace_keeping_alias(expr, new_call)
+
+    @staticmethod
+    def _has_sub_microsecond_datetime(expr: ast.Expr) -> bool:
+        if isinstance(expr, ast.Alias):
+            return PropertySwapper._has_sub_microsecond_datetime(expr.expr)
+        if isinstance(expr, ast.ArithmeticOperation):
+            return any(PropertySwapper._has_sub_microsecond_datetime(side) for side in (expr.left, expr.right))
+        if not isinstance(expr, ast.Call):
+            return False
+        if expr.name == "toDateTime64" and len(expr.args) >= 2:
+            precision = expr.args[1]
+            if isinstance(precision, ast.Constant) and isinstance(precision.value, int) and precision.value > 6:
+                return True
+        return any(PropertySwapper._has_sub_microsecond_datetime(arg) for arg in expr.args)
 
     @staticmethod
     def _replace_keeping_alias(expr: ast.Expr, replacement: ast.Expr) -> ast.Expr:

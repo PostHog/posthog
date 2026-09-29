@@ -1951,12 +1951,18 @@ class TestTimezoneIndexPruning(ClickhouseTestMixin, BaseTest):
         hogql = f"SELECT count() FROM events WHERE event = 'tokyo_date_test' AND {where}"
         self._assert_correct_results(hogql, timezone="Asia/Tokyo", expected_count=2)
 
-    def test_nanosecond_bound_keeps_its_precision(self):
+    @parameterized.expand(
+        [
+            ("constructor", "toDateTime64('2024-03-01 12:00:00.000000500', 9)"),
+            ("computed", "toDateTime64('2024-03-01 11:59:59.000000500', 9) + toIntervalSecond(1)"),
+        ]
+    )
+    def test_nanosecond_bound_keeps_its_precision(self, _name, bound):
         for timestamp in (datetime(2024, 3, 1, 12, 0, 0), datetime(2024, 3, 1, 12, 0, 1)):
             _create_event(team=self.team, distinct_id="nano_user", event="nano_test", timestamp=timestamp)
         flush_persons_and_events()
 
-        hogql = "SELECT count() FROM events WHERE event = 'nano_test' AND timestamp >= toDateTime64('2024-03-01 12:00:00.000000500', 9)"
+        hogql = f"SELECT count() FROM events WHERE event = 'nano_test' AND timestamp >= {bound}"
         self._assert_correct_results(hogql, timezone="UTC", expected_count=1)
 
     @parameterized.expand(
