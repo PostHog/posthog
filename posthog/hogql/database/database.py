@@ -128,6 +128,7 @@ from posthog.hogql.database.schema.person_distinct_id_overrides import (
     RawPersonDistinctIdOverridesTable,
 )
 from posthog.hogql.database.schema.person_distinct_ids import PersonDistinctIdsTable, RawPersonDistinctIdsTable
+from posthog.hogql.database.schema.person_group_membership import PersonGroupMembershipTable
 from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable
 from posthog.hogql.database.schema.persons_revenue_analytics import PersonsRevenueAnalyticsTable
 from posthog.hogql.database.schema.pg_embeddings import PgEmbeddingsTable
@@ -549,6 +550,9 @@ def _construct_database_root_node(*, include_posthog_tables: bool) -> TableNode:
                 children={
                     **clone_root_tables(),
                     # Add new tables here
+                    "person_group_membership": TableNode(
+                        name="person_group_membership", table=PersonGroupMembershipTable()
+                    ),
                     "logs_volume_buckets": TableNode(name="logs_volume_buckets", table=LogsVolumeBucketsTable()),
                     "ai_events": TableNode(name="ai_events", table=AiEventsTable()),
                     # Pruned per org in _build_from_sources; see is_flag_evaluations_table_enabled.

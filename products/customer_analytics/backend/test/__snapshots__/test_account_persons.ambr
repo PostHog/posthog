@@ -1,0 +1,23 @@
+# serializer version: 1
+# name: TestAccountPersonsValidation.test_membership_source_query
+  '''
+  SELECT
+      pdi.person_id AS person_id,
+      min(membership.first_seen) AS account_first_seen,
+      max(membership.last_seen) AS account_last_seen,
+      groupUniqArray(membership.distinct_id) AS distinct_ids
+  FROM
+      posthog.person_group_membership AS membership
+      INNER JOIN person_distinct_ids AS pdi ON equals(membership.distinct_id, pdi.distinct_id)
+  WHERE
+      and(equals(membership.group_type_index, 0), equals(membership.group_key, 'acme'), in(pdi.distinct_id, (SELECT
+                  distinct_id
+              FROM
+                  posthog.person_group_membership
+              WHERE
+                  and(equals(group_type_index, 0), equals(group_key, 'acme')))))
+  GROUP BY
+      pdi.person_id
+  LIMIT 50000
+  '''
+# ---

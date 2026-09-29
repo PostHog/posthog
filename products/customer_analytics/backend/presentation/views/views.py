@@ -16,6 +16,7 @@ import json
 import builtins
 from dataclasses import asdict
 from functools import cached_property
+from time import monotonic
 from typing import Any, cast
 from uuid import UUID
 
@@ -56,14 +57,23 @@ from posthog.permissions import (
     is_service_auth,
 )
 from posthog.rate_limit import RunSavedQueryRateThrottle
+from posthog.slo.context import SloSpec, slo_operation
+from posthog.slo.types import SloArea, SloOperation
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl, model_to_resource
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.customer_analytics.backend.facade import api, contracts
 from products.customer_analytics.backend.facade.constants import (
+    CUSTOMER_ANALYTICS_ACCOUNT_PERSONS_API_FLAG,
     CUSTOMER_ANALYTICS_ACCOUNT_VIEWS_FLAG,
     CUSTOMER_ANALYTICS_FEATURE_REQUESTS_FLAG,
     CUSTOMER_ANALYTICS_TRACK_RULES_FLAG,
+)
+from products.customer_analytics.backend.hogql_queries.account_persons import list_account_persons
+from products.customer_analytics.backend.metrics import record_account_persons_request
+from products.customer_analytics.backend.presentation.views.account_persons_serializers import (
+    AccountPersonsQuerySerializer,
+    AccountPersonsResponseSerializer,
 )
 from products.customer_analytics.backend.presentation.views.serializers import (
     AccountByExternalIdQuerySerializer,
@@ -1837,6 +1847,67 @@ class AccountViewSet(
     serializer_class = AccountSerializer
     queryset = None
     bulk_update_tags = None  # Mixin action assumes integer PKs; Account uses UUIDs.
+    permission_classes = [PostHogFeatureFlagPermission]
+    posthog_feature_flag = {CUSTOMER_ANALYTICS_ACCOUNT_PERSONS_API_FLAG: ["persons"]}
+
+    @validated_request(
+        query_serializer=AccountPersonsQuerySerializer,
+        operation_id="accounts_persons_list",
+        responses={200: AccountPersonsResponseSerializer},
+    )
+    @action(methods=["GET"], detail=True, pagination_class=None, required_scopes=["account:read", "person:read"])
+    def persons(self, request: ValidatedRequest, *args: object, **kwargs: object) -> Response:
+        started_at = monotonic()
+        params = request.validated_query_data
+        result_count = 0
+        outcome = "failure"
+        try:
+            if api.get_accessible_account_id(self.team_id, self.kwargs["pk"], self.user_access_control) is None:
+                return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+            try:
+                account = api.get_account_for_view(
+                    team_id=self.team_id,
+                    account_id=self.kwargs["pk"],
+                    user_access_control=self.user_access_control,
+                    required_level=_OBJECT_READ_LEVEL,
+                )
+            except (api.Account_DoesNotExist, api.ResourceForbiddenError):
+                return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+            with slo_operation(
+                spec=SloSpec(
+                    distinct_id=str(request.user.distinct_id),
+                    area=SloArea.ANALYTIC_PLATFORM,
+                    operation=SloOperation.ACCOUNT_PERSONS_LIST,
+                    team_id=self.team_id,
+                ),
+                properties={
+                    "target_ms": 500,
+                    "has_filters": bool(params.get("properties")),
+                    "has_search": bool(params["search"]),
+                    "selected_property_count": len(params["select"]),
+                },
+            ) as slo:
+                result = list_account_persons(
+                    team=self.team,
+                    user=cast(User, request.user),
+                    group_type_index=self.team.customer_analytics_config.account_group_type_index,
+                    group_key=account.external_id,
+                    **params,
+                )
+                result_count = len(result.results)
+                slo.tag(result_count=result_count)
+                response = Response(AccountPersonsResponseSerializer(result).data)
+                outcome = "success"
+                return response
+        finally:
+            record_account_persons_request(
+                duration_seconds=monotonic() - started_at,
+                result_count=result_count,
+                selected_property_count=len(params["select"]),
+                has_filters=bool(params.get("properties")),
+                has_search=bool(params["search"]),
+                outcome=outcome,
+            )
 
     ALLOWED_ORDERING = frozenset({"name", "-name", "created_at", "-created_at", "updated_at", "-updated_at"})
 

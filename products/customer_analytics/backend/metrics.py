@@ -54,7 +54,42 @@ _ACCOUNT_PROPERTY_SYNC_PHASE_DURATION_SECONDS = Histogram(
     buckets=(0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 15, 30, 60, 120, 300, 600, 1_800, 3_600),
 )
 
+_ACCOUNT_PERSONS_DURATION_SECONDS = Histogram(
+    "customer_analytics_account_persons_duration_seconds",
+    "Account persons request latency, with a 500 ms target",
+    labelnames=["has_filters", "has_search", "outcome"],
+    buckets=(0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10),
+)
+_ACCOUNT_PERSONS_RESULT_COUNT = Histogram(
+    "customer_analytics_account_persons_result_count",
+    "Persons returned per page",
+    buckets=(0, 1, 10, 50, 100, 250, 500),
+)
+_ACCOUNT_PERSONS_SELECTED_PROPERTY_COUNT = Histogram(
+    "customer_analytics_account_persons_selected_property_count",
+    "Selected properties per request",
+    buckets=(0, 1, 5, 10, 25, 50),
+)
+
 _otel = OtelInstrumentFactory("customer-analytics-account-track-rules")
+
+
+def record_account_persons_request(
+    *,
+    duration_seconds: float,
+    result_count: int,
+    selected_property_count: int,
+    has_filters: bool,
+    has_search: bool,
+    outcome: str,
+) -> None:
+    labels = {"has_filters": str(has_filters).lower(), "has_search": str(has_search).lower(), "outcome": outcome}
+    _ACCOUNT_PERSONS_DURATION_SECONDS.labels(**labels).observe(duration_seconds)
+    _otel.record_histogram_twin(_ACCOUNT_PERSONS_DURATION_SECONDS, duration_seconds, labels)
+    _ACCOUNT_PERSONS_RESULT_COUNT.observe(result_count)
+    _otel.record_histogram_twin(_ACCOUNT_PERSONS_RESULT_COUNT, result_count, {})
+    _ACCOUNT_PERSONS_SELECTED_PROPERTY_COUNT.observe(selected_property_count)
+    _otel.record_histogram_twin(_ACCOUNT_PERSONS_SELECTED_PROPERTY_COUNT, selected_property_count, {})
 
 
 def record_account_property_sync_phase_duration(*, phase: str, segment: str, duration_seconds: float) -> None:
