@@ -581,7 +581,9 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         task = tasks_facade.get_task_detail(pk, self.team_id, self._user_id())
         if task is None:
             raise NotFound()
-        result = tasks_facade.task_review(self.team_id, str(task.id), request.user.id, request.validated_query_data["page"])
+        result = tasks_facade.task_review(
+            self.team_id, str(task.id), request.user.id, request.validated_query_data["page"]
+        )
         return Response(TaskReviewSerializer(result).data)
 
     @extend_schema(

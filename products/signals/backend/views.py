@@ -1154,7 +1154,11 @@ class SignalReportViewSet(
                 raise serializers.ValidationError({"unread": "Use true or false."})
             read_ids = (
                 SignalReportAction.objects.for_team(self.team_id)
-                .filter(user_id=self.request.user.id, type=SignalReportAction.ActionType.READ, metadata__read=True)
+                .filter(
+                    user_id=cast(User, self.request.user).id,
+                    type=SignalReportAction.ActionType.READ,
+                    metadata__read=True,
+                )
                 .values("report_id")
             )
             qs = qs.exclude(id__in=read_ids) if unread == "true" else qs.filter(id__in=read_ids)

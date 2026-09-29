@@ -17,14 +17,15 @@ def task_review(team_id: int, task_id: str, user_id: int, page: int) -> dict:
     run = task.runs.order_by("-created_at").first()
     url = (run.output or {}).get("pr_url") if run else None
     parsed = GitHubIntegration.parse_pull_request_url(url) if isinstance(url, str) else None
-    if parsed is None:
+    if not isinstance(url, str) or parsed is None:
         raise NotFound("This task has no pull request yet.")
     repositories = {repo.lower() for repo in [task.repository, *(task.repositories or [])] if repo}
     if parsed.repository.lower() not in repositories:
         raise PermissionDenied("The pull request is outside this task's repositories.")
     github: GitHubIntegration | UserGitHubIntegration
-    if task.github_user_integration_id and task.github_user_integration.user_id == user_id:
-        github = UserGitHubIntegration(task.github_user_integration)
+    user_integration = task.github_user_integration
+    if user_integration is not None and user_integration.user_id == user_id:
+        github = UserGitHubIntegration(user_integration)
     else:
         integrations = Integration.objects.filter(team_id=team_id, kind="github")
         integration = integrations.filter(id=task.github_integration_id).first() if task.github_integration_id else None
