@@ -641,6 +641,7 @@ the row lists both.
 | sequenzy                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | servicem8                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | servicenow                       | HTTP                        | requests                                                        | ✅                          |
+| sevdesk                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | sftp                             | SSH (SFTP)                  | paramiko                                                        | ➖                          |
 | shipmail                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | shippo                           | HTTP                        | requests                                                        | ✅                          |
@@ -1366,7 +1367,6 @@ doesn't conflict with concurrent PRs.
 - servicetitan
 - servicetrade
 - sevalla
-- sevdesk
 - sevenshifts
 - sharepoint
 - sharetribe
