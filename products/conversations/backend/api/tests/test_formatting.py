@@ -416,9 +416,19 @@ class TestSlackFormatting(SimpleTestCase):
                 "<https://ph.test/i/chart(1).png|chart>",
             ),
             ("unterminated_link_stays_literal", "[here](https://ph.test", "[here](https://ph.test"),
+            (
+                "link_url_with_lone_paren_stays_clickable",
+                "[here](https://ph.test/q?v=foo() ok",
+                "<https://ph.test/q?v=foo(|here> ok",
+            ),
+            (
+                "unbalanced_link_url_stops_at_whitespace",
+                "[here](https://ph.test/a( then [next](https://ph.test/b)",
+                "[here](https://ph.test/a( then <https://ph.test/b|next>",
+            ),
             # A scan from each `[` rereads the rest of the text when a run never closes, which makes
             # the conversion quadratic. The timeout fails these cases if that per-link scan returns.
-            ("unclosed_destination_run_stays_literal", "[x](a()" * 4000, "[x](a()" * 4000),
+            ("unclosed_destination_run_closes_at_first_paren", "[x](a()" * 4000, "<a(|x>" * 4000),
             ("unclosed_label_run_stays_literal", "[" * 25000, "[" * 25000),
         ]
     )

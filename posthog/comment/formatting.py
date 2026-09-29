@@ -211,6 +211,35 @@ def _balanced_closers(text: str, opener: str, closer: str) -> dict[int, int]:
     return closers
 
 
+def _unbalanced_destination_closers(text: str) -> dict[int, int]:
+    """Map the index of each ``(`` to the first ``)`` that follows it with no whitespace between.
+
+    A destination that holds a lone ``(`` is not a CommonMark link, but the markdown serializer
+    writes an href without escapes, so an href such as ``https://example.com?q=foo(`` arrives here
+    unbalanced. Closing such a destination at the first ``)`` keeps the link clickable. A bare
+    CommonMark destination holds no whitespace, so the search stops at the first one, which keeps
+    a stray ``(`` from pulling the prose that follows into the URL.
+    """
+    closers: dict[int, int] = {}
+    waiting: list[int] = []
+    index = 0
+    while index < len(text):
+        char = text[index]
+        if char == "\\":
+            index += 2
+            continue
+        if char == "(":
+            waiting.append(index)
+        elif char == ")":
+            for open_index in waiting:
+                closers[open_index] = index
+            waiting.clear()
+        elif char.isspace():
+            waiting.clear()
+        index += 1
+    return closers
+
+
 def _delimited_run(text: str, start: int, closers: dict[int, int]) -> tuple[str, int] | None:
     """Return the text inside the run that opens at ``start`` and the index after its closer, or None when it never closes."""
     end = closers.get(start)
@@ -223,7 +252,8 @@ def _markdown_links_to_mrkdwn(text: str, *, images: bool) -> str:
     """Rewrite markdown ``[label](url)`` links, or ``![alt](url)`` images, into mrkdwn ``<url|label>``."""
     marker = "!" if images else "["
     label_closers = _balanced_closers(text, "[", "]")
-    destination_closers = _balanced_closers(text, "(", ")")
+    # A balanced destination wins. The unbalanced map only fills the openers it leaves out.
+    destination_closers = _unbalanced_destination_closers(text) | _balanced_closers(text, "(", ")")
     out: list[str] = []
     index = 0
     while index < len(text):
