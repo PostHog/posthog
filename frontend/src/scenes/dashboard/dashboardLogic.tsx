@@ -3606,6 +3606,60 @@ export const dashboardLogic = kea<dashboardLogicType>([
         },
     })),
     listeners(({ actions, values, cache, props, sharedListeners }) => ({
+        [dashboardsModel.actionTypes.updateDashboardSuccess]: ({
+            dashboard,
+            payload,
+        }: {
+            dashboard: DashboardType | null
+            payload?: { layoutsPersisted?: boolean }
+        }) => {
+            if (!dashboard || !values.dashboard || dashboard.id !== props.id || values.dashboard.id !== dashboard.id) {
+                return
+            }
+
+            const layoutsPersisted = payload?.layoutsPersisted === true
+            const preserveDraftLayouts = !layoutsPersisted && values.hasUnsavedLayoutChanges
+            const previousTiles = new Map(values.dashboard.tiles.map((tile) => [tile.id, tile]))
+            const originalLayouts = layoutsPersisted
+                ? layoutsByTile(
+                      calculateLayouts(
+                          values.dashboard.tiles.map((tile) => ({
+                              ...tile,
+                              layouts: values.dashboardLayouts[tile.id],
+                          }))
+                      )
+                  )
+                : null
+            const layouts = tileLayoutsFromDashboard(dashboard)
+            if (preserveDraftLayouts) {
+                values.dashboard.tiles.forEach((tile) => {
+                    if (tile.id in layouts) {
+                        layouts[tile.id] = values.dashboardLayouts[tile.id]
+                    }
+                })
+            }
+            const tiles = dashboard.tiles.map((tile) => {
+                const previousTile = previousTiles.get(tile.id)
+                if (previousTile && preserveDraftLayouts) {
+                    return { ...tile, layouts: previousTile.layouts }
+                }
+                const draftSm = previousTile?.layouts?.sm
+                const originalSm = originalLayouts?.[tile.id]?.sm
+                if (
+                    draftSm &&
+                    originalSm &&
+                    (draftSm.x !== originalSm.x ||
+                        draftSm.y !== originalSm.y ||
+                        draftSm.w !== originalSm.w ||
+                        draftSm.h !== originalSm.h)
+                ) {
+                    return { ...tile, layouts: previousTile.layouts }
+                }
+                return tile
+            })
+
+            actions.applyDashboardUpdate({ ...dashboard, tiles }, layouts)
+        },
         scheduleRefreshDashboardWidgets: ({ tileId }: { tileId: number }) => {
             if (!cache.widgetTileRefreshScheduler) {
                 cache.widgetTileRefreshScheduler = createDashboardWidgetTileRefreshScheduler((id) =>
