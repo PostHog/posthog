@@ -1,4 +1,4 @@
-"""Organization-level rollout gates for report metrics.
+"""Organization-level rollout gates for agent-authored report content.
 
 The checks live in their own module because they need `Team` and the flag client.
 Report models and Temporal payloads import `report_metrics.py` during process setup,
@@ -20,6 +20,7 @@ from posthog.ph_client import feature_enabled_or_false
 logger = structlog.get_logger(__name__)
 
 REPORT_METRICS_FLAG = "signals-report-metrics"
+EXPECTED_IMPACT_AUTHORING_FLAG = "signals-expected-impact-authoring"
 
 
 def _organization_flag_enabled(flag: str, organization_id: UUID) -> bool:
@@ -67,3 +68,7 @@ def organization_report_metrics_enabled(organization_id: UUID) -> bool:
 
 def team_report_metrics_enabled(team_id: int) -> bool:
     return _team_flag_enabled(REPORT_METRICS_FLAG, team_id)
+
+
+def team_expected_impact_authoring_enabled(team_id: int) -> bool:
+    return _team_flag_enabled(EXPECTED_IMPACT_AUTHORING_FLAG, team_id)
