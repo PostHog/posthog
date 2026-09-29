@@ -11,7 +11,7 @@ class TestRadarCallSite(SimpleTestCase):
     @parameterized.expand([(RadarVerdict.BLOCK,), (RadarVerdict.CHALLENGE,)])
     def test_exempt_address_bypasses(self, verdict: RadarVerdict) -> None:
         seed_rules(exempt_rule(targetType="email_domain", targetValue="partner.example", scope="signup_risk"))
-        assert _decide_outcome(verdict, "new@eu.partner.example", "", "", "93.184.216.1") == "bypass"
+        assert _decide_outcome(verdict, "new@eu.partner.example", "", "", "93.184.216.1") == "bypass_rule"
 
     def test_other_addresses_keep_the_verdict(self) -> None:
         seed_rules(exempt_rule(targetValue="trusted@example.org", scope="signup_risk"))
@@ -25,4 +25,13 @@ class TestRadarCallSite(SimpleTestCase):
     def test_legacy_redis_bypass_still_works(self) -> None:
         seed_rules()
         add_radar_bypass_email("legacy@example.org")
-        assert _decide_outcome(RadarVerdict.BLOCK, "legacy@example.org", "", "", "93.184.216.1") == "bypass"
+        assert _decide_outcome(RadarVerdict.BLOCK, "legacy@example.org", "", "", "93.184.216.1") == "bypass_legacy"
+
+    def test_the_legacy_list_wins_the_label_when_both_match(self) -> None:
+        seed_rules(exempt_rule(targetValue="both@example.org", scope="signup_risk"))
+        add_radar_bypass_email("both@example.org")
+        assert _decide_outcome(RadarVerdict.BLOCK, "both@example.org", "", "", "93.184.216.1") == "bypass_legacy"
+
+    def test_a_target_type_the_hub_forbids_does_not_exempt(self) -> None:
+        seed_rules(exempt_rule(targetType="everyone", targetValue="", scope="signup_risk"))
+        assert _decide_outcome(RadarVerdict.BLOCK, "anyone@example.org", "", "", "93.184.216.1") == "block"

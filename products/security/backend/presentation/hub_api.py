@@ -148,7 +148,15 @@ class RadarBypassExportView(_HubView):
 
     @extend_schema(exclude=True)
     def post(self, request: Request) -> Response:
-        return Response(RadarBypassExportResponseSerializer({"emails": radar_bypasses()}).data)
+        try:
+            emails = radar_bypasses()
+        except Exception:
+            # A 503 tells the hub to retry the import. A 500 reads as a bug and stops it.
+            logger.exception("security_hub_radar_export_failed")
+            return Response(status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        # One call returns every address, so the export leaves a record of who read it.
+        logger.info("security_hub_radar_export", count=len(emails))
+        return Response(RadarBypassExportResponseSerializer({"emails": emails}).data)
 
 
 class SyncNowView(_HubView):

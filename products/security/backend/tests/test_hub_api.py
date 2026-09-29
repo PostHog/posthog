@@ -104,6 +104,10 @@ class TestHubApi(BaseTest):
         assert self.post("radar-bypass-export", {}, "radar_bypass:export").json() == {"emails": ["partner@example.org"]}
         assert self.post("radar-bypass-export", {}, "rules:sync_now").status_code == 403
 
+    @patch("products.security.backend.presentation.hub_api.radar_bypasses", side_effect=RuntimeError("redis down"))
+    def test_radar_export_answers_503_when_redis_is_unreachable(self, _bypasses: MagicMock) -> None:
+        assert self.post("radar-bypass-export", {}, "radar_bypass:export").status_code == 503
+
     @patch("products.security.backend.presentation.hub_api.start_sync_now")
     def test_sync_now(self, start: MagicMock) -> None:
         assert self.post("sync-now", {}, "rules:sync_now").status_code == 202
