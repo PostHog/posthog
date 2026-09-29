@@ -33,6 +33,7 @@ import {
 } from './components/HogFunctionConfigurationButtons'
 import { HogFunctionInputs } from './components/HogFunctionInputs'
 import { HogFunctionSourceWebhookInfo } from './components/HogFunctionSourceWebhookInfo'
+import { HogFunctionSourceWebhookLastPayload } from './components/HogFunctionSourceWebhookLastPayload'
 import { HogFunctionSourceWebhookTest } from './components/HogFunctionSourceWebhookTest'
 import { HogFunctionTemplateOptions } from './components/HogFunctionTemplateOptions'
 import { HogFunctionTest } from './HogFunctionTest'
@@ -217,6 +218,7 @@ export function HogFunctionConfiguration({
                             </div>
 
                             {type === 'source_webhook' && <HogFunctionSourceWebhookInfo />}
+                            {type === 'source_webhook' && id && <HogFunctionSourceWebhookLastPayload id={id} />}
                             {showFilters && <HogFunctionFilters />}
                             {survey && <SurveyResponseKeysReference questions={survey.questions} />}
                             {showExpectedVolume ? <HogFunctionEventEstimates /> : null}
