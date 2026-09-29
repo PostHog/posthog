@@ -31,6 +31,19 @@ The selected project persists across restarts and token refreshes.
 Switching projects clears the previous project's cached data and navigation state.
 Cloud sign-in lists only projects included in the OAuth grant.
 
+## Inbox and task conversations
+
+Inbox lists actionable reports where the signed-in user is a suggested reviewer, highest priority first.
+Opening a report marks it read on this device. Read actions clear the new-item indicators without dismissing the reports.
+Dismiss changes the report state for the project. Activity read state is stored on the server.
+Both lists support refresh and loading older items.
+
+Task conversations keep the header and reply box outside the scrolling messages.
+Images can be expanded. Saved insights and SQL references render charts or tables; unsupported insight types link to PostHog.
+Mobile run requests set `X-PostHog-Client-Platform: mobile` for the PR footer.
+The backend carries that value to the agent as run state. It does not change GitHub authorship or commit signing.
+The Mobile footer needs the backend and agent changes to be deployed.
+
 Before sharing a build:
 
 - Sign in to one account in Safari, then tap Get started in the app and sign in to another account.
@@ -49,6 +62,16 @@ Before sharing a build:
   The old session must not return, and the command must not start work under the new account.
 - Tap the login button twice quickly.
   Only one login flow should start.
+- Open Inbox with reports for different suggested reviewers. Only your reports should appear, with P0 first.
+  Open a report, mark loaded reports read, and confirm that the drawer indicator clears. Restart and check read state.
+  Dismiss a report and confirm it leaves the project inbox. Disconnect the network and check that failed actions permit another attempt.
+- In Activity, mark one item read, then mark shown items read. Confirm the badge updates and older items can be loaded.
+  New activity that arrives during a read action must remain unread.
+- Open a task with an uploaded image, a Markdown image, and a saved insight. Expand the images and read chart values.
+  Reopen the task and check that stored attachments still load. Check an unavailable image and insight, then retry.
+- In a long conversation, scroll up while the agent works. Open and close the keyboard, send a reply, and use Latest message.
+  Messages must remain clear of the header and reply box, without a large blank space or forced scrolling while reading history.
+- Start a task from mobile and let it create a PR. Confirm its footer says PostHog Mobile and its GitHub author is unchanged.
 - Open an MCP app from a task result, enter fullscreen, then return inline.
   The content must load in each view, and app controls must still work.
 - Check the login button on a device without Liquid Glass.

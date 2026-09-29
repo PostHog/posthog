@@ -4,7 +4,13 @@ import type { SignalReport } from "@posthog/shared/domain-types";
 import * as Haptics from "expo-haptics";
 import { useNavigation, useRouter } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import {
+  Pressable,
+  RefreshControl,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import Animated, {
   FadeIn,
   FadeInDown,
@@ -33,7 +39,6 @@ export default function SelfDrivingScreen() {
   const insets = useSafeAreaInsets();
   const reports = useReports();
   const seen = useSeenReports((s) => s.seen);
-  const seenHydrated = useSeenReports((s) => s.hydrated);
   const markSeen = useSeenReports((s) => s.markSeen);
   const dismiss = useDismissReport();
   const start = useStartReport();
@@ -56,13 +61,6 @@ export default function SelfDrivingScreen() {
     [all, seen],
   );
 
-  // New reports since the last visit open the deck on their own.
-  useEffect(() => {
-    if (deck === null && seenHydrated && reports.data && unseen.length > 0) {
-      setDeck(unseen.map((report) => report.id));
-    }
-  }, [deck, seenHydrated, reports.data, unseen]);
-
   const deckReports = useMemo(
     () =>
       (deck ?? [])
@@ -74,12 +72,17 @@ export default function SelfDrivingScreen() {
   // Whatever surfaces at the top of the deck counts as seen.
   const topId = deckReports[0]?.id;
   useEffect(() => {
-    if (topId && !seen.has(topId)) markSeen([topId]);
+    if (topId && !seen.has(topId))
+      markSeen([topId]).catch(() =>
+        setNotice("Could not mark the report as read."),
+      );
   }, [topId, seen, markSeen]);
 
   const finish = (report: SignalReport): void => {
     setHandled((current) => new Set(current).add(report.id));
-    markSeen([report.id]);
+    markSeen([report.id]).catch(() =>
+      setNotice("Could not mark the report as read."),
+    );
   };
 
   // A failed action leaves the report open on the server, so put the card back
@@ -145,7 +148,7 @@ export default function SelfDrivingScreen() {
             <MenuIcon />
           </GlassCircleButton>
         )}
-        <Text style={styles.title}>{showDeck ? "Triage" : "Reports"}</Text>
+        <Text style={styles.title}>{showDeck ? "Report" : "Inbox"}</Text>
         <View style={{ width: 46 }} />
       </View>
 
@@ -166,6 +169,12 @@ export default function SelfDrivingScreen() {
         </Animated.View>
       ) : (
         <Animated.ScrollView
+          refreshControl={
+            <RefreshControl
+              refreshing={reports.isRefetching}
+              onRefresh={() => void reports.refetch()}
+            />
+          }
           key="list"
           entering={FadeIn.duration(240)}
           exiting={FadeOut.duration(160)}
@@ -174,9 +183,33 @@ export default function SelfDrivingScreen() {
             { paddingBottom: insets.bottom + 100 },
           ]}
         >
-          <Text style={styles.sectionTitle}>
-            {all.length === 0 && !reports.isLoading ? "All clear" : "Reports"}
+          <Text style={styles.sectionTitle}>For you</Text>
+          <Text style={styles.muted}>
+            Reports where you are a suggested reviewer, highest priority first.
           </Text>
+          {unseen.length > 0 ? (
+            <Pressable
+              accessibilityRole="button"
+              onPress={() =>
+                markSeen(all.map((report) => report.id)).catch(() =>
+                  setNotice("Could not mark reports as read."),
+                )
+              }
+              style={styles.readAction}
+            >
+              <Text style={styles.actionText}>Mark loaded reports as read</Text>
+            </Pressable>
+          ) : null}
+          {reports.isError ? (
+            <Pressable onPress={() => void reports.refetch()}>
+              <Text style={styles.actionText}>
+                Could not load reports. Tap to retry.
+              </Text>
+            </Pressable>
+          ) : null}
+          {all.length === 0 && !reports.isLoading && !reports.isError ? (
+            <Text style={styles.muted}>No reports for you.</Text>
+          ) : null}
           {reports.isLoading ? <Text style={styles.muted}>Loading</Text> : null}
           {all.map((report) => (
             <Pressable
@@ -200,6 +233,21 @@ export default function SelfDrivingScreen() {
               {!seen.has(report.id) ? <View style={styles.newDot} /> : null}
             </Pressable>
           ))}
+          {reports.hasNextPage ? (
+            <Pressable
+              disabled={reports.isFetchingNextPage}
+              onPress={() => void reports.fetchNextPage()}
+              style={styles.readAction}
+            >
+              <Text style={styles.actionText}>
+                {reports.isFetchingNextPage ? "Loading" : "Load more"}
+              </Text>
+            </Pressable>
+          ) : null}
+          <Text style={styles.muted}>
+            Read status is saved on this device. Dismiss removes a report from
+            the project inbox.
+          </Text>
         </Animated.ScrollView>
       )}
       {notice ? (
@@ -242,6 +290,12 @@ export default function SelfDrivingScreen() {
 }
 
 const styles = StyleSheet.create({
+  readAction: { paddingVertical: 12 },
+  actionText: {
+    fontFamily: fonts.sansMedium,
+    color: colors.accent,
+    fontSize: 14,
+  },
   header: {
     flexDirection: "row",
     alignItems: "center",

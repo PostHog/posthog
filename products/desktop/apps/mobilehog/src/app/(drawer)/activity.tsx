@@ -1,7 +1,9 @@
 import { useNavigation, useRouter } from "expo-router";
 import { useMemo, useState } from "react";
 import {
+  Alert,
   Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Switch,
@@ -44,7 +46,7 @@ export default function ActivityScreen() {
   const name = useAuth((s) => s.session?.userName ?? null);
   const activity = useActivity();
   const markRead = useMarkActivityRead();
-  const [unreadsOnly, setUnreadsOnly] = useState(false);
+  const [unreadsOnly, setUnreadsOnly] = useState(true);
   const [query, setQuery] = useState("");
 
   const groups = useMemo(() => {
@@ -58,7 +60,14 @@ export default function ActivityScreen() {
   }, [activity.data, email, name, unreadsOnly, query]);
 
   const open = (row: ActivityRow): void => {
-    if (row.item.isUnread) markRead.mutate(row.item);
+    if (row.item.isUnread)
+      markRead.mutate([row.item], {
+        onError: () =>
+          Alert.alert(
+            "Could not mark activity as read",
+            "Try again from Activity.",
+          ),
+      });
     router.push({
       pathname: "/(drawer)/task/[id]",
       params: { id: row.item.taskId },
@@ -73,7 +82,7 @@ export default function ActivityScreen() {
         </GlassCircleButton>
         <Text style={styles.title}>Activity</Text>
         <View style={styles.unreads}>
-          <Text style={styles.unreadsLabel}>Unreads</Text>
+          <Text style={styles.unreadsLabel}>Unread</Text>
           <Switch
             value={unreadsOnly}
             onValueChange={setUnreadsOnly}
@@ -82,6 +91,12 @@ export default function ActivityScreen() {
         </View>
       </View>
       <ScrollView
+        refreshControl={
+          <RefreshControl
+            refreshing={activity.isRefetching}
+            onRefresh={() => void activity.refetch()}
+          />
+        }
         contentContainerStyle={[
           styles.scroll,
           { paddingBottom: insets.bottom + 24 },
@@ -98,9 +113,46 @@ export default function ActivityScreen() {
             autoCorrect={false}
           />
         </Glass>
-        {groups.length === 0 ? (
+        <Pressable
+          accessibilityRole="button"
+          disabled={
+            markRead.isPending ||
+            !groups.some((group) => group.rows.some((row) => row.item.isUnread))
+          }
+          onPress={() =>
+            markRead.mutate(
+              groups.flatMap((group) =>
+                group.rows
+                  .filter((row) => row.item.isUnread)
+                  .map((row) => row.item),
+              ),
+            )
+          }
+          style={styles.readAction}
+        >
+          <Text style={styles.actionText}>
+            {markRead.isPending ? "Saving" : "Mark shown activity as read"}
+          </Text>
+        </Pressable>
+        {markRead.isError ? (
           <Text style={styles.empty}>
-            {activity.isLoading ? "Loading" : "Nothing here"}
+            Could not mark activity as read. Try again.
+          </Text>
+        ) : null}
+        {activity.isError ? (
+          <Pressable onPress={() => void activity.refetch()}>
+            <Text style={styles.actionText}>
+              Could not load activity. Tap to retry.
+            </Text>
+          </Pressable>
+        ) : null}
+        {groups.length === 0 && !activity.isError ? (
+          <Text style={styles.empty}>
+            {activity.isLoading
+              ? "Loading"
+              : unreadsOnly
+                ? "No unread activity"
+                : "No activity"}
           </Text>
         ) : null}
         {groups.map((group) => (
@@ -148,17 +200,48 @@ export default function ActivityScreen() {
                     </Text>
                   ) : null}
                 </View>
-                {row.item.isUnread ? <View style={styles.unreadDot} /> : null}
+                {row.item.isUnread ? (
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="Mark as read"
+                    disabled={markRead.isPending}
+                    hitSlop={8}
+                    onPress={(event) => {
+                      event.stopPropagation();
+                      markRead.mutate([row.item]);
+                    }}
+                    style={styles.readAction}
+                  >
+                    <Text style={styles.actionText}>✓</Text>
+                  </Pressable>
+                ) : null}
               </Pressable>
             ))}
           </View>
         ))}
+        {activity.hasNextPage ? (
+          <Pressable
+            disabled={activity.isFetchingNextPage}
+            onPress={() => void activity.fetchNextPage()}
+            style={styles.readAction}
+          >
+            <Text style={styles.actionText}>
+              {activity.isFetchingNextPage ? "Loading" : "Load more"}
+            </Text>
+          </Pressable>
+        ) : null}
       </ScrollView>
     </DrawerScene>
   );
 }
 
 const styles = StyleSheet.create({
+  readAction: { paddingVertical: 8, paddingHorizontal: 4 },
+  actionText: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 14,
+    color: colors.accent,
+  },
   header: {
     flexDirection: "row",
     alignItems: "center",

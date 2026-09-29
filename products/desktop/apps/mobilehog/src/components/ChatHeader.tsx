@@ -6,15 +6,23 @@ import { MenuIcon, NewChatIcon } from "@/components/Icons";
 
 interface ChatHeaderProps {
   showNewChat?: boolean;
+  inline?: boolean;
 }
 
-export function ChatHeader({ showNewChat = true }: ChatHeaderProps) {
+export function ChatHeader({
+  showNewChat = true,
+  inline = false,
+}: ChatHeaderProps) {
   const navigation = useNavigation<{ openDrawer: () => void }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   return (
     <View
-      style={[styles.root, { paddingTop: insets.top + 6 }]}
+      style={[
+        styles.root,
+        inline && styles.inline,
+        { paddingTop: insets.top + 6 },
+      ]}
       pointerEvents="box-none"
     >
       <GlassCircleButton onPress={() => navigation.openDrawer()}>
@@ -31,6 +39,7 @@ export function ChatHeader({ showNewChat = true }: ChatHeaderProps) {
 }
 
 const styles = StyleSheet.create({
+  inline: { position: "relative", paddingBottom: 12 },
   root: {
     position: "absolute",
     top: 0,

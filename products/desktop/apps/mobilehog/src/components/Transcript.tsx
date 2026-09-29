@@ -7,11 +7,10 @@ import {
   Text,
   View,
 } from "react-native";
-import Animated, { FadeIn } from "react-native-reanimated";
+import { ChatImage } from "@/components/ChatImage";
 import { Glass } from "@/components/Glass";
 import { Markdown } from "@/components/Markdown";
 import { appResourceUri, McpAppHost } from "@/components/McpAppHost";
-import { ShimmerText } from "@/components/ShimmerText";
 import type { TaskSession } from "@/lib/session";
 import { colors, fonts, radius } from "@/lib/theme";
 import type { Block, PermissionRequest, ToolStatus } from "@/lib/transcript";
@@ -126,80 +125,73 @@ export function buildTranscriptRows(
   return rows;
 }
 
-export const TranscriptRowView = memo(
-  function TranscriptRowView({
-    row,
-    onPermission,
-  }: {
-    row: TranscriptRow;
-    onPermission: TranscriptProps["onPermission"];
-  }) {
-    switch (row.kind) {
-      case "block":
-        return <BlockView block={row.block} />;
-      case "app":
-        return <McpAppHost block={row.block} />;
-      case "activity":
-        return (
-          <ActivityRow
-            activity={row}
-            active={row.active}
-            permissions={row.permissions}
-            onPermission={onPermission}
-          />
-        );
-      case "permission":
-        return (
-          <PermissionCard request={row.request} onPermission={onPermission} />
-        );
-      case "status":
-        return <StatusLine label={row.label} active />;
-    }
-  },
-  // Rows are rebuilt on every fold; only re-render when their content moved.
-  (prev, next) => {
-    if (prev.row.kind !== next.row.kind || prev.row.id !== next.row.id) {
-      return false;
-    }
-    if (
-      (prev.row.kind === "block" && next.row.kind === "block") ||
-      (prev.row.kind === "app" && next.row.kind === "app")
-    ) {
-      return prev.row.block === next.row.block;
-    }
-    if (prev.row.kind === "activity" && next.row.kind === "activity") {
+export const TranscriptRowView = memo(function TranscriptRowView({
+  row,
+  onPermission,
+}: {
+  row: TranscriptRow;
+  onPermission: TranscriptProps["onPermission"];
+}) {
+  switch (row.kind) {
+    case "block":
+      return <BlockView block={row.block} />;
+    case "app":
+      return <McpAppHost block={row.block} />;
+    case "activity":
       return (
-        prev.row.active === next.row.active &&
-        prev.row.end === next.row.end &&
-        prev.row.items.length === next.row.items.length &&
-        prev.row.permissions === next.row.permissions
+        <ActivityRow
+          activity={row}
+          active={row.active}
+          permissions={row.permissions}
+          onPermission={onPermission}
+        />
       );
-    }
-    if (prev.row.kind === "status" && next.row.kind === "status") {
-      return prev.row.label === next.row.label;
-    }
-    return prev.row.kind === "permission" && next.row.kind === "permission"
-      ? prev.row.request === next.row.request
-      : false;
-  },
-);
+    case "permission":
+      return (
+        <PermissionCard request={row.request} onPermission={onPermission} />
+      );
+    case "status":
+      return <StatusLine label={row.label} active />;
+  }
+});
 
 function BlockView({ block }: { block: Block }) {
   switch (block.kind) {
     case "user":
       return (
         <View style={styles.userRow}>
-          <View style={styles.userBubble}>
-            <Text style={styles.userText} selectable>
-              {block.text}
-            </Text>
+          <View
+            style={[
+              styles.userBubble,
+              block.attachments?.length || /!\[|<file\s/.test(block.text)
+                ? { width: "84%" }
+                : undefined,
+            ]}
+          >
+            {block.text ? (
+              <Markdown text={block.text} color={colors.darkText} />
+            ) : null}
+            {block.attachments?.map((attachment) => (
+              <ChatImage
+                key={attachment.id}
+                uri={attachment.previewUrl ?? attachment.id}
+                label={attachment.label}
+              />
+            ))}
           </View>
         </View>
       );
     case "agent":
       return (
         <View style={styles.agentRow}>
-          <Markdown text={block.text} />
+          {block.text ? <Markdown text={block.text} /> : null}
+          {block.attachments?.map((attachment) => (
+            <ChatImage
+              key={attachment.id}
+              uri={attachment.previewUrl ?? attachment.id}
+              label={attachment.label}
+            />
+          ))}
         </View>
       );
     case "plan":
@@ -249,31 +241,6 @@ function useNow(enabled: boolean): number {
   return now;
 }
 
-// Fun stand-ins for "Working", rotated while a turn runs.
-const BUSY_WORDS = [
-  "Working",
-  "Thinking",
-  "Noodling",
-  "Rummaging",
-  "Sniffing around",
-  "Cooking",
-  "Poking at it",
-  "Hedgehogging",
-];
-
-function useBusyWord(enabled: boolean): string {
-  const [index, setIndex] = useState(0);
-  useEffect(() => {
-    if (!enabled) return;
-    const timer = setInterval(
-      () => setIndex((value) => (value + 1) % BUSY_WORDS.length),
-      5000,
-    );
-    return () => clearInterval(timer);
-  }, [enabled]);
-  return BUSY_WORDS[index] ?? "Working";
-}
-
 export function StatusLine({
   label,
   active,
@@ -287,9 +254,6 @@ export function StatusLine({
   open?: boolean;
   onPress?: () => void;
 }) {
-  const rotate = active && label === "Working";
-  const word = useBusyWord(rotate);
-  const shown = rotate ? word : label;
   return (
     <Pressable
       onPress={onPress}
@@ -299,13 +263,7 @@ export function StatusLine({
       {onPress ? (
         <Text style={[styles.chevron, open && styles.chevronOpen]}>›</Text>
       ) : null}
-      {active ? (
-        <Animated.View key={shown} entering={FadeIn.duration(260)}>
-          <ShimmerText style={styles.statusLabel}>{shown}</ShimmerText>
-        </Animated.View>
-      ) : (
-        <Text style={styles.statusLabel}>{shown}</Text>
-      )}
+      <Text style={styles.statusLabel}>{label}</Text>
       {active ? (
         <ActivityIndicator size="small" color={colors.inkMute} />
       ) : null}
@@ -338,9 +296,6 @@ function ActivityRow({
     .flatMap((tool) => [tool, ...(activity.children.get(tool.id) ?? [])])
     .map((tool) => permissions[tool.id])
     .filter((request): request is PermissionRequest => !!request);
-  const latestThought = active
-    ? [...activity.items].reverse().find((item) => item.kind === "thought")
-    : undefined;
 
   return (
     <View style={styles.activity}>
@@ -351,11 +306,6 @@ function ActivityRow({
         open={open}
         onPress={() => setOpen((value) => !value)}
       />
-      {!open && latestThought ? (
-        <Text style={styles.thinkingPeek} numberOfLines={1}>
-          {latestThought.text.trim()}
-        </Text>
-      ) : null}
       {open ? (
         <View style={styles.activityBody}>
           {activity.items.map((item) =>

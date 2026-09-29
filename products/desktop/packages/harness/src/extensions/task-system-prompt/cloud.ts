@@ -17,6 +17,7 @@ export interface CloudTaskPromptOptions {
   baseBranch?: string;
   createPr?: boolean;
   isAutomatedOrigin: boolean;
+  mobileClient?: boolean;
   isSlack: boolean;
   projectId: number;
   hasGithubToken: boolean;
@@ -293,9 +294,11 @@ The answer is the work of this run, so the run still needs a summary. Call the \
     // Slack- and inbox-originated PRs are attributed to PostHog, not the
     // PostHog Desktop app — they come from the Slack app / Self-driving
     // inbox, which users know as "PostHog".
-    const createdWith = this.options.isAutomatedOrigin
-      ? "Created with [PostHog](https://posthog.com?ref=pr)"
-      : "Created with [PostHog Desktop](https://posthog.com/desktop?ref=pr)";
+    const createdWith = this.options.mobileClient
+      ? "Created with [PostHog Mobile](https://posthog.com?ref=pr)"
+      : this.options.isAutomatedOrigin
+        ? "Created with [PostHog](https://posthog.com?ref=pr)"
+        : "Created with [PostHog Desktop](https://posthog.com/desktop?ref=pr)";
     const prFooter = slackThreadUrl
       ? `*${createdWith} from a [Slack thread](${slackThreadUrl})*`
       : inboxReportUrl
