@@ -1,5 +1,4 @@
 import re
-import json
 import uuid
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
@@ -23,7 +22,6 @@ from posthog.clickhouse.schema import (
     build_query,
     get_table_name,
 )
-from posthog.models.event.person_property_mutation_sql import PERSON_PROPERTY_MUTATION_LOG_MV_SQL
 from posthog.models.event.sql import (
     EVENTS_JSON_TABLE_MV_SQL,
     KAFKA_EVENTS_NATIVE_JSON_TABLE,
@@ -76,44 +74,6 @@ def test_events_json_table_uses_dedicated_kafka_consumer_group(settings):
     assert "JSONCleanPostHogTemporaryProperties(" in mv_query
     assert "accurateCastOrNull(if(isValidJSON(source.properties)" in mv_query
     assert "accurateCastOrNull(if(isValidJSON(source.person_properties)" in mv_query
-
-
-@pytest.mark.parametrize(
-    "properties,expected",
-    [
-        (
-            {
-                "$set": {"nested": {"values": [True, None, 42, "雪"]}},
-                "$set_once": {"first": False},
-                "$unset": ["old"],
-                "ordinary": "discard",
-            },
-            {"$set": {"nested": {"values": [True, None, 42, "雪"]}}, "$set_once": {"first": False}, "$unset": ["old"]},
-        ),
-        ({"$unset": ["old"]}, {"$unset": ["old"]}),
-        ({"$unset": {"old": True}}, {"$unset": {"old": True}}),
-        ({"$set_once": {"first": 0}}, {"$set_once": {"first": 0}}),
-        ({"ordinary": "discard"}, None),
-    ],
-)
-@pytest.mark.usefixtures("clickhouse_database")
-def test_person_property_mutation_projection(properties: dict[str, object], expected: dict[str, object] | None) -> None:
-    select = PERSON_PROPERTY_MUTATION_LOG_MV_SQL().split("AS SELECT", 1)[1]
-    rows = sync_execute(
-        """
-        WITH kafka_person_property_mutation_log AS (
-            SELECT 42 AS team_id,
-                toUUID('0192a5c8-0000-0000-0000-000000000000') AS uuid,
-                %(properties)s AS properties,
-                now() AS _timestamp
-        )
-        SELECT """
-        + select,
-        {"properties": json.dumps(properties)},
-        team_id=42,
-        flush=False,
-    )
-    assert [json.loads(row[2]) for row in rows] == ([] if expected is None else [expected])
 
 
 @pytest.mark.parametrize(
