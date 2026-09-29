@@ -7,8 +7,10 @@ import { useEffect } from "react";
 import { AppState } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
+import { OfflinePill } from "@/components/OfflinePill";
 import { getAccountQueryClient } from "@/lib/accountLifecycle";
 import { sessionIdentity, useAuth } from "@/lib/auth";
+import "@/lib/network";
 import { usePushNotifications } from "@/lib/notifications";
 import { usePrefs } from "@/lib/prefs";
 import { useRepo } from "@/lib/repo";
@@ -115,6 +117,7 @@ export default function RootLayout() {
               }}
             />
           </Stack>
+          <OfflinePill />
         </QueryClientProvider>
       </KeyboardProvider>
     </GestureHandlerRootView>
