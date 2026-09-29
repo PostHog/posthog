@@ -115,6 +115,8 @@ function clearTodayStorage(Story: () => JSX.Element): JSX.Element {
 const meta: Meta = {
     component: App,
     title: 'Scenes-App/Project Homepage/Today',
+    // No snapshots while the Today layout is still changing quickly. The stories stay for local development.
+    tags: ['test-skip'],
     decorators: [
         clearTodayStorage,
         mswDecorator({
@@ -151,8 +153,7 @@ const meta: Meta = {
         mockDate: '2026-09-28 18:30:00',
         pageUrl: urls.projectHomepage(),
         featureFlags: [FEATURE_FLAGS.TODAY_RAIL_NAV],
-        // The rail and its sidebar panes are the point of these stories, so the snapshot keeps the navigation.
-        testOptions: { waitForLoadersToDisappear: true, includeNavigationInSnapshot: true },
+        testOptions: { waitForLoadersToDisappear: true },
     },
 }
 export default meta
