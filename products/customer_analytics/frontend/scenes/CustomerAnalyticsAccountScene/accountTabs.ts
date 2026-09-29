@@ -38,10 +38,6 @@ export function listAccountTabs(featureFlags: FeatureFlagsSet, views: AccountVie
     ]
 }
 
-function usesTabConfiguration(tab: AccountTabDefinition, applySystemTabConfiguration: boolean): boolean {
-    return applySystemTabConfiguration || tab.kind !== 'system'
-}
-
 function isUnselectedTeamView(
     tab: AccountTabDefinition,
     config: AccountDetailTabsConfigApi,
@@ -53,12 +49,15 @@ function isUnselectedTeamView(
 export function listOrderedAccountTabs(
     tabs: AccountTabDefinition[],
     config: AccountDetailTabsConfigApi,
-    applySystemTabConfiguration = true
+    applyTabConfiguration = true
 ): AccountTabDefinition[] {
+    if (!applyTabConfiguration) {
+        return tabs
+    }
     const byId = new Map(tabs.map((tab) => [tab.id, tab]))
     const ordered = config.ordered_tab_ids.flatMap((id) => {
         const tab = byId.get(id)
-        if (!tab || !usesTabConfiguration(tab, applySystemTabConfiguration)) {
+        if (!tab) {
             return []
         }
         byId.delete(id)
@@ -71,10 +70,12 @@ export function isAccountTabVisible(
     tab: AccountTabDefinition,
     config: AccountDetailTabsConfigApi,
     userId: number | undefined,
-    applySystemTabConfiguration = true
+    applyTabConfiguration = true
 ): boolean {
-    const hidden = usesTabConfiguration(tab, applySystemTabConfiguration) && config.hidden_tab_ids.includes(tab.id)
-    return !hidden && (!applySystemTabConfiguration || !isUnselectedTeamView(tab, config, userId))
+    if (!applyTabConfiguration) {
+        return true
+    }
+    return !config.hidden_tab_ids.includes(tab.id) && !isUnselectedTeamView(tab, config, userId)
 }
 
 export function listVisibleAccountTabs(
@@ -82,10 +83,10 @@ export function listVisibleAccountTabs(
     config: AccountDetailTabsConfigApi,
     activeTabId: string | undefined,
     userId: number | undefined,
-    applySystemTabConfiguration = true
+    applyTabConfiguration = true
 ): AccountTabDefinition[] {
-    return listOrderedAccountTabs(tabs, config, applySystemTabConfiguration).filter(
-        (tab) => isAccountTabVisible(tab, config, userId, applySystemTabConfiguration) || tab.id === activeTabId
+    return listOrderedAccountTabs(tabs, config, applyTabConfiguration).filter(
+        (tab) => isAccountTabVisible(tab, config, userId, applyTabConfiguration) || tab.id === activeTabId
     )
 }
 
@@ -140,21 +141,17 @@ export function getDefaultAccountTabId(
     tabs: AccountTabDefinition[],
     config: AccountDetailTabsConfigApi,
     userId: number | undefined,
-    applySystemTabConfiguration = true
+    applyTabConfiguration = true
 ): string {
     const defaultTab = tabs.find((tab) => tab.id === config.default_tab_id)
-    if (
-        defaultTab &&
-        usesTabConfiguration(defaultTab, applySystemTabConfiguration) &&
-        !config.hidden_tab_ids.includes(defaultTab.id)
-    ) {
+    if (defaultTab && applyTabConfiguration && !config.hidden_tab_ids.includes(defaultTab.id)) {
         return defaultTab.id
     }
     const isVisible = (tab: AccountTabDefinition): boolean =>
-        isAccountTabVisible(tab, config, userId, applySystemTabConfiguration)
+        isAccountTabVisible(tab, config, userId, applyTabConfiguration)
     return (
         tabs.find((tab) => tab.kind === 'system' && isVisible(tab))?.id ??
-        listOrderedAccountTabs(tabs, config, applySystemTabConfiguration).find(isVisible)?.id ??
+        listOrderedAccountTabs(tabs, config, applyTabConfiguration).find(isVisible)?.id ??
         tabs.find((tab) => tab.kind === 'system')?.id ??
         'system:notes'
     )
@@ -165,9 +162,9 @@ export function getActiveAccountTabId(
     config: AccountDetailTabsConfigApi,
     requestedTabId: string | undefined,
     userId: number | undefined,
-    applySystemTabConfiguration = true
+    applyTabConfiguration = true
 ): string {
-    const defaultTabId = getDefaultAccountTabId(tabs, config, userId, applySystemTabConfiguration)
+    const defaultTabId = getDefaultAccountTabId(tabs, config, userId, applyTabConfiguration)
     if (!requestedTabId || !requestedTabId.startsWith('system:')) {
         return requestedTabId ?? defaultTabId
     }
