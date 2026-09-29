@@ -67,7 +67,7 @@ const QUERY_ASYNC_TOTAL_POLL_SECONDS = 10 * 60 + 6 // keep in sync with backend-
 export const QUERY_TIMEOUT_ERROR_MESSAGE = 'Query timed out'
 
 /** The client ran out of poll budget. Server-side failures arrive as an ApiError instead. */
-export function isQueryTimeoutError(error: Record<string, any> | null | undefined): boolean {
+export function isQueryTimeoutError(error: { message?: unknown } | null | undefined): boolean {
     return error?.message === QUERY_TIMEOUT_ERROR_MESSAGE
 }
 /** Matches MANAGED_WAREHOUSE_QUERY_UNAVAILABLE_CODE in posthog/api/query.py. */
