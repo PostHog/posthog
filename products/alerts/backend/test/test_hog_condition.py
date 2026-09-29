@@ -1,4 +1,5 @@
 from datetime import timedelta
+from typing import Any
 
 import pytest
 
@@ -24,8 +25,8 @@ return breaches >= 2 and value > previous * 1.05
 """
 
 
-def _context(**overrides) -> ConditionContext:
-    fields = {
+def _context(**overrides: Any) -> ConditionContext:
+    fields: dict[str, Any] = {
         "value": 900.0,
         "values": (900.0, 850.0, 700.0),
         "previous": 850.0,
@@ -38,7 +39,7 @@ def _context(**overrides) -> ConditionContext:
     return ConditionContext(**fields)
 
 
-def _budget(**overrides) -> ConditionBudget:
+def _budget(**overrides: Any) -> ConditionBudget:
     return ConditionBudget(**overrides)
 
 
