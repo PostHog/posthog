@@ -96,11 +96,16 @@ class TestResolveScopes(SimpleTestCase):
         # `has_write_scopes`) would otherwise hand it every task-write tool, including
         # setting a report's state.
         result = resolve_scopes("signals_research")
-        expected = set(MCP_READ_SCOPES + INTERNAL_SCOPES + SCRATCHPAD_INTERNAL_SCOPES) - RESEARCH_WITHHELD_SCOPES
+        expected = (
+            set(MCP_READ_SCOPES + INTERNAL_SCOPES + SCRATCHPAD_INTERNAL_SCOPES + ["signal_scout_internal:read"])
+            - RESEARCH_WITHHELD_SCOPES
+        )
         assert set(result) == expected
         assert "signal_scratchpad_internal:write" in result
         assert "task:write" not in result
         assert "action:write" not in result
+
+        assert "signal_scout_internal:read" not in resolve_scopes("signals_research", include_internal_scopes=False)
 
     def test_signals_implementation_preset_is_full_plus_the_scratchpad(self) -> None:
         result = resolve_scopes("signals_implementation")
@@ -543,6 +548,7 @@ class TestSignalsResearchToolset(SimpleTestCase):
     def test_opens_the_scratchpad_writes_and_nothing_else(self) -> None:
         granted = set(resolve_scopes("signals_research"))
         definitions: dict[str, dict] = json.loads(self._CATALOG.read_text())
+        assert set(definitions["scout-members-list"]["required_scopes"]) <= granted
 
         reachable_writes = {
             name

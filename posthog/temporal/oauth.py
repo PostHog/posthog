@@ -415,6 +415,8 @@ def resolve_scopes(
             # The report research run: reads, plus durable memory, and nothing else. See
             # `RESEARCH_WITHHELD_SCOPES` for why `task:write` comes back out.
             reads = [scope for scope in (*MCP_READ_SCOPES, *internal) if scope not in RESEARCH_WITHHELD_SCOPES]
+            if include_internal_scopes:
+                reads.append("signal_scout_internal:read")
             resolved = [*reads, *scratchpad]
         elif scopes in SCOUT_SCOPE_PRESETS:
             # The scout sandbox: reads, the scout's own internal write scope, and a narrow

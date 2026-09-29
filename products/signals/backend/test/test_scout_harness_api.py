@@ -4615,7 +4615,9 @@ class TestScoutHarnessMembersAPI(APIBaseTest):
     def _link_github(self, user: User, login: str) -> None:
         UserSocialAuth.objects.create(user=user, provider="github", uid=f"gh-{login}", extra_data={"login": login})
 
-    def test_lists_project_members_with_resolved_github_login(self) -> None:
+    @parameterized.expand([("signals_scout",), ("signals_research",)])
+    def test_lists_project_members_with_resolved_github_login(self, scopes: PosthogMcpScopes) -> None:
+        _authenticate_as_scout(self, scopes=scopes)
         # self.user has a GitHub identity (login lowercased on resolution); a second member has
         # none, so their `github_login` is null rather than dropping out of the roster.
         UserSocialAuth.objects.create(user=self.user, provider="github", uid="gh-self", extra_data={"login": "OctoCat"})

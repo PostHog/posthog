@@ -187,6 +187,12 @@ Use the `posthog_mcp_scopes` parameter to control access:
 | `"read_only"`      | Read access to actions, cohorts, dashboards, experiments, feature flags, insights, queries, surveys, etc. | Agent only needs to read data for analysis or reporting                                            |
 | `"full"` (default) | Read + write access to all MCP-exposed resources                                                          | Agent needs to create or modify PostHog resources (e.g., create feature flags, update experiments) |
 
+The internal `signals_research` preset also reads the project-member roster through `scout-members-list`.
+It can write to the scratchpad, but it cannot emit signals, edit reports, or start tasks.
+Report research returns reviewer decisions as structured output; the pipeline validates project access before it stores them.
+The `signals-research-reviewer-selection` flag controls this selection path. A missing decision uses the existing ownership and commit resolver.
+An explicit empty decision clears automatic suggestions. Human reviewer edits take precedence.
+
 ### Custom scopes
 
 For more granular control, pass an explicit list of scopes instead of a preset:
