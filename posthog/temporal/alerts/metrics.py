@@ -20,6 +20,19 @@ def record_ai_detector_check_outcome(outcome: AiDetectorCheckOutcome) -> None:
     _AI_DETECTOR_CHECK_COUNTER.labels(outcome=outcome).inc()
 
 
+# A user-safe ClickHouse error comes from the alert's own query, so it skips error tracking.
+# This counter keeps its volume visible.
+_USER_QUERY_ERROR_COUNTER = Counter(
+    "posthog_insight_alerts_user_query_errors_total",
+    "Insight alert evaluations that failed on a user-safe ClickHouse error, by error code",
+    labelnames=["code_name"],
+)
+
+
+def record_user_query_error(code_name: str | None) -> None:
+    _USER_QUERY_ERROR_COUNTER.labels(code_name=code_name or "unknown").inc()
+
+
 def record_due_insight_alert_metrics(due_count: int, oldest_due_at: datetime | None, polled_at: datetime) -> None:
     oldest_due_age_seconds: float = 0.0
     if oldest_due_at is not None:

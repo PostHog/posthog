@@ -30,7 +30,7 @@ from posthog.clickhouse.cancel import cancel_query_on_cluster
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.dataclasses import frozen
 from posthog.email import is_email_available
-from posthog.errors import CH_TRANSIENT_ERRORS, CHQueryErrorQueryWasCancelled
+from posthog.errors import CH_TRANSIENT_ERRORS, CHQueryErrorQueryWasCancelled, ExposedCHQueryError
 from posthog.exceptions_capture import capture_exception
 from posthog.query_creator_access import creator_access_revoked, report_creator_access_revoked
 from posthog.schema_migrations.upgrade_manager import upgrade_insight
@@ -59,7 +59,11 @@ from posthog.temporal.alerts.admission import (
     release_evaluation_slots,
 )
 from posthog.temporal.alerts.investigation import claim_investigation_slot, decide_investigation
-from posthog.temporal.alerts.metrics import record_ai_detector_check_outcome, record_due_insight_alert_metrics
+from posthog.temporal.alerts.metrics import (
+    record_ai_detector_check_outcome,
+    record_due_insight_alert_metrics,
+    record_user_query_error,
+)
 from posthog.temporal.alerts.retry_policy import ALERT_PREPARE_RETRY_POLICY, SlotLease, alert_timeouts
 from posthog.temporal.alerts.types import (
     AdmitEvaluationsInputs,
@@ -690,6 +694,11 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
             # existing path instead of capturing it as an exception, which would pollute error
             # tracking with a config problem that recurs on every check until fixed.
             invalid_configuration = str(err)
+        except ExposedCHQueryError as err:
+            # The user's own query is invalid (type mismatch, bad argument, ...). The errored check
+            # shows the owner the message, so error tracking gets no new issue for each error class.
+            record_user_query_error(err.code_name)
+            error = {"message": str(err)}
         except TableAccessDeniedError as err:
             logger.exception("Alert failed to evaluate", alert_id=alert.id, exc_info=err)
             # A revoked creator's access-denied error is a known limitation - report it as an event
