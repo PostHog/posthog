@@ -128,4 +128,4 @@ def test_query_limits_preserve_adjusted_recovery(
         "code": "query_limit_exceeded",
         "retry_strategy": "adjusted",
     }
-    assert "narrower" in details.safe_message
+    assert details.safe_message == "The query exceeded an execution or size limit. Use a smaller or narrower query."

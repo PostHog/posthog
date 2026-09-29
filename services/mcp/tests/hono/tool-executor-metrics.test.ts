@@ -146,7 +146,7 @@ describe('ToolExecutor metrics', () => {
 
             expect(result).toMatchObject({
                 isError: true,
-                content: [expect.objectContaining({ text: expect.stringContaining(content) })],
+                content: [{ type: 'text', text: `Error: [${tool}]: ${content}` }],
             })
             expect(mockToolErrorsInc).toHaveBeenCalledWith({ tool, error_type: type })
             const properties = trackToolCallExtras(tool)

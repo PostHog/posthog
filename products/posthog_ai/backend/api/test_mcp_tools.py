@@ -130,15 +130,50 @@ class TestMCPToolsAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            (MaxToolRetryableError("Invalid query with private input"), "validation", "invalid_input", "adjusted"),
-            (MaxToolTransientError("Temporarily unavailable"), "api_5xx", "service_unavailable", "once"),
-            (MaxToolAccessDeniedError("insight", "viewer"), "permission", "permission_denied", "never"),
-            (ClickHouseQuerySizeExceeded(), "api_5xx", "query_limit_exceeded", "adjusted"),
+            (
+                MaxToolRetryableError("Invalid query with private input"),
+                "validation",
+                "invalid_input",
+                "adjusted",
+                "Tool failed: MaxToolRetryableError: Error executing query: Invalid query with private input."
+                " You may retry with adjusted inputs.",
+            ),
+            (
+                MaxToolTransientError("Temporarily unavailable"),
+                "api_5xx",
+                "service_unavailable",
+                "once",
+                "Tool failed: MaxToolRetryableError: Error executing query: Temporarily unavailable."
+                " You may retry this operation once without changes.",
+            ),
+            (
+                MaxToolAccessDeniedError("insight", "viewer"),
+                "permission",
+                "permission_denied",
+                "never",
+                "Tool failed: MaxToolRetryableError: Error executing query: The user does not have viewer access"
+                " to access insights. Suggest the user to contact their project admin to request access.."
+                " Do not automatically retry this tool call.",
+            ),
+            (
+                ClickHouseQuerySizeExceeded(),
+                "api_5xx",
+                "query_limit_exceeded",
+                "adjusted",
+                "Tool failed: MaxToolRetryableError: Error executing query: Query size exceeded.."
+                " You may retry with adjusted inputs.",
+            ),
         ]
     )
     @patch("ee.hogai.tools.execute_sql.mcp_tool.ExecuteSQLMCPTool.execute", new_callable=AsyncMock)
     def test_invoke_tool_error_returns_error_response(
-        self, cause: Exception, error_type: str, code: str, retry_strategy: str, mock_execute: AsyncMock
+        self,
+        cause: Exception,
+        error_type: str,
+        code: str,
+        retry_strategy: str,
+        expected_content: str,
+        mock_execute: AsyncMock,
     ) -> None:
         async def execute_with_wrapped_error(_args):
             try:
@@ -155,21 +190,14 @@ class TestMCPToolsAPI(APIBaseTest):
         )
 
         self.assertEqual(response.status_code, 200)
-        data = response.json()
-        self.assertFalse(data["success"])
-        self.assertIn("Tool failed", data["content"])
-        self.assertEqual(data["error"], {"type": error_type, "code": code, "retry_strategy": retry_strategy})
-        self.assertNotIn("private", str(data["error"]))
-        if retry_strategy == "once":
-            self.assertIn("retry this operation once without changes", data["content"])
-            self.assertNotIn("retry with adjusted inputs", data["content"])
-        elif retry_strategy == "never":
-            self.assertNotIn("retry with adjusted inputs", data["content"])
-            self.assertIn("Do not automatically retry", data["content"])
-        else:
-            self.assertIn("retry with adjusted inputs", data["content"])
-            self.assertNotIn("Do not automatically retry", data["content"])
-            self.assertNotIn("retry this operation once without changes", data["content"])
+        self.assertEqual(
+            response.json(),
+            {
+                "success": False,
+                "content": expected_content,
+                "error": {"type": error_type, "code": code, "retry_strategy": retry_strategy},
+            },
+        )
 
     @patch("ee.hogai.tools.execute_sql.mcp_tool.ExecuteSQLMCPTool.execute", new_callable=AsyncMock)
     def test_invoke_tool_unexpected_error_returns_internal_error(self, mock_execute):
@@ -182,10 +210,14 @@ class TestMCPToolsAPI(APIBaseTest):
         )
 
         self.assertEqual(response.status_code, 200)
-        data = response.json()
-        self.assertFalse(data["success"])
-        self.assertIn("internal error", data["content"].lower())
-        self.assertEqual(data["error"], {"type": "internal", "code": "internal_error", "retry_strategy": "never"})
+        self.assertEqual(
+            response.json(),
+            {
+                "success": False,
+                "content": "The tool raised an internal error. Do not automatically retry this tool call.",
+                "error": {"type": "internal", "code": "internal_error", "retry_strategy": "never"},
+            },
+        )
 
 
 class TestDocsSearchAction(APIBaseTest):
