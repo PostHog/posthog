@@ -7,6 +7,7 @@ import { dashboardTileScreenshotKey } from 'lib/components/Cards/InsightCard/ins
 import { NotFound } from 'lib/components/NotFound'
 import { ScreenShotEditor } from 'lib/components/TakeScreenshot/ScreenShotEditor'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
+import { useLoadingFavicon } from 'lib/hooks/useLoadingFavicon'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { Link } from 'lib/lemon-ui/Link'
 import { cn } from 'lib/utils/css-classes'
@@ -115,6 +116,8 @@ function DashboardScene({
     const { currentTeamId } = useValues(teamLogic)
     const { reportDashboardViewed, abortAnyRunningQuery, loadDashboard, setLayoutZoom } = useActions(dashboardLogic)
     const { addInsightToDashboardModalVisible } = useValues(addInsightToDashboardLogic)
+
+    useLoadingFavicon(placement === DashboardPlacement.Dashboard && itemsLoading)
 
     useAttachedContext(
         dashboard ? [{ type: 'dashboard', key: dashboard.id, label: dashboard.name ?? undefined }] : null
