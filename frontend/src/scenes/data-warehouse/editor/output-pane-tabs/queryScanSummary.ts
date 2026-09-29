@@ -59,9 +59,20 @@ function countTables(count: number): string {
 }
 
 export function summarizeScan(estimate: ScanEstimate): QueryScanSummary | null {
+    const summary = summarizeCountedScan(estimate)
+    if (!summary || estimate.complete || estimate.tables.length === 0) {
+        return summary
+    }
+    // A read the estimate does not follow, such as a subquery in WHERE, would otherwise pass as counted.
+    return { ...summary, text: `${summary.text} · a subquery is not counted` }
+}
+
+function summarizeCountedScan(estimate: ScanEstimate): QueryScanSummary | null {
     const sized = sizedTables(estimate)
     if (estimate.tables.length === 0) {
-        return null
+        return estimate.complete
+            ? null
+            : { text: 'No size estimate. The query reads tables only in a subquery', warn: false }
     }
     if (sized.length === 0) {
         // The header still tells the reader why there is no number, and the plan under it names each table.

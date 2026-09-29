@@ -1,6 +1,8 @@
 from posthog.test.base import NonAtomicBaseTest
 from unittest.mock import patch
 
+from parameterized import parameterized
+
 from posthog.hogql.cost.statistics import EventVolume, FixedStatisticsProvider
 
 from ee.hogai.tool_errors import MaxToolAccessDeniedError, MaxToolRetryableError
@@ -75,12 +77,42 @@ class TestExplainSQLMCPTool(NonAtomicBaseTest):
 
         assert result.content == "Scan estimates are not enabled for this project. The query is valid and can be run."
 
-    async def test_says_when_the_query_reads_no_table(self):
+    @parameterized.expand(
+        [
+            ("no_table", "SELECT 1", "This query reads no table, so there is nothing to estimate."),
+            (
+                "table_only_in_a_subquery",
+                "SELECT (SELECT count() FROM events)",
+                "This query reads tables only inside a subquery outside FROM, which the estimate does not cover.",
+            ),
+        ]
+    )
+    async def test_tells_no_table_apart_from_a_table_the_estimate_does_not_cover(self, _name, query, expected):
         with patch("posthog.hogql.metadata.feature_enabled_or_false", return_value=True):
-            result = await self.tool.execute(ExplainSQLMCPToolArgs(query="SELECT 1"))
+            result = await self.tool.execute(ExplainSQLMCPToolArgs(query=query))
 
-        assert (
-            result.content == "This query reads no table, so there is nothing to estimate. It is valid and can be run."
+        assert result.content == f"{expected} It is valid and can be run."
+
+    async def test_says_when_the_estimate_is_unavailable(self):
+        with (
+            patch("posthog.hogql.metadata.feature_enabled_or_false", return_value=True),
+            patch("posthog.hogql.metadata.estimate_scan", side_effect=RuntimeError("statistics down")),
+        ):
+            result = await self.tool.execute(ExplainSQLMCPToolArgs(query="SELECT count() FROM events"))
+
+        assert result.content == "The cost of this query could not be estimated. It is valid and can be run."
+
+    async def test_a_read_the_estimate_does_not_cover_is_called_out(self):
+        with (
+            patch("posthog.hogql.metadata.feature_enabled_or_false", return_value=True),
+            patch("posthog.hogql.metadata.ClickHouseStatisticsProvider", return_value=self.provider),
+        ):
+            result = await self.tool.execute(
+                ExplainSQLMCPToolArgs(query="SELECT count() FROM events WHERE person_id IN (SELECT id FROM persons)")
+            )
+
+        assert result.content.startswith(
+            "Reads about 36,500,000 rows from one table.\nA subquery outside FROM reads more that is not counted."
         )
 
     async def test_rejects_an_invalid_query_with_the_error(self):

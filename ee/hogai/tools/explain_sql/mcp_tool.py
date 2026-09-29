@@ -83,8 +83,15 @@ def _format_plan(response: HogQLMetadataResponse, *, enabled: bool) -> str:
     estimate = response.scan_estimate
     if not enabled:
         return "Scan estimates are not enabled for this project. The query is valid and can be run."
-    if estimate is None or not response.cost_plan:
-        return "This query reads no table, so there is nothing to estimate. It is valid and can be run."
+    if estimate is None:
+        return "The cost of this query could not be estimated. It is valid and can be run."
+    if not estimate.tables:
+        if estimate.complete:
+            return "This query reads no table, so there is nothing to estimate. It is valid and can be run."
+        return (
+            "This query reads tables only inside a subquery outside FROM, which the estimate does not cover. "
+            "It is valid and can be run."
+        )
     qualifier = "up to" if estimate.upper_bound else "about"
     not_sized = [table.name for table in estimate.tables if table.rows is None]
     total = len(estimate.tables)
@@ -92,8 +99,11 @@ def _format_plan(response: HogQLMetadataResponse, *, enabled: bool) -> str:
         coverage = f"from {total - len(not_sized)} of {total} tables. Not sized: {', '.join(not_sized)}."
     else:
         coverage = "from one table." if total == 1 else f"from {total} tables."
-    lines = [f"Reads {qualifier} {estimate.rows:,} rows {coverage}", ""]
-    for step in response.cost_plan:
+    lines = [f"Reads {qualifier} {estimate.rows:,} rows {coverage}"]
+    if not estimate.complete:
+        lines.append("A subquery outside FROM reads more that is not counted.")
+    lines.append("")
+    for step in response.cost_plan or []:
         lines.append(_format_step(step))
     lines.append("")
     lines.append(_advice(estimate))

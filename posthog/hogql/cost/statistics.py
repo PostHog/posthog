@@ -10,8 +10,9 @@ estimator decides what to do without it, so a missing statistic never fails a qu
 """
 
 from collections.abc import Mapping
+from contextlib import AbstractContextManager
 from datetime import date, timedelta
-from typing import Protocol
+from typing import Any, Protocol
 
 from django.conf import settings
 from django.core.cache import cache
@@ -19,6 +20,15 @@ from django.core.cache import cache
 import structlog
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.connection import (
+    ClickHouseUser,
+    get_clickhouse_creds,
+    get_http_client,
+    get_http_kwargs,
+    get_kwargs_for_client,
+    is_file_backed_user,
+    make_ch_pool,
+)
 from posthog.clickhouse.property_values import DISTRIBUTED_TABLE_NAME as PROPERTY_VALUES_TABLE
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.clickhouse.workload import Workload
@@ -116,6 +126,26 @@ class StatisticsProvider(Protocol):
         ...
 
 
+def _lookup_client(team_id: int) -> AbstractContextManager[Any]:
+    """A client whose socket waits are bounded, so a node that accepts a lookup and stops answering holds the
+    request for seconds, not forever. ``max_execution_time`` bounds the server only; the shared pools wait on
+    the socket without limit. Built the way ``get_pool`` builds the shared one, so a file-backed user keeps
+    its rotating token."""
+    if settings.CLICKHOUSE_USE_HTTP or team_id in settings.CLICKHOUSE_USE_HTTP_PER_TEAM:
+        kwargs = get_http_kwargs(workload=Workload.OFFLINE, team_id=team_id, readonly=True)
+        return get_http_client(send_receive_timeout=LOOKUP_MAX_EXECUTION_SECONDS, **kwargs)
+    kwargs = get_kwargs_for_client(workload=Workload.OFFLINE, team_id=team_id, readonly=True)
+    creds = get_clickhouse_creds(ClickHouseUser.DEFAULT)
+    if is_file_backed_user(creds, Workload.OFFLINE, kwargs.get("user")):
+        kwargs.pop("password", None)
+        pool = make_ch_pool(
+            credential_provider=creds.read_password, send_receive_timeout=LOOKUP_MAX_EXECUTION_SECONDS, **kwargs
+        )
+    else:
+        pool = make_ch_pool(send_receive_timeout=LOOKUP_MAX_EXECUTION_SECONDS, **kwargs)
+    return pool.get_client()
+
+
 class ClickHouseStatisticsProvider:
     """Reads statistics from the rollups ClickHouse already maintains.
 
@@ -178,6 +208,7 @@ class ClickHouseStatisticsProvider:
                     settings={"max_execution_time": LOOKUP_MAX_EXECUTION_SECONDS},
                     team_id=team_id,
                     readonly=True,
+                    sync_client=_lookup_client(team_id),
                 )
         except Exception:
             logger.warning("hogql_cost_table_rows_unavailable", team_id=team_id, table=table, exc_info=True)
@@ -224,6 +255,7 @@ class ClickHouseStatisticsProvider:
                     settings={"max_execution_time": LOOKUP_MAX_EXECUTION_SECONDS},
                     team_id=team_id,
                     readonly=True,
+                    sync_client=_lookup_client(team_id),
                 )
         except Exception:
             logger.warning("hogql_cost_daily_rows_unavailable", team_id=team_id, table=table, exc_info=True)
@@ -287,6 +319,7 @@ class ClickHouseStatisticsProvider:
                     settings={"max_execution_time": LOOKUP_MAX_EXECUTION_SECONDS},
                     team_id=team_id,
                     readonly=True,
+                    sync_client=_lookup_client(team_id),
                 )
                 if not totals or not totals[0][2]:
                     return None
@@ -305,6 +338,7 @@ class ClickHouseStatisticsProvider:
                     settings={"max_execution_time": LOOKUP_MAX_EXECUTION_SECONDS},
                     team_id=team_id,
                     readonly=True,
+                    sync_client=_lookup_client(team_id),
                 )
         except Exception:
             # Statistics are advisory. Log and let the estimator run without them.
@@ -363,6 +397,7 @@ class ClickHouseStatisticsProvider:
                     settings={"max_execution_time": LOOKUP_MAX_EXECUTION_SECONDS},
                     team_id=team_id,
                     readonly=True,
+                    sync_client=_lookup_client(team_id),
                 )
         except Exception:
             logger.warning("hogql_cost_property_ndv_unavailable", team_id=team_id, exc_info=True)

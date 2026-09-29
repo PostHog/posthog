@@ -3974,6 +3974,8 @@ export interface TableScanEstimateApi {
 }
 
 export interface ScanEstimateApi {
+    /** False when the query reads a table somewhere the estimate does not follow, such as a subquery in WHERE or in the select list, so `rows` leaves that read out. */
+    complete: boolean
     /** Sum of the rows of every table entry that has one. */
     rows: number
     tables: TableScanEstimateApi[]
@@ -3992,7 +3994,7 @@ export interface HogQLMetadataResponseApi {
     isValid?: boolean | null
     notices: HogQLNoticeApi[]
     query?: string | null
-    /** Present when the query reads at least one table, directly or through subqueries, CTEs, UNIONs and joins. Absent when the FROM tree cannot be walked. */
+    /** Present when the estimator walked the query; `tables` is empty for a query that reads no table. Absent when the FROM tree cannot be walked or the estimator failed. */
     scan_estimate?: ScanEstimateApi | null
     table_names?: string[] | null
     warnings: HogQLNoticeApi[]

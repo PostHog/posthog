@@ -43,6 +43,7 @@ const unknownTable = (name: string): TableScanEstimate => ({
 const estimate = (overrides: Partial<ScanEstimate> = {}): ScanEstimate => ({
     rows: 42_000_000,
     upper_bound: false,
+    complete: true,
     tables: [eventsTable()],
     ...overrides,
 })
@@ -96,6 +97,11 @@ describe('queryScanSummary', () => {
             }),
             'Reads up to 812K rows · 1 table',
         ],
+        [
+            'a read the estimate does not follow is called out',
+            estimate({ complete: false }),
+            'Reads about 42M events (30 days) · a subquery is not counted',
+        ],
     ])('%s', (_name, input, expected) => {
         expect(summarizeScan(input)?.text).toBe(expected)
     })
@@ -106,6 +112,9 @@ describe('queryScanSummary', () => {
             warn: false,
         })
         expect(summarizeScan(estimate({ rows: 0, tables: [] }))).toBeNull()
+        expect(summarizeScan(estimate({ rows: 0, tables: [], complete: false }))?.text).toBe(
+            'No size estimate. The query reads tables only in a subquery'
+        )
     })
 
     it('warns at the large-scan threshold and not below it', () => {

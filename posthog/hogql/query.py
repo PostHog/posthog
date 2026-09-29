@@ -611,7 +611,7 @@ class HogQLQueryExecutor:
                 # be scored against a number it never tried to predict. A join in the printed SQL that the
                 # estimate did not see is a lazy join the printer added, such as person properties read from
                 # the persons table.
-                if estimate is None or not estimate.complete:
+                if estimate is None or not estimate.complete or not estimate.tables:
                     return None
                 if any(table.precision != "measured" for table in estimate.tables):
                     return None

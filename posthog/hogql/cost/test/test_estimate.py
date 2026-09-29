@@ -173,6 +173,11 @@ class TestEstimateEventsScan(BaseTest):
                 ),
             ),
             (
+                "event_list_with_a_member_the_walk_cannot_read_keeps_every_event",
+                "SELECT count() FROM events WHERE event IN ('signup', concat('$page', 'view'))",
+                _events_table(rows=36_500_000, days=float(DEFAULT_RANGE_DAYS), events=(), time_range="open"),
+            ),
+            (
                 "indexed_equality_on_a_high_cardinality_property_reads_few_granules",
                 "SELECT count() FROM events WHERE properties.order_id = 'a1'",
                 _events_table(rows=29_888, days=float(DEFAULT_RANGE_DAYS), events=(), time_range="open"),
@@ -250,6 +255,11 @@ class TestEstimateEventsScan(BaseTest):
             ("subquery_in_where", "SELECT count() FROM events WHERE person_id IN (SELECT id FROM persons)", False),
             ("subquery_in_select", "SELECT (SELECT count() FROM persons) FROM events", False),
             ("subquery_in_from", "SELECT count() FROM (SELECT event FROM events)", True),
+            (
+                "subquery_in_a_cte_body",
+                "WITH x AS (SELECT count() AS c FROM events WHERE person_id IN (SELECT id FROM persons)) SELECT c FROM x",
+                False,
+            ),
         ]
     )
     def test_a_subquery_outside_from_marks_the_estimate_incomplete(self, _name, sql, complete):
@@ -331,8 +341,12 @@ class TestEstimateEventsScan(BaseTest):
         assert estimate.rows == 36_500_000
         assert estimate.upper_bound is False
 
-    def test_a_query_with_no_table_has_no_estimate(self):
-        assert self._estimate("SELECT 1") is None
+    def test_a_query_with_no_table_has_an_empty_estimate(self):
+        assert self._estimate("SELECT 1") == ScanEstimate(rows=0, upper_bound=False, tables=())
+        # The tables it does read sit in a subquery the walk does not follow, and the estimate says so.
+        assert self._estimate("SELECT (SELECT count() FROM events)") == ScanEstimate(
+            rows=0, upper_bound=False, tables=(), complete=False
+        )
 
     @parameterized.expand(
         [

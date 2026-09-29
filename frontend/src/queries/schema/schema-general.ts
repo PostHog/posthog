@@ -989,6 +989,8 @@ export interface ScanEstimate {
     rows: integer
     /** True when the query reads at most `rows` of the tables that have a number: an indexed filter went unmodeled, or a table is known only by its size. False when every table that has a number is measured. A table with no number is not in `rows` at all; its `precision` says so. */
     upper_bound: boolean
+    /** False when the query reads a table somewhere the estimate does not follow, such as a subquery in WHERE or in the select list, so `rows` leaves that read out. */
+    complete: boolean
     tables: TableScanEstimate[]
 }
 
@@ -998,7 +1000,7 @@ export interface HogQLMetadataResponse {
     isUsingIndices?: QueryIndexUsage
     /** One entry per property filter, in query order. */
     index_usage?: PredicateIndexUsage[]
-    /** Present when the query reads at least one table, directly or through subqueries, CTEs, UNIONs and joins. Absent when the FROM tree cannot be walked. */
+    /** Present when the estimator walked the query; `tables` is empty for a query that reads no table. Absent when the FROM tree cannot be walked or the estimator failed. */
     scan_estimate?: ScanEstimate
     /** The estimate and the index verdicts as one readable plan: scans in FROM order, each with its filters, then the join. Present whenever `scan_estimate` is. */
     cost_plan?: CostPlanStep[]

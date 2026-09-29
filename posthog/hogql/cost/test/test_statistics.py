@@ -2,18 +2,20 @@ from datetime import date, timedelta
 from uuid import uuid4
 
 from posthog.test.base import ClickhouseTestMixin
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
 from posthog.hogql.cost.statistics import (
     EVENT_VOLUME_WINDOW_DAYS,
+    LOOKUP_MAX_EXECUTION_SECONDS,
     ClickHouseStatisticsProvider,
     EventVolume,
     FixedStatisticsProvider,
+    _lookup_client,
 )
 
 from posthog.clickhouse.client import sync_execute
@@ -28,6 +30,26 @@ from posthog.models.usage_report_events_preagg.sql import (
 # Seeded rows must sit inside the rollup's 14-day TTL or ClickHouse drops the part on its next merge, so the
 # fixtures are relative to the real clock and the provider is handed the same day.
 TODAY = date.today()
+
+
+class TestLookupClient(SimpleTestCase):
+    @override_settings(CLICKHOUSE_USE_HTTP=False, CLICKHOUSE_USE_HTTP_PER_TEAM=set())
+    def test_bounds_the_socket_wait_and_keeps_the_rotating_token(self):
+        creds = MagicMock(user="app", password="static", password_file="/run/token")
+        with (
+            patch("posthog.hogql.cost.statistics.get_clickhouse_creds", return_value=creds),
+            patch(
+                "posthog.hogql.cost.statistics.get_kwargs_for_client",
+                return_value={"user": "app", "password": "static"},
+            ),
+            patch("posthog.hogql.cost.statistics.is_file_backed_user", return_value=True),
+            patch("posthog.hogql.cost.statistics.make_ch_pool") as make_pool,
+        ):
+            _lookup_client(1)
+
+        make_pool.assert_called_once_with(
+            credential_provider=creds.read_password, send_receive_timeout=LOOKUP_MAX_EXECUTION_SECONDS, user="app"
+        )
 
 
 class TestEventVolume(SimpleTestCase):

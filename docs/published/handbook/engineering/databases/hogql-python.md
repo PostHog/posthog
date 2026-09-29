@@ -82,6 +82,8 @@ A table on a customer's own database (a direct Postgres, MySQL or Snowflake sour
 `sessions` is `measured` like events: a daily rate, cached for a day, scaled to the range the query puts on the session start time.
 Any other table is `unknown` until its source gets a statistic.
 The headline `rows` sums the entries that have a number, and `upper_bound` says whether that sum is a ceiling.
+`complete` is false when the query reads a table somewhere the walk does not follow, such as a subquery in WHERE or in the select list; the editor header and the `explain_sql` tool say so, and the execution tag is not written.
+A query that reads no table gets an estimate with no tables, so "nothing to read" and "could not estimate" stay apart.
 `cost_plan` renders the same facts as one plan (`posthog/hogql/cost/explain.py`): each scan in FROM order, the property filters that apply to it with how much each skips, then one join line.
 It is what the SQL editor shows when the bar is expanded, and what an agent reads to decide whether to narrow a query before running it.
 

@@ -24933,6 +24933,14 @@ class ScanEstimate(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    complete: bool = Field(
+        ...,
+        description=(
+            "False when the query reads a table somewhere the estimate does not follow,"
+            " such as a subquery in WHERE or in the select list, so `rows` leaves that"
+            " read out."
+        ),
+    )
     rows: int = Field(..., description="Sum of the rows of every table entry that has one.")
     tables: list[TableScanEstimate]
     upper_bound: bool = Field(
@@ -27470,9 +27478,9 @@ class HogQLMetadataResponse(BaseModel):
     scan_estimate: ScanEstimate | None = Field(
         default=None,
         description=(
-            "Present when the query reads at least one table, directly or through"
-            " subqueries, CTEs, UNIONs and joins. Absent when the FROM tree cannot be"
-            " walked."
+            "Present when the estimator walked the query; `tables` is empty for a query"
+            " that reads no table. Absent when the FROM tree cannot be walked or the"
+            " estimator failed."
         ),
     )
     table_names: list[str] | None = None
@@ -28617,9 +28625,9 @@ class QueryResponseAlternative9(BaseModel):
     scan_estimate: ScanEstimate | None = Field(
         default=None,
         description=(
-            "Present when the query reads at least one table, directly or through"
-            " subqueries, CTEs, UNIONs and joins. Absent when the FROM tree cannot be"
-            " walked."
+            "Present when the estimator walked the query; `tables` is empty for a query"
+            " that reads no table. Absent when the FROM tree cannot be walked or the"
+            " estimator failed."
         ),
     )
     table_names: list[str] | None = None
