@@ -145,7 +145,7 @@ and the page can never disagree about what is in the inbox. React Query dedupes
 the requests, but paging is a side effect, so only one caller may drive it: the
 sidebar pages, `InboxHomePane` passes `autoPage: false`.
 
-The tab components are intentionally simple:
+The tab list components are legacy. `/inbox` renders the sectioned reports inbox, so no current route shows them. Do not extend them; they stay only until a follow-up removes them:
 
 - `PullRequestsTab` partitions scoped reports with `isPullRequestReport`.
 - `ReportsTab` partitions with `isReportTabReport`.
