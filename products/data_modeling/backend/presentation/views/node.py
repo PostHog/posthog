@@ -91,6 +91,8 @@ class NodeSerializer(serializers.ModelSerializer):
     sync_interval = serializers.SerializerMethodField(read_only=True)
     dag_name = serializers.SerializerMethodField(read_only=True)
     lineage_issue = serializers.SerializerMethodField(read_only=True)
+    origin = serializers.SerializerMethodField(read_only=True)
+    warehouse_table_id = serializers.SerializerMethodField(read_only=True)
     dag = TeamScopedPrimaryKeyRelatedField(queryset=DAG.objects.all())
 
     class Meta:
@@ -105,6 +107,8 @@ class NodeSerializer(serializers.ModelSerializer):
             "saved_query_id",
             "metric_id",
             "lineage_issue",
+            "origin",
+            "warehouse_table_id",
             "created_at",
             "updated_at",
             "upstream_count",
@@ -130,6 +134,8 @@ class NodeSerializer(serializers.ModelSerializer):
             "saved_query_id",
             "metric_id",
             "lineage_issue",
+            "origin",
+            "warehouse_table_id",
         ]
 
     @extend_schema_field(
@@ -203,6 +209,32 @@ class NodeSerializer(serializers.ModelSerializer):
     @extend_schema_field(LineageIssueSerializer(allow_null=True))
     def get_lineage_issue(self, node: Node) -> dict[str, Any] | None:
         return node.lineage_issue
+
+    @extend_schema_field(
+        serializers.ChoiceField(
+            choices=["posthog", "warehouse"],
+            allow_null=True,
+            help_text="Where a table originates, or null for legacy and unrecognized nodes.",
+        )
+    )
+    def get_origin(self, node: Node) -> str | None:
+        origin = node.properties.get("origin") if isinstance(node.properties, dict) else None
+        return origin if origin in {"posthog", "warehouse"} else None
+
+    @extend_schema_field(
+        serializers.UUIDField(
+            allow_null=True,
+            help_text="Warehouse table identifier for an imported table, or null when unavailable.",
+        )
+    )
+    def get_warehouse_table_id(self, node: Node) -> str | None:
+        table_id = node.properties.get("warehouse_table_id") if isinstance(node.properties, dict) else None
+        if not isinstance(table_id, str):
+            return None
+        try:
+            return str(UUID(table_id))
+        except ValueError:
+            return None
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         # System-managed DAGs (e.g. Revenue Analytics) own their nodes; the internal sync path
