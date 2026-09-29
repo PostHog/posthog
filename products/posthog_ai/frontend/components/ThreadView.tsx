@@ -115,14 +115,18 @@ export function ThreadView({
     const runEnded = isTerminalRunStatus(currentRunStatus)
     const displayItems = useMemo(() => {
         const standaloneToolIds = new Set<string>()
+        const resultToolIds = new Set<string>()
         for (const [id, invocation] of toolInvocations) {
             const resolved = resolveToolCall(invocation)
-            if (lookupToolRenderer(resolved.resolvedKey, !!resolved.innerToolName).keepVisible) {
+            const { visibility } = lookupToolRenderer(resolved.resolvedKey, !!resolved.innerToolName)
+            if (visibility === 'always') {
                 standaloneToolIds.add(id)
+            } else if (visibility === 'last-in-turn') {
+                resultToolIds.add(id)
             }
         }
-        return groupThreadActivity(threadItems, standaloneToolIds)
-    }, [threadItems, toolInvocations])
+        return groupThreadActivity(threadItems, standaloneToolIds, resultToolIds, isThinking)
+    }, [threadItems, toolInvocations, isThinking])
     // The last human message anchors the thread. Reopening a saved conversation lands on it — the last
     // meaningful turn, response below — when at least a viewport of content follows it (otherwise the
     // bottom); a fresh send (a new key) pins the thread to the bottom to follow the streaming response.

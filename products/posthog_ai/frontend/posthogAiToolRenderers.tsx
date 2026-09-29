@@ -94,12 +94,12 @@ const QUERY_TOOLS: { key: string; displayName: string; icon: JSX.Element }[] = [
 ]
 export const posthogAiToolRenderers: ToolRegistryEntry[] = [
     ...DATA_TOOLS.flatMap(({ keys, ...entry }) =>
-        keys.map((key) => ({ key, ...entry, requiresPostHogOrigin: true, keepVisible: true }))
+        keys.map((key) => ({ key, ...entry, requiresPostHogOrigin: true, visibility: 'last-in-turn' as const }))
     ),
     ...QUERY_TOOLS.map((entry) => ({
         ...entry,
         Renderer: QueryRenderer,
         requiresPostHogOrigin: true,
-        keepVisible: true,
+        visibility: 'last-in-turn' as const,
     })),
 ]

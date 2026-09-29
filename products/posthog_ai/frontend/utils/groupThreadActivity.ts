@@ -36,14 +36,48 @@ export function groupConsecutiveTools(
     return groups
 }
 
-export function groupThreadActivity(items: ThreadItem[], standaloneToolIds: ReadonlySet<string>): ThreadDisplayItem[] {
+// A crashed turn has no `turn_separator`, so the next human message also settles it. The open tail turn
+// picks nothing yet, so the visible chart does not move while more calls stream in.
+function lastResultOfEachTurn(
+    items: ThreadItem[],
+    resultToolIds: ReadonlySet<string>,
+    isTailTurnOpen: boolean
+): Set<string> {
+    const lastResults = new Set<string>()
+    let candidate: string | undefined
+    for (const item of items) {
+        if (item.type === 'human_message' || item.type === 'turn_separator') {
+            if (candidate) {
+                lastResults.add(candidate)
+            }
+            candidate = undefined
+        } else if (item.type === 'tool_invocation' && item.toolCallId && resultToolIds.has(item.toolCallId)) {
+            candidate = item.toolCallId
+        }
+    }
+    if (candidate && !isTailTurnOpen) {
+        lastResults.add(candidate)
+    }
+    return lastResults
+}
+
+export function groupThreadActivity(
+    items: ThreadItem[],
+    standaloneToolIds: ReadonlySet<string>,
+    resultToolIds: ReadonlySet<string>,
+    isTailTurnOpen: boolean
+): ThreadDisplayItem[] {
+    const lastResults = lastResultOfEachTurn(items, resultToolIds, isTailTurnOpen)
     const result: ThreadDisplayItem[] = []
     let group: ThreadActivityGroup | undefined
     for (const item of items) {
         const isActivity =
             item.type === 'assistant_thought' ||
             (item.type === 'task_notification' && item.status === 'completed') ||
-            (item.type === 'tool_invocation' && !!item.toolCallId && !standaloneToolIds.has(item.toolCallId))
+            (item.type === 'tool_invocation' &&
+                !!item.toolCallId &&
+                !standaloneToolIds.has(item.toolCallId) &&
+                !lastResults.has(item.toolCallId))
         if (!isActivity) {
             if (group && item.startedAt !== undefined) {
                 group.endedAt = Math.max(group.endedAt ?? 0, item.startedAt)
