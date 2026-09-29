@@ -859,9 +859,29 @@ export class ApiClient {
             }): Promise<Result<ApiEventDefinition>> => {
                 const createUrl = `${this.baseUrl}/api/projects/${projectId}/event_definitions/`
 
-                return this.fetchJson<ApiEventDefinition>(createUrl, {
+                const createResult = await this.fetchJson<ApiEventDefinition>(createUrl, {
                     method: 'POST',
                     body: JSON.stringify({ name: eventName, ...data }),
+                })
+
+                if (createResult.success) {
+                    return createResult
+                }
+
+                // Idempotent create. Cross-project taxonomy syncs re-send definitions that already
+                // exist in the target project, and the API rejects the duplicate name with a
+                // validation error. Rather than fail the sync, adopt the existing definition and
+                // apply the supplied metadata, so a re-run converges instead of erroring.
+                const error = createResult.error
+                const isDuplicateName = error instanceof PostHogValidationError && /already exists/i.test(error.detail)
+                if (!isDuplicateName) {
+                    return createResult
+                }
+
+                return this.projects().updateEventDefinition({
+                    projectId,
+                    eventName,
+                    data: data ?? {},
                 })
             },
 
