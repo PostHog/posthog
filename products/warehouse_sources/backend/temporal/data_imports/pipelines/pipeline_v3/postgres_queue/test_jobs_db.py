@@ -2006,7 +2006,30 @@ class TestGetQueueDepth:
         # sb_claimable_idx, and the per-run and per-group gates must stay index
         # probes; a predicate edit that widens either falls back to scanning
         # every retained partition on every pod, every reconcile interval.
-        await _insert_batch(conn)
+        #
+        # Seed each probe's population and analyze, so the index pins are
+        # deterministic. With one row the planner rates the partial indexes that
+        # cover each probe on empty statistics, and the failed-run probe can pick
+        # sb_failed_changed_idx instead. Failed batches spread across many runs is
+        # the shape sb_run_gate_idx exists for, and executing batches spread across
+        # many groups is the shape sb_schema_busy_idx exists for. Keep the
+        # claimable set small: with many claimable runs the planner hashes every
+        # failed batch once, which is a correct plan for that shape.
+        await conn.execute(f"""
+            INSERT INTO {BATCH_TABLE} (
+                team_id, schema_id, source_id, job_id, run_uuid, batch_index,
+                s3_path, row_count, byte_size, is_final_batch, sync_type,
+                resource_name, latest_state, state_changed_at
+            )
+            SELECT 1, 'seed-schema-' || (g % 200), 'source-1', 'job-1', 'seed-run-' || (g % 500), g,
+                   's3://bucket/path', 100, 1024, false, 'full_refresh', 'test_resource',
+                   CASE WHEN g <= 2500 THEN 'failed' ELSE 'executing' END,
+                   now() - (g || ' seconds')::interval
+            FROM generate_series(1, 3000) g
+        """)
+        for n in range(3):
+            await _insert_batch(conn, schema_id=f"schema-{n}", run_uuid=f"run-{n}")
+        await conn.execute(f"ANALYZE {BATCH_TABLE}")
         await conn.execute("SET enable_seqscan = off")
         try:
             cur = await conn.execute("EXPLAIN (FORMAT TEXT) " + _queue_depth_sql(), {"top_groups": 5})
