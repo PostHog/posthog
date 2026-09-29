@@ -727,37 +727,42 @@ class TestComments(APIBaseTest, QueryMatchingTest):
             },
         )
         assert reply.status_code == status.HTTP_201_CREATED
+        assert not ActivityLog.objects.filter(
+            team_id=self.team.id, item_id__in=[str(canvas.id), created.json()["id"]]
+        ).exists()
 
-    def test_legacy_canvas_scope_still_works_for_old_desktop_builds(self) -> None:
+    def test_canvas_scope_names_are_one_protected_scope(self) -> None:
         channel_model = apps.get_model("tasks", "Channel")
         canvas_model = apps.get_model("canvas", "Canvas")
         channel = channel_model.objects.unscoped().create(
-            team=self.team, name="legacy-scope-space", channel_type="public", created_by=self.user
+            team=self.team, name="canvas-scope-space", channel_type="public", created_by=self.user
         )
         canvas = canvas_model.objects.unscoped().create(
-            team=self.team, channel=channel, name="Legacy canvas", created_by=self.user
+            team=self.team, channel=channel, name="Scoped canvas", created_by=self.user
         )
-        straggler = Comment.objects.create(
-            team=self.team, scope="desktop_canvas", item_id=str(canvas.id), content="Old pod", created_by=self.user
+        earlier = Comment.objects.create(
+            team=self.team, scope="canvas", item_id=str(canvas.id), content="Earlier", created_by=self.user
         )
 
         created = self.client.post(
             f"/api/projects/{self.team.id}/comments",
             {
-                "content": "Old build",
-                "scope": "desktop_canvas",
+                "content": "New build",
+                "scope": "canvas",
                 "item_id": str(canvas.id),
                 "item_context": {"anchor": {"kind": "document"}},
             },
         )
 
         assert created.status_code == status.HTTP_201_CREATED
-        assert created.json()["scope"] == "canvas"
-        assert Comment.objects.get(id=created.json()["id"]).scope == "canvas"
-        expected = sorted([(created.json()["id"], "canvas"), (str(straggler.id), "canvas")])
+        assert created.json()["scope"] == "desktop_canvas"
+        assert Comment.objects.get(id=created.json()["id"]).scope == "desktop_canvas"
+        expected = sorted([(created.json()["id"], "desktop_canvas"), (str(earlier.id), "desktop_canvas")])
         for scope in ("canvas", "desktop_canvas"):
             listed = self.client.get(f"/api/projects/{self.team.id}/comments?scope={scope}&item_id={canvas.id}")
             assert sorted((row["id"], row["scope"]) for row in listed.json()["results"]) == expected
+        unscoped = self.client.get(f"/api/projects/{self.team.id}/comments?item_id={canvas.id}")
+        assert unscoped.json()["results"] == []
 
     @parameterized.expand([("with_task", True), ("without_task", False)])
     @mock.patch("posthog.api.comments.send_mention_notifications")
@@ -814,6 +819,8 @@ class TestComments(APIBaseTest, QueryMatchingTest):
             .filter(team=self.team, user=non_member, comment_id=created.json()["id"])
             .exists()
         )
+
+        assert not ActivityLog.objects.filter(team_id=self.team.id, item_id=str(canvas.id)).exists()
 
         self.client.force_login(invited)
         assert (

@@ -573,6 +573,8 @@ class TestActivityLogVisibilityManager(BaseTest):
             ("ticket_task_comment", "Ticket", "created task", False, True),
             ("conversations_ticket_comment", "conversations_ticket", "commented", False, True),
             ("conversations_ticket_task_comment", "conversations_ticket", "created task", False, True),
+            ("desktop_canvas_comment", "desktop_canvas", "commented", False, True),
+            ("canvas_comment", "canvas", "commented", False, True),
             # Ticket lifecycle activities stay visible — only comment rows are hidden
             ("ticket_updated", "Ticket", "updated", False, False),
             # Non-User scopes are unaffected

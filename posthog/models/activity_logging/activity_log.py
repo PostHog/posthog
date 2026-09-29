@@ -598,6 +598,15 @@ activity_visibility_restrictions: list[dict[str, Any]] = [
         "exclude_when": {},
         "allow_staff": True,
     },
+    *(
+        {
+            "scope": scope,
+            "activities": ["commented", "created task"],
+            "exclude_when": {},
+            "allow_staff": True,
+        }
+        for scope in ("desktop_canvas", "canvas")
+    ),
 ]
 
 field_exclusions: dict[AuditableScope, list[str]] = {
