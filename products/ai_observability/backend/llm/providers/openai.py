@@ -21,6 +21,7 @@ from pydantic import BaseModel, ValidationError
 
 from products.ai_observability.backend.llm.errors import (
     AuthenticationError,
+    ContentFilteredError,
     ContextWindowExceededError,
     LLMError,
     ModelNotFoundError,
@@ -194,6 +195,8 @@ class OpenAIAdapter:
                     # The reply was cut off at the output limit, so the JSON it carries is truncated.
                     # Report the limit rather than the unreadable JSON it produced.
                     raise OutputTokenLimitError(str(e)) from e
+                except openai.ContentFilterFinishReasonError as e:
+                    raise ContentFilteredError(str(e)) from e
                 except ValidationError as e:
                     # json_schema does not enforce cross-field validators, so a schema-valid reply can
                     # still fail our model. Normalize it so callers skip invalid output.

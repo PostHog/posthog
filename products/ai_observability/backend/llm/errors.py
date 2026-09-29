@@ -106,6 +106,15 @@ def is_output_limit_error_message(message: str) -> bool:
     return any(marker in lowered for marker in _OUTPUT_LIMIT_ERROR_MARKERS)
 
 
+class ContentFilteredError(LLMError):
+    """Raised when the provider's content filter refused to answer.
+
+    The OpenAI SDK raises `ContentFilterFinishReasonError` on a `content_filter` finish reason.
+    The prompt is usually built from customer trace content, so the same input is refused again on
+    a retry. Callers should skip the item rather than report a defect.
+    """
+
+
 class ModelPermissionError(LLMError):
     """Raised when the API key doesn't have permission to access a model"""
 
@@ -167,6 +176,8 @@ def user_facing_error_message(error: Exception | None) -> str:
         return "This conversation is too long for the model's context window. Shorten it, then try again."
     if isinstance(error, OutputTokenLimitError):
         return "The model ran out of room before it finished its reply. Ask for a shorter answer, then try again."
+    if isinstance(error, ContentFilteredError):
+        return "The provider's content filter refused this request. Change the input, then try again."
     if isinstance(error, ProviderConnectionError):
         return "Could not reach the model provider. Try again."
     if isinstance(error, StructuredOutputParseError):
