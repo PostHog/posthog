@@ -27,14 +27,14 @@ describe('pastedPersonsLookupLogic', () => {
         expect(parsePastedPersonValues(text)).toEqual(expected)
     })
 
-    it('selects matched persons, skips persons already in the cohort, and lists unmatched values', async () => {
+    it('selects every matched person, skips persons already in the cohort, and lists unmatched values', async () => {
         jest.spyOn(api, 'queryHogQL').mockImplementation(async (query) =>
             String(query).includes('person_distinct_ids')
                 ? ({ results: [['person-3', 'user-3']] } as any)
                 : ({
                       results: [
-                          ['person-1', 'alice@example.com'],
-                          ['person-2', 'bob@example.com'],
+                          ['alice@example.com', ['person-1']],
+                          ['bob@example.com', ['person-2', 'person-4']],
                       ],
                   } as any)
         )
@@ -55,6 +55,7 @@ describe('pastedPersonsLookupLogic', () => {
                     matches: [
                         { personId: 'person-1', value: 'Alice@example.com' },
                         { personId: 'person-2', value: 'bob@example.com' },
+                        { personId: 'person-4', value: 'bob@example.com' },
                         { personId: 'person-3', value: 'user-3' },
                     ],
                     unmatched: ['nobody@example.com'],
@@ -65,6 +66,7 @@ describe('pastedPersonsLookupLogic', () => {
 
         expect(onAddPerson.mock.calls).toEqual([
             ['person-1', 'Alice@example.com'],
+            ['person-4', 'bob@example.com'],
             ['person-3', 'user-3'],
         ])
     })

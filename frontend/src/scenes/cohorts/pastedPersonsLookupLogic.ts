@@ -106,11 +106,11 @@ export const pastedPersonsLookupLogic = kea<pastedPersonsLookupLogicType>([
                     const checkedValues = values.slice(0, MAX_PASTED_VALUES)
                     const lowerCaseValues = checkedValues.map((value) => value.toLowerCase())
                     const tags = { scene: 'Cohort', productKey: 'cohorts' }
-                    // HogQL returns 100 rows unless the query sets a limit, and one value can match several rows
-                    const rowLimit = checkedValues.length * 2
+                    // HogQL returns 100 rows unless the query sets a limit. Each query returns at most one row per value.
+                    const rowLimit = checkedValues.length
                     const [byEmail, byDistinctId] = await Promise.all([
-                        api.queryHogQL<[string, string]>(
-                            hogql`SELECT id, lower(toString(properties.email)) AS email FROM persons WHERE has(${lowerCaseValues}, lower(toString(properties.email))) LIMIT ${rowLimit}`,
+                        api.queryHogQL<[string, string[]]>(
+                            hogql`SELECT lower(toString(properties.email)) AS email, groupArray(id) FROM persons WHERE has(${lowerCaseValues}, lower(toString(properties.email))) GROUP BY email LIMIT ${rowLimit}`,
                             tags
                         ),
                         api.queryHogQL<[string, string]>(
@@ -119,24 +119,28 @@ export const pastedPersonsLookupLogic = kea<pastedPersonsLookupLogicType>([
                         ),
                     ])
 
-                    const personIdByValue = new Map<string, string>()
-                    for (const [personId, email] of byEmail.results ?? []) {
-                        personIdByValue.set(email, personId)
+                    const personIdsByValue = new Map<string, string[]>()
+                    for (const [email, personIds] of byEmail.results ?? []) {
+                        personIdsByValue.set(email, personIds)
                     }
                     for (const [personId, distinctId] of byDistinctId.results ?? []) {
-                        personIdByValue.set(distinctId, personId)
+                        personIdsByValue.set(distinctId, [personId])
                     }
 
                     const matches: PastedPersonsMatch[] = []
                     const unmatched: string[] = []
                     const matchedPersonIds = new Set<string>()
                     for (const value of checkedValues) {
-                        const personId = personIdByValue.get(value) ?? personIdByValue.get(value.toLowerCase())
-                        if (!personId) {
+                        const personIds = personIdsByValue.get(value) ?? personIdsByValue.get(value.toLowerCase())
+                        if (!personIds) {
                             unmatched.push(value)
-                        } else if (!matchedPersonIds.has(personId)) {
-                            matchedPersonIds.add(personId)
-                            matches.push({ personId, value })
+                            continue
+                        }
+                        for (const personId of personIds) {
+                            if (!matchedPersonIds.has(personId)) {
+                                matchedPersonIds.add(personId)
+                                matches.push({ personId, value })
+                            }
                         }
                     }
                     const alreadyInCohortCount = matches.filter(({ personId }) =>
