@@ -122,6 +122,17 @@ describe("sidebarRows", () => {
     expect(rows[2]).toMatchObject({ kind: "task", indicator: null });
   });
 
+  it("says how to sign in instead of loading work while signed out", () => {
+    const rows = sidebarRows({
+      layout: initialLayout(),
+      work: page({ tasks: null }),
+      collapsed: new Set(),
+      working: new Set(),
+      signedIn: false,
+    });
+    expect(labels(rows)).toEqual(["# Work", "New chat", "[signedOut]"]);
+  });
+
   it("hides a collapsed workspace's tasks", () => {
     const layout = openTask(
       splitFocused(openTask(initialLayout(), "a"), "row"),

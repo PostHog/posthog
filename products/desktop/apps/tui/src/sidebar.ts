@@ -30,6 +30,7 @@ export type SidebarRow =
       last?: boolean;
     }
   | { kind: "loading" }
+  | { kind: "signedOut" }
   | { kind: "empty" }
   | { kind: "viewMore" }
   | { kind: "error"; message: string };
@@ -59,6 +60,7 @@ export function sidebarRows({
   collapsed,
   working,
   known = new Map(),
+  signedIn = true,
 }: {
   layout: LayoutState;
   work: WorkPage;
@@ -66,6 +68,7 @@ export function sidebarRows({
   working: Set<string>;
   /** Open tasks outside the recent page, fetched on their own. */
   known?: Map<string, Task>;
+  signedIn?: boolean;
 }): SidebarRow[] {
   const listed = new Set((work.tasks ?? []).map((task) => task.id));
   const byId = new Map([
@@ -130,6 +133,10 @@ export function sidebarRows({
   });
   rows.push(...unlisted);
 
+  if (!signedIn) {
+    rows.push({ kind: "signedOut" });
+    return rows;
+  }
   if (work.error) rows.push({ kind: "error", message: work.error });
   else if (work.tasks === null) rows.push({ kind: "loading" });
   else if (work.tasks.length === 0) rows.push({ kind: "empty" });

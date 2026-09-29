@@ -1,5 +1,5 @@
 import { StdinBuffer } from "@earendil-works/pi-tui";
-import type { Task } from "@posthog/shared";
+import type { CloudRegion, Task } from "@posthog/shared";
 import {
   Box,
   type DOMElement,
@@ -10,6 +10,7 @@ import {
 } from "ink";
 import { type ReactElement, useEffect, useMemo, useRef, useState } from "react";
 import { type ActionsLine, actionsSheet, canRun } from "../actions";
+import { REGIONS } from "../auth";
 import type { PiChats } from "../chats";
 import { ChatView } from "../chatView";
 import { Composer, isAppKey, isTyping } from "../composer";
@@ -20,6 +21,7 @@ import {
   cycleFocus,
   focusPane,
   focusSidebar,
+  initialLayout,
   type LayoutNode,
   type LayoutState,
   loadLayout,
@@ -96,19 +98,26 @@ function dividerProps(divider: "left" | "top" | null) {
     : {};
 }
 
-export function App({
-  work,
-  runs,
-  chats,
-  control,
-  mouse,
-}: {
+export interface Session {
   work: WorkList;
   runs: CloudRuns;
   chats: PiChats;
   control: (taskId: string, runId: string) => PiControl;
+}
+
+export function App({
+  session,
+  login,
+  logout,
+  mouse,
+}: {
+  // Null while signed out: the layout and composers still work, and /login signs in.
+  session: Session | null;
+  login: (region: CloudRegion, onAuth: (url: string) => void) => Promise<void>;
+  logout: () => void;
   mouse?: MouseEvents;
 }): ReactElement {
+  const { work, runs, chats, control } = session ?? {};
   const { exit } = useApp();
   const [layout, setLayout] = useState<LayoutState>(loadLayout);
   const [limit, setLimit] = useState(PAGE_SIZE);
@@ -191,6 +200,7 @@ export function App({
   useEffect(() => saveLayout(layout), [layout]);
 
   useEffect(() => {
+    if (!work) return;
     let cancelled = false;
     const refresh = (): void => {
       work.listRecent(limit).then(
@@ -229,6 +239,7 @@ export function App({
         ? [{ taskId: task.id, runId: run.id }]
         : [];
     });
+    if (!runs) return;
     for (const { runId } of pending) prefetched.current.add(runId);
     void (async () => {
       for (const { taskId, runId } of pending) {
@@ -250,6 +261,7 @@ export function App({
     : [];
   const missingKey = missing.join();
   useEffect(() => {
+    if (!work) return;
     for (const taskId of missingKey ? missingKey.split(",") : []) {
       work.get(taskId).then(
         (task) => setKnown((current) => new Map(current).set(taskId, task)),
@@ -279,7 +291,7 @@ export function App({
 
   const openModelSheet = (paneId: string, task: Task | undefined): void => {
     const run = task?.latest_run;
-    if (task && run && indicatorFor(task, false) === "alive") {
+    if (task && run && control && indicatorFor(task, false) === "alive") {
       const live = control(task.id, run.id);
       setNotice("Loading models…");
       live.models().then(
@@ -335,7 +347,7 @@ export function App({
   // A pick made while the run was not live is applied as soon as its sandbox is.
   const onRunLive = (paneId: string, taskId: string, runId: string): void => {
     const held = heldModels.get(paneId);
-    if (!held || appliedHolds.current.has(runId)) return;
+    if (!held || !control || appliedHolds.current.has(runId)) return;
     appliedHolds.current.add(runId);
     control(taskId, runId)
       .setModel(held)
@@ -358,6 +370,40 @@ export function App({
     setTimeout(() => setNotice(null), SEND_ERROR_MS);
   };
 
+  const openLoginSheet = (paneId: string, description: string): void => {
+    openModal(
+      paneId,
+      {
+        title: "Sign in to PostHog",
+        description,
+        items: REGIONS.map((region) => ({ label: region.label })),
+        footer: "Enter to open your browser · Esc to cancel",
+      },
+      (index) => {
+        const region = REGIONS[index];
+        setNotice("Finish signing in with your browser…");
+        login(region.id, () => {}).then(
+          () => flashNotice(`Signed in to ${region.label}`),
+          (error: unknown) =>
+            flashNotice(`Sign-in failed: ${messageOf(error)}`),
+        );
+      },
+    );
+  };
+
+  // A session's workspaces belong to its account, so signing out starts from one empty chat.
+  const signOut = (): void => {
+    logout();
+    const fresh = initialLayout();
+    setLayout(fresh);
+    saveLayout(fresh);
+    setPage({ tasks: null, hasMore: false, loadingMore: false, error: null });
+    setKnown(new Map());
+    setFresh(new Map());
+    setPending(new Map());
+    flashNotice("Signed out");
+  };
+
   const onSubmit = (paneId: string, text: string): void => {
     const pane = layout.workspaces
       .flatMap((w) => panes(w.root))
@@ -370,6 +416,23 @@ export function App({
     }
     if (slash?.command === "new") {
       setLayout(newChat);
+      return;
+    }
+    if (slash?.command === "login") {
+      openLoginSheet(paneId, "Pick the PostHog you sign in to.");
+      return;
+    }
+    if (slash?.command === "logout") {
+      signOut();
+      return;
+    }
+    // Signed out, a message waits in the composer while the user signs in.
+    if (!chats) {
+      composerFor(paneId).setText(text);
+      openLoginSheet(
+        paneId,
+        "Sign in to send this message. It stays in the composer.",
+      );
       return;
     }
     setPending((messages) => new Map(messages).set(paneId, text));
@@ -403,8 +466,9 @@ export function App({
         collapsed,
         working: new Set(),
         known: new Map([...known, ...fresh]),
+        signedIn: session !== null,
       }),
-    [layout, page, collapsed, known, fresh],
+    [layout, page, collapsed, known, fresh, session],
   );
   const selectedIndex = cursorIndex(rows, selected);
   const workspace = activeWorkspace(layout);
@@ -675,7 +739,7 @@ export function App({
             title={titleOf(node)}
             paneTaskId={node.taskId}
             task={taskOf(node.taskId)}
-            runs={runs}
+            runs={runs ?? null}
             chat={chatFor(`${node.id}:${node.taskId}`)}
             composer={composerFor(node.id)}
             pending={pending.get(node.id) ?? null}

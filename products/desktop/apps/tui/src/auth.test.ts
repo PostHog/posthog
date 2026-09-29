@@ -62,4 +62,16 @@ describe("TuiAuth", () => {
     expect(refreshPosthog).toHaveBeenCalledTimes(1);
     expect(await TuiAuth.load(path)?.getAccessToken()).toBe("new");
   });
+
+  it("forgets the session on logout", async () => {
+    vi.mocked(loginPosthog).mockResolvedValue(
+      credentials("first", Date.now() + 60_000),
+    );
+    await TuiAuth.login("us", { onAuth: () => {} }, path);
+
+    TuiAuth.logout(path);
+
+    expect(TuiAuth.load(path)).toBeNull();
+    expect(() => TuiAuth.logout(path)).not.toThrow();
+  });
 });

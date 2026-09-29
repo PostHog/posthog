@@ -72,6 +72,8 @@ function Row({
       );
     case "loading":
       return <Spinner label="Loading cloud runs" />;
+    case "signedOut":
+      return <Text dimColor>Signed out · type /login</Text>;
     case "empty":
       return <Text dimColor>No work yet</Text>;
     case "viewMore":
