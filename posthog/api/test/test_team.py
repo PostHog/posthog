@@ -4003,6 +4003,18 @@ _TOO_MANY_WILDCARDS = ["https://*.*.*.*.*.*.example.com"]
 
 
 class TestTeamSerializerValidationNoDB(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (serializer, value)
+            for serializer in (TeamSerializer, ProjectBackwardCompatSerializer)
+            for value in ([], "text", 1, True)
+        ]
+    )
+    def test_conversations_settings_requires_an_object(self, serializer_class, value) -> None:
+        serializer = serializer_class(data={"conversations_settings": value}, partial=True)
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("conversations_settings", serializer.errors)
+
     @parameterized.expand([(None,), (True,), (123,), ([],), ({},), ("a" * 201,)])
     def test_invalid_logs_json_attribute_key(self, key):
         self._assert_field_error(
