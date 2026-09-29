@@ -15,11 +15,13 @@ from django.utils import timezone
 
 from asgiref.sync import async_to_sync, sync_to_async
 from parameterized import parameterized
+from pydantic import ValidationError
 
 from posthog.models import Team
 
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
 from products.signals.backend.presentation.scout_rubrics import ScoutRubricSaveSerializer
+from products.signals.backend.rubrics_generation import RubricGenerationResult, build_generation_prompt, generate_rubric
 from products.signals.backend.scout_harness.prompt import build_run_prompt
 from products.signals.backend.scout_harness.rubrics import (
     GENERATION_TIMEOUT,
@@ -55,6 +57,38 @@ def custom_criterion() -> ScoutRubricCriterion:
 
 
 class TestRubricValidation(SimpleTestCase):
+    @parameterized.expand([("valid", None), ("draft_repair", "draft"), ("selection_repair", "selection")])
+    def test_generation_retains_immutable_selection_and_prompt_provenance(
+        self, _name: str, repaired_phase: str | None
+    ) -> None:
+        suggestion = ScoutRubricSuggestion(**custom_criterion().model_dump(exclude={"id", "source", "enabled"}))
+        draft = ScoutRubricSuggestionBatch(summary="Check the checkout investigation.", suggestions=[suggestion])
+        draft_output = draft.model_dump_json()
+        selection_output = json.dumps({"summary": "Check the checkout investigation.", "keep_indices": [0]})
+        outputs = [draft_output, selection_output]
+        if repaired_phase is not None:
+            outputs.insert(0 if repaired_phase == "draft" else 1, "Incomplete JSON: {")
+        send_prompt = AsyncMock(side_effect=outputs)
+        saved_criteria = default_criteria()
+        load_saved_criteria = AsyncMock(return_value=saved_criteria)
+        prompt = build_generation_prompt({"scout_context": {"instructions": "Inspect checkout failures."}})
+
+        result = async_to_sync(generate_rubric)(
+            prompt, send_prompt=send_prompt, load_saved_criteria=load_saved_criteria
+        )
+
+        self.assertEqual(result.batch.model_dump(mode="json"), draft.model_dump(mode="json"))
+        self.assertEqual(result.turns[0].prompt, prompt)
+        self.assertEqual([turn.output for turn in result.turns], outputs)
+        self.assertEqual(result.format_correction_attempted, repaired_phase is not None)
+        self.assertEqual(result, RubricGenerationResult.model_validate_json(result.model_dump_json()))
+        saved_criteria[0].enabled = False
+        self.assertTrue(result.saved_criteria[0].enabled)
+        with self.assertRaises(ValidationError):
+            result.batch.suggestions[0].__setattr__("title", "Changed after generation")
+        with self.assertRaises(ValidationError):
+            result.saved_criteria[0].__setattr__("enabled", False)
+
     @parameterized.expand(
         [
             ("duplicate", [0, 0], None),

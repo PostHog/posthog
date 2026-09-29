@@ -60,7 +60,8 @@ The saved-case command loads this checkout's `.env`, preserving variables alread
 The wrapper builds a clean environment, so ambient exported credentials are not necessarily forwarded.
 This checkout's ignored `.env` is a reliable place to supply them when using the wrapper.
 The saved-case command does not load `.env.local` itself.
-Provide `SANDBOX_JWT_PRIVATE_KEY` and `LLM_GATEWAY_ANTHROPIC_API_KEY`; Codex also needs `LLM_GATEWAY_OPENAI_API_KEY`.
+Provide `SANDBOX_JWT_PRIVATE_KEY`, `LLM_GATEWAY_ANTHROPIC_API_KEY`, and `LLM_GATEWAY_OPENAI_API_KEY`.
+The OpenAI credential serves rubric generation and judging even when the scout uses Claude.
 The local signing key is available in `.env.example`.
 Private saved cases do not require a Braintrust key.
 
@@ -88,6 +89,75 @@ Passing preflight does not prove model authentication, database readiness, free 
 
 Remove `--preflight-only` to execute the case; execution repeats these checks before initializing Django or preparing its repository.
 Use the same runtime, model, effort, skill delivery, and cutoff for preflight and execution.
+
+### One rubric per scout per session
+
+`--output-dir` identifies a persistent comparison session, including invocations from later commands.
+The first invocation for a scout automatically generates its rubric from the saved scout instructions and reference files.
+It uses the same draft, selection, and format-repair implementation as the scout rubric generator.
+The script adopts the selected suggestions alongside the standard criteria and saves the result under `rubrics/`.
+Generation receives no evaluated outputs or hidden reference findings.
+
+Every model, prompt variant, and repeat for that scout in the same session uses the exact saved rubric and canonical instructions.
+Each result and judgment records the rubric SHA-256.
+The first generation holds a file lock, so concurrent requests cannot select different rubrics.
+A changed or missing pinned rubric fails rather than regenerating during the comparison.
+Keep the rubric JSON and its lock file together; use a new output directory to start a session with new criteria.
+Different scouts keep separate rubrics in the same session.
+
+Generation and judging default to `gpt-6-sol` at high reasoning effort, independently of the model being evaluated.
+`--rubric-model` applies only to the first generation; changing it does not replace an existing session rubric.
+`--judge-model` selects the judging model, which is recorded with its responses and usage.
+Use the same judging model across a comparison.
+`--rubric-only` prepares or reuses the session rubric without restoring project data or launching a scout:
+
+```bash
+.codex/with-flox python -m products.signals.evals.saved_scout \
+    --case /private/scout-case/case.json \
+    --output-dir /private/scout-results \
+    --rubric-only
+```
+
+Normal execution then restores the case, runs the scout, and judges the retained result automatically.
+The shared generator's pure schemas and generation logic live in `products/signals/backend/rubrics_schema.py`
+and `products/signals/backend/rubrics_generation.py`; production authorization and persistence remain in the scout harness.
+
+Judgments retain a verdict, explanation, and validated evidence references for each enabled criterion.
+Pass and fail are separate from unknown, not applicable, and judging errors.
+Missing historical evidence does not become a failed criterion; a failed model request does not become a scout-quality verdict.
+The aggregate rubric score is omitted when any enabled criterion remains unknown or errored.
+Detailed private judgment files remain available, including original responses and recorded usage.
+Dollar costs remain unknown when the model route does not provide them.
+
+Judging uses the retained transcript and state, not fresh project queries or an exhaustive answer key.
+An exact evidence quote establishes where text came from, not that its claim is correct.
+Valid JSONL transcripts are decoded so citations can quote literal tool text, including quotes and newlines.
+Unchanged after-state rows refer to their identical before-state rows; changed and new rows remain complete.
+The judgment records this evidence representation and the original output hash. Neither operation drops evidence.
+`--judge-max-input-tokens` sets a proxy token budget (default 980,000); the script retains an explicit ungraded error
+when evidence exceeds the budget or byte limit, rather than silently dropping evidence.
+The budget is not a guarantee that a different judging model accepts the same context size.
+
+### Judge saved runs
+
+Use the same session directory to judge existing `result.json` files without rerunning scouts or modifying the originals:
+
+```bash
+.codex/with-flox python -m products.signals.evals.saved_scout \
+    --case /private/scout-case/case.json \
+    --output-dir /private/scout-results \
+    --judge-results /private/previous-run/trials/case_trial/result.json
+```
+
+`--judge-results` accepts multiple files for the same scout.
+It reuses the pinned rubric, or generates it once if the session has none.
+Failed historical executions remain execution failures with ungraded criteria.
+New judgment files record both the source-result hash and the session-rubric hash.
+These modes use the shared private eval service lifecycle, so its ordinary environment prerequisites still apply.
+They do not launch scout tasks or restore case events.
+
+### Execution environment
+
 Before execution, coordinate use of the backing development services, eval ports, and test databases.
 Separate worktrees still share those resources, so do not run the harness alongside another saved-case invocation or DB-backed pytest.
 `--create-db` rebuilds the test database and is unnecessary for an ordinary repeat.
@@ -146,7 +216,12 @@ Artifacts record the scout result, persisted task status, and workflow completio
 A task marked completed does not count as a successful execution if workflow termination cannot be confirmed.
 Cancellation and transcript-processing errors retain the output already collected for diagnosis.
 A skipped scout, failed task, or missing transcript fails the saved-case run.
-Successful execution alone does not measure finding quality; reviewed references and a consistent rubric are separate inputs.
+Successful execution alone does not measure finding quality; inspect rubric judgments and their evidence coverage separately.
+The saved-case generator and judge use the existing local, test-only gateway context, with temporary eval-database
+personal keys and capture disabled. The Go gateway does not support those `phx_` credentials; this is the existing
+eval caller's temporary authentication exception, not a separate production gateway route.
+Both backend and sandbox Go-routing settings are suppressed inside the private context and restored afterward.
+Gateway accounting remains enabled.
 
 ## Postgres experiment ingestion
 

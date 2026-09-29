@@ -73,7 +73,7 @@ def preflight_saved_case(saved: SavedScoutCase, options: HarnessOptions) -> None
         raise PreflightError("Retained code repositories require --provider docker.")
     load_env_file()
     validate_eval_env(
-        options.agent_runtime,
+        "codex",
         env_hint=(
             f"Add them to {REPO_ROOT / '.env'} (loaded automatically by this saved-case command), "
             "or supply them explicitly through its launch environment. "
@@ -131,6 +131,8 @@ async def private_backend_gateway(ctx: EvalContext) -> AsyncIterator[None]:
             LLM_GATEWAY_API_KEY=token,
             AI_GATEWAY_URL="",
             AI_GATEWAY_API_KEY="",
+            SANDBOX_AI_GATEWAY_URL="",
+            SANDBOX_AI_GATEWAY_PRODUCTS=[],
         ):
             yield
     finally:
@@ -144,11 +146,24 @@ class SavedScoutSuite:
         target_cutoff: datetime,
         output_dir: Path,
         retained: RetainedScoutRepository | None,
+        *,
+        session_dir: Path | None = None,
+        rubric_only: bool = False,
+        judge_results: tuple[Path, ...] = (),
+        rubric_model: str = "gpt-6-sol",
+        judge_model: str = "gpt-6-sol",
+        judge_max_input_tokens: int = 980_000,
     ) -> None:
         self.saved = saved
         self.target_cutoff = target_cutoff
         self.output_dir = output_dir
         self.retained = retained
+        self.session_dir = session_dir or output_dir
+        self.rubric_only = rubric_only
+        self.judge_results = judge_results
+        self.rubric_model = rubric_model
+        self.judge_model = judge_model
+        self.judge_max_input_tokens = judge_max_input_tokens
 
     async def run(self, ctx: EvalContext) -> None:
         from products.posthog_ai.eval_harness.base import (
@@ -160,9 +175,18 @@ class SavedScoutSuite:
         from products.posthog_ai.eval_harness.engines.types import CaseHooks  # noqa: PLC0415
         from products.posthog_ai.eval_harness.workflow import WorkflowPrivateEval  # noqa: PLC0415
         from products.signals.evals.agentic.runners import run_scout  # noqa: PLC0415
+        from products.signals.evals.agentic.saved_rubrics import SavedRubrics, SavedRubricScorer  # noqa: PLC0415
         from products.tasks.backend.facade.agents import CustomPromptSandboxContext  # noqa: PLC0415
 
         scout_case = self.saved.to_scout_case(self.target_cutoff)
+        rubrics = SavedRubrics(
+            self.saved,
+            self.session_dir,
+            self.output_dir,
+            generator_model=self.rubric_model,
+            judge_model=self.judge_model,
+            max_input_tokens=self.judge_max_input_tokens,
+        )
 
         async def task(
             case: SandboxedEvalCase,
@@ -172,6 +196,8 @@ class SavedScoutSuite:
         ) -> dict[str, object]:
             hooks.metadata.update(self.saved.metadata)
             hooks.metadata["target_cutoff"] = self.target_cutoff.isoformat()
+            hooks.metadata["session_rubric_sha256"] = rubric.sha256
+            hooks.metadata["session_rubric_path"] = str(rubric.path)
             output = await run_scout(scout_case, context, eval_context)
             if not output.get("run_id") or not output.get("task_run_id") or not output.get("raw_log"):
                 raise EvalTaskError("The scout did not produce an agent run and transcript", output)
@@ -187,6 +213,21 @@ class SavedScoutSuite:
             return output
 
         async with private_backend_gateway(ctx):
+            rubric = await rubrics.prepare()
+            logger.info("Session rubric: %s (sha256 %s)", rubric.path, rubric.sha256)
+            if self.rubric_only:
+                return
+            if self.judge_results:
+                errors: list[str] = []
+                for path in self.judge_results:
+                    judgment, judgment_path = await rubrics.judge_saved(path, rubric)
+                    logger.info("Saved judgment: %s", judgment_path)
+                    if judgment.error:
+                        errors.append(judgment.error)
+                if errors:
+                    raise RuntimeError("Some saved results could not be judged; inspect the private judgment files")
+                return
+            scorer = SavedRubricScorer(rubrics, rubric)
             result = await WorkflowPrivateEval(
                 experiment_name="signals-saved-scout",
                 cases=[
@@ -198,16 +239,35 @@ class SavedScoutSuite:
                         setup=lambda context: self.saved.restore(context, target_cutoff=self.target_cutoff),
                     )
                 ],
-                scorers=[],
+                scorers=[scorer],
                 task=task,
                 ctx=ctx,
                 output_dir=self.output_dir,
             )
+            for row in result.results:
+                if row.error:
+                    await rubrics.judge(
+                        row.output if isinstance(row.output, dict) else {}, rubric, source_error=row.error
+                    )
+            if scorer.errors:
+                raise RuntimeError("Some scout results could not be judged; inspect the private judgment files")
         if not result.results or any(row.error or (row.output or {}).get("error") for row in result.results):
             raise RuntimeError("A saved scout run failed; inspect the private output directory")
 
 
-def run_saved_case(saved: SavedScoutCase, options: HarnessOptions, target_cutoff: datetime, output_dir: Path) -> int:
+def run_saved_case(
+    saved: SavedScoutCase,
+    options: HarnessOptions,
+    target_cutoff: datetime,
+    output_dir: Path,
+    *,
+    session_dir: Path | None = None,
+    rubric_only: bool = False,
+    judge_results: tuple[Path, ...] = (),
+    rubric_model: str = "gpt-6-sol",
+    judge_model: str = "gpt-6-sol",
+    judge_max_input_tokens: int = 980_000,
+) -> int:
     preflight_saved_case(saved, options)
     os.environ.update(
         SANDBOX_PROVIDER=SANDBOX_PROVIDER_SETTING[options.provider],
@@ -233,7 +293,7 @@ def run_saved_case(saved: SavedScoutCase, options: HarnessOptions, target_cutoff
 
     with ExitStack() as stack:
         retained = None
-        if repository := saved.manifest.repository:
+        if (repository := saved.manifest.repository) and not rubric_only and not judge_results:
             source = Path(repository.source_path)
             if not source.is_absolute():
                 source = saved.path.parent / source
@@ -249,7 +309,18 @@ def run_saved_case(saved: SavedScoutCase, options: HarnessOptions, target_cutoff
                     / f"{repository.commit}-{repository.history_depth or 'full'}",
                 )
             )
-        suite = SavedScoutSuite(saved, target_cutoff, output_dir, retained)
+        suite = SavedScoutSuite(
+            saved,
+            target_cutoff,
+            output_dir,
+            retained,
+            session_dir=session_dir,
+            rubric_only=rubric_only,
+            judge_results=judge_results,
+            rubric_model=rubric_model,
+            judge_model=judge_model,
+            judge_max_input_tokens=judge_max_input_tokens,
+        )
         return SandboxedEvalHarness(
             options,
             engine=PrivateBraintrustEngine(),
@@ -267,7 +338,19 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--case", required=True, type=Path)
     parser.add_argument("--output-dir", required=True, type=Path)
-    parser.add_argument("--target-cutoff", required=True, type=parse_cutoff)
+    parser.add_argument("--target-cutoff", type=parse_cutoff)
+    parser.add_argument(
+        "--rubric-model", default="gpt-6-sol", help="Model used only when this scout has no session rubric."
+    )
+    parser.add_argument(
+        "--judge-model", default="gpt-6-sol", help="Model that judges runs against the fixed session rubric."
+    )
+    parser.add_argument(
+        "--judge-max-input-tokens",
+        type=int,
+        default=980_000,
+        help="Proxy token budget; oversized evidence is retained ungraded, never silently truncated.",
+    )
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument(
         "--validate-only", action="store_true", help="Validate saved inputs without checking execution prerequisites."
@@ -277,7 +360,19 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Validate saved inputs and local execution prerequisites without starting services or an agent.",
     )
+    mode.add_argument(
+        "--rubric-only",
+        action="store_true",
+        help="Generate or reuse this scout's session rubric without running the scout.",
+    )
+    mode.add_argument(
+        "--judge-results", nargs="+", type=Path, help="Judge saved result.json files without rerunning scouts."
+    )
     args, harness_args = parser.parse_known_args(argv)
+    if args.target_cutoff is None and not args.rubric_only and not args.judge_results:
+        parser.error("--target-cutoff is required when running a scout")
+    if args.judge_max_input_tokens <= 0:
+        parser.error("--judge-max-input-tokens must be positive")
     options = parse_args(harness_args)
 
     from products.signals.evals.agentic.saved_case import (
@@ -288,6 +383,8 @@ def main(argv: list[str] | None = None) -> int:
     case_path = require_private_path(args.case)
     output_dir = require_private_path(args.output_dir)
     saved = SavedScoutCase.load(case_path)
+    judge_results = tuple(require_private_path(path).resolve(strict=True) for path in (args.judge_results or ()))
+    target_cutoff = args.target_cutoff or saved.manifest.source_cutoff
     if args.validate_only:
         print(json.dumps(saved.metadata, indent=2, default=str))  # noqa: T201
         return 0
@@ -335,7 +432,11 @@ def main(argv: list[str] | None = None) -> int:
         "source_commit": commit,
         "source_patch_sha256": hashlib.sha256(patch).hexdigest(),
         "untracked_source_files": source_files,
-        "target_cutoff": args.target_cutoff.isoformat(),
+        "target_cutoff": target_cutoff.isoformat(),
+        "session_dir": str(output_dir),
+        "rubric_model": args.rubric_model,
+        "judge_model": args.judge_model,
+        "judge_max_input_tokens": args.judge_max_input_tokens,
         "agent_runtime": options.agent_runtime,
         "agent_model": options.agent_model,
         "reasoning_effort": options.reasoning_effort,
@@ -351,7 +452,18 @@ def main(argv: list[str] | None = None) -> int:
         with transcript.capture():
             configure_logging()
             try:
-                exit_code = run_saved_case(saved, options, args.target_cutoff, invocation_dir)
+                exit_code = run_saved_case(
+                    saved,
+                    options,
+                    target_cutoff,
+                    invocation_dir,
+                    session_dir=output_dir,
+                    rubric_only=args.rubric_only,
+                    judge_results=judge_results,
+                    rubric_model=args.rubric_model,
+                    judge_model=args.judge_model,
+                    judge_max_input_tokens=args.judge_max_input_tokens,
+                )
             except KeyboardInterrupt:
                 logger.warning("Interrupted")
                 exit_code = 130

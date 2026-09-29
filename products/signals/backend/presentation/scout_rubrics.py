@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from django.db.models import TextChoices
+
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, OpenApiTypes, extend_schema
 from rest_framework import exceptions, serializers, status, viewsets
 from rest_framework.decorators import action
@@ -22,7 +24,7 @@ from products.signals.backend.facade.rubrics import (
     ScoutRubricGenerationStatus,
     ScoutRubricGenerationUnavailable,
     ScoutRubricNotFound,
-    ScoutRubricSource,
+    ScoutRubricSource as RubricSource,
     default_criteria,
     generate_scout_rubric,
     get_scout_rubric,
@@ -31,6 +33,12 @@ from products.signals.backend.facade.rubrics import (
 
 if TYPE_CHECKING:
     from rest_framework.views import APIView
+
+
+class ScoutRubricSource(TextChoices):
+    # Django choices keep the published API enum name stable.
+    DEFAULT = RubricSource.DEFAULT.value, "Default"
+    CUSTOM = RubricSource.CUSTOM.value, "Custom"
 
 
 class ScoutRubricCriterionSerializer(serializers.Serializer):
@@ -43,7 +51,8 @@ class ScoutRubricCriterionSerializer(serializers.Serializer):
     )
     enabled = serializers.BooleanField(help_text="Whether future evaluations should use this criterion.")
     source = serializers.ChoiceField(  # type: ignore[assignment]  # The field name shadows DRF Field.source.
-        choices=ScoutRubricSource.choices, help_text="Shared default or scout-specific criterion."
+        choices=ScoutRubricSource.choices,
+        help_text="Shared default or scout-specific criterion.",
     )
 
 
