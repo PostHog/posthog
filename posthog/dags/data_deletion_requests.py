@@ -1,5 +1,5 @@
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from functools import partial
@@ -48,6 +48,7 @@ from posthog.models.data_deletion_request import (
 )
 from posthog.models.deletion_targets import (
     COVERAGE_DOC,
+    FLAG_EVALUATIONS,
     DeletionTarget,
     TargetPlacement,
     UnsweepableRowsError,
@@ -641,13 +642,18 @@ def _verify_swept(
 
 
 def _event_removal_placements(
-    cluster: ClickhouseCluster, deletion_request: DeletionRequestContext
+    cluster: ClickhouseCluster,
+    deletion_request: DeletionRequestContext,
+    *,
+    skip_targets: Collection[DeletionTarget] = (),
 ) -> list[TargetPlacement]:
     """Targets this event-removal request can sweep, each with the handle that reaches it."""
     events = [] if deletion_request.delete_all_events else deletion_request.events
     # A target that can't hold any of the named events has nothing to sweep, and mutations serialize
     # per table, so enqueueing a no-op one would queue in front of real work.
-    placements = [p for p in resolve_placements(cluster) if p.target.may_hold_any_of(events)]
+    placements = [
+        p for p in resolve_placements(cluster) if p.target.may_hold_any_of(events) and p.target not in skip_targets
+    ]
     if not deletion_request.hogql_predicate:
         return placements
 
@@ -660,12 +666,18 @@ def _event_removal_placements(
     return [p for p in placements if p.target.accepts_hogql_predicate]
 
 
+# Immediate deletion leaves flag_evaluations rows to the table's TTL. A HogQL predicate does not
+# compile against that table, so gating on it refused every such request whose team had matching
+# $feature_flag_called rows. Deferred deletion still queues the table's uuids.
+_IMMEDIATE_SKIP_TARGETS = (FLAG_EVALUATIONS,)
+
+
 def _run_immediate_event_deletion(
     context: dagster.OpExecutionContext,
     cluster: ClickhouseCluster,
     deletion_request: DeletionRequestContext,
 ) -> None:
-    placements = _event_removal_placements(cluster, deletion_request)
+    placements = _event_removal_placements(cluster, deletion_request, skip_targets=_IMMEDIATE_SKIP_TARGETS)
     targets = [p.target for p in placements]
 
     context.log.info(f"Starting immediate event deletion on tables {[t.data_table for t in targets]}")

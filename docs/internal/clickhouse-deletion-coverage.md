@@ -95,7 +95,7 @@ Leaving one out stays possible, and `PERSON_ID_REWRITE_EXEMPT` is where that dec
 
 - `sharded_events` — all sweeps.
 - `sharded_events_json` — person, team, queued-uuid and event removal, but `deletes_job` skips it by default today. Not a squash target. Property rewriting is unsupported: temporary properties and quarantine diagnostics retain additional copies that the legacy property-removal machinery does not rewrite. Optional: only present after the native-JSON migration. See the known gap below.
-- `sharded_flag_evaluations` — person, team, queued-uuid and event removal. Not property removal (below). Optional.
+- `sharded_flag_evaluations` — person, team, queued-uuid and deferred event removal. Not immediate event removal or property removal (below). Optional.
 - `sharded_posthog_document_embeddings_<model>` — event and team deletion, through `delete_event_documents`. An embedded document is keyed by the id of the thing it describes (`document_id`), and an Event deletion's key is that same id, so the pending dictionary is joined on `(team_id, Event, document_id)`. Every per-model table listed by the error tracking facade's `document_embedding_tables` is swept and counted.
 
 Native property-removal requests fail when the selected rows retain a requested permanent or temporary property, or a matching person `$set`/`$set_once` instruction.
@@ -219,6 +219,13 @@ Refusing beats silently under-deleting, so the gate is the right default.
 If the fix has not landed by the time real traffic hits, the cheaper stopgaps are letting a request exclude event names so an operator can scope around the table, or recording an explicit, audited acknowledgement on the request so an operator can accept the residue rather than being stuck.
 Doing nothing means the first affected GDPR request becomes an escalation.
 
+### Immediate event removal skips `flag_evaluations`
+
+`_run_immediate_event_deletion` leaves `flag_evaluations` out of its targets, so an immediate request neither sweeps the table nor checks it for matching rows.
+The rows age out with the table's TTL, which in practice is up to about 120 days (see above).
+Deferred event removal still queues the table's uuids, and `deletes_job` removes them.
+The skip exists because of the HogQL gap below: before it, the gate refused every immediate request with a predicate whose team had matching `$feature_flag_called` rows.
+
 ### Event removal with a HogQL predicate does not reach `flag_evaluations`
 
 `compile_hogql_predicate` resolves every predicate against the events HogQL table and emits events-specific physical columns.
@@ -226,7 +233,7 @@ Its only axis of variation is legacy vs native-JSON events, so while the dag doe
 Whether a given fragment would run against `flag_evaluations` depends on the predicate and the team's modifiers: one naming only `event` or `distinct_id` would, one reaching a `mat_*` column or a property-group map would not, and nothing validates which.
 The dag refuses rather than guessing.
 A HogQL table definition for `flag_evaluations` does not change that, because nothing routes compilation to a table.
-Requests without a predicate are swept normally; requests with one are refused if the table holds matching rows.
+Deferred requests without a predicate are swept normally; deferred requests with one are refused if the table holds matching rows.
 
 ## Producer prerequisite: person_id parity
 
