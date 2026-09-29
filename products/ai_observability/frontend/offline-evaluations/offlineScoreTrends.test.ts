@@ -47,6 +47,8 @@ describe('offline score trends', () => {
             { key: 'primary', label: 'Selected', points: [first, second, makeOfflineHistoryPoint(3, null)] },
         ])
         expect(panels).toHaveLength(1)
+        const timestamp = Date.parse(first.experiment.started_at)
+        expect(panels[0].xDomain).toEqual([timestamp - 43200000, timestamp + 43200000])
         expect(panels[0].series.map(({ points }) => points.map(({ x, y }) => [x, y]))).toEqual([
             [[Date.parse(first.experiment.started_at), 0]],
             [[Date.parse(first.experiment.started_at), 4]],

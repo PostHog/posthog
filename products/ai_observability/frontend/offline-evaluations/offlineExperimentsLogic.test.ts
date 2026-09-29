@@ -43,6 +43,22 @@ describe('offlineExperimentsLogic', () => {
 
     afterEach(() => jest.useRealTimers())
 
+    it('keeps the active chart hover when another chart leaves and clears it when filters change', () => {
+        const logic = offlineExperimentsLogic(props)
+        logic.mount()
+        logic.actions.setHoveredTrend('first', 1000)
+        logic.actions.setHoveredTrend('second', 2000)
+        logic.actions.clearHoveredTrend('first')
+        expect(logic.values.hoveredTrend?.timestamp).toBe(2000)
+
+        logic.actions.clearHoveredTrend('second')
+        expect(logic.values.hoveredTrend).toBeNull()
+
+        logic.actions.setHoveredTrend('second', 2000)
+        logic.actions.setFilters({ run_source: 'ci' })
+        expect(logic.values.hoveredTrend).toBeNull()
+    })
+
     it.each(['new', 'saved empty', 'URL empty'])(
         'selects recent scorers when the selection is %s',
         async (selection) => {

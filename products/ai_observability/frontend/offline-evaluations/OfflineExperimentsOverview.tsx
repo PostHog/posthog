@@ -205,6 +205,7 @@ export function OfflineExperimentsOverview(props: OfflineExperimentsLogicProps):
                         {scorerIds.map((scorerId, index) => (
                             <OfflineOverviewTrend
                                 key={scorerId}
+                                hoverLogic={logic}
                                 colorOffset={index}
                                 teamId={props.teamId}
                                 timezone={props.timezone}

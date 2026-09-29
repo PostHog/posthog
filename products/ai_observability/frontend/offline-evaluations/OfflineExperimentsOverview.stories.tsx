@@ -1,4 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/react'
+import { fireEvent, waitFor } from '@testing-library/react'
+
+import { playHoverAtFraction } from '@posthog/quill-charts/story-helpers'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
@@ -51,6 +54,67 @@ export default meta
 type Story = StoryObj<typeof OfflineExperimentsOverview>
 
 export const RecentExperiments: Story = {}
+export const SynchronizedHover: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team/ai_observability/offline_scorers/:id/history/': ({ params }) => {
+                    const points = overviewHistory(overviewScorers.find((scorer) => scorer.id === params.id)!)
+                    const results =
+                        params.id === overviewScorers[1].id ? points.filter((_, index) => index % 2 === 0) : points
+                    return { count: results.length, next_cursor: null, results }
+                },
+            },
+        }),
+    ],
+    play: async ({ canvasElement }) => {
+        const charts = await waitFor(() => {
+            const elements = canvasElement.querySelectorAll<HTMLElement>('[data-attr="offline-score-trend"]')
+            if (elements.length !== 3) {
+                throw new Error('Score charts have not loaded')
+            }
+            return elements
+        })
+        const hover = async (chart: HTMLElement): Promise<void> => {
+            const path = await waitFor(() => {
+                const element = chart.querySelector<SVGPathElement>('[data-attr="offline-score-lines"] path')
+                if (!element?.getAttribute('d')) {
+                    throw new Error('Score chart has not finished rendering')
+                }
+                return element
+            })
+            const point = path.getPointAtLength(0)
+            const rect = chart.getBoundingClientRect()
+            await playHoverAtFraction(chart, point.x / rect.width, point.y / rect.height)
+        }
+        for (const chart of [charts[0], charts[2]]) {
+            await hover(chart)
+            await waitFor(() => {
+                if (canvasElement.querySelectorAll('[data-attr="offline-score-crosshair"]').length !== 3) {
+                    throw new Error('The hover guide must appear on every chart')
+                }
+                const fractions = Array.from(charts, (element) => {
+                    const guide = element.querySelector('[data-attr="offline-score-crosshair"]')!
+                    const plot = element.querySelector('[data-attr="offline-score-lines"] clipPath rect')!
+                    return (
+                        (Number(guide.getAttribute('x1')) - Number(plot.getAttribute('x'))) /
+                        Number(plot.getAttribute('width'))
+                    )
+                })
+                if (fractions.some((fraction) => Math.abs(fraction - fractions[0]) > 0.000001)) {
+                    throw new Error('The hover guides must mark the same time, even with missing experiments')
+                }
+            })
+            fireEvent.mouseLeave(chart)
+            await waitFor(() => {
+                if (canvasElement.querySelector('[data-attr="offline-score-crosshair"]')) {
+                    throw new Error('The hover guides must clear when the pointer leaves')
+                }
+            })
+        }
+        await hover(charts[0])
+    },
+}
 export const Narrow: Story = {
     decorators: [
         (Story) => (
@@ -59,6 +123,10 @@ export const Narrow: Story = {
             </div>
         ),
     ],
+}
+export const SynchronizedHoverNarrow: Story = {
+    ...SynchronizedHover,
+    decorators: [SynchronizedHover.decorators, Narrow.decorators].flat().filter((decorator) => !!decorator),
 }
 export const FilteredTrends: Story = {
     ...Narrow,

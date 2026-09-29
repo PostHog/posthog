@@ -1,3 +1,4 @@
+import type { BuiltLogic } from 'kea'
 import { useMemo } from 'react'
 
 import { ScatterChart, TooltipFooter, TooltipSurface, TooltipSwatch } from '@posthog/quill-charts'
@@ -7,6 +8,8 @@ import { dayjs } from 'lib/dayjs'
 import { cn } from 'lib/utils/css-classes'
 
 import type { OfflineHistoryPointApi } from '../generated/api.schemas'
+import type { offlineExperimentsLogicType } from './offlineExperimentsLogic'
+import { OfflineScoreTrendCrosshair } from './OfflineScoreTrendCrosshair'
 import { OfflineScoreTrendLines } from './OfflineScoreTrendLines'
 import { buildOfflineTrendPanels, formatOfflineNumericScore, type OfflineTrendPeriod } from './offlineScoreTrends'
 
@@ -16,6 +19,7 @@ export interface OfflineScoreTrendChartProps {
     timezone?: string
     heightClassName?: string
     colorOffset?: number
+    hoverLogic?: BuiltLogic<offlineExperimentsLogicType>
 }
 
 export function OfflineScoreTrendChart({
@@ -24,6 +28,7 @@ export function OfflineScoreTrendChart({
     timezone = 'UTC',
     heightClassName = 'h-64',
     colorOffset = 0,
+    hoverLogic,
 }: OfflineScoreTrendChartProps): JSX.Element {
     const baseTheme = useChartTheme()
     const theme = useMemo(
@@ -52,6 +57,7 @@ export function OfflineScoreTrendChart({
                                 series={panel.series}
                                 theme={theme}
                                 config={{
+                                    showCrosshair: !hoverLogic,
                                     xAxis: {
                                         domain: panel.xDomain,
                                         label: panel.elapsed ? 'Time from period start' : undefined,
@@ -142,6 +148,9 @@ export function OfflineScoreTrendChart({
                                 }}
                             >
                                 <OfflineScoreTrendLines />
+                                {hoverLogic && panel.xDomain && (
+                                    <OfflineScoreTrendCrosshair logic={hoverLogic} xDomain={panel.xDomain} />
+                                )}
                             </ScatterChart>
                         </div>
                     ) : (

@@ -213,6 +213,14 @@ export function buildOfflineTrendPanels(periods: OfflineTrendPeriod[]): OfflineT
         }
     }
     for (const [key, panel] of panels) {
+        if (!panel.xDomain) {
+            const timestamps = panel.series.flatMap((series) => series.points.map((point) => point.x))
+            if (timestamps.length) {
+                const min = Math.min(...timestamps)
+                const max = Math.max(...timestamps)
+                panel.xDomain = min === max ? [min - 43200000, max + 43200000] : [min, max]
+            }
+        }
         const configuration = key.slice(0, key.lastIndexOf(':'))
         const values = domains.get(configuration) || []
         if (panel.percentage) {
