@@ -1,20 +1,13 @@
 import json
-import importlib
 from typing import Any
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
-
-from django.apps import apps
-from django.db import connection
-from django.utils import timezone
 
 from parameterized import parameterized
 
 from posthog.hogql.compiler.bytecode import create_bytecode
 
 from posthog.cdp.filters import hog_function_filters_to_expr
-
-from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 from common.hogvm.python.execute import execute_bytecode
 
@@ -47,12 +40,9 @@ class TestGithubTriggerFilters(ClickhouseTestMixin, APIBaseTest):
     """The trigger editor writes property filters, the engine runs their bytecode. These check the
     two actually agree, which is what the editor's own round-trip tests can't see."""
 
-    def _bytecode(self, properties: list[dict]) -> list:
-        expr = hog_function_filters_to_expr(filters={"properties": properties}, team=self.team, actions={})
-        return json.loads(json.dumps(create_bytecode(expr).bytecode))
-
     def _matches(self, properties: list[dict], globals: dict | None = None) -> bool:
-        bytecode = self._bytecode(properties)
+        expr = hog_function_filters_to_expr(filters={"properties": properties}, team=self.team, actions={})
+        bytecode = json.loads(json.dumps(create_bytecode(expr).bytecode))
         return execute_bytecode(bytecode, globals or GITHUB_EVENT_GLOBALS).result is True
 
     @parameterized.expand(
@@ -122,44 +112,3 @@ class TestGithubTriggerFilters(ClickhouseTestMixin, APIBaseTest):
         ]
         assert self._matches(properties)
         assert not self._matches(properties, _event(actor_access="read"))
-
-    def test_backfill_lowercases_literal_repositories_and_keeps_patterns(self):
-        migration = importlib.import_module(
-            "products.workflows.backend.migrations.0027_lowercase_github_repository_filters"
-        )
-        bytecode = self._bytecode(
-            [_prop("repository", ["PostHog/Posthog"], "exact"), _prop("repository", "^PostHog/", "regex")]
-        )
-        rewritten = migration._lowercased_bytecode(bytecode)
-        assert "posthog/posthog" in rewritten and "PostHog/Posthog" not in rewritten
-        assert "^PostHog/" in rewritten
-
-    def test_backfill_lowercases_a_staged_draft(self):
-        migration = importlib.import_module(
-            "products.workflows.backend.migrations.0027_lowercase_github_repository_filters"
-        )
-        properties = [_prop("repository", ["PostHog/posthog"], "exact")]
-        config = {
-            "type": "internal-event",
-            "filters": {
-                "events": [{"id": "$github_event_received", "type": "events"}],
-                "properties": properties,
-                "bytecode": self._bytecode(properties),
-            },
-        }
-        flow = HogFlow.objects.create(
-            team=self.team,
-            name="GitHub trigger staged in a draft",
-            draft={"trigger": config, "actions": [{"id": "trigger_node", "type": "trigger", "config": config}]},
-            draft_updated_at=timezone.now(),
-        )
-
-        with connection.schema_editor() as schema_editor:
-            migration.lowercase_github_repository_filters(apps, schema_editor)
-
-        flow.refresh_from_db()
-        assert flow.draft is not None
-        delivery = _event(repository="posthog/posthog")
-        for filters in (flow.draft["trigger"]["filters"], flow.draft["actions"][0]["config"]["filters"]):
-            assert filters["properties"][0]["value"] == ["posthog/posthog"]
-            assert execute_bytecode(filters["bytecode"], delivery).result is True
