@@ -2412,6 +2412,10 @@ snapshots:
         hash: v1.k794b7964.a1866d682eb35809e8a9bea08ec0c7af8cb77581e4667745851bd9db5f49918d.mhIpdnK7yIoTFvovSR-wJrEHGV_7_T3eTvSNRv0UbtY
     customer-analytics-custom-property-sync-runs--loading--light:
         hash: v1.k794b7964.b376cab90219eb5e85b659c1399b40c0d60caf7a91b006c0d168375ed365d2af.61Y57PmrNuzzIfBps59FSyMmFnBf3yzKDcPD6vs5VHI
+    customer-analytics-default-pinned-properties--configured--dark:
+        hash: v1.k794b7964.da6302477c0838d6cbfdabb09aa1e242f0c3c1f7f917bcb54299580dcfa9f995.tjq8S-BHBPQ8gWdwEr_XUyL3BIxpNCFT4tyYjLGk-ZE
+    customer-analytics-default-pinned-properties--configured--light:
+        hash: v1.k794b7964.273b9a90ceade3a30ad9f01f4c9ff61353db29c0fadb46daab82e4a6024a9598.jau9WlsA3gZxLy-MyeDNK7yWZy3N41Er9y90hvTrmcg
     customer-analytics-feature-requests-github-issue--archived--dark:
         hash: v1.k794b7964.6353d8360a139bb403c1ece6b033793a0e9d71ece3e3624c40097d702b8a8393.ZF8kHNdiifHQUHTWzRM0a4tvySXtrbkKOm5fB0l2ie8
     customer-analytics-feature-requests-github-issue--archived--light:
