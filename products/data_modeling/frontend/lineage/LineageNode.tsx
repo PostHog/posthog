@@ -211,7 +211,7 @@ export function LineageNode({ data }: { data: LineageNodeData }): JSX.Element {
         return (
             <div
                 className={clsx(
-                    'relative flex h-full w-full min-w-[180px] flex-col rounded-lg border bg-bg-light/70',
+                    'relative flex h-full w-full min-w-[180px] animate-pulse flex-col rounded-lg border bg-bg-light/70 motion-reduce:animate-none',
                     state.loading === 'focus' ? 'border-border' : 'border-border/50'
                 )}
                 // eslint-disable-next-line react/forbid-dom-props
@@ -238,14 +238,18 @@ export function LineageNode({ data }: { data: LineageNodeData }): JSX.Element {
                     ) : (
                         <LemonSkeleton className="h-4 w-16" active={false} />
                     )}
-                    <span
-                        className={clsx(
-                            'truncate text-sm font-medium',
-                            state.loading === 'focus' ? 'text-primary' : 'text-secondary'
-                        )}
-                    >
-                        {node.name}
-                    </span>
+                    {node.name ? (
+                        <span
+                            className={clsx(
+                                'truncate text-sm font-medium',
+                                state.loading === 'focus' ? 'text-primary' : 'text-secondary'
+                            )}
+                        >
+                            {node.name}
+                        </span>
+                    ) : (
+                        <LemonSkeleton className="h-4 w-4/5" active={false} />
+                    )}
                 </div>
                 <div className="flex h-6 items-center rounded-b-lg bg-primary/50 px-3">
                     <LemonSkeleton className="h-2 w-2/3" />
