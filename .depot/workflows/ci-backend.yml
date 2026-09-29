@@ -164,9 +164,10 @@ on:
         types: [opened, synchronize, reopened, ready_for_review]
 concurrency:
     # PRs: one group per event, so Depot only collapses duplicate runs of one event, and the
-    # cancel-superseded-runs job cancels stale runs. Push: per-SHA so master
+    # cancel-superseded-runs job cancels stale runs. Two events of one PR can share
+    # `updated_at` and differ in head, so the head is part of the key. Push: per-SHA so master
     # pushes never cancel each other (check-migrations always completes).
-    group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.event_name == 'pull_request' && format('pr-{0}-{1}', github.event.pull_request.number, github.event.pull_request.updated_at) || github.head_ref || github.ref }}
+    group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.event_name == 'pull_request' && format('pr-{0}-{1}-{2}', github.event.pull_request.number, github.event.pull_request.head.sha, github.event.pull_request.updated_at) || github.head_ref || github.ref }}
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 env:
     # Schema cache epoch. Bump to abandon every shared schema cache entry at once
@@ -379,18 +380,21 @@ jobs:
                           exit 0
                       fi
                       # Ties on the one-second created_at fall back to the run id, so every run
-                      # of the PR agrees on one order and exactly one run survives. The order is
-                      # a string comparison, so any other timestamp format stops the job rather
-                      # than risk cancelling a newer run.
+                      # of the PR agrees on one order and exactly one run of a commit survives.
+                      # A tie between two commits cancels neither run, because the run id cannot
+                      # tell which commit is the PR's head. The order is a string comparison, so
+                      # any other timestamp format stops the job rather than risk cancelling a newer run.
                       plan=$(jq -n --arg own "$own_workflow" --argjson workflows "$workflows" --argjson runs "$runs" '
                           ($runs | map({key: .run_id, value: [.created_at, .run_id]}) | from_entries) as $order
+                          | ($runs | map({key: .run_id, value: "\(.created_at) \(.head_sha)"}) | from_entries) as $event
                           | [$workflows[] | select(.workflow_path == "ci-backend.yml" and $order[.run_id] != null)] as $backend
                           | ($backend | map(select(.workflow_id == $own)) | first) as $me
                           | if any($runs[]; .created_at | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$") | not) then {unordered: true}
                             elif $me == null then {cancel: [], pending: ["self"]}
                             else $order[$me.run_id] as $mine
                               | {
-                                  cancel: [$backend[] | select((.status == "queued" or .status == "running") and $order[.run_id] < $mine) | "\(.run_id) \(.workflow_id)"],
+                                  cancel: [$backend[] | select((.status == "queued" or .status == "running") and $order[.run_id] < $mine
+                                      and ($order[.run_id][0] < $mine[0] or $event[.run_id] == $event[$me.run_id])) | "\(.run_id) \(.workflow_id)"],
                                   pending: [$runs[] | select([.created_at, .run_id] < $mine) | .run_id as $run
                                       | select($backend | all(.run_id != $run)) | $run]
                                 }
