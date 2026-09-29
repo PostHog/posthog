@@ -57,9 +57,7 @@ _PR_BEARING_LEGACY_TASK_RELATIONSHIPS = (TASK_RUN_TYPE_IMPLEMENTATION, TASK_RUN_
 
 
 class _EqualsAny(Lookup):
-    """Render `lhs = ANY(rhs)`, so Postgres evaluates an `ArraySubquery` once and uses it as an index condition."""
-
-    lookup_name = "equals_any"
+    """`lhs = ANY(rhs)`, the SQL form an `ArraySubquery` needs on the right side."""
 
     def as_sql(self, compiler: SQLCompiler, connection: BaseDatabaseWrapper) -> tuple[str, tuple[Any, ...]]:
         lhs, lhs_params = self.process_lhs(compiler, connection)
