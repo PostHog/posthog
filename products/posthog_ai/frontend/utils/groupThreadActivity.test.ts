@@ -23,7 +23,7 @@ describe('thread activity grouping', () => {
             { id: 'end', type: 'turn_separator', startedAt: 1700 },
             tool('next', 3000),
         ]
-        const result = groupThreadActivity(items, new Set(['chart']))
+        const result = groupThreadActivity(items, new Set(['chart']), new Set(), false)
         expect(result.map((item) => item.id)).toEqual([
             'human',
             'activity-search',
@@ -36,7 +36,9 @@ describe('thread activity grouping', () => {
         ])
         expect(result.flatMap((item) => (item.type === 'activity_group' ? item.items : [item]))).toEqual(items)
         expect(result[1]).toMatchObject({ startedAt: 1000, endedAt: 1300 })
-        expect(groupThreadActivity([...items, tool('last', 3200)], new Set(['chart'])).at(-1)?.id).toBe('activity-next')
+        expect(
+            groupThreadActivity([...items, tool('last', 3200)], new Set(['chart']), new Set(), false).at(-1)?.id
+        ).toBe('activity-next')
     })
 
     const human = (id: string): ThreadItem => ({ id, type: 'human_message', text: 'Show me charts' })
@@ -70,7 +72,9 @@ describe('thread activity grouping', () => {
     it('does not invent a duration when part of the group has no recorded start', () => {
         const result = groupThreadActivity(
             [tool('timed'), { id: 'imported', type: 'tool_invocation', toolCallId: 'imported' }],
-            new Set()
+            new Set(),
+            new Set(),
+            false
         )
         expect(result[0].startedAt).toBeUndefined()
     })

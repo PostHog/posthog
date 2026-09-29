@@ -23,7 +23,7 @@ describe('toolRegistry', () => {
     it('resolves product declarations after importing only the registry', () => {
         expect(toolRegistry.lookup('insight-create')?.displayName).toEqual('Insight')
         expect(toolRegistry.lookup('query-trends')?.displayName).toEqual('Trends query')
-        expect(toolRegistry.lookup('execute-sql')?.keepVisible).toBe(true)
+        expect(toolRegistry.lookup('execute-sql')?.visibility).toBe('last-in-turn')
         expect(toolRegistry.lookup('query-error-tracking-issues-list')?.displayName).toEqual('Error tracking')
         expect(
             require.cache[require.resolve('products/error_tracking/frontend/posthogAi/ErrorTrackingWidget')]
@@ -111,7 +111,7 @@ describe('toolRegistry', () => {
         const entry = toolRegistry.lookup(key)
         expect(entry).not.toBeNull()
         expect(entry?.displayName).toEqual(displayName)
-        expect(entry?.alwaysVisible ?? false).toBe(['ExitPlanMode', 'AskUserQuestion'].includes(key))
+        expect(entry?.visibility).toBe(['ExitPlanMode', 'AskUserQuestion'].includes(key) ? 'always' : undefined)
         expect(lookupToolRenderer(key, false).displayName).toEqual(displayName)
     })
 

@@ -118,10 +118,10 @@ export function ThreadView({
         const resultToolIds = new Set<string>()
         for (const [id, invocation] of toolInvocations) {
             const resolved = resolveToolCall(invocation)
-            const entry = lookupToolRenderer(resolved.resolvedKey, !!resolved.innerToolName)
-            if (entry.alwaysVisible) {
+            const { visibility } = lookupToolRenderer(resolved.resolvedKey, !!resolved.innerToolName)
+            if (visibility === 'always') {
                 standaloneToolIds.add(id)
-            } else if (entry.keepVisible) {
+            } else if (visibility === 'last-in-turn') {
                 resultToolIds.add(id)
             }
         }

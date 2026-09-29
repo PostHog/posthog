@@ -36,11 +36,8 @@ export function groupConsecutiveTools(
     return groups
 }
 
-/**
- * Picks the last result call of each settled turn. A turn settles at its `turn_separator`, or at the next
- * human message when the turn crashed before its separator. The tail turn settles only when it is no
- * longer open, so the picked call does not move while more calls stream in.
- */
+// A crashed turn has no `turn_separator`, so the next human message also settles it. The open tail turn
+// picks nothing yet, so the visible chart does not move while more calls stream in.
 function lastResultOfEachTurn(
     items: ThreadItem[],
     resultToolIds: ReadonlySet<string>,
@@ -64,15 +61,11 @@ function lastResultOfEachTurn(
     return lastResults
 }
 
-/**
- * `standaloneToolIds` always render outside a group. Of `resultToolIds`, only the last call of each
- * settled turn renders outside a group, so a turn with many charts shows one and folds the rest.
- */
 export function groupThreadActivity(
     items: ThreadItem[],
     standaloneToolIds: ReadonlySet<string>,
-    resultToolIds: ReadonlySet<string> = new Set(),
-    isTailTurnOpen = false
+    resultToolIds: ReadonlySet<string>,
+    isTailTurnOpen: boolean
 ): ThreadDisplayItem[] {
     const lastResults = lastResultOfEachTurn(items, resultToolIds, isTailTurnOpen)
     const result: ThreadDisplayItem[] = []

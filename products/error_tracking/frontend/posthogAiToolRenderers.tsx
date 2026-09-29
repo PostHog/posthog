@@ -18,5 +18,5 @@ export const posthogAiToolRenderers: ToolRegistryEntry[] = [
     icon: <IconWarning />,
     Renderer: ErrorTrackingRenderer,
     requiresPostHogOrigin: true,
-    keepVisible: true,
+    visibility: 'last-in-turn' as const,
 }))
