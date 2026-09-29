@@ -1,5 +1,10 @@
 # Scout rubric suggestions: development report
 
+2026-09-29 update: retain the integrated generator with final plain-language writing instructions.
+The focused [readability pass](#readability-pass-2026-09-29) completed 40 further generations.
+Its final eight preserved the baseline content grades and improved readability. The broader gates
+below describe the preceding prompt version; this pass did not rerun that full suite.
+
 2026-09-28: retain the integrated two-step generator for editable rubric drafts. It passed the
 registered broad content gates, native API generation and the real browser
 Generate → edit → Save → reopen flow. The last native content check required removing one
@@ -546,3 +551,45 @@ quality gain. These single executions on familiar inputs do not isolate the caus
 Further prepared tests for the rejected candidates were not launched, and their prompts remain
 inactive. The retained version's occasional duplicate suggestion remains an explicit limitation,
 alongside the need to supply the referenced source instructions to any future evaluator.
+
+## Readability pass, 2026-09-29
+
+Four fixed inputs covered a public analytics scout without runs, two copied scouts with five run
+summaries, and an invented description-only scout. Every prompt version ran once per input on
+`claude-opus-5-5` and `gpt-6-sol`, both at high effort. At most two sessions ran concurrently.
+The source context, generation flow and selection rules stayed fixed. Model defaults did not change.
+
+One separate reviewer recorded content and readability judgments before seeing model or prompt
+labels. The execution owner also reviewed the wording and shared a stricter preference for ordinary
+terms during the pass. Original reviews remain preserved.
+
+| Prompt version                        | Content: Ready / Small / Substantial | Readability: Clear / Small edit / Rewrite |
+| ------------------------------------- | ------------------------------------ | ----------------------------------------- |
+| Baseline                              | 6 / 2 / 0                            | 2 / 1 / 5                                 |
+| Plain-language footer                 | 5 / 1 / 2                            | 5 / 3 / 0                                 |
+| Short action titles                   | 6 / 1 / 1                            | 4 / 2 / 2                                 |
+| Concrete wording examples             | 5 / 1 / 2                            | 8 / 0 / 0                                 |
+| Meaning-preserving examples, retained | 6 / 2 / 0                            | 7 / 1 / 0                                 |
+
+Earlier attempts shortened categories or made conditional evidence mandatory. The retained footer
+gives concrete warnings against those changes while asking for short titles and plain explanations.
+Its final eight needed no source-rule repair: 37/39 suggestions were retained. Both code-scanning
+outputs repeated a label check already covered by a default. One feedback explanation still needed
+plainer wording; one analytics title could also be simpler. Owners should continue reviewing drafts.
+The existing grades and retention threshold were not changed, including an earlier duplicate-only
+four-item result that fell below the threshold after removing one item.
+
+The final four Sol outputs were Clear; three Opus outputs were Clear and one needed a wording edit.
+That small difference does not establish a model ranking. Final median generation times were
+80.41 seconds for Sol and 60.35 seconds for Opus, including setup and both requests. These are
+familiar development inputs with one execution per combination, not a reliability estimate.
+
+All 40 completed sessions matched their frozen requests, selected runtime and captured final output.
+Selection preserved draft text, no format repair was needed, and captured tools only updated the
+generation task's own progress. Normal cleanup was recorded in the local sandbox ledger.
+Two earlier startup interruptions returned no rubric; their failed attempts and cleanup remain
+recorded separately. No independent provider cleanup query is claimed.
+
+The public analytics example was rendered in the current editor with replayed API responses and
+unedited Sol output. This checks the displayed result, not a fresh browser-to-backend generation.
+Private source context, transcripts, outputs and detailed reviews remain outside version control.

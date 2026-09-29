@@ -466,7 +466,9 @@ class TestScoutRubricsAPI(APIBaseTest):
             bundle_text, schema_text = prompt.split("\nUntrusted source bundle:\n", 1)[1].split("\nResult schema:\n", 1)
             bundle = json.loads(bundle_text)
             scout_context = bundle["scout_context"]
-            self.assertEqual(json.loads(schema_text), ScoutRubricSuggestionBatch.model_json_schema())
+            self.assertEqual(
+                json.JSONDecoder().raw_decode(schema_text)[0], ScoutRubricSuggestionBatch.model_json_schema()
+            )
             references = bundle["reference_texts"]
             if bounded_context:
                 self.assertEqual([item["path"] for item in references], reference_paths[: 2 if truncated else 4])

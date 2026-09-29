@@ -207,6 +207,10 @@ def build_selection_prompt(criteria: list[ScoutRubricCriterion], draft: ScoutRub
         )
         + "\nSelection schema:\n"
         + json.dumps(RubricSelection.model_json_schema())
+        + "\nWrite the summary in one or two short sentences, under 40 words, using plain, familiar words. "
+        "State the evidence and meaningful limits directly, without internal shorthand, input inventories "
+        "or a list of what the saved rubric lacks. "
+        "Keep the selected criteria unchanged. Return only the selection JSON."
     )
     if len(json.dumps(prompt).encode()) > 240_000:
         raise ValueError("Selection context exceeds the bounded follow-up size")
@@ -303,6 +307,34 @@ def build_rubric_prompt(team: Team, config: SignalScoutConfig) -> str:
         + json.dumps(source_bundle)
         + "\nResult schema:\n"
         + json.dumps(ScoutRubricSuggestionBatch.model_json_schema())
+        + """
+
+Write these fields for a busy product owner who has not read the scout's implementation:
+- Start each title with a familiar verb and name the concrete check, usually in 3-8 words.
+  Name this scout's actual subject and use sentence case. Explain the purpose, not the mechanism:
+  "Check the scheduled work" is clearer than "Score due items"; "Summarize what was checked" is
+  clearer than "Complete the close-out". Keep domain terms needed for precision.
+- Use one short sentence for the description. Explain what is being assessed and why it matters;
+  leave algorithm steps, storage fields and technical evidence requirements to the pass condition.
+  Prefer "write" to "author", "save" to "persist", "decision" to "disposition", and "links to
+  previous reports" to "report pointers". Avoid noun piles, internal shorthand and vague metaphors.
+- Titles and descriptions name the judgment; they must not summarize or narrow its policy.
+  Simplifying wording must not change a category, a condition's direction or a permitted outcome.
+  Do not introduce an "only", "always" or exclusion that the full source does not require.
+  For example, "rate changes" must not become "rate drops", "supported issues" must not become
+  "repeated issues", and "available evidence" must not become "mandatory tests". A shorter phrase
+  is wrong if it excludes a valid source case, even when the pass condition has the correct rule.
+- Keep the pass condition to one or two readable sentences. For complex rules, keep the precise
+  source binding without adding a partial policy summary, step list or field inventory. Preserve
+  required work, prerequisites and permitted alternatives through that binding, and keep the
+  required applicability wording. Put exact rule names here, not in titles or descriptions.
+  Keep conditional technical requirements in their named source rule; do not turn them into an
+  unconditional checklist. Use plain words around the exact source-rule names.
+- Keep the summary under 40 words: one or two short sentences about the evidence and meaningful
+  limits. Avoid input inventories, internal process details and claims about uninspected material.
+Before returning the JSON, check that the text is easy to read and has kept the source's full meaning.
+Return only the requested JSON object.
+"""
     )
 
 
