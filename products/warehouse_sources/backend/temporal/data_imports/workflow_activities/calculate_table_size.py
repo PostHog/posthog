@@ -26,9 +26,51 @@ class CalculateTableSizeActivityInputs:
     job_id: str
 
 
+def _delta_table_uri(schema: ExternalDataSchema, table: DataWarehouseTable) -> str:
+    """Where the table's Delta log lives.
+
+    The query folder is named `<delta folder leaf>__query[...]`, so the leaf comes from the pointer
+    when there is one: a `cdc_only` schema's table is its `_cdc` companion, whose Delta folder is not
+    the schema's own.
+    """
+    if table.queryable_folder:
+        leaf = table.queryable_folder.rsplit("__query", 1)[0]
+    else:
+        leaf = schema.normalized_s3_folder_name
+    return f"{settings.BUCKET_URL}/{schema.folder_path()}/{leaf}"
+
+
+def _live_delta_size_mib(delta_uri: str) -> float | None:
+    """Total size of the files the Delta log lists as live, in MiB.
+
+    The query folder holds a copy of exactly those files, so this is the number an S3 listing of
+    that folder gives, without paging through every object. None when no Delta log exists there,
+    so the caller can fall back to listing.
+    """
+    import pyarrow as pa  # noqa: PLC0415 — keeps the heavy pyarrow dep off this activity module's import path
+    import deltalake  # noqa: PLC0415 — keeps the heavy deltalake dep off this activity module's import path
+    import pyarrow.compute as pc  # noqa: PLC0415 — keeps the heavy pyarrow dep off this activity module's import path
+    import deltalake.exceptions  # noqa: PLC0415 — keeps the heavy deltalake dep off this activity module's import path
+
+    from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import (  # noqa: PLC0415 — keeps the heavy deltalake dep off this activity module's import path
+        delta_storage_options,
+    )
+
+    try:
+        delta_table = deltalake.DeltaTable(delta_uri, storage_options=delta_storage_options())
+    except deltalake.exceptions.TableNotFoundError:
+        return None
+
+    # deltalake>=1.x returns an arro3 RecordBatch; pa.table() normalizes it through the Arrow C interface.
+    add_actions = pa.table(delta_table.get_add_actions(flatten=True))
+    total_bytes = pc.sum(add_actions.column("size_bytes")).as_py() or 0
+    return total_bytes / (1024 * 1024)
+
+
 # The individual queries carry `retry_internal_db_operation` rather than the whole activity
-# carrying `with_internal_db_retries`, because retrying the whole body would repeat the S3 folder
-# listing below, which can take minutes and still has to finish inside the activity's timeout.
+# carrying `with_internal_db_retries`, because retrying the whole body would repeat the size
+# measurement below, which for the S3 listing fallback can take minutes and still has to finish
+# inside the activity's timeout.
 @activity.defn
 def calculate_table_size_activity(inputs: CalculateTableSizeActivityInputs) -> None:
     bind_contextvars(team_id=inputs.team_id)
@@ -70,7 +112,11 @@ def calculate_table_size_activity(inputs: CalculateTableSizeActivityInputs) -> N
             s3_folder = f"{settings.BUCKET_URL}/{folder_name}/{schema.normalized_name}"
 
     try:
-        total_mib = get_size_of_folder(s3_folder)
+        total_mib: float | None = None
+        if table.format == DataWarehouseTable.TableFormat.DeltaS3Wrapper:
+            total_mib = _live_delta_size_mib(_delta_table_uri(schema, table))
+        if total_mib is None:
+            total_mib = get_size_of_folder(s3_folder)
     except OSError as e:
         if e.errno not in (errno.EMFILE, errno.ENFILE):
             raise

@@ -49,6 +49,7 @@ function mockRun(
         error_message: null,
         output: null,
         task_summary: null,
+        task_tags: [],
         state: {},
         artifacts: [],
         created_at: createdAt,

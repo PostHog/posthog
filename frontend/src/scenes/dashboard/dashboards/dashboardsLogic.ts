@@ -27,7 +27,6 @@ export enum DashboardsTab {
     All = 'all',
     Yours = 'yours',
     Pinned = 'pinned',
-    Templates = 'templates',
 }
 
 const DEFAULT_SORTING: Sorting = { columnKey: 'name', order: 1 }
@@ -580,7 +579,7 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
     urlToAction(({ actions, values }) => ({
         '/dashboard': (_, searchParams) => {
             const requestedTab = (searchParams['tab'] as DashboardsTab | undefined) || DashboardsTab.All
-            const tab = requestedTab === DashboardsTab.Pinned ? DashboardsTab.All : requestedTab
+            const tab = requestedTab === DashboardsTab.Yours ? DashboardsTab.Yours : DashboardsTab.All
             if (values.currentTab !== tab) {
                 actions.setCurrentTab(tab)
             }

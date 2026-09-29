@@ -3988,6 +3988,25 @@ describe('a flag in config version 2', () => {
         expect(logic.values.rowVersionToken).toEqual({ version: 4 })
         expect(logic.values.originalFeatureFlag?.version).toBe(4)
     })
+
+    it.each([
+        ['tags', () => logic.actions.saveTagsInline(['checkout'])],
+        ['description', () => logic.actions.saveDescriptionInline('Checkout redesign')],
+    ])('reloads the flag when its inline %s save hits a stale row version', async (_, save) => {
+        useMocks({
+            get: {
+                [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/7/`]: () => [200, { ...V2_FLAG, version: 5 }],
+            },
+        })
+        jest.spyOn(api, 'update').mockRejectedValue({ status: 409, detail: 'This feature flag has changed.' })
+
+        save()
+        await expectLogic(logic)
+            .toDispatchActions(['refreshFeatureFlag', 'refreshFeatureFlagSuccess'])
+            .toFinishAllListeners()
+
+        expect(logic.values.rowVersionToken).toEqual({ version: 5 })
+    })
 })
 
 describe('the editor a flag opens in', () => {

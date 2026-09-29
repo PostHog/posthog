@@ -123,6 +123,7 @@ class AsaasSource(ResumableSource[AsaasSourceConfig, AsaasResumeConfig]):
             ),
             keywords=["billing", "payments", "brazil"],
             iconPath="/static/services/asaas.png",
+            docsUrl="https://posthog.com/docs/cdp/sources/asaas",
             fields=cast(
                 list[FieldType],
                 [

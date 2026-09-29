@@ -20,6 +20,7 @@ import type { DeepPartial, FieldName } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { beforeUnload, router, urlToAction } from 'kea-router'
 import { CombinedLocation } from 'kea-router/lib/utils'
+import posthog from 'posthog-js'
 import { createElement } from 'react'
 import { toast } from 'react-toastify'
 
@@ -38,7 +39,6 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { stringifyWithBigInts } from 'lib/utils/json'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { objectsEqual } from 'lib/utils/objects'
@@ -149,6 +149,18 @@ import {
     isSchedulePaused,
 } from './scheduleOccurrences'
 import { flagToggleKey, updateFlagActiveInProject } from './updateFlagActiveInProject'
+
+function reportFailedToCreateFeatureFlagWithCohort(code: string, detail: string): void {
+    posthog.capture('failed to create feature flag with cohort', { detail, code })
+}
+
+function reportFeatureFlagCopyFailure(error: string): void {
+    posthog.capture('feature flag copy failure', { error })
+}
+
+function reportFeatureFlagScheduleSuccess(): void {
+    posthog.capture('feature flag scheduled')
+}
 
 const VALID_INTENTS: FlagIntent[] = ['local-eval', 'first-page-load']
 
@@ -633,13 +645,13 @@ async function copyNewFlagToAdditionalProjects(
         ),
     ].filter((part): part is string => part !== null)
 
-    eventUsageLogic.actions.reportFeatureFlagCreatedInAdditionalProjects(
-        targetProjectIds.length,
-        created.length,
-        overwritten.length,
-        pendingApproval.length,
-        hardFailures.length
-    )
+    posthog.capture('feature flag created in additional projects', {
+        target_count: targetProjectIds.length,
+        created_count: created.length,
+        overwritten_count: overwritten.length,
+        pending_approval_count: pendingApproval.length,
+        failed_count: hardFailures.length,
+    })
 
     const level =
         aggregated.failed.length === 0 && overwritten.length === 0
@@ -3241,7 +3253,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     return variantKeyToIndexFeatureFlagPayloads(savedFlag)
                 } catch (error: any) {
                     if (error.code === 'behavioral_cohort_found' || error.code === 'cohort_does_not_exist') {
-                        eventUsageLogic.actions.reportFailedToCreateFeatureFlagWithCohort(error.code, error.detail)
+                        reportFailedToCreateFeatureFlagWithCohort(error.code, error.detail)
                     } else if (isAccessDeniedError(error)) {
                         // Mirror the load path's access-denied handling instead of the generic
                         // "Save feature flag failed: ..." toast. The global loaders handler
@@ -3285,7 +3297,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     return variantKeyToIndexFeatureFlagPayloads(savedFlag)
                 } catch (error: any) {
                     if (error.code === 'behavioral_cohort_found' || error.code === 'cohort_does_not_exist') {
-                        eventUsageLogic.actions.reportFailedToCreateFeatureFlagWithCohort(error.code, error.detail)
+                        reportFailedToCreateFeatureFlagWithCohort(error.code, error.detail)
                     }
                     throw error
                 }
@@ -3844,7 +3856,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 lemonToast.success('Paired schedules created')
             }
             resetScheduleForm()
-            eventUsageLogic.actions.reportFeatureFlagScheduleSuccess()
+            reportFeatureFlagScheduleSuccess()
         },
         showDependentFlagsConfirmation: sharedListeners.showDependentFlagsConfirmation,
         enrichUsageDashboard: async (_, breakpoint) => {
@@ -4138,7 +4150,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             const experimentId = currentPath.split('/').pop()
 
             if (experimentId) {
-                eventUsageLogic.actions.reportExperimentReleaseConditionsUpdated(parseInt(experimentId))
+                posthog.capture('experiment release conditions updated', {
+                    experiment_id: parseInt(experimentId),
+                })
                 experimentLogic({ experimentId: parseInt(experimentId) }).actions.loadExperiment()
             }
         },
@@ -4285,7 +4299,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         ? `Feature flag ${operation} successfully with ${copiedDependencyCount} dependenc${copiedDependencyCount === 1 ? 'y' : 'ies'}!`
                         : `Feature flag ${operation} successfully!`
                 )
-                eventUsageLogic.actions.reportFeatureFlagCopySuccess()
+                posthog.capture('feature flag copied')
 
                 // Surface any warnings the copy returned (e.g. a flag dependency dropped because it
                 // doesn't exist in the target, or scheduled changes that failed to copy).
@@ -4307,12 +4321,12 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                             projectName ?? 'the destination project'
                         }; the copy will apply once approved.`
                     )
-                    eventUsageLogic.actions.reportFeatureFlagCopyFailure(failure.error_message ?? 'Approval pending')
+                    reportFeatureFlagCopyFailure(failure.error_message ?? 'Approval pending')
                 } else {
                     const errorMessage =
                         failure?.error_message ?? stringifyWithBigInts(featureFlagCopy?.failed ?? featureFlagCopy)
                     lemonToast.error(`Error while copying feature flag: ${errorMessage}`)
-                    eventUsageLogic.actions.reportFeatureFlagCopyFailure(errorMessage)
+                    reportFeatureFlagCopyFailure(errorMessage)
                 }
             }
 
@@ -4363,7 +4377,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 actions.setCronExpression(null)
                 actions.setEndDate(null)
                 actions.loadScheduledChanges()
-                eventUsageLogic.actions.reportFeatureFlagScheduleSuccess()
+                reportFeatureFlagScheduleSuccess()
             }
         },
         setScheduledChangeOperation: ({ changeType }) => {
@@ -4411,7 +4425,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             }
         },
         createScheduledChangeFailure: ({ error }) => {
-            eventUsageLogic.actions.reportFeatureFlagScheduleFailure({ error })
+            posthog.capture('feature flag schedule failure', { error: { error } })
         },
         deleteScheduledChangeSuccess: ({ scheduledChange }) => {
             if (scheduledChange) {
@@ -4480,7 +4494,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     name,
                     ...values.rowVersionToken,
                 })
-                // The write bumped the row version; a page left on the old one has its next write refused as stale.
                 const persisted = { name: savedFlag.name, version: savedFlag.version }
                 actions.setFeatureFlag({ ...flag, ...persisted })
                 if (values.originalFeatureFlag) {
@@ -4488,7 +4501,12 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 }
                 actions.updateFlag({ ...flag, ...persisted })
                 lemonToast.success('Description saved')
-            } catch {
+            } catch (error: any) {
+                if (isStaleRowVersionRejection(values.configFormat, error)) {
+                    lemonToast.error(error?.detail || 'This flag changed elsewhere and has been reloaded.')
+                    actions.refreshFeatureFlag()
+                    return
+                }
                 lemonToast.error('Failed to save description')
             }
         },
@@ -4525,7 +4543,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 // — the newer call owns reconciliation.
                 breakpoint()
 
-                // Take the server's tags only if the *set* differs (e.g. server-side
+                // Reconcile with server only if the *set* of tags differs (e.g. server-side
                 // normalization added/removed a tag). Avoid blindly overwriting — the
                 // server may return tags in a different order which would re-shuffle chips.
                 const localSet = new Set(tags)
@@ -4533,7 +4551,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 const serverSet = new Set(serverTags)
                 const setsEqual = localSet.size === serverSet.size && tags.every((t) => serverSet.has(t))
                 // The write bumped the row version; a page left on the old one has its next write refused as stale.
-                // Folding the saved tags back also undoes a refresh that repainted older ones mid-request.
                 const persisted = { tags: setsEqual ? tags : serverTags, version: savedFlag.version }
                 actions.setFeatureFlag({ ...values.featureFlag, ...persisted })
                 if (values.originalFeatureFlag) {
@@ -4553,6 +4570,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 // The server explains rule failures such as a project that requires tags, so show
                 // its message rather than a generic one the user cannot act on.
                 lemonToast.error(error?.detail || 'Failed to save tags')
+                if (isStaleRowVersionRejection(values.configFormat, error)) {
+                    actions.refreshFeatureFlag()
+                }
             }
         },
         editFeatureFlag: async ({ editing }) => {

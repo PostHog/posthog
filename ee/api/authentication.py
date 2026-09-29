@@ -36,6 +36,12 @@ from posthog.cloud_utils import get_cached_instance_license
 from posthog.constants import AvailableFeature
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import EmailLookupHandler
+from posthog.helpers.sso import UNVERIFIED_SOCIAL_EMAIL_ERROR
+from posthog.models.activity_logging.utils import (
+    ACTIVITY_LOG_CREDENTIAL_ID_MAX_LENGTH,
+    ActivityCredential,
+    record_activity_actor,
+)
 from posthog.models.identity_provider_config import IdentityProviderConfig, has_verified_organization_domain_q
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
@@ -473,6 +479,10 @@ class CustomGoogleOAuth2(GoogleOAuth2):
         try:
             # Second try: Find and migrate legacy user using email as uid
             social_auth = UserSocialAuth.objects.get(provider="google-oauth2", uid=email)
+            # This lookup resolves the account by email address, so the email has to be verified,
+            # the same as for `associate_by_email`.
+            if response.get("email_verified") is not True:
+                raise AuthFailed(self, UNVERIFIED_SOCIAL_EMAIL_ERROR)
             # Migrate user from email to sub
             social_auth.uid = sub
             social_auth.save()
@@ -521,6 +531,12 @@ class VercelAuthentication(authentication.BaseAuthentication):
 
         try:
             payload = self._validate_jwt_token(token, auth_type)
+            record_activity_actor(
+                None,
+                ActivityCredential(
+                    type="vercel", id=str(payload.installation_id)[:ACTIVITY_LOG_CREDENTIAL_ID_MAX_LENGTH]
+                ),
+            )
             return VercelUser(claims=payload), None
         except jwt.InvalidTokenError as e:
             logger.warning("Vercel auth failed", auth_type=auth_type, error=str(e), integration="vercel")

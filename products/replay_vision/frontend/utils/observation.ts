@@ -41,6 +41,8 @@ export function readConfidence(obs: ReplayObservationApi): number | null {
 
 export type MonitorVerdict = 'yes' | 'no' | 'inconclusive'
 
+export const VERDICT_LABEL: Record<MonitorVerdict, string> = { yes: 'Yes', no: 'No', inconclusive: 'Inconclusive' }
+
 export function readVerdict(obs: ReplayObservationApi): MonitorVerdict | null {
     const raw = readModelOutput(obs)?.verdict
     return raw === 'yes' || raw === 'no' || raw === 'inconclusive' ? raw : null
