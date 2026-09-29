@@ -46,12 +46,8 @@ export class WebViewTransport implements Transport {
     if (this.closed) throw new Error("Transport closed");
     const webView = this.webViewRef.current;
     if (!webView) return;
-    const json = JSON.stringify(message);
-    // The escape pass below is the standard way to embed an already-JSON
-    // string inside another script payload — without it, a literal `</script>`
-    // sequence in the data could prematurely end the injected snippet.
-    const escaped = json.replace(/<\/script>/gi, "<\\/script>");
-    const snippet = `void (window.__mcpReceive && window.__mcpReceive(${escaped}));`;
+    const payload = JSON.stringify(JSON.stringify(message));
+    const snippet = `void (window.__mcpReceive && window.__mcpReceive(${payload}));`;
     webView.injectJavaScript(snippet);
   }
 

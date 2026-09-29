@@ -1,4 +1,4 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { useFonts } from "expo-font";
 import { Stack, useRouter, useSegments } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
@@ -7,7 +7,8 @@ import { useEffect } from "react";
 import { AppState } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
-import { useAuth } from "@/lib/auth";
+import { getAccountQueryClient } from "@/lib/accountLifecycle";
+import { sessionIdentity, useAuth } from "@/lib/auth";
 import { usePushNotifications } from "@/lib/notifications";
 import { usePrefs } from "@/lib/prefs";
 import { useRepo } from "@/lib/repo";
@@ -16,10 +17,6 @@ import { useSessions } from "@/lib/session";
 import { colors } from "@/lib/theme";
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
-
-const queryClient = new QueryClient({
-  defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false } },
-});
 
 function AuthGate() {
   const { session, hydrated, hydrate } = useAuth();
@@ -32,10 +29,14 @@ function AuthGate() {
   usePushNotifications();
   useEffect(() => {
     hydrate();
-    hydrateRepo();
     hydratePrefs();
+  }, [hydrate, hydratePrefs]);
+
+  useEffect(() => {
+    if (!useAuth.getState().session) return;
+    hydrateRepo();
     hydrateSeen();
-  }, [hydrate, hydrateRepo, hydratePrefs, hydrateSeen]);
+  }, [hydrateRepo, hydrateSeen]);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -49,6 +50,7 @@ function AuthGate() {
 }
 
 export default function RootLayout() {
+  const identity = useAuth(sessionIdentity);
   const [fontsLoaded, fontError] = useFonts({
     "JetBrainsMono-Regular": require("../../assets/fonts/JetBrainsMono-Regular.ttf"),
     "JetBrainsMono-Medium": require("../../assets/fonts/JetBrainsMono-Medium.ttf"),
@@ -74,7 +76,7 @@ export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1, backgroundColor: colors.bg }}>
       <KeyboardProvider>
-        <QueryClientProvider client={queryClient}>
+        <QueryClientProvider key={identity} client={getAccountQueryClient()}>
           <StatusBar style="auto" />
           <AuthGate />
           <Stack
