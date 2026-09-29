@@ -137,6 +137,7 @@ class AlertSnapshot:
     datapoints_to_alarm: int = 1
     # Breach flags of the most recent prior checks, newest first (excludes the current one).
     recent_events_breached: tuple[bool, ...] = ()
+    firing_started_at: datetime | None = None
 
 
 class StatefulSnapshot(Protocol):
@@ -205,6 +206,39 @@ def _muted(outcome: AlertCheckOutcome) -> AlertCheckOutcome:
         update_last_notified_at=False,
         muted_notification=outcome.notification,
     )
+
+
+def _snoozed_is_held_firing(policy: AlertPolicy) -> bool:
+    """Whether SNOOZED means a firing held rather than an alert at rest.
+
+    `clear_check_ends_snooze` parks a breached alert in SNOOZED, so the state names the mute and
+    the firing underneath it continues.
+    """
+    return policy.clear_check_ends_snooze
+
+
+def decide_firing_started_at(
+    snapshot: AlertSnapshot, outcome: Outcome, now: datetime, *, policy: AlertPolicy
+) -> datetime | None:
+    """When the firing an outcome leaves the alert in began, or None when it leaves it clear.
+
+    A check that leaves the state where it found it keeps the same firing, so an alert rides
+    through a failed or inconclusive check without starting a second one.
+
+    The rule lives here rather than in a product's persistence layer, because whether two states
+    belong to one firing is a policy question. Under `clear_check_ends_snooze` a breached alert
+    parks in SNOOZED and resumes firing afterwards, which is one firing rather than two, and a
+    caller reading only the two state strings cannot tell.
+    """
+    held = _snoozed_is_held_firing(policy)
+    if outcome.new_state == AlertState.SNOOZED:
+        return snapshot.firing_started_at if held else None
+    if outcome.new_state != AlertState.FIRING:
+        return None
+    continues = snapshot.state == AlertState.FIRING or (held and snapshot.state == AlertState.SNOOZED)
+    # A row that was already firing before this field existed has no start to continue, so the
+    # first check after that stamps one rather than leaving it null for the life of the firing.
+    return snapshot.firing_started_at or now if continues else now
 
 
 def evaluate_alert_check(

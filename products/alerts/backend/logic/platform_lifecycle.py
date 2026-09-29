@@ -113,6 +113,7 @@ def _check(c: PlatformAlertConfiguration, alert: PlatformAlert | None) -> Platfo
         state=alert.state if alert else PlatformAlert.State.NOT_FIRING.value,
         last_notified_at=alert.last_notified_at if alert else None,
         snooze_until=alert.snooze_until if alert else None,
+        firing_started_at=alert.firing_started_at if alert else None,
     )
 
 
@@ -124,19 +125,6 @@ def slot_of(next_check_at: datetime | None, cutoff: datetime) -> str:
     one. If the two ever disagreed, every alert would evaluate nothing, silently.
     """
     return (next_check_at or cutoff).replace(second=0, microsecond=0).isoformat()
-
-
-def _firing_started_at(alert: PlatformAlert, new_state: str, now: datetime) -> datetime | None:
-    """When the firing an outcome leaves the alert in began, or None when it leaves it clear.
-
-    An error keeps the state the check found, so an alert that rides through a failed check stays
-    inside the firing it was already in instead of starting a second one.
-    """
-    if new_state != PlatformAlert.State.FIRING:
-        return None
-    if alert.state == PlatformAlert.State.FIRING:
-        return alert.firing_started_at
-    return now
 
 
 def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now: datetime) -> int:
@@ -169,7 +157,7 @@ def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now:
         for configuration in configurations:
             outcome = by_id[str(configuration.id)]
             alert = alerts[str(configuration.id)]
-            alert.firing_started_at = _firing_started_at(alert, outcome.new_state, now)
+            alert.firing_started_at = outcome.firing_started_at
             alert.state = outcome.new_state
             if outcome.notified:
                 alert.last_notified_at = now

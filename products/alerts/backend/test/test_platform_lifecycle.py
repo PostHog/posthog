@@ -43,16 +43,12 @@ class TestPlatformAlertLifecycle(APIBaseTest):
         with team_scope(self.team.id):
             return PlatformAlert.objects.get(configuration=self.configuration)
 
-    def test_a_firing_keeps_its_start_across_checks_and_clears_when_it_ends(self) -> None:
-        self._record()
+    def test_the_firing_start_an_outcome_carries_reaches_the_alert_row(self) -> None:
+        # A field missing from the `bulk_update` list is never persisted and nothing else notices.
+        self._record(firing_started_at=self.cutoff)
         assert self._alert().firing_started_at == self.cutoff
 
-        # A later check that finds the alert still firing belongs to the same firing, so a
-        # delivery keyed on the start reaches the conversation the first one opened.
-        self._record(now=self.cutoff + timedelta(hours=1))
-        assert self._alert().firing_started_at == self.cutoff
-
-        self._record(new_state="not_firing", now=self.cutoff + timedelta(hours=2))
+        self._record(new_state="not_firing", firing_started_at=None, now=self.cutoff + timedelta(hours=1))
         assert self._alert().firing_started_at is None
 
     def test_a_disabling_outcome_stops_the_configuration_being_discovered(self) -> None:

@@ -11,6 +11,7 @@ from products.alerts.backend.facade.lifecycle import (
     AlertState,
     CheckInput,
     NotificationAction,
+    decide_firing_started_at,
     evaluate_alert_check,
 )
 
@@ -346,4 +347,50 @@ class TestPolicyDecisionTable:
             update_last_notified_at=False,
             error_message="query failed",
             disable=expected_disable,
+        )
+
+
+STARTED = NOW - timedelta(hours=2)
+
+
+def outcome(state: AlertState) -> AlertCheckOutcome:
+    return AlertCheckOutcome(
+        new_state=state,
+        notification=NotificationAction.NONE,
+        consecutive_failures=0,
+        update_last_notified_at=False,
+        error_message=None,
+    )
+
+
+class TestFiringStart:
+    @parameterized.expand(
+        [
+            ("first_fire", LOGS_ALERT_POLICY, AlertState.NOT_FIRING, None, AlertState.FIRING, NOW),
+            ("same_firing", LOGS_ALERT_POLICY, AlertState.FIRING, STARTED, AlertState.FIRING, STARTED),
+            ("resolved", LOGS_ALERT_POLICY, AlertState.FIRING, STARTED, AlertState.NOT_FIRING, None),
+            ("errored", LOGS_ALERT_POLICY, AlertState.FIRING, STARTED, AlertState.ERRORED, None),
+            # A row that was firing before the field existed has no start to carry forward.
+            ("firing_without_a_start", LOGS_ALERT_POLICY, AlertState.FIRING, None, AlertState.FIRING, NOW),
+            # clear_check_ends_snooze parks a breached alert in SNOOZED, so the firing continues
+            # underneath the mute and resumes as the same one.
+            ("parked", SNOOZE_UNTIL_CLEAR, AlertState.FIRING, STARTED, AlertState.SNOOZED, STARTED),
+            ("resumed", SNOOZE_UNTIL_CLEAR, AlertState.SNOOZED, STARTED, AlertState.FIRING, STARTED),
+            ("snoozed_at_rest", LOGS_ALERT_POLICY, AlertState.FIRING, STARTED, AlertState.SNOOZED, None),
+        ]
+    )
+    def test_when_a_firing_starts_and_ends(
+        self,
+        _name: str,
+        policy: AlertPolicy,
+        state: AlertState,
+        started_at: datetime | None,
+        new_state: AlertState,
+        expected: datetime | None,
+    ) -> None:
+        assert (
+            decide_firing_started_at(
+                snapshot(state=state, firing_started_at=started_at), outcome(new_state), NOW, policy=policy
+            )
+            == expected
         )

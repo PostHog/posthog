@@ -44,7 +44,9 @@ from products.alerts.backend.facade.lifecycle import (
     CheckInput,
     ControlPlaneOutcome,
     NotificationAction,
+    Outcome,
     apply_broken_config,
+    decide_firing_started_at,
     evaluate_alert_check,
 )
 from products.alerts.backend.facade.platform_alerts import due_checks
@@ -142,6 +144,7 @@ def _snapshot(check: PlatformAlertCheckInput, prior_breached: tuple[bool, ...]) 
         evaluation_periods=check.evaluation_periods,
         datapoints_to_alarm=check.datapoints_to_alarm,
         recent_events_breached=prior_breached,
+        firing_started_at=check.firing_started_at,
     )
 
 
@@ -216,24 +219,35 @@ def _verdict(
 
 
 def _recorded(
-    check: PlatformAlertCheckInput, *, new_state: str, notified: bool, consecutive_failures: int, disable: bool = False
+    check: PlatformAlertCheckInput,
+    *,
+    outcome: Outcome,
+    notified: bool,
+    now: datetime,
+    disable: bool = False,
 ) -> PlatformAlertOutcome:
+    """The one place a recorded outcome is built, so every path states the firing the same way."""
     return PlatformAlertOutcome(
         configuration_id=check.id,
-        new_state=new_state,
+        new_state=outcome.new_state.value,
         notified=notified,
-        consecutive_failures=consecutive_failures,
+        consecutive_failures=outcome.consecutive_failures,
+        firing_started_at=decide_firing_started_at(
+            _snapshot(check, ()), outcome, now, policy=PLATFORM_LOGS_ALERT_POLICY
+        ),
         disable=disable,
     )
 
 
-def _delivery(check: PlatformAlertCheckInput, outcome: AlertCheckOutcome, *, window_end: datetime) -> Decision:
+def _delivery(
+    check: PlatformAlertCheckInput, outcome: AlertCheckOutcome, *, window_end: datetime, now: datetime
+) -> Decision:
     """What the platform records for a verdict, and what delivery would announce for it."""
     recorded = _recorded(
         check,
-        new_state=outcome.new_state.value,
+        outcome=outcome,
         notified=outcome.update_last_notified_at,
-        consecutive_failures=outcome.consecutive_failures,
+        now=now,
         disable=outcome.disable,
     )
     if outcome.notification == NotificationAction.NONE:
@@ -296,12 +310,7 @@ def _failed(check: PlatformAlertCheckInput, error: Exception, *, now: datetime, 
 
 def _held(check: PlatformAlertCheckInput, outcome: ControlPlaneOutcome, *, skip: SkipReason, now: datetime) -> Decision:
     """A control-plane transition the check machine cannot express. The outcome advances the schedule."""
-    recorded = _recorded(
-        check,
-        new_state=outcome.new_state.value,
-        notified=False,
-        consecutive_failures=outcome.consecutive_failures,
-    )
+    recorded = _recorded(check, outcome=outcome, notified=False, now=now)
     _record_check_metrics(
         check, new_state=outcome.new_state.value, notification=NotificationAction.NONE, skip=skip, now=now
     )
@@ -342,7 +351,7 @@ def _evaluate_cohort(
         # batch would advance every other check's schedule and leave this one due with its failure
         # counter unmoved, never reaching the escalation that stops it.
         return [
-            _delivery(check, _failed(check, error, now=now, muted=check.id in muted_ids), window_end=date_to)
+            _delivery(check, _failed(check, error, now=now, muted=check.id in muted_ids), window_end=date_to, now=now)
             for check in checks
         ]
 
@@ -356,7 +365,7 @@ def _evaluate_cohort(
             outcome = _failed(check, error, now=now, muted=muted)
         # Outside the block above on purpose. Resolving a destination reads the database, and a
         # failure there is not this check's failure.
-        decided.append(_delivery(check, outcome, window_end=date_to))
+        decided.append(_delivery(check, outcome, window_end=date_to, now=now))
     return decided
 
 

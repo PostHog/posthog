@@ -109,6 +109,7 @@ class PlatformAlertCheckInput:
     state: str
     last_notified_at: datetime | None
     snooze_until: datetime | None
+    firing_started_at: datetime | None = None
 
     @property
     def filters(self) -> dict[str, Any]:
@@ -169,6 +170,7 @@ class PlatformAlertOutcome:
     new_state: str
     notified: bool
     consecutive_failures: int
+    firing_started_at: datetime | None = None
     # Recording an outcome without it leaves a configuration discovery keeps handing back to an
     # evaluation that cannot succeed.
     disable: bool = False
