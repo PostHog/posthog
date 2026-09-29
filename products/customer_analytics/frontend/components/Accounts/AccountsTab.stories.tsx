@@ -410,10 +410,21 @@ export const TagsEditorNarrow: Story = {
         }
         const header = within(table).getByRole('columnheader', { name: /Tags/ })
         const resizeHandle = within(header).getByRole('button', { name: 'Resize column' })
+        const resizeColumn = (delta: number): void => {
+            fireEvent.mouseDown(resizeHandle, { button: 0, clientX: 280 })
+            fireEvent.mouseMove(window, { clientX: 280 + delta })
+            fireEvent.mouseUp(window)
+        }
+        if (header.getBoundingClientRect().width < 200) {
+            resizeColumn(160)
+            await waitFor(() => {
+                if (header.getBoundingClientRect().width < 200) {
+                    throw new Error('The tags column must grow before the narrow-width check')
+                }
+            })
+        }
         const originalWidth = header.getBoundingClientRect().width
-        fireEvent.mouseDown(resizeHandle, { button: 0, clientX: 280 })
-        fireEvent.mouseMove(window, { clientX: 160 })
-        fireEvent.mouseUp(window)
+        resizeColumn(-120)
         await waitFor(() => {
             if (header.getBoundingClientRect().width >= originalWidth - 50) {
                 throw new Error('The tags column must be narrower after resizing')
