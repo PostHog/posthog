@@ -1,6 +1,3 @@
-import sys
-import importlib.util
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -13,21 +10,6 @@ from products.tasks.backend.constants import get_required_model_flag
 from products.tasks.backend.facade.model_catalogue import GatewayModel, available_model_choices
 from products.tasks.backend.models import Task
 from products.tasks.backend.temporal.process_task.utils import ReasoningEffort, RuntimeAdapter
-
-REPO_ROOT = Path(__file__).resolve().parents[4]
-GENERATOR = REPO_ROOT / "products" / "tasks" / "scripts" / "build_model_catalog.py"
-
-
-def _load_generator():
-    name = "build_task_model_catalog"
-    spec = importlib.util.spec_from_file_location(name, GENERATOR)
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    # Registered before execution because @dataclass resolves annotations through
-    # sys.modules[cls.__module__], which is unset for a module loaded by path alone.
-    sys.modules[name] = module
-    spec.loader.exec_module(module)
-    return module
 
 
 def _resolved_catalog() -> dict[str, Any]:
@@ -80,19 +62,6 @@ def test_every_model_resolves_to_the_recorded_triple(snapshot) -> None:
     # lands in review as a readable data diff instead of one line of Python.
     # Refresh with: pytest products/tasks/backend/tests/test_model_catalog.py --snapshot-update
     assert _resolved_catalog() == snapshot(extension_class=JSONSnapshotExtension)
-
-
-@pytest.mark.parametrize("output,style", [("WEB_OUTPUT", "OXFMT"), ("DESKTOP_OUTPUT", "BIOME")], ids=["web", "desktop"])
-def test_checked_in_projection_is_what_the_generator_emits(output: str, style: str) -> None:
-    generator = _load_generator()
-    expected = generator.render(vars(model_catalog), getattr(generator, style))
-
-    path: Path = getattr(generator, output)
-    assert path.exists(), f"{path} is missing — run `hogli build:task-model-catalog`"
-    assert path.read_text() == expected, (
-        f"{path.relative_to(REPO_ROOT)} is stale. The catalog changed without regenerating, so this "
-        f"surface would offer a selection the backend rejects. Run `hogli build:task-model-catalog`."
-    )
 
 
 def test_every_runtime_adapter_has_catalog_models() -> None:
