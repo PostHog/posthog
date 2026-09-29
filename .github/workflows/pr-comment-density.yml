@@ -5,6 +5,9 @@ name: PR comment density
 
 on:
     workflow_call:
+        secrets:
+            POSTHOG_DEVEX_PROJECT_API_TOKEN:
+                required: false
 
 permissions:
     contents: read
@@ -22,6 +25,7 @@ jobs:
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
+                  ref: ${{ github.event.pull_request.base.sha }}
                   sparse-checkout: |
                       .github/scripts/check_comment_density.py
                       .github/scripts/post-comment-density-section.mjs
@@ -45,6 +49,11 @@ jobs:
             - name: Measure comment share
               id: measure
               if: steps.diff.outputs.available == 'true'
+              env:
+                  POSTHOG_DEVEX_PROJECT_API_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+                  BASE_SHA: ${{ github.event.pull_request.base.sha }}
+                  HEAD_SHA: ${{ github.event.pull_request.head.sha }}
               run: python3 .github/scripts/check_comment_density.py < pr.diff
 
             - name: Post to the CI report
