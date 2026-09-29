@@ -395,6 +395,7 @@ class FunnelCorrelationActorsMixin(BaseParamMixin):
                 if isinstance(prop_params, Property):
                     _properties.append(prop_params)
                 else:
+                    error_type = None
                     try:
                         new_prop = Property(**prop_params)
                         _properties.append(new_prop)
@@ -414,17 +415,16 @@ class FunnelCorrelationActorsMixin(BaseParamMixin):
                         # it's disabled for this call.
                         error_type = type(e).__name__
                         property_field_count = len(prop_params) if isinstance(prop_params, dict) else 0
-                    # Outside the handler there is no active exception for the
-                    # telemetry logger to chain to the raw validation message.
-                    with posthoganalytics.new_context():
-                        posthoganalytics.set_capture_exception_code_variables_context(False)
-                        capture_exception(
-                            ValueError(f"Malformed correlation property ({error_type})"),
-                            additional_properties={
-                                "property_field_count": property_field_count,
-                            },
-                        )
-                    continue
+                    if error_type is not None:
+                        # Do not report while handling the raw validation error: it can
+                        # contain the property's value or key.
+                        with posthoganalytics.new_context():
+                            posthoganalytics.set_capture_exception_code_variables_context(False)
+                            capture_exception(
+                                ValueError(f"Malformed correlation property ({error_type})"),
+                                additional_properties={"property_field_count": property_field_count},
+                            )
+                        continue
             return _properties
         return None
 
