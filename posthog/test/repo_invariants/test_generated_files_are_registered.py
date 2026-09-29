@@ -1,9 +1,10 @@
+import json
 import subprocess
 from pathlib import Path
 
 import yaml
 from hogli_commands.change_detection import matches_globs
-from hogli_commands.projections import PROJECTIONS
+from hogli_commands.projections import OXFMT, PROJECTIONS, formatter_for
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
@@ -91,4 +92,19 @@ def test_every_output_reaches_the_drift_check() -> None:
     assert missing == [], (
         f"Projection outputs missing from the `python` paths filter in ci-python.yml: {missing}. "
         "Add them, so a hand-edit still runs `hogli build:projections --check`."
+    )
+
+
+def test_oxfmt_ignores_no_projection_output() -> None:
+    ignored = json.loads((REPO_ROOT / OXFMT.config).read_text())["ignorePatterns"]
+    skipped = [
+        output
+        for projection in PROJECTIONS
+        for output in projection.outputs
+        if formatter_for(output) == OXFMT and matches_globs(output, ignored)
+    ]
+
+    assert skipped == [], (
+        f"{OXFMT.config} ignores projection outputs: {skipped}. oxfmt returns an ignored file "
+        "unchanged, so the output would skip house style without an error. Remove the pattern."
     )

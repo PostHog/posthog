@@ -18,6 +18,7 @@ from posthog.models.team import Team
 
 from products.replay_vision.backend.fingerprint import config_fingerprint
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerOrigin, ScannerType
+from products.replay_vision.backend.prompt_questions import condense_prompt
 
 
 def inline_scan_key(*, scanner_type: str, scanner_config: dict[str, Any], model: str) -> str:
@@ -50,6 +51,7 @@ def create_inline_scanner(
     moment, and it wraps the losing INSERT in a savepoint so the unique violation doesn't poison an
     enclosing transaction.
     """
+    question = condense_prompt(team_id=team.id, scanner_type=scanner_type, scanner_config=scanner_config)
     scanner, _ = ReplayScanner.all_origins.get_or_create(
         team=team,
         origin=ScannerOrigin.INLINE,
@@ -64,6 +66,7 @@ def create_inline_scanner(
             "created_by": None,
             "scanner_type": scanner_type,
             "scanner_config": scanner_config,
+            **question.as_fields(),
             "model": model,
             # Nothing to sweep: no query, and disabled, which is what actually gates scheduling.
             "enabled": False,
