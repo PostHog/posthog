@@ -12290,6 +12290,10 @@ snapshots:
         hash: v1.k794b7964.7631c17826109d6ea1be6fe1d8ad4b0d3d61c8977cbdf28ffa5602ffc0edaf04.M-zasXuYAmbo-PJzRo2iv6VXeSrsaUW85wwFfU2k0Oo
     scenes-app-web-analytics--web-analytics-dashboard-loading--light:
         hash: v1.k794b7964.348c15c7348431008d2a1613528ca4568e43e58789788d04e9791e52e414240e.IqKTupL4PWq-BKsMSvreA_xZOFxYgpUu7NR88XeQYoQ
+    scenes-app-web-analytics--web-analytics-dashboard-narrow--dark:
+        hash: v1.k794b7964.250de949b30a7ac7a212be36168381e2cd4f45ed8d5451d636165cf505b101de.a1Z6u5uAtt7PKQgmzXDw3bjOHM06I0rZwBvMDFF2Uqc
+    scenes-app-web-analytics--web-analytics-dashboard-narrow--light:
+        hash: v1.k794b7964.9d31020061155395b85003dae42b77a09a84839c2b65e7a1bb6f7e764067e190.zLKSfk0tFj7IATJU0hiNbNGx2_DE5uVPPZZLQLQXqrM
     scenes-app-web-analytics--web-analytics-dashboard-tile-header-v-2-medium--dark:
         hash: v1.k794b7964.865308ee7b3cc95ae6a9d3f78ff061e02cf29610e6af98af8d9793fc027f083c.zzjFc2X6UxtQq1vmXHEkobuQiEGSMX5_Q5kpKagU7Zk
     scenes-app-web-analytics--web-analytics-dashboard-tile-header-v-2-medium--light:
@@ -12298,6 +12302,10 @@ snapshots:
         hash: v1.k794b7964.ef09b67b9d8cf134fa292b1d49156804eb007f718fe890bd169d0fe1d014b2f9.VJGrECMOd1vMwf1ENv4mz3knvaC1j0r9JBSlZww0R5s
     scenes-app-web-analytics--web-analytics-dashboard-tile-header-v-2-wide--light:
         hash: v1.k794b7964.6df48926e7ac9f971d7365bd1862ebf290fa7ed64076a69020e613b23a3a537a.UV8gAJzodjW2qNErfweaYYvFspAKRqSdcoizfF1Jxv0
+    scenes-app-web-analytics--web-analytics-empty-onboarding-narrow--dark:
+        hash: v1.k794b7964.605caa854b816f8f47b5ef23cebca23dd5f2b516af151a7df08c9337663b3964.nHXW-vmDopWvz5x29U-iyNWGv9qxfOx64AqB8sykTpo
+    scenes-app-web-analytics--web-analytics-empty-onboarding-narrow--light:
+        hash: v1.k794b7964.e02bb57e794fd9bdff9c2b133dcd76335607ddf44cd3f30dbffb8d8b24075ecc.f9auA0Uulz7G7aJKuTZ41Jg4ZpdijFnN0zA2boAnEn8
     scenes-app-web-analytics-achievements--daily-only-arm--dark:
         hash: v1.k794b7964.8f024a521e113d8101749768f8d4f49d8dcac1365f43d9b2038c6df0021bac6a.BYx467NAatau4dzb13PnZCTODi-yUho-Vhm_JdtCY9w
     scenes-app-web-analytics-achievements--daily-only-arm--light:
