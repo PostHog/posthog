@@ -59,13 +59,13 @@ The app cannot use permissions that your account or project does not have.
 
 ## Tasks and chat
 
-- **Recent Tasks** lists your cloud tasks in the selected project, across all spaces. Pull to refresh or return to the app to load changes.
+- **Tasks** lists your cloud tasks in the selected project, across all spaces, with the latest activity first. Pull to refresh or return to the app to load changes.
 - Use **Search** for task titles and descriptions, Self-driving report titles and summaries, or messages saved on this phone. Message search covers up to 20 opened conversations, not all server history. Select a result to open the matching message. Before you enter text, Search shows recent searches.
 - Model and reasoning selections apply to the next message. The app waits for the agent to accept them before it sends your message. If a change fails, the draft stays on the phone. A live Claude Code or Codex run can change models within its provider; use **Task options → Stop run** before changing providers. Pi runs can change providers.
 - Start a task from the main menu. Select a repository and model, then send your request.
 - New tasks use the server's Personal default. Mobile does not show space controls or labels.
 - Open an existing task to read it and send replies. Tasks from Desktop must use cloud runs and remain accessible to your account.
-- Use the Recent Tasks menu to filter by status or open Archived. The task menu can rename, archive, or restore a task. Archiving does not stop a running task.
+- Select **All**, **Running**, **Failed**, **Queued**, or **Done** above the list to filter by status. **All** includes tasks that have not started or were canceled. Select **Task list options → View archived** to open archived tasks. Status filters also work in this view; select **Back** to return. The task menu can rename, archive, or restore a task. Archiving does not stop a running task.
 - Select **+** to attach photos. You can send text, photos, or both. Remove a preview before sending to exclude that photo.
 - Select the microphone to dictate. Select Stop or wait for recognition to finish. Edit the resulting text, then select Send.
 - While the agent works, you can read earlier messages. Select **Latest message** to return to the end.
@@ -74,7 +74,7 @@ Photo attachments support JPEG, PNG, GIF, and WebP. iOS converts HEIC selections
 You can attach up to three photos, with a combined size below 5 MB. Text and photo drafts survive app restarts.
 Drafts are scoped to the account, project, and task. They expire after seven days without edits. Signing out removes drafts and cached conversations.
 When offline, you can read saved content and edit drafts. Send is disabled until the connection returns. Failed sends keep the draft; the app does not resend it automatically.
-If a request reached the server but its response was lost, check Recent Tasks or the conversation before sending again.
+If a request reached the server but its response was lost, check Tasks or the conversation before sending again.
 
 Dictation uses the device's speech recognition service with English (`en-US`).
 It requests microphone and speech recognition permission when you first use it.

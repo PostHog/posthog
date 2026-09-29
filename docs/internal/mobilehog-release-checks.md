@@ -34,7 +34,10 @@ Cloud sign-in lists only projects included in the OAuth grant.
 ## Tasks
 
 The drawer starts with the signed-in user's cloud tasks in the selected project, including tasks started from Desktop.
-The drawer shows one task list across all spaces, without space names or filters.
+The drawer shows one task list across all spaces, without space names or space filters.
+Tasks use system text, status symbols, and labeled timestamps.
+All excludes archived tasks and sorts by the latest activity, as do the Running, Failed, Queued, and Done filters.
+Task list options opens the archive view, where the same status filters apply.
 Task lists use the server's most recent activity order and support loading older pages.
 The search button opens a separate screen with its input above the keyboard.
 Search matches task titles, descriptions, and task numbers on the server, across all of the user's spaces in the selected project.
@@ -92,7 +95,7 @@ Before sharing a build:
 - Log out while token refresh or a task command is pending.
   The old session must not return, and the command must not start work under the new account.
 - Start a cloud task in Desktop, then sign in to the same account and project on mobile.
-  Confirm that Recent Tasks shows it alongside tasks from other spaces and excludes tasks by other users.
+  Confirm that Tasks shows it alongside tasks from other spaces and excludes tasks by other users.
   Open search with the sidebar button. Find a task from a different space and reply to it.
   Search for an older task by title, description text, and task number, then open a result.
   Confirm that the keyboard leaves the search field and results visible. Close search and confirm that the task list still spans all spaces.

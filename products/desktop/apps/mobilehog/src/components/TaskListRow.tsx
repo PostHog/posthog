@@ -1,8 +1,32 @@
 import { formatRelativeAge } from "@posthog/shared";
-import type { Task } from "@posthog/shared/domain-types";
+import type { Task, TaskRunStatus } from "@posthog/shared/domain-types";
 import { Pressable, StyleSheet, Text, View } from "react-native";
-import { Dot } from "@/components/Icons";
-import { colors, fonts } from "@/lib/theme";
+import { colors } from "@/lib/theme";
+
+const STATUS_LABELS: Record<TaskRunStatus, string> = {
+  not_started: "Not started",
+  queued: "Queued",
+  in_progress: "Running",
+  completed: "Done",
+  failed: "Failed",
+  cancelled: "Canceled",
+};
+
+function taskTime(task: Task): string {
+  const run = task.latest_run;
+  if (
+    run?.completed_at &&
+    ["completed", "failed", "cancelled"].includes(run.status)
+  ) {
+    const label = run.status === "completed" ? "Finished" : "Ended";
+    return `${label} ${formatRelativeAge(run.completed_at)}`;
+  }
+  if (run?.status === "queued")
+    return `Added ${formatRelativeAge(run.created_at)}`;
+  if (run?.status === "in_progress" && task.last_activity_at)
+    return `Active ${formatRelativeAge(task.last_activity_at)}`;
+  return `Updated ${formatRelativeAge(task.updated_at)}`;
+}
 
 export function TaskListRow({
   task,
@@ -13,33 +37,53 @@ export function TaskListRow({
   onPress: () => void;
   preview?: boolean;
 }) {
-  const status = task.latest_run?.status;
-  const live =
-    status === "queued" || status === "not_started" || status === "in_progress";
+  const status = task.latest_run?.status ?? "not_started";
   const failed = status === "failed";
+  const title =
+    task.title ||
+    task.description_preview ||
+    task.description ||
+    "Untitled task";
+  const time = taskTime(task);
+  const statusLabel = STATUS_LABELS[status];
+  const symbol =
+    status === "failed"
+      ? "!"
+      : status === "completed"
+        ? "✓"
+        : status === "cancelled"
+          ? "−"
+          : status === "queued"
+            ? "◷"
+            : "";
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={`${task.title || "Untitled task"}. ${status?.replaceAll("_", " ") ?? "Not started"}`}
+      accessibilityLabel={`${title}. ${statusLabel}. ${time}.`}
       onPress={onPress}
       style={({ pressed }) => [styles.row, pressed && { opacity: 0.5 }]}
     >
-      <View style={styles.dot}>
-        <Dot
-          color={failed ? colors.danger : live ? colors.accent : colors.inkMute}
-          hollow={!live && !failed}
-        />
+      <View
+        style={styles.status}
+        accessibilityElementsHidden
+        importantForAccessibility="no-hide-descendants"
+      >
+        {symbol ? (
+          <Text style={[styles.statusSymbol, failed && styles.failed]}>
+            {symbol}
+          </Text>
+        ) : (
+          <View
+            style={[styles.ring, status === "in_progress" && styles.running]}
+          />
+        )}
       </View>
       <View style={styles.body}>
         <Text style={styles.title} numberOfLines={2}>
-          {task.title ||
-            task.description_preview ||
-            task.description ||
-            "Untitled task"}
+          {title}
         </Text>
-        <Text style={styles.meta} numberOfLines={1}>
-          {status?.replaceAll("_", " ") ?? "Not started"} ·{" "}
-          {formatRelativeAge(task.last_activity_at || task.updated_at)}
+        <Text style={styles.meta}>
+          <Text style={failed && styles.failed}>{statusLabel}</Text> · {time}
         </Text>
         {preview && task.description_preview ? (
           <Text style={styles.preview} numberOfLines={2}>
@@ -54,21 +98,45 @@ export function TaskListRow({
 const styles = StyleSheet.create({
   row: {
     flexDirection: "row",
-    gap: 10,
-    paddingVertical: 10,
+    gap: 12,
+    minHeight: 64,
+    paddingVertical: 12,
     paddingHorizontal: 4,
   },
-  dot: { paddingTop: 6 },
-  body: { flex: 1, gap: 4 },
+  status: {
+    width: 16,
+    height: 21,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  ring: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    borderWidth: 1.5,
+    borderColor: colors.inkMute,
+  },
+  running: {
+    borderWidth: 2,
+    borderColor: colors.inkSoft,
+    borderRightColor: "transparent",
+  },
+  statusSymbol: {
+    fontSize: 16,
+    lineHeight: 21,
+    fontWeight: "600",
+    color: colors.inkSoft,
+  },
+  failed: { color: colors.dangerText, fontWeight: "600" },
+  body: { flex: 1, gap: 3 },
   title: {
-    fontFamily: fonts.sansMedium,
-    fontSize: 14,
-    lineHeight: 19,
+    fontWeight: "500",
+    fontSize: 15,
+    lineHeight: 21,
     color: colors.ink,
   },
-  meta: { fontFamily: fonts.sans, fontSize: 12, color: colors.inkMute },
+  meta: { fontSize: 12, lineHeight: 18, color: colors.inkSoft },
   preview: {
-    fontFamily: fonts.sans,
     fontSize: 14,
     lineHeight: 20,
     color: colors.inkSoft,

@@ -1,5 +1,5 @@
 import type { GatewayModel } from "@posthog/shared";
-import type { Task } from "@posthog/shared/domain-types";
+import type { Task, TaskRunStatus } from "@posthog/shared/domain-types";
 import {
   type InfiniteData,
   useInfiniteQuery,
@@ -26,20 +26,29 @@ export const keys = {
   repositories: ["repositories"] as const,
 };
 
-export function useTasks(search = "", enabled = true, filter = "recent") {
+export function useTasks(
+  search = "",
+  enabled = true,
+  status?: TaskRunStatus,
+  archived = false,
+) {
   const session = useAuth((s) => s.session);
   const query = useInfiniteQuery({
-    queryKey: [...keys.tasks, "list", session?.userId, search, filter],
+    // Keep existing keys stable so saved task lists remain available offline.
+    queryKey: [
+      ...keys.tasks,
+      "list",
+      session?.userId,
+      search,
+      archived ? "archived" : (status ?? "recent"),
+      ...(archived && status ? [status] : []),
+    ],
     initialPageParam: 0,
     queryFn: ({ pageParam }) =>
       getClient().getTasksPage({
         basic: true,
-        archived: filter === "archived" ? true : undefined,
-        status: ["in_progress", "failed", "completed", "queued"].includes(
-          filter,
-        )
-          ? filter
-          : undefined,
+        archived,
+        status,
         createdBy: session?.userId,
         search: search.trim() || undefined,
         ordering: "-last_activity_at",

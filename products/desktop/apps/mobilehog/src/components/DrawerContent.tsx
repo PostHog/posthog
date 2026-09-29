@@ -25,9 +25,15 @@ import { colors, fonts, radius } from "@/lib/theme";
 export function DrawerContent({ closeDrawer }: { closeDrawer: () => void }) {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const [filter, setFilter] = useState("recent");
-  const [showFilters, setShowFilters] = useState(false);
-  const tasks = useTasks("", true, filter);
+  const [filter, setFilter] = useState<keyof typeof TASK_FILTERS>("all");
+  const [archived, setArchived] = useState(false);
+  const [showOptions, setShowOptions] = useState(false);
+  const tasks = useTasks(
+    "",
+    true,
+    filter === "all" ? undefined : filter,
+    archived,
+  );
   const userName = useAuth((s) => s.session?.userName ?? "");
   const unread = useActivity().data?.unread_count ?? 0;
   const reports = useReports().data ?? [];
@@ -49,15 +55,13 @@ export function DrawerContent({ closeDrawer }: { closeDrawer: () => void }) {
 
   return (
     <View style={[styles.root, { paddingTop: insets.top + 18 }]}>
-      {showFilters ? (
+      {showOptions ? (
         <OptionsSheet
-          title="Filter tasks"
-          onClose={() => setShowFilters(false)}
-          options={Object.entries(TASK_FILTERS).map(([value, label]) => ({
-            label,
-            selected: filter === value,
-            onPress: () => setFilter(value),
-          }))}
+          title="Tasks"
+          onClose={() => setShowOptions(false)}
+          options={[
+            { label: "View archived", onPress: () => setArchived(true) },
+          ]}
         />
       ) : null}
       <DrawerEdgeShadow />
@@ -128,17 +132,56 @@ export function DrawerContent({ closeDrawer }: { closeDrawer: () => void }) {
             ) : null}
           </Pressable>
         </View>
-        <View style={styles.header}>
-          <Text style={styles.sectionTitle}>Recent Tasks</Text>
+        <View style={styles.taskHeader}>
+          <Text accessibilityRole="header" style={styles.sectionTitle}>
+            {archived ? "Archived tasks" : "Tasks"}
+          </Text>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Filter tasks"
-            style={styles.action}
-            onPress={() => setShowFilters(true)}
+            accessibilityLabel={
+              archived ? "Back to tasks" : "Task list options"
+            }
+            style={styles.listOptions}
+            onPress={() =>
+              archived ? setArchived(false) : setShowOptions(true)
+            }
           >
-            <Text style={styles.actionText}>{TASK_FILTERS[filter]} ⌄</Text>
+            <Text style={styles.listOptionsText}>
+              {archived ? "Back" : "⋯"}
+            </Text>
           </Pressable>
         </View>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.filters}
+        >
+          {(Object.keys(TASK_FILTERS) as Array<keyof typeof TASK_FILTERS>).map(
+            (value) => (
+              <Pressable
+                key={value}
+                accessibilityRole="button"
+                accessibilityLabel={`${TASK_FILTERS[value]} tasks`}
+                accessibilityState={{ selected: filter === value }}
+                onPress={() => setFilter(value)}
+                style={({ pressed }) => [
+                  styles.filter,
+                  filter === value && styles.filterSelected,
+                  pressed && { opacity: 0.5 },
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.filterText,
+                    filter === value && styles.filterTextSelected,
+                  ]}
+                >
+                  {TASK_FILTERS[value]}
+                </Text>
+              </Pressable>
+            ),
+          )}
+        </ScrollView>
         <ConnectionBanner />
         {tasks.isLoading ? (
           <Text style={styles.hint}>Loading tasks</Text>
@@ -168,7 +211,7 @@ export function DrawerContent({ closeDrawer }: { closeDrawer: () => void }) {
                 pathname: "/(drawer)/task/[id]",
                 params: {
                   id: task.id,
-                  archived: String(filter === "archived"),
+                  archived: String(archived),
                 },
               });
             }}
@@ -179,7 +222,11 @@ export function DrawerContent({ closeDrawer }: { closeDrawer: () => void }) {
             <Text style={styles.hint}>
               {tasks.hasNextPage
                 ? "No cloud tasks in this page. Load more to continue."
-                : "Your cloud tasks will appear here."}
+                : filter !== "all"
+                  ? "No tasks match this status. Select All to see other tasks."
+                  : archived
+                    ? "No archived tasks. Tasks you archive will appear here."
+                    : "No tasks yet. Start a new task below."}
             </Text>
           </View>
         ) : null}
@@ -226,14 +273,13 @@ export function DrawerContent({ closeDrawer }: { closeDrawer: () => void }) {
   );
 }
 
-const TASK_FILTERS: Record<string, string> = {
-  recent: "Recent",
-  in_progress: "Working",
-  queued: "Queued",
+const TASK_FILTERS = {
+  all: "All",
+  in_progress: "Running",
   failed: "Failed",
-  completed: "Completed",
-  archived: "Archived",
-};
+  queued: "Queued",
+  completed: "Done",
+} as const;
 
 const FOOTER_HEIGHT = 52;
 const styles = StyleSheet.create({
@@ -258,7 +304,7 @@ const styles = StyleSheet.create({
     marginLeft: 4,
   },
   scroll: { paddingBottom: 24 },
-  navigation: { gap: 10, marginBottom: 26 },
+  navigation: { gap: 4, marginBottom: 20 },
   navRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -268,8 +314,9 @@ const styles = StyleSheet.create({
   },
   navLabel: {
     flex: 1,
-    fontFamily: fonts.sansMedium,
-    fontSize: 17,
+    fontWeight: "500",
+    fontSize: 16,
+    lineHeight: 22,
     color: colors.ink,
   },
   badge: {
@@ -281,26 +328,62 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     paddingHorizontal: 6,
   },
-  badgeText: { fontFamily: fonts.sansSemi, fontSize: 12, color: "#FFFFFF" },
-  sectionTitle: {
-    fontFamily: fonts.sansSemi,
-    fontSize: 14,
-    color: colors.inkSoft,
-    marginLeft: 4,
-    marginBottom: 10,
+  badgeText: { fontWeight: "600", fontSize: 12, color: "#FFFFFF" },
+  taskHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingLeft: 4,
+    gap: 8,
   },
+  sectionTitle: {
+    flexShrink: 1,
+    fontWeight: "600",
+    fontSize: 16,
+    lineHeight: 22,
+    color: colors.ink,
+  },
+  listOptions: {
+    flexShrink: 0,
+    minWidth: 44,
+    minHeight: 44,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  listOptionsText: { fontSize: 16, fontWeight: "500", color: colors.inkSoft },
+  filters: {
+    gap: 4,
+    paddingVertical: 4,
+    paddingHorizontal: 4,
+    marginBottom: 4,
+  },
+  filter: {
+    minHeight: 44,
+    minWidth: 44,
+    paddingHorizontal: 8,
+    justifyContent: "center",
+    alignItems: "center",
+    borderRadius: 12,
+  },
+  filterSelected: { backgroundColor: colors.fill },
+  filterText: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "500",
+    color: colors.inkSoft,
+  },
+  filterTextSelected: { color: colors.ink, fontWeight: "600" },
   hint: {
-    fontFamily: fonts.sans,
-    fontSize: 14,
+    fontSize: 13,
     lineHeight: 20,
     color: colors.inkSoft,
   },
   notice: { paddingVertical: 16, paddingHorizontal: 4, gap: 6 },
   action: { paddingVertical: 12, paddingHorizontal: 4 },
   actionText: {
-    fontFamily: fonts.sansMedium,
+    fontWeight: "500",
     fontSize: 14,
-    color: colors.accent,
+    color: colors.ink,
   },
   footer: {
     position: "absolute",
@@ -340,6 +423,6 @@ const styles = StyleSheet.create({
   newTaskText: {
     color: colors.darkText,
     fontSize: 16,
-    fontFamily: fonts.sansSemi,
+    fontWeight: "600",
   },
 });

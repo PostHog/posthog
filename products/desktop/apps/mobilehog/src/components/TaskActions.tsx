@@ -106,7 +106,7 @@ export function TaskActions({
                 Alert.alert(
                   archived ? "Restore task?" : "Archive task?",
                   archived
-                    ? "This task will return to Recent Tasks."
+                    ? "This task will return to the task list."
                     : "This hides the task on mobile and Desktop. It does not stop a running task.",
                   [
                     { text: "Cancel", style: "cancel" },
