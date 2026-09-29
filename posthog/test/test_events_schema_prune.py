@@ -8,7 +8,6 @@ RECORDING: dict[str, RecordedTest] = {
     "a.py::TestSafe::test_two": SAFE,
     "a.py::TestMixed::test_reads": {"hits": {"call": 2}, "outcome": "passed", "seconds": 1.0},
     "a.py::TestMixed::test_slow": SAFE,
-    "a.py::TestMixed::test_fast": {"hits": {}, "outcome": "passed", "seconds": 0.01},
     "a.py::TestMixed::test_skipped": {"hits": {}, "outcome": "skipped", "seconds": 1.0},
     "a.py::TestMixed::test_xfail": {"hits": {}, "outcome": "xfail", "seconds": 1.0},
     "a.py::TestClassSetupReads::test_one": {"hits": {"setup:class": 1}, "outcome": "passed", "seconds": 1.0},
@@ -35,7 +34,7 @@ PRUNED = {
 
 
 def test_prunes_only_tests_the_recording_proved_independent() -> None:
-    manifest = build_manifest(RECORDING, DIGESTS.get, min_seconds=0.1)
+    manifest = build_manifest(RECORDING, DIGESTS.get)
 
     assert select_prunable(manifest, RECORDING, DIGESTS.get) == PRUNED
     with pytest.raises(ValueError):
@@ -55,7 +54,7 @@ def test_prunes_only_tests_the_recording_proved_independent() -> None:
 def test_runs_tests_the_recording_did_not_see(
     collected: list[str], digests: dict[str, str], expected: set[str]
 ) -> None:
-    manifest = build_manifest(RECORDING, DIGESTS.get, min_seconds=0.1)
+    manifest = build_manifest(RECORDING, DIGESTS.get)
 
     assert select_prunable(manifest, collected, digests.get) == expected
 
