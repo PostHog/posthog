@@ -5993,7 +5993,7 @@
         }
     },
     "feature-flag-get-all": {
-        "description": "Get feature flags in the current project. Supports list filters including search by feature flag key or name (case-insensitive), then use the returned ID for get/update/delete tools.",
+        "description": "Get feature flags in the current project. Supports list filters including search by feature flag key or name (case-insensitive), then use the returned ID for get/update/delete tools. `active` takes `true`, `false` or `STALE`. PostHog calls a flag stale when it is enabled and was last called over 30 days ago, or was never called, is over 30 days old and is rolled out to everyone. Stale flags are cleanup candidates, not proof that a flag is unused. Disabled flags are not checked for staleness, so `status: ACTIVE` on a disabled flag is expected. For the reason behind one flag's status, and its rollout summary, use `feature-flags-status-retrieve`.",
         "category": "Feature flags",
         "feature": "flags",
         "summary": "Get all feature flags",
@@ -6203,7 +6203,7 @@
         }
     },
     "feature-flags-status-retrieve": {
-        "description": "Check the health and evaluation status of a feature flag by ID. Returns a status (active, stale, deleted, or unknown) and a human-readable reason explaining the status. The status reflects recent evaluation (whether the flag was called), NOT rollout completeness. To determine whether a flag is fully rolled out / GA, use the returned `rollout` object: `effectively_full_rollout` (true when targeted to everyone with no conditions), `has_targeting_conditions`, `max_rollout_percentage`, and `is_multivariate`.",
+        "description": "Check the health and evaluation status of a feature flag by ID. Returns a status (active, stale, deleted, or unknown) and a human-readable reason explaining the status. The status reflects recent evaluation (whether the flag was called), NOT rollout completeness. To determine whether a flag is fully rolled out / GA, use the returned `rollout` object: `effectively_full_rollout` (true when targeted to everyone with no conditions), `has_targeting_conditions`, `max_rollout_percentage`, and `is_multivariate`. To find every stale flag in one call, use `feature-flag-get-all` with `active: \"STALE\"`.",
         "category": "Feature flags",
         "feature": "flags",
         "summary": "Get feature flag status",
