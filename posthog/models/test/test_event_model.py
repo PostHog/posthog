@@ -208,6 +208,42 @@ class TestSelectorRegexMatching(SimpleTestCase):
                 True,
             ),
             (
+                "two attributes with others between them, in any order",
+                '[type="button"][ng-click="continue()"]',
+                [
+                    Element(
+                        tag_name="button",
+                        attributes={
+                            "attr__type": "button",
+                            "attr__ng-disabled": "busy",
+                            "attr__ng-click": "continue()",
+                        },
+                    )
+                ],
+                True,
+            ),
+            (
+                "two attributes in single quotes after a tag",
+                "button[type='button'][data-x='a']",
+                [Element(tag_name="button", attributes={"attr__data-x": "a", "attr__type": "button"})],
+                True,
+            ),
+            (
+                "two attributes on different elements",
+                '[type="button"][ng-click="continue()"]',
+                [
+                    Element(tag_name="button", attributes={"attr__type": "button"}),
+                    Element(tag_name="div", attributes={"attr__ng-click": "continue()"}),
+                ],
+                False,
+            ),
+            (
+                "an attribute value with nested quotes and an equals sign",
+                "[ng-class=\"{'selected': data.raising_for=='myself'}\"]",
+                [Element(tag_name="div", attributes={"attr__ng-class": "{'selected': data.raising_for=='myself'}"})],
+                True,
+            ),
+            (
                 "attribute value mismatch",
                 'div[title="hi"]',
                 [Element(tag_name="div", attributes={"attr__title": "bye"})],

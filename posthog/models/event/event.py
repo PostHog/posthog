@@ -12,6 +12,7 @@ from dateutil.relativedelta import relativedelta
 from posthog.models.team import Team
 
 SELECTOR_ATTRIBUTE_REGEX = r"([a-zA-Z]*)\[(.*)=[\'|\"](.*)[\'|\"]\]"
+ATTRIBUTE_PAIR_REGEX = r"\[\s*([^\]\s=\"']+)\s*=\s*(['\"])((?:\\.|(?!\2).)*)\2\s*\]"
 
 
 LAST_UPDATED_TEAM_ACTION: dict[int, datetime.datetime] = {}
@@ -31,6 +32,13 @@ class SelectorPart:
         self.ch_attributes: dict[str, Union[str, list]] = {}  # attributes for CH
 
         result = re.search(SELECTOR_ATTRIBUTE_REGEX, tag)
+        pairs = self._attribute_pairs(tag, result)
+        self.confine_attributes = bool(pairs)
+        if result and pairs:
+            for key, value in pairs:
+                self.data[f"attributes__attr__{key}"] = value
+                self.ch_attributes[key] = value
+            tag = result[1]
         if result and "[id=" in tag:
             self.data["attr_id"] = result[3]
             self.ch_attributes["attr_id"] = result[3]
@@ -79,6 +87,17 @@ class SelectorPart:
                     where.append(f"{key} = %s")
             params.append(value)
         return {"where": where, "params": params}
+
+    @staticmethod
+    def _attribute_pairs(tag: str, result: Optional[re.Match[str]]) -> list[tuple[str, str]]:
+        # The greedy SELECTOR_ATTRIBUTE_REGEX folds [a="1"][b="2"], or a value with a nested
+        # quote, into one key that contains a quote. The chain escapes quotes inside keys and
+        # values, so that key can never match. Only those parts are parsed again, which means
+        # a selector that matches events today compiles exactly as before.
+        if not result or "[id=" in tag or not re.search(r"[\"']", result[2]):
+            return []
+        pairs = [(key, value) for key, _quote, value in re.findall(ATTRIBUTE_PAIR_REGEX, tag)]
+        return pairs if "[" not in re.sub(ATTRIBUTE_PAIR_REGEX, "", tag) else []
 
     def _unescape_class(self, class_name):
         r"""Separate all double slashes "\\" (replace them with "\") and remove all single slashes between them."""
