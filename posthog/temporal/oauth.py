@@ -245,7 +245,10 @@ SCOUT_USER_WRITE_SCOPES: list[str] = [
 #                          out as email, and an email that is sent cannot be recalled. Note edit
 #                          and delete reach only notes the caller wrote, and note delete is a
 #                          recoverable soft-delete. Ticket delete is not one of the scope's write
-#                          actions, so a scout cannot remove a ticket.
+#                          actions, so a scout cannot remove a ticket. Saved view delete is
+#                          PERMANENT: a view has no soft-delete, and every member's pin on it goes
+#                          with it. A view is only a name and a filter set, so it is cheap to
+#                          recreate.
 #
 # `annotation:write` and `alert:write` exceed the "recoverable, project-scoped" bar the other
 # scopes meet. They stay in the v1 set that #94263 puts to the team, because narrowing the set is
