@@ -59,6 +59,9 @@ export interface VariantColumn {
     isAvailable?: (variant: MultivariateFlagVariant) => boolean
 }
 
+const EQUAL_SPLIT_ADVICE =
+    'We recommend an equal split between variants. The less traffic a variant gets, the longer it takes to reach reliable results.'
+
 // Below this width (px) extra columns won't fit beside the key and split, so they move to a line under each variant
 const VARIANT_TABLE_BREAKPOINTS = { 0: 'stacked', 560: 'inline' } as const
 
@@ -302,6 +305,12 @@ export const VariantsPanelCreateFeatureFlag = ({
                                         <td>
                                             <div className="flex items-center gap-1">
                                                 <span>Split</span>
+                                                <Tooltip
+                                                    title={EQUAL_SPLIT_ADVICE}
+                                                    docLink="https://posthog.com/docs/experiments/traffic-allocation"
+                                                >
+                                                    <IconInfo className="text-secondary text-base" />
+                                                </Tooltip>
                                                 {!disabled && (
                                                     <>
                                                         <LemonButton
