@@ -1,5 +1,5 @@
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from datetime import UTC, date, datetime, timedelta
 from functools import partial
 from typing import Any, TypeVar
@@ -55,10 +55,16 @@ _COPIED_COLUMNS = "uuid, event, properties, timestamp, team_id, distinct_id, cre
 
 # A copied row's inserted_at is its timestamp, and the window ends no later than the start of
 # yesterday, so every row this query reads arrived through the Kafka path.
+# Rows from every Kafka partition reach every shard. The slowest partition therefore sets the
+# consumer's position. A partition that has delivered nothing for a day drops out of this query.
 _KAFKA_POSITION_QUERY = f"""
-SELECT count(), dateDiff('second', max(inserted_at), now64(6))
-FROM {FLAG_EVALUATIONS_DATA_TABLE}
-WHERE inserted_at >= now() - INTERVAL 1 DAY
+SELECT count(), max(lag_seconds)
+FROM (
+    SELECT _partition, dateDiff('second', max(inserted_at), now64(6)) AS lag_seconds
+    FROM {FLAG_EVALUATIONS_DATA_TABLE}
+    WHERE inserted_at >= now() - INTERVAL 1 DAY
+    GROUP BY _partition
+)
 """
 
 _STORAGE_POLICY_DISKS_QUERY = f"""
@@ -201,8 +207,8 @@ SELECT {"count()" if dry_run else _COPIED_COLUMNS}
 FROM {EVENTS_DATA_TABLE()}
 PREWHERE event = %(event)s
     AND timestamp >= %(day_start)s AND timestamp < %(day_end)s{team_filter}
-    AND uuid NOT IN (
-        SELECT uuid FROM {FLAG_EVALUATIONS_DATA_TABLE}
+    AND (team_id, uuid) NOT IN (
+        SELECT team_id, uuid FROM {FLAG_EVALUATIONS_DATA_TABLE}
         WHERE timestamp >= %(day_start)s AND timestamp < %(day_end)s{team_filter}
     )
 WHERE JSONType(properties, '$feature_flag') = 'String'
@@ -236,7 +242,7 @@ def get_backfill_shards(
     context: dagster.OpExecutionContext,
     cluster: dagster.ResourceParam[ClickhouseCluster],
     plan: BackfillPlan,
-):
+) -> Iterator[dagster.DynamicOutput[int]]:
     """Fan out one backfill op per shard.
 
     Takes the plan as input so the fan-out runs after it. The mapping key makes each shard
@@ -312,14 +318,18 @@ class ShardBackfill:
             time.sleep(self.config.parts_check_poll_frequency_seconds)
 
     def wait_for_blocking_runs(self) -> BlockingRunCheck:
-        while blockers := describe_runs(self.instance, BLOCKING_JOB_NAMES, exclude_run_id=self.run_id):
+        while True:
+            # The watermark comes before the scan. A run created during the scan then counts as created
+            # after it. Run storage can record a creation time to the whole second. The watermark
+            # therefore reaches one second back, and the post-copy check ignores runs that finished then.
+            since = datetime.now(UTC) - timedelta(seconds=1)
+            blockers = describe_runs(self.instance, BLOCKING_JOB_NAMES, exclude_run_id=self.run_id)
+            if not blockers:
+                break
             self.log.info(
                 f"Waiting {self.config.blocking_run_poll_seconds}s for these runs to finish: {'; '.join(blockers)}"
             )
             time.sleep(self.config.blocking_run_poll_seconds)
-        # Run storage can record a creation time to the whole second, so the check reaches one second
-        # back. The returned value lists the runs that finished inside that second. The check ignores them.
-        since = datetime.now(UTC) - timedelta(seconds=1)
         finished = describe_runs(
             self.instance,
             BLOCKING_JOB_NAMES,
@@ -377,15 +387,15 @@ class ShardBackfill:
             raise dagster.Failure(description=f"Stopping shard {self.shard_num}: " + "; ".join(problems))
 
     def check_consumer_lag(self) -> None:
-        kafka_rows, lag_seconds = self._on_copy_host(partial(self._first_row, _KAFKA_POSITION_QUERY))
-        if kafka_rows == 0:
+        kafka_partitions, lag_seconds = self._on_copy_host(partial(self._first_row, _KAFKA_POSITION_QUERY))
+        if kafka_partitions == 0:
             raise dagster.Failure(
                 description=f"Stopping shard {self.shard_num}: no row reached {FLAG_EVALUATIONS_DATA_TABLE} "
                 "through Kafka in the last day, so the consumer position is unknown."
             )
         if lag_seconds > self.config.max_consumer_lag_seconds:
             raise dagster.Failure(
-                description=f"Stopping shard {self.shard_num}: the Kafka path is {lag_seconds}s behind, "
+                description=f"Stopping shard {self.shard_num}: the slowest Kafka partition is {lag_seconds}s behind, "
                 f"over the limit of {self.config.max_consumer_lag_seconds}s. Copying now would insert rows "
                 "that Kafka then delivers a second time."
             )
@@ -473,7 +483,7 @@ def backfill_flag_evaluations_shard(
 
 
 @dagster.job(tags=OWNER_TAG)
-def flag_evaluations_backfill_job():
+def flag_evaluations_backfill_job() -> None:
     """Copy $feature_flag_called history from events into flag_evaluations, one op per shard.
 
     Safe to re-run over the same window: the anti-join inserts only rows that are missing.

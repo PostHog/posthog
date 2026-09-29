@@ -128,16 +128,21 @@ SOURCE_EVENTS = [
 # row stands in for that traffic, and its age sets the lag that the job reads.
 KAFKA_PATH_ROW = SourceEvent(label="kafka_path_row", team_id=TEAM_ONE, age=timedelta(0), properties={})
 
-# insert_flag_evaluations writes no properties, so the shard computes empty typed columns for this
-# row. A copied duplicate of the same uuid carries the source event's flag key instead.
-FORKED_ROW = StoredRow(
-    label=ALREADY_FORKED.label,
-    flag_key="",
-    response="",
-    session_id="",
-    person_id=uuid5(NAMESPACE_URL, ALREADY_FORKED.distinct_id),
-    inserted_at_is_timestamp=True,
-)
+SAME_UUID_OTHER_TEAM = replace(INSIDE_RECENT, team_id=TEAM_TWO)
+
+
+def forked(event: SourceEvent) -> StoredRow:
+    # insert_flag_evaluations writes no properties, so the shard computes empty typed columns for the
+    # row. A copied duplicate of the same uuid carries the source event's flag key instead.
+    return StoredRow(
+        label=event.label,
+        flag_key="",
+        response="",
+        session_id="",
+        person_id=uuid5(NAMESPACE_URL, event.distinct_id),
+        inserted_at_is_timestamp=True,
+    )
+
 
 DEFAULT_WINDOW_COPIES = (INSIDE_RECENT, INSIDE_TEAM_THREE, INSIDE_OLD)
 
@@ -244,6 +249,7 @@ def test_backfill_copies_each_eligible_row_in_the_window_exactly_once(
     now = datetime.now(UTC)
     seed_source_events(cluster, now, SOURCE_EVENTS)
     seed_flag_evaluation(cluster, now, ALREADY_FORKED)
+    seed_flag_evaluation(cluster, now, SAME_UUID_OTHER_TEAM)
     seed_flag_evaluation(cluster, now, KAFKA_PATH_ROW)
 
     results = [run_backfill(cluster, **config_for(now)) for _ in reported_rows]
@@ -252,7 +258,9 @@ def test_backfill_copies_each_eligible_row_in_the_window_exactly_once(
     assert [sum(result.output_for_node("backfill_flag_evaluations_shard").values()) for result in results] == (
         reported_rows
     )
-    assert stored_rows(cluster) == Counter([FORKED_ROW, *(copied(event) for event in expected_copies)])
+    assert stored_rows(cluster) == Counter(
+        [forked(ALREADY_FORKED), forked(SAME_UUID_OTHER_TEAM), *(copied(event) for event in expected_copies)]
+    )
 
 
 @pytest.mark.django_db
