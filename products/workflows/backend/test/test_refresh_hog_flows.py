@@ -5,9 +5,9 @@ from unittest.mock import patch
 
 from django.core.management import call_command
 
-from posthog.management.commands.refresh_hog_flows import remove_event_filters_from_conditionals
 from posthog.models import Team
 
+from products.workflows.backend.management.commands.refresh_hog_flows import remove_event_filters_from_conditionals
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 

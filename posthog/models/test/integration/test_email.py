@@ -292,7 +292,7 @@ class TestEmailIntegrationCrossTenantStaleVerification(BaseTest):
         self._set_global_ses_success(provider, "partner.com")
 
         email_b = EmailIntegration(integration_b)
-        with patch.object(type(email_b), "ses_provider", new=provider):
+        with patch("products.workflows.backend.providers.SESProvider", return_value=provider):
             result = email_b.verify()
 
         assert result["status"] == "pending"
