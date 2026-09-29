@@ -109,7 +109,7 @@ export function AutoresearchScene(): JSX.Element {
                                         disabledReason={mutating ? 'Another change is still saving' : undefined}
                                         onClick={() => pausePipeline(record)}
                                     >
-                                        Pause daily scoring
+                                        Pause scheduled scoring
                                     </LemonButton>
                                 )}
                                 {canResume && (
@@ -120,7 +120,7 @@ export function AutoresearchScene(): JSX.Element {
                                         disabledReason={mutating ? 'Another change is still saving' : undefined}
                                         onClick={() => resumePipeline(record)}
                                     >
-                                        Resume daily scoring
+                                        Resume scheduled scoring
                                     </LemonButton>
                                 )}
                                 <LemonButton
@@ -139,7 +139,7 @@ export function AutoresearchScene(): JSX.Element {
                                         LemonDialog.open({
                                             title: `Delete "${record.name}"?`,
                                             description:
-                                                'The model, its training runs, and prediction metadata will be removed. Emitted autoresearch_prediction events stay in the events stream.',
+                                                'The model, its training runs, and prediction metadata will be removed. Emitted autoresearch_prediction events stay in the events stream, and the prediction person property stays on each scored person.',
                                             primaryButton: {
                                                 children: 'Delete',
                                                 status: 'danger',

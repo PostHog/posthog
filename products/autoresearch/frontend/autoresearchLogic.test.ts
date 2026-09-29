@@ -120,13 +120,18 @@ describe('autoresearchLogic', () => {
         expect(apiCall).toHaveBeenCalledTimes(1)
     })
 
-    it('does not load the list with the flag off', async () => {
+    it('waits for the flag before it loads the list', async () => {
+        mockList.mockResolvedValue({ results: [], next: null })
         featureFlagLogic.actions.setFeatureFlags([], {})
         router.actions.push(urls.autoresearch())
         const logic = autoresearchLogic()
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
         expect(mockList).not.toHaveBeenCalled()
+
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.AUTORESEARCH], { [FEATURE_FLAGS.AUTORESEARCH]: true })
+        await expectLogic(logic).toFinishAllListeners()
+        expect(mockList).toHaveBeenCalledTimes(1)
     })
 
     it('updates a row as soon as its pause succeeds', async () => {
