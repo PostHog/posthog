@@ -7621,6 +7621,8 @@ class TestSurveyFlagWritesUnderApprovalPolicies(APIBaseTest):
     def test_create_writes_its_internal_flag_through_the_rollout_gate(self) -> None:
         self._create_policy("feature_flag.update")
 
+        surveys_before = Survey.objects.filter(team=self.team).count()
+
         response = self.client.post(
             f"/api/projects/{self.team.id}/surveys/",
             data={"name": "Gated survey", "type": "popover", "questions": [{"type": "open", "question": "Q?"}]},
@@ -7628,6 +7630,8 @@ class TestSurveyFlagWritesUnderApprovalPolicies(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_409_CONFLICT, response.json()
+        # The internal flag is written after the survey row, so a rejected gate must take the row with it.
+        assert Survey.objects.filter(team=self.team).count() == surveys_before
         assert response.json()["status"] == "approval_required"
         change_request = ChangeRequest.objects.get(team=self.team, action_key="feature_flag.update")
         assert response.json()["change_request_id"] == str(change_request.id)
@@ -7649,25 +7653,6 @@ class TestSurveyFlagWritesUnderApprovalPolicies(APIBaseTest):
         assert self.survey.targeting_flag.filters == filters_before
         change_request = ChangeRequest.objects.get(team=self.team, action_key="feature_flag.update")
         assert response.json()["change_request_id"] == str(change_request.id)
-
-    def test_a_rejected_create_leaves_no_survey_behind(self) -> None:
-        self._create_policy("feature_flag.update")
-        surveys_before = Survey.objects.filter(team=self.team).count()
-
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/surveys/",
-            data={
-                "name": "Gated on create",
-                "type": "popover",
-                "questions": [{"type": "open", "question": "Q?"}],
-                "targeting_flag_filters": {"groups": [{"properties": [], "rollout_percentage": 100}]},
-            },
-            format="json",
-        )
-
-        assert response.status_code == status.HTTP_409_CONFLICT, response.json()
-        assert Survey.objects.filter(team=self.team).count() == surveys_before
-        assert ChangeRequest.objects.filter(team=self.team, action_key="feature_flag.update").exists()
 
     def test_a_rejected_replacement_keeps_the_existing_targeting_flag(self) -> None:
         self._create_policy("feature_flag.update")
