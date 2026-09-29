@@ -23,6 +23,7 @@ import psycopg
 import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.parquet as pq
+from botocore.exceptions import ClientError
 from structlog.types import FilteringBoundLogger
 
 from posthog.dataclasses import frozen
@@ -715,23 +716,36 @@ class CDCSourceManager:
             return False
         return modified < proof.listed_at - _CONSUMED_MTIME_MARGIN
 
-    async def _still_as_listed(self, s3: Any, file: _BufferFile) -> bool:
-        """Whether a consumed file still holds the bytes the listing saw, checked right before its delete.
+    async def _delete_unless_replaced(self, s3: Any, file: _BufferFile) -> bool:
+        """Delete a consumed file unless capture replaced it after the listing. Returns whether it went.
 
         Below the floor any content is settled, because a capture retry only re-emits changes every lane
         already holds. At the floor the proof covers the listed bytes, and a retry can replace them with
-        unread rows of the same transaction while this run reads earlier files. The HEAD leaves only the
-        gap between it and the delete, which a delete conditioned on the ETag would close.
+        unread rows of the same transaction while this run reads earlier files. So the delete is
+        conditioned on the listed ETag, and a file that no longer matches is kept and read.
+        A listing without an ETag falls back to the modification time, checked right before the delete.
         """
         if self._deletion_floor is None or file.span.end_seq < self._deletion_floor:
+            await s3._rm(file.key)
             return True
+        if file.etag is None:
+            try:
+                info = await s3._info(file.key, refresh=True)
+            except FileNotFoundError:
+                return False
+            if file.modified is None or info.get("LastModified") != file.modified:
+                return False
+        bucket, key, _ = s3.split_path(file.key)
+        condition = {} if file.etag is None else {"IfMatch": f'"{file.etag}"'}
+        s3.invalidate_cache(file.key)
+        client = await s3.get_s3(bucket)
         try:
-            info = await s3._info(file.key, refresh=True)
-        except FileNotFoundError:
-            return False
-        etag = info.get("ETag")
-        current = etag.strip('"') if isinstance(etag, str) and etag else None
-        return current is not None and current == file.etag
+            await client.delete_object(Bucket=bucket, Key=key, **condition)
+        except ClientError as error:
+            if error.response.get("Error", {}).get("Code") in ("PreconditionFailed", "NoSuchKey"):
+                return False
+            raise
+        return True
 
     async def stamp_listing(self, listed_at: dt.datetime, tail: Mapping[str, str]) -> None:
         """Record on this run's own job that it listed the buffer, before any file is read.
@@ -823,8 +837,7 @@ class CDCSourceManager:
         async with aget_s3_client() as s3:
             for file in files:
                 # The only place a buffer file is deleted — see `_is_consumed` for the proof.
-                if self._is_consumed(file) and await self._still_as_listed(s3, file):
-                    await s3._rm(file.key)
+                if self._is_consumed(file) and await self._delete_unless_replaced(s3, file):
                     continue
 
                 try:
