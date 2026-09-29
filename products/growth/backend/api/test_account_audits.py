@@ -5,16 +5,13 @@ import base64
 import hashlib
 from contextlib import contextmanager
 from datetime import timedelta
-from io import StringIO
 from types import SimpleNamespace
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
-from django.core.management import call_command
-from django.core.management.base import CommandError
 from django.db import IntegrityError, transaction
 from django.db.models.deletion import ProtectedError
 from django.test import override_settings
@@ -427,57 +424,3 @@ class TestAccountAuditStartAPI(APIBaseTest):
         with self.assertRaises(ProtectedError):
             credential.delete()
         self.assertTrue(AccountAuditAdmission.objects.unscoped().filter(pk=admission.pk).exists())
-
-
-@override_settings(GROWTH_ENRICHMENT_INTERNAL_TEAM_ID=2)
-class TestProvisionAccountAuditCredential(APIBaseTest):
-    def setUp(self) -> None:
-        super().setUp()
-        self.user.is_staff = True
-        self.user.save(update_fields=["is_staff"])
-        self.workflow_id = uuid4()
-        self.active_workflow = patch(
-            "products.growth.backend.management.commands.provision_account_audit_credential.is_workflow_staff_controlled",
-            return_value=True,
-        )
-        self.active_workflow.start()
-        self.addCleanup(self.active_workflow.stop)
-
-    def _command(self, *, rotate_key_id: UUID) -> None:
-        call_command(
-            "provision_account_audit_credential",
-            "--owner-id",
-            str(self.user.id),
-            "--workflow-id",
-            str(self.workflow_id),
-            "--rotate-key-id",
-            str(rotate_key_id),
-            stdout=StringIO(),
-        )
-
-    def test_rejects_rotating_a_credential_owned_by_another_user(self) -> None:
-        other_user = User.objects.create_user(email="other-owner@example.com", password=None, first_name="Other")
-        credential = AccountAuditCredential.objects.create(
-            owner=other_user,
-            workflow_id=self.workflow_id,
-            signing_secret="whsec_" + base64.b64encode(b"b" * 32).decode(),
-        )
-
-        with self.assertRaises(CommandError):
-            self._command(rotate_key_id=credential.public_key_id)
-
-        credential.refresh_from_db()
-        self.assertTrue(credential.is_active)
-
-    def test_rejects_rotating_a_credential_for_another_workflow(self) -> None:
-        credential = AccountAuditCredential.objects.create(
-            owner=self.user,
-            workflow_id=uuid4(),
-            signing_secret="whsec_" + base64.b64encode(b"b" * 32).decode(),
-        )
-
-        with self.assertRaises(CommandError):
-            self._command(rotate_key_id=credential.public_key_id)
-
-        credential.refresh_from_db()
-        self.assertTrue(credential.is_active)

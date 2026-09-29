@@ -1,14 +1,18 @@
+import base64
+import secrets
 from copy import deepcopy
 from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import urlencode
 
 from django import forms
+from django.conf import settings
 from django.contrib import admin, messages
 from django.core.exceptions import ValidationError
 from django.db.models import QuerySet
 from django.db.models.fields import BLANK_CHOICE_DASH
-from django.http import HttpRequest, HttpResponseRedirect
+from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
+from django.template.response import TemplateResponse
 from django.urls import reverse
 from django.utils.html import format_html
 from django.utils.safestring import SafeString
@@ -22,6 +26,7 @@ from posthog.schema_enums import ProductKey
 from products.growth.backend.enrichment.labels import MAX_INPUT_COLUMNS, RESERVED_OUTPUT_FIELD_KEYS, UNKNOWN
 from products.growth.backend.enrichment.scoring_rules import parse_scoring_rules
 from products.growth.backend.models import (
+    AccountAuditCredential,
     EnrichmentLabelResult,
     EnrichmentPromptConfig,
     IcpScoringConfig,
@@ -29,6 +34,78 @@ from products.growth.backend.models import (
 )
 from products.growth.backend.product_push.selection import select_next_product
 from products.growth.backend.product_push.service import cancel_campaigns, get_eligible_organization_queryset
+from products.workflows.backend.facade.api import is_workflow_staff_controlled
+
+
+class AccountAuditCredentialForm(forms.ModelForm):
+    class Meta:
+        model = AccountAuditCredential
+        fields = ("owner", "workflow_id", "is_active")
+        help_texts = {
+            "workflow_id": "An active Workflow in the Growth project, owned by this staff user, with no non-staff editors.",
+            "is_active": "To rotate, add a credential and configure the Workflow with it, then disable the old credential.",
+        }
+
+    def clean(self) -> dict[str, Any]:
+        cleaned = super().clean() or {}
+        owner = cleaned.get("owner", self.instance.owner)
+        workflow_id = cleaned.get("workflow_id", self.instance.workflow_id)
+        if (not self.instance.pk or cleaned.get("is_active")) and (
+            not owner
+            or not workflow_id
+            or not is_workflow_staff_controlled(
+                team_id=settings.GROWTH_ENRICHMENT_INTERNAL_TEAM_ID, workflow_id=workflow_id, owner_id=owner.id
+            )
+        ):
+            raise ValidationError("Choose an active Workflow owned by an active staff user, with no non-staff editors.")
+        return cleaned
+
+
+@admin.register(AccountAuditCredential)
+class AccountAuditCredentialAdmin(admin.ModelAdmin):
+    form = AccountAuditCredentialForm
+    raw_id_fields = ("owner",)
+    list_display = ("public_key_id", "owner", "workflow_id", "is_active", "created_at")
+    list_filter = ("is_active",)
+    list_select_related = ("owner",)
+    search_fields = ("public_key_id", "workflow_id", "owner__email")
+    actions = None
+
+    def get_fields(self, request: HttpRequest, obj: AccountAuditCredential | None = None) -> tuple[str, ...]:
+        if obj is None:
+            return ("owner", "workflow_id", "is_active")
+        return ("public_key_id", "owner", "workflow_id", "is_active", "created_at")
+
+    def get_readonly_fields(self, request: HttpRequest, obj: AccountAuditCredential | None = None) -> tuple[str, ...]:
+        return ("public_key_id", "owner", "workflow_id", "created_at") if obj else ()
+
+    def has_delete_permission(self, request: HttpRequest, obj: AccountAuditCredential | None = None) -> bool:
+        return False
+
+    def save_model(
+        self, request: HttpRequest, obj: AccountAuditCredential, form: forms.ModelForm, change: bool
+    ) -> None:
+        if not change:
+            obj.signing_secret = f"whsec_{base64.b64encode(secrets.token_bytes(32)).decode()}"
+        super().save_model(request, obj, form, change)
+
+    def response_add(
+        self, request: HttpRequest, obj: AccountAuditCredential, post_url_continue: str | None = None
+    ) -> HttpResponse:
+        return TemplateResponse(
+            request,
+            "admin/growth/account_audit_credential_created.html",
+            {
+                **self.admin_site.each_context(request),
+                "title": "Account audit credential created",
+                "opts": self.model._meta,
+                "key_id": obj.public_key_id,
+                "signing_secret": obj.signing_secret,
+                "credential_url": reverse("admin:growth_accountauditcredential_change", args=[obj.pk]),
+                "workflow_url": f"/project/{settings.GROWTH_ENRICHMENT_INTERNAL_TEAM_ID}/workflows/{obj.workflow_id}/workflow",
+            },
+        )
+
 
 # The classifier's only valid output types (enrichment/labels.py's _OUTPUT_FIELD_COERCERS).
 ALLOWED_OUTPUT_FIELD_TYPES = frozenset({"boolean", "number", "string"})
