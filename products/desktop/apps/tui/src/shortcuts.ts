@@ -1,6 +1,11 @@
 import type { Key } from "ink";
 
-export type Shortcut = "splitRight" | "splitDown" | "close" | "newChat";
+export type Shortcut =
+  | "splitRight"
+  | "splitDown"
+  | "close"
+  | "newChat"
+  | "quit";
 
 export function shortcutFor(input: string, key: Key): Shortcut | null {
   const letter = input.toLowerCase();
@@ -11,6 +16,7 @@ export function shortcutFor(input: string, key: Key): Shortcut | null {
   if (input === "\x1c" || (key.ctrl && input === "\\")) return "splitDown";
   if (key.ctrl && (letter === "c" || letter === "d")) return "close";
   if (key.ctrl && letter === "n") return "newChat";
+  if (key.ctrl && letter === "q") return "quit";
   return null;
 }
 

@@ -31,6 +31,8 @@ describe("shortcutFor", () => {
     ["kitty Ctrl+C", "\x1b[99;5u", "close"],
     ["legacy Ctrl+D", "\x04", "close"],
     ["legacy Ctrl+N", "\x0e", "newChat"],
+    ["legacy Ctrl+Q", "\x11", "quit"],
+    ["kitty Ctrl+Q", "\x1b[113;5u", "quit"],
     ["kitty Ctrl+N", "\x1b[110;5u", "newChat"],
     ["plain s", "s", null],
     ["Tab", "\t", null],
