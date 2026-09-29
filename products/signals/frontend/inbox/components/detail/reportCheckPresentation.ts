@@ -2,7 +2,10 @@ import type { LemonTagType } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 
-import type { SignalReportCheckApi } from 'products/signals/frontend/generated/api.schemas'
+import type {
+    SignalReportCheckApi,
+    SignalReportCheckInconclusiveReasonEnumApi,
+} from 'products/signals/frontend/generated/api.schemas'
 
 import { SignalReportArtefact } from '../../types'
 import { prettifyScoutSkillName } from '../../utils/scoutRunsWindow'
@@ -29,6 +32,21 @@ export interface ReportCheckRowData {
     cancelled: boolean
     /** Open checks can still be stopped; terminal ones cannot. */
     cancellable: boolean
+}
+
+/** Mirrors `SignalReportCheck.InconclusiveReason`: why a run could not settle the claim, in plain words. */
+const CHECK_INCONCLUSIVE_REASONS: Record<SignalReportCheckInconclusiveReasonEnumApi, string> = {
+    awaiting_data: 'Not enough data yet',
+    unmeasurable: "The data it needs isn't captured",
+    needs_manual_verification: 'Needs a person to verify',
+    no_fix_to_measure: 'No fix to measure against',
+}
+
+export function inconclusiveReasonLabel(reason: string | null | undefined): string {
+    return (
+        CHECK_INCONCLUSIVE_REASONS[reason as SignalReportCheckInconclusiveReasonEnumApi] ??
+        'The evidence could not settle it'
+    )
 }
 
 /** A soak window in the words the copy needs: "7 days", "36 hours", "90 minutes". */
@@ -103,7 +121,13 @@ function openCheckRow(check: SignalReportCheckApi): Pick<ReportCheckRowData, 'ta
         }
     }
 
-    const work = lane ? `${lane} re-probes the claim` : 'Measures the metric again'
+    // An `awaiting_data` verdict keeps the check open, so the row says why it looks again.
+    const work =
+        check.last_outcome === 'inconclusive'
+            ? `${inconclusiveReasonLabel(check.last_outcome_reason)}, looks again`
+            : lane
+              ? `${lane} re-probes the claim`
+              : 'Measures the metric again'
     const runs = check.runs_remaining > 1 ? `${check.runs_remaining} runs left` : '1 run'
     return {
         tag: { label: `Runs ${shortDate(check.next_run_at)}`, type: 'primary' },
@@ -126,6 +150,11 @@ function terminalCheckRow(
             return {
                 tag: { label: "Couldn't measure", type: 'warning' },
                 detail: joinDetail([`Gave up after ${check.consecutive_errors} tries`, ranOn, explanation]),
+            }
+        case 'inconclusive':
+            return {
+                tag: { label: 'Inconclusive', type: 'info' },
+                detail: joinDetail([inconclusiveReasonLabel(check.last_outcome_reason), ranOn, explanation]),
             }
         case 'cancelled':
             return { tag: { label: 'Cancelled', type: 'muted' }, detail: `Stopped ${shortDate(check.updated_at)}` }
