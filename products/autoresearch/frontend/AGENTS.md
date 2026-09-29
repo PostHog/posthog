@@ -37,6 +37,7 @@ Follow `frontend/src/AGENTS.md` — it applies to product frontends too.
 - TypeScript with explicit return types; Tailwind utilities rather than inline styles.
 - Reuse Lemon / quill components instead of hand-rolling tables, badges, or tags.
 - Any button that fires a request must guard against double-submission — `loading` / `disabledReason` on `LemonButton`, reset on both success and error paths. The lifecycle actions here (train, score, archive, pause, resume) are all network calls, and several are expensive: firing `train` twice starts two sandbox agent runs and spends the budget twice.
+- Usage events are part of the API: renaming one breaks every insight built on it. The list logic captures `autoresearch model list viewed`, `autoresearch model list load failed`, `autoresearch model deleted` / `paused` / `resumed`, and `autoresearch model action failed` (with `action`); buttons carry a `data-attr` for autocapture. Extend the same names when you add a scene.
 
 ## Copy
 

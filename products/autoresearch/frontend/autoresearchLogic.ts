@@ -1,6 +1,7 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import { urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { productSetupStatusLogic } from 'lib/components/ProductEmptyState/productSetupStatusLogic'
 import type { ProductSetupStatus } from 'lib/components/ProductEmptyState/types'
@@ -140,6 +141,7 @@ export const autoresearchLogic = kea<autoresearchLogicType>([
             actions.setDetectedStatus(pipelines.length > 0 ? 'has-data' : 'needs-setup')
         },
         loadPipelinesFailure: () => {
+            posthog.capture('autoresearch model list load failed')
             // Never strand the gate on its spinner: with no earlier answer, fail open
             // to the real scene. Don't downgrade an existing answer on a reload blip.
             if (values.setupStatus === 'loading') {
@@ -153,9 +155,11 @@ export const autoresearchLogic = kea<autoresearchLogicType>([
             actions.setPipelineMutating(id, true)
             try {
                 await autoresearchDestroy(String(values.currentTeamId), id)
+                posthog.capture('autoresearch model deleted', { pipeline_id: id })
                 lemonToast.success(`Deleted "${name}"`)
                 actions.loadPipelines()
             } catch (error: any) {
+                posthog.capture('autoresearch model action failed', { action: 'delete', pipeline_id: id })
                 lemonToast.error(error?.detail ?? error?.data?.detail ?? 'Failed to delete the model')
             } finally {
                 actions.setPipelineMutating(id, false)
@@ -168,9 +172,11 @@ export const autoresearchLogic = kea<autoresearchLogicType>([
             actions.setPipelineMutating(pipeline.id, true)
             try {
                 await autoresearchPauseCreate(String(values.currentTeamId), pipeline.id)
+                posthog.capture('autoresearch model paused', { pipeline_id: pipeline.id })
                 lemonToast.success(`Paused "${pipeline.name}". Daily scoring is on hold.`)
                 actions.loadPipelines()
             } catch (error: any) {
+                posthog.capture('autoresearch model action failed', { action: 'pause', pipeline_id: pipeline.id })
                 lemonToast.error(error?.detail ?? error?.data?.detail ?? 'Failed to pause the model')
             } finally {
                 actions.setPipelineMutating(pipeline.id, false)
@@ -183,9 +189,11 @@ export const autoresearchLogic = kea<autoresearchLogicType>([
             actions.setPipelineMutating(pipeline.id, true)
             try {
                 await autoresearchResumeCreate(String(values.currentTeamId), pipeline.id)
+                posthog.capture('autoresearch model resumed', { pipeline_id: pipeline.id })
                 lemonToast.success(`Resumed "${pipeline.name}"`)
                 actions.loadPipelines()
             } catch (error: any) {
+                posthog.capture('autoresearch model action failed', { action: 'resume', pipeline_id: pipeline.id })
                 lemonToast.error(error?.detail ?? error?.data?.detail ?? 'Failed to resume the model')
             } finally {
                 actions.setPipelineMutating(pipeline.id, false)
@@ -198,6 +206,7 @@ export const autoresearchLogic = kea<autoresearchLogicType>([
         // showing a stale snapshot that omits a just-created pipeline.
         // Skip the initial call that urlToAction makes on mount, because afterMount already loads.
         [urls.autoresearch()]: (_, __, ___, { initial }) => {
+            posthog.capture('autoresearch model list viewed')
             if (!initial) {
                 actions.loadPipelines()
             }

@@ -162,7 +162,13 @@ export function AutoresearchScene(): JSX.Element {
                     type: sceneConfigurations[Scene.Autoresearch].iconType ?? 'experiment',
                 }}
                 actions={
-                    <LemonButton type="primary" icon={<IconPlus />} size="small" to={urls.autoresearchNew()}>
+                    <LemonButton
+                        type="primary"
+                        icon={<IconPlus />}
+                        size="small"
+                        to={urls.autoresearchNew()}
+                        data-attr="autoresearch-new-model"
+                    >
                         New model
                     </LemonButton>
                 }
