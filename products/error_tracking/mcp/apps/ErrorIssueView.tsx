@@ -8,6 +8,44 @@ export interface ExternalIssue {
     integration?: { display_name?: string }
 }
 
+export interface ErrorIssueBreakdownValue {
+    value: string
+    count: number
+}
+
+export interface ErrorIssueBreakdown {
+    date_from: string
+    date_to: string
+    range_limited: boolean
+    occurrences: number
+    events_with_session: number
+    sample_session_ids: string[]
+    top_values: Partial<Record<ErrorIssueBreakdownDimension, ErrorIssueBreakdownValue[]>>
+}
+
+export type ErrorIssueBreakdownDimension =
+    | 'path'
+    | 'screen'
+    | 'browser'
+    | 'os'
+    | 'library'
+    | 'library_version'
+    | 'app_version'
+
+const breakdownLabels: Record<ErrorIssueBreakdownDimension, string> = {
+    path: 'Paths',
+    screen: 'Screens',
+    browser: 'Browsers',
+    os: 'OS',
+    library: 'Libraries',
+    library_version: 'Library versions',
+    app_version: 'App versions',
+}
+
+export function formatBreakdownValues(values: ErrorIssueBreakdownValue[] | undefined): string {
+    return (values ?? []).map(({ value, count }) => `${value} (${count})`).join(', ')
+}
+
 export interface ErrorIssueData {
     id: string
     name: string
@@ -16,6 +54,7 @@ export interface ErrorIssueData {
     first_seen?: string
     assignee?: { id: string; type: string } | null
     external_issues?: ExternalIssue[]
+    breakdown?: ErrorIssueBreakdown
     _posthogUrl?: string
 }
 
@@ -62,6 +101,37 @@ export function ErrorIssueView({ issue }: ErrorIssueViewProps): ReactElement {
                         />
                     </CardContent>
                 </Card>
+
+                {issue.breakdown && (
+                    <Card>
+                        <CardContent>
+                            <div className="flex flex-col gap-2">
+                                <span className="text-sm font-semibold">
+                                    Breakdown of {issue.breakdown.occurrences} events
+                                    {issue.breakdown.range_limited ? ' (last 30 days of the range)' : ''}
+                                </span>
+                                <DescriptionList
+                                    items={[
+                                        ...(Object.keys(breakdownLabels) as ErrorIssueBreakdownDimension[]).map(
+                                            (dimension) => ({
+                                                label: breakdownLabels[dimension],
+                                                value: formatBreakdownValues(issue.breakdown?.top_values[dimension]),
+                                            })
+                                        ),
+                                        {
+                                            label: 'Events with a session',
+                                            value: String(issue.breakdown.events_with_session),
+                                        },
+                                        {
+                                            label: 'Sample session IDs',
+                                            value: issue.breakdown.sample_session_ids.join(', '),
+                                        },
+                                    ]}
+                                />
+                            </div>
+                        </CardContent>
+                    </Card>
+                )}
 
                 {issue.external_issues && issue.external_issues.length > 0 && (
                     <Card>

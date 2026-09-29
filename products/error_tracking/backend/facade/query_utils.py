@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timedelta
 from typing import cast
+from zoneinfo import ZoneInfo
 
 from posthog.hogql.escape_sql import escape_hogql_string
+
+from posthog.utils import relative_date_parse
 
 MAX_NORMALIZED_TEXT_CHARS = 1000
 MAX_STACK_FRAMES = 50
@@ -88,6 +92,44 @@ EVENT_SELECTS = ["uuid", "timestamp", "distinct_id", *EVENT_PROPERTY_SELECTS]
 EVENT_SEARCH_PROPERTIES = ["properties.$exception_types", "properties.$exception_values", "properties.$current_url"]
 PROPERTY_COLUMN_NAMES = {
     select.removeprefix("properties.") for select in [*CONTEXT_EVENT_SELECTS, *EVENT_PROPERTY_SELECTS]
+}
+
+ISSUE_BREAKDOWN_TOP_VALUES = 5
+ISSUE_BREAKDOWN_MAX_DAYS = 30
+MAX_BREAKDOWN_VALUE_CHARS = 200
+# Only read properties that ClickHouse stores as materialized columns. A property without a materialized column
+# makes the query read the whole properties blob, which holds the exception payload. On a high-volume issue that
+# multiplies the bytes read by about 40, for example with $trace_id or $exception_handled.
+# The path comes from $current_url because backend SDKs set $current_url but not $pathname.
+ISSUE_BREAKDOWN_DIMENSIONS = {
+    "path": "path(toString(properties.$current_url))",
+    "screen": "properties.$screen_name",
+    "browser": "properties.$browser",
+    "os": "properties.$os",
+    "library": "properties.$lib",
+    "library_version": "properties.$lib_version",
+    "app_version": "properties.$app_version",
+}
+
+
+def non_empty(expression: str) -> str:
+    # Aggregate functions skip NULL arguments, so a map from empty to NULL keeps empty values out of the results.
+    return f"nullIf(toString({expression}), '')"
+
+
+def top_values_with_counts(expression: str) -> str:
+    """Rank the most common non-empty values of an expression, with an approximate count for each value.
+
+    The 'counts' mode returns (value, count, error) tuples, so all dimensions share one aggregate query.
+    """
+    return f"topK({ISSUE_BREAKDOWN_TOP_VALUES}, 3, 'counts')({non_empty(expression)})"
+
+
+ISSUE_BREAKDOWN_SELECTS = {
+    "occurrences": "count()",
+    "events_with_session": f"count({non_empty('properties.$session_id')})",
+    "sample_session_ids": f"groupUniqArray({ISSUE_BREAKDOWN_TOP_VALUES})({non_empty('properties.$session_id')})",
+    **{f"top_{name}": top_values_with_counts(expression) for name, expression in ISSUE_BREAKDOWN_DIMENSIONS.items()},
 }
 
 
@@ -496,6 +538,60 @@ def extract_latest_release(event_properties: dict[str, object]) -> dict[str, obj
             "repo_name": git.get("repo_name") if git else None,
         }
     )
+
+
+def resolve_breakdown_range(
+    date_range: dict[str, object], timezone_info: ZoneInfo, now: datetime
+) -> tuple[datetime, datetime, bool]:
+    """Resolve the breakdown range and limit it to the last ISSUE_BREAKDOWN_MAX_DAYS days before its end.
+
+    The breakdown aggregates every matching event, so its cost grows with the range. The limit keeps the cost
+    bounded. The third value is true when the limit made the range shorter than the request.
+    """
+    raw_date_to = date_range.get("date_to")
+    date_to = relative_date_parse(str(raw_date_to), timezone_info, now=now) if raw_date_to else now
+    raw_date_from = date_range.get("date_from")
+    date_from = (
+        relative_date_parse(str(raw_date_from), timezone_info, now=now)
+        if raw_date_from and raw_date_from != "all"
+        else None
+    )
+    earliest = date_to - timedelta(days=ISSUE_BREAKDOWN_MAX_DAYS)
+    if date_from is None or date_from < earliest:
+        return earliest, date_to, True
+    return date_from, date_to, False
+
+
+def map_top_values(value: object) -> list[dict[str, object]]:
+    if not isinstance(value, list):
+        return []
+    top_values: list[dict[str, object]] = []
+    for item in value:
+        if not isinstance(item, list | tuple) or len(item) < 2 or item[0] in (None, ""):
+            continue
+        count = item[1] if isinstance(item[1], int) else 0
+        top_values.append({"value": truncate_text(str(item[0]), MAX_BREAKDOWN_VALUE_CHARS), "count": count})
+    return top_values
+
+
+def map_issue_breakdown(data: dict[str, object]) -> dict[str, object]:
+    rows = data.get("results")
+    row = rows[0] if isinstance(rows, list) and rows else None
+    values = row if isinstance(row, list) else []
+    by_key = {key: values[index] if index < len(values) else None for index, key in enumerate(ISSUE_BREAKDOWN_SELECTS)}
+    occurrences = by_key["occurrences"]
+    events_with_session = by_key["events_with_session"]
+    session_ids = by_key["sample_session_ids"]
+    top_values = {name: map_top_values(by_key[f"top_{name}"]) for name in ISSUE_BREAKDOWN_DIMENSIONS}
+    return {
+        "occurrences": occurrences if isinstance(occurrences, int) else 0,
+        "events_with_session": events_with_session if isinstance(events_with_session, int) else 0,
+        "sample_session_ids": [str(item) for item in session_ids if item not in (None, "")]
+        if isinstance(session_ids, list)
+        else [],
+        # Leave out empty dimensions: backend SDKs send no browser or OS, and web SDKs send no screen name.
+        "top_values": {name: items for name, items in top_values.items() if items},
+    }
 
 
 def build_impact(issue: dict[str, object]) -> dict[str, object]:

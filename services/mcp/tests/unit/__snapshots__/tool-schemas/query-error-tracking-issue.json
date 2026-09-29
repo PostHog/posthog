@@ -27,6 +27,11 @@
             "description": "When true, exclude internal/test account data from results. Defaults to true.",
             "type": "boolean"
         },
+        "includeBreakdown": {
+            "default": false,
+            "description": "Set true to include an aggregate over all matching events: the most common paths, screens, browsers, OS, libraries, library versions, and app versions with a count for each, plus session coverage and sample $session_id values. Covers at most the last 30 days of dateRange. Adds one aggregate query, so request it only to answer where, for whom, or on which platforms the issue happens. Defaults to false.",
+            "type": "boolean"
+        },
         "includeSparkline": {
             "default": false,
             "description": "Set true to include a compact numeric occurrence sparkline. Defaults to false.",

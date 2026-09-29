@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Literal, cast
 
+from django.utils.timezone import now
+
 import structlog
 from drf_spectacular.utils import OpenApiResponse
 from rest_framework import status, viewsets
@@ -25,6 +27,7 @@ from products.error_tracking.backend.facade import (
 from products.error_tracking.backend.facade.query_utils import (
     CONTEXT_EVENT_SELECTS,
     DEFAULT_EVENT_CONTEXT_INCLUDES,
+    ISSUE_BREAKDOWN_SELECTS,
     ISSUE_FIELDS,
     build_date_range,
     build_event_selects,
@@ -43,10 +46,13 @@ from products.error_tracking.backend.facade.query_utils import (
     get_page_info,
     map_context_event_properties,
     map_event_row,
+    map_issue_breakdown,
     normalize_volume_resolution,
     pick_fields,
+    resolve_breakdown_range,
 )
 from products.error_tracking.backend.presentation.views.query_serializers import (
+    ErrorTrackingIssueBreakdownSerializer,
     ErrorTrackingIssueDetailSerializer,
     ErrorTrackingIssueEventsQueryRequestSerializer,
     ErrorTrackingIssueEventsResponseSerializer,
@@ -117,7 +123,10 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         },
         operation_id="error_tracking_query_issue_create",
         summary="Get compact error tracking issue details",
-        description="Fetch one error tracking issue with impact counts, top in_app frame, latest release, and optional sparkline.",
+        description=(
+            "Fetch one error tracking issue with impact counts, top in_app frame, latest release, and optional "
+            "sparkline and event breakdown."
+        ),
     )
     @action(methods=["POST"], detail=False, url_path="issue", required_scopes=["error_tracking:read"])
     def issue(self, request: ValidatedRequest, **kwargs: object) -> Response:
@@ -125,6 +134,8 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         issue_id = str(params["issueId"])
         date_range = build_date_range(params.get("dateRange"))
         include_sparkline = cast(bool, params.get("includeSparkline", False))
+        include_breakdown = cast(bool, params.get("includeBreakdown", False))
+        filter_test_accounts = cast(bool, params.get("filterTestAccounts", True))
         volume_resolution = cast(int, params.get("volumeResolution", 0))
         if include_sparkline and volume_resolution <= 0:
             volume_resolution = 12
@@ -135,7 +146,7 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             kind="ErrorTrackingQuery",
             issueId=issue_id,
             dateRange=DateRange(**date_range),
-            filterTestAccounts=cast(bool, params.get("filterTestAccounts", True)),
+            filterTestAccounts=filter_test_accounts,
             volumeResolution=normalize_volume_resolution(volume_resolution),
             limit=1,
             orderBy="last_seen",
@@ -170,7 +181,7 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 event="$exception",
                 select=CONTEXT_EVENT_SELECTS,
                 where=build_issue_where(issue_id),
-                filterTestAccounts=cast(bool, params.get("filterTestAccounts", True)),
+                filterTestAccounts=filter_test_accounts,
                 after=date_range.get("date_from"),
                 before=date_range.get("date_to"),
                 orderBy=["timestamp DESC"],
@@ -211,7 +222,43 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 "sparkline": build_sparkline(issue) if include_sparkline else None,
             }
         )
+        if include_breakdown:
+            payload["breakdown"] = self._issue_breakdown(request, issue_id, date_range, filter_test_accounts)
         return Response(payload)
+
+    def _issue_breakdown(
+        self, request: ValidatedRequest, issue_id: str, date_range: dict[str, object], filter_test_accounts: bool
+    ) -> dict[str, object]:
+        date_from, date_to, range_limited = resolve_breakdown_range(date_range, self.team.timezone_info, now())
+        query = EventsQuery(
+            kind="EventsQuery",
+            event="$exception",
+            select=list(ISSUE_BREAKDOWN_SELECTS.values()),
+            where=build_issue_where(issue_id),
+            filterTestAccounts=filter_test_accounts,
+            after=date_from.isoformat(),
+            before=date_to.isoformat(),
+            limit=1,
+            tags={"productKey": "error_tracking"},
+        )
+        # Unlike the context event query, a failure here is not hidden: the caller asked for the breakdown, and a
+        # restricted property must return an error instead of a partial breakdown.
+        with tags_context(product=Product.ERROR_TRACKING, feature=Feature.QUERY):
+            try:
+                data = (
+                    EventsQueryRunner(team=self.team, query=query, user=request.user)
+                    .calculate()
+                    .model_dump(mode="json")
+                )
+            except ResolutionError as error:
+                raise ValidationError(str(error)) from error
+        breakdown = {
+            "date_from": date_from,
+            "date_to": date_to,
+            "range_limited": range_limited,
+            **map_issue_breakdown(data),
+        }
+        return ErrorTrackingIssueBreakdownSerializer(instance=breakdown).data
 
     @validated_request(
         request_serializer=ErrorTrackingIssueEventsQueryRequestSerializer,

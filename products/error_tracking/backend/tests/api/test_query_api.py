@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any, cast
+from zoneinfo import ZoneInfo
 
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
@@ -22,13 +23,16 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.property_access_control import PropertyAccessLevel
 from products.error_tracking.backend.facade.query_utils import (
+    ISSUE_BREAKDOWN_TOP_VALUES,
     MAX_STACK_FRAMES,
     build_issue_event_where,
     build_issue_filters,
     build_search_query,
     build_sparkline,
     dedupe_repeated_stacktraces,
+    map_issue_breakdown,
     normalize_stacktrace,
+    resolve_breakdown_range,
 )
 from products.error_tracking.backend.hogql_queries.error_tracking_query_runner import ErrorTrackingQueryRunner
 from products.error_tracking.backend.models import (
@@ -119,6 +123,54 @@ def test_dedupe_repeated_stacktraces_references_the_first_copy_of_the_stack() ->
     assert stacks[0][2] == {"same_as_event": "event-1", "same_as_exception": 0}
     assert stacks[1][0] == {"same_as_event": "event-1", "same_as_exception": 1}
     assert stacks[2][0]["frames"][0]["line"] == 44
+
+
+BREAKDOWN_NOW = datetime(2026, 4, 24, 12, 0, tzinfo=UTC)
+
+
+@parameterized.expand(
+    [
+        ("short_relative_range", {"date_from": "-7d"}, BREAKDOWN_NOW - timedelta(days=7), BREAKDOWN_NOW, False),
+        ("long_relative_range", {"date_from": "-90d"}, BREAKDOWN_NOW - timedelta(days=30), BREAKDOWN_NOW, True),
+        ("unbounded_range", {"date_from": "all"}, BREAKDOWN_NOW - timedelta(days=30), BREAKDOWN_NOW, True),
+        (
+            "long_explicit_range",
+            {"date_from": "2026-01-01T00:00:00Z", "date_to": "2026-03-01T00:00:00Z"},
+            datetime(2026, 1, 30, tzinfo=UTC),
+            datetime(2026, 3, 1, tzinfo=UTC),
+            True,
+        ),
+    ]
+)
+def test_resolve_breakdown_range_limits_the_range_to_30_days(
+    _name: str,
+    date_range: dict[str, object],
+    expected_from: datetime,
+    expected_to: datetime,
+    expected_limited: bool,
+) -> None:
+    date_from, date_to, range_limited = resolve_breakdown_range(date_range, ZoneInfo("UTC"), BREAKDOWN_NOW)
+
+    assert (date_from, date_to, range_limited) == (expected_from, expected_to, expected_limited)
+
+
+def test_map_issue_breakdown_drops_empty_dimensions_and_truncates_values() -> None:
+    long_path = "/" + "a" * 500
+    # One row in ISSUE_BREAKDOWN_SELECTS order: counts, sample sessions, then one topK column per dimension.
+    row: list[object] = [4, 2, ["session-1", ""], [[long_path, 3, 0], ["", 1, 0]], [], [["Chrome", 4, 0]]]
+    row += [[] for _ in range(4)]
+
+    breakdown = map_issue_breakdown({"results": [row]})
+
+    assert breakdown["occurrences"] == 4
+    assert breakdown["events_with_session"] == 2
+    assert breakdown["sample_session_ids"] == ["session-1"]
+    top_values = breakdown["top_values"]
+    assert set(top_values) == {"path", "browser"}
+    assert top_values["browser"] == [{"value": "Chrome", "count": 4}]
+    assert len(top_values["path"]) == 1
+    assert top_values["path"][0]["count"] == 3
+    assert len(top_values["path"][0]["value"]) == 200
 
 
 class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
@@ -685,6 +737,108 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
 
         assert response.status_code == 400
         assert "Access to property '$referrer' is restricted" in str(response.json())
+
+    @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
+    def test_issue_detail_omits_breakdown_by_default(self) -> None:
+        self.create_issue()
+        self.create_exception_event(properties={"$current_url": "https://example.test/checkout"})
+        flush_persons_and_events()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/query/issue",
+            data={"issueId": self.issue_id},
+            format="json",
+        )
+
+        assert response.status_code == 200
+        assert "breakdown" not in response.json()
+
+    @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
+    def test_issue_detail_breakdown_aggregates_matching_events(self) -> None:
+        self.create_issue()
+        for url, session_id, lib in [
+            ("https://example.test/checkout?step=1", "session-id-1", "web"),
+            ("https://example.test/checkout?step=2", "session-id-2", "web"),
+            ("https://example.test/cart", "", "posthog-python"),
+        ]:
+            self.create_exception_event(
+                properties={"$current_url": url, "$session_id": session_id, "$browser": "Chrome", "$lib": lib}
+            )
+        self.create_exception_event(
+            issue_id="01936e7f-d7ff-7314-b2d4-7627981e34f1",
+            fingerprint="other-fingerprint",
+            properties={"$current_url": "https://example.test/other"},
+        )
+        flush_persons_and_events()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/query/issue",
+            data={"issueId": self.issue_id, "includeBreakdown": True},
+            format="json",
+        )
+
+        assert response.status_code == 200
+        breakdown = response.json()["breakdown"]
+        assert breakdown["occurrences"] == 3
+        assert breakdown["events_with_session"] == 2
+        assert breakdown["range_limited"] is False
+        assert sorted(breakdown["sample_session_ids"]) == ["session-id-1", "session-id-2"]
+        top_values = breakdown["top_values"]
+        # The path drops the query string, so both checkout URLs count as one page.
+        assert top_values["path"] == [{"value": "/checkout", "count": 2}, {"value": "/cart", "count": 1}]
+        assert top_values["browser"] == [{"value": "Chrome", "count": 3}]
+        assert top_values["library"] == [{"value": "web", "count": 2}, {"value": "posthog-python", "count": 1}]
+        assert "os" not in top_values
+        assert "screen" not in top_values
+
+    @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
+    def test_issue_detail_breakdown_keeps_empty_values_out_of_top_values(self) -> None:
+        self.create_issue()
+        urls = [f"https://example.test/page-{index}" for index in range(ISSUE_BREAKDOWN_TOP_VALUES)]
+        for url in urls:
+            self.create_exception_event(properties={"$current_url": url})
+        # More events have no URL than have any single real URL, so an empty value would take a slot if ranked.
+        for _ in range(ISSUE_BREAKDOWN_TOP_VALUES):
+            self.create_exception_event(properties={"$current_url": ""})
+        flush_persons_and_events()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/query/issue",
+            data={"issueId": self.issue_id, "includeBreakdown": True},
+            format="json",
+        )
+
+        assert response.status_code == 200
+        paths = [item["value"] for item in response.json()["breakdown"]["top_values"]["path"]]
+        assert sorted(paths) == sorted(f"/page-{index}" for index in range(ISSUE_BREAKDOWN_TOP_VALUES))
+
+    @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
+    def test_issue_detail_breakdown_honors_user_property_access(self) -> None:
+        self.organization.available_product_features = [
+            {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        property_definition = PropertyDefinition.objects.create(
+            team=self.team, name="$current_url", type=PropertyDefinition.Type.EVENT
+        )
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=property_definition,
+            access_level=PropertyAccessLevel.NONE.value,
+            organization_member=self.organization_membership,
+        )
+        self.create_issue()
+        self.create_exception_event(properties={"$current_url": "https://example.test/checkout"})
+        flush_persons_and_events()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/query/issue",
+            data={"issueId": self.issue_id, "includeBreakdown": True},
+            format="json",
+        )
+
+        assert response.status_code == 400
+        assert "Access to property '$current_url' is restricted" in str(response.json())
 
     @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
     def test_issue_events_returns_plural_exception_arrays_and_truncates_summary_text(self) -> None:

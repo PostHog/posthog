@@ -568,7 +568,7 @@ export const ErrorTrackingIssuesBulkCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Fetch one error tracking issue with impact counts, top in_app frame, latest release, and optional sparkline.
+ * Fetch one error tracking issue with impact counts, top in_app frame, latest release, and optional sparkline and event breakdown.
  * @summary Get compact error tracking issue details
  */
 export const errorTrackingQueryIssueCreateBodyFilterTestAccountsDefault = true
@@ -577,6 +577,7 @@ export const errorTrackingQueryIssueCreateBodyVolumeResolutionMin = 0
 export const errorTrackingQueryIssueCreateBodyVolumeResolutionMax = 200
 
 export const errorTrackingQueryIssueCreateBodyIncludeSparklineDefault = false
+export const errorTrackingQueryIssueCreateBodyIncludeBreakdownDefault = false
 
 export const ErrorTrackingQueryIssueCreateBody = /* @__PURE__ */ zod.object({
     issueId: zod.uuid().describe('Error tracking issue ID.'),
@@ -607,6 +608,12 @@ export const ErrorTrackingQueryIssueCreateBody = /* @__PURE__ */ zod.object({
         .boolean()
         .default(errorTrackingQueryIssueCreateBodyIncludeSparklineDefault)
         .describe('Set true to include a compact numeric occurrence sparkline. Defaults to false.'),
+    includeBreakdown: zod
+        .boolean()
+        .default(errorTrackingQueryIssueCreateBodyIncludeBreakdownDefault)
+        .describe(
+            'Set true to include an aggregate over all matching events: the most common paths, screens, browsers, OS, libraries, library versions, and app versions with a count for each, plus session coverage and sample $session_id values. Covers at most the last 30 days of dateRange. Adds one aggregate query, so request it only to answer where, for whom, or on which platforms the issue happens. Defaults to false.'
+        ),
 })
 
 /**
