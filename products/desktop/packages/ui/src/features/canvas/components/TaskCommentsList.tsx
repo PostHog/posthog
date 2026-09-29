@@ -207,8 +207,10 @@ function ResourceThreadRow({
       onResolve={async (resolved) => {
         await setResolved.mutateAsync({ root, resolved });
       }}
-      onSendReplyToAgent={(content) =>
-        sendSourceCommentToAgent(taskId, source, root, content)
+      onSendReplyToAgent={
+        taskId
+          ? (content) => sendSourceCommentToAgent(taskId, source, root, content)
+          : undefined
       }
     />
   );
@@ -717,17 +719,20 @@ export function TaskCommentsList({
           rows={1}
           disabled={createComment.isPending}
           compact
-          onSendToAgent={(content) =>
-            sendSourceCommentToAgent(
-              taskId,
-              onlySource ?? {
-                kind: "task",
-                target: composerTarget,
-                name: "This task",
-              },
-              null,
-              content,
-            )
+          onSendToAgent={
+            taskId
+              ? (content) =>
+                  sendSourceCommentToAgent(
+                    taskId,
+                    onlySource ?? {
+                      kind: "task",
+                      target: composerTarget,
+                      name: "This task",
+                    },
+                    null,
+                    content,
+                  )
+              : undefined
           }
         />
       </footer>
