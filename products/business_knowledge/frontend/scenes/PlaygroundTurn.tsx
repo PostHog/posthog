@@ -2,6 +2,8 @@ import { memo } from 'react'
 
 import { IconDocument, IconSearch } from '@posthog/icons'
 
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+
 import { Thread } from 'products/posthog_ai/frontend/api/primitives'
 
 import { type PlaygroundTurnApi, SandboxToolNameEnumApi } from '../generated/api.schemas'
@@ -56,7 +58,7 @@ export const PlaygroundTurn = memo(function PlaygroundTurn({ id, question, turn 
             ) : null}
             {run?.status === 'completed' && run.reply ? (
                 <Thread.Message type="ai" wrapperClassName="max-w-4/5">
-                    <Thread.Markdown content={run.reply} id={`${id}-reply`} />
+                    <LemonMarkdown disableImages>{run.reply}</LemonMarkdown>
                     {run.sources.length > 0 ? (
                         <div className="mt-2 flex flex-col gap-1 border-t pt-2">
                             <span className="text-xs font-semibold text-secondary">Sources</span>

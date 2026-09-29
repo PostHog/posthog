@@ -12,7 +12,7 @@ import {
 } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import { loadAppMetricsTotals } from 'lib/components/AppMetrics/appMetricsLogic'
+import { type AppMetricsTimeSeriesResponse, loadAppMetricsTimeSeries } from 'lib/components/AppMetrics/appMetricsLogic'
 import { dayjs } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -32,19 +32,26 @@ import type {
     PipelineJobStatsResponseApi,
     PipelineRowsStatsResponseApi,
 } from 'products/data_warehouse/frontend/generated/api.schemas'
-import { externalDataDestinationsList } from 'products/warehouse_sources/frontend/generated/api'
-import type { ExternalDataDestinationApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
+import {
+    externalDataDestinationsList,
+    externalDataSourcesList,
+} from 'products/warehouse_sources/frontend/generated/api'
+import type {
+    ExternalDataDestinationApi,
+    ExternalDataSourceSerializersApi,
+} from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 /** Windows `job_stats` accepts. Anything else is a 400. */
 export type PipelineStatsWindow = 1 | 7 | 30
 
 /**
- * `data_health_issues` and `completed_activity` both answer for the whole warehouse, which
- * includes materialized views and batch exports. This scene is about imports and the
- * destinations they write to, so those are filtered out here rather than shown as pipelines
- * the reader cannot act on from this page.
+ * `data_health_issues` and `completed_activity` both answer for the whole warehouse. Only these
+ * two types are imports. The endpoint's `destination` type is a batch export or a CDP
+ * destination, not a warehouse destination, and `materialized_view` and `transformation` belong
+ * to other products. A warehouse destination that fails does surface here, as an
+ * `external_data_sync` issue whose error carries the destination's name.
  */
-const SYNC_ISSUE_TYPES = ['external_data_sync', 'source', 'destination']
+const SYNC_ISSUE_TYPES = ['external_data_sync', 'source']
 
 /** `app_source` the import pipeline emits its metrics under. */
 const WAREHOUSE_APP_SOURCE = 'warehouse_source_sync'
@@ -82,9 +89,12 @@ export interface pipelineOverviewSceneLogicValues {
     failedRuns: PipelineActivityRowApi[]
     destinations: ExternalDataDestinationApi[] | null
     destinationsLoading: boolean
-    destinationRowTotals: Record<string, { total: number }> | null
-    destinationRowTotalsLoading: boolean
-    rowsByDestination: { id: string; name: string; type: string; rows: number }[]
+    sources: ExternalDataSourceSerializersApi[] | null
+    sourcesLoading: boolean
+    syncingTableCount: number
+    destinationRowSeries: AppMetricsTimeSeriesResponse | null
+    destinationRowSeriesLoading: boolean
+    rowsByDestination: { key: string; label: string; data: number[]; type: 'area'; fill: { opacity: number } }[]
     hasIssues: boolean
     loadingFirstTime: boolean
 }
@@ -96,7 +106,8 @@ export interface pipelineOverviewSceneLogicActions {
     loadHealthIssues: () => any
     loadRecentFailures: () => any
     loadDestinations: () => any
-    loadDestinationRowTotals: () => any
+    loadSources: () => any
+    loadDestinationRowSeries: () => any
     refresh: () => { value: true }
     loadEverything: () => { value: true }
     pollStats: () => { value: true }
@@ -160,23 +171,41 @@ export const pipelineOverviewSceneLogic = kea<pipelineOverviewSceneLogicType>([
          * alone — so a raw `instance_id` breakdown mixes all three. The destination-keyed rows
          * are picked out in `rowsByDestination` by matching against the team's real destinations.
          */
-        destinationRowTotals: [
-            null as Record<string, { total: number }> | null,
+        sources: [
+            null as ExternalDataSourceSerializersApi[] | null,
             {
-                loadDestinationRowTotals: async () =>
-                    await loadAppMetricsTotals(
+                loadSources: async () => {
+                    const sources: ExternalDataSourceSerializersApi[] = []
+                    let offset = 0
+                    let hasNextPage = true
+
+                    while (hasNextPage) {
+                        const page = await externalDataSourcesList(String(values.currentTeamId), { limit: 100, offset })
+                        sources.push(...(page.results ?? []))
+                        offset += page.results?.length ?? 0
+                        hasNextPage = Boolean(page.next) && (page.results?.length ?? 0) > 0
+                    }
+
+                    return sources
+                },
+            },
+        ],
+        destinationRowSeries: [
+            null as AppMetricsTimeSeriesResponse | null,
+            {
+                loadDestinationRowSeries: async () =>
+                    await loadAppMetricsTimeSeries(
                         {
                             appSource: WAREHOUSE_APP_SOURCE,
                             metricName: 'rows_synced',
-                            breakdownBy: ['instance_id'],
+                            breakdownBy: 'instance_id',
+                            // An hourly grain over a day keeps the 24-hour window from collapsing
+                            // to a single point.
+                            interval: values.window === 1 ? 'hour' : 'day',
                             // Both bounds are interpolated into `toDateTime(...)`, so they have to
-                            // be absolute timestamps. The upper bound sits an hour ahead because
-                            // the comparison is exclusive and rows land continuously.
+                            // be absolute timestamps.
                             dateFrom: dayjs().subtract(values.window, 'day').toISOString(),
-                            dateTo: dayjs().add(1, 'hour').toISOString(),
-                            // Bounded so a team with many schemas cannot silently truncate the
-                            // destination rows out of the result.
-                            limit: 500,
+                            dateTo: dayjs().toISOString(),
                         },
                         values.currentTeam?.timezone ?? 'UTC'
                     ),
@@ -188,6 +217,9 @@ export const pipelineOverviewSceneLogic = kea<pipelineOverviewSceneLogicType>([
                 loadRecentFailures: async () =>
                     await dataWarehouseCompletedActivityRetrieve(String(values.currentTeamId), {
                         outcome: 'failed',
+                        // The window control sits in this section's own header. Without this the
+                        // endpoint falls back to its own 30-day default and ignores the control.
+                        cutoff_days: values.window,
                         // Over-fetch: the endpoint has no sync-only filter, so view runs are
                         // dropped client-side and a page of them would otherwise show nothing.
                         limit: 50,
@@ -212,26 +244,58 @@ export const pipelineOverviewSceneLogic = kea<pipelineOverviewSceneLogicType>([
             (healthIssues: DataHealthIssuesResponseApi | null): number =>
                 (healthIssues?.results ?? []).filter((issue) => issue.type === 'external_data_sync').length,
         ],
-        /** Rows written per destination over the window, biggest first. */
+        /**
+         * One chart series per destination, biggest first so the legend order matches the stack.
+         * `rows_for` emits `rows_synced` under three instance ids per run — the schema, the
+         * destination, and `<schema>/<destination>` — so only ids matching a real destination are
+         * kept, which drops the schema-level and combined rows rather than double counting them.
+         */
         rowsByDestination: [
-            (s: any) => [s.destinationRowTotals, s.destinations],
+            (s: any) => [s.destinationRowSeries, s.destinations],
             (
-                totals: Record<string, { total: number }> | null,
+                series: AppMetricsTimeSeriesResponse | null,
                 destinations: ExternalDataDestinationApi[] | null
-            ): { id: string; name: string; type: string; rows: number }[] => {
-                if (!totals || !destinations) {
+            ): {
+                key: string
+                label: string
+                data: number[]
+                type: 'area'
+                fill: { opacity: number }
+            }[] => {
+                if (!series || !destinations) {
                     return []
                 }
-                return destinations
-                    .map((destination) => ({
-                        id: destination.id,
-                        name: destination.name,
-                        type: destination.type,
-                        rows: totals[destination.id]?.total ?? 0,
+                const byId = new Map(destinations.map((d) => [d.id, d]))
+                return series.series
+                    .filter((s) => byId.has(s.name))
+                    .map((s) => ({
+                        key: s.name,
+                        label: byId.get(s.name)?.name ?? s.name,
+                        data: s.values,
+                        type: 'area' as const,
+                        // `fill` is what makes an area series fill; `type` alone draws a line.
+                        // The chart stacks area series and offers no way not to, so the section
+                        // copy says the total is row-writes rather than rows.
+                        fill: { opacity: 0.25 },
+                        total: s.values.reduce((a, b) => a + b, 0),
                     }))
-                    .filter((row) => row.rows > 0)
-                    .sort((a, b) => b.rows - a.rows)
+                    .sort((a, b) => b.total - a.total)
+                    .map(({ total: _total, ...rest }) => rest)
             },
+        ],
+        /**
+         * Tables PostHog imports on a schedule. Counts schemas switched on rather than every
+         * schema a source offers, so it matches what the pipeline actually runs.
+         */
+        syncingTableCount: [
+            (s: any) => [s.sources],
+            (sources: ExternalDataSourceSerializersApi[] | null): number =>
+                (sources ?? []).reduce(
+                    (total, source) =>
+                        total +
+                        ((source.schemas ?? []) as { should_sync?: boolean }[]).filter((s) => s.should_sync).length,
+                    0
+                ),
         ],
         /** Whether anything is wrong. The health section is hidden when nothing is. */
         hasIssues: [(s: any) => [s.issuesBySeverity], (issues: DataHealthIssueApi[]): boolean => issues.length > 0],
@@ -253,11 +317,12 @@ export const pipelineOverviewSceneLogic = kea<pipelineOverviewSceneLogicType>([
         ],
     }),
     listeners(({ actions }: any) => ({
-        // Only the run counts are windowed. Rows are reported per billing period and health is
-        // current state, so neither changes with the window.
+        // Health is current state and rows are reported per billing period, so neither is
+        // windowed. Everything else is.
         setWindow: () => {
             actions.loadJobStats()
-            actions.loadDestinationRowTotals()
+            actions.loadDestinationRowSeries()
+            actions.loadRecentFailures()
         },
         refresh: () => actions.loadEverything(),
         loadEverything: () => {
@@ -266,7 +331,8 @@ export const pipelineOverviewSceneLogic = kea<pipelineOverviewSceneLogicType>([
             actions.loadHealthIssues()
             actions.loadRecentFailures()
             actions.loadDestinations()
-            actions.loadDestinationRowTotals()
+            actions.loadSources()
+            actions.loadDestinationRowSeries()
         },
         // Only the headline numbers poll. Reloading the tables under someone mid-read moves rows
         // they are looking at, and they change far less often than the counts do.
