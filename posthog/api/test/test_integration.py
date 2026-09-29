@@ -932,6 +932,49 @@ class TestDatabricksIntegration:
         assert not Integration.objects.filter(team=self.team, kind="databricks").exists()
 
 
+class TestGitLabIntegration:
+    @pytest.fixture(autouse=True)
+    def setup_integration(self, db):
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+        self.user = User.objects.create_and_join(
+            self.organization, "test@posthog.com", "test", level=OrganizationMembership.Level.ADMIN
+        )
+
+    @pytest.mark.parametrize(
+        "hostname,expected_error_message",
+        [
+            ("http://gitlab.example.com", "https://"),
+            ("gitlab.example.com", "https://"),
+            ("https://localhost", "Invalid GitLab hostname"),
+        ],
+        ids=["http_scheme", "no_scheme", "blocked_host"],
+    )
+    def test_create_with_invalid_hostname_returns_validation_error(
+        self, client: HttpClient, hostname, expected_error_message
+    ):
+        client.force_login(self.user)
+
+        with patch("posthog.models.integration.gitlab.requests.get") as mock_get:
+            response = client.post(
+                f"/api/environments/{self.team.pk}/integrations",
+                {
+                    "kind": "gitlab",
+                    "config": {
+                        "hostname": hostname,
+                        "project_id": "42",
+                        "project_access_token": "glpat-example-token",
+                    },
+                },
+                content_type="application/json",
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert expected_error_message in response.json()["detail"]
+        mock_get.assert_not_called()
+        assert not Integration.objects.filter(team=self.team, kind="gitlab").exists()
+
+
 class TestGoogleCloudServiceAccountIntegration:
     @pytest.fixture(autouse=True)
     def setup_integration(self, db):
