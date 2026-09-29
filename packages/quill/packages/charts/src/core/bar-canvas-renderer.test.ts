@@ -5,6 +5,7 @@ import {
     type BarRect,
     drawBarHighlight,
     drawBars,
+    drawBarTrackFloorMarks,
     drawBarTracks,
     type DrawContext,
     traceRoundedBarPath,
@@ -19,6 +20,7 @@ function mockCanvasContext(): jest.Mocked<CanvasRenderingContext2D> {
         quadraticCurveTo: jest.fn(),
         stroke: jest.fn(),
         fill: jest.fn(),
+        fillRect: jest.fn(),
         closePath: jest.fn(),
         setLineDash: jest.fn(),
         save: jest.fn(),
@@ -375,6 +377,25 @@ describe('hog-charts canvas-renderer (bars)', () => {
             drawBarTracks(drawCtx, series, [], 6)
             expect(ctx.fill).not.toHaveBeenCalled()
             expect(ctx.save).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('drawBarTrackFloorMarks', () => {
+        const series = makeSeries({ key: 's', data: [0, 70] })
+
+        it.each([
+            ['vertical', false, bar({ dataIndex: 0, y: 200, height: 0 }), [100, 197, 50, 3]],
+            ['horizontal', true, bar({ dataIndex: 0, x: 10, width: 0 }), [10, 100, 3, 80]],
+        ])('marks the baseline of an empty %s bar', (_, isHorizontal, emptyBar, rect) => {
+            const ctx = mockCanvasContext()
+            drawBarTrackFloorMarks(ctx, series, [emptyBar], isHorizontal)
+            expect(ctx.fillRect).toHaveBeenCalledWith(...rect)
+        })
+
+        it('leaves bars at least as thick as the mark alone', () => {
+            const ctx = mockCanvasContext()
+            drawBarTrackFloorMarks(ctx, series, [bar({ dataIndex: 1, height: 3 })], false)
+            expect(ctx.fillRect).not.toHaveBeenCalled()
         })
     })
 })
