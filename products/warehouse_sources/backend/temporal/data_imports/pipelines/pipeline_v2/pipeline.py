@@ -20,8 +20,8 @@ from products.warehouse_sources.backend.models.external_data_schema import (
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import (
-    advance_xmin_state,
     cleanup_memory,
+    commit_source_cursor,
     handle_corrupted_delta_log,
     handle_reset_or_full_refresh,
     persist_primary_keys,
@@ -62,6 +62,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.typ
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import (
     validate_schema_and_update_table,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import SourceCursorManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import (
     ResumableSourceManager,
     resolve_resume_manager,
@@ -90,6 +91,7 @@ class PipelineNonDLT(Generic[ResumableData]):
     _reset_pipeline: bool
     _delta_table_ref: DeltaTableRef
     _resumable_source_manager: ResumableSourceManager[ResumableData] | None
+    _source_cursor_manager: SourceCursorManager[Any] | None
     _internal_schema = HogQLSchema()
     _sinks: PipelineSinks
     _batcher: Batcher
@@ -105,8 +107,10 @@ class PipelineNonDLT(Generic[ResumableData]):
         resumable_source_manager: ResumableSourceManager[ResumableData] | None,
         *,
         models: "ImportJobModels",
+        source_cursor_manager: SourceCursorManager[Any] | None = None,
     ) -> None:
         self._resource = source_response
+        self._source_cursor_manager = source_cursor_manager
         self._resource_name = source_response.name
 
         # Persisted PK (user override or earlier detection) > live-detected > `id` fallback. Keeps
@@ -308,7 +312,7 @@ class PipelineNonDLT(Generic[ResumableData]):
 
             prepared_queryable_folder = await self._post_run_operations(row_count=row_count)
 
-            await advance_xmin_state(self._resource, self._schema, self._logger)
+            await commit_source_cursor(self._source_cursor_manager, self._schema, self._logger, staging_run_uuid=None)
 
             result = PipelineResult(should_trigger_cdp_producer=await self._sinks.cdp_producer.should_run())
             if isinstance(prepared_queryable_folder, str):
