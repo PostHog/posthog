@@ -1300,6 +1300,7 @@ export interface groupedAccessControlRuleModalLogicMeta {
                     | 'loop'
                     | 'marketing_analytics'
                     | 'mcp_analytics'
+                    | 'mcp_registry'
                     | 'mcp_builtin_agent'
                     | 'metrics'
                     | 'notebook'
@@ -1347,6 +1348,7 @@ export interface groupedAccessControlRuleModalLogicMeta {
                     | 'web_analytics'
                     | 'webhook'
                     | 'wizard_session'
+                    | 'wizard_run'
             ) => boolean,
             entry: AccessControlSettingsEntry
         ) => (
