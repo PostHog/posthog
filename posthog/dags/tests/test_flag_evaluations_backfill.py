@@ -8,6 +8,7 @@ from typing import Any
 from uuid import NAMESPACE_URL, UUID, uuid5
 
 import pytest
+import time_machine
 from unittest.mock import MagicMock, patch
 
 import dagster
@@ -329,6 +330,58 @@ def test_backfill_stops_when_a_blocking_run_starts_during_a_copy(
             check()
     else:
         check()
+
+
+@pytest.mark.parametrize(
+    "created_during",
+    [
+        pytest.param("wait_scan", id="created_while_the_wait_scans_other_jobs"),
+        pytest.param("failed_copy", id="created_during_a_copy_that_fails_partway"),
+    ],
+)
+def test_backfill_stops_when_a_blocking_run_is_created_after_the_wait_starts_its_scan(created_during: str) -> None:
+    instance = dagster.DagsterInstance.ephemeral()
+    backfill = ShardBackfill(
+        cluster=MagicMock(),
+        shard_num=1,
+        config=FlagEvaluationsBackfillConfig(max_unmerged_parts=0),
+        instance=instance,
+        run_id="backfill-run",
+        log=MagicMock(),
+        query_tags=DagsterTags(),
+        workload=Workload.DEFAULT,
+        node_role=NodeRole.ALL,
+    )
+    day = date(2026, 3, 10)
+
+    with time_machine.travel(datetime(2026, 3, 12, tzinfo=UTC), tick=False) as clock:
+
+        def create_blocking_run() -> None:
+            # A minute on each side keeps the run's create_timestamp strictly between the clock
+            # readings taken before and after it.
+            clock.shift(timedelta(minutes=1))
+            instance.create_run_for_job(job_def=deletes_job, status=dagster.DagsterRunStatus.STARTED)
+            clock.shift(timedelta(minutes=1))
+
+        def scan(*_args: Any, **_kwargs: Any) -> list[str]:
+            if created_during == "wait_scan":
+                create_blocking_run()
+            return []
+
+        def copy(*_args: Any) -> int:
+            if created_during == "failed_copy":
+                create_blocking_run()
+                raise RuntimeError("insert failed partway")
+            return 0
+
+        with (
+            patch("posthog.dags.flag_evaluations_backfill.describe_active_runs", side_effect=scan),
+            patch.object(ShardBackfill, "check_disk_headroom"),
+            patch.object(ShardBackfill, "check_consumer_lag"),
+            patch.object(ShardBackfill, "copy_day", side_effect=copy),
+            pytest.raises(dagster.Failure, match=f"started while {day} copied"),
+        ):
+            backfill.run([day])
 
 
 @pytest.mark.django_db

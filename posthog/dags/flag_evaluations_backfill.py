@@ -259,9 +259,13 @@ class ShardBackfill:
             no_blocking_run_since = self.wait_for_blocking_runs()
             self.check_disk_headroom()
             self.check_consumer_lag()
-            rows = self.copy_day(day, copy_query, settings)
-            if not self.config.dry_run:
-                self.check_no_blocking_run_started(since=no_blocking_run_since, day=day)
+            try:
+                rows = self.copy_day(day, copy_query, settings)
+            finally:
+                # An INSERT that fails partway keeps the parts it already wrote, so a failed copy
+                # can also hold rows that an overlapping run removed.
+                if not self.config.dry_run:
+                    self.check_no_blocking_run_started(since=no_blocking_run_since, day=day)
             total_rows += rows
             action = "would copy" if self.config.dry_run else "copied"
             self.log.info(f"Shard {self.shard_num}, {day}: {action} {rows} row(s)")
@@ -285,12 +289,17 @@ class ShardBackfill:
             time.sleep(self.config.parts_check_poll_frequency_seconds)
 
     def wait_for_blocking_runs(self) -> datetime:
-        while blockers := describe_active_runs(self.instance, BLOCKING_JOB_NAMES, exclude_run_id=self.run_id):
+        while True:
+            # The scan reads one job at a time. Reading the clock before the scan makes a run that is
+            # created after the scan read its job still count as created after the returned time.
+            scan_started_at = datetime.now(UTC)
+            blockers = describe_active_runs(self.instance, BLOCKING_JOB_NAMES, exclude_run_id=self.run_id)
+            if not blockers:
+                return scan_started_at
             self.log.info(
                 f"Waiting {self.config.blocking_run_poll_seconds}s for these runs to finish: {'; '.join(blockers)}"
             )
             time.sleep(self.config.blocking_run_poll_seconds)
-        return datetime.now(UTC)
 
     def check_no_blocking_run_started(self, *, since: datetime, day: date) -> None:
         started = [
