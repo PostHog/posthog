@@ -20,13 +20,13 @@ tools:
             idempotent: false
         title: Create batch export
         description: >
-            Create a new batch export. This tool supports typed destination configs for Databricks, AzureBlob,
-            BigQuery, Postgres, AwsS3, S3Compatible, Snowflake, and Redshift. All require a team-scoped integration for
-            credentials. Use integrations-list to find one and pass its ID as destination.integration_id.
-            Always specify the model field (events, persons, sessions, or hogql). Omitting it
-            defaults to events. For the hogql model, provide hogql_query. Optionally provide hogql_modifiers, which
-            override the project HogQL modifiers with the same names for this export only, for example
-            {"convertToProjectTimezone": false} to export timestamps in UTC.
+            Create a new batch export. This tool supports typed destination configs for Databricks, AzureBlob, BigQuery,
+            Postgres, AwsS3, S3Compatible, Snowflake, and Redshift. All require a team-scoped integration for
+            credentials. Use integrations-list to find one and pass its ID as destination.integration_id. Always specify
+            the model field (events, persons, sessions, or hogql). Omitting it defaults to events. For the hogql model,
+            provide hogql_query. Optionally provide hogql_modifiers, which override the project HogQL modifiers with the
+            same names for this export only, for example {"convertToProjectTimezone": false} to export timestamps in
+            UTC.
         exclude_params:
             - id
             - team_id
@@ -75,11 +75,11 @@ tools:
             idempotent: true
         title: Update batch export
         description: >
-            Partially update a batch export. Top-level fields (name, paused, interval, timezone, offset_day, offset_hour) work for any
-            destination type. For the hogql model, hogql_query and hogql_modifiers can also change; send hogql_modifiers
-            as null to remove them. Typed destination config updates are available for Databricks, AzureBlob, BigQuery,
-            Postgres, AwsS3, S3Compatible, Snowflake, and Redshift. The destination type cannot be changed.
-            Do not change the model field on an existing batch export.
+            Partially update a batch export. Top-level fields (name, paused, interval, timezone, offset_day,
+            offset_hour) work for any destination type. For the hogql model, hogql_query and hogql_modifiers can also
+            change; send hogql_modifiers as null to remove them. Typed destination config updates are available for
+            Databricks, AzureBlob, BigQuery, Postgres, AwsS3, S3Compatible, Snowflake, and Redshift. The destination
+            type cannot be changed. Do not change the model field on an existing batch export.
         exclude_params:
             - id
             - team_id
