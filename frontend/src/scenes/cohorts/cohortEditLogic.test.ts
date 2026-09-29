@@ -113,6 +113,22 @@ describe('cohortEditLogic', () => {
             expect(logic.values.usedIn).toEqual(mockUsedInResponse)
         })
 
+        it.each([
+            { embedded: false, toasts: 1 },
+            { embedded: true, toasts: 0 },
+        ])('marks a missing cohort as missing, embedded=$embedded', async ({ embedded, toasts }) => {
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/cohorts/:id/': () => [404, { detail: 'Not found.' }],
+                },
+            })
+            ;(lemonToast.error as jest.Mock).mockClear()
+            await initCohortLogic({ id: 1, embedded })
+
+            expect(logic.values.cohortMissing).toBe(true)
+            expect(lemonToast.error).toHaveBeenCalledTimes(toasts)
+        })
+
         it('swallows used-in 404s without reporting them', async () => {
             useMocks({
                 get: {

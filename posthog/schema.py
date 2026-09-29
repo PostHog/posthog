@@ -6411,8 +6411,7 @@ class MaxRecordingEventFilter(BaseModel):
     name: str | None = Field(default=None, description="Optional display name for this event.")
     properties: (
         list[
-            AssistantCohortPropertyFilter
-            | AssistantHogQLPropertyFilter
+            AssistantHogQLPropertyFilter
             | AssistantFlagPropertyFilter
             | AssistantGenericPropertyFilter1
             | AssistantGenericPropertyFilter2
@@ -6431,7 +6430,10 @@ class MaxRecordingEventFilter(BaseModel):
             | AssistantElementPropertyFilter5
         ]
         | None
-    ) = Field(default=None, description="Optional property filters for this event only.")
+    ) = Field(
+        default=None,
+        description=("Optional property filters for this event only. Cohort filters are not available here."),
+    )
     type: Literal["events"] = "events"
 
 

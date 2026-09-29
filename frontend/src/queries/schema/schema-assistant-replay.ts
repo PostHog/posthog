@@ -8,7 +8,7 @@ import {
     SessionPropertyFilter,
 } from '~/types'
 
-import { AssistantPropertyFilter } from './schema-assistant-queries'
+import { AssistantCohortPropertyFilter, AssistantPropertyFilter } from './schema-assistant-queries'
 import { RecordingsQuery } from './schema-general'
 
 // Subset of RecordingUniversalFilters that is more tractable for the AI assistant
@@ -52,8 +52,8 @@ export interface MaxRecordingEventFilter {
     id: string
     /** Optional display name for this event. */
     name?: string
-    /** Optional property filters for this event only. */
-    properties?: AssistantPropertyFilter[]
+    /** Optional property filters for this event only. Cohort filters are not available here. */
+    properties?: Exclude<AssistantPropertyFilter, AssistantCohortPropertyFilter>[]
 }
 
 export type MaxUniversalFilterValue =

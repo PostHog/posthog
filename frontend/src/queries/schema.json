@@ -37885,9 +37885,25 @@
                     "type": "string"
                 },
                 "properties": {
-                    "description": "Optional property filters for this event only.",
+                    "description": "Optional property filters for this event only. Cohort filters are not available here.",
                     "items": {
-                        "$ref": "#/definitions/AssistantPropertyFilter"
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/AssistantGenericPropertyFilter"
+                            },
+                            {
+                                "$ref": "#/definitions/AssistantGroupPropertyFilter"
+                            },
+                            {
+                                "$ref": "#/definitions/AssistantElementPropertyFilter"
+                            },
+                            {
+                                "$ref": "#/definitions/AssistantHogQLPropertyFilter"
+                            },
+                            {
+                                "$ref": "#/definitions/AssistantFlagPropertyFilter"
+                            }
+                        ]
                     },
                     "type": "array"
                 },

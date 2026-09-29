@@ -76,6 +76,8 @@ import type { UserBasicType } from '../../types'
 
 export type CohortLogicProps = {
     id?: CohortType['id']
+    /** Set by notebook nodes and widgets, which render their own not-found state instead of a toast. */
+    embedded?: boolean
 }
 
 export type StaticCohortMode = 'criteria' | 'people'
@@ -898,7 +900,9 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                         actions.checkIfFinishedCalculating(cohort)
                         return processCohort(cohort)
                     } catch (error: any) {
-                        lemonToast.error(error.detail || 'Failed to fetch cohort')
+                        if (!props.embedded) {
+                            lemonToast.error(error.detail || 'Failed to fetch cohort')
+                        }
 
                         actions.setCohortMissing()
                         return values.cohort
