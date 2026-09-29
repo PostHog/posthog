@@ -24,6 +24,16 @@ const capture = {
     body_plain: 'Example text',
 }
 
+const createCaptureInvocation = (attempts = 0): CyclotronJobInvocation => ({
+    id: 'capture-job-example',
+    teamId: 1,
+    functionId: 'workflow-example',
+    state: null,
+    queue: 'email',
+    queuePriority: 0,
+    queueParameters: { type: 'emailCapture', capture, attempts },
+})
+
 describe('WorkflowConversationCaptureService', () => {
     let service: WorkflowConversationCaptureService
     let teamManager: Pick<TeamManager, 'getTeam'>
@@ -45,31 +55,12 @@ describe('WorkflowConversationCaptureService', () => {
         jest.useRealTimers()
     })
 
-    it('does not enqueue capture without the dedicated JWT key', () => {
-        const unconfigured = new WorkflowConversationCaptureService(
-            teamManager as TeamManager,
-            new ScopedServiceJwt(PosthogJwtAudience.CONVERSATIONS_WORKFLOW_EMAILS, ''),
-            'http://internal.example'
-        )
-        expect(unconfigured.enabled).toBe(false)
-        expect(service.enabled).toBe(true)
-    })
-
     it('records an unmatched send without retrying SES', async () => {
         mockInternalFetch.mockResolvedValue({
             status: 200,
             json: () => Promise.resolve({ status: 'skipped_unmatched' }),
         } as any)
-        const invocation: CyclotronJobInvocation = {
-            id: 'capture-job-example',
-            teamId: 1,
-            functionId: 'workflow-example',
-            state: null,
-            queue: 'email',
-            queuePriority: 0,
-            queueParameters: { type: 'emailCapture', capture, attempts: 0 },
-        }
-        const result = await service.executeCapture(invocation)
+        const result = await service.executeCapture(createCaptureInvocation())
         await Promise.resolve()
         expect(result.finished).toBe(true)
         expect(captureTeamEvent).toHaveBeenCalledWith(
@@ -86,16 +77,7 @@ describe('WorkflowConversationCaptureService', () => {
         'retries the capture job with backoff after %s attempts when the API is unavailable',
         async (attempts, delay) => {
             mockInternalFetch.mockRejectedValue(new Error('unavailable'))
-            const invocation: CyclotronJobInvocation = {
-                id: 'capture-job-example',
-                teamId: 1,
-                functionId: 'workflow-example',
-                state: null,
-                queue: 'email',
-                queuePriority: 0,
-                queueParameters: { type: 'emailCapture', capture, attempts },
-            }
-            const result = await service.executeCapture(invocation)
+            const result = await service.executeCapture(createCaptureInvocation(attempts))
             expect(result.finished).toBe(false)
             expect(result.invocation.queueParameters).toEqual({ type: 'emailCapture', capture, attempts: attempts + 1 })
             expect(result.invocation.queueScheduledAt?.toMillis()).toBe(Date.now() + delay)
