@@ -400,7 +400,10 @@ The service logs a warning at startup for each pool where the sum does not fit.
 Hash key override calls do not retry a timeout.
 They do retry a transient error.
 Each retry waits for a connection and runs the query again, so this sum bounds one acquire and one statement, not the whole call.
-A hash key override write chains two acquires and three statements across two pools in one attempt.
+A hash key override write chains two acquires and four statements across two pools in one attempt.
+The foreign keys on `posthog_featureflaghashkeyoverride` are deferred, so Postgres checks them at `COMMIT`.
+`statement_timeout` does not cover `COMMIT`.
+The write runs `SET CONSTRAINTS ALL IMMEDIATE` first, so the foreign key check on the person row runs inside the insert, under the writer statement timeout.
 The batch evaluation endpoint shares these pools, so its per-person lookups get the same limits.
 When a database error or a timeout fails a person, the endpoint evaluates the person a second time before it counts them in `errors_count`.
 Django leaves a person in that count out of the static cohort.

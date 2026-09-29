@@ -1157,6 +1157,14 @@ async fn try_set_feature_flag_hash_key_overrides(
     )
     .await?;
     let mut transaction = persons_conn.begin().await?;
+    // The foreign keys on posthog_featureflaghashkeyoverride are deferred. Postgres checks
+    // deferred keys at COMMIT. statement_timeout does not cover COMMIT. When another
+    // transaction holds FOR UPDATE on the person row, as a delete does, the commit waits until
+    // that transaction ends or the request times out. This statement moves the check into the
+    // INSERT, where statement_timeout applies.
+    sqlx::query("SET CONSTRAINTS ALL IMMEDIATE")
+        .execute(&mut *transaction)
+        .await?;
 
     // Query 1: Get all person data - person_ids + existing overrides + validation (person pool)
     let person_data_query = r#"
@@ -1691,10 +1699,12 @@ fn increment_hash_key_override_lookup_count() {
 
 #[cfg(test)]
 mod tests {
+    use common_database::{get_pool_with_config, PoolConfig};
     use rstest::rstest;
     use serde_json::json;
 
     use crate::{
+        config::DEFAULT_TEST_CONFIG,
         flags::flag_models::{FeatureFlag, FeatureFlagRow, FlagFilters},
         mock,
         properties::property_models::{OperatorType, PropertyFilter, PropertyType},
@@ -2715,6 +2725,69 @@ mod tests {
         assert_eq!(non_persons_reader.calls.load(Ordering::SeqCst), 3);
     }
 
+    #[tokio::test]
+    async fn test_set_overrides_statement_timeout_covers_person_row_lock() {
+        let context = TestContext::new(None).await;
+        let team = context.insert_new_team(None).await.unwrap();
+        let person_id = context
+            .insert_person(team.id, "user".to_string(), None)
+            .await
+            .unwrap();
+        let flag = mock!(FeatureFlag,
+            team_id: team.id,
+            ensure_experience_continuity: Some(true)
+        );
+        context
+            .insert_flag(team.id, Some(mock!(FeatureFlagRow, from: flag)))
+            .await
+            .unwrap();
+
+        let persons_writer: PostgresWriter = std::sync::Arc::new(
+            get_pool_with_config(
+                &DEFAULT_TEST_CONFIG.get_persons_write_database_url(),
+                PoolConfig {
+                    statement_timeout_ms: Some(200),
+                    ..PoolConfig::default()
+                },
+            )
+            .unwrap(),
+        );
+        let router = PostgresRouter::new(
+            context.persons_reader.clone(),
+            persons_writer,
+            context.non_persons_reader.clone(),
+            context.non_persons_writer.clone(),
+        );
+
+        // FOR UPDATE conflicts with the KEY SHARE lock that the foreign key check takes on the
+        // person row.
+        let mut lock_conn = context.persons_writer.get_connection().await.unwrap();
+        let mut lock_tx = lock_conn.begin().await.unwrap();
+        sqlx::query("SELECT id FROM posthog_person WHERE id = $1 FOR UPDATE")
+            .bind(person_id)
+            .execute(&mut *lock_tx)
+            .await
+            .unwrap();
+
+        let result = timeout(
+            Duration::from_secs(10),
+            set_feature_flag_hash_key_overrides(
+                &router,
+                team.id,
+                vec!["user".to_string()],
+                "hash".to_string(),
+            ),
+        )
+        .await
+        .expect("the write waited for the person row lock instead of timing out");
+        lock_tx.rollback().await.unwrap();
+
+        assert!(
+            matches!(result, Err(FlagError::TimeoutError(_))),
+            "expected a statement timeout, got {result:?}"
+        );
+    }
+
     /// `common_database` has the same mock, but it is private to that crate's tests.
     #[derive(Debug)]
     struct MockDbError {
@@ -2788,10 +2861,9 @@ mod tests {
             FlagError::DatabaseError(SqlxError::Protocol("operation timeout".to_string()), None);
         assert!(!should_retry_on_error(&protocol_timeout_error));
 
-        let foreign_key_violation = FlagError::DatabaseError(
-            SqlxError::from(MockDbError { code: "23503" }),
-            Some("Failed to commit transaction".to_string()),
-        );
+        let foreign_key_violation: FlagError =
+            SqlxError::from(MockDbError { code: "23503" }).into();
+        assert!(flag_error_is_foreign_key_constraint(&foreign_key_violation));
         assert!(should_retry_on_error(&foreign_key_violation));
 
         // Test that configuration errors don't trigger retries
