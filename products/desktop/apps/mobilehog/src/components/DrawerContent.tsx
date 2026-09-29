@@ -1,31 +1,29 @@
 import type { Task, TaskChannel } from "@posthog/shared/domain-types";
 import { useRouter } from "expo-router";
-import { useMemo, useState } from "react";
+import { type ReactElement, useMemo, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { DrawerEdgeShadow } from "@/components/DrawerEdgeShadow";
+import { FadeScrim } from "@/components/FadeScrim";
 import { GlassCircleButton } from "@/components/Glass";
-import { Dot } from "@/components/Icons";
+import { BellIcon, Dot, LockIcon } from "@/components/Icons";
+import { useActivity } from "@/lib/activity";
 import { useAuth } from "@/lib/auth";
 import { useChannels, useTasks } from "@/lib/queries";
 import { colors, fonts, radius } from "@/lib/theme";
 
-const LIVE: ReadonlySet<string> = new Set([
-  "queued",
-  "in_progress",
-  "not_started",
-]);
 const PREVIEW_COUNT = 3;
-// How far the drawer extends under the chat layer, so its edge frosts content.
-export const UNDERLAP = 72;
+const UNFILED = "tasks";
 
-interface Section {
+interface Space {
   key: string;
-  title: string;
+  name: string;
+  personal: boolean;
+  starred: boolean;
   tasks: Task[];
 }
 
-function groupTasks(tasks: Task[], channels: TaskChannel[]): Section[] {
+function groupSpaces(tasks: Task[], channels: TaskChannel[]): Space[] {
   const byChannel = new Map<string, Task[]>();
   const loose: Task[] = [];
   for (const task of tasks) {
@@ -40,19 +38,49 @@ function groupTasks(tasks: Task[], channels: TaskChannel[]): Section[] {
       loose.push(task);
     }
   }
-  const sections: Section[] = [];
-  for (const channel of channels) {
-    const list = byChannel.get(channel.id);
-    if (list?.length) {
-      const name =
-        channel.system_role === "personal" ? "personal" : channel.name;
-      sections.push({ key: channel.id, title: `# ${name}`, tasks: list });
-    }
+  const spaces: Space[] = channels
+    .map((channel) => ({
+      key: channel.id,
+      name: channel.system_role === "personal" ? "personal" : channel.name,
+      personal: channel.system_role === "personal",
+      starred: channel.starred || channel.system_role === "personal",
+      tasks: byChannel.get(channel.id) ?? [],
+    }))
+    .filter((space) => space.tasks.length > 0 || space.starred);
+  if (loose.length > 0) {
+    spaces.push({
+      key: UNFILED,
+      name: "tasks",
+      personal: false,
+      starred: false,
+      tasks: loose,
+    });
   }
-  if (loose.length || sections.length === 0) {
-    sections.push({ key: "tasks", title: "Tasks", tasks: loose });
+  // Personal first, then by name.
+  return spaces.sort(
+    (a, b) =>
+      Number(b.personal) - Number(a.personal) || a.name.localeCompare(b.name),
+  );
+}
+
+// Desktop's status dot: live states are solid, everything else a hollow ring.
+function statusDot(task: Task): { color: string; hollow: boolean } {
+  switch (task.latest_run?.status) {
+    case "queued":
+    case "not_started":
+    case "in_progress":
+      return { color: colors.accent, hollow: false };
+    case "failed":
+      return { color: colors.danger, hollow: false };
+    default:
+      return { color: colors.inkMute, hollow: true };
   }
-  return sections;
+}
+
+function taskTitle(task: Task): string {
+  return (
+    task.title || task.description_preview || task.description || "Untitled"
+  );
 }
 
 export function DrawerContent({ closeDrawer }: { closeDrawer: () => void }) {
@@ -61,10 +89,20 @@ export function DrawerContent({ closeDrawer }: { closeDrawer: () => void }) {
   const tasks = useTasks();
   const channels = useChannels();
   const userName = useAuth((s) => s.session?.userName ?? "");
-  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const unread = useActivity().data?.unread_count ?? 0;
+  // Starred spaces open by default, the rest closed; a toggle flips that.
+  const [toggled, setToggled] = useState<Set<string>>(new Set());
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [groupsClosed, setGroupsClosed] = useState<Set<string>>(new Set());
 
-  const toggle = (
+  const spaces = useMemo(
+    () => groupSpaces(tasks.data ?? [], channels.data ?? []),
+    [tasks.data, channels.data],
+  );
+  const starred = spaces.filter((space) => space.starred);
+  const rest = spaces.filter((space) => !space.starred);
+
+  const flip = (
     set: Set<string>,
     update: (next: Set<string>) => void,
     key: string,
@@ -75,109 +113,143 @@ export function DrawerContent({ closeDrawer }: { closeDrawer: () => void }) {
     update(next);
   };
 
-  const sections = useMemo(
-    () => groupTasks(tasks.data ?? [], channels.data ?? []),
-    [tasks.data, channels.data],
-  );
-
   const open = (taskId: string): void => {
     closeDrawer();
     router.push({ pathname: "/(drawer)/task/[id]", params: { id: taskId } });
   };
 
+  const renderSpace = (space: Space): ReactElement => {
+    const isOpen = space.starred !== toggled.has(space.key);
+    const isExpanded = expanded.has(space.key);
+    const visible = isExpanded
+      ? space.tasks
+      : space.tasks.slice(0, PREVIEW_COUNT);
+    const hidden = space.tasks.length - visible.length;
+    return (
+      <View key={space.key} style={styles.space}>
+        <Pressable
+          onPress={() => flip(toggled, setToggled, space.key)}
+          style={({ pressed }) => [
+            styles.spaceRow,
+            pressed && { opacity: 0.5 },
+          ]}
+        >
+          <Text style={[styles.chevron, isOpen && styles.chevronOpen]}>›</Text>
+          {space.personal ? <LockIcon /> : null}
+          <Text style={styles.spaceName} numberOfLines={1}>
+            {space.name}
+          </Text>
+        </Pressable>
+        {isOpen ? (
+          <View style={styles.tree}>
+            <View style={styles.treeLine} />
+            {visible.map((task) => {
+              const dot = statusDot(task);
+              return (
+                <Pressable
+                  key={task.id}
+                  onPress={() => open(task.id)}
+                  style={({ pressed }) => [
+                    styles.taskRow,
+                    pressed && { opacity: 0.5 },
+                  ]}
+                >
+                  <Dot color={dot.color} hollow={dot.hollow} />
+                  <Text style={styles.taskTitle} numberOfLines={1}>
+                    {taskTitle(task)}
+                  </Text>
+                </Pressable>
+              );
+            })}
+            {space.tasks.length === 0 ? (
+              <Text style={styles.empty}>Nothing here yet</Text>
+            ) : null}
+            {hidden > 0 || isExpanded ? (
+              <Pressable
+                onPress={() => flip(expanded, setExpanded, space.key)}
+                style={({ pressed }) => [
+                  styles.viewAllRow,
+                  pressed && { opacity: 0.5 },
+                ]}
+              >
+                <View style={styles.treeElbow} />
+                <Text style={styles.viewAll}>
+                  {isExpanded ? "view less" : "view all"}
+                </Text>
+                {!isExpanded ? (
+                  <Text style={styles.viewAllCount}>{space.tasks.length}</Text>
+                ) : null}
+              </Pressable>
+            ) : null}
+          </View>
+        ) : null}
+      </View>
+    );
+  };
+
+  const renderGroup = (
+    key: string,
+    label: string,
+    list: Space[],
+  ): ReactElement | null => {
+    if (list.length === 0) return null;
+    const closed = groupsClosed.has(key);
+    return (
+      <View style={styles.group}>
+        <Pressable
+          onPress={() => flip(groupsClosed, setGroupsClosed, key)}
+          hitSlop={6}
+          style={styles.groupHeader}
+        >
+          <Text style={styles.groupTitle}>{label}</Text>
+          <Text style={[styles.groupChevron, !closed && styles.chevronOpen]}>
+            ›
+          </Text>
+        </Pressable>
+        {closed ? null : list.map(renderSpace)}
+      </View>
+    );
+  };
+
   return (
-    <View
-      style={[
-        styles.root,
-        { paddingTop: insets.top + 18, paddingBottom: insets.bottom + 12 },
-      ]}
-    >
+    <View style={[styles.root, { paddingTop: insets.top + 18 }]}>
       <DrawerEdgeShadow />
       <Text style={styles.wordmark}>PostHog</Text>
       <ScrollView
-        contentContainerStyle={styles.scroll}
+        contentContainerStyle={[
+          styles.scroll,
+          { paddingBottom: FOOTER_HEIGHT + insets.bottom + 24 },
+        ]}
         showsVerticalScrollIndicator={false}
       >
-        {sections.map((section) => {
-          const isCollapsed = collapsed.has(section.key);
-          const isExpanded = expanded.has(section.key);
-          const visible = isExpanded
-            ? section.tasks
-            : section.tasks.slice(0, PREVIEW_COUNT);
-          const hidden = section.tasks.length - visible.length;
-          return (
-            <View key={section.key} style={styles.section}>
-              <Pressable
-                onPress={() => toggle(collapsed, setCollapsed, section.key)}
-                style={styles.sectionHeader}
-                hitSlop={6}
-              >
-                <Text style={styles.sectionTitle}>{section.title}</Text>
-                <Text
-                  style={[
-                    styles.sectionChevron,
-                    !isCollapsed && styles.sectionChevronOpen,
-                  ]}
-                >
-                  ›
-                </Text>
-              </Pressable>
-              {isCollapsed ? null : (
-                <>
-                  {section.tasks.length === 0 ? (
-                    <Text style={styles.empty}>
-                      {tasks.isLoading
-                        ? "Loading"
-                        : "Nothing yet. Start a chat."}
-                    </Text>
-                  ) : null}
-                  {visible.map((task) => {
-                    const live =
-                      !!task.latest_run?.status &&
-                      LIVE.has(task.latest_run.status);
-                    return (
-                      <Pressable
-                        key={task.id}
-                        onPress={() => open(task.id)}
-                        style={({ pressed }) => [
-                          styles.row,
-                          pressed && { opacity: 0.5 },
-                        ]}
-                      >
-                        <Dot color={live ? colors.accent : colors.inkMute} />
-                        <Text style={styles.rowText} numberOfLines={1}>
-                          {task.title ||
-                            task.description_preview ||
-                            task.description ||
-                            "Untitled"}
-                        </Text>
-                      </Pressable>
-                    );
-                  })}
-                  {hidden > 0 || isExpanded ? (
-                    <Pressable
-                      onPress={() => toggle(expanded, setExpanded, section.key)}
-                      style={({ pressed }) => [
-                        styles.row,
-                        pressed && { opacity: 0.5 },
-                      ]}
-                    >
-                      <View style={styles.moreDot} />
-                      <Text style={styles.moreText}>
-                        {isExpanded ? "Less" : `${hidden} more`}
-                      </Text>
-                    </Pressable>
-                  ) : null}
-                </>
-              )}
+        <Pressable
+          onPress={() => {
+            closeDrawer();
+            router.push("/(drawer)/activity");
+          }}
+          style={({ pressed }) => [styles.navRow, pressed && { opacity: 0.5 }]}
+        >
+          <BellIcon />
+          <Text style={styles.navLabel}>Activity</Text>
+          {unread > 0 ? (
+            <View style={styles.badge}>
+              <Text style={styles.badgeText}>{unread}</Text>
             </View>
-          );
-        })}
+          ) : null}
+        </Pressable>
+        {tasks.isLoading && spaces.length === 0 ? (
+          <Text style={styles.empty}>Loading</Text>
+        ) : null}
+        {renderGroup("starred", "Starred", starred)}
+        {renderGroup("spaces", "Spaces", rest)}
       </ScrollView>
-      <View style={styles.footer}>
+      <View
+        style={[styles.footer, { paddingBottom: insets.bottom + 12 }]}
+        pointerEvents="box-none"
+      >
+        <FadeScrim style={styles.footerScrim} color={colors.bgDeep} />
         <GlassCircleButton
-          size={44}
-          tint="rgba(255,92,28,0.18)"
+          size={FOOTER_HEIGHT}
           onPress={() => {
             closeDrawer();
             router.push("/settings");
@@ -192,78 +264,181 @@ export function DrawerContent({ closeDrawer }: { closeDrawer: () => void }) {
             closeDrawer();
             router.replace("/(drawer)");
           }}
-          style={({ pressed }) => [styles.newChat, pressed && { opacity: 0.8 }]}
+          style={({ pressed }) => [styles.newTask, pressed && { opacity: 0.8 }]}
         >
-          <Text style={styles.newChatText}>+ New chat</Text>
+          <Text style={styles.newTaskPlus}>+</Text>
+          <Text style={styles.newTaskText}>New task</Text>
         </Pressable>
       </View>
     </View>
   );
 }
 
+const CHEVRON_WIDTH = 18;
+const FOOTER_HEIGHT = 52;
+
 const styles = StyleSheet.create({
   root: {
     flex: 1,
     backgroundColor: colors.bgDeep,
-    paddingLeft: 22,
-    paddingRight: 22 + UNDERLAP,
-    marginRight: -UNDERLAP,
+    paddingLeft: 18,
+    paddingRight: 18 + 72,
+    marginRight: -72,
   },
   wordmark: {
-    fontFamily: fonts.serif,
-    fontSize: 32,
+    fontFamily: fonts.sansBold,
+    fontSize: 30,
     color: colors.ink,
-    marginBottom: 22,
+    marginBottom: 18,
+    marginLeft: 4,
   },
-  scroll: { paddingBottom: 24, gap: 22 },
-  section: { gap: 2 },
-  sectionHeader: {
+  scroll: { paddingBottom: 24, gap: 18 },
+  navRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingVertical: 8,
+    paddingLeft: 4,
+  },
+  navLabel: {
+    flex: 1,
+    fontFamily: fonts.sansMedium,
+    fontSize: 17,
+    color: colors.ink,
+  },
+  badge: {
+    minWidth: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: colors.accent,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 6,
+  },
+  badgeText: { fontFamily: fonts.sansSemi, fontSize: 12, color: "#FFFFFF" },
+  group: { gap: 2 },
+  groupHeader: {
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-    marginBottom: 8,
+    paddingVertical: 4,
+    paddingLeft: 4,
+    marginBottom: 2,
   },
-  sectionTitle: { fontFamily: fonts.sans, fontSize: 15, color: colors.inkMute },
-  sectionChevron: {
-    fontFamily: fonts.sans,
-    fontSize: 18,
-    lineHeight: 20,
+  groupTitle: {
+    fontFamily: fonts.sansSemi,
+    fontSize: 12,
+    letterSpacing: 1.2,
+    textTransform: "uppercase",
     color: colors.inkMute,
   },
-  sectionChevronOpen: { transform: [{ rotate: "90deg" }] },
-  moreDot: { width: 7, height: 7 },
-  moreText: { fontFamily: fonts.sans, fontSize: 15, color: colors.inkMute },
+  groupChevron: { fontSize: 16, lineHeight: 18, color: colors.inkMute },
+  space: { marginBottom: 2 },
+  spaceRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingVertical: 8,
+  },
+  chevron: {
+    width: CHEVRON_WIDTH,
+    textAlign: "center",
+    fontSize: 20,
+    lineHeight: 22,
+    color: colors.inkSoft,
+  },
+  chevronOpen: { transform: [{ rotate: "90deg" }] },
+  spaceName: {
+    flex: 1,
+    fontFamily: fonts.sansMedium,
+    fontSize: 16,
+    color: colors.ink,
+  },
+  tree: { paddingLeft: CHEVRON_WIDTH + 8 },
+  treeLine: {
+    position: "absolute",
+    left: CHEVRON_WIDTH / 2,
+    top: 0,
+    bottom: 22,
+    width: 1.5,
+    backgroundColor: colors.line,
+  },
+  taskRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingVertical: 10,
+  },
+  taskTitle: {
+    flex: 1,
+    fontFamily: fonts.sansMedium,
+    fontSize: 15,
+    color: colors.ink,
+  },
   empty: {
     fontFamily: fonts.sans,
     fontSize: 14,
     color: colors.inkMute,
     paddingVertical: 6,
   },
-  row: {
+  viewAllRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 16,
-    paddingVertical: 11,
+    gap: 8,
+    paddingVertical: 6,
+    marginLeft: -(CHEVRON_WIDTH / 2) - 8,
   },
-  rowText: { flex: 1, fontFamily: fonts.sans, fontSize: 17, color: colors.ink },
+  treeElbow: {
+    width: 22,
+    height: 12,
+    borderLeftWidth: 1.5,
+    borderBottomWidth: 1.5,
+    borderColor: colors.line,
+    borderBottomLeftRadius: 8,
+    marginTop: -12,
+  },
+  viewAll: { fontFamily: fonts.sans, fontSize: 15, color: colors.inkSoft },
+  viewAllCount: { fontFamily: fonts.sans, fontSize: 13, color: colors.inkMute },
   footer: {
+    position: "absolute",
+    left: 18,
+    right: 18 + 72,
+    bottom: 0,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingTop: 8,
+    paddingTop: 12,
+  },
+  footerScrim: {
+    position: "absolute",
+    left: -18,
+    right: -(18 + 72),
+    top: -36,
+    bottom: 0,
   },
   avatarText: {
-    fontSize: 13,
+    fontSize: 14,
     fontFamily: fonts.sansBold,
-    color: colors.accent,
+    color: colors.ink,
   },
-  newChat: {
+  newTask: {
+    height: FOOTER_HEIGHT,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
     backgroundColor: colors.dark,
-    paddingHorizontal: 22,
-    paddingVertical: 14,
+    paddingLeft: 18,
+    paddingRight: 24,
     borderRadius: radius.pill,
   },
-  newChatText: {
+  newTaskPlus: {
+    color: colors.darkText,
+    fontSize: 26,
+    lineHeight: 28,
+    fontFamily: fonts.sansMedium,
+    marginTop: -2,
+  },
+  newTaskText: {
     color: colors.darkText,
     fontSize: 16,
     fontFamily: fonts.sansSemi,
