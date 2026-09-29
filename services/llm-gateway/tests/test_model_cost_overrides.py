@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+import copy
 import os
 from collections.abc import Iterator
 from unittest.mock import MagicMock, patch
 
 import litellm
 import pytest
+from litellm.llms.anthropic.experimental_pass_through.messages.transformation import AnthropicMessagesConfig
+from litellm.types.router import GenericLiteLLMParams
 
+from llm_gateway.rate_limiting.cost_refresh import set_litellm_model_cost
 from llm_gateway.rate_limiting.model_cost_overrides import (
     MODEL_COST_OVERRIDES,
     PINNED_MODEL_COST_OVERRIDES,
@@ -107,9 +111,9 @@ class TestOverrideSurfacesThroughRefresh:
         ModelCostService.reset_instance()
         ModelRegistryService.reset_instance()
 
-    @pytest.mark.parametrize("model", ["claude-fable-5", "claude-fable-5-1"])
+    @pytest.mark.parametrize("model", ["claude-fable-5", "claude-fable-5-1", "claude-opus-5-5", "claude-sonnet-5-5"])
     @patch("llm_gateway.rate_limiting.model_cost_service.get_model_cost_map")
-    def test_refresh_injects_fable_when_upstream_missing(self, mock_get_cost_map: MagicMock, model: str) -> None:
+    def test_refresh_injects_bridge_model_when_upstream_missing(self, mock_get_cost_map: MagicMock, model: str) -> None:
         mock_get_cost_map.return_value = {
             "claude-opus-4-8": {
                 "litellm_provider": "anthropic",
@@ -155,3 +159,70 @@ class TestOverrideSurfacesThroughRefresh:
         assert "claude-opus-4-8" in model_ids
         assert "claude-fable-5" in model_ids
         assert "claude-fable-5-1" in model_ids
+
+    @pytest.mark.parametrize("product", ["posthog_code", "background_agents", "slack_app", "workflows"])
+    @patch("llm_gateway.rate_limiting.model_cost_service.get_model_cost_map")
+    def test_sonnet_5_5_listed_for_agent_products(self, mock_get_cost_map: MagicMock, product: str) -> None:
+        mock_get_cost_map.return_value = {
+            "claude-opus-4-8": {
+                "litellm_provider": "anthropic",
+                "mode": "chat",
+                "max_input_tokens": 200_000,
+            },
+        }
+        ModelCostService.get_instance()._refresh_cache()
+
+        settings = MagicMock()
+        settings.openai_api_key = None
+        settings.anthropic_api_key = "sk-ant-test"
+        settings.openrouter_api_key = None
+        settings.fireworks_api_key = None
+
+        with patch.dict(os.environ, {}, clear=False):
+            for var in PROVIDER_ENV_VARS:
+                os.environ.pop(var, None)
+            with patch(
+                "llm_gateway.services.model_registry.get_settings",
+                return_value=settings,
+            ):
+                model_ids = {m.id for m in get_available_models(product)}
+
+        assert "claude-sonnet-5-5" in model_ids
+
+
+CLAUDE_BRIDGE_MODELS = ["claude-fable-5", "claude-fable-5-1", "claude-opus-5-5", "claude-sonnet-5-5"]
+
+
+@pytest.fixture
+def bridged_litellm_cost_map() -> Iterator[None]:
+    """litellm.model_cost with every Claude bridge row applied over a map that lacks them."""
+    original = litellm.model_cost
+    model_cost = {k: v for k, v in copy.deepcopy(original).items() if k not in CLAUDE_BRIDGE_MODELS}
+    apply_model_cost_overrides(model_cost)
+    set_litellm_model_cost(model_cost)
+    yield
+    set_litellm_model_cost(original)
+
+
+@pytest.mark.usefixtures("bridged_litellm_cost_map")
+@pytest.mark.parametrize("model", CLAUDE_BRIDGE_MODELS)
+@pytest.mark.parametrize(
+    "thinking,effort",
+    [({"type": "between_tools"}, "high"), ({"type": "adaptive"}, "xhigh")],
+)
+def test_claude_bridge_row_keeps_thinking_and_effort(model: str, thinking: dict[str, str], effort: str) -> None:
+    # Without the capability flags litellm treats the model as non-adaptive and strips both fields.
+    out = AnthropicMessagesConfig().transform_anthropic_messages_request(
+        model=model,
+        messages=[{"role": "user", "content": "hi"}],
+        anthropic_messages_optional_request_params={
+            "max_tokens": 1024,
+            "thinking": dict(thinking),
+            "output_config": {"effort": effort},
+        },
+        litellm_params=GenericLiteLLMParams(),
+        headers={},
+    )
+
+    assert out["thinking"] == thinking
+    assert out["output_config"] == {"effort": effort}
