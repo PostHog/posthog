@@ -39,6 +39,7 @@ products/web_analytics/backend/hogql_queries
 
 # Code outside HogQL that builds events SQL itself and branches on the schema
 posthog/dags/tests/test_deletes.py
+posthog/models/person/test/test_point_in_time_properties_integration.py
 posthog/models/team/test_production_event_activation.py
 posthog/models/test/test_deletion_targets.py
 posthog/tasks/test/test_ai_observability_usage_report.py

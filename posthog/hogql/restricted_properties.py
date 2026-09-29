@@ -9,7 +9,7 @@ from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsTable
 from posthog.hogql.database.schema.groups import GroupsTable, RawGroupsTable
 from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable
 
-from posthog.clickhouse.events_json import UNPARSEABLE_PROPERTIES_KEY
+from posthog.clickhouse.events_json import TEMPORARY_PROPERTIES_COLUMN, UNPARSEABLE_PROPERTIES_KEY
 from posthog.constants import GROUP_TYPES_LIMIT
 
 logger = structlog.get_logger(__name__)
@@ -21,6 +21,8 @@ RESTRICTABLE_JSON_BLOB_COLUMNS: frozenset[str] = frozenset(
     {
         "properties",  # events.properties, persons.properties, groups.group_properties reads via the HogQL name
         "person_properties",  # EventsPersonSubTable (PoE mode)
+        # Not in the catalog. The property resolver reads it as the masked document for a restricted moved property.
+        TEMPORARY_PROPERTIES_COLUMN,
         "group_properties",  # groups / raw_groups
         # EventsGroupSubTable (group-on-events mode) exposes each group type's blob on the events table.
         *(f"group{index}_properties" for index in range(GROUP_TYPES_LIMIT)),

@@ -21,6 +21,7 @@ so it treats both an empty string and the literal text `"null"` as "not set". Th
 exist in the blob" test, but tightening it would change query results.
 """
 
+import re
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from typing import Literal, cast
@@ -29,7 +30,7 @@ from posthog.hogql import ast
 from posthog.hogql.base import _T_AST
 from posthog.hogql.constants import EXCEPTION_STRING_ARRAY_PROPERTIES, FEATURE_FLAG_FALSE_VARIANT_SENTINEL
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.models import DatabaseField, MapStringDatabaseField
+from posthog.hogql.database.models import DatabaseField, MapStringDatabaseField, StringJSONDatabaseField
 from posthog.hogql.errors import QueryError
 from posthog.hogql.functions.mapping import HOGQL_COMPARISON_MAPPING
 from posthog.hogql.printer.base import resolve_field_type
@@ -49,7 +50,11 @@ from posthog.hogql.type_system import (
 from posthog.hogql.utils import ilike_matches, like_matches
 from posthog.hogql.visitor import CloningVisitor, clone_expr
 
-from posthog.clickhouse.events_json import DISTRIBUTED_EVENTS_JSON_TABLE
+from posthog.clickhouse.events_json import (
+    DISTRIBUTED_EVENTS_JSON_TABLE,
+    TEMPORARY_PROPERTIES_COLUMN,
+    is_temporary_event_property,
+)
 from posthog.clickhouse.property_groups import property_groups
 from posthog.clickhouse.workload import Workload
 from posthog.schema_enums import MaterializationMode, PropertyGroupsMode
@@ -89,6 +94,7 @@ class MaterializedPropertySource:
     has_ngram_lower_index: bool = False
     has_bloom_filter_index: bool = False
     has_bloom_filter_lower_index: bool = False
+    json_column: str | None = None
 
 
 def _unwrap_to_table_type(field_type: ast.FieldType) -> ast.TableType | None:
@@ -184,6 +190,11 @@ def resolve_json_subcolumn_source(
         column=property_name,
         is_nullable=True,
         column_type="Dynamic",
+        json_column=(
+            TEMPORARY_PROPERTIES_COLUMN
+            if field_name == "properties" and is_temporary_event_property(property_name)
+            else None
+        ),
     )
 
 
@@ -252,47 +263,73 @@ def _sentinel(value: str) -> ast.Constant:
     return ast.Constant(value=value, inline_sentinel=True)
 
 
-def _augment_plain_table_type(table_type: ast.TableType, column_name: str, is_nullable: bool) -> ast.TableType:
+def _augment_plain_table_type(
+    table_type: ast.TableType, column_name: str, is_nullable: bool, database_field: type[DatabaseField]
+) -> ast.TableType:
     table = table_type.table
     if table.has_field(column_name):
         return table_type
-    synthetic = DatabaseField(name=column_name, nullable=is_nullable)
+    synthetic = database_field(name=column_name, nullable=is_nullable)
     augmented = table.model_copy(update={"fields": {**table.fields, column_name: synthetic}})
     return ast.TableType(table=augmented)
 
 
 def _augment_table_type(
-    table_type: ast.Type, column_name: str, *, is_nullable: bool
+    table_type: ast.Type, column_name: str, *, is_nullable: bool, database_field: type[DatabaseField]
 ) -> ast.TableType | ast.TableAliasType | None:
     if isinstance(table_type, ast.VirtualTableType):
         # PoE person properties: the physical mat/group columns live on the underlying events table.
-        return _augment_table_type(table_type.table_type, column_name, is_nullable=is_nullable)
+        return _augment_table_type(
+            table_type.table_type, column_name, is_nullable=is_nullable, database_field=database_field
+        )
     if isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
         inner = table_type.table_type
         if not isinstance(inner, ast.TableType):
             return None
         return ast.TableAliasType(
-            alias=table_type.alias, table_type=_augment_plain_table_type(inner, column_name, is_nullable)
+            alias=table_type.alias,
+            table_type=_augment_plain_table_type(inner, column_name, is_nullable, database_field),
         )
     if isinstance(table_type, ast.TableType):
-        return _augment_plain_table_type(table_type, column_name, is_nullable)
+        return _augment_plain_table_type(table_type, column_name, is_nullable, database_field)
     return None
 
 
-def _synthetic_column_field(field_type: ast.FieldType, column_name: str, *, is_nullable: bool) -> ast.Field | None:
+def _synthetic_column_field(
+    field_type: ast.FieldType,
+    column_name: str,
+    *,
+    is_nullable: bool,
+    database_field: type[DatabaseField] = DatabaseField,
+) -> ast.Field | None:
     """A typed `Field` for a physical ClickHouse column that the HogQL schema doesn't know about.
 
     Materialized / dmat / property-group columns exist on the table but aren't in the HogQL schema, so a plain `Field`
     can't resolve to them. Build a fake `DatabaseField` on a copy of the table and point a fresh `FieldType` at it,
     keeping any table alias so the printed prefix (`events.` / `e.`) is unchanged.
     """
-    table_type = _augment_table_type(field_type.table_type, column_name, is_nullable=is_nullable)
+    table_type = _augment_table_type(
+        field_type.table_type, column_name, is_nullable=is_nullable, database_field=database_field
+    )
     if table_type is None:
         return None
     return ast.Field(
         chain=[column_name],
         type=ast.FieldType(name=column_name, table_type=table_type),
     )
+
+
+def _temporary_properties_document(field_type: ast.FieldType) -> ast.Field:
+    """The `temporary_properties` blob of the events table that `field_type` reads from.
+
+    It is a JSON blob field, so the printer serializes it and drops restricted keys from it as it does for
+    `properties`. Reads of a moved key use it when a restricted child hides the key's subcolumn.
+    """
+    document = _synthetic_column_field(
+        field_type, TEMPORARY_PROPERTIES_COLUMN, is_nullable=False, database_field=StringJSONDatabaseField
+    )
+    assert document is not None
+    return document
 
 
 def _materialized_head_expr(
@@ -360,8 +397,14 @@ def _json_subcolumn_access(
         if not isinstance(key, str):
             break
         path.append(key)
+    json_field = (
+        ast.Field(chain=[field_type.name], type=field_type)
+        if source.json_column is None
+        else _synthetic_column_field(field_type, source.json_column, is_nullable=False)
+    )
+    assert json_field is not None
     value: ast.Expr = ast.JsonSubcolumnAccess(
-        expr=ast.Field(chain=[field_type.name], type=field_type),
+        expr=json_field,
         keys=path,
         access_type=access_type,
         type=_column_constant_type_for_read(source, is_nullable=is_nullable),
@@ -530,7 +573,40 @@ def _is_events_properties(field_type: ast.FieldType, context: HogQLContext) -> b
     )
 
 
+def _is_moved_events_property(field_type: ast.FieldType, key: str, context: HogQLContext) -> bool:
+    """Whether `key` of native `events.properties` is stored in `temporary_properties` instead."""
+    return (
+        context.uses_new_events_schema()
+        and is_temporary_event_property(key)
+        and _is_events_properties(field_type, context)
+    )
+
+
 FEATURE_FLAG_PROPERTY_PREFIX = "$feature/"
+
+# JSON functions that take a key path and that nothing earlier rewrites to read one property. The printer passes them
+# the serialized `properties` document, which never holds a key the native cleaner moves to `temporary_properties`.
+_TEMPORARY_PROPERTY_JSON_PATH_FUNCTIONS = frozenset(
+    {
+        "JSONExtractArrayRaw",
+        "JSONExtractKeys",
+        "JSONExtractKeysAndValues",
+        "JSONExtractKeysAndValuesRaw",
+        "JSONLength",
+        "JSONType",
+    }
+)
+
+_JSON_PATH_FIRST_MEMBER = re.compile(
+    r"""^\$(?:\.(?:"(?P<dot_quoted>[^"]*)"|(?P<dot>[^.\[]+))|\[(?:"(?P<bracket_double>[^"]*)"|'(?P<bracket_single>[^']*)')\])"""
+)
+
+
+def _json_path_first_member(path: str) -> str | None:
+    match = _JSON_PATH_FIRST_MEMBER.match(path)
+    if match is None:
+        return None
+    return next(member for member in match.groups() if member is not None)
 
 
 def _is_virtual_feature_flag_key(key: str) -> bool:
@@ -735,6 +811,9 @@ def _substitute_value_read(node: ast.PropertyAccess, context: HogQLContext) -> a
 
     source = resolve_materialized_property_source(field_type, first_key, context)
     if source is None:
+        if _is_moved_events_property(field_type, first_key, context):
+            _record_property_usage(context, None)
+            return ast.PropertyAccess(expr=_temporary_properties_document(field_type), keys=node.keys, type=node.type)
         # A physical Map column (logs/spans/metrics attributes) reads an un-grouped key via map subscript — the JSON
         # fallback would print JSONExtract, which ClickHouse rejects on a Map. Plain JSON blobs (events.properties)
         # keep the JSON fallback.
@@ -1152,6 +1231,14 @@ class ClickHousePropertyResolver(CloningVisitor):
         if feature_flag_extract is not None:
             return feature_flag_extract
 
+        temporary_property_json_function = self._rewrite_json_function_on_temporary_property(node)
+        if temporary_property_json_function is not None:
+            return temporary_property_json_function
+
+        temporary_property_json_value = self._rewrite_json_value_on_temporary_property(node)
+        if temporary_property_json_value is not None:
+            return temporary_property_json_value
+
         json_extract_on_events_json = self._rewrite_json_extract_on_events_json_subcolumn(node)
         if json_extract_on_events_json is not None:
             return json_extract_on_events_json
@@ -1210,6 +1297,79 @@ class ClickHousePropertyResolver(CloningVisitor):
             name=node.name,
             type=node.type,
             args=[ast.Call(name="ifNull", args=[value, _sentinel("")]), *[self.visit(arg) for arg in node.args[2:]]],
+        )
+
+    def _rewrite_json_function_on_temporary_property(self, node: ast.Call) -> ast.Expr | None:
+        """`f(properties, '$set', ...)` on native events, applied to the JSON of `$set` from `temporary_properties`."""
+        if (
+            not self.context.uses_new_events_schema()
+            or node.name not in _TEMPORARY_PROPERTY_JSON_PATH_FUNCTIONS
+            or len(node.args) < 2
+        ):
+            return None
+        field_type = resolve_field_type(node.args[0])
+        if not isinstance(field_type, ast.FieldType) or not _is_events_properties(field_type, self.context):
+            return None
+        if not isinstance(node.args[1], ast.Constant):
+            # A key computed per row can name a moved property, which the serialized `properties` document lacks.
+            raise QueryError(f"{node.name} over native event properties requires a constant first key")
+        first_key = node.args[1].value
+        if not isinstance(first_key, str) or not is_temporary_event_property(first_key):
+            return None
+        source = resolve_json_subcolumn_source(
+            field_type, DISTRIBUTED_EVENTS_JSON_TABLE, "properties", first_key, self.context
+        )
+        if source is None:
+            # A restriction on the key or on one of its children leaves no source.
+            args: list[ast.Expr] = [
+                _temporary_properties_document(field_type),
+                *[self.visit(arg) for arg in node.args[1:]],
+            ]
+        else:
+            json_value = _json_subcolumn_value_expr(field_type, [first_key], source=source, as_json=True)
+            args = [
+                ast.Call(name="ifNull", args=[json_value, _sentinel("")], type=ast.StringType(nullable=False)),
+                *[self.visit(arg) for arg in node.args[2:]],
+            ]
+        return ast.Call(
+            start=node.start,
+            end=node.end,
+            type=node.type,
+            name=node.name,
+            args=args,
+            params=node.params,
+            distinct=node.distinct,
+            within_group=node.within_group,
+            order_by=node.order_by,
+            filter_expr=node.filter_expr,
+        )
+
+    def _rewrite_json_value_on_temporary_property(self, node: ast.Call) -> ast.Expr | None:
+        """`JSON_VALUE(properties, '$."$set".email')` on native events, applied to the `temporary_properties` document.
+
+        That document has the same top-level layout as `properties`, so the path applies unchanged. The printer drops
+        restricted keys from it as it does for `properties`.
+        """
+        if (
+            not self.context.uses_new_events_schema()
+            or node.name != "JSON_VALUE"
+            or len(node.args) != 2
+            or not isinstance(node.args[1], ast.Constant)
+            or not isinstance(node.args[1].value, str)
+        ):
+            return None
+        first_member = _json_path_first_member(node.args[1].value)
+        if first_member is None or not is_temporary_event_property(first_member):
+            return None
+        field_type = resolve_field_type(node.args[0])
+        if not isinstance(field_type, ast.FieldType) or not _is_events_properties(field_type, self.context):
+            return None
+        return ast.Call(
+            start=node.start,
+            end=node.end,
+            type=node.type,
+            name=node.name,
+            args=[_temporary_properties_document(field_type), self.visit(node.args[1])],
         )
 
     def _rewrite_feature_flag_json_has(self, node: ast.Call) -> ast.Expr | None:
@@ -1320,6 +1480,20 @@ class ClickHousePropertyResolver(CloningVisitor):
                 return self.visit_property_access(property_access)
             return None
         source = resolve_materialized_property_source(field_type, property_name, self.context)
+        if source is None and _is_moved_events_property(field_type, property_name, self.context):
+            # toJSONString of the extracted text would quote an object as a string, so extract the raw JSON instead.
+            _record_property_usage(self.context, None)
+            return ast.Call(
+                name="nullIf",
+                args=[
+                    ast.Call(
+                        name="JSONExtractRaw",
+                        args=[_temporary_properties_document(field_type), ast.Constant(value=property_name)],
+                    ),
+                    _sentinel(""),
+                ],
+                type=ast.StringType(nullable=True),
+            )
         if source is None or source.kind != "json_subcolumn":
             return None
 
@@ -1433,7 +1607,15 @@ class ClickHousePropertyResolver(CloningVisitor):
             return ast.Constant(value=False, type=ast.BooleanType(nullable=False))
         if native_property_path_overlaps_restriction(first_key, field_type.table_type, self.context):
             # Read the masked document so nested and computed keys cannot inspect a restricted child.
-            return None
+            if not _is_moved_events_property(field_type, first_key, self.context):
+                return None
+            return ast.Call(
+                start=node.start,
+                end=node.end,
+                type=node.type,
+                name=node.name,
+                args=[_temporary_properties_document(field_type), *[self.visit(arg) for arg in node.args[1:]]],
+            )
 
         source = resolve_json_subcolumn_source(
             field_type, table_type.table.to_printed_clickhouse(self.context), field.name, first_key, self.context
