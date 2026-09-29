@@ -145,6 +145,47 @@ CLAIMABLE_BATCHES = Gauge(
     multiprocess_mode="livemax",
 )
 
+# Concentration companions to the depth gauge. The loader drains each (team,
+# schema) group one batch at a time by design, so a deep queue held by a few
+# groups is serial by construction and loader slots sit idle; a deep queue spread
+# over many groups with nothing executing is a capacity problem. Depth alone
+# reads the same either way. Same probe, same cadence, same aggregation (max
+# across pods).
+CLAIMABLE_GROUPS = Gauge(
+    "warehouse_pg_queue_claimable_groups",
+    "Distinct (team_id, schema_id) groups holding at least one claimable batch. Excludes "
+    "batches whose run already holds a failed batch, as warehouse_pg_queue_oldest_unclaimed_"
+    "batch_seconds does. Sampled on the reconcile cadence.",
+    multiprocess_mode="livemax",
+)
+
+TOP_GROUPS_CLAIMABLE_SHARE = Gauge(
+    "warehouse_pg_queue_top_groups_claimable_share",
+    "Fraction (0..1) of claimable batches held by the 5 (team_id, schema_id) groups with the "
+    "most claimable batches; 0 when the queue is empty. Near 1 means a few groups own the "
+    "queue and drain serially by design. Same blocked-batch exclusion as "
+    "warehouse_pg_queue_claimable_groups. Sampled on the reconcile cadence.",
+    multiprocess_mode="livemax",
+)
+
+SLOT_WAITING_BATCHES = Gauge(
+    "warehouse_pg_queue_slot_waiting_batches",
+    "Claimable batches whose (team_id, schema_id) group has no batch executing: work that "
+    "starts as soon as a loader slot is free, so a high value with free slots means the "
+    "claim path is slow. Same blocked-batch exclusion as warehouse_pg_queue_claimable_groups; "
+    "with warehouse_pg_queue_serialized_batches it sums to the depth minus the blocked "
+    "batches. Sampled on the reconcile cadence.",
+    multiprocess_mode="livemax",
+)
+
+SERIALIZED_BATCHES = Gauge(
+    "warehouse_pg_queue_serialized_batches",
+    "Claimable batches whose (team_id, schema_id) group already has a batch executing: they "
+    "wait behind their own group, not for fleet capacity. Same blocked-batch exclusion as "
+    "warehouse_pg_queue_claimable_groups. Sampled on the reconcile cadence.",
+    multiprocess_mode="livemax",
+)
+
 # The maintenance queries (sweeps, reconcile passes, probes) shaped like the claim
 # poll: cost scales with queue state, and the 2026-08 stall came from one that had
 # no latency signal at all. Same bucket ceiling rationale as POLL_DURATION_BUCKETS.
@@ -222,7 +263,14 @@ class ConsumerMetrics:
     poll_failures_total: Counter
     active_groups: Gauge
     recovery_sweeps_total: Counter
+    coalesced_sets_total: Counter
 
+
+COALESCED_SETS_TOTAL = Counter(
+    "warehouse_pg_consumer_coalesced_sets_total",
+    "Sets of consecutive batches of one run loaded as a single write, by outcome",
+    labelnames=["outcome"],
+)
 
 DELTA_CONSUMER_METRICS = ConsumerMetrics(
     batches_processed_total=BATCHES_PROCESSED_TOTAL,
@@ -234,6 +282,7 @@ DELTA_CONSUMER_METRICS = ConsumerMetrics(
     poll_failures_total=POLL_FAILURES_TOTAL,
     active_groups=ACTIVE_GROUPS,
     recovery_sweeps_total=RECOVERY_SWEEPS_TOTAL,
+    coalesced_sets_total=COALESCED_SETS_TOTAL,
 )
 
 _metrics_by_prefix: dict[str, ConsumerMetrics] = {}
@@ -289,6 +338,11 @@ def make_consumer_metrics(prefix: str) -> ConsumerMetrics:
         recovery_sweeps_total=Counter(
             f"{p}_recovery_sweeps_total",
             "Total recovery sweeps executed",
+            labelnames=["outcome"],
+        ),
+        coalesced_sets_total=Counter(
+            f"{p}_coalesced_sets_total",
+            "Sets of consecutive batches of one run loaded as a single write, by outcome",
             labelnames=["outcome"],
         ),
     )

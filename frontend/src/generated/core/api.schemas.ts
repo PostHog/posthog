@@ -509,6 +509,7 @@ export interface OrganizationInviteDelegateApi {
 }
 
 /**
+ * * `data_catalog_weekly_digest` - data_catalog_weekly_digest
  * * `discussions_mentioned` - discussions_mentioned
  * * `error_tracking_issue_assigned` - error_tracking_issue_assigned
  * * `error_tracking_weekly_digest_project_enabled` - error_tracking_weekly_digest_project_enabled
@@ -523,6 +524,7 @@ export interface OrganizationInviteDelegateApi {
 export type SettingEnumApi = (typeof SettingEnumApi)[keyof typeof SettingEnumApi]
 
 export const SettingEnumApi = {
+    DataCatalogWeeklyDigest: 'data_catalog_weekly_digest',
     DiscussionsMentioned: 'discussions_mentioned',
     ErrorTrackingIssueAssigned: 'error_tracking_issue_assigned',
     ErrorTrackingWeeklyDigestProjectEnabled: 'error_tracking_weekly_digest_project_enabled',
@@ -538,6 +540,7 @@ export const SettingEnumApi = {
 export interface OrganizationNotificationLockApi {
     /** Notification setting this rule enforces.
      *
+     * * `data_catalog_weekly_digest` - data_catalog_weekly_digest
      * * `discussions_mentioned` - discussions_mentioned
      * * `error_tracking_issue_assigned` - error_tracking_issue_assigned
      * * `error_tracking_weekly_digest_project_enabled` - error_tracking_weekly_digest_project_enabled
@@ -579,6 +582,7 @@ export interface OrganizationNotificationLockChangeApi {
     user_id: number
     /** Notification setting to lock or unlock.
      *
+     * * `data_catalog_weekly_digest` - data_catalog_weekly_digest
      * * `discussions_mentioned` - discussions_mentioned
      * * `error_tracking_issue_assigned` - error_tracking_issue_assigned
      * * `error_tracking_weekly_digest_project_enabled` - error_tracking_weekly_digest_project_enabled
@@ -3655,6 +3659,7 @@ export const RestrictionTypeEnumApi = {
  * * `session_recordings` - Session Recordings
  * * `errortracking` - Errortracking
  * * `clientwarnings` - Clientwarnings
+ * * `heatmaps` - Heatmaps
  * * `ai` - Ai
  */
 export type IngestionPipelineEnumApi = (typeof IngestionPipelineEnumApi)[keyof typeof IngestionPipelineEnumApi]
@@ -3664,6 +3669,7 @@ export const IngestionPipelineEnumApi = {
     SessionRecordings: 'session_recordings',
     Errortracking: 'errortracking',
     Clientwarnings: 'clientwarnings',
+    Heatmaps: 'heatmaps',
     Ai: 'ai',
 } as const
 
@@ -3861,6 +3867,18 @@ export interface DataDeletionRequestInputApi {
 export interface DataDeletionPreviewApi {
     /** Number of event UUIDs selected when the preview ran. */
     readonly count: number
+}
+
+export interface EmojiSuggestionApi {
+    /** The suggested emoji character. */
+    emoji: string
+    /** The emoji's English name. */
+    label: string
+}
+
+export interface EmojiSearchResponseApi {
+    /** Related emojis, or an empty list. */
+    suggestions: EmojiSuggestionApi[]
 }
 
 /**
@@ -4150,6 +4168,40 @@ export interface PatchedFileSystemShortcutApi {
     readonly user_access_level?: string | null
 }
 
+export interface FileSystemShortcutBulkItemApi {
+    /** Display path of the shortcut in the sidebar. */
+    path: string
+    /**
+     * Type of the linked item (e.g. 'folder', 'insight'), or blank.
+     * @maxLength 100
+     */
+    type?: string
+    /**
+     * Reference to the linked item, scoped to its type. Null for href-only shortcuts.
+     * @maxLength 4000
+     * @nullable
+     */
+    ref?: string | null
+    /**
+     * Destination URL the shortcut opens. Null when the shortcut points at an item by ref.
+     * @nullable
+     */
+    href?: string | null
+}
+
+export interface FileSystemShortcutBulkUpdateApi {
+    /**
+     * Shortcuts to create, appended to the end of the current order in the given sequence. An item identical to a shortcut the user already has is skipped.
+     * @maxItems 500
+     */
+    add?: FileSystemShortcutBulkItemApi[]
+    /**
+     * IDs of the current user's shortcuts to delete.
+     * @maxItems 500
+     */
+    remove_ids?: string[]
+}
+
 export interface FileSystemShortcutReorderApi {
     /** IDs of the current user's shortcuts in the desired display order. */
     ordered_ids: string[]
@@ -4351,6 +4403,96 @@ export interface BulkUpdateTagsErrorApi {
 export interface BulkUpdateTagsResponseApi {
     updated: BulkUpdateTagsItemApi[]
     skipped: BulkUpdateTagsErrorApi[]
+}
+
+export interface SearchIntentRequestApi {
+    /**
+     * What the person typed into the filter picker search box.
+     * @maxLength 200
+     */
+    query: string
+    /**
+     * The picker tab that is open, as a taxonomic group type such as event_properties.
+     * @maxLength 100
+     */
+    active_group_type: string
+    /**
+     * The taxonomic group types the picker shows. The answer is always one of these, or null.
+     * @maxItems 64
+     * @items.maxLength 100
+     */
+    available_group_types: string[]
+    /**
+     * The id of the scene the picker is open in, such as Insight or Replay.
+     * @nullable
+     * @pattern ^[A-Za-z0-9_-]{1,64}$
+     */
+    scene?: string | null
+}
+
+/**
+ * * `rule` - Matched a value pattern
+ * * `model` - Asked the decision model
+ * * `skipped` - Not classified
+ */
+export type SearchIntentSourceEnumApi = (typeof SearchIntentSourceEnumApi)[keyof typeof SearchIntentSourceEnumApi]
+
+export const SearchIntentSourceEnumApi = {
+    Rule: 'rule',
+    Model: 'model',
+    Skipped: 'skipped',
+} as const
+
+export interface SearchIntentResponseApi {
+    /**
+     * The taxonomic group type the search most likely belongs to, or null if it was not classified.
+     * @nullable
+     */
+    group_type: string | null
+    /** How far the chosen group stands out from the rest, from 0 (a coin flip) to 1. */
+    confidence: number
+    /** Whether the confidence is high enough to act on, for example to suggest a different tab. */
+    is_confident: boolean
+    /** Whether the picker should suggest switching from the open tab to group_type. */
+    suggests_switch: boolean
+    /** How the answer was found: a value pattern, the decision model, or not at all.
+     *
+     * * `rule` - Matched a value pattern
+     * * `model` - Asked the decision model
+     * * `skipped` - Not classified */
+    method: SearchIntentSourceEnumApi
+    /**
+     * The version of the managed search intent prompt the model read. Null for a value pattern, a skipped search, or the bundled fallback prompt.
+     * @nullable
+     */
+    prompt_version: number | null
+    /**
+     * The search as the decision model read it, with emails, URLs, paths, ids and tokens replaced by placeholders such as <url>. Null when the model did not answer.
+     * @nullable
+     */
+    model_query: string | null
+}
+
+export interface EventMatchRequestApi {
+    /**
+     * What the person typed into the events list search box, which matched no event name.
+     * @maxLength 200
+     */
+    query: string
+}
+
+export interface EventMatchApi {
+    /** The event name to select, such as $autocapture. */
+    name: string
+    /** The event's display name, such as Autocapture. */
+    display_name: string
+    /** How likely the search means this event, from 0 to 1. */
+    probability: number
+}
+
+export interface EventMatchResponseApi {
+    /** PostHog core events the search most likely means, strongest first. Empty when nothing is likely. */
+    matches: EventMatchApi[]
 }
 
 export interface UploadedMediaApi {
@@ -4783,7 +4925,7 @@ export interface UserApi {
     passkeys_enabled_for_2fa?: boolean | null
     /** When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions. */
     hide_mcp_hints?: boolean
-    /** Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown. */
+    /** Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown. Once `sidebar.starred_products_setup_completed` is true, an update that omits it keeps it true. */
     ui_configuration?: unknown
     /** @nullable */
     readonly onboarding_skipped_at: string | null
@@ -4899,7 +5041,7 @@ export interface PatchedUserApi {
     passkeys_enabled_for_2fa?: boolean | null
     /** When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions. */
     hide_mcp_hints?: boolean
-    /** Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown. */
+    /** Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown. Once `sidebar.starred_products_setup_completed` is true, an update that omits it keeps it true. */
     ui_configuration?: unknown
     /** @nullable */
     readonly onboarding_skipped_at?: string | null
@@ -5560,6 +5702,15 @@ export type DataDeletionRequestsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type EmojiSearchSuggestRetrieveParams = {
+    /**
+     * Search text that had no direct emoji match.
+     * @minLength 3
+     * @maxLength 64
+     */
+    query: string
 }
 
 export type ExportsListParams = {

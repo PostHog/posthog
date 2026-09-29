@@ -14,12 +14,15 @@ on:
         paths:
             - '.github/workflows/cd-sandbox-base-image.yml'
             - '.github/actions/setup-uv/**'
+            - '.github/actions/download-context-mill-skills/**'
             - 'products/tasks/backend/sandbox/images/**'
             - 'packages/agent/agent-shadow/**'
             - 'products/posthog_ai/scripts/**'
             # The notebook image bakes this package and stamps its content hash.
             - 'products/notebooks/backend/sandbox/kernel/**'
             - 'products/notebooks/backend/kernel_package.py'
+    schedule:
+        - cron: '7,37 * * * *'
     workflow_dispatch:
 
 concurrency:
@@ -44,12 +47,19 @@ jobs:
         permissions:
             contents: read
             pull-requests: read
+            packages: read
         outputs:
-            sandbox_image: ${{ steps.filter.outputs.sandbox_image }}
+            sandbox_image: ${{ steps.filter.outputs.sandbox_image == 'true' || steps.drift.outputs.drift == 'true' }}
+            skills_source: ${{ steps.filter.outputs.skills_source }}
+            agent_version: ${{ steps.desired.outputs.agent_version }}
+            inputs_digest: ${{ steps.desired.outputs.inputs_digest }}
+            drift_reason: ${{ steps.filter.outputs.sandbox_image != 'true' && steps.drift.outputs.drift_reason || '' }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
-                  sparse-checkout: .github/actions/paths-filter
+                  sparse-checkout: |
+                      .github/actions/paths-filter
+                      products/tasks/backend/sandbox/images/Dockerfile.sandbox-base
                   sparse-checkout-cone-mode: false
 
             - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
@@ -60,6 +70,7 @@ jobs:
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
             - uses: ./.github/actions/paths-filter
               id: filter
+              if: github.event_name == 'push' || github.event_name == 'pull_request'
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
                   # Wider than the trigger-level pull_request paths above, because
@@ -69,19 +80,183 @@ jobs:
                       sandbox_image:
                         - '.github/workflows/cd-sandbox-base-image.yml'
                         - '.github/actions/setup-uv/**'
+                        - '.github/actions/download-context-mill-skills/**'
                         - 'products/tasks/backend/sandbox/images/**'
                         - 'packages/agent/agent-shadow/**'
                         - 'products/*/skills/**'
                         - 'products/posthog_ai/scripts/**'
                         - 'products/notebooks/backend/sandbox/kernel/**'
                         - 'products/notebooks/backend/kernel_package.py'
+                      skills_source:
+                        - '.github/workflows/cd-sandbox-base-image.yml'
+                        - '.github/actions/setup-uv/**'
+                        - '.github/actions/download-context-mill-skills/**'
+                        - 'products/*/skills/**'
+                        - 'products/*/backend/max_tools.py'
+                        - 'products/posthog_ai/**'
+                        - 'services/mcp/schema/**'
+                        - '!products/posthog_ai/frontend/**'
+
+            - name: Describe the image HEAD should produce
+              id: desired
+              env:
+                  DOCKERFILE: products/tasks/backend/sandbox/images/Dockerfile.sandbox-base
+              run: |
+                  agent_version=$(sed -n 's/^ARG AGENT_VERSION=//p' "$DOCKERFILE")
+                  if [ -z "$agent_version" ]; then
+                    echo "::error::no ARG AGENT_VERSION line in $DOCKERFILE"
+                    exit 1
+                  fi
+                  inputs=(
+                    .github/workflows/cd-sandbox-base-image.yml
+                    .github/actions/setup-uv
+                    .github/actions/download-context-mill-skills
+                    products/tasks/backend/sandbox/images
+                    packages/agent/agent-shadow
+                    products/posthog_ai/scripts
+                    products/notebooks/backend/sandbox/kernel
+                    products/notebooks/backend/kernel_package.py
+                  )
+                  while IFS= read -r product; do
+                    inputs+=("$product/skills")
+                  done < <(git ls-tree -d --name-only HEAD products/)
+                  inputs_digest=$(
+                    for path in "${inputs[@]}"; do
+                      if object=$(git rev-parse --verify -q "HEAD:$path"); then
+                        printf '%s\t%s\n' "$path" "$object"
+                      fi
+                    done | LC_ALL=C sort | sha256sum | cut -d' ' -f1
+                  )
+                  echo "HEAD wants @posthog/agent $agent_version from inputs $inputs_digest"
+                  {
+                    echo "agent_version=$agent_version"
+                    echo "inputs_digest=$inputs_digest"
+                  } >> "$GITHUB_OUTPUT"
+
+            - name: Login to ghcr.io
+              if: github.event_name != 'pull_request' && vars.CD_DEPLOY_ENABLED == 'true'
+              uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+              with:
+                  registry: ghcr.io
+                  username: ${{ github.actor }}
+                  password: ${{ secrets.GITHUB_TOKEN }}
+              continue-on-error: true
+
+            - name: Compare with the images master serves
+              id: drift
+              if: github.event_name != 'pull_request' && vars.CD_DEPLOY_ENABLED == 'true'
+              env:
+                  INPUTS_DIGEST: ${{ steps.desired.outputs.inputs_digest }}
+                  REGISTRY: ghcr.io/posthog
+              run: |
+                  labels() {
+                    local out
+                    for attempt in 1 2 3; do
+                      if out=$(docker buildx imagetools inspect "$1" --format '{{json .Image}}' 2>&1); then
+                        jq -c 'if has("config") or has("rootfs") then .config.Labels // {} else ([.[] | .config.Labels // empty] | first // {}) end' <<< "$out"
+                        return
+                      fi
+                      echo "::warning::could not inspect $1 (attempt $attempt): $out" >&2
+                      sleep 5
+                    done
+                    return 1
+                  }
+                  reasons=()
+                  base_revision=""
+                  if base=$(labels "$REGISTRY/posthog-sandbox-base:master"); then
+                    base_digest=$(jq -r '."com.posthog.sandbox.inputs-digest" // ""' <<< "$base")
+                    base_revision=$(jq -r '."org.opencontainers.image.revision" // ""' <<< "$base")
+                    if [ -z "$base_digest" ] || [ -z "$base_revision" ]; then
+                      reasons+=("posthog-sandbox-base:master has no revision or inputs digest label")
+                    elif [ "$base_digest" != "$INPUTS_DIGEST" ]; then
+                      reasons+=("posthog-sandbox-base:master was built from ${base_revision:0:7}, whose image inputs differ from HEAD")
+                    fi
+                  else
+                    reasons+=("posthog-sandbox-base:master could not be inspected")
+                  fi
+                  for image in notebook streamlit pi autoresearch vm; do
+                    ref="$REGISTRY/posthog-sandbox-$image:master"
+                    if ! image_labels=$(labels "$ref"); then
+                      reasons+=("posthog-sandbox-$image:master could not be inspected")
+                      continue
+                    fi
+                    built_on=$(jq -r '."com.posthog.sandbox.base-revision" // ""' <<< "$image_labels")
+                    image_digest=$(jq -r '."com.posthog.sandbox.inputs-digest" // ""' <<< "$image_labels")
+                    if [ -z "$built_on" ]; then
+                      reasons+=("posthog-sandbox-$image:master has no base revision label")
+                    elif [ "$built_on" != "$base_revision" ]; then
+                      reasons+=("posthog-sandbox-$image:master was built with base ${built_on:0:7}, not ${base_revision:0:7}")
+                    elif [ "$image_digest" != "$INPUTS_DIGEST" ]; then
+                      reasons+=("posthog-sandbox-$image:master has image inputs that differ from HEAD")
+                    fi
+                  done
+                  if [ "${#reasons[@]}" -eq 0 ]; then
+                    echo "Every master image matches HEAD's inputs"
+                    echo "drift=false" >> "$GITHUB_OUTPUT"
+                    exit 0
+                  fi
+                  printf 'Drift: %s\n' "${reasons[@]}"
+                  reason="${reasons[0]}"
+                  if [ "${#reasons[@]}" -gt 1 ]; then
+                    reason="$reason (and $(( ${#reasons[@]} - 1 )) more)"
+                  fi
+                  {
+                    echo "drift=true"
+                    echo "drift_reason=$reason"
+                  } >> "$GITHUB_OUTPUT"
+
+    wait_for_agent:
+        needs: changes
+        name: Wait for the pinned agent to be published
+        if: |
+            github.repository_owner == 'PostHog' &&
+            (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && (
+                needs.changes.outputs.sandbox_image == 'true' ||
+                github.event_name == 'workflow_dispatch' ||
+                contains(github.event.pull_request.labels.*.name, 'build-tasks-sandbox-image')
+            )
+        runs-on: ubuntu-24.04
+        timeout-minutes: 25
+        permissions:
+            contents: read
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: products/tasks/backend/sandbox/images/Dockerfile.sandbox-base
+                  sparse-checkout-cone-mode: false
+
+            - name: Poll GitHub and npm for the pinned version
+              id: wait
+              run: |
+                  pinned=$(sed -n 's/^ARG AGENT_VERSION=//p' products/tasks/backend/sandbox/images/Dockerfile.sandbox-base)
+                  sha=$(sed -n 's/^ARG AGENT_TARBALL_SHA256=//p' products/tasks/backend/sandbox/images/Dockerfile.sandbox-base | tr -d '"')
+                  if [ -z "$pinned" ]; then
+                    echo "::error::no ARG AGENT_VERSION line in Dockerfile.sandbox-base"
+                    exit 1
+                  fi
+                  tarball="https://github.com/${GITHUB_REPOSITORY}/releases/download/agent-v${pinned}/posthog-agent-${pinned}.tgz"
+                  for attempt in $(seq 1 120); do
+                    if [ -n "$sha" ] && curl -fsIL --connect-timeout 10 -o /dev/null "$tarball"; then
+                      echo "GitHub serves $tarball (attempt $attempt)"
+                      exit 0
+                    fi
+                    if [ "$(npm view "@posthog/agent@${pinned}" version 2>/dev/null)" = "$pinned" ]; then
+                      echo "npm serves @posthog/agent@${pinned} (attempt $attempt)"
+                      exit 0
+                    fi
+                    echo "neither GitHub nor npm serves @posthog/agent@${pinned} yet (attempt $attempt)"
+                    sleep 10
+                  done
+                  echo "::error::@posthog/agent@${pinned} was not published within 20 minutes"
+                  exit 1
 
     build_skills:
         needs: changes
         name: Build agent skills from source
         if: |
             github.repository_owner == 'PostHog' &&
-            (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && (
+            (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) &&
+            (github.event_name != 'pull_request' || needs.changes.outputs.skills_source == 'true') && (
                 needs.changes.outputs.sandbox_image == 'true' ||
                 github.event_name == 'workflow_dispatch' ||
                 contains(github.event.pull_request.labels.*.name, 'build-tasks-sandbox-image')
@@ -96,10 +271,10 @@ jobs:
 
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-              with:
-                  # Deep enough to reach the PR's merge base, which keys the schema cache below.
-                  fetch-depth: 1000
-                  filter: blob:none
+
+            - name: Fetch history without file contents
+              if: github.event_name == 'pull_request'
+              run: git fetch --no-tags --filter=blob:none --depth=1000 origin "$GITHUB_SHA"
 
             - name: Fetch base branch for merge-base computation
               if: github.event_name == 'pull_request'
@@ -275,26 +450,61 @@ jobs:
               run: ./bin/hogli build:skills
 
             - name: Download context-mill skills
+              uses: ./.github/actions/download-context-mill-skills
+              with:
+                  target-dir: products/posthog_ai/dist/skills
+
+            - name: Upload built skills
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: built-skills
+                  path: products/posthog_ai/dist/skills/
+                  retention-days: 1
+
+    fetch_skills:
+        needs: changes
+        name: Fetch the released agent skills
+        if: |
+            github.repository_owner == 'PostHog' &&
+            github.event_name == 'pull_request' &&
+            github.event.pull_request.head.repo.full_name == github.repository &&
+            needs.changes.outputs.skills_source != 'true' && (
+                needs.changes.outputs.sandbox_image == 'true' ||
+                contains(github.event.pull_request.labels.*.name, 'build-tasks-sandbox-image')
+            )
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        permissions:
+            contents: read
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: .github/actions/download-context-mill-skills
+                  sparse-checkout-cone-mode: false
+
+            - name: Download the released PostHog skills
+              env:
+                  GH_TOKEN: ${{ github.token }}
               run: |
-                  CONTEXT_MILL_ZIP_URL="https://github.com/PostHog/context-mill/releases/latest/download/skills-mcp-resources.zip"
-                  TARGET_DIR="products/posthog_ai/dist/skills"
-                  tmp_dir=$(mktemp -d)
-                  trap 'rm -rf "$tmp_dir"' EXIT
-                  echo "Downloading context-mill skills from ${CONTEXT_MILL_ZIP_URL}..."
-                  curl -fsSL --retry 2 --retry-delay 3 -o "$tmp_dir/cm.zip" "$CONTEXT_MILL_ZIP_URL"
-                  unzip -q -o "$tmp_dir/cm.zip" -d "$tmp_dir/outer"
-                  mkdir -p "$TARGET_DIR"
-                  count=0
-                  while read -r inner_zip; do
-                      skill_name="$(basename "$inner_zip" .zip)"
-                      skill_name="${skill_name#omnibus-}"
-                      skill_dir="$TARGET_DIR/$skill_name"
-                      mkdir -p "$skill_dir"
-                      unzip -q -o "$inner_zip" -d "$skill_dir"
-                      find "$skill_dir" -name 'SKILL.md' -type f -exec sed -i 's/^\(name: *\)omnibus-/\1/' {} +
-                      count=$((count + 1))
-                  done < <(find "$tmp_dir/outer" -name 'omnibus-*.zip' -type f)
-                  echo "Installed ${count} context-mill skills into ${TARGET_DIR}"
+                  for attempt in $(seq 1 6); do
+                    if gh release download agent-skills-latest --repo "$GITHUB_REPOSITORY" --pattern skills.zip --dir "$RUNNER_TEMP" --clobber; then
+                      break
+                    fi
+                    if [ "$attempt" = 6 ]; then
+                      echo "::error::could not download skills.zip from the agent-skills-latest release"
+                      exit 1
+                    fi
+                    echo "skills.zip is not downloadable yet (attempt $attempt)"
+                    sleep 10
+                  done
+                  mkdir -p products/posthog_ai/dist/skills
+                  unzip -q "$RUNNER_TEMP/skills.zip" -d products/posthog_ai/dist/skills
+                  echo "Installed $(find products/posthog_ai/dist/skills -mindepth 1 -maxdepth 1 -type d | wc -l) released skills"
+
+            - name: Download context-mill skills
+              uses: ./.github/actions/download-context-mill-skills
+              with:
+                  target-dir: products/posthog_ai/dist/skills
 
             - name: Upload built skills
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
@@ -304,11 +514,14 @@ jobs:
                   retention-days: 1
 
     sandbox_base_build:
-        needs: [changes, build_skills]
+        needs: [changes, build_skills, fetch_skills, wait_for_agent]
         name: Build and push Tasks Sandbox container image
         if: |
+            !cancelled() &&
             github.repository_owner == 'PostHog' &&
-            (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && (
+            (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) &&
+            (needs.build_skills.result == 'success' || needs.fetch_skills.result == 'success') &&
+            needs.wait_for_agent.result == 'success' && (
                 needs.changes.outputs.sandbox_image == 'true' ||
                 github.event_name == 'workflow_dispatch' ||
                 contains(github.event.pull_request.labels.*.name, 'build-tasks-sandbox-image')
@@ -338,9 +551,6 @@ jobs:
             - name: Set up Docker Buildx
               uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
 
-            - name: Set up QEMU
-              uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a # v4.0.0
-
             - name: Set up Depot CLI
               uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
 
@@ -368,6 +578,10 @@ jobs:
                         # pinned, reviewed version. Bump it there, not by resolving npm "latest".
                         build-args: |
                             COMMIT_HASH=${{ github.sha }}
+                        labels: |
+                            org.opencontainers.image.revision=${{ github.sha }}
+                            com.posthog.sandbox.agent-version=${{ needs.changes.outputs.agent_version }}
+                            com.posthog.sandbox.inputs-digest=${{ needs.changes.outputs.inputs_digest }}
 
                   - name: Build and push container image (notebook)
                     id: build-notebook
@@ -381,6 +595,11 @@ jobs:
                         tags: ${{ github.ref == 'refs/heads/master' && format('ghcr.io/posthog/posthog-sandbox-notebook:master,ghcr.io/posthog/posthog-sandbox-notebook:{0}', github.sha) || format('ghcr.io/posthog/posthog-sandbox-notebook:{0}', github.sha) }}
                         platforms: linux/arm64,linux/amd64
                         build-args: COMMIT_HASH=${{ github.sha }}
+                        labels: |
+                            org.opencontainers.image.revision=${{ github.sha }}
+                            com.posthog.sandbox.agent-version=${{ needs.changes.outputs.agent_version }}
+                            com.posthog.sandbox.inputs-digest=${{ needs.changes.outputs.inputs_digest }}
+                            com.posthog.sandbox.base-revision=${{ github.sha }}
 
                   - name: Build and push container image (streamlit)
                     id: build-streamlit
@@ -393,26 +612,47 @@ jobs:
                         push: ${{ github.event_name == 'pull_request' || vars.CD_DEPLOY_ENABLED == 'true' }}
                         tags: ${{ github.ref == 'refs/heads/master' && format('ghcr.io/posthog/posthog-sandbox-streamlit:master,ghcr.io/posthog/posthog-sandbox-streamlit:{0}', github.sha) || format('ghcr.io/posthog/posthog-sandbox-streamlit:{0}', github.sha) }}
                         platforms: linux/arm64,linux/amd64
+                        labels: |
+                            org.opencontainers.image.revision=${{ github.sha }}
+                            com.posthog.sandbox.agent-version=${{ needs.changes.outputs.agent_version }}
+                            com.posthog.sandbox.inputs-digest=${{ needs.changes.outputs.inputs_digest }}
+                            com.posthog.sandbox.base-revision=${{ github.sha }}
 
-            - name: Smoke the installed agent on both architectures
-              id: smoke
-              if: ${{ !cancelled() && steps.build.outcome == 'success' && (github.event_name == 'pull_request' || vars.CD_DEPLOY_ENABLED == 'true') }}
+            - name: Record the base image digest
+              id: image-metadata
+              if: ${{ !cancelled() && steps.build.outcome == 'success' && github.event_name == 'pull_request' }}
               env:
-                  IMAGE: ghcr.io/posthog/posthog-sandbox-base:${{ github.sha }}
+                  HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+                  DIGEST: ${{ steps.build.outputs.digest }}
               run: |
-                  pinned=$(sed -n 's/^ARG AGENT_VERSION=//p' products/tasks/backend/sandbox/images/Dockerfile.sandbox-base)
+                  jq -n '{head_sha: env.HEAD_SHA, digest: env.DIGEST}' > "$RUNNER_TEMP/sandbox-base-image.json"
+
+            - name: Upload the base image digest
+              id: image-artifact
+              if: ${{ !cancelled() && steps.image-metadata.outcome == 'success' }}
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+              with:
+                  name: sandbox-base-image-${{ github.run_attempt }}
+                  path: ${{ runner.temp }}/sandbox-base-image.json
+                  if-no-files-found: error
+
+            - name: Check the pushed image lists both architectures
+              id: smoke
+              if: >-
+                  !cancelled() && steps.build.outcome == 'success' &&
+                    ((github.event_name == 'pull_request' && steps.image-artifact.outcome == 'success') ||
+                     (github.event_name != 'pull_request' && vars.CD_DEPLOY_ENABLED == 'true'))
+              env:
+                  IMAGE: ghcr.io/posthog/posthog-sandbox-base@${{ steps.build.outputs.digest }}
+              run: |
+                  platforms=$(docker buildx imagetools inspect "$IMAGE" \
+                    --format '{{range .Manifest.Manifests}}{{.Platform.OS}}/{{.Platform.Architecture}}{{"\n"}}{{end}}')
                   for platform in linux/amd64 linux/arm64; do
-                    echo "::group::$platform"
-                    installed=$(docker run --rm --platform "$platform" "$IMAGE" \
-                      node -p "require('/scripts/node_modules/@posthog/agent/package.json').version")
-                    if [ "$installed" != "$pinned" ]; then
-                      echo "::error::$platform image has @posthog/agent $installed, Dockerfile pins $pinned"
+                    if ! grep -qx "$platform" <<< "$platforms"; then
+                      echo "::error::$IMAGE has no $platform manifest"
                       exit 1
                     fi
-                    docker run --rm --platform "$platform" "$IMAGE" \
-                      /scripts/node_modules/.bin/agent-server --help >/dev/null
-                    echo "@posthog/agent $installed starts on $platform"
-                    echo "::endgroup::"
+                    echo "$IMAGE serves $platform"
                   done
 
             - name: Promote the smoked base image to :master
@@ -430,13 +670,52 @@ jobs:
                   fi
                   echo "$IMAGE:master -> $master_digest"
 
+    sandbox_derived_build:
+        needs: [changes, sandbox_base_build]
+        name: Build and push the derived sandbox images
+        if: |
+            !cancelled() &&
+            github.repository_owner == 'PostHog' &&
+            (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) &&
+            needs.sandbox_base_build.result == 'success' &&
+            (github.ref != 'refs/heads/master' || needs.sandbox_base_build.outputs.promoted == 'success') && (
+                needs.changes.outputs.sandbox_image == 'true' ||
+                github.event_name == 'workflow_dispatch' ||
+                contains(github.event.pull_request.labels.*.name, 'build-tasks-sandbox-image')
+            )
+        runs-on: depot-ubuntu-24.04
+        timeout-minutes: 20
+        permissions:
+            id-token: write
+            contents: read
+            packages: write
+        steps:
+            - name: Check out
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: |
+                      .dockerignore
+                      products/tasks/backend/sandbox/images
+                  sparse-checkout-cone-mode: false
+
+            - name: Set up Depot CLI
+              uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
+
+            - name: Login to ghcr.io
+              uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+              with:
+                  registry: ghcr.io
+                  username: ${{ github.actor }}
+                  password: ${{ secrets.GITHUB_TOKEN }}
+                  logout: false
+
             - parallel:
                   - name: Build and push container image (pi)
                     id: build-pi
                     uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
                     with:
                         project: vpl2362h0x # tasks-sandbox-images
-                        context: . # use local checkout (includes downloaded artifact)
+                        context: . # use local checkout
                         file: ./products/tasks/backend/sandbox/images/Dockerfile.sandbox-pi
                         buildx-fallback: false # the fallback is so slow it's better to just fail
                         push: ${{ github.event_name == 'pull_request' || vars.CD_DEPLOY_ENABLED == 'true' }}
@@ -444,13 +723,18 @@ jobs:
                         platforms: linux/arm64,linux/amd64
                         build-args: |
                             BASE_IMAGE=ghcr.io/posthog/posthog-sandbox-base:${{ github.sha }}
+                        labels: |
+                            org.opencontainers.image.revision=${{ github.sha }}
+                            com.posthog.sandbox.agent-version=${{ needs.changes.outputs.agent_version }}
+                            com.posthog.sandbox.inputs-digest=${{ needs.changes.outputs.inputs_digest }}
+                            com.posthog.sandbox.base-revision=${{ github.sha }}
 
                   - name: Build and push container image (autoresearch)
                     id: build-autoresearch
                     uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
                     with:
                         project: vpl2362h0x # tasks-sandbox-images
-                        context: . # use local checkout (includes downloaded artifact)
+                        context: . # use local checkout
                         file: ./products/tasks/backend/sandbox/images/Dockerfile.sandbox-autoresearch
                         buildx-fallback: false # the fallback is so slow it's better to just fail
                         push: ${{ github.event_name == 'pull_request' || vars.CD_DEPLOY_ENABLED == 'true' }}
@@ -458,13 +742,18 @@ jobs:
                         platforms: linux/arm64,linux/amd64
                         build-args: |
                             BASE_IMAGE=ghcr.io/posthog/posthog-sandbox-base:${{ github.sha }}
+                        labels: |
+                            org.opencontainers.image.revision=${{ github.sha }}
+                            com.posthog.sandbox.agent-version=${{ needs.changes.outputs.agent_version }}
+                            com.posthog.sandbox.inputs-digest=${{ needs.changes.outputs.inputs_digest }}
+                            com.posthog.sandbox.base-revision=${{ github.sha }}
 
                   - name: Build and push container image (vm)
                     id: build-vm
                     uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
                     with:
                         project: vpl2362h0x # tasks-sandbox-images
-                        context: . # use local checkout (includes downloaded artifact)
+                        context: . # use local checkout
                         file: ./products/tasks/backend/sandbox/images/Dockerfile.sandbox-vm
                         buildx-fallback: false # the fallback is so slow it's better to just fail
                         push: true
@@ -472,19 +761,24 @@ jobs:
                         platforms: linux/arm64,linux/amd64
                         build-args: |
                             BASE_IMAGE=ghcr.io/posthog/posthog-sandbox-base:${{ github.sha }}
+                        labels: |
+                            org.opencontainers.image.revision=${{ github.sha }}
+                            com.posthog.sandbox.agent-version=${{ needs.changes.outputs.agent_version }}
+                            com.posthog.sandbox.inputs-digest=${{ needs.changes.outputs.inputs_digest }}
+                            com.posthog.sandbox.base-revision=${{ github.sha }}
 
     # Posts in the release thread that update-sandbox-agent-version.yml cached under the pinned version.
     # It runs on a GitHub-hosted runner because Depot runners read a separate cache backend.
     # hogli-lint: not-a-required-gate -- reads the build result only to report it in Slack
     notify_agent_bump:
-        needs: sandbox_base_build
+        needs: [changes, wait_for_agent, build_skills, sandbox_base_build, sandbox_derived_build]
         name: Post the agent bump to Slack
         if: |
             !cancelled() &&
-            github.event_name == 'push' &&
+            (github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') &&
             github.ref == 'refs/heads/master' &&
             vars.CD_DEPLOY_ENABLED == 'true' &&
-            needs.sandbox_base_build.result != 'skipped'
+            (needs.changes.outputs.sandbox_image == 'true' || github.event_name == 'workflow_dispatch')
         runs-on: ubuntu-24.04
         timeout-minutes: 5
         permissions:
@@ -498,10 +792,30 @@ jobs:
                   sparse-checkout: products/tasks/backend/sandbox/images/Dockerfile.sandbox-base
                   sparse-checkout-cone-mode: false
 
+            - name: Find the first stage that failed
+              id: outcome
+              env:
+                  WAIT: ${{ needs.wait_for_agent.result }}
+                  SKILLS: ${{ needs.build_skills.result }}
+                  PROMOTED: ${{ needs.sandbox_base_build.outputs.promoted }}
+                  DERIVED: ${{ needs.sandbox_derived_build.result }}
+              run: |
+                  if [ "$WAIT" != "success" ]; then
+                    failed="the wait for the pinned agent release"
+                  elif [ "$SKILLS" != "success" ]; then
+                    failed="the skills build"
+                  elif [ "$PROMOTED" != "success" ]; then
+                    failed="the base image build"
+                  elif [ "$DERIVED" != "success" ]; then
+                    failed="the derived image build"
+                  fi
+                  echo "failed=${failed:-}" >> "$GITHUB_OUTPUT"
+
             # The merge queue can land several commits in one push, so the bump is not always HEAD.
             # Compare with the commit master pointed at before the push, not with HEAD^.
             - name: Check whether this push moved the agent pin
               id: pin
+              if: github.event_name == 'push'
               env:
                   BEFORE: ${{ github.event.before }}
               run: |
@@ -533,6 +847,7 @@ jobs:
               env:
                   VERSION: ${{ steps.pin.outputs.version }}
                   PROMOTED: ${{ needs.sandbox_base_build.outputs.promoted }}
+                  FAILED: ${{ steps.outcome.outputs.failed }}
                   SHA: ${{ github.sha }}
                   COMMIT_URL: ${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}
                   RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
@@ -540,10 +855,12 @@ jobs:
                   ts=""
                   if [ -f .sandbox-agent-slack-thread ]; then ts=$(cat .sandbox-agent-slack-thread); fi
                   commit="<${COMMIT_URL}|${SHA:0:7}>"
-                  if [ "$PROMOTED" = "success" ]; then
+                  if [ -z "$FAILED" ]; then
                     text=":rocket: Merged in ${commit}. \`posthog-sandbox-base:master\` now runs @posthog/agent ${VERSION}."
+                  elif [ "$PROMOTED" = "success" ]; then
+                    text=":warning: Merged in ${commit}. \`posthog-sandbox-base:master\` now runs @posthog/agent ${VERSION}, but ${FAILED} failed. <${RUN_URL}|View run>"
                   else
-                    text=":red_circle: The master image build for ${commit} failed, so \`posthog-sandbox-base:master\` still runs the previous agent. <${RUN_URL}|View run>"
+                    text=":red_circle: ${FAILED^} for ${commit} failed, so \`posthog-sandbox-base:master\` still runs the previous agent. <${RUN_URL}|View run>"
                   fi
                   if [ -z "$ts" ]; then
                     text="*@posthog/agent ${VERSION}*: ${text}"
@@ -581,12 +898,44 @@ jobs:
                       unfurl_links: false
                       text: "${{ steps.message.outputs.text }}"
 
+            - name: Describe the reconcile rebuild for Slack
+              id: reconcile
+              if: github.event_name != 'push' || needs.changes.outputs.drift_reason != ''
+              env:
+                  VERSION: ${{ needs.changes.outputs.agent_version }}
+                  REASON: ${{ needs.changes.outputs.drift_reason || 'it was dispatched by hand' }}
+                  FAILED: ${{ steps.outcome.outputs.failed }}
+                  SHA: ${{ github.sha }}
+                  COMMIT_URL: ${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}
+                  RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+              run: |
+                  commit="<${COMMIT_URL}|${SHA:0:7}>"
+                  if [ -z "$FAILED" ]; then
+                    text=":large_green_circle: Rebuilt the sandbox images from ${commit} because ${REASON}. \`posthog-sandbox-base:master\` now runs @posthog/agent ${VERSION}."
+                  else
+                    text=":red_circle: The sandbox image rebuild from ${commit} failed at ${FAILED}. It was needed because ${REASON}. <${RUN_URL}|View run>"
+                  fi
+                  echo "text=$text" >> "$GITHUB_OUTPUT"
+
+            - name: Post the reconcile rebuild
+              if: steps.reconcile.outputs.text != ''
+              continue-on-error: true
+              uses: slackapi/slack-github-action@af78098f536edbc4de71162a307590698245be95 # v3.0.1
+              with:
+                  method: chat.postMessage
+                  token: ${{ secrets.SLACK_DEVEX_BOT_TOKEN }}
+                  errors: true
+                  payload: |
+                      channel: "${{ env.SLACK_CHANNEL }}"
+                      unfurl_links: false
+                      text: "${{ steps.reconcile.outputs.text }}"
+
     sandbox_base_smoke_check:
-        needs: [build_skills, sandbox_base_build]
+        needs: [build_skills, fetch_skills, wait_for_agent, sandbox_base_build]
         name: Sandbox Base Image Smoke
         runs-on: ubuntu-24.04
         timeout-minutes: 5
-        if: ${{ !cancelled() && (needs.build_skills.result != 'skipped' || needs.sandbox_base_build.result != 'skipped') && (github.event_name == 'pull_request' || vars.CD_DEPLOY_ENABLED == 'true') }}
+        if: ${{ !cancelled() && (needs.build_skills.result != 'skipped' || needs.fetch_skills.result != 'skipped' || needs.wait_for_agent.result != 'skipped' || needs.sandbox_base_build.result != 'skipped') && (github.event_name == 'pull_request' || vars.CD_DEPLOY_ENABLED == 'true') }}
         permissions: {}
         steps:
             - name: Check the base image build and agent smoke
@@ -606,7 +955,7 @@ jobs:
     # paths, and a required check that never reports blocks merging forever.
     # Before registering it in the ruleset, remove that paths filter.
     sandbox_base_image_check:
-        needs: [changes, build_skills, sandbox_base_build]
+        needs: [changes, build_skills, fetch_skills, wait_for_agent, sandbox_base_build, sandbox_derived_build]
         name: Sandbox Base Image Pass
         runs-on: ubuntu-24.04
         timeout-minutes: 5
@@ -621,8 +970,13 @@ jobs:
                     exit 1
                   fi
 
+                  if [[ "${{ needs.wait_for_agent.result }}" != "success" && "${{ needs.wait_for_agent.result }}" != "skipped" ]]; then
+                    echo "Agent version wait failed."
+                    exit 1
+                  fi
+
                   # Pass if build wasn't required (no relevant changes, no dispatch, no label)
-                  if [[ "${{ needs.build_skills.result }}" == "skipped" && "${{ needs.sandbox_base_build.result }}" == "skipped" ]]; then
+                  if [[ "${{ needs.build_skills.result }}" == "skipped" && "${{ needs.fetch_skills.result }}" == "skipped" && "${{ needs.wait_for_agent.result }}" == "skipped" && "${{ needs.sandbox_base_build.result }}" == "skipped" ]]; then
                     echo "Sandbox image build was skipped (no relevant changes)."
                     exit 0
                   fi
@@ -632,8 +986,18 @@ jobs:
                     exit 1
                   fi
 
+                  if [[ "${{ needs.fetch_skills.result }}" != "success" && "${{ needs.fetch_skills.result }}" != "skipped" ]]; then
+                    echo "Released skills fetch failed."
+                    exit 1
+                  fi
+
                   if [[ "${{ needs.sandbox_base_build.result }}" != "success" && "${{ needs.sandbox_base_build.result }}" != "skipped" ]]; then
                     echo "Sandbox base image build failed."
+                    exit 1
+                  fi
+
+                  if [[ "${{ needs.sandbox_derived_build.result }}" != "success" && "${{ needs.sandbox_derived_build.result }}" != "skipped" ]]; then
+                    echo "Derived sandbox image build failed."
                     exit 1
                   fi
 

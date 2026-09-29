@@ -71,6 +71,8 @@ from products.customer_analytics.backend.presentation.views.serializers import (
     AccountEmailThreadSerializer,
     AccountNotebookSerializer,
     AccountNoteSerializer,
+    AccountPresenceListRequestSerializer,
+    AccountPresenceSerializer,
     AccountPresenceViewerSerializer,
     AccountRelationshipDefinitionSerializer,
     AccountRelationshipSerializer,
@@ -81,6 +83,7 @@ from products.customer_analytics.backend.presentation.views.serializers import (
     AccountTrackRuleRunSerializer,
     AccountTrackRulesConfigSerializer,
     CalendarSyncBackfillSerializer,
+    CalendarSyncIntervalSerializer,
     CalendarSyncStatusSerializer,
     CalendarSyncTriggerResponseSerializer,
     CalendarSyncTriggerSerializer,
@@ -1869,6 +1872,28 @@ class AccountViewSet(
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(AccountPresenceViewerSerializer(instance=viewers, many=True).data)
 
+    @validated_request(
+        request_serializer=AccountPresenceListRequestSerializer,
+        operation_id="accounts_presence_list",
+        responses={200: AccountPresenceSerializer(many=True)},
+    )
+    @action(
+        methods=["POST"],
+        detail=False,
+        pagination_class=None,
+        required_scopes=["account:read"],
+    )
+    def presence_list(self, request: ValidatedRequest, *args: object, **kwargs: object) -> Response:
+        account_ids = [str(account_id) for account_id in request.validated_data["account_ids"]]
+        viewer_user_id = None if is_service_auth(request) else cast(User, request.user).id
+        presence = api.list_accounts_presence(
+            self.team_id,
+            account_ids,
+            self.user_access_control,
+            viewer_user_id=viewer_user_id,
+        )
+        return Response(AccountPresenceSerializer(instance=presence, many=True).data)
+
     @extend_schema(parameters=[_ACCOUNT_ID_PARAM], responses={200: SupportTicketSerializer(many=True)})
     @action(methods=["GET"], detail=True, pagination_class=None)
     def support_tickets(self, request: Request, *args, **kwargs) -> Response:
@@ -2774,6 +2799,22 @@ class CalendarSyncViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vie
     def list(self, request: Request, *args, **kwargs) -> Response:
         statuses = api.list_calendar_sync_statuses(self.team_id)
         return Response(CalendarSyncStatusSerializer(instance=statuses, many=True).data)
+
+    @validated_request(
+        request_serializer=CalendarSyncIntervalSerializer,
+        responses={200: CalendarSyncIntervalSerializer},
+        summary="Set Google account sync interval",
+    )
+    @action(methods=["POST"], detail=False, url_path="interval")
+    def interval(self, request: ValidatedRequest, *args, **kwargs) -> Response:
+        requesting_level = self.user_permissions.current_team.effective_membership_level
+        if requesting_level is None or requesting_level < OrganizationMembership.Level.ADMIN:
+            raise PermissionDenied("Only project admins can change Google account sync intervals.")
+        integration_id = request.validated_data["integration_id"]
+        interval_minutes = request.validated_data["sync_interval_minutes"]
+        if not api.update_calendar_sync_interval(self.team_id, integration_id, interval_minutes):
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(CalendarSyncIntervalSerializer(instance=request.validated_data).data)
 
     @validated_request(
         request_serializer=CalendarSyncBackfillSerializer,

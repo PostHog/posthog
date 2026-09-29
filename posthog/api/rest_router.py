@@ -79,12 +79,14 @@ from . import (
 from .column_configuration import ColumnConfigurationViewSet
 from .core_event import CoreEventViewSet
 from .data_management import DataManagementViewSet
+from .emoji_search import EmojiSearchViewSet
 from .event_filter_config import EventFilterConfigViewSet
 from .file_system import file_system, file_system_shortcut, user_product_list
 from .llm_prompt import LLMPromptViewSet
 from .oauth import OrganizationOAuthApplicationViewSet
 from .organization_notification_locks import OrganizationNotificationLockViewSet
 from .session import SessionViewSet
+from .taxonomic_search_intent import SearchIntentViewSet
 
 
 @decorators.api_view(["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"])
@@ -241,6 +243,13 @@ projects_router.register(
     "project_property_definitions",
     ["project_id"],
 )
+projects_router.register(
+    r"taxonomic_search_intent",
+    SearchIntentViewSet,
+    "project_taxonomic_search_intent",
+    ["team_id"],
+)
+projects_router.register(r"emoji_search", EmojiSearchViewSet, "project_emoji_search", ["team_id"])
 projects_router.register(
     r"schema_property_groups",
     schema_property_group.SchemaPropertyGroupViewSet,

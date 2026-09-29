@@ -1000,6 +1000,15 @@ def _signal_tail_sections(
     ]
 
 
+def report_disposition_instructions(report_channel: str) -> str:
+    return {
+        "none": "",
+        "emit": _AUTHORING_REPORT_EMIT_ONLY,
+        "edit": _EDITING_REPORT_EDIT_ONLY,
+        "both": _AUTHORING_VS_EDITING_REPORT_BOTH,
+    }[report_channel]
+
+
 def _report_tail_sections(
     *,
     can_emit: bool,
@@ -1023,7 +1032,7 @@ def _report_tail_sections(
     if can_emit and can_edit:
         how_a_run_works = f"{_HOW_A_RUN_WORKS}\n{_REPORT_STEPS_BOTH}\n{_REPORT_CLOSE_OUT_STEP}"
         channel_sections = [
-            _AUTHORING_VS_EDITING_REPORT_BOTH,
+            report_disposition_instructions("both"),
             _REVISING_A_REPORT,
             _REPORT_SCRATCHPAD_POINTER,
             _SUGGESTED_REVIEWERS_REPORT,
@@ -1036,7 +1045,7 @@ def _report_tail_sections(
     elif can_emit:
         how_a_run_works = f"{_HOW_A_RUN_WORKS}\n{_REPORT_STEPS_EMIT_ONLY}\n{_REPORT_CLOSE_OUT_STEP}"
         channel_sections = [
-            _AUTHORING_REPORT_EMIT_ONLY,
+            report_disposition_instructions("emit"),
             _REPORT_SCRATCHPAD_POINTER,
             _SUGGESTED_REVIEWERS_REPORT,
             *([_github_evidence_section(can_emit=can_emit)] if github_read_access else []),
@@ -1048,7 +1057,7 @@ def _report_tail_sections(
     else:  # edit-only — no authoring, so no suggested-reviewers / writing-a-report sections
         how_a_run_works = f"{_HOW_A_RUN_WORKS}\n{_REPORT_STEPS_EDIT_ONLY}\n{_REPORT_CLOSE_OUT_STEP}"
         channel_sections = [
-            _EDITING_REPORT_EDIT_ONLY,
+            report_disposition_instructions("edit"),
             _REVISING_A_REPORT,
             _REPORT_SCRATCHPAD_POINTER,
             *([_github_evidence_section(can_emit=can_emit)] if github_read_access else []),

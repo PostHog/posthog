@@ -209,9 +209,10 @@ export const AddToDashboard: Story = {
         },
         testOptions: { snapshotTargetSelector: 'body', viewportWidths: ['narrow', 'wide'] },
     },
-    play: async () => {
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
         const screen = within(document.body)
-        await userEvent.click(screen.getByRole('button', { name: 'Add to dashboard' }))
+        await userEvent.click(await canvas.findByRole('button', { name: 'Add to dashboard' }))
         await waitFor(() => {
             expect(screen.getByRole('button', { name: 'Choose a dashboard' })).not.toHaveClass('LemonButton--loading')
         })
