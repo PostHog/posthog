@@ -109,6 +109,9 @@ class ImportDataActivityInputs:
     fast_return_eligible: bool = False
     # Kept apart from `reset_pipeline`, which every retry would read again and wipe the table again.
     scheduled_full_refresh: bool = False
+    # Fixed for the job lifetime so a flag change between activity attempts cannot mix a stale
+    # keyset checkpoint with a server-cursor retry that reset the destination table.
+    keyset_full_load_enabled: bool = False
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
@@ -120,6 +123,7 @@ class ImportDataActivityInputs:
             "reset_pipeline": self.reset_pipeline,
             "fast_return_eligible": self.fast_return_eligible,
             "scheduled_full_refresh": self.scheduled_full_refresh,
+            "keyset_full_load_enabled": self.keyset_full_load_enabled,
         }
 
 
@@ -147,6 +151,13 @@ def _get_external_data_schema(schema_id: uuid.UUID, team_id: int) -> ExternalDat
         .exclude(deleted=True)
         .get(id=schema_id, team_id=team_id)
     )
+
+
+@database_sync_to_async_pool
+def _has_completed_schema_job(schema_id: uuid.UUID, team_id: int) -> bool:
+    return ExternalDataJob.objects.filter(
+        schema_id=schema_id, team_id=team_id, status=ExternalDataJob.Status.COMPLETED
+    ).exists()
 
 
 # An allow-list, not a deny-list: every sync type here leaves one row per key, and the reader
@@ -526,6 +537,8 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                 db_incremental_field_last_value_before_lookback=incremental_last_value_before_lookback,
                 history_start=history_start,
                 last_synced_at=schema.last_synced_at if use_stored_cursors else None,
+                schema_has_ever_synced=schema.last_synced_at is not None
+                or await _has_completed_schema_job(inputs.schema_id, inputs.team_id),
                 logger=logger,
                 job_id=inputs.run_id,
                 reset_pipeline=reset_pipeline,
@@ -539,6 +552,7 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                 api_version=new_source.resolve_api_version(schema.api_version or model.pipeline.api_version),
                 fanout_warehouse_reuse=fanout_warehouse_reuse,
                 byte_bounded_extraction=byte_bounded_extraction,
+                keyset_full_load=inputs.keyset_full_load_enabled,
                 activity_attempt=activity.info().attempt if activity.in_activity() else 1,
             )
 

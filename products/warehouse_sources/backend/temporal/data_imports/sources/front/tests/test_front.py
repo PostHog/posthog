@@ -239,6 +239,92 @@ class TestPagination:
         assert snapshots[0]["params"]["limit"] == 15
 
 
+class TestFanout:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_messages_fan_out_carries_conversation_id(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        snapshots = _wire(
+            session,
+            [
+                # parent: one page of conversations
+                _response({"_results": [{"id": "cnv_1"}, {"id": "cnv_2"}], "_pagination": {"next": None}}),
+                _response({"_results": [{"id": "msg_1"}], "_pagination": {"next": None}}),
+                _response({"_results": [{"id": "msg_2"}], "_pagination": {"next": None}}),
+            ],
+        )
+        manager = _make_manager()
+
+        rows = _rows(
+            front_source("tok", "conversation_messages", team_id=1, job_id="j", resumable_source_manager=manager)
+        )
+
+        assert [(r["id"], r["conversation_id"]) for r in rows] == [("msg_1", "cnv_1"), ("msg_2", "cnv_2")]
+        assert snapshots[1]["url"].endswith("/conversations/cnv_1/messages")
+        assert snapshots[2]["url"].endswith("/conversations/cnv_2/messages")
+        # The child carries the message listing's own sort params, not the parent's.
+        assert snapshots[1]["params"]["sort_by"] == "created_at"
+        assert snapshots[0]["params"]["sort_by"] == "date"
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_comments_fan_out_sends_no_query_params(self, MockSession: mock.MagicMock) -> None:
+        # /conversations/{id}/comments documents no query params at all, so we must send none.
+        session = MockSession.return_value
+        snapshots = _wire(
+            session,
+            [
+                _response({"_results": [{"id": "cnv_1"}], "_pagination": {"next": None}}),
+                _response({"_results": [{"id": "com_1"}]}),
+            ],
+        )
+        manager = _make_manager()
+
+        rows = _rows(
+            front_source("tok", "conversation_comments", team_id=1, job_id="j", resumable_source_manager=manager)
+        )
+
+        assert [r["id"] for r in rows] == ["com_1"]
+        assert snapshots[1]["params"] == {}
+        # A comments response carries no `_pagination` key, which has to end the child walk.
+        assert session.send.call_count == 2
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_fan_out_resume_skips_completed_parents(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        snapshots = _wire(
+            session,
+            [
+                _response({"_results": [{"id": "cnv_1"}, {"id": "cnv_2"}], "_pagination": {"next": None}}),
+                _response({"_results": [{"id": "msg_2"}], "_pagination": {"next": None}}),
+            ],
+        )
+        manager = _make_manager(FrontResumeConfig(completed=["/conversations/cnv_1/messages"]))
+
+        rows = _rows(
+            front_source("tok", "conversation_messages", team_id=1, job_id="j", resumable_source_manager=manager)
+        )
+
+        assert [r["id"] for r in rows] == ["msg_2"]
+        assert [s["url"] for s in snapshots][1:] == ["https://api2.frontapp.com/conversations/cnv_2/messages"]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_fan_out_checkpoints_each_finished_parent(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _response({"_results": [{"id": "cnv_1"}], "_pagination": {"next": None}}),
+                _response({"_results": [{"id": "msg_1"}], "_pagination": {"next": None}}),
+            ],
+        )
+        manager = _make_manager()
+
+        _rows(front_source("tok", "conversation_messages", team_id=1, job_id="j", resumable_source_manager=manager))
+
+        saved = [call.args[0] for call in manager.save_state.call_args_list]
+        assert saved[-1].completed == ["/conversations/cnv_1/messages"]
+        assert saved[-1].current is None
+
+
 class TestFrontSourceResponse:
     @parameterized.expand(
         [
@@ -246,6 +332,10 @@ class TestFrontSourceResponse:
             ("conversations", "created_at", "month", "asc"),
             ("accounts", "created_at", "month", "asc"),
             ("tags", "created_at", "month", "asc"),
+            # Fan-out endpoints build their response down a separate branch.
+            ("conversation_messages", "created_at", "month", "asc"),
+            # Front returns comments newest-first and offers no sort param.
+            ("conversation_comments", "posted_at", "month", "desc"),
         ]
     )
     def test_partitioned_endpoints(
@@ -259,7 +349,9 @@ class TestFrontSourceResponse:
         assert response.partition_format == partition_format
         assert response.sort_mode == sort_mode
 
-    @parameterized.expand([("contacts",), ("teammates",), ("inboxes",), ("channels",), ("teams",)])
+    @parameterized.expand(
+        [("contacts",), ("teammates",), ("inboxes",), ("channels",), ("teams",), ("contact_custom_fields",)]
+    )
     def test_non_partitioned_endpoints(self, endpoint: str) -> None:
         response = front_source("tok", endpoint, team_id=1, job_id="j", resumable_source_manager=_make_manager())
         assert response.primary_keys == ["id"]

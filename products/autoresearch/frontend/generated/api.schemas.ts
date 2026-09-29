@@ -1342,7 +1342,7 @@ export const TemplateKeyEnumApi = {
 } as const
 
 export interface ResolveTemplateRequestApi {
-    /** Template to resolve. Use autoresearch-templates-list to see all available templates with descriptions. Required.
+    /** Template to resolve. The templates endpoint lists each one with its description. Required.
      *
      * * `likely_active_soon` - Likely Active Soon
      * * `at_risk_of_inactivity` - At Risk Of Inactivity

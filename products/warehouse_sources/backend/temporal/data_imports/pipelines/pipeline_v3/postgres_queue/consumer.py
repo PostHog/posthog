@@ -21,7 +21,6 @@ import structlog
 from asgiref.sync import sync_to_async
 
 from posthog.exceptions_capture import capture_exception
-from posthog.temporal.common.db_errors import is_transient_db_error
 
 from products.warehouse_sources.backend.models.external_data_schema import (
     SCHEMA_DELETED_JOB_ERROR,
@@ -51,6 +50,11 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     _group_by_key,
     _is_transient_queue_db_error,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.coalescing import (
+    CoalesceCaps,
+    CoalesceMember,
+    extends_set,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.messages import ExportSignalMessage
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
     _UNSET,
@@ -65,16 +69,21 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     BACKLOGGED_GROUPS,
     BLOCKED_BATCHES,
     CLAIMABLE_BATCHES,
+    CLAIMABLE_GROUPS,
     DRAINED_AFTER_FAILURE_TOTAL,
     OLDEST_UNCLAIMED_BATCH_SECONDS,
     ORPHANED_BATCHES_DRAINED_TOTAL,
     RUNS_RECONCILED_TOTAL,
     RUNS_TERMINALIZED_STALE_TOTAL,
+    SERIALIZED_BATCHES,
+    SLOT_WAITING_BATCHES,
+    TOP_GROUPS_CLAIMABLE_SHARE,
     observe_queue_query,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock import (
     release_v3_pipeline_lock,
 )
+from products.warehouse_sources.backend.temporal.data_imports.util import is_transient_internal_db_error
 from products.warehouse_sources.backend.types import ExternalDataJobStatus
 from products.warehouse_sources_queue.backend.models import SourceBatchStatus
 
@@ -86,6 +95,7 @@ ConsumerConfig = BatchConsumerConfig
 VerifyOwnership = Callable[[], None]
 # Unlike the engine's ProcessBatchFn, the Delta sink also receives the per-batch ownership check.
 DeltaProcessBatchFn = Callable[[PendingBatch, VerifyOwnership | None], Coroutine[Any, Any, None]]
+DeltaProcessBatchesFn = Callable[[list[PendingBatch], VerifyOwnership | None], Coroutine[Any, Any, None]]
 
 # Ceiling for the queue-freshness probe, deliberately far below the sweep
 # timeout so a degraded probe can't starve the reconcile sweep it rides on.
@@ -173,6 +183,11 @@ EXPECTED_USER_ERROR_PATTERNS: tuple[str, ...] = (
 # with dead entries alone.
 JOB_STATUS_CACHE_TTL_SECONDS = 30
 JOB_STATUS_CACHE_MAX_ENTRIES = 1000
+
+
+def _first_delivery(batch: PendingBatch) -> bool:
+    # A redelivery may sit on a half-finished write; its idempotency check runs per batch.
+    return batch.latest_attempt == 0
 
 
 def _is_transient_queue_connection_drop(err: Exception, conn: psycopg.AsyncConnection[Any]) -> bool:
@@ -334,7 +349,7 @@ class DeltaBatchConsumerAdapter:
             )
         except Exception as e:
             # Leave the job for the reconcile sweep rather than crashing the consumer.
-            if is_transient_db_error(e):
+            if is_transient_internal_db_error(e):
                 logger.warning(
                     "fail_run_job_status_update_app_db_not_ready",
                     job_id=batch.job_id,
@@ -587,7 +602,7 @@ class DeltaBatchConsumerAdapter:
                 error=ref.reason or "run failed (reconciled from queue)",
             )
         except Exception as e:
-            if is_transient_db_error(e):
+            if is_transient_internal_db_error(e):
                 logger.warning(
                     "reconcile_job_status_update_app_db_not_ready",
                     job_id=ref.job_id,
@@ -677,7 +692,7 @@ class DeltaBatchConsumerAdapter:
                     error=STRANDED_RUN_ERROR,
                 )
             except Exception as e:
-                if is_transient_db_error(e):
+                if is_transient_internal_db_error(e):
                     logger.warning(
                         "stranded_run_job_status_update_app_db_not_ready",
                         job_id=ref.job_id,
@@ -748,8 +763,12 @@ class DeltaBatchConsumerAdapter:
                 # of the queue is, depth says how much sits behind it — a stall and a
                 # burst are indistinguishable on age alone.
                 with observe_queue_query("claimable_depth_probe"):
-                    depth = await BatchQueue.get_claimable_batch_count(conn)
-                CLAIMABLE_BATCHES.set(depth)
+                    depth = await BatchQueue.get_queue_depth(conn)
+                CLAIMABLE_BATCHES.set(depth.claimable_batches)
+                CLAIMABLE_GROUPS.set(depth.claimable_groups)
+                TOP_GROUPS_CLAIMABLE_SHARE.set(depth.top_groups_claimable_share)
+                SLOT_WAITING_BATCHES.set(depth.slot_waiting_batches)
+                SERIALIZED_BATCHES.set(depth.serialized_batches)
         except TimeoutError:
             logger.error(  # noqa: TRY400 — designed degraded path, traceback is noise
                 "queue_freshness_probe_timed_out",
@@ -772,7 +791,7 @@ class DeltaBatchConsumerAdapter:
             job_dead = await self._is_job_dead(batch)
         except Exception as e:
             # Fail open: an app-DB hiccup must never wedge the loader.
-            if is_transient_db_error(e):
+            if is_transient_internal_db_error(e):
                 logger.warning(
                     "job_status_check_app_db_not_ready", batch_id=batch.id, job_id=batch.job_id, error=str(e)
                 )
@@ -907,6 +926,35 @@ class DeltaBatchConsumerAdapter:
     ) -> None:
         return None
 
+    def coalesce_group(self, batches: list[PendingBatch]) -> list[list[PendingBatch]]:
+        """Cut the claimed batches of one group into the sets the sink loads as one write.
+
+        Only adjacent batches join, so every set keeps the claim order: the order the loader would
+        have taken the batches in one at a time.
+        """
+        caps = CoalesceCaps.from_settings()
+        sets: list[list[PendingBatch]] = []
+        current: list[PendingBatch] = []
+        current_members: list[CoalesceMember] = []
+        for batch in batches:
+            member = CoalesceMember.from_batch(batch)
+            if (
+                current
+                and _first_delivery(current[-1])
+                and _first_delivery(batch)
+                and extends_set(current_members, member, caps)
+            ):
+                current.append(batch)
+                current_members.append(member)
+                continue
+            if current:
+                sets.append(current)
+            current = [batch]
+            current_members = [member]
+        if current:
+            sets.append(current)
+        return sets
+
 
 class BatchConsumer(SharedBatchConsumer):
     def __init__(
@@ -916,9 +964,15 @@ class BatchConsumer(SharedBatchConsumer):
         health_reporter: Callable[[], None] | None = None,
         claim_sync_types: list[str] | None = None,
         claim_exclude_sync_types: list[str] | None = None,
+        process_batches: DeltaProcessBatchesFn | None = None,
     ) -> None:
         async def process_with_ownership_check(batch: PendingBatch) -> None:
             await process_batch(batch, self._make_verify_ownership(batch))
+
+        async def process_set_with_ownership_check(batches: list[PendingBatch]) -> None:
+            assert process_batches is not None
+            # One lease covers the whole set: every constituent shares the group.
+            await process_batches(batches, self._make_verify_ownership(batches[0]))
 
         super().__init__(
             config=config,
@@ -928,6 +982,7 @@ class BatchConsumer(SharedBatchConsumer):
                 claim_exclude_sync_types=claim_exclude_sync_types,
             ),
             health_reporter=health_reporter,
+            process_batches=process_set_with_ownership_check if process_batches is not None else None,
         )
 
     def _make_verify_ownership(self, batch: PendingBatch) -> Callable[[], None]:

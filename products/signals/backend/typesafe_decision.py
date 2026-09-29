@@ -1,4 +1,5 @@
 import math
+import random
 import asyncio
 from collections.abc import Awaitable, Callable
 from contextlib import suppress
@@ -6,11 +7,17 @@ from time import perf_counter
 from typing import Generic, Literal, TypeVar
 from uuid import uuid4
 
+from django.conf import settings
+from django.core.exceptions import ImproperlyConfigured
+
 import structlog
 import posthoganalytics
 from prometheus_client import Counter, Histogram
+from redis.exceptions import RedisError
 
 from posthog.dataclasses import frozen
+from posthog.redis import get_client
+from posthog.token_bucket import BucketUnavailable, Budget, consume
 
 from products.ml_inference.backend.facade import api as decision_api
 from products.ml_inference.backend.facade.contracts import (
@@ -30,8 +37,13 @@ ModelMode = Literal["traditional-only", "typesafe-shadow", "traditional-shadow",
 JEV_MODEL = "posthog/hogference/jevk5-fp8-0.2"
 JEV_INPUT_USD_PER_MILLION = 0.042
 JEV_TIMEOUT_SECONDS = 3.0
+JEV_ADMISSION_TIMEOUT_SECONDS = 10.0
+JEV_SHADOW_ADMISSION_TIMEOUT_SECONDS = 0.5
+JEV_REDIS_TIMEOUT_SECONDS = 0.1
+JEV_BUDGET = Budget(burst=2, per_hour=3600)
+JEV_TEAM_BUDGET = Budget(burst=1, per_hour=1800)
 
-ACTIONABILITY_THRESHOLD = 0.95
+ACTIONABILITY_THRESHOLD = 0.85
 SIGNAL_SAFETY_THRESHOLD = 0.90
 REPORT_SAFETY_THRESHOLD = 0.50
 SAFETY_CATEGORIES = {
@@ -46,6 +58,11 @@ SAFETY_CATEGORIES = {
 _CALLS = Counter(
     "signals_typesafe_decision_calls",
     "TypeSafe decisions by stage and outcome.",
+    ["stage", "outcome"],
+)
+_ADMISSIONS = Counter(
+    "signals_typesafe_admissions",
+    "Jev admission attempts by stage and outcome.",
     ["stage", "outcome"],
 )
 _DISAGREEMENTS = Counter(
@@ -85,6 +102,12 @@ class SignalsDecisionError(RuntimeError):
     pass
 
 
+class _JevAdmissionError(SignalsDecisionError):
+    def __init__(self, status: Literal["skipped_overload", "admission_unavailable", "admission_timeout"]) -> None:
+        self.status = status
+        super().__init__(status)
+
+
 @frozen
 class SignalsDecision:
     probability: float
@@ -116,6 +139,33 @@ async def model_mode(team_id: int) -> ModelMode:
     return "traditional-only"
 
 
+async def _admit_jev(team_id: int, stage: str, mode: ModelMode) -> None:
+    key = f"signals:jev:admission:{settings.CLOUD_DEPLOYMENT or 'local'}"
+    try:
+        timeout = JEV_SHADOW_ADMISSION_TIMEOUT_SECONDS if mode == "typesafe-shadow" else JEV_ADMISSION_TIMEOUT_SECONDS
+        async with asyncio.timeout(timeout):
+            client = get_client(
+                socket_timeout=JEV_REDIS_TIMEOUT_SECONDS, socket_connect_timeout=JEV_REDIS_TIMEOUT_SECONDS
+            )
+            while True:
+                decision = await asyncio.to_thread(consume, f"{key}:team:{team_id}", JEV_TEAM_BUDGET, client=client)
+                if not isinstance(decision, BucketUnavailable) and decision.allowed:
+                    decision = await asyncio.to_thread(consume, key, JEV_BUDGET, client=client)
+                if isinstance(decision, BucketUnavailable):
+                    raise _JevAdmissionError("admission_unavailable")
+                if decision.allowed:
+                    _ADMISSIONS.labels(stage, "admitted").inc()
+                    return
+                if mode == "typesafe-shadow":
+                    raise _JevAdmissionError("skipped_overload")
+                _ADMISSIONS.labels(stage, "deferred").inc()
+                await asyncio.sleep(decision.retry_after + random.uniform(0, 0.25))
+    except (RedisError, ImproperlyConfigured):
+        raise _JevAdmissionError("admission_unavailable") from None
+    except TimeoutError:
+        raise _JevAdmissionError("admission_timeout") from None
+
+
 async def _query(
     team_id: int,
     stage: str,
@@ -124,7 +174,9 @@ async def _query(
     trace_id: str,
     source_id: str | None,
     source_product: str | None,
+    mode: ModelMode,
 ) -> SignalsDecision:
+    await _admit_jev(team_id, stage, mode)
     question_name = "actionable" if stage == "actionability" else "safe"
     questions = {
         question_name: DecisionQuestion(type=DecisionQuestionType.NOUL, instructions=instructions),
@@ -223,8 +275,11 @@ async def run_model_decision(
     async def run_typesafe() -> _SignalsModelCallResult[SignalsDecision]:
         started = perf_counter()
         try:
-            result = await _query(team_id, stage, state, instructions, trace_id, source_id, source_product)
+            result = await _query(team_id, stage, state, instructions, trace_id, source_id, source_product, mode)
             return _SignalsModelCallResult(value=result, error=None, latency_seconds=perf_counter() - started)
+        except _JevAdmissionError as error:
+            _ADMISSIONS.labels(stage, error.status).inc()
+            return _SignalsModelCallResult(value=None, error=error, latency_seconds=perf_counter() - started)
         except Exception as error:
             logger.warning("TypeSafe call failed", stage=stage, error_type=type(error).__name__)
             return _SignalsModelCallResult(value=None, error=error, latency_seconds=perf_counter() - started)
@@ -281,6 +336,8 @@ async def run_model_decision(
             if conversion_error is not None
             else "ok"
             if typesafe is not None
+            else typesafe_call.error.status
+            if isinstance(typesafe_call.error, _JevAdmissionError)
             else type(typesafe_call.error).__name__
         )
         _CALLS.labels(stage, typesafe_status).inc()

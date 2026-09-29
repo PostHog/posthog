@@ -103,3 +103,10 @@ const withPageFilter = (values: Record<string, any>[]): Record<string, any> => (
 export const PageFilterNudge: Story = {
     parameters: withPageFilter([{ type: 'event', key: '$current_url', operator: 'icontains', value: '/pricing' }]),
 }
+
+export const TemplatesTab: Story = {
+    parameters: {
+        featureFlags: { [FEATURE_FLAGS.REPLAY_TEMPLATES_IN_FILTERS_PANEL_EXPERIMENT]: 'test' },
+        pageUrl: combineUrl(urls.replay(), { showFilters: true, filtersTab: 'templates' }).url,
+    },
+}

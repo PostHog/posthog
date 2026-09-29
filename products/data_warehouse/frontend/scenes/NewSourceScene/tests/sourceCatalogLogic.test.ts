@@ -29,6 +29,14 @@ const AVAILABLE_SOURCES: Record<string, SourceConfigResponseApi> = {
     // Connectable, and shares the "apple" token with the unreleased `Apple` above so a search for
     // "apple" fuzzy-matches both — used to assert connectable results outrank "Coming soon" ones.
     ApplePay: { name: 'ApplePay', label: 'Apple Pay', fields: [] } as unknown as SourceConfigResponseApi,
+    // A Databases-category source, so a search for the words people use for the category itself
+    // has something to find.
+    Postgres: {
+        name: 'Postgres',
+        label: 'Postgres',
+        category: 'Databases',
+        fields: [],
+    } as unknown as SourceConfigResponseApi,
     // Two sources in distinct categories, used to assert that a category-filtered search which only
     // matches a source in another category flags a cross-category hint instead of dead-ending.
     Salesforce: {
@@ -157,6 +165,15 @@ describe('sourceCatalogLogic', () => {
         const names = logic.values.filteredItems.map((item) => item.name)
         expect(names).toContain('aws')
         expect(names.indexOf('google-cloud')).toBeLessThan(names.indexOf('aws'))
+    })
+
+    // "database" already found these through the category name. The word in the product's own
+    // name found nothing at all, which sent the user to "request a source".
+    it.each(['warehouse', 'dwh'])('finds database sources when searching "%s"', (search) => {
+        const logic = sourceCatalogLogic()
+        logic.actions.setSearch(search)
+
+        expect(logic.values.filteredItems.map((item) => item.name)).toContain('Postgres')
     })
 
     it('flags a cross-category match when a filtered search only hits another category', () => {

@@ -91,6 +91,7 @@ class TestSignalsProductModuleIntegrity:
     def test_workflows_remain_unchanged(self):
         """Ensure all expected signals product workflows are present."""
         expected_workflows = [
+            "GenerateScoutRubricsWorkflow",
             "BackfillErrorTrackingWorkflow",
             "TeamSignalGroupingWorkflow",
             "TeamSignalGroupingV2Workflow",
@@ -107,7 +108,6 @@ class TestSignalsProductModuleIntegrity:
             "ScoutSuggestionsCoordinatorWorkflow",
             "CustomSignalAgentWorkflow",
             "SignalReportInboxNotificationWorkflow",
-            "InboxRankingScoringWorkflow",
         ]
         actual_workflow_names = [w.__name__ for w in SIGNALS_PRODUCT_WORKFLOWS]
         assert len(actual_workflow_names) == len(expected_workflows), (
@@ -122,6 +122,8 @@ class TestSignalsProductModuleIntegrity:
     def test_activities_remain_unchanged(self):
         """Ensure all expected signals product activities are present."""
         expected_activities = [
+            "generate_scout_rubrics_activity",
+            "fail_scout_rubrics_activity",
             "dispatch_inbox_slack_notifications_activity",
             "get_inbox_notification_state_activity",
             "send_report_github_comments_activity",
@@ -173,7 +175,6 @@ class TestSignalsProductModuleIntegrity:
             "stamp_dispatched_signals_scout_runs_activity",
             "run_due_signal_report_checks_activity",
             "run_signals_scout_activity",
-            "score_inbox_reports_activity",
             "resume_signals_scout_workflow_step",
             "plan_scout_suggestion_runs_activity",
             "run_scout_suggestions_activity",

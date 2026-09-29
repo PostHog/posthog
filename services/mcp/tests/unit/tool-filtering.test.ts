@@ -964,6 +964,8 @@ describe('Tool Filtering - Feature Flags', () => {
         expect(off).not.toContain('notebooks-create-markdown')
         expect(off).not.toContain('notebooks-add-cell')
         expect(off).not.toContain('notebooks-set-variables')
+        expect(off).not.toContain('notebooks-run')
+        expect(off).not.toContain('notebooks-run-status')
         expect(off).not.toContain('notebooks-get')
 
         const on = getToolsForFeatures({ featureFlags: { 'revamped-py-notebooks': true } })
@@ -972,6 +974,8 @@ describe('Tool Filtering - Feature Flags', () => {
         expect(on).toContain('notebooks-update-cell')
         expect(on).toContain('notebooks-delete-cell')
         expect(on).toContain('notebooks-set-variables')
+        expect(on).toContain('notebooks-run')
+        expect(on).toContain('notebooks-run-status')
         expect(on).toContain('notebooks-run-cell-result')
         expect(on).toContain('notebooks-get')
         expect(on).toContain('notebooks-list-frames')
@@ -992,7 +996,12 @@ describe('Tool Filtering - Feature Flags', () => {
     })
 
     it('getRequiredFeatureFlags should return flags used by current definitions', () => {
-        const flags = getRequiredFeatureFlags()
+        const allFlags = getRequiredFeatureFlags()
+        expect(allFlags).toContain('self-optimising-workflows')
+        // The flag this branch adds is asserted on the line above and held out of the list and
+        // count below. Those belong to master and move with every flag master adds or drops, so a
+        // stacked branch that adds one does not edit them.
+        const flags = allFlags.filter((flag) => flag !== 'self-optimising-workflows')
         expect(flags).toEqual(
             expect.arrayContaining([
                 'logs-anomalies',
@@ -1033,9 +1042,10 @@ describe('Tool Filtering - Feature Flags', () => {
                 'data-quality-checks',
                 'context-layer',
                 'warehouse-multi-destination',
+                'autoresearch',
             ])
         )
-        expect(flags).toHaveLength(37)
+        expect(flags).toHaveLength(38)
     })
 
     it('every loops tool is gated on the loops flag', () => {
