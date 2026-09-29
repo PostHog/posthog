@@ -6,12 +6,7 @@ from django.core.cache import cache
 import httpx
 from parameterized import parameterized
 
-from products.ai_observability.backend.llm.errors import (
-    ModelNotFoundError,
-    RateLimitError,
-    StructuredOutputParseError,
-    UnsupportedModelError,
-)
+from products.ai_observability.backend.llm.errors import UnsupportedModelError
 from products.ai_observability.backend.llm.providers.openai import OpenAIAdapter
 from products.ai_observability.backend.llm.providers.openrouter import (
     NON_CHAT_MODELS_CACHE_KEY,
@@ -136,62 +131,24 @@ class TestOpenRouterHeaders:
 
 
 class TestOpenRouterNonChatModels:
-    @parameterized.expand(
-        [
-            (
-                "not_found_on_decision_model",
-                ModelNotFoundError("typesafe/jev-1.13"),
-                "typesafe/jev-1.13",
-                {"typesafe/jev-1.13"},
-                UnsupportedModelError,
-            ),
-            (
-                "parse_error_on_decision_model",
-                StructuredOutputParseError("bad"),
-                "typesafe/jev-1.13",
-                {"typesafe/jev-1.13"},
-                UnsupportedModelError,
-            ),
-            (
-                "error_on_chat_model",
-                ModelNotFoundError("openai/gpt-4o"),
-                "openai/gpt-4o",
-                {"typesafe/jev-1.13"},
-                ModelNotFoundError,
-            ),
-            ("catalogue_unavailable", ValueError("400"), "typesafe/jev-1.13", None, ValueError),
-            (
-                "empty_reply_on_decision_model",
-                MagicMock(parsed=None),
-                "typesafe/jev-1.13",
-                {"typesafe/jev-1.13"},
-                UnsupportedModelError,
-            ),
-            (
-                "rate_limit_on_decision_model",
-                RateLimitError("slow down"),
-                "typesafe/jev-1.13",
-                {"typesafe/jev-1.13"},
-                RateLimitError,
-            ),
-        ]
-    )
-    def test_complete_maps_failures_of_non_chat_models(self, _name, raised, model, non_chat_ids, expected):
+    @parameterized.expand([("decision_model", "typesafe/jev-1.13", True), ("chat_model", "openai/gpt-4o", False)])
+    def test_complete_rejects_non_chat_models_before_calling(self, _name, model, rejected):
         request = MagicMock(model=model)
         with (
-            patch.object(
-                OpenAIAdapter,
-                "complete",
-                side_effect=raised if isinstance(raised, Exception) else None,
-                return_value=raised,
-            ),
+            patch.object(OpenAIAdapter, "complete") as mock_complete,
             patch(
                 "products.ai_observability.backend.llm.providers.openrouter._non_chat_model_ids",
-                return_value=frozenset(non_chat_ids) if non_chat_ids is not None else None,
+                return_value=frozenset({"typesafe/jev-1.13"}),
             ),
-            pytest.raises(expected),
         ):
-            OpenRouterAdapter().complete(request, "sk-or-test-key", MagicMock())
+            if rejected:
+                with pytest.raises(UnsupportedModelError):
+                    OpenRouterAdapter().complete(request, "sk-or-test-key", MagicMock())
+                mock_complete.assert_not_called()
+            else:
+                assert (
+                    OpenRouterAdapter().complete(request, "sk-or-test-key", MagicMock()) is mock_complete.return_value
+                )
 
     def test_catalogue_keeps_only_models_without_text_output(self):
         mock_response = MagicMock()

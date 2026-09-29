@@ -13,13 +13,7 @@ from django.core.cache import cache
 import httpx
 import openai
 
-from products.ai_observability.backend.llm.errors import (
-    AuthenticationError,
-    ProviderConnectionError,
-    QuotaExceededError,
-    RateLimitError,
-    UnsupportedModelError,
-)
+from products.ai_observability.backend.llm.errors import UnsupportedModelError
 from products.ai_observability.backend.llm.providers.openai import OpenAIAdapter, OpenAIConfig
 from products.ai_observability.backend.llm.types import (
     AnalyticsContext,
@@ -46,9 +40,6 @@ NON_CHAT_MODELS_FETCH_TIMEOUT_SECONDS = 5.0
 # Short, so a catalogue outage adds the fetch timeout at most once a minute.
 NON_CHAT_MODELS_UNAVAILABLE_TTL_SECONDS = 60
 _CATALOGUE_UNAVAILABLE = "unavailable"
-
-# These failures are about the key or the network, not about the model.
-_KEY_OR_NETWORK_ERRORS = (AuthenticationError, QuotaExceededError, RateLimitError, ProviderConnectionError)
 
 
 def _non_chat_model_ids() -> frozenset[str] | None:
@@ -99,20 +90,10 @@ class OpenRouterAdapter(OpenAIAdapter):
         analytics: AnalyticsContext,
         base_url: str | None = None,
     ) -> CompletionResponse:
-        try:
-            response = super().complete(request, api_key, analytics, base_url=OPENROUTER_BASE_URL)
-        except _KEY_OR_NETWORK_ERRORS:
-            raise
-        except Exception as e:
-            # A non-chat model fails in different ways (a 400, a 404, or unreadable output).
-            # The catalogue gives one answer for all of them.
-            if is_non_chat_model(request.model):
-                raise UnsupportedModelError(request.model) from e
-            raise
-        # A non-chat model can also answer with an empty reply instead of an error.
-        if request.response_format and response.parsed is None and is_non_chat_model(request.model):
+        # A non-chat model fails in several shapes (a 400, a 404, an empty reply), so reject it up front.
+        if is_non_chat_model(request.model):
             raise UnsupportedModelError(request.model)
-        return response
+        return super().complete(request, api_key, analytics, base_url=OPENROUTER_BASE_URL)
 
     def stream(
         self,
