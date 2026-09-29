@@ -34,7 +34,7 @@ import { snippetSegments } from './snippetSegments'
 function watchMomentUrl(
     observation: ReplayObservationApi,
     citedMs: number | null,
-    { location, searchParams, hashParams }: typeof router.values
+    { location, searchParams, hashParams }: Pick<typeof router.values, 'location' | 'searchParams' | 'hashParams'>
 ): string {
     return combineUrl(
         location.pathname,
@@ -66,7 +66,8 @@ function WatchLink({
     compact?: boolean
     onOpen: (target: SearchResultTarget) => void
 }): JSX.Element {
-    const routerValues = useValues(router)
+    // useValues returns lazy getters that each call a hook, so read them before the expired branch.
+    const { location, searchParams, hashParams } = useValues(router)
     const citedMs = firstCitedTimestampMs(observation)
     /* The card clips its own corners and draws its own edge, so the poster goes edge to edge there. */
     const thumbnail = (
@@ -98,7 +99,7 @@ function WatchLink({
     }
     return (
         <Link
-            to={watchMomentUrl(observation, citedMs, routerValues)}
+            to={watchMomentUrl(observation, citedMs, { location, searchParams, hashParams })}
             onClick={() => onOpen('watch')}
             className={clsx('relative block text-primary group', compact && 'w-28')}
             data-attr="vision-search-result-watch"
