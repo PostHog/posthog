@@ -547,6 +547,7 @@ the row lists both.
 | partnerize                       | HTTP                        | requests                                                        | ✅                          |
 | partnerstack                     | HTTP                        | requests                                                        | ✅                          |
 | payfit                           | HTTP                        | requests                                                        | ✅                          |
+| paymongo                         | HTTP + Webhook              | requests + `rest_source.RESTClient` + `WebhookSourceManager`    | ✅ (pull) / ➖ (webhook)    |
 | paystack                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | pendo                            | HTTP                        | requests                                                        | ✅                          |
 | perigon                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -1272,7 +1273,6 @@ doesn't conflict with concurrent PRs.
 - paychex
 - paylocity
 - paymob
-- paymongo
 - paypal
 - peec_ai
 - pendo
