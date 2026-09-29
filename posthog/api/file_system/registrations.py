@@ -341,14 +341,14 @@ def _feature_flag_pre_delete(context: DeletionContext, feature_flag: Any) -> Non
     # put all of that on every process's startup path.
     from products.feature_flags.backend.facade.api import deactivate_trashed_flag  # noqa: PLC0415
 
-    deactivate_trashed_flag(feature_flag.id, team_id=feature_flag.team_id, user=context.user)
+    deactivate_trashed_flag(feature_flag.id, team_id=feature_flag.team_id, user_id=getattr(context.user, "id", None))
     feature_flag.refresh_from_db(fields=["active"])
 
 
 def _feature_flag_pre_restore(context: RestoreContext, feature_flag: Any) -> None:
     from products.feature_flags.backend.facade.api import reactivate_restored_flag  # noqa: PLC0415
 
-    reactivate_restored_flag(feature_flag.id, team_id=feature_flag.team_id, user=context.user)
+    reactivate_restored_flag(feature_flag.id, team_id=feature_flag.team_id, user_id=getattr(context.user, "id", None))
     feature_flag.refresh_from_db(fields=["active"])
 
 

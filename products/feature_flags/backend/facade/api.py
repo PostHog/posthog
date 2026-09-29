@@ -206,7 +206,7 @@ def _set_trashed_flag_active(flag_id: int, *, team_id: int, active: bool) -> Non
     FeatureFlag.objects_including_soft_deleted.filter(pk=flag_id, team_id=team_id).update(active=active)
 
 
-def _flip_trashed_flag(flag_id: int, *, team_id: int, user: Any, active: bool) -> None:
+def _flip_trashed_flag(flag_id: int, *, team_id: int, user_id: int | None, active: bool) -> None:
     """Flip ``active`` for trash or restore, through the gate when the flag is standalone.
 
     Ownership picks the path, the way resource-scoped policies do everywhere else. A standalone
@@ -220,21 +220,21 @@ def _flip_trashed_flag(flag_id: int, *, team_id: int, user: Any, active: bool) -
     if flag_owner_kind(flag) is not None:
         _set_trashed_flag_active(flag_id, team_id=team_id, active=active)
         return
-    set_flag_active(flag, active, team=flag.team, user=user)
+    set_flag_active(flag, active, team=flag.team, user=User.objects.filter(pk=user_id).first())
 
 
-def deactivate_trashed_flag(flag_id: int, *, team_id: int, user: Any = None) -> None:
+def deactivate_trashed_flag(flag_id: int, *, team_id: int, user_id: int | None = None) -> None:
     """Disable a flag that the file system moves to trash. See ``_flip_trashed_flag``."""
-    _flip_trashed_flag(flag_id, team_id=team_id, user=user, active=False)
+    _flip_trashed_flag(flag_id, team_id=team_id, user_id=user_id, active=False)
 
 
-def reactivate_restored_flag(flag_id: int, *, team_id: int, user: Any = None) -> None:
+def reactivate_restored_flag(flag_id: int, *, team_id: int, user_id: int | None = None) -> None:
     """Enable a flag that the file system restores from trash. See ``_flip_trashed_flag``.
 
     Restore turns the flag on even when it was off before trash, because trash records no prior
     state. That is unchanged here; the gate only decides whether the flip needs approval.
     """
-    _flip_trashed_flag(flag_id, team_id=team_id, user=user, active=True)
+    _flip_trashed_flag(flag_id, team_id=team_id, user_id=user_id, active=True)
 
 
 def archive_flag(
