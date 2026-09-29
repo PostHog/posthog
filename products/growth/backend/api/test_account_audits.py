@@ -144,6 +144,8 @@ class TestAccountAuditStartAPI(APIBaseTest):
     def test_selects_distinct_recent_viewers_unless_a_team_is_explicit(
         self, days_ago: int, explicit_team: bool
     ) -> None:
+        self.team.project.created_at = timezone.now() - timedelta(days=90)
+        self.team.project.save(update_fields=["created_at"])
         active_team = Team.objects.create(organization=self.organization, name="Active project")
         other_user = User.objects.create(email="other-viewer@example.com")
         for ref in ("1", "2", "3"):
