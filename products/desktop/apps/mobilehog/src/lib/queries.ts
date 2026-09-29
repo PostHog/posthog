@@ -1,6 +1,6 @@
 import type { GatewayModel } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { DEFAULT_MODEL, DEFAULT_REPOSITORY } from "@/config";
 import { useAuth } from "@/lib/auth";
 import { getClient } from "@/lib/client";
@@ -119,6 +119,21 @@ export function useRepositories() {
     },
     enabled: !!session,
     staleTime: 5 * 60_000,
+  });
+}
+
+export function useUpdateTask() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      id,
+      ...patch
+    }: {
+      id: string;
+      title?: string;
+      archived?: boolean;
+    }) => getClient().updateTask(id, patch),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: keys.tasks }),
   });
 }
 

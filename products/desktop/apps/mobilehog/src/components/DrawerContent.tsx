@@ -1,9 +1,11 @@
+import { Button, ContextMenu, Host, RNHostView } from "@expo/ui/swift-ui";
 import { formatRelativeAge } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import { useRouter } from "expo-router";
 import { useMemo } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -17,7 +19,7 @@ import { GlassCircleButton } from "@/components/Glass";
 import { BellIcon, SteeringIcon } from "@/components/Icons";
 import { useActivity } from "@/lib/activity";
 import { useAuth } from "@/lib/auth";
-import { useTasks } from "@/lib/queries";
+import { useTasks, useUpdateTask } from "@/lib/queries";
 import { useReports, useSeenReports } from "@/lib/reports";
 import { colors, fonts, radius } from "@/lib/theme";
 
@@ -54,6 +56,26 @@ export function DrawerContent({ closeDrawer }: { closeDrawer: () => void }) {
       ),
     [tasks.data],
   );
+
+  const updateTask = useUpdateTask();
+  const rename = (task: Task): void =>
+    Alert.prompt(
+      "Rename",
+      "Enter a new name",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "OK",
+          onPress: (title?: string) => {
+            if (title?.trim()) {
+              updateTask.mutate({ id: task.id, title: title.trim() });
+            }
+          },
+        },
+      ],
+      "plain-text",
+      taskTitle(task),
+    );
 
   const open = (taskId: string): void => {
     closeDrawer();
@@ -107,26 +129,50 @@ export function DrawerContent({ closeDrawer }: { closeDrawer: () => void }) {
             <Text style={styles.empty}>Loading</Text>
           ) : null}
           {sorted.map((task) => (
-            <Pressable
-              key={task.id}
-              onPress={() => open(task.id)}
-              style={({ pressed }) => [
-                styles.taskRow,
-                pressed && { opacity: 0.5 },
-              ]}
-            >
-              <View style={styles.taskBody}>
-                <Text style={styles.taskTitle} numberOfLines={2}>
-                  {taskTitle(task)}
-                </Text>
-                <Text style={styles.taskAge}>
-                  {formatRelativeAge(activityAt(task))}
-                </Text>
-              </View>
-              {isRunning(task) ? (
-                <ActivityIndicator size="small" color={colors.inkSoft} />
-              ) : null}
-            </Pressable>
+            <Host key={task.id} matchContents={{ vertical: true }}>
+              <ContextMenu>
+                <ContextMenu.Items>
+                  <Button
+                    label="Rename"
+                    systemImage="pencil"
+                    onPress={() => rename(task)}
+                  />
+                  <Button
+                    label="Archive"
+                    systemImage="archivebox"
+                    onPress={() =>
+                      updateTask.mutate({ id: task.id, archived: true })
+                    }
+                  />
+                </ContextMenu.Items>
+                <ContextMenu.Trigger>
+                  <RNHostView matchContents>
+                    <Pressable
+                      onPress={() => open(task.id)}
+                      style={({ pressed }) => [
+                        styles.taskRow,
+                        pressed && { opacity: 0.5 },
+                      ]}
+                    >
+                      <View style={styles.taskBody}>
+                        <Text style={styles.taskTitle} numberOfLines={2}>
+                          {taskTitle(task)}
+                        </Text>
+                        <Text style={styles.taskAge}>
+                          {formatRelativeAge(activityAt(task))}
+                        </Text>
+                      </View>
+                      {isRunning(task) ? (
+                        <ActivityIndicator
+                          size="small"
+                          color={colors.inkSoft}
+                        />
+                      ) : null}
+                    </Pressable>
+                  </RNHostView>
+                </ContextMenu.Trigger>
+              </ContextMenu>
+            </Host>
           ))}
         </View>
       </ScrollView>
