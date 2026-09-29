@@ -9,6 +9,7 @@ import { NotFound } from 'lib/components/NotFound'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { pluralize } from 'lib/utils/strings'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
 import { useMaxTool } from 'scenes/max/useMaxTool'
@@ -121,6 +122,14 @@ export function SurveyDisplaySummary({
         survey.conditions?.seenSurveyWaitPeriodInDays ||
         (survey.conditions?.events?.values.length ?? 0) > 0
     const hasFeatureFlags = survey.linked_flag_id || survey.linked_flag || targetingFlagFilters
+    const waitPeriodInDays = survey.conditions?.seenSurveyWaitPeriodInDays ?? 0
+    let eventFrequency = 'once per user'
+    if (doesSurveyShowOnEveryActivation(survey)) {
+        eventFrequency =
+            waitPeriodInDays > 0
+                ? `every time they occur, at most once every ${pluralize(waitPeriodInDays, 'day')}`
+                : 'every time they occur'
+    }
 
     return (
         <div className="flex flex-col mt-2 gap-2">
@@ -210,10 +219,7 @@ export function SurveyDisplaySummary({
                 <div className="flex flex-col font-medium gap-1">
                     <div className="flex-row">
                         <span>
-                            When the user sends the following events (
-                            <span>
-                                {doesSurveyShowOnEveryActivation(survey) ? 'every time they occur' : 'once per user'}
-                            </span>
+                            When the user sends the following events (<span>{eventFrequency}</span>
                             ):
                         </span>{' '}
                         {survey.conditions?.events?.values.map((event) => (

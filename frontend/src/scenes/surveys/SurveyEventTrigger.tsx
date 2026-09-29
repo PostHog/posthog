@@ -8,6 +8,7 @@ import { LemonCard, LemonCheckbox, LemonCollapse } from '@posthog/lemon-ui'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { pluralize } from 'lib/utils/strings'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import {
@@ -119,6 +120,11 @@ function SurveyEventSelector({
     // once per user.
     const scheduleOverridesOncePerUser =
         !survey.conditions?.events?.repeatedActivation && doesSurveyShowOnEveryActivation(survey)
+    const waitPeriodInDays = survey.conditions?.seenSurveyWaitPeriodInDays ?? 0
+    const scheduleRepeatCadence =
+        waitPeriodInDays > 0
+            ? `on each of these events, at most once every ${pluralize(waitPeriodInDays, 'day')}`
+            : 'on each of these events'
 
     const events: SurveyEventsWithProperties[] = survey.conditions?.[conditionField]?.values || []
 
@@ -253,8 +259,8 @@ function SurveyEventSelector({
                         />
                         {scheduleOverridesOncePerUser && (
                             <p className="text-xs text-muted m-0">
-                                This survey is set to show every time its display conditions are met, so it shows again
-                                on each of these events. To show it once per person, set "Once" in the&nbsp;
+                                This survey is set to show every time its display conditions are met, so it shows again{' '}
+                                {scheduleRepeatCadence}. To show it once per person, set "Once" in the&nbsp;
                                 <LinkToSurveyFormSection section={SurveyEditSection.CompletionConditions} />.
                             </p>
                         )}
