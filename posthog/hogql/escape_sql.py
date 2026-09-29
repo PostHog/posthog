@@ -399,7 +399,12 @@ class SQLValueEscaper:
         return self.visit_datetime(value)
 
     def visit_datetime(self, value: datetime):
-        datetime_string = value.astimezone(ZoneInfo(self._timezone)).strftime("%Y-%m-%d %H:%M:%S.%f")
+        try:
+            datetime_string = value.astimezone(ZoneInfo(self._timezone)).strftime("%Y-%m-%d %H:%M:%S.%f")
+        except OverflowError:
+            raise QueryError(
+                f"The date {value.isoformat()} is out of range in the {self._timezone} timezone. Use a date between years 1 and 9999."
+            )
         if self._dialect == "hogql":
             return f"toDateTime({self.visit(datetime_string)})"  # no timezone for hogql
         return f"toDateTime64({self.visit(datetime_string)}, 6, {self.visit(self._timezone)})"
