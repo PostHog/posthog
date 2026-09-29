@@ -8,8 +8,8 @@ import {
     type ToolInfo,
 } from '@/lib/instructions'
 import { formatPrompt } from '@/lib/utils'
-import ACTIVITY_HISTORY from '@/templates/sections/activity-history.md'
 import ACTIVITY_HISTORY_SQL from '@/templates/sections/activity-history-sql.md'
+import ACTIVITY_HISTORY from '@/templates/sections/activity-history.md'
 import AGENT_FEEDBACK from '@/templates/sections/agent-feedback.md'
 import ANALYSIS_ARTIFACTS from '@/templates/sections/analysis-artifacts.md'
 import BASIC_FUNCTIONALITY from '@/templates/sections/basic-functionality.md'
