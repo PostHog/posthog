@@ -31,6 +31,7 @@ from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.middleware import (
     ActivityLoggingMiddleware,
+    Fix204Middleware,
     ManagedProxyClientIPMiddleware,
     SignedClientIPOutcome,
     per_request_logging_context_middleware,
@@ -395,6 +396,19 @@ class TestManagedProxyClientIPMiddleware(SimpleTestCase):
         assert middleware.index("posthog.middleware.ManagedProxyClientIPMiddleware") < middleware.index(
             "posthog.middleware.per_request_logging_context_middleware"
         )
+
+
+class TestFix204Middleware(SimpleTestCase):
+    def test_no_content_response_has_no_body_or_content_length(self) -> None:
+        def get_response(request: HttpRequest) -> HttpResponse:
+            response = HttpResponse(b'{"ok": true}', status=204, content_type="application/json")
+            response.headers["Content-Length"] = str(len(response.content))
+            return response
+
+        response = Fix204Middleware(get_response)(RequestFactory().post("/"))
+
+        assert response.content == b""
+        assert "Content-Length" not in response.headers
 
 
 class TestAutoProjectMiddleware(APIBaseTest):
