@@ -403,6 +403,7 @@ class TestAttributionHealthPaidSignalClickhouse(ClickhouseTestMixin, BaseTest):
             ("linkedin", "linkedin_ads", "li_fat_id"),
             ("reddit", "reddit_ads", "rdt_cid"),
             ("snapchat", "snapchat_ads", "ScCid"),
+            ("snapchat", "snapchat_ads", "sccid"),
             ("tiktok", "tiktok_ads", "ttclid"),
             ("rokt", "rokt_ads", "rtid"),
             ("pinterest", "pinterest_ads", "pp"),

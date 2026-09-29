@@ -275,7 +275,7 @@ _PLATFORM_AD_PARAMETERS: dict[NativeIntegration, tuple[str, ...]] = {
     "bing_ads": ("msclkid",),
     "linkedin_ads": ("li_fat_id",),
     "reddit_ads": ("rdt_cid",),
-    "snapchat_ads": ("ScCid",),
+    "snapchat_ads": ("ScCid", "sccid"),
     "tiktok_ads": ("ttclid",),
     "rokt_ads": ("rtid",),
 }
