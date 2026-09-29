@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import { useRef } from 'react'
 
 import { IconInfo } from '@posthog/icons'
 import { LemonButton, LemonInput, Tooltip } from '@posthog/lemon-ui'
@@ -23,6 +24,7 @@ const TYPE_OPTIONS = LINEAGE_FILTER_TYPES.map((type) => ({
 }))
 
 export function ModelsLineageTab(): JSX.Element {
+    const searchInputRef = useRef<HTMLInputElement>(null)
     const {
         nodes,
         nodesLoading,
@@ -58,6 +60,7 @@ export function ModelsLineageTab(): JSX.Element {
                     size="small"
                     placeholder="Search, or +name for upstream"
                     aria-label="Search models"
+                    inputRef={searchInputRef}
                     value={searchTerm}
                     onChange={setSearchTerm}
                     onKeyDown={(event) => {
@@ -112,9 +115,18 @@ export function ModelsLineageTab(): JSX.Element {
                     <LineageSearchResults
                         results={searchResults}
                         selectedResultId={selectedSearchResult?.id}
-                        onSelect={(nodeId) => focusSearchResult(nodeId, 'click')}
-                        onPrevious={() => moveSearchResult('previous', true)}
-                        onNext={() => moveSearchResult('next', true)}
+                        onSelect={(nodeId) => {
+                            focusSearchResult(nodeId, 'click')
+                            searchInputRef.current?.focus()
+                        }}
+                        onPrevious={() => {
+                            moveSearchResult('previous', true)
+                            searchInputRef.current?.focus()
+                        }}
+                        onNext={() => {
+                            moveSearchResult('next', true)
+                            searchInputRef.current?.focus()
+                        }}
                     />
                 )}
                 <LineageGraph

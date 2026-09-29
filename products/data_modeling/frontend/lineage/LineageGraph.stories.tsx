@@ -138,6 +138,12 @@ export const SearchFocus: Story = {
         if (graph.querySelectorAll('.react-flow__node').length !== GRAPH_NODES.length) {
             throw new Error('Plain search must keep the rest of the graph visible')
         }
+        const previousResult = canvas.getByLabelText('Previous result')
+        previousResult.focus()
+        fireEvent.click(previousResult)
+        if (document.activeElement !== search) {
+            throw new Error('Cycling results must return focus to the search input')
+        }
     },
 }
 
