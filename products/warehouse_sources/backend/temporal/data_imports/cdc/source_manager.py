@@ -747,7 +747,12 @@ class CDCSourceManager:
         try:
             await client.delete_object(Bucket=bucket, Key=key, IfMatch=f'"{etag}"')
         except ClientError as error:
-            if error.response.get("Error", {}).get("Code") in ("PreconditionFailed", "NoSuchKey"):
+            # 409 means a write to the same key was in flight, so the file is read like any other replacement.
+            if error.response.get("Error", {}).get("Code") in (
+                "PreconditionFailed",
+                "ConditionalRequestConflict",
+                "NoSuchKey",
+            ):
                 return False
             raise
         return True

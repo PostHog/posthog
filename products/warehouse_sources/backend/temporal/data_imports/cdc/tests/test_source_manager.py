@@ -114,6 +114,7 @@ class _FakeS3:
         mtimes_at_delete: dict[str, dt.datetime] | None = None,
         listed_without_etags: bool = False,
         store_without_etags: bool = False,
+        conflicting_deletes: set[str] | None = None,
     ) -> None:
         self.files = dict(files)
         # Listed but gone by the time the reader opens them, as a concurrent retry leaves things.
@@ -128,6 +129,7 @@ class _FakeS3:
         self.mtimes_at_delete = mtimes_at_delete or {}
         self.listed_without_etags = listed_without_etags
         self.store_without_etags = store_without_etags
+        self.conflicting_deletes = conflicting_deletes or set()
 
     async def _ls(self, prefix, detail=True, refresh=False):
         # The manager must always bypass the fsspec dircache — capture writes through a different
@@ -168,6 +170,8 @@ class _FakeS3:
         class _Client:
             async def delete_object(self, Bucket, Key, IfMatch=None):
                 full_key = f"{Bucket}/{Key}"
+                if full_key in fake.conflicting_deletes:
+                    raise ClientError({"Error": {"Code": "ConditionalRequestConflict"}}, "DeleteObject")
                 if IfMatch is not None and IfMatch != f'"{fake._current_etag(full_key)}"':
                     raise ClientError({"Error": {"Code": "PreconditionFailed"}}, "DeleteObject")
                 fake.removed.append(full_key)
@@ -720,27 +724,57 @@ class TestFloorDeletion:
 
     @parameterized.expand(
         [
-            ("listed_with_the_same_etag", {build_buffer_file_name(11, 20, 0): "etag-1"}, _RECENT, "etag-1", True),
-            ("rewritten_since_the_listing", {build_buffer_file_name(11, 20, 0): "etag-0"}, _RECENT, "etag-1", False),
+            (
+                "listed_with_the_same_etag",
+                {build_buffer_file_name(11, 20, 0): "etag-1"},
+                _RECENT,
+                "etag-1",
+                False,
+                True,
+            ),
+            (
+                "rewritten_since_the_listing",
+                {build_buffer_file_name(11, 20, 0): "etag-0"},
+                _RECENT,
+                "etag-1",
+                False,
+                False,
+            ),
             (
                 "rewritten_with_an_mtime_that_looks_old",
                 {build_buffer_file_name(11, 20, 0): "etag-0"},
                 _OLD_MTIME,
                 "etag-1",
                 False,
+                False,
             ),
-            ("not_in_the_listing", {}, _RECENT, "etag-1", False),
+            ("not_in_the_listing", {}, _RECENT, "etag-1", False, False),
             (
                 "rewritten_after_this_runs_listing",
                 {build_buffer_file_name(11, 20, 0): "etag-1"},
                 _RECENT,
                 "etag-2",
                 False,
+                False,
+            ),
+            (
+                "written_to_during_the_delete",
+                {build_buffer_file_name(11, 20, 0): "etag-1"},
+                _RECENT,
+                "etag-1",
+                True,
+                False,
             ),
         ]
     )
     async def test_a_file_written_just_before_the_listing_goes_on_the_next_run_only_if_that_listing_read_it(
-        self, _name: str, tail: dict[str, str], modified: dt.datetime, etag_at_delete: str, deleted: bool
+        self,
+        _name: str,
+        tail: dict[str, str],
+        modified: dt.datetime,
+        etag_at_delete: str,
+        delete_conflicts: bool,
+        deleted: bool,
     ) -> None:
         key = _key(11, 20)
         s3 = _FakeS3(
@@ -748,6 +782,7 @@ class TestFloorDeletion:
             mtimes={key: modified},
             etags={key: "etag-1"},
             etags_at_delete={key: etag_at_delete},
+            conflicting_deletes={key} if delete_conflicts else None,
         )
         await _collect(s3, deletion_floor=20, proof=ListingProof(listed_at=_NOW, tail=tail))
 
