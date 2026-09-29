@@ -299,7 +299,7 @@ let retry_strategy = ExponentialBackoff::from_millis(100)
 | `flags_definition_query_time`              | -                      | Flag definition query duration                                                                         |
 | `flags_pool_utilization_ratio`             | `pool`                 | Pool utilization (0.0-1.0)                                                                             |
 | `flags_connection_hold_time_ms`            | `pool`, `operation`    | How long connections are held                                                                          |
-| `flags_hash_key_retries_total`             | `team_id`, `operation` | Retry counter                                                                                          |
+| `flags_hash_key_retries_total`             | `team_id`, `operation` | Retries scheduled after a failed attempt. The last failed attempt of a call does not count             |
 | `flags_flag_evaluation_error_total`        | `error_type`           | Error counter                                                                                          |
 | `db_connection_created_total`              | `pool`                 | Connection creation events (physical TCP/TLS, not pool reuse)                                          |
 | `flags_db_connection_pool_size`            | `pool`                 | Total pool size (should equal active + idle)                                                           |
@@ -399,7 +399,12 @@ Otherwise the request can time out while its query still runs, and sqlx closes t
 The service logs a warning at startup for each pool where the sum does not fit.
 Hash key override calls do not retry a timeout.
 They do retry a transient error.
-Each retry waits for a connection and runs the query again, so this sum bounds each attempt, not the whole call.
+Each retry waits for a connection and runs the query again, so this sum bounds one acquire and one statement, not the whole call.
+A hash key override write chains two acquires and three statements across two pools in one attempt.
+The batch evaluation endpoint shares these pools, so its per-person lookups get the same limits.
+When a database error or a timeout fails a person, the endpoint evaluates the person a second time before it counts them in `errors_count`.
+Django leaves a person in that count out of the static cohort.
+`flags_batch_eval_person_retries_total` counts these retries by `outcome` (`recovered` or `failed`).
 
 ## Related files
 

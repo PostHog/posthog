@@ -25,6 +25,7 @@ use rand::{distributions::Alphanumeric, Rng};
 use serde_json::{json, Value};
 use sqlx::{pool::PoolConnection, Error as SqlxError, Postgres, Row};
 use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use uuid::Uuid;
@@ -588,6 +589,32 @@ impl Client for MockPgClient {
 
     fn get_pool_stats(&self) -> Option<common_database::PoolStats> {
         // Return None for mock client
+        None
+    }
+}
+
+pub struct CountingFailingClient {
+    pub error: fn() -> SqlxError,
+    pub calls: AtomicUsize,
+}
+
+impl CountingFailingClient {
+    pub fn new(error: fn() -> SqlxError) -> Self {
+        Self {
+            error,
+            calls: AtomicUsize::new(0),
+        }
+    }
+}
+
+#[async_trait]
+impl Client for CountingFailingClient {
+    async fn get_connection(&self) -> Result<PoolConnection<Postgres>, CustomDatabaseError> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        Err(CustomDatabaseError::Other((self.error)()))
+    }
+
+    fn get_pool_stats(&self) -> Option<common_database::PoolStats> {
         None
     }
 }

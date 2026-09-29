@@ -96,7 +96,7 @@ impl DatabasePools {
                 statement_timeout_ms,
                 acquire_timeout_secs = config.acquire_timeout_secs,
                 request_timeout_ms = config.request_timeout_ms,
-                "Acquire timeout plus statement timeout on this pool does not fit inside REQUEST_TIMEOUT_MS, so a slow query outlasts the request and its connection is closed"
+                "Acquire timeout plus statement timeout on this pool does not fit inside REQUEST_TIMEOUT_MS (a statement timeout of 0 means none), so a slow query outlasts the request and its connection is closed"
             );
         }
 

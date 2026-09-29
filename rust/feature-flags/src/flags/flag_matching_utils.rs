@@ -1,5 +1,6 @@
 use std::{
     collections::{HashMap, HashSet},
+    sync::atomic::{AtomicUsize, Ordering},
     time::{Duration, Instant},
 };
 use tokio_retry::{
@@ -757,6 +758,48 @@ fn classify_and_track_error(error: &FlagError, operation: &str, will_retry: bool
     common_metrics::inc(FLAG_DATABASE_ERROR_COUNTER, &labels, 1);
 }
 
+/// `RetryIf` evaluates its condition before it checks whether any delays remain. The error alone
+/// therefore does not tell an attempt whether a retry follows it.
+struct RetryAttempts {
+    retries: usize,
+    started: AtomicUsize,
+}
+
+impl RetryAttempts {
+    fn new(retries: usize) -> Self {
+        Self {
+            retries,
+            started: AtomicUsize::new(0),
+        }
+    }
+
+    /// Starts an attempt and returns whether a retry can follow it.
+    fn start(&self) -> bool {
+        self.started.fetch_add(1, Ordering::Relaxed) < self.retries
+    }
+}
+
+fn track_failed_hash_key_attempt(
+    error: &FlagError,
+    team_id: TeamId,
+    operation: &str,
+    retry_left: bool,
+) -> bool {
+    let will_retry = retry_left && should_retry_on_error(error);
+    classify_and_track_error(error, operation, will_retry);
+    if will_retry {
+        common_metrics::inc(
+            FLAG_HASH_KEY_RETRIES_COUNTER,
+            &[
+                ("team_id".to_string(), team_id.to_string()),
+                ("operation".to_string(), operation.to_string()),
+            ],
+            1,
+        );
+    }
+    will_retry
+}
+
 // Attempts to match a flag condition filter that depends on another flag
 // evaluation result to a flag evaluation result
 pub fn match_flag_value_to_flag_filter(
@@ -810,12 +853,15 @@ pub async fn get_feature_flag_hash_key_overrides(
     #[cfg(test)]
     increment_hash_key_override_lookup_count();
 
-    let retry_strategy = ExponentialBackoff::from_millis(50)
+    let retry_delays: Vec<Duration> = ExponentialBackoff::from_millis(50)
         .max_delay(Duration::from_millis(300))
         .take(1) // 1 retry = 2 total attempts
-        .map(jitter);
+        .map(jitter)
+        .collect();
+    let attempts = RetryAttempts::new(retry_delays.len());
 
     let attempt = || async {
+        let retry_left = attempts.start();
         let result = try_get_feature_flag_hash_key_overrides(
             &reader,
             pool_name,
@@ -827,25 +873,7 @@ pub async fn get_feature_flag_hash_key_overrides(
 
         // Log retry attempts for observability
         if let Err(ref e) = result {
-            let will_retry = should_retry_on_error(e);
-
-            // Track error classification
-            classify_and_track_error(e, "get_hash_key_overrides", will_retry);
-
-            if will_retry {
-                // Increment retry counter for monitoring
-                common_metrics::inc(
-                    FLAG_HASH_KEY_RETRIES_COUNTER,
-                    &[
-                        ("team_id".to_string(), team_id.to_string()),
-                        (
-                            "operation".to_string(),
-                            "get_hash_key_overrides".to_string(),
-                        ),
-                    ],
-                    1,
-                );
-
+            if track_failed_hash_key_attempt(e, team_id, "get_hash_key_overrides", retry_left) {
                 tracing::warn!(
                     team_id = %team_id,
                     distinct_ids = ?distinct_id_and_hash_key_override,
@@ -858,7 +886,7 @@ pub async fn get_feature_flag_hash_key_overrides(
         result
     };
 
-    RetryIf::spawn(retry_strategy, attempt, should_retry_on_error).await
+    RetryIf::spawn(retry_delays, attempt, should_retry_on_error).await
 }
 
 /// Internal function that performs the actual hash key override retrieval.
@@ -1077,12 +1105,15 @@ pub async fn set_feature_flag_hash_key_overrides(
     distinct_ids: Vec<String>,
     hash_key_override: String,
 ) -> Result<bool, FlagError> {
-    let retry_strategy = ExponentialBackoff::from_millis(100)
+    let retry_delays: Vec<Duration> = ExponentialBackoff::from_millis(100)
         .max_delay(Duration::from_millis(300))
         .take(2)
-        .map(jitter); // Add jitter to prevent thundering herd
+        .map(jitter) // Add jitter to prevent thundering herd
+        .collect();
+    let attempts = RetryAttempts::new(retry_delays.len());
 
     let attempt = || async {
+        let retry_left = attempts.start();
         let result = try_set_feature_flag_hash_key_overrides(
             router,
             team_id,
@@ -1091,59 +1122,23 @@ pub async fn set_feature_flag_hash_key_overrides(
         )
         .await;
 
-        match &result {
-            Err(e) if flag_error_is_foreign_key_constraint(e) => {
-                // Track error classification
-                classify_and_track_error(e, "set_hash_key_overrides", true);
-
-                // Increment retry counter for monitoring
-                common_metrics::inc(
-                    FLAG_HASH_KEY_RETRIES_COUNTER,
-                    &[
-                        ("team_id".to_string(), team_id.to_string()),
-                        (
-                            "operation".to_string(),
-                            "set_hash_key_overrides".to_string(),
-                        ),
-                    ],
-                    1,
-                );
-
+        if let Err(e) = &result {
+            if track_failed_hash_key_attempt(e, team_id, "set_hash_key_overrides", retry_left)
+                && flag_error_is_foreign_key_constraint(e)
+            {
                 tracing::info!(
                     team_id = %team_id,
                     distinct_ids = ?distinct_ids,
                     error = ?e,
                     "Hash key override setting failed due to a person deletion race condition, will retry"
                 );
-
-                // Return error to trigger retry
-                result
             }
-            Err(e) => {
-                let will_retry = should_retry_on_error(e);
-                classify_and_track_error(e, "set_hash_key_overrides", will_retry);
-                if will_retry {
-                    common_metrics::inc(
-                        FLAG_HASH_KEY_RETRIES_COUNTER,
-                        &[
-                            ("team_id".to_string(), team_id.to_string()),
-                            (
-                                "operation".to_string(),
-                                "set_hash_key_overrides".to_string(),
-                            ),
-                        ],
-                        1,
-                    );
-                }
-
-                result
-            }
-            // Success case - return the result
-            Ok(_) => result,
         }
+
+        result
     };
 
-    RetryIf::spawn(retry_strategy, attempt, should_retry_on_error).await
+    RetryIf::spawn(retry_delays, attempt, should_retry_on_error).await
 }
 
 /// Internal function that performs the actual hash key override setting.
@@ -1413,66 +1408,27 @@ pub async fn should_write_hash_key_override(
     distinct_id: String,
     hash_key_override: String,
 ) -> Result<bool, FlagError> {
-    let retry_strategy = ExponentialBackoff::from_millis(100)
+    let retry_delays: Vec<Duration> = ExponentialBackoff::from_millis(100)
         .max_delay(Duration::from_millis(300))
         .take(2)
-        .map(jitter); // Add jitter to prevent thundering herd
+        .map(jitter) // Add jitter to prevent thundering herd
+        .collect();
+    let attempts = RetryAttempts::new(retry_delays.len());
 
-    let distinct_ids = vec![distinct_id.clone(), hash_key_override.clone()];
+    let distinct_ids = vec![distinct_id, hash_key_override];
 
     let attempt = || async {
+        let retry_left = attempts.start();
         let result = try_should_write_hash_key_override(router, team_id, &distinct_ids).await;
 
-        match &result {
-            Err(e) if flag_error_is_foreign_key_constraint(e) => {
-                // Increment retry counter for monitoring
-                common_metrics::inc(
-                    FLAG_HASH_KEY_RETRIES_COUNTER,
-                    &[
-                        ("team_id".to_string(), team_id.to_string()),
-                        (
-                            "operation".to_string(),
-                            "should_write_hash_key_override".to_string(),
-                        ),
-                    ],
-                    1,
-                );
-
-                tracing::info!(
-                    team_id = %team_id,
-                    distinct_id = %distinct_id,
-                    error = ?e,
-                    "Hash key override check failed, will retry"
-                );
-
-                // Return error to trigger retry
-                result
-            }
-            Err(e) => {
-                let will_retry = should_retry_on_error(e);
-                classify_and_track_error(e, "should_write_hash_key_override", will_retry);
-                if will_retry {
-                    common_metrics::inc(
-                        FLAG_HASH_KEY_RETRIES_COUNTER,
-                        &[
-                            ("team_id".to_string(), team_id.to_string()),
-                            (
-                                "operation".to_string(),
-                                "should_write_hash_key_override".to_string(),
-                            ),
-                        ],
-                        1,
-                    );
-                }
-
-                result
-            }
-            // Success case - return the result
-            Ok(_) => result,
+        if let Err(e) = &result {
+            track_failed_hash_key_attempt(e, team_id, "should_write_hash_key_override", retry_left);
         }
+
+        result
     };
 
-    RetryIf::spawn(retry_strategy, attempt, should_retry_on_error).await
+    RetryIf::spawn(retry_delays, attempt, should_retry_on_error).await
 }
 
 /// Internal function that performs the actual hash key override check.
@@ -1742,7 +1698,7 @@ mod tests {
         flags::flag_models::{FeatureFlag, FeatureFlagRow, FlagFilters},
         mock,
         properties::property_models::{OperatorType, PropertyFilter, PropertyType},
-        utils::test_utils::TestContext,
+        utils::test_utils::{CountingFailingClient, TestContext},
     };
 
     use super::*;
@@ -2641,26 +2597,6 @@ mod tests {
         assert!(!result);
     }
 
-    struct CountingFailingClient {
-        error: fn() -> sqlx::Error,
-        calls: std::sync::atomic::AtomicUsize,
-    }
-
-    #[async_trait::async_trait]
-    impl common_database::Client for CountingFailingClient {
-        async fn get_connection(
-            &self,
-        ) -> Result<sqlx::pool::PoolConnection<sqlx::Postgres>, common_database::CustomDatabaseError>
-        {
-            self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-            Err(common_database::CustomDatabaseError::Other((self.error)()))
-        }
-
-        fn get_pool_stats(&self) -> Option<common_database::PoolStats> {
-            None
-        }
-    }
-
     #[rstest]
     #[case::timeout(|| sqlx::Error::PoolTimedOut, 1, 1, 1)]
     #[case::transient(|| sqlx::Error::PoolClosed, 2, 3, 3)]
@@ -2671,17 +2607,18 @@ mod tests {
         #[case] write_attempts: usize,
         #[case] check_attempts: usize,
     ) {
-        let client = std::sync::Arc::new(CountingFailingClient {
-            error,
-            calls: std::sync::atomic::AtomicUsize::new(0),
-        });
+        let recorder = metrics_util::debugging::DebuggingRecorder::new();
+        let snapshotter = recorder.snapshotter();
+        let _guard = metrics::set_default_local_recorder(&recorder);
+
+        let client = std::sync::Arc::new(CountingFailingClient::new(error));
         let router = PostgresRouter::new(
             client.clone(),
             client.clone(),
             client.clone(),
             client.clone(),
         );
-        let calls = || client.calls.swap(0, std::sync::atomic::Ordering::SeqCst);
+        let calls = || client.calls.swap(0, Ordering::SeqCst);
 
         let read = get_feature_flag_hash_key_overrides(
             client.clone(),
@@ -2709,6 +2646,43 @@ mod tests {
                 .await;
         assert!(check.is_err());
         assert_eq!(calls(), check_attempts, "check attempts");
+
+        let snapshot = snapshotter.snapshot().into_vec();
+        let counter = |name: &str, labels: &[(&str, &str)]| -> u64 {
+            snapshot
+                .iter()
+                .filter(|(key, ..)| {
+                    key.key().name() == name
+                        && labels.iter().all(|(k, v)| {
+                            key.key().labels().any(|l| l.key() == *k && l.value() == *v)
+                        })
+                })
+                .map(|(.., value)| match value {
+                    metrics_util::debugging::DebugValue::Counter(c) => *c,
+                    _ => 0,
+                })
+                .sum()
+        };
+        for (operation, attempts) in [
+            ("get_hash_key_overrides", read_attempts),
+            ("set_hash_key_overrides", write_attempts),
+            ("should_write_hash_key_override", check_attempts),
+        ] {
+            let retries = (attempts - 1) as u64;
+            assert_eq!(
+                counter(FLAG_HASH_KEY_RETRIES_COUNTER, &[("operation", operation)]),
+                retries,
+                "{operation} retries"
+            );
+            assert_eq!(
+                counter(
+                    FLAG_DATABASE_ERROR_COUNTER,
+                    &[("operation", operation), ("retried", "true")]
+                ),
+                retries,
+                "{operation} errors labeled retried"
+            );
+        }
     }
 
     #[tokio::test]
@@ -2720,10 +2694,8 @@ mod tests {
             .await
             .unwrap();
 
-        let non_persons_reader = std::sync::Arc::new(CountingFailingClient {
-            error: || sqlx::Error::PoolClosed,
-            calls: std::sync::atomic::AtomicUsize::new(0),
-        });
+        let non_persons_reader =
+            std::sync::Arc::new(CountingFailingClient::new(|| sqlx::Error::PoolClosed));
         let router = PostgresRouter::new(
             context.persons_reader.clone(),
             context.persons_writer.clone(),
@@ -2740,12 +2712,47 @@ mod tests {
         .await;
 
         assert!(result.is_err());
-        assert_eq!(
-            non_persons_reader
-                .calls
-                .load(std::sync::atomic::Ordering::SeqCst),
-            3
-        );
+        assert_eq!(non_persons_reader.calls.load(Ordering::SeqCst), 3);
+    }
+
+    /// `common_database` has the same mock, but it is private to that crate's tests.
+    #[derive(Debug)]
+    struct MockDbError {
+        code: &'static str,
+    }
+
+    impl std::fmt::Display for MockDbError {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "database error {}", self.code)
+        }
+    }
+
+    impl std::error::Error for MockDbError {}
+
+    impl sqlx::error::DatabaseError for MockDbError {
+        fn message(&self) -> &str {
+            "mock database error"
+        }
+
+        fn code(&self) -> Option<std::borrow::Cow<'_, str>> {
+            Some(self.code.into())
+        }
+
+        fn as_error(&self) -> &(dyn std::error::Error + Send + Sync + 'static) {
+            self
+        }
+
+        fn as_error_mut(&mut self) -> &mut (dyn std::error::Error + Send + Sync + 'static) {
+            self
+        }
+
+        fn into_error(self: Box<Self>) -> Box<dyn std::error::Error + Send + Sync + 'static> {
+            self
+        }
+
+        fn kind(&self) -> sqlx::error::ErrorKind {
+            sqlx::error::ErrorKind::Other
+        }
     }
 
     #[tokio::test]
@@ -2780,6 +2787,12 @@ mod tests {
         let protocol_timeout_error =
             FlagError::DatabaseError(SqlxError::Protocol("operation timeout".to_string()), None);
         assert!(!should_retry_on_error(&protocol_timeout_error));
+
+        let foreign_key_violation = FlagError::DatabaseError(
+            SqlxError::from(MockDbError { code: "23503" }),
+            Some("Failed to commit transaction".to_string()),
+        );
+        assert!(should_retry_on_error(&foreign_key_violation));
 
         // Test that configuration errors don't trigger retries
         let config_error = FlagError::DatabaseError(

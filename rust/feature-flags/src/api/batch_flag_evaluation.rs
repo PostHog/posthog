@@ -46,7 +46,7 @@ use tracing::warn;
 use uuid::Uuid;
 
 use crate::{
-    api::errors::FlagError,
+    api::{errors::FlagError, types::FlagsResponse},
     database::{get_connection_with_metrics, PostgresRouter},
     flags::{
         cache_builder::compute_flag_dependencies,
@@ -56,7 +56,8 @@ use crate::{
     },
     handler::authentication::is_internal_request_inner,
     metrics::consts::{
-        FLAG_BATCH_EVAL_PERSONS_COUNTER, FLAG_BATCH_EVAL_REQUESTS_COUNTER, FLAG_BATCH_EVAL_TIME,
+        FLAG_BATCH_EVAL_PERSONS_COUNTER, FLAG_BATCH_EVAL_PERSON_RETRIES_COUNTER,
+        FLAG_BATCH_EVAL_REQUESTS_COUNTER, FLAG_BATCH_EVAL_TIME,
     },
     router,
     team::team_models::{PropertyMatchingVersion, Team},
@@ -356,6 +357,64 @@ pub async fn batch_flag_evaluation(
     result.map(Json)
 }
 
+fn failure_code(result: &Result<FlagsResponse, FlagError>, target_key: &str) -> Option<String> {
+    match result {
+        Ok(response) => response
+            .flags
+            .get(target_key)
+            .filter(|details| details.failed)
+            .map(|details| details.reason.code.clone()),
+        Err(e) => Some(e.evaluation_error_code()),
+    }
+}
+
+/// Other failures, such as a missing dependency or an unsupported filter, fail the same way on
+/// every attempt. An unknown code gets no retry, so a new kind of failure cannot double the load
+/// on the persons pools.
+fn is_transient_failure(code: &str) -> bool {
+    code.starts_with("timeout")
+        || matches!(
+            code,
+            "database_error"
+                | "database_unavailable"
+                | "no_more_connections"
+                | "query_wait_timeout"
+                | "healthcheck_failed"
+                | "flag_condition_retry"
+                | "group_mapping_retry"
+                | "hash_key_override_error"
+        )
+}
+
+/// The persons pools size their acquire and statement timeouts for the /flags request timeout.
+/// Django leaves a person whose evaluation failed out of the cohort.
+async fn evaluate_with_one_retry<F, Fut>(
+    target_key: &str,
+    mut evaluate: F,
+) -> Result<FlagsResponse, FlagError>
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = Result<FlagsResponse, FlagError>>,
+{
+    let first = evaluate().await;
+    if !failure_code(&first, target_key).is_some_and(|code| is_transient_failure(&code)) {
+        return first;
+    }
+
+    let second = evaluate().await;
+    let outcome = if failure_code(&second, target_key).is_some() {
+        "failed"
+    } else {
+        "recovered"
+    };
+    inc(
+        FLAG_BATCH_EVAL_PERSON_RETRIES_COUNTER,
+        &[("outcome".to_string(), outcome.to_string())],
+        1,
+    );
+    second
+}
+
 async fn handle_batch_flag_evaluation(
     state: &router::State,
     body: &[u8],
@@ -503,6 +562,8 @@ async fn handle_batch_flag_evaluation(
         .includes_team(request.team_id);
     let use_explicit_exact_matching = team.property_matching_version.uses_explicit_matching();
     let team_timezone = team.parsed_timezone();
+    let optimize_experience_continuity_lookups =
+        state.config.optimize_experience_continuity_lookups.0;
 
     let mut matched_person_uuids: Vec<Uuid> = Vec::new();
     let mut errors_count: u64 = 0;
@@ -514,39 +575,46 @@ async fn handle_batch_flag_evaluation(
             continue;
         };
 
-        // Per-person so each evaluation is independently traceable in canonical logs.
-        let request_id = Uuid::new_v4();
+        let evaluate = || {
+            // Per-evaluation so each one is independently traceable in canonical logs.
+            let request_id = Uuid::new_v4();
 
-        let mut matcher = FeatureFlagMatcher::new(
-            distinct_id,
-            None,
-            request.team_id,
-            pg_router.clone(),
-            state.cohort_cache_manager.clone(),
-            state.group_type_cache_manager.clone(),
-            None,
-        )
-        .with_cohort_membership_provider(state.cohort_membership_provider.clone())
-        .with_realtime_cohort_evaluation(enable_realtime_cohort_evaluation)
-        .with_explicit_exact_matching(use_explicit_exact_matching)
-        .with_membership_stamp_policy(state.config.realtime_cohort_membership_stamp_policy)
-        .with_rayon_dispatcher(state.rayon_dispatcher.clone())
-        .with_parallel_eval_threshold(state.config.parallel_eval_threshold)
-        // Read-only: experience-continuity overrides are consulted but never written.
-        .with_skip_writes(true)
-        .with_timezone(team_timezone);
-
-        let evaluation = matcher
-            .evaluate_all_feature_flags(
-                flag_list.clone(),
+            let mut matcher = FeatureFlagMatcher::new(
+                distinct_id.clone(),
                 None,
+                request.team_id,
+                pg_router.clone(),
+                state.cohort_cache_manager.clone(),
+                state.group_type_cache_manager.clone(),
                 None,
-                None,
-                request_id,
-                Some(vec![target_key.clone()]),
-                state.config.optimize_experience_continuity_lookups.0,
             )
-            .await;
+            .with_cohort_membership_provider(state.cohort_membership_provider.clone())
+            .with_realtime_cohort_evaluation(enable_realtime_cohort_evaluation)
+            .with_explicit_exact_matching(use_explicit_exact_matching)
+            .with_membership_stamp_policy(state.config.realtime_cohort_membership_stamp_policy)
+            .with_rayon_dispatcher(state.rayon_dispatcher.clone())
+            .with_parallel_eval_threshold(state.config.parallel_eval_threshold)
+            // Read-only: experience-continuity overrides are consulted but never written.
+            .with_skip_writes(true)
+            .with_timezone(team_timezone);
+
+            let flag_list = flag_list.clone();
+            let target_key = target_key.clone();
+            async move {
+                matcher
+                    .evaluate_all_feature_flags(
+                        flag_list,
+                        None,
+                        None,
+                        None,
+                        request_id,
+                        Some(vec![target_key]),
+                        optimize_experience_continuity_lookups,
+                    )
+                    .await
+            }
+        };
+        let evaluation = evaluate_with_one_retry(&target_key, evaluate).await;
 
         match evaluation {
             Ok(response) => match response.flags.get(&target_key) {
@@ -602,10 +670,80 @@ fn record_person_outcome(result: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::api::types::{FlagDetails, FromFeatureAndMatch};
     use crate::config::DEFAULT_TEST_CONFIG;
+    use crate::mock;
+    use crate::utils::graph_utils::DependencyType;
     use crate::utils::test_utils::TestContext;
     use common_database::{get_pool_with_config, PoolConfig};
+    use std::collections::HashMap;
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::Duration;
+
+    fn target_flag_response(error: FlagError, failed: bool) -> Result<FlagsResponse, FlagError> {
+        let flag = mock!(FeatureFlag, key: "target".to_string());
+        let mut details = FlagDetails::create_error(&flag, &error, None);
+        details.failed = failed;
+        Ok(FlagsResponse::new(
+            false,
+            HashMap::from([("target".to_string(), details)]),
+            None,
+            Uuid::nil(),
+        ))
+    }
+
+    fn evaluated() -> Result<FlagsResponse, FlagError> {
+        target_flag_response(FlagError::DatabaseUnavailable, false)
+    }
+
+    fn database_unavailable() -> Result<FlagsResponse, FlagError> {
+        Err(FlagError::DatabaseUnavailable)
+    }
+
+    #[rstest::rstest]
+    #[case::error(database_unavailable, evaluated, 2, false)]
+    #[case::transient_failed_flag(
+        || target_flag_response(FlagError::DatabaseUnavailable, true),
+        evaluated,
+        2,
+        false
+    )]
+    #[case::dependency_failed_flag(
+        || target_flag_response(FlagError::DependencyNotFound(DependencyType::Cohort, 1), true),
+        evaluated,
+        1,
+        true
+    )]
+    #[case::evaluated(evaluated, evaluated, 1, false)]
+    #[case::retry_fails(database_unavailable, database_unavailable, 2, true)]
+    #[tokio::test]
+    async fn test_evaluate_with_one_retry(
+        #[case] first_attempt: fn() -> Result<FlagsResponse, FlagError>,
+        #[case] second_attempt: fn() -> Result<FlagsResponse, FlagError>,
+        #[case] expected_attempts: usize,
+        #[case] expected_failed: bool,
+    ) {
+        let attempts = AtomicUsize::new(0);
+
+        let result = evaluate_with_one_retry("target", || {
+            let attempt = attempts.fetch_add(1, Ordering::SeqCst);
+            async move {
+                if attempt == 0 {
+                    first_attempt()
+                } else {
+                    second_attempt()
+                }
+            }
+        })
+        .await;
+
+        assert_eq!(attempts.load(Ordering::SeqCst), expected_attempts);
+        let failed = match result {
+            Ok(response) => response.flags["target"].failed,
+            Err(_) => true,
+        };
+        assert_eq!(failed, expected_failed);
+    }
 
     #[tokio::test]
     async fn test_person_scan_outlasts_the_pool_statement_timeout() {
@@ -621,6 +759,7 @@ mod tests {
                 &DEFAULT_TEST_CONFIG.get_persons_read_database_url(),
                 PoolConfig {
                     statement_timeout_ms: Some(100),
+                    max_connections: 1,
                     ..PoolConfig::default()
                 },
             )
@@ -634,7 +773,7 @@ mod tests {
             .await
             .unwrap();
 
-        let scan = tokio::spawn(scan_persons_page(reader, team.id, 0, 10, 10_000));
+        let scan = tokio::spawn(scan_persons_page(reader.clone(), team.id, 0, 10, 10_000));
 
         // Release the lock only after the scan query waits on it. Otherwise the scan can start
         // after the rollback and pass without the SET LOCAL timeout.
@@ -672,5 +811,13 @@ mod tests {
 
         let rows = scan.await.unwrap().unwrap();
         assert_eq!(rows.len(), 1);
+
+        // The pool has one connection, so this acquire returns the connection the scan used.
+        let mut conn = reader.get_connection().await.unwrap();
+        let statement_timeout: String = sqlx::query_scalar("SHOW statement_timeout")
+            .fetch_one(&mut *conn)
+            .await
+            .unwrap();
+        assert_eq!(statement_timeout, "100ms");
     }
 }
