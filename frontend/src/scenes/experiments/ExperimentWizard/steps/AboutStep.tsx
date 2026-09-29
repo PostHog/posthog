@@ -1,7 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { useDebouncedCallback } from 'use-debounce'
 
-import { LemonButton, LemonInput, Link } from '@posthog/lemon-ui'
+import { IconInfo } from '@posthog/icons'
+import { LemonButton, LemonInput, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
@@ -127,9 +128,14 @@ export function AboutStep(): JSX.Element {
                 <LemonField.Pure
                     label={
                         <div className="flex items-center justify-between w-full">
-                            <span>
-                                Feature flag key
-                                <RequiredMark />
+                            <span className="flex items-center gap-1">
+                                <span>
+                                    Feature flag key
+                                    <RequiredMark />
+                                </span>
+                                <Tooltip title="The experiment uses this flag to decide which variant each person sees. Your code checks it to show them that variant.">
+                                    <IconInfo className="text-xl text-secondary shrink-0" />
+                                </Tooltip>
                             </span>
                             <span className="text-muted text-sm font-normal">
                                 Do you have a feature flag already?{' '}
