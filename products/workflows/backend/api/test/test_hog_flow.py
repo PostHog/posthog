@@ -108,6 +108,15 @@ def _secret_input_template() -> dict:
     template["inputs_schema"] = [
         {"key": "url", "type": "string", "label": "URL", "secret": False, "hidden": False, "required": True},
         {"key": "api_key", "type": "string", "label": "API key", "secret": True, "hidden": False, "required": False},
+        {
+            "key": "secret_headers",
+            "type": "dictionary",
+            "label": "Secret headers",
+            "secret": True,
+            "hidden": False,
+            "required": False,
+            "templating": False,
+        },
     ]
     return template
 
@@ -5427,7 +5436,7 @@ class TestHogFlowSecretInputs(APIBaseTest):
         super().setUp()
         sync_template_to_db(_secret_input_template())
 
-    def _flow_payload(self, api_key: str = "SUPER-SECRET") -> dict:
+    def _flow_payload(self, api_key: str = "SUPER-SECRET", extra_inputs: dict | None = None) -> dict:
         return {
             "name": "Secret Flow",
             "actions": [
@@ -5446,7 +5455,11 @@ class TestHogFlowSecretInputs(APIBaseTest):
                     "type": "function",
                     "config": {
                         "template_id": _SECRET_TEMPLATE_ID,
-                        "inputs": {"url": {"value": "https://example.com"}, "api_key": {"value": api_key}},
+                        "inputs": {
+                            "url": {"value": "https://example.com"},
+                            "api_key": {"value": api_key},
+                            **(extra_inputs or {}),
+                        },
                     },
                 },
             ],
@@ -5460,8 +5473,21 @@ class TestHogFlowSecretInputs(APIBaseTest):
         assert response.status_code == 201, response.json()
         return response.json()["id"]
 
-    def test_secret_action_input_is_encrypted_at_rest_and_masked_on_read(self):
-        create = self.client.post(f"/api/projects/{self.team.id}/hog_flows", self._flow_payload())
+    @parameterized.expand(
+        [
+            ("string", {}, "api_key", "SUPER-SECRET"),
+            (
+                "dictionary_without_templating",
+                {"secret_headers": {"value": {"Authorization": "Bearer SUPER-SECRET"}}},
+                "secret_headers",
+                {"Authorization": "Bearer SUPER-SECRET"},
+            ),
+        ]
+    )
+    def test_secret_action_input_is_encrypted_at_rest_and_masked_on_read(self, _name, extra_inputs, key, stored_value):
+        create = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows", self._flow_payload(extra_inputs=extra_inputs)
+        )
         assert create.status_code == 201, create.json()
         flow_id = create.json()["id"]
 
@@ -5469,15 +5495,23 @@ class TestHogFlowSecretInputs(APIBaseTest):
         retrieve = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow_id}")
         for body in (create.json(), retrieve.json()):
             inputs = self._function_inputs(body)
-            assert inputs["api_key"] == {"secret": True}
+            assert inputs[key] == {"secret": True}
             assert inputs["url"]["value"] == "https://example.com"
+
+        # The plaintext never reaches a project member, including through the list the web app reads.
+        # Compare test_mcp_list_is_metadata_only_and_hides_action_secrets: a token typed into the
+        # plaintext `headers` dictionary is visible there.
+        listing = self.client.get(f"/api/projects/{self.team.id}/hog_flows")
+        assert listing.status_code == 200, listing.json()
+        for response in (create, retrieve, listing):
+            assert "SUPER-SECRET" not in response.content.decode()
 
         # Split out of the plaintext actions blob and stored encrypted.
         flow = HogFlow.objects.get(id=flow_id)
         db_inputs = next(a for a in flow.actions if a["id"] == "action_1")["config"]["inputs"]
-        assert "api_key" not in db_inputs
+        assert key not in db_inputs
         assert db_inputs["url"]["value"] == "https://example.com"
-        assert flow.encrypted_inputs["action_1"]["api_key"]["value"] == "SUPER-SECRET"
+        assert flow.encrypted_inputs["action_1"][key]["value"] == stored_value
         assert "SUPER-SECRET" not in (_raw_encrypted_inputs(flow_id) or "")
 
     @parameterized.expand(

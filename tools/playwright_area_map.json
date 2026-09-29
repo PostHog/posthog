@@ -64,7 +64,7 @@
         "bin/**"
     ],
     "smoke_subset": ["playwright/e2e/auth.spec.ts"],
-    "scenes_smoke_only": ["groups", "hog-functions", "integrations", "max", "web-analytics"],
+    "scenes_smoke_only": ["groups", "integrations", "max", "web-analytics"],
     "products": {
         "ai_observability": ["products/ai_observability/frontend/e2e/"],
         "billing": ["products/billing/frontend/e2e/"],
@@ -73,6 +73,7 @@
         "surveys": ["products/surveys/frontend/e2e/"]
     },
     "scenes": {
+        "hog-functions": ["playwright/e2e/webhook-secret-headers.spec.ts"],
         "billing": ["products/billing/frontend/e2e/"],
         "surveys": ["products/surveys/frontend/e2e/"],
         "session-recordings": ["products/replay/frontend/e2e/"],
@@ -159,7 +160,8 @@
         "products/data_quality/frontend/**": ["playwright/e2e/data-quality-overview.spec.ts"],
         "products/workflows/frontend/**": [
             "playwright/e2e/workflows-hidden-templates-load.spec.ts",
-            "playwright/e2e/workflows-property-filter-category-dropdown.spec.ts"
+            "playwright/e2e/workflows-property-filter-category-dropdown.spec.ts",
+            "playwright/e2e/webhook-secret-headers.spec.ts"
         ],
         "frontend/src/toolbar/**": ["playwright/e2e/toolbar.spec.ts"]
     },

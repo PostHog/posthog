@@ -24,6 +24,7 @@ import express from 'ultimate-express'
 
 import { HogFlow } from '~/cdp/schema/hogflow'
 import { template as createTaskTemplate } from '~/cdp/templates/_destinations/posthog_tasks/posthog-create-task.template'
+import { template as webhookTemplate } from '~/cdp/templates/_destinations/webhook/webhook.template'
 import { setupExpressApp } from '~/common/api/router'
 import {
     KAFKA_APP_METRICS_2,
@@ -251,6 +252,22 @@ describe('Workflows E2E (postgres-v2)', () => {
     async function triggerWorkflow(eventGlobals: HogFunctionInvocationGlobals): Promise<void> {
         const { backgroundTask } = await eventsConsumer.processBatch([eventGlobals])
         await backgroundTask
+    }
+
+    /**
+     * Mirrors what the hog flow API stores on save: a secret input is stripped out of the plaintext
+     * `actions` and kept Fernet-encrypted in `encrypted_inputs`, keyed by action id and then input key.
+     */
+    async function setWorkflowEncryptedInputs(
+        workflowId: string,
+        secretsByActionId: Record<string, Record<string, { value: unknown }>>
+    ): Promise<void> {
+        await hub.postgres.query(
+            PostgresUse.COMMON_WRITE,
+            `UPDATE posthog_hogflow SET encrypted_inputs = $2 WHERE id = $1`,
+            [workflowId, hub.encryptedFields.encrypt(JSON.stringify(secretsByActionId))],
+            'setWorkflowEncryptedInputs'
+        )
     }
 
     /**
@@ -505,19 +522,7 @@ describe('Workflows E2E (postgres-v2)', () => {
                 ],
             })
 
-            // Mirrors what the hog flow API stores on save: the secret input is stripped out of the
-            // plaintext `actions` and kept Fernet-encrypted in `encrypted_inputs`, keyed by action id.
-            await hub.postgres.query(
-                PostgresUse.COMMON_WRITE,
-                `UPDATE posthog_hogflow SET encrypted_inputs = $2 WHERE id = $1`,
-                [
-                    workflowId,
-                    hub.encryptedFields.encrypt(
-                        JSON.stringify({ send_with_secret: { api_key: { value: secretApiKey } } })
-                    ),
-                ],
-                'setWorkflowEncryptedInputs'
-            )
+            await setWorkflowEncryptedInputs(workflowId, { send_with_secret: { api_key: { value: secretApiKey } } })
             globals = createGlobals()
         })
 
@@ -546,6 +551,137 @@ describe('Workflows E2E (postgres-v2)', () => {
             }, 5000)
 
             expect(JSON.stringify(await queryCyclotronJobs())).not.toContain(secretApiKey)
+        })
+    })
+
+    describe('workflow with webhook secret headers: trigger → webhook → exit', () => {
+        const token = 'workflows-e2e-secret-headers-token-0000'
+        const apiKey = 'workflows-e2e-secret-headers-api-key-0000'
+        const webhookUrl = 'https://example.com/secret-headers-webhook'
+        let workflowId: string
+        let releaseRetry: (() => void) | undefined
+
+        const fetchResponse = (status: number) => ({
+            status,
+            json: () => Promise.resolve({}),
+            text: () => Promise.resolve('{}'),
+            headers: { 'Content-Type': 'application/json' },
+            dump: () => Promise.resolve(),
+        })
+
+        beforeEach(async () => {
+            await insertHogFunctionTemplate(hub.postgres, {
+                id: 'template-webhook',
+                name: webhookTemplate.name,
+                code: webhookTemplate.code,
+                inputs_schema: webhookTemplate.inputs_schema,
+            })
+
+            workflowId = await createWorkflow({
+                actions: {
+                    trigger: trigger(),
+                    send_webhook: {
+                        type: 'function',
+                        config: {
+                            template_id: 'template-webhook',
+                            inputs: {
+                                url: { value: webhookUrl },
+                                method: { value: 'POST' },
+                                body: { value: { event: '{event.event}' } },
+                                // Same name as a secret header in another case, so the merge has to
+                                // replace it instead of sending both.
+                                headers: {
+                                    value: {
+                                        'Content-Type': 'application/json',
+                                        authorization: 'plaintext-authorization',
+                                    },
+                                },
+                                debug: { value: true },
+                            },
+                        },
+                    },
+                    exit: exitAction(),
+                },
+                edges: [
+                    { from: 'trigger', to: 'send_webhook', type: 'continue' },
+                    { from: 'send_webhook', to: 'exit', type: 'continue' },
+                ],
+            })
+            await setWorkflowEncryptedInputs(workflowId, {
+                send_webhook: { secret_headers: { value: { Authorization: `Bearer ${token}`, 'X-Api-Key': apiKey } } },
+            })
+
+            // The first attempt fails so the fetch parameters are written to the job row for the retry.
+            // The retry is then held open until the test releases it, so the row can be read while it
+            // still holds the state the worker resumed from.
+            let attempts = 0
+            releaseRetry = undefined
+            mockFetch.mockImplementation(() => {
+                attempts += 1
+                if (attempts === 1) {
+                    return Promise.resolve(fetchResponse(500))
+                }
+                return new Promise((resolve) => {
+                    releaseRetry = () => resolve(fetchResponse(200))
+                })
+            })
+            globals = createGlobals()
+        })
+
+        it('merges the decrypted secret headers on both attempts and keeps them off the fetch parameters', async () => {
+            await triggerWorkflow(globals)
+
+            await waitForExpect(() => {
+                expect(mockFetch).toHaveBeenCalledTimes(2)
+            }, 10000)
+
+            try {
+                // Only `queueParameters` is asserted on. `state.globals.inputs` carries every resolved input,
+                // which is a property of the whole job payload and not of this template.
+                const blobs = (await queryCyclotronJobs()).map((row: any) =>
+                    parseJSON((row.state as Buffer).toString('utf-8'))
+                )
+                const fetchBlob = blobs.find((blob: any) => blob.queueParameters?.type === 'fetch')
+                expect(fetchBlob).toBeDefined()
+                expect(fetchBlob.queueParameters).toMatchObject({
+                    secret_headers_input: 'secret_headers',
+                    headers: { 'Content-Type': 'application/json', authorization: 'plaintext-authorization' },
+                })
+                expect(JSON.stringify(fetchBlob.queueParameters)).not.toContain(token)
+                expect(JSON.stringify(fetchBlob.queueParameters)).not.toContain(apiKey)
+            } finally {
+                releaseRetry?.()
+            }
+
+            for (const [url, options] of mockFetch.mock.calls as [string, any][]) {
+                expect(url).toEqual(webhookUrl)
+                expect(options.headers).toMatchObject({
+                    Authorization: `Bearer ${token}`,
+                    'X-Api-Key': apiKey,
+                    'Content-Type': 'application/json',
+                })
+                expect(Object.keys(options.headers).filter((name) => name.toLowerCase() === 'authorization')).toEqual([
+                    'Authorization',
+                ])
+            }
+
+            await waitForExpect(() => {
+                const messages = mockProducerObserver
+                    .getProducedKafkaMessagesForTopic(KAFKA_LOG_ENTRIES)
+                    .filter((m: any) => m.value.log_source_id === workflowId)
+                    .map((m: any) => m.value.message as string)
+                expect(messages).toContainEqual(
+                    expect.stringContaining('HTTP fetch failed on attempt 1 with status code 500. Retrying.')
+                )
+                expect(messages).toContainEqual(expect.stringContaining('Response, 200'))
+                const requestLogs = messages.filter((message) => message.includes('Request, '))
+                expect(requestLogs).toHaveLength(1)
+                expect(requestLogs[0]).toContain('"secret_headers_input":"secret_headers"')
+                // Log redaction masks values but not header names. The name is what appears if the
+                // template merges the secret headers into `payload.headers` instead of passing the reference.
+                expect(requestLogs[0]).not.toContain('X-Api-Key')
+                expect(JSON.stringify(messages)).not.toContain(token)
+            }, 5000)
         })
     })
 
