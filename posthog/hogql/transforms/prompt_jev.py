@@ -213,6 +213,26 @@ class _AliasReferences(TraversingVisitor):
             raise QueryError("Read __preview_promptJev result aliases from an outer query.")
 
 
+class _CTEReferences(TraversingVisitor):
+    def __init__(self) -> None:
+        self.names: set[str | int] = set()
+
+    def visit_field(self, node: ast.Field) -> None:
+        self.names.update(node.chain[:1])
+
+    @classmethod
+    def used(cls, query: ast.SelectQuery, ctes: dict[str, ast.CTE]) -> dict[str, ast.CTE]:
+        # ClickHouse does not run a CTE that nothing reads, so inference must not run for it either.
+        references = cls()
+        references.visit(query)
+        used: set[str] = set()
+        while pending := [name for name in ctes if name in references.names and name not in used]:
+            for name in pending:
+                used.add(name)
+                references.visit(ctes[name])
+        return {name: cte for name, cte in ctes.items() if name in used}
+
+
 class PromptJevPlanner(CloningVisitor):
     def __init__(
         self,
@@ -231,10 +251,10 @@ class PromptJevPlanner(CloningVisitor):
         previous = self.ctes
         self.ctes = dict(previous)
         try:
-            for name, cte in (node.ctes or {}).items():
-                self.ctes[name] = self.visit(cte)
             without_ctes = clone_expr(node)
             without_ctes.ctes = None
+            for name, cte in _CTEReferences.used(without_ctes, node.ctes or {}).items():
+                self.ctes[name] = self.visit(cte)
             query = cast(ast.SelectQuery, super().visit_select_query(without_ctes))
             query.ctes = dict(self.ctes) or None
             local = _LocalFinder()

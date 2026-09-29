@@ -204,6 +204,10 @@ class TestPromptJevQuery(ClickhouseTestMixin, APIBaseTest):
                 "WITH classified AS (SELECT __preview_promptJev('refund', 'Refund?') AS p) SELECT a.p, b.p FROM classified a CROSS JOIN classified b",
                 [(0.9, 0.9)],
             ),
+            (
+                "WITH a AS (SELECT __preview_promptJev('refund', 'Refund?') AS p), b AS (SELECT p FROM a) SELECT p FROM b",
+                [(0.9,)],
+            ),
             ("SELECT __preview_promptJev(NULL, 'Refund?') AS p", [(None,)]),
             ("SELECT __preview_promptJev('hello', 'Refund?') AS p LIMIT 0", []),
         ]
@@ -213,6 +217,18 @@ class TestPromptJevQuery(ClickhouseTestMixin, APIBaseTest):
             response = execute_hogql_query(query, self.team, user=self.user)
         self.assertEqual(response.results, expected)
         self.assertLessEqual(post.call_count, 1)
+
+    @parameterized.expand(
+        [
+            ("WITH unused AS (SELECT __preview_promptJev('refund', 'Refund?') AS p) SELECT 1",),
+            ("WITH a AS (SELECT __preview_promptJev('refund', 'Refund?') AS p), b AS (SELECT p FROM a) SELECT 1",),
+        ]
+    )
+    def test_unused_ctes_send_no_requests(self, query: str) -> None:
+        with patch("httpx.AsyncClient.post") as post:
+            response = execute_hogql_query(query, self.team, user=self.user)
+        self.assertEqual(response.results, [(1,)])
+        post.assert_not_called()
 
     @parameterized.expand(
         [
