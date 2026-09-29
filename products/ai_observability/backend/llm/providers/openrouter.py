@@ -43,6 +43,9 @@ OPENROUTER_ALL_MODELS_URL = f"{OPENROUTER_BASE_URL}/models?output_modalities=all
 NON_CHAT_MODELS_CACHE_KEY = "ai_observability:openrouter:non_chat_models"
 NON_CHAT_MODELS_CACHE_TTL_SECONDS = 60 * 60
 NON_CHAT_MODELS_FETCH_TIMEOUT_SECONDS = 5.0
+# Short, so a catalogue outage adds the fetch timeout at most once a minute.
+NON_CHAT_MODELS_UNAVAILABLE_TTL_SECONDS = 60
+_CATALOGUE_UNAVAILABLE = "unavailable"
 
 # These failures are about the key or the network, not about the model.
 _KEY_OR_NETWORK_ERRORS = (AuthenticationError, QuotaExceededError, RateLimitError, ProviderConnectionError)
@@ -54,6 +57,8 @@ def _non_chat_model_ids() -> frozenset[str] | None:
     Returns None when the catalogue is unavailable, so callers fail open.
     """
     cached = cache.get(NON_CHAT_MODELS_CACHE_KEY)
+    if cached == _CATALOGUE_UNAVAILABLE:
+        return None
     if cached is not None:
         return frozenset(cached)
     try:
@@ -67,6 +72,7 @@ def _non_chat_model_ids() -> frozenset[str] | None:
         )
     except Exception:
         logger.warning("Could not fetch the OpenRouter model catalogue", exc_info=True)
+        cache.set(NON_CHAT_MODELS_CACHE_KEY, _CATALOGUE_UNAVAILABLE, NON_CHAT_MODELS_UNAVAILABLE_TTL_SECONDS)
         return None
     cache.set(NON_CHAT_MODELS_CACHE_KEY, ids, NON_CHAT_MODELS_CACHE_TTL_SECONDS)
     return frozenset(ids)
@@ -94,7 +100,7 @@ class OpenRouterAdapter(OpenAIAdapter):
         base_url: str | None = None,
     ) -> CompletionResponse:
         try:
-            return super().complete(request, api_key, analytics, base_url=OPENROUTER_BASE_URL)
+            response = super().complete(request, api_key, analytics, base_url=OPENROUTER_BASE_URL)
         except _KEY_OR_NETWORK_ERRORS:
             raise
         except Exception as e:
@@ -103,6 +109,10 @@ class OpenRouterAdapter(OpenAIAdapter):
             if is_non_chat_model(request.model):
                 raise UnsupportedModelError(request.model) from e
             raise
+        # A non-chat model can also answer with an empty reply instead of an error.
+        if request.response_format and response.parsed is None and is_non_chat_model(request.model):
+            raise UnsupportedModelError(request.model)
+        return response
 
     def stream(
         self,

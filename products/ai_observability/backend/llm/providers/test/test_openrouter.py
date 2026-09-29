@@ -1,6 +1,8 @@
 import pytest
 from unittest.mock import MagicMock, patch
 
+from django.core.cache import cache
+
 import httpx
 from parameterized import parameterized
 
@@ -12,6 +14,7 @@ from products.ai_observability.backend.llm.errors import (
 )
 from products.ai_observability.backend.llm.providers.openai import OpenAIAdapter
 from products.ai_observability.backend.llm.providers.openrouter import (
+    NON_CHAT_MODELS_CACHE_KEY,
     OPENROUTER_HEADERS,
     OpenRouterAdapter,
     _non_chat_model_ids,
@@ -158,6 +161,13 @@ class TestOpenRouterNonChatModels:
             ),
             ("catalogue_unavailable", ValueError("400"), "typesafe/jev-1.13", None, ValueError),
             (
+                "empty_reply_on_decision_model",
+                MagicMock(parsed=None),
+                "typesafe/jev-1.13",
+                {"typesafe/jev-1.13"},
+                UnsupportedModelError,
+            ),
+            (
                 "rate_limit_on_decision_model",
                 RateLimitError("slow down"),
                 "typesafe/jev-1.13",
@@ -169,7 +179,12 @@ class TestOpenRouterNonChatModels:
     def test_complete_maps_failures_of_non_chat_models(self, _name, raised, model, non_chat_ids, expected):
         request = MagicMock(model=model)
         with (
-            patch.object(OpenAIAdapter, "complete", side_effect=raised),
+            patch.object(
+                OpenAIAdapter,
+                "complete",
+                side_effect=raised if isinstance(raised, Exception) else None,
+                return_value=raised,
+            ),
             patch(
                 "products.ai_observability.backend.llm.providers.openrouter._non_chat_model_ids",
                 return_value=frozenset(non_chat_ids) if non_chat_ids is not None else None,
@@ -194,3 +209,16 @@ class TestOpenRouterNonChatModels:
             patch("products.ai_observability.backend.llm.providers.openrouter.httpx.get", return_value=mock_response),
         ):
             assert _non_chat_model_ids() == frozenset({"typesafe/jev-1.13"})
+
+    def test_catalogue_failure_is_cached_briefly(self):
+        cache.delete(NON_CHAT_MODELS_CACHE_KEY)
+        try:
+            with patch(
+                "products.ai_observability.backend.llm.providers.openrouter.httpx.get",
+                side_effect=httpx.ConnectError("down"),
+            ) as mock_get:
+                assert _non_chat_model_ids() is None
+                assert _non_chat_model_ids() is None
+            assert mock_get.call_count == 1
+        finally:
+            cache.delete(NON_CHAT_MODELS_CACHE_KEY)
