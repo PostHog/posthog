@@ -14,6 +14,7 @@ from typing import Any, Final, NotRequired, TypedDict
 from uuid import UUID
 
 from posthog.dataclasses import frozen
+from posthog.enums import LabeledStrEnum
 
 
 class SourceKind(StrEnum):
@@ -255,29 +256,12 @@ class OrchestrateResult:
     deadline_reached: bool
 
 
-class DestinationType(StrEnum):
-    SLACK = "slack"
-    DISCORD = "discord"
-    WEBHOOK = "webhook"
-    TEAMS = "teams"
-
-    @property
-    def label(self) -> str:
-        """Name for this type in a message a person reads."""
-        return _DESTINATION_TYPE_LABELS[self]
-
-
-_DESTINATION_TYPE_LABELS: Final[dict[DestinationType, str]] = {
-    DestinationType.SLACK: "Slack",
-    DestinationType.DISCORD: "Discord",
-    DestinationType.WEBHOOK: "Webhook",
-    DestinationType.TEAMS: "Microsoft Teams",
-}
-
-# A type without a label would only surface as a KeyError inside a validation message a
-# person reads, so a new member without one fails the import instead.
-if _DESTINATION_TYPE_LABELS.keys() != set(DestinationType):
-    raise RuntimeError("Every DestinationType needs an entry in _DESTINATION_TYPE_LABELS.")
+class DestinationType(LabeledStrEnum):
+    # The label names the type in a message a person reads.
+    SLACK = "slack", "Slack"
+    DISCORD = "discord", "Discord"
+    WEBHOOK = "webhook", "Webhook"
+    TEAMS = "teams", "Microsoft Teams"
 
 
 class AlertDestinationData(TypedDict):

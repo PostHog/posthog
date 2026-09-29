@@ -897,6 +897,22 @@ ignore_imports = [
     "products.tasks.backend.facade.client_provenance -> rest_framework",
 ]
 
+# Contract files hold the data types other products read, so they stay free of Django, directly
+# and through other product modules. Define a choices enum with posthog.enums.LabeledStrEnum or
+# LabeledIntEnum instead of models.TextChoices. import-linter treats posthog as an external
+# package, so Django reached through posthog.* is not visible here. See products/architecture.md
+# § Contracts.
+[[tool.importlinter.contracts]]
+name = "facade contracts and enums must not import Django (use posthog.enums for choices)"
+type = "forbidden"
+source_modules = [
+    "products.*.backend.facade.contracts",
+    "products.*.backend.facade.enums",
+    "products.*.backend.facade.types",
+]
+forbidden_modules = ["django"]
+allow_indirect_imports = false
+
 [tool.ty.rules]
 # Import resolution - ty can't always find all modules/stubs
 unresolved-import = "ignore"

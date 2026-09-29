@@ -227,7 +227,7 @@ CDC_SNAPSHOT_LANE_KEY = "cdc_snapshot_lane"
 
 
 class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields, UUIDTModel, DeletedMetaFields):
-    # Kept on the model so the nested names and the `choices=` below stay unchanged.
+    # Kept on the model so the nested names stay unchanged.
     Status = ExternalDataSchemaStatus
     SyncType = ExternalDataSchemaSyncType
     SyncFrequency = ExternalDataSchemaSyncFrequency
@@ -254,7 +254,7 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     )
     status = models.CharField(max_length=400, null=True, blank=True)
     last_synced_at = models.DateTimeField(null=True, blank=True)
-    sync_type = models.CharField(max_length=128, choices=SyncType, null=True, blank=True)
+    sync_type = models.CharField(max_length=128, choices=SyncType.choices, null=True, blank=True)
     # User-managed vendor API version override for this schema. NULL (the norm) means the schema
     # syncs on its source's pinned version; a value here wins over the source pin. Deliberately
     # ignored by version-migration tooling — only the user changes it. Not available for
@@ -275,7 +275,9 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     s3_folder_name = models.CharField(max_length=400, null=True, blank=True)
     # Deprecated in favour of `sync_frequency_interval`
     sync_frequency = deprecate_field(
-        models.CharField(max_length=128, choices=SyncFrequency, default=SyncFrequency.DAILY, blank=True, null=True)
+        models.CharField(
+            max_length=128, choices=SyncFrequency.choices, default=SyncFrequency.DAILY.value, blank=True, null=True
+        )
     )
     sync_frequency_interval = models.DurationField(default=timedelta(hours=6), null=True, blank=True)
     sync_time_of_day = models.TimeField(null=True, blank=True, help_text="Time of day to run the sync (UTC)")
