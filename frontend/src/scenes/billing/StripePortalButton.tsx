@@ -28,7 +28,11 @@ export const StripePortalButton = (): JSX.Element | null => {
                 center
                 data-attr="manage-billing"
             >
-                {billing.has_active_subscription ? 'Manage card details and invoices' : 'View past invoices'}
+                {isExternallyBilled
+                    ? 'View invoices in Vercel'
+                    : billing.has_active_subscription
+                      ? 'Manage card details and invoices'
+                      : 'View past invoices'}
             </LemonButton>
         </div>
     )

@@ -42,22 +42,25 @@ describe('StripePortalButton', () => {
         {
             name: 'the Stripe portal when PostHog bills the organization',
             billing: { billing_provider: BillingProvider.PostHog },
+            expectedLabel: 'Manage card details and invoices',
             expectedHref: billingJson.stripe_portal_url,
         },
         {
             name: 'the external provider invoices page',
             billing: { external_billing_provider_invoices_url: EXTERNAL_INVOICES_URL },
+            expectedLabel: 'View invoices in Vercel',
             expectedHref: EXTERNAL_INVOICES_URL,
         },
         {
             name: 'the external provider invoices page when billing has no customer id',
             billing: { external_billing_provider_invoices_url: EXTERNAL_INVOICES_URL, customer_id: '' },
+            expectedLabel: 'View invoices in Vercel',
             expectedHref: EXTERNAL_INVOICES_URL,
         },
-    ])('links to $name', async ({ billing, expectedHref }) => {
+    ])('links to $name', async ({ billing, expectedLabel, expectedHref }) => {
         await renderForBilling(billing)
 
-        expect(screen.getByText('Manage card details and invoices').closest('a')).toHaveAttribute('href', expectedHref)
+        expect(screen.getByText(expectedLabel).closest('a')).toHaveAttribute('href', expectedHref)
     })
 
     it('renders nothing when an external provider has no invoices page', async () => {
