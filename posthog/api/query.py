@@ -228,12 +228,12 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     scope_object = "query"
     serializer_class = _FallbackSerializer
     # Special case for query - these are all essentially read actions
-    scope_object_read_actions = ["retrieve", "create", "list", "destroy"]
+    scope_object_read_actions = ["retrieve", "create", "create_with_kind", "list", "destroy"]
     scope_object_write_actions: list[str] = []
     sharing_enabled_actions = ["retrieve"]
 
     def dangerously_get_required_scopes(self, request, view) -> list[str] | None:
-        if getattr(view, "action", None) != "create":
+        if getattr(view, "action", None) not in ("create", "create_with_kind"):
             return None
         query = request.data.get("query") if isinstance(request.data, dict) else None
         return required_scopes_for_query_payload(query)
