@@ -3,7 +3,6 @@ import { useRouter } from "expo-router";
 import { useState } from "react";
 import {
   ActivityIndicator,
-  Linking,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -14,11 +13,7 @@ import {
 } from "react-native";
 import { GlassCircleButton } from "@/components/Glass";
 import { useAuth } from "@/lib/auth";
-import {
-  registerPushToken,
-  unregisterPushToken,
-  usePushStatus,
-} from "@/lib/notifications";
+import { unregisterPushToken } from "@/lib/notifications";
 import { type AppearanceMode, usePrefs } from "@/lib/prefs";
 import { loadProjects, switchProject } from "@/lib/projects";
 import { colors, fonts, radius } from "@/lib/theme";
@@ -29,7 +24,6 @@ export default function SettingsSheet() {
   const logout = useAuth((s) => s.logout);
   const hedgehogMode = usePrefs((s) => s.hedgehogMode);
   const appearance = usePrefs((s) => s.appearance);
-  const pushStatus = usePushStatus((s) => s.status);
   const setPrefs = usePrefs((s) => s.set);
   const initials = (session?.userName ?? "").slice(0, 2).toUpperCase();
   const [showProjects, setShowProjects] = useState(false);
@@ -181,40 +175,6 @@ export default function SettingsSheet() {
             </Text>
           </View>
         ) : null}
-      </View>
-
-      <Text style={styles.section}>Notifications</Text>
-      <View style={styles.card}>
-        <View style={styles.projectRow}>
-          <View style={styles.projectDetails}>
-            <Text style={styles.rowLabel}>Task updates</Text>
-            <Text style={styles.sub}>
-              {pushStatus === "ready"
-                ? "This device is registered for task updates."
-                : pushStatus === "permissionDenied"
-                  ? "Allow notifications in your device settings."
-                  : pushStatus === "unavailable"
-                    ? "This build cannot register for push notifications."
-                    : pushStatus === "failed"
-                      ? "Could not register this device. Try again."
-                      : "Checking notification access…"}
-            </Text>
-          </View>
-          {pushStatus === "permissionDenied" || pushStatus === "failed" ? (
-            <Pressable
-              accessibilityRole="button"
-              onPress={() =>
-                pushStatus === "permissionDenied"
-                  ? void Linking.openSettings()
-                  : void registerPushToken()
-              }
-            >
-              <Text style={styles.projectAction}>
-                {pushStatus === "permissionDenied" ? "Settings" : "Retry"}
-              </Text>
-            </Pressable>
-          ) : null}
-        </View>
       </View>
 
       <Text style={styles.section}>Appearance</Text>
