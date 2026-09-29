@@ -7,6 +7,7 @@ import { urls } from 'scenes/urls'
 import { mswDecorator } from '~/mocks/browser'
 
 import type { CustomPropertyValueWriteApi, AccountRelationshipWriteApi } from '../../generated/api.schemas'
+import { createAccountViewContent } from './accountViewDocument'
 
 const ACCOUNT_ID = '11111111-2222-4333-8444-555555555555'
 const EXTERNAL_ACCOUNT_ID = 'spaces %2F slash / ? # + Unicode 漢字'
@@ -27,18 +28,10 @@ const accountView = {
     id: ACCOUNT_VIEW_ID,
     name: 'Account workspace',
     visibility: 'private',
-    content: {
-        type: 'doc',
-        content: [
-            {
-                type: 'ph-markdown-notebook',
-                attrs: {
-                    nodeId: 'markdown-notebook-v2',
-                    markdown: '<Notes nodeId="notes" />\n\n<Relationships nodeId="relationships" />',
-                },
-            },
-        ],
-    },
+    content: createAccountViewContent([
+        { nodeId: 'notes', kind: 'notes', span: 7 },
+        { nodeId: 'relationships', kind: 'relationships', span: 5 },
+    ]),
     text_content: 'Notes\nRelationships',
     version: 1,
     created_by: 1,
