@@ -19,6 +19,7 @@ RETRY_DELAYS_SECONDS = (2.0, 8.0)
 TRANSIENT_ERRORS = (httpx.HTTPError, APIConnectionError, InternalServerError, RateLimitError)
 UNREACHABLE_MESSAGE = "The AI model couldn't finish this draft. Regenerate to try again."
 UNREADABLE_MESSAGE = "The AI model sent back a draft PostHog couldn't read. Regenerate to try again."
+TIMED_OUT_MESSAGE = "The AI model took too long to respond. Regenerate to try again."
 
 
 class ContentAutopilotLLMError(Exception):
@@ -59,7 +60,11 @@ def call_json(
     effort: Effort | None = None,
     timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
 ) -> dict[str, Any]:
+    deadline = time.monotonic() + timeout_seconds
     for attempt, delay in enumerate((*RETRY_DELAYS_SECONDS, None)):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise ContentAutopilotLLMError(TIMED_OUT_MESSAGE)
         try:
             return _call_json_once(
                 client,
@@ -70,10 +75,10 @@ def call_json(
                 team_id=team_id,
                 model=model,
                 effort=effort,
-                timeout_seconds=timeout_seconds,
+                timeout_seconds=remaining,
             )
         except TRANSIENT_ERRORS as error:
-            if delay is None:
+            if delay is None or time.monotonic() + delay >= deadline:
                 logger.warning("content_autopilot_llm_failed", team_id=team_id, error=type(error).__name__)
                 raise ContentAutopilotLLMError(UNREACHABLE_MESSAGE) from error
             logger.warning(
@@ -114,7 +119,7 @@ def _call_json_once(
     try:
         for event in stream:
             if time.monotonic() >= deadline:
-                raise ContentAutopilotLLMError("The AI model took too long to respond. Regenerate to try again.")
+                raise ContentAutopilotLLMError(TIMED_OUT_MESSAGE)
             if event.type == "content_block_delta" and event.delta.type == "text_delta":
                 content.append(event.delta.text)
             elif event.type == "message_delta" and event.delta.stop_reason:

@@ -6,7 +6,8 @@ from posthog.dataclasses import frozen
 EditAction = Literal["replace_intro", "replace_section", "insert_after_section", "append"]
 EDIT_ACTIONS: tuple[EditAction, ...] = get_args(EditAction)
 
-_HEADING_RE = re.compile(r"^(#{1,6})\s+(.*?)\s*#*\s*$")
+_HEADING_RE = re.compile(r"^(#{1,6})[ \t]+(.*?)[ \t]*#*[ \t]*$")
+_FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
 _FAQ_RE = re.compile(r"frequently asked questions|^faqs?$")
 
 
@@ -46,26 +47,38 @@ def _normalize(heading: str) -> str:
     return " ".join(re.sub(r"[^\w\s]", " ", heading.lower()).split())
 
 
+def _headings(lines: list[str]) -> dict[int, tuple[int, str]]:
+    headings: dict[int, tuple[int, str]] = {}
+    fence: str | None = None
+    for index, line in enumerate(lines):
+        fence_match = _FENCE_RE.match(line)
+        if fence_match:
+            marker = fence_match.group(1)
+            if fence is None:
+                fence = marker
+            elif marker[0] == fence[0] and len(marker) >= len(fence):
+                fence = None
+            continue
+        if fence is None and (parsed := _heading(line)):
+            headings[index] = parsed
+    return headings
+
+
 def page_headings(markdown: str) -> list[str]:
-    return [parsed[1] for line in markdown.splitlines() if (parsed := _heading(line)) and parsed[0] >= 2]
+    return [parsed[1] for parsed in _headings(markdown.splitlines()).values() if parsed[0] >= 2]
 
 
 def _section_end(lines: list[str], start: int, level: int) -> int:
     return next(
-        (
-            later
-            for later in range(start + 1, len(lines))
-            if (next_heading := _heading(lines[later])) and next_heading[0] <= level
-        ),
+        (index for index, parsed in _headings(lines).items() if index > start and parsed[0] <= level),
         len(lines),
     )
 
 
 def _find_section(lines: list[str], heading: str) -> tuple[int, int] | None:
     wanted = _normalize(heading)
-    for index, line in enumerate(lines):
-        parsed = _heading(line)
-        if parsed is not None and _normalize(parsed[1]) == wanted:
+    for index, parsed in _headings(lines).items():
+        if _normalize(parsed[1]) == wanted:
             return index, _section_end(lines, index, parsed[0])
     return None
 
@@ -74,15 +87,21 @@ def _faq_start(lines: list[str]) -> int | None:
     return next(
         (
             index
-            for index, line in enumerate(lines)
-            if (parsed := _heading(line)) and parsed[0] == 2 and _FAQ_RE.search(_normalize(parsed[1]))
+            for index, parsed in _headings(lines).items()
+            if parsed[0] == 2 and _FAQ_RE.search(_normalize(parsed[1]))
         ),
         None,
     )
 
 
-def _block(markdown: str) -> list[str]:
-    return ["", *markdown.splitlines(), ""]
+def _splice(lines: list[str], start: int, end: int, markdown: str) -> list[str]:
+    before = lines[:start]
+    after = lines[end:]
+    while before and not before[-1].strip():
+        before.pop()
+    while after and not after[0].strip():
+        after.pop(0)
+    return [*before, *([""] if before else []), *markdown.splitlines(), *([""] if after else []), *after]
 
 
 def _append(lines: list[str], edit: PageEdit) -> list[str]:
@@ -90,21 +109,19 @@ def _append(lines: list[str], edit: PageEdit) -> list[str]:
     first = _heading(new_lines[0]) if new_lines else None
     faq = _faq_start(lines)
     if first is not None and _FAQ_RE.search(_normalize(first[1])) and faq is not None:
-        return [*lines[:faq], *_block(edit.markdown), *lines[_section_end(lines, faq, 2) :]]
+        return _splice(lines, faq, _section_end(lines, faq, 2), edit.markdown)
     insert_at = faq if faq is not None else len(lines)
-    return [*lines[:insert_at], *_block(edit.markdown), *lines[insert_at:]]
+    return _splice(lines, insert_at, insert_at, edit.markdown)
 
 
 def _replace_intro(lines: list[str], edit: PageEdit) -> list[str]:
-    h1 = next((index for index, line in enumerate(lines) if (parsed := _heading(line)) and parsed[0] == 1), -1)
+    headings = _headings(lines)
+    h1 = next((index for index, parsed in headings.items() if parsed[0] == 1), -1)
     new_lines = edit.markdown.splitlines()
     replaces_title = bool(new_lines) and (parsed := _heading(new_lines[0])) is not None and parsed[0] == 1
     start = h1 if replaces_title and h1 >= 0 else h1 + 1
-    end = next(
-        (index for index in range(h1 + 1, len(lines)) if (parsed := _heading(lines[index])) and parsed[0] >= 2),
-        len(lines),
-    )
-    return [*lines[:start], *_block(edit.markdown), *lines[end:]]
+    end = next((index for index, parsed in headings.items() if index > h1 and parsed[0] >= 2), len(lines))
+    return _splice(lines, start, end, edit.markdown)
 
 
 def apply_edits(original: str, edits: list[PageEdit]) -> AppliedEdits:
@@ -129,8 +146,7 @@ def apply_edits(original: str, edits: list[PageEdit]) -> AppliedEdits:
             replacement = (
                 edit.markdown if _heading(edit.markdown.splitlines()[0]) else f"{lines[start]}\n\n{edit.markdown}"
             )
-            lines = [*lines[:start], *_block(replacement), *lines[end:]]
+            lines = _splice(lines, start, end, replacement)
         else:
-            lines = [*lines[:end], *_block(edit.markdown), *lines[end:]]
-    text = "\n".join(lines)
-    return AppliedEdits(markdown=re.sub(r"\n{3,}", "\n\n", text).strip() + "\n", unplaced=tuple(unplaced))
+            lines = _splice(lines, end, end, edit.markdown)
+    return AppliedEdits(markdown="\n".join(lines).strip("\n") + "\n", unplaced=tuple(unplaced))

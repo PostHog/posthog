@@ -1382,8 +1382,7 @@ AEO_TARGET_DOMAINS = get_list(get_from_env("AEO_TARGET_DOMAINS", "posthog.com"))
 AEO_ANTHROPIC_MODEL = get_from_env("AEO_ANTHROPIC_MODEL", "claude-sonnet-5")
 AEO_OPENAI_MODEL = get_from_env("AEO_OPENAI_MODEL", "gpt-5")
 EXA_API_KEY = get_from_env("EXA_API_KEY", "")
-CONTENT_AUTOPILOT_MODEL = get_from_env("CONTENT_AUTOPILOT_MODEL", AEO_ANTHROPIC_MODEL)
-CONTENT_AUTOPILOT_SAFETY_MODEL = get_from_env("CONTENT_AUTOPILOT_SAFETY_MODEL", "claude-haiku-4-5")
+CONTENT_AUTOPILOT_MODEL = get_from_env("CONTENT_AUTOPILOT_MODEL", "claude-sonnet-5")
 
 # Sharing configuration settings
 SHARING_TOKEN_GRACE_PERIOD_SECONDS = 60 * 5  # 5 minutes

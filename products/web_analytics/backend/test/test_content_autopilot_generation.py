@@ -7,10 +7,11 @@ from unittest.mock import patch
 from django.test import SimpleTestCase
 
 import httpx
+from anthropic import APIConnectionError
 from parameterized import parameterized
 
 from products.web_analytics.backend.content_autopilot.edits import PageEdit, apply_edits
-from products.web_analytics.backend.content_autopilot.llm import call_json
+from products.web_analytics.backend.content_autopilot.llm import ContentAutopilotLLMError, call_json
 
 
 class _FakeStream:
@@ -56,6 +57,26 @@ class TestCallJson(SimpleTestCase):
         assert result == {"ok": True}
         assert client.calls == 2
 
+    def test_stops_retrying_at_the_callers_deadline(self) -> None:
+        clock = SimpleNamespace(now=0.0)
+        calls: list[float] = []
+
+        def create(**kwargs: Any) -> _FakeStream:
+            calls.append(kwargs["timeout"])
+            raise APIConnectionError(request=httpx.Request("POST", "https://gateway.example.com"))
+
+        def sleep(seconds: float) -> None:
+            clock.now += seconds
+
+        client = SimpleNamespace(with_options=lambda **kwargs: client, messages=SimpleNamespace(create=create))
+        fake_time = SimpleNamespace(monotonic=lambda: clock.now, sleep=sleep)
+
+        with patch("products.web_analytics.backend.content_autopilot.llm.time", fake_time):
+            with self.assertRaises(ContentAutopilotLLMError):
+                call_json(client, system="s", user="u", schema={}, max_tokens=10, team_id=1, timeout_seconds=5.0)  # type: ignore[arg-type]
+
+        assert calls == [5.0, 3.0]
+
 
 EDITABLE_PAGE = """# Session replay
 
@@ -65,6 +86,10 @@ Old intro.
 
 Clicks.
 
+```bash
+# install
+```
+
 ### Console logs
 
 Logs too.
@@ -72,6 +97,13 @@ Logs too.
 ## Pricing
 
 Free.
+
+```text
+a
+
+
+b
+```
 
 ## Frequently asked questions
 
@@ -92,7 +124,7 @@ class TestApplyEdits(SimpleTestCase):
                     markdown="## What does it capture?\n\nEverything.",
                 ),
                 ["Everything.", "## Pricing"],
-                ["Clicks.", "Console logs"],
+                ["Clicks.", "Console logs", "# install"],
                 (),
             ),
             (
@@ -121,7 +153,7 @@ class TestApplyEdits(SimpleTestCase):
             (
                 "an_unknown_heading_is_appended_and_reported",
                 PageEdit(action="replace_section", heading="Nope", markdown="## Setup\n\nSteps."),
-                ["Free.", "## Setup", "## Frequently asked questions"],
+                ["b\n```", "## Setup", "## Frequently asked questions"],
                 [],
                 ("Nope",),
             ),
@@ -136,3 +168,4 @@ class TestApplyEdits(SimpleTestCase):
         assert positions == sorted(positions)
         assert all(fragment not in applied.markdown for fragment in absent)
         assert applied.unplaced == unplaced
+        assert "a\n\n\nb" in applied.markdown

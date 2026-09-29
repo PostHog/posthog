@@ -288,30 +288,47 @@ _MAX_SITEMAP_URLS = 20_000
 
 
 def _fetch_sitemap(url: str, *, deadline: float) -> str | None:
-    try:
-        response = fetch_public_url(
-            strip_userinfo(url),
-            headers={"Accept": "application/xml,text/xml;q=0.9,*/*;q=0.1", "User-Agent": "PostHog content research"},
-            max_bytes=_MAX_SITEMAP_BYTES,
-            deadline=deadline,
-            connect_timeout_seconds=3.0,
-            read_timeout_seconds=15.0,
-        )
-    except PublicUrlFetchError:
-        return None
-    if not 200 <= response.status_code < 300:
-        return None
-    return response.body.decode("utf-8", errors="replace")
+    current_url = strip_userinfo(url)
+    for _ in range(_MAX_REDIRECTS + 1):
+        try:
+            response = fetch_public_url(
+                current_url,
+                headers={
+                    "Accept": "application/xml,text/xml;q=0.9,*/*;q=0.1",
+                    "User-Agent": "PostHog content research",
+                },
+                max_bytes=_MAX_SITEMAP_BYTES,
+                deadline=deadline,
+                connect_timeout_seconds=3.0,
+                read_timeout_seconds=15.0,
+            )
+        except PublicUrlFetchError:
+            return None
+        if response.status_code in PUBLIC_URL_REDIRECT_STATUSES:
+            location = response.headers.get("location")
+            if not location:
+                return None
+            target = strip_userinfo(urljoin(current_url, location))
+            if not has_same_public_site(target, url):
+                return None
+            current_url = target
+            continue
+        if not 200 <= response.status_code < 300:
+            return None
+        return response.body.decode("utf-8", errors="replace")
+    return None
 
 
-def _is_on_site(url: str, *, origin_scheme: str, origin_host: str) -> bool:
+def _is_on_site(url: str, *, origin_scheme: str, origin_host: str, origin_port: int | None) -> bool:
     try:
         parsed = urlparse(url)
         port = parsed.port
     except ValueError:
         return False
     scheme = parsed.scheme.lower()
-    if scheme != origin_scheme or scheme not in _DEFAULT_PORTS or port not in (None, _DEFAULT_PORTS[scheme]):
+    if scheme != origin_scheme or scheme not in _DEFAULT_PORTS:
+        return False
+    if (port if port is not None else _DEFAULT_PORTS[scheme]) != origin_port:
         return False
     host = site_host(url)
     return bool(host) and host == origin_host
@@ -319,8 +336,10 @@ def _is_on_site(url: str, *, origin_scheme: str, origin_host: str) -> bool:
 
 def read_sitemap_urls(source_urls: list[str], *, origin: str) -> list[str]:
     deadline = time.monotonic() + _MAX_SITEMAP_SECONDS
-    origin_scheme = urlparse(origin).scheme.lower()
+    parsed_origin = urlparse(origin)
+    origin_scheme = parsed_origin.scheme.lower()
     origin_host = site_host(origin)
+    origin_port = parsed_origin.port or _DEFAULT_PORTS.get(origin_scheme)
     queued = list(dict.fromkeys(url for url in source_urls if has_same_public_origin(url, origin)))[
         :_MAX_SITEMAP_FETCHES
     ]
@@ -341,7 +360,7 @@ def read_sitemap_urls(source_urls: list[str], *, origin: str) -> list[str]:
             if _local_name(element.tag) != "loc" or not element.text:
                 continue
             location = element.text.strip()
-            if not _is_on_site(location, origin_scheme=origin_scheme, origin_host=origin_host):
+            if not _is_on_site(location, origin_scheme=origin_scheme, origin_host=origin_host, origin_port=origin_port):
                 continue
             if is_index:
                 if location not in seen_sitemaps and len(seen_sitemaps) < _MAX_SITEMAP_FETCHES:

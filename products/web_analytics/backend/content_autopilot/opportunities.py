@@ -36,6 +36,7 @@ from products.web_analytics.backend.models import (
 
 OPPORTUNITY_LOOKBACK_DAYS = 14
 MAX_DRAFTS_PER_RUN = 5
+MAX_REFRESHED_OPPORTUNITIES = 200
 SITEMAP_CACHE_SECONDS = 6 * 60 * 60
 FULL_CONFIDENCE_CHECKS = 9
 FULL_TRAFFIC_SIGNAL = 100
@@ -64,6 +65,14 @@ def _pages_by_path(page_urls: list[str]) -> dict[str, str]:
     return by_path
 
 
+def _within_boundaries(path: str, boundaries: list[str]) -> bool:
+    for boundary in boundaries or ["/"]:
+        prefix = boundary.rstrip("/")
+        if not prefix or path == prefix or path.startswith(f"{prefix}/"):
+            return True
+    return False
+
+
 def canonical_site_url(
     url: str, *, origin: str, origin_host: str, pages_by_path: dict[str, str], boundaries: list[str]
 ) -> str | None:
@@ -75,8 +84,7 @@ def canonical_site_url(
     if not host or host != origin_host or path == "/":
         return None
     if not pages_by_path:
-        within = any(path.startswith(boundary.rstrip("/") or "/") for boundary in boundaries or ["/"])
-        return f"{origin.rstrip('/')}{path}" if within else None
+        return f"{origin.rstrip('/')}{path}" if _within_boundaries(path, boundaries) else None
     return pages_by_path.get(path)
 
 
@@ -98,8 +106,8 @@ def site_page_urls(profile: ContentAutopilotSiteProfile) -> list[str]:
     if cached is not None:
         return cached
     urls = read_sitemap_urls(list(profile.source_urls), origin=profile.domain)
-    boundaries = [str(boundary) for boundary in profile.content_boundaries] or ["/"]
-    urls = [url for url in urls if any(urlparse(url).path.startswith(boundary) for boundary in boundaries)]
+    boundaries = [str(boundary) for boundary in profile.content_boundaries]
+    urls = [url for url in urls if _within_boundaries(_page_path(url), boundaries)]
     cache.set(cache_key, urls, SITEMAP_CACHE_SECONDS)
     return urls
 
@@ -353,7 +361,7 @@ def list_opportunities(*, team: Team, profile_id: str) -> list[ContentAutopilotO
     return list(
         ContentAutopilotOpportunity.objects.for_team(canonical_team_id(team), canonical=True)
         .filter(profile_id=profile_id, profile__deleted=False)
-        .order_by("-score", "title")
+        .order_by("-score", "title")[:MAX_REFRESHED_OPPORTUNITIES]
     )
 
 

@@ -25,6 +25,7 @@ from posthog.security.url_validation import has_authority_bypass_chars
 
 from products.web_analytics.backend.facade.content_autopilot import (
     MAX_PROPOSAL_MARKDOWN_CHARS,
+    MAX_REFRESHED_OPPORTUNITIES,
     ContentAutopilotExportError,
     ContentAutopilotLifecycleError,
     PublicUrlFetchError,
@@ -672,7 +673,7 @@ class ContentAutopilotOpportunityViewSet(ContentAutopilotViewSetMixin, viewsets.
         opportunities = (
             ContentAutopilotOpportunity.objects.for_team(self.team_id)
             .filter(profile_id=profile_id, profile__deleted=False)
-            .order_by("-score", "title")
+            .order_by("-score", "title")[:MAX_REFRESHED_OPPORTUNITIES]
         )
         return Response(self.get_serializer(opportunities, many=True).data)
 

@@ -12,6 +12,7 @@ from products.web_analytics.backend.content_autopilot.lifecycle import (
     reject_proposal,
     start_run,
 )
+from products.web_analytics.backend.content_autopilot.opportunities import MAX_REFRESHED_OPPORTUNITIES
 from products.web_analytics.backend.content_autopilot.site_discovery import (
     discover_site,
     has_same_public_origin,
@@ -21,6 +22,7 @@ from products.web_analytics.backend.public_url_fetch import PublicUrlFetchError
 
 __all__ = [
     "MAX_PROPOSAL_MARKDOWN_CHARS",
+    "MAX_REFRESHED_OPPORTUNITIES",
     "ContentAutopilotExportError",
     "ContentAutopilotLifecycleError",
     "PublicUrlFetchError",
