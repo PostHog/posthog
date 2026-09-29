@@ -19,7 +19,12 @@ import structlog
 from prometheus_client import Counter
 
 from posthog.exceptions_capture import capture_exception
-from posthog.models.activity_logging.utils import ACTIVITY_LOG_CLIENT_MAX_LENGTH, activity_storage
+from posthog.models.activity_logging.utils import (
+    ACTIVITY_LOG_CLIENT_MAX_LENGTH,
+    ACTIVITY_LOG_CREDENTIAL_ID_MAX_LENGTH,
+    ActivityCredential,
+    activity_storage,
+)
 from posthog.models.utils import ActivityDetailEncoder, UUIDTModel
 
 if TYPE_CHECKING:
@@ -249,6 +254,15 @@ class ActivityLog(UUIDTModel):
     client = models.CharField(max_length=ACTIVITY_LOG_CLIENT_MAX_LENGTH, null=True, blank=True)
     # Client IP captured at request time. Null for non-HTTP activity (system, Celery).
     ip_address = models.GenericIPAddressField(null=True, blank=True)
+    # The credential that authenticated the request, from `ActivityCredential`. Unlike `client`,
+    # the caller cannot set these, so they answer which key, OAuth application or session made a
+    # change. Null outside a request. A project secret key row has no user but keeps its credential.
+    credential_type = models.CharField(max_length=32, null=True, blank=True)
+    credential_id = models.CharField(max_length=ACTIVITY_LOG_CREDENTIAL_ID_MAX_LENGTH, null=True, blank=True)
+    # The staff user behind an impersonated change. A plain integer rather than a foreign key:
+    # `SET_NULL` would make every user deletion update this table through a full scan, because
+    # nothing indexes the column.
+    impersonated_by_id = models.BigIntegerField(null=True, blank=True)
 
     activity = models.fields.CharField(max_length=79, null=False)
     # if scoped to a model this activity log holds the id of the model being logged
@@ -345,6 +359,9 @@ field_with_masked_contents: dict[AuditableScope, list[str]] = {
     # directly, keyed by the comment's own scope.
     "Ticket": ["content"],
     cast(AuditableScope, "conversations_ticket"): ["content"],
+    # The rubric API is limited to staff, so saved criteria and generated suggestions must not be
+    # readable through activity_log:read. Record that the rubrics changed, never their contents.
+    "SignalScoutConfig": ["rubrics"],
 }
 
 field_name_overrides: dict[AuditableScope, dict[str, str]] = {
@@ -374,6 +391,7 @@ field_name_overrides: dict[AuditableScope, dict[str, str]] = {
     },
     "ExternalDataSchema": {
         "should_sync": "enabled",
+        "full_refresh_interval_days": "full refresh interval (days)",
     },
     "SignalScoutConfig": {
         "run_interval_minutes": "run interval (minutes)",
@@ -944,6 +962,8 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         # second change on the entry that turns syncing on or off, which makes the schema
         # activity feed read "updated schema" in place of "enabled schema".
         "auto_disabled_at",
+        # Derived from full_refresh_interval_days and moved by every full resync, so it is not user intent.
+        "next_full_refresh_at",
     ],
     "Evaluation": [
         # The fail-closed relation cannot be resolved outside a team scope; the handler diffs IDs instead.
@@ -1184,11 +1204,13 @@ def _report_activity_log_write_failure(e: Exception, error_context: dict, deferr
     ACTIVITY_LOG_WRITE_FAILURES.labels(deferred=str(deferred).lower()).inc()
 
 
-def _handle_activity_log_transaction(create_fn, error_context: dict, *, using: str | None = None):
+def _handle_activity_log_transaction(create_fn, error_context: dict, *, using: str | None = None, strict: bool = False):
     try:
         # Check if we're in a transaction, if yes, defer the activity log creation to the commit signal
-        if not transaction.get_autocommit(using=using) and getattr(
-            settings, "ACTIVITY_LOG_TRANSACTION_MANAGEMENT", True
+        if (
+            not strict
+            and not transaction.get_autocommit(using=using)
+            and getattr(settings, "ACTIVITY_LOG_TRANSACTION_MANAGEMENT", True)
         ):
             # The transaction already committed by the time this callback runs, so its own guard
             # keeps a slow audit write from failing a request whose data is already durable.
@@ -1206,6 +1228,8 @@ def _handle_activity_log_transaction(create_fn, error_context: dict, *, using: s
             return create_fn()
 
     except Exception as e:
+        if strict:
+            raise
         _report_activity_log_write_failure(e, error_context, deferred=False)
         if settings.TEST:
             raise
@@ -1260,11 +1284,17 @@ def log_activity(
     # A product on its own database passes `router.db_for_write(Model)`, so the audit write waits
     # for that connection's commit and is dropped when it rolls back. `None` uses the default one.
     using: str | None = None,
+    strict: bool = False,
 ) -> ActivityLog | None:
     if client is None:
         client = activity_storage.get_client()
     if ip_address is None:
         ip_address = activity_storage.get_ip_address()
+    credential = activity_storage.get_credential()
+    if credential is None and activity_storage.is_request_scoped():
+        # The request was anonymous, or an authentication class that records no credential verified
+        # it. Say so, so that the row does not read like one written outside a request.
+        credential = ActivityCredential(type="unattributed")
     if detail.trigger is None:
         # A product that sets its own trigger already says what drove the write.
         detail = _with_agent_trigger(detail)
@@ -1289,39 +1319,30 @@ def log_activity(
             )
             return None
 
-        def _create_activity_log_instance():
-            return ActivityLog(
-                organization_id=organization_id,
-                team_id=team_id,
-                user=user,
-                was_impersonated=was_impersonated,
-                is_system=user is None,
-                item_id=str(item_id),
-                scope=scope,
-                activity=activity,
-                detail=detail,
-                client=client,
-                ip_address=ip_address,
-            )
+        fields: dict[str, Any] = {
+            "organization_id": organization_id,
+            "team_id": team_id,
+            "user": user,
+            "was_impersonated": was_impersonated,
+            "is_system": user is None,
+            "item_id": str(item_id),
+            "scope": scope,
+            "activity": activity,
+            "detail": detail,
+            "client": client,
+            "ip_address": ip_address,
+            "credential_type": credential.type if credential else None,
+            # Postgres rejects a NUL in text, and a failed insert drops the whole audit row. An ID-JAG
+            # client id is a claim from the organization's identity provider, so it can carry one.
+            "credential_id": credential.id.replace("\x00", "") if credential and credential.id else None,
+            "impersonated_by_id": credential.impersonated_by_id if credential else None,
+        }
 
         def _do_log_activity():
-            log = _create_activity_log_instance()
-            return ActivityLog.objects.create(
-                organization_id=log.organization_id,
-                team_id=log.team_id,
-                user=log.user,
-                was_impersonated=log.was_impersonated,
-                is_system=log.is_system,
-                item_id=log.item_id,
-                scope=log.scope,
-                activity=log.activity,
-                detail=log.detail,
-                client=log.client,
-                ip_address=log.ip_address,
-            )
+            return ActivityLog.objects.create(**fields)
 
         if instance_only:
-            return _create_activity_log_instance()
+            return ActivityLog(**fields)
 
         return _handle_activity_log_transaction(
             _do_log_activity,
@@ -1332,6 +1353,7 @@ def log_activity(
                 "activity": activity,
             },
             using=using,
+            strict=strict,
         )
 
     except Exception as e:
@@ -1344,7 +1366,7 @@ def log_activity(
             exception=e,
         )
         capture_exception(e)
-        if settings.TEST:
+        if settings.TEST or strict:
             raise
         return None
 

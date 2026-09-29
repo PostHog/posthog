@@ -133,6 +133,12 @@ class AccountPresenceViewer:
 
 
 @dataclass(frozen=True)
+class AccountPresence:
+    account_id: UUID
+    viewers: list[AccountPresenceViewer]
+
+
+@dataclass(frozen=True)
 class EmailAccountMatch:
     account_id: str
     account_external_id: str | None
@@ -187,6 +193,7 @@ class CalendarSyncStatus:
     integration_id: int
     last_synced_at: datetime | None
     is_syncing: bool
+    sync_interval_minutes: int
 
 
 @dataclass(frozen=True)

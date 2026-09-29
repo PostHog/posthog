@@ -466,19 +466,40 @@ interface StepExpectation {
     runs: boolean
 }
 
-const STEP_EXPECTATIONS: StepExpectation[] = PINNED_WORKFLOWS.flatMap((file) => [
-    { file, job: 'changes', step: 'filter', scenario: { name: 'ready PR', github: pullRequest() }, runs: true },
-    { file, job: 'changes', step: 'filter', scenario: { name: 'master push', github: push() }, runs: false },
-    { file, job: 'changes', step: 'filter', scenario: { name: 'hourly schedule', github: schedule() }, runs: false },
-    { file, job: 'changes', step: 'app-token', scenario: { name: 'ready PR', github: pullRequest() }, runs: true },
-    {
-        file,
-        job: 'changes',
-        step: 'app-token',
-        scenario: { name: 'fork PR', github: pullRequest({ fork: true }) },
-        runs: false,
+const E2E_DISPATCH: Scenario = {
+    name: 'manual dispatch',
+    github: workflowDispatch('feat/example'),
+    steps: {
+        changes: {
+            decide: { outputs: { shouldRun: 'true' } },
+            'schema-key': { outputs: { migrations_key: 'posthog-schema-mig-test' } },
+        },
     },
-])
+}
+
+const STEP_EXPECTATIONS: StepExpectation[] = [
+    ...PINNED_WORKFLOWS.flatMap((file) => [
+        { file, job: 'changes', step: 'filter', scenario: { name: 'ready PR', github: pullRequest() }, runs: true },
+        { file, job: 'changes', step: 'filter', scenario: { name: 'master push', github: push() }, runs: false },
+        {
+            file,
+            job: 'changes',
+            step: 'filter',
+            scenario: { name: 'hourly schedule', github: schedule() },
+            runs: false,
+        },
+        { file, job: 'changes', step: 'app-token', scenario: { name: 'ready PR', github: pullRequest() }, runs: true },
+        {
+            file,
+            job: 'changes',
+            step: 'app-token',
+            scenario: { name: 'fork PR', github: pullRequest({ fork: true }) },
+            runs: false,
+        },
+    ]),
+    { file: 'ci-e2e-playwright.yml', job: 'changes', step: 'schema-key', scenario: E2E_DISPATCH, runs: true },
+    { file: 'ci-e2e-playwright.yml', job: 'playwright', step: 'schema-cache', scenario: E2E_DISPATCH, runs: true },
+]
 
 const namedJobs = (file: string): Set<string> =>
     new Set(
@@ -490,6 +511,33 @@ const namedJobs = (file: string): Set<string> =>
     )
 
 describe('.github/workflows run plans', () => {
+    it.each([
+        ['new bump', workflowDispatch(), 'bump', 'success', 'pass', true, false],
+        ['missing image', workflowDispatch(), 'bump', 'failure', 'pass', false, false],
+        ['failed gateway', workflowDispatch(), 'bump', 'success', 'broken', false, false],
+        ['nightly with open PR', schedule(), 'current', 'success', 'pass', false, true],
+    ] as const)('sandbox agent release: %s', (name, github, action, imageOutcome, result, enqueue, nightly) => {
+        const plan = planWorkflow(workflow('update-sandbox-agent-version.yml'), {
+            name,
+            github,
+            steps: {
+                'update-sandbox-agent-version': {
+                    state: { outputs: { action } },
+                    smoke: { outputs: { conclusion: 'success' } },
+                    image: { outcome: imageOutcome },
+                    'gateway-smoke': { outputs: { result } },
+                    'Stop when the gateway smoke did not pass': { outcome: 'failure' },
+                    'nightly-smoke': { outputs: { result: 'pass' } },
+                },
+            },
+        })
+        expect(plan.errors).toEqual([])
+        const steps = plan.jobs['update-sandbox-agent-version'].steps
+        expect(steps.find((step) => step.id === 'commit')?.runs).toBe(action === 'bump')
+        expect(steps.find((step) => step.id === 'enqueue')?.runs).toBe(enqueue)
+        expect(steps.find((step) => step.id === 'nightly-smoke')?.runs).toBe(nightly)
+    })
+
     it('Phrocs executes tests even when setup-go restores a warm build cache', () => {
         const testStep = workflow('ci-phrocs.yml').jobs.test.steps?.find((step) => step.name === 'Run tests')
         expect(testStep?.run).toMatch(/\bgo test\s+-count=1\b/)

@@ -7,6 +7,7 @@ from posthog.sync import database_sync_to_async
 from products.batch_exports.backend.hogql_source import (
     UnsupportedHogQLQueryError,
     create_hogql_context_for_batch_export,
+    load_hogql_modifiers,
     validate_hogql_query_for_batch_export,
 )
 
@@ -119,18 +120,38 @@ async def test_rejects_unsupported_queries(ateam, auser, hogql_query, expected_m
         await _validate(hogql_query, ateam, auser)
 
 
-@pytest.mark.parametrize("team_modifiers", [None, {"convertToProjectTimezone": False}])
-def test_create_hogql_context_for_batch_exports(team, team_modifiers: dict[str, typing.Any] | None) -> None:
+@pytest.mark.parametrize(
+    "team_modifiers,export_modifiers,expected_modifiers",
+    [
+        (None, None, {}),
+        ({"convertToProjectTimezone": False}, None, {"convertToProjectTimezone": False}),
+        (
+            {"convertToProjectTimezone": False, "optimizeProjections": False},
+            {"convertToProjectTimezone": True, "removedModifier": True},
+            {"convertToProjectTimezone": True, "optimizeProjections": False},
+        ),
+    ],
+    ids=["no-modifiers", "team-modifiers", "export-modifiers-override-team-modifiers"],
+)
+def test_create_hogql_context_for_batch_exports(
+    team,
+    team_modifiers: dict[str, typing.Any] | None,
+    export_modifiers: dict[str, typing.Any] | None,
+    expected_modifiers: dict[str, typing.Any],
+) -> None:
     if team_modifiers is not None:
         team.modifiers = team_modifiers
-    else:
-        team_modifiers = {}
 
-    context = create_hogql_context_for_batch_export(team)
+    context = create_hogql_context_for_batch_export(team, modifiers=load_hogql_modifiers(export_modifiers))
 
     assert context.team == team
 
-    for key, value in team_modifiers.items():
+    for key, value in expected_modifiers.items():
         assert getattr(context.modifiers, key) == value, (
-            f"Context modifier '{key}' should be set by team modifier. Expected '{value}', got '{getattr(context.modifiers, key)}'"
+            f"Context modifier '{key}' should be '{value}', got '{getattr(context.modifiers, key)}'"
         )
+
+
+def test_load_hogql_modifiers_rejects_invalid_values() -> None:
+    with pytest.raises(UnsupportedHogQLQueryError, match="Invalid HogQL modifiers"):
+        load_hogql_modifiers({"personsOnEventsMode": "not_a_mode"})

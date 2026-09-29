@@ -35,6 +35,8 @@ _SCHEMA_DESCRIPTIONS: dict[str, str] = {
     "problems": "Only syncs the last 365 days on initial sync",
     "events": "Only syncs the last 30 days on initial sync; limited by your Dynatrace event retention",
     "audit_logs": "Only syncs the last 30 days on initial sync; requires audit logging to be enabled in the environment",
+    "releases": "Releases seen in the last 30 days, with the process group instances running them",
+    "entity_types": "Every monitored entity type, with the properties and relationships an entity of that type can have",
     "hosts": "Hosts active in the last 30 days",
     "services": "Services active in the last 30 days",
     "applications": "Applications active in the last 30 days",
@@ -46,6 +48,7 @@ _SCHEMA_DESCRIPTIONS: dict[str, str] = {
     "kubernetes_nodes": "Kubernetes nodes active in the last 30 days",
     "cloud_applications": "Kubernetes workloads active in the last 30 days",
     "custom_devices": "Custom devices active in the last 30 days",
+    "entity_tags": "Custom tags in use, one row per tag and entity type. Tags Dynatrace applies automatically, and imported tags, are not included",
     "metric_data_points": "One row per metric, dimension and hour, for the metric keys you entered. Only syncs the last 30 days on initial sync",
     "slos": "Includes the current evaluation (status, error budget) of each SLO",
     "synthetic_monitors": "Name, type and enabled state of each synthetic monitor",
@@ -75,7 +78,7 @@ class DynatraceSource(ResumableSource[DynatraceSourceConfig, DynatraceResumeConf
             label="Dynatrace",
             releaseStatus=ReleaseStatus.ALPHA,
             keywords=["apm", "observability", "monitoring"],
-            caption="""Enter your Dynatrace environment URL and an API access token to sync problems, events, entity inventory, audit logs, vulnerabilities, metrics, SLOs, and synthetic monitoring into the PostHog Data warehouse.
+            caption="""Enter your Dynatrace environment URL and an API access token to sync problems, events, entity inventory, tags, releases, audit logs, vulnerabilities, metrics, SLOs, and synthetic monitoring into the PostHog Data warehouse.
 
 The environment URL is where you open Dynatrace — for SaaS it looks like `https://abc12345.live.dynatrace.com`; for Managed it's `https://your-domain/e/your-environment-id`.
 
@@ -85,6 +88,7 @@ Create an [access token](https://docs.dynatrace.com/docs/manage/identity-access-
 - `entities.read`
 - `auditLogs.read`
 - `securityProblems.read`
+- `releases.read`
 - `metrics.read`
 - `slo.read`
 - `ReadSyntheticData`

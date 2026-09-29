@@ -18,6 +18,9 @@ Choose **Add to dashboard** from a generated widget's notebook menu to save its 
 Both generated notebook widgets and dashboard widgets must be enabled.
 The selected widget version must have an available preview before the menu offers **Add to dashboard**.
 Notebook widgets are added from the notebook, rather than the dashboard's generic widget picker.
+Search the dashboard picker by name, description, or creator to find a destination.
+Each option shows its description and creator, and marks pinned dashboards.
+Dashboards without edit access cannot be selected.
 Each snapshot holds up to 5,000 rows per dataframe and 8 MiB in total. Adding a widget fails if any required result has expired or cannot be fully captured within these limits.
 Opening a dashboard reads these saved rows without starting notebook compute. Each viewer still needs access to the source notebook, queries, and connected data sources, and must consent to the exact generated build before it reads data.
 Public dashboards show a placeholder instead of notebook results.
@@ -151,6 +154,7 @@ Saved result reads remain available if the execution flags are disabled, subject
 Loading a saved result does not execute a cell or mark dependent cells stale. If a saved run is unavailable, the preview stays visible and the cell offers a rerun.
 
 New notebooks place the typing caret in the title, including when opened through the command menu. Enter continues into the notebook body.
+Click a cell's title or choose **Edit title** from its **More actions** menu to rename it without collapsing its panels. Enter or leaving the field saves; Escape cancels. The cell-type label toggles both panels, and the pencil toggles filters or the editor.
 The notebook's inline **Ask AI** uses LangGraph and receives widget authoring instructions when `notebook-generated-widgets` is enabled for the user.
 The bookmark toggle **Keep question with answer** is on by default, retaining the question and the submitting user's name above the answer. Turning it off saves `keepQuestion={false}` on that prompt.
 **Ask AI** is disabled until the organization approves AI data processing, including submission from saved prompt blocks.

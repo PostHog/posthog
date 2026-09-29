@@ -12,6 +12,8 @@ import type {
     AccountApi,
     AccountNotebookApi,
     AccountNotesListParams,
+    AccountPresenceApi,
+    AccountPresenceListRequestApi,
     AccountPresenceViewerApi,
     AccountRelationshipApi,
     AccountRelationshipDefinitionApi,
@@ -37,6 +39,7 @@ import type {
     AnnouncementChannelApi,
     AnnouncementsListParams,
     CalendarSyncBackfillApi,
+    CalendarSyncIntervalApi,
     CalendarSyncStatusApi,
     CalendarSyncTriggerApi,
     CalendarSyncTriggerResponseApi,
@@ -957,6 +960,23 @@ export const accountsByExternalIdRetrieve = async (
     })
 }
 
+export const getAccountsPresenceListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/accounts/presence_list/`
+}
+
+export const accountsPresenceList = async (
+    projectId: string,
+    accountPresenceListRequestApi: AccountPresenceListRequestApi,
+    options?: RequestInit
+): Promise<AccountPresenceApi[]> => {
+    return apiMutator<AccountPresenceApi[]>(getAccountsPresenceListUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(accountPresenceListRequestApi),
+    })
+}
+
 export const getCustomerAnalyticsAccountsTableQueryCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/accounts_table_query/`
 }
@@ -1089,6 +1109,28 @@ export const calendarSyncBackfillCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(calendarSyncBackfillApi),
+    })
+}
+
+export const getCalendarSyncIntervalCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/calendar_sync/interval/`
+}
+
+/**
+ * Calendar-sync controls for Customer analytics settings. Sync runs on an hourly
+ * Temporal schedule; this surface only offers the manual "sync now" escape hatch.
+ * @summary Set Google account sync interval
+ */
+export const calendarSyncIntervalCreate = async (
+    projectId: string,
+    calendarSyncIntervalApi: CalendarSyncIntervalApi,
+    options?: RequestInit
+): Promise<CalendarSyncIntervalApi> => {
+    return apiMutator<CalendarSyncIntervalApi>(getCalendarSyncIntervalCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(calendarSyncIntervalApi),
     })
 }
 

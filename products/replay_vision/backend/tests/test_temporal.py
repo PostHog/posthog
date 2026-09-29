@@ -1989,7 +1989,7 @@ class TestFetchSessionEventsActivity:
             "duration": 300,
             "active_seconds": 200,
         }
-        # Empty columns + no rows triggers `_fetch_payload` to return None.
+        # Empty columns + no rows triggers `fetch_session_payload` to return None.
         mock_obj = self._make_session_replay_events_mock(metadata, [([], [])])
 
         with patch(

@@ -104,6 +104,13 @@ export const API_SCOPES: APIScope[] = [
     { key: 'event_filter', objectName: 'Event filter', objectPlural: 'event filters' },
     { key: 'error_tracking', objectName: 'Error tracking', objectPlural: 'error tracking' },
     { key: 'evaluation', objectName: 'Evaluation', objectPlural: 'evaluations' },
+    {
+        key: 'offline_evaluation_ingestion',
+        objectName: 'Offline evaluation ingestion',
+        objectPlural: 'offline evaluation uploads',
+        info: 'Create experiments, upload results, and mark experiments as completed or failed.',
+        disabledActions: ['read'],
+    },
     { key: 'experiment', objectName: 'Experiment', objectPlural: 'experiments' },
     { key: 'experiment_holdout', objectName: 'Holdout', objectPlural: 'holdouts' },
     { key: 'experiment_saved_metric', objectName: 'Shared metric', objectPlural: 'shared metrics' },
@@ -275,12 +282,14 @@ export const API_SCOPES_OMITTED_FROM_MODAL: Partial<Record<APIScopeObject, strin
     batch_import_support: 'OAuth-hidden: staff-only, pasteable into a PAT but not advertised.',
     query_performance: 'OAuth-hidden: staff-only, pasteable into a PAT but not advertised.',
     wizard_session: 'OAuth-hidden: pasteable into a PAT but not advertised.',
+    wizard_run: 'OAuth-hidden: pasteable into a PAT but not advertised.',
     // Umbrella access-control resource that `warehouse_view`/`warehouse_table` inherit from —
     // the granular scopes are offered instead, so keep the umbrella out of the modal.
     warehouse_objects: 'Umbrella resource: grant warehouse_view/warehouse_table instead.',
     // Pending removal — no endpoint enforces these, so they do nothing when granted.
     // Remove from posthog/scopes.py once no PAK/OAuth grant references them.
     batch_import: 'Pending removal: no endpoint enforces it (its viewset is INTERNAL).',
+    mcp_registry: 'Behind a feature flag.',
     external_data_schema: 'Pending removal: covered by external_data_source; no viewset uses it.',
 }
 
@@ -292,6 +301,7 @@ export const PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION = [
     'account:read',
     'loop:write',
     'experiment:read',
+    'offline_evaluation_ingestion:write',
 ] as const
 
 export type ProjectSecretAPIKeyAllowedScope = (typeof PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION)[number]
@@ -389,6 +399,197 @@ export const PROJECT_SECRET_API_KEY_SCOPE_PRESETS: ProjectSecretAPIKeyScopePrese
     { value: 'local_evaluation', label: 'Local feature flag evaluation', scopes: ['feature_flag:read'] },
     { value: 'llm_gateway', label: 'AI gateway access', scopes: ['llm_gateway:read'] },
 ]
+
+// The product areas that the scope pickers use to group objects, in display order. Each object in
+// API_SCOPE_OBJECTS is in exactly one group, and scopes.test.ts fails until a new object has a group.
+// Internal and OAuth-hidden objects go in the last group, "Internal tools". The pickers do not show
+// those objects, so a person never sees that group.
+export type APIScopeGroup = {
+    label: string
+    objects: APIScopeObject[]
+}
+
+export const API_SCOPE_GROUPS: APIScopeGroup[] = [
+    {
+        label: 'Product analytics',
+        objects: [
+            'insight',
+            'insight_variable',
+            'dashboard',
+            'dashboard_template',
+            'query',
+            'notebook',
+            'canvas',
+            'subscription',
+            'alert',
+            'annotation',
+            'export',
+            'sharing_configuration',
+        ],
+    },
+    {
+        label: 'Web, marketing & revenue analytics',
+        objects: ['web_analytics', 'marketing_analytics', 'revenue_analytics', 'heatmap', 'link'],
+    },
+    {
+        label: 'Events, people & data model',
+        objects: [
+            'person',
+            'group',
+            'cohort',
+            'action',
+            'event_definition',
+            'property_definition',
+            'event_filter',
+            'element',
+        ],
+    },
+    {
+        label: 'Session replay',
+        objects: ['session_recording', 'session_recording_playlist', 'replay_scanner', 'vision_action', 'vision_alert'],
+    },
+    {
+        label: 'Feature flags, experiments & surveys',
+        objects: [
+            'feature_flag',
+            'experiment',
+            'experiment_holdout',
+            'experiment_saved_metric',
+            'early_access_feature',
+            'survey',
+            'user_interview',
+            'product_tour',
+        ],
+    },
+    {
+        label: 'Error tracking, logs & tracing',
+        objects: ['error_tracking', 'logs', 'tracing', 'metrics'],
+    },
+    {
+        label: 'Developer experience',
+        objects: ['engineering_analytics', 'stamphog', 'visual_review'],
+    },
+    {
+        label: 'LLM & MCP analytics',
+        objects: [
+            'llm_analytics',
+            'llm_prompt',
+            'llm_provider_key',
+            'llm_skill',
+            'llm_playground',
+            'dataset',
+            'evaluation',
+            'offline_evaluation_ingestion',
+            'tagger',
+            'ai_observability_clusters',
+            'mcp_analytics',
+            'llm_gateway',
+        ],
+    },
+    {
+        label: 'Data warehouse & pipelines',
+        objects: [
+            'external_data_source',
+            'external_data_schema',
+            'warehouse_objects',
+            'warehouse_table',
+            'warehouse_view',
+            'batch_export',
+            'batch_import',
+            'hog_function',
+            'hog_flow',
+            'endpoint',
+            'streamlit_app',
+            'webhook',
+            'plugin',
+        ],
+    },
+    {
+        label: 'AI & context management tools',
+        objects: [
+            'conversation',
+            'business_knowledge',
+            'data_catalog',
+            'data_catalog_approval',
+            'mcp_registry',
+            'task',
+            'loop',
+            'signal_scout',
+            'review_hog',
+            'approvals',
+            'autoresearch',
+            'field_note',
+        ],
+    },
+    {
+        label: 'Customers & support',
+        objects: [
+            'customer_analytics',
+            'account',
+            'customer_journey',
+            'customer_task',
+            'customer_profile_config',
+            'usage_metric',
+            'ticket',
+        ],
+    },
+    {
+        label: 'Setup & data management',
+        objects: [
+            'toolbar',
+            'live_debugger',
+            'ingestion_warning',
+            'health_issue',
+            'data_deletion',
+            'product_enablement',
+            'integration',
+            'organization_integration',
+        ],
+    },
+    {
+        label: 'Organization & account',
+        objects: [
+            'organization',
+            'organization_member',
+            'project',
+            'user',
+            'billing',
+            'access_control',
+            'activity_log',
+            'comment',
+            'legal_document',
+            'uploaded_media',
+            'file_system',
+            'file_system_shortcut',
+        ],
+    },
+    {
+        label: 'Internal tools',
+        objects: [
+            'batch_import_support',
+            'clickhouse_test_cluster_perf',
+            'context_layer_internal',
+            'internal_run',
+            'mcp_builtin_agent',
+            'query_performance',
+            'signal_scout_internal',
+            'signal_scout_report',
+            'signal_scratchpad_internal',
+            'wizard_session',
+            'wizard_run',
+        ],
+    },
+]
+
+export const OTHER_SCOPE_GROUP_LABEL = 'Other'
+
+// An object that is in no group gets OTHER_SCOPE_GROUP_LABEL, so it still renders.
+const SCOPE_GROUP_LABEL_BY_OBJECT: Record<string, string> = Object.fromEntries(
+    API_SCOPE_GROUPS.flatMap(({ label, objects }) => objects.map((object) => [object, label]))
+)
+
+export const getScopeGroupLabel = (scopeObject: string): string =>
+    SCOPE_GROUP_LABEL_BY_OBJECT[scopeObject] ?? OTHER_SCOPE_GROUP_LABEL
 
 export const DEFAULT_OAUTH_SCOPES = ['openid', 'email', 'profile']
 

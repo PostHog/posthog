@@ -3,6 +3,7 @@ import { z } from 'zod'
 
 import { markExecPayload, buildToolResultPayload, estimateResponseTokens } from '@/lib/build-tool-result'
 import { isPostHogCodeConsumer } from '@/lib/client-detection'
+import { isEmptyToolResult } from '@/lib/discovery-hints'
 import {
     ExecCommandError,
     type ExecCommandErrorReason,
@@ -15,7 +16,7 @@ import { GATEWAY_TOOL_SEPARATOR, isGatewayToolName } from '@/lib/gateway-tools'
 import { formatResponse } from '@/lib/response'
 import { APP_DATA_META_KEY } from '@/ui-apps/types'
 
-import { type ExecLearnCatalog } from './exec-learn'
+import { type ExecLearnCatalog, QUALIFIED_IDENTIFIER, tokenizeLearnInput } from './exec-learn'
 import { TOKEN_CHAR_LIMIT, listAvailablePaths, resolveSchemaPath, summarizeSchema } from './schema-utils'
 import { type BuiltInSkillHint, formatSkillLookupMiss, type SkillLookupMissKind } from './skills/notFound'
 import { isRegexPattern, searchToolsRanked, searchToolsRegex } from './tool-search'
@@ -37,9 +38,11 @@ const MAX_SEARCH_PATTERN_LENGTH = 800
 
 /** Advertised on `tools/list` and on the runtime Tool. OpenAI's plugin verifier
  *  requires these three hints (plus idempotent) to be present, not just defined
- *  on the handler side. */
+ *  on the handler side. `destructiveHint` stays false because every read goes
+ *  through `exec` too: Claude Code asks for approval on each call to a tool
+ *  marked destructive, even when the user set it to always allow. */
 export const EXEC_TOOL_ANNOTATIONS = {
-    destructiveHint: true,
+    destructiveHint: false,
     idempotentHint: false,
     openWorldHint: true,
     readOnlyHint: false,
@@ -139,6 +142,7 @@ export interface ExecInnerCallProperties {
     output?: unknown
     /** Which kind of skill lookup missed, when the dispatcher rewrote a 404. */
     skill_lookup_miss_kind?: SkillLookupMissKind
+    result_empty?: boolean
 }
 
 export type ExecInnerCallTracker = (toolName: string, properties: ExecInnerCallProperties) => void
@@ -152,7 +156,7 @@ export type ExecInnerCallTracker = (toolName: string, properties: ExecInnerCallP
  * question "which capability do people reach for that we don't have" unanswerable.
  */
 export interface ExecCommandMeta {
-    /** The verb the agent used: `search`, `info`, `schema`, `tools`, `learn`, `call`. */
+    /** The verb the agent used: `help`, `search`, `info`, `schema`, `tools`, `learn`, `call`. */
     exec_verb: string
     /** The raw search query. Already bounded to MAX_SEARCH_PATTERN_LENGTH by the handler. */
     exec_search_query?: string
@@ -160,9 +164,50 @@ export interface ExecCommandMeta {
     exec_search_match_count?: number
     /** How many of those matches came from a connected third-party server. */
     exec_search_gateway_match_count?: number
+    exec_learn_kind?: ExecLearnKind
+    exec_learn_target?: string
 }
 
 export type ExecCommandTracker = (meta: ExecCommandMeta) => void
+
+export type ExecLearnKind = 'search' | 'load' | 'list' | 'describe' | 'guide'
+
+export function classifyLearnCommand(
+    rest: string
+): Pick<ExecCommandMeta, 'exec_learn_kind' | 'exec_search_query' | 'exec_learn_target'> {
+    let tokens: string[]
+    try {
+        tokens = tokenizeLearnInput(rest)
+    } catch {
+        return {}
+    }
+    const [first, ...args] = tokens
+    if (first === '-s') {
+        return { exec_learn_kind: 'search', exec_search_query: args.join(' ').slice(0, MAX_SEARCH_PATTERN_LENGTH) }
+    }
+    if (first === '-d') {
+        return { exec_learn_kind: 'describe' }
+    }
+    if (first === undefined || first === 'skills') {
+        return { exec_learn_kind: 'list' }
+    }
+    if (first !== undefined && QUALIFIED_IDENTIFIER.test(first)) {
+        const searchIndex = args.indexOf('-s')
+        return {
+            exec_learn_kind: 'load',
+            exec_learn_target: first.slice(0, MAX_SEARCH_PATTERN_LENGTH),
+            ...(searchIndex === -1
+                ? {}
+                : {
+                      exec_search_query: args
+                          .slice(searchIndex + 1)
+                          .join(' ')
+                          .slice(0, MAX_SEARCH_PATTERN_LENGTH),
+                  }),
+        }
+    }
+    return { exec_learn_kind: 'guide' }
+}
 
 export interface ExecToolOptions {
     requireDestructiveConfirmation?: boolean
@@ -197,7 +242,7 @@ export interface ExecToolOptions {
     builtInSkillHint?: BuiltInSkillHint
 }
 
-const CALL_USAGE = 'Usage: call [--json] [--confirm] <tool_name> <json_input>'
+const CALL_USAGE = 'Usage: call [--json] [--confirm] <tool_name> [json_input]'
 
 /**
  * Plain errors out of the learn catalog are agent mistakes — unknown names, bad
@@ -230,7 +275,33 @@ function parseCommand(input: string): { verb: string; rest: string } {
 
 /** A later line opening with one of these is what separates a batched request
  *  from a legitimately multi-line argument. */
-const EXEC_VERBS = new Set(['learn', 'tools', 'search', 'info', 'schema', 'call'])
+const EXEC_VERBS = new Set(['help', 'learn', 'tools', 'search', 'info', 'schema', 'call'])
+
+const EXEC_COMMAND_HELP: Record<string, string> = {
+    help: 'help [command] — list commands or show usage for one command',
+    tools: 'tools — list available tool names',
+    search: 'search <words or regex_pattern> — find tools by name, title, or description',
+    info: 'info [--json] <tool_name> — show a tool description and input schema',
+    schema: 'schema <tool_name> [field_path] — inspect a tool input schema field',
+    call: 'call [--json] [--confirm] <tool_name> [json_input] — invoke a tool',
+}
+
+const LEARN_COMMAND_HELP = 'learn <topic...> — load learning topics or list available topics'
+
+function execHelp(command: string, learnEnabled: boolean): string {
+    const commands = learnEnabled ? { ...EXEC_COMMAND_HELP, learn: LEARN_COMMAND_HELP } : EXEC_COMMAND_HELP
+    if (!command) {
+        return Object.values(commands).join('\n')
+    }
+    const help = commands[command]
+    if (typeof help !== 'string') {
+        throw new ExecCommandError(
+            `Unknown command: "${command}". Run "help" to list available commands.`,
+            'unknown_command'
+        )
+    }
+    return help
+}
 
 /** Bounds on the rejection message, so a long batch or a large JSON body does
  *  not come back as a wall of text. */
@@ -381,7 +452,7 @@ export function parseExecCallInnerArgs(command: string): Record<string, unknown>
 
 /** Verbs the dispatcher grammar accepts. A verb outside this set is what the
  *  `unknown_command` rejection fires on, and is recorded as unrecognized. */
-const KNOWN_EXEC_VERBS = new Set(['learn', 'tools', 'search', 'info', 'schema', 'call'])
+const KNOWN_EXEC_VERBS = new Set(['help', 'learn', 'tools', 'search', 'info', 'schema', 'call'])
 
 /** Verbs whose first positional argument names a tool. */
 const TOOL_TARGETING_VERBS = new Set(['info', 'schema', 'call'])
@@ -782,6 +853,47 @@ export function rewrapFlattenedArguments(
     }
 
     return schema.safeParse(rebuilt).success ? rebuilt : undefined
+}
+
+/**
+ * The mirror of `rewrapFlattenedArguments`: lifts a payload the caller nested under one
+ * undeclared key, such as `{query: {series}}`, back to the top level the schema declares.
+ *
+ * A nested `query` object is the natural shape for a query tool, and callers keep sending
+ * it even when the description says not to, so the rejection alone costs a round trip.
+ *
+ * Returns undefined when the wrapper or its siblings carry a key the schema does not
+ * declare, because the parse would drop that key without a word, or when the lifted
+ * payload does not parse.
+ */
+export function unwrapOverWrappedArguments(
+    input: unknown,
+    schema: ZodObjectAny | undefined
+): Record<string, unknown> | undefined {
+    const key = overWrappedPayloadKey(input, schema)
+    if (!schema || !key || !isRecord(input)) {
+        return undefined
+    }
+    const inner = input[key] as Record<string, unknown>
+    const siblings = Object.fromEntries(Object.entries(input).filter(([name]) => name !== key))
+    const declared = topLevelFieldNames(schema)
+    if (Object.keys(siblings).some((name) => !declared.has(name))) {
+        return undefined
+    }
+    if (Object.keys(inner).some((name) => !declared.has(name) || name in siblings)) {
+        return undefined
+    }
+    const unwrapped = { ...siblings, ...inner }
+    return schema.safeParse(unwrapped).success ? unwrapped : undefined
+}
+
+/** Repairs a call whose payload sits one level off from where the schema wants it, in either direction. */
+export function repairArgumentNesting(
+    error: z.ZodError,
+    input: unknown,
+    schema: ZodObjectAny | undefined
+): Record<string, unknown> | undefined {
+    return rewrapFlattenedArguments(error, input, schema) ?? unwrapOverWrappedArguments(input, schema)
 }
 
 function topLevelFieldNames(schema: ZodObjectAny): ReadonlySet<string> {
@@ -1545,7 +1657,12 @@ export function createExecTool(
             }
 
             switch (verb) {
+                case 'help':
+                    return execHelp(rest, options.learnCatalog !== undefined)
+
                 case 'learn': {
+                    // Before the availability check, so a rejected skill command still records its form.
+                    options.trackCommand?.({ exec_verb: verb, ...classifyLearnCommand(rest) })
                     const learnCatalog = options.learnCatalog
                     if (!learnCatalog) {
                         // `learn` is only advertised when a catalog exists, so without one
@@ -1825,7 +1942,7 @@ export function createExecTool(
                     // field. Dispatch the parsed output so coerced values and defaults apply.
                     let validation = toolSchema.safeParse(input, { reportInput: true })
                     if (!validation.success) {
-                        const rewrapped = rewrapFlattenedArguments(validation.error, input, toolSchema)
+                        const rewrapped = repairArgumentNesting(validation.error, input, toolSchema)
                         if (rewrapped) {
                             input = rewrapped
                             validation = toolSchema.safeParse(input, { reportInput: true })
@@ -1884,6 +2001,8 @@ export function createExecTool(
                         throw err
                     }
                     const durationMs = Date.now() - startedAt
+                    // The text path below builds no payload, so emptiness is reported from here.
+                    const resultShape = isEmptyToolResult(result) ? { result_empty: true } : {}
                     const formattedOverride =
                         result !== null && typeof result === 'object'
                             ? (result as Record<string, unknown>)[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]
@@ -1907,6 +2026,7 @@ export function createExecTool(
                             output_tokens: estimateTokens(outputText),
                             input,
                             output: outputText,
+                            ...resultShape,
                         })
                         if (!includeAppData) {
                             return outputText
@@ -1956,6 +2076,7 @@ export function createExecTool(
                             output_tokens: estimateResponseTokens(payload),
                             input,
                             output: payload,
+                            ...resultShape,
                         })
                         return payload
                     }
@@ -1981,6 +2102,7 @@ export function createExecTool(
                         output_tokens: estimateTokens(outputText),
                         input,
                         output: outputText,
+                        ...resultShape,
                     })
                     return outputText
                 }
@@ -1998,7 +2120,7 @@ export function createExecTool(
                         )
                     }
                     throw new ExecCommandError(
-                        `Unknown command: "${verb}". Supported commands: ${options.learnCatalog ? 'learn, ' : ''}tools, search, info, schema, call`,
+                        `Unknown command: "${verb}". Run "help" to list available commands.`,
                         'unknown_command'
                     )
                 }

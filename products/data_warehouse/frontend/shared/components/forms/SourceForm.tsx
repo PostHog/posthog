@@ -36,6 +36,7 @@ import {
     sourceWizardLogic,
 } from '../../../scenes/NewSourceScene/sourceWizardLogic'
 import { CDC_SOURCE_TYPES } from '../../cdc'
+import { CredentialAccountSelector } from './CredentialAccountSelector'
 import { isCustomSourceAiBuilderEnabled } from './customSourceManifest'
 import { CustomSourceManifestBuilder } from './CustomSourceManifestBuilder'
 import { customSourceManifestBuilderLogic } from './customSourceManifestBuilderLogic'
@@ -399,6 +400,22 @@ export const sourceFieldToElement = (
                 multiple={field.multiple ?? undefined}
                 legacySingleField={legacySingleField}
                 oauthBranch={findOauthBranch(sourceConfig.fields, field.integrationField)}
+            />
+        )
+    }
+
+    // Sources whose credentials live in the form rather than in an OAuth integration: the account
+    // field lists what those credentials can reach, while staying a free-text input.
+    if (field.type === 'credential-account-select') {
+        return (
+            <CredentialAccountSelector
+                key={field.name}
+                fieldName={field.name}
+                fieldLabel={field.label}
+                credentialFields={field.credentialFields}
+                sourceType={sourceConfig.name}
+                placeholder={field.placeholder ?? undefined}
+                caption={field.caption ?? undefined}
             />
         )
     }

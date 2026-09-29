@@ -440,6 +440,7 @@ jobs:
                       # check_general_purpose_coverage_added below.
                       generalPurpose:
                         - 'products/notebooks/backend/**'
+                        - 'products/autoresearch/backend/**'
                         - 'products/exports/backend/temporal/subscriptions/**'
                         - 'products/engineering_analytics/backend/**'
                         - 'products/canvas/backend/**'
@@ -511,6 +512,16 @@ jobs:
                         - 'nodejs/src/scripts/record-replay*'
                         - 'nodejs/src/scripts/record-replay*/**'
 
+                      selfDriving:
+                        - 'products/signals/backend/**'
+                        - 'products/signals/skills/**'
+                        - 'posthog/settings/temporal.py'
+                        - 'posthog/temporal/common/**'
+                        - 'posthog/management/commands/start_temporal_worker.py'
+                        - pyproject.toml
+                        - bin/temporal-django-worker
+                        - 'posthog/clickhouse/migrations/**'
+
                       sessionReplay:
                         - 'posthog/temporal/session_replay/**'
                         - 'products/signals/backend/**'
@@ -548,6 +559,9 @@ jobs:
 
                       weeklyDigest:
                         - 'posthog/temporal/weekly_digest/**'
+                        - 'products/data_catalog/backend/**'
+                        - 'posthog/tasks/email.py'
+                        - 'posthog/models/organization_notification_lock.py'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
                         - pyproject.toml
@@ -907,6 +921,27 @@ jobs:
                         "timestamp": "${{ github.event.head_commit.timestamp }}"
                       }
 
+            - name: Trigger Self-Driving Temporal Worker Cloud deployment
+              if: steps.check_temporal_worker_changes.outputs.selfDriving == 'true'
+              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
+              with:
+                  token: ${{ steps.deployer.outputs.token }}
+                  repository: PostHog/charts
+                  event-type: commit_state_update
+                  client-payload: |
+                      {
+                        "values": {
+                          "image": {
+                            "sha": "${{ github.sha }}@${{ steps.image.outputs.digest }}"
+                          }
+                        },
+                        "release": "temporal-worker-self-driving",
+                        "commit": ${{ toJson(github.event.head_commit) }},
+                        "repository": ${{ toJson(github.repository) }},
+                        "labels": ${{ steps.labels.outputs.labels }},
+                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                      }
+
             - name: Trigger Session Replay Temporal Worker Cloud deployment
               if: steps.check_temporal_worker_changes.outputs.sessionReplay == 'true'
               uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
@@ -1045,7 +1080,7 @@ jobs:
                   if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ] || ! git fetch --depth=1 --no-tags origin "$BASE"; then
                       BASE="HEAD^"
                   fi
-                  if git diff "$BASE" HEAD -- .github/workflows/container-images-cd.yml | grep -qE '^\+.*products/exports/backend/temporal/subscriptions'; then
+                  if git diff "$BASE" HEAD -- .github/workflows/container-images-cd.yml | grep -qE '^\+.*(products/exports/backend/temporal/subscriptions|products/autoresearch/backend)'; then
                       echo "changed=true" >> $GITHUB_OUTPUT
                   else
                       echo "changed=false" >> $GITHUB_OUTPUT
