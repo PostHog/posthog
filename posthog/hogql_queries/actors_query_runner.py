@@ -105,6 +105,10 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
 
         return self.source_query_runner.group_type_index
 
+    def _joins_single_flight(self) -> bool:
+        # Actor sources can return an uncached preparation response, leaving no result for a flight's followers.
+        return self.source_query_runner is None and super()._joins_single_flight()
+
     @property
     def is_session_aggregation(self) -> bool:
         if not self.source_query_runner or not isinstance(self.source_query_runner, InsightActorsQueryRunner):
