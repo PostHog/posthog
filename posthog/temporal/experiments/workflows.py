@@ -36,12 +36,16 @@ def _record_publish_outcome(succeeded: int, recalculations_synced: int) -> None:
     if succeeded == 0:
         return
     status = "published" if recalculations_synced > 0 else "missing"
-    temporalio.workflow.metric_meter().with_additional_attributes(
-        {"workflow_type": temporalio.workflow.info().workflow_type, "status": status}
-    ).create_counter(
-        "experiment_timeseries_publish_runs",
-        "Hourly experiment timeseries runs that computed metrics, by whether they published recalculation rows.",
-    ).add(1)
+    try:
+        temporalio.workflow.metric_meter().with_additional_attributes(
+            {"workflow_type": temporalio.workflow.info().workflow_type, "status": status}
+        ).create_counter(
+            "experiment_timeseries_publish_runs",
+            "Hourly experiment timeseries runs that computed metrics, by whether they published recalculation rows.",
+        ).add(1)
+    except Exception:
+        # A meter failure must not fail a run whose calculations and publishes already finished.
+        temporalio.workflow.logger.warning("Failed to record the publish outcome counter", exc_info=True)
 
 
 async def _create_recalculations_from_timeseries(
