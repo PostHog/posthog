@@ -27,6 +27,8 @@ from posthog.security.pinned_requests import SSRFBlockedError, pinned_request
 
 from .oauth import (
     TIMEOUT,
+    DCRRegistrationRejectedError,
+    dcr_status_is_refusal,
     discover_oauth_metadata,
     generate_pkce,
     oauth_resource,
@@ -56,6 +58,8 @@ class ProbeResult:
     auth_flavor: AuthFlavor = "api_key_or_unknown"
     oauth_metadata: dict | None = None
     dcr_registered: bool = False
+    # The status the registration endpoint answered with, when it answered at all.
+    dcr_rejection_status: int | None = None
     authorize_endpoint_ok: bool = False
     errors: list[str] = field(default_factory=list)
 
@@ -71,6 +75,15 @@ class ProbeResult:
         # api_key_or_unknown carries no MCP evidence (a bare 401/403 could be any
         # protected endpoint), so it may not auto-activate.
         return self.auth_flavor == "open"
+
+    @property
+    def dcr_registration_refused(self) -> bool:
+        """Whether the server answered, served its OAuth metadata, and then refused to mint
+        a client for us. A registration request that timed out, or that met a fault or a
+        throttle, proves nothing instead, and neither does a server we never reached."""
+        if not (self.speaks_mcp and self.auth_flavor == "oauth_shared"):
+            return False
+        return dcr_status_is_refusal(self.dcr_rejection_status)
 
 
 def probe_mcp_server(
@@ -259,6 +272,10 @@ def _register_probe_client(metadata: dict, result: ProbeResult, scope_allowlist:
     except ValueError as exc:
         # Mirrors views._register_dcr_client_or_raise: ValueError means DCR isn't supported.
         result.errors.append(f"Dynamic Client Registration not supported: {exc}")
+        return None
+    except DCRRegistrationRejectedError as exc:
+        result.errors.append(f"Dynamic Client Registration failed: {exc}")
+        result.dcr_rejection_status = exc.status_code
         return None
     except Exception as exc:
         result.errors.append(f"Dynamic Client Registration failed: {exc}")

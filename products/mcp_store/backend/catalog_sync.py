@@ -1,6 +1,10 @@
 """Sync the code-defined catalog (``catalog.py``) into ``MCPServerTemplate`` rows.
 
-Semantics, chosen so the sync can run unattended at every app startup:
+Runs unattended from two triggers: every app startup, and a celery beat schedule
+(``MCP_STORE_CATALOG_SYNC_CRONTAB``). The schedule is what paces the DCR re-probe below,
+because a deployment that never restarts would otherwise never re-probe.
+
+Semantics, chosen so the sync is safe to run on both:
 
 - Rows are keyed on ``url``. A catalog entry with no row **creates** one; an entry with an
   existing row **updates content fields only**. A changed ``url`` is therefore a new identity:
@@ -10,8 +14,9 @@ Semantics, chosen so the sync can run unattended at every app startup:
 - The sync normally preserves operational state: ``is_active`` after creation,
   ``oauth_credentials`` (operator-provisioned shared client creds), or ``oauth_metadata``
   once set. Rows absent from the catalog (admin-added or removed entries) are left alone.
-  Two fail-closed exceptions deactivate active rows: an ``auth_type`` flip, or a catalog
-  entry marked ``disabled``. Entries with a catalog-managed credential source also follow
+  Three fail-closed exceptions deactivate active rows: an ``auth_type`` flip, a catalog
+  entry marked ``disabled``, or a DCR entry whose re-probe shows the server refusing to
+  register a client for us. Entries with a catalog-managed credential source also follow
   that source: sync probes and activates them when configured, and deactivates them when
   their required settings are absent.
 - **Activation gate**: a newly created entry is probed live (``probe.probe_mcp_server``)
@@ -21,8 +26,14 @@ Semantics, chosen so the sync can run unattended at every app startup:
   server that auth-walls the handshake (the common case) yields no MCP evidence, so it
   is born inactive for an operator to vet and activate in admin. Other servers needing
   shared OAuth credentials remain inactive until an operator provisions them. Probes run
-  only on creation, except while a catalog-managed shared client is inactive or first adopts
-  its credential source. A DCR probe mints a real client, so it never repeats during sync.
+  on creation, while a catalog-managed shared client is inactive or first adopts its
+  credential source, and on an interval for an active DCR entry. A row carrying a
+  hand-provisioned ``oauth_credentials`` client is a shared-client entry, not a DCR one,
+  so no interval re-probe reaches it. A DCR probe mints a real client with the provider,
+  so ``last_probed_at`` keeps it to one probe per entry per ``DCR_REPROBE_INTERVAL``. A
+  re-probe only ever deactivates when the provider refused to register the client. A
+  fault, a throttle, or a request that never got an answer leaves the entry alone: an
+  inactive row is not re-probed, so a flap would not heal itself.
 
   The probe is a liveness and protocol check, not a security control: it catches a dead
   url or a mis-declared auth model, but a malicious server passes it trivially. Vendor
@@ -31,11 +42,14 @@ Semantics, chosen so the sync can run unattended at every app startup:
 """
 
 from dataclasses import dataclass, replace
+from datetime import timedelta
 
 from django.conf import settings
 from django.db import IntegrityError
+from django.utils import timezone
 
 import structlog
+from celery.exceptions import SoftTimeLimitExceeded
 
 from .catalog import MCP_SERVER_CATALOG, CatalogEntry
 from .models import MCPServerTemplate
@@ -43,6 +57,8 @@ from .oauth_credentials import resolve_oauth_credentials_source
 from .probe import ProbeResult, probe_mcp_server
 
 logger = structlog.get_logger(__name__)
+
+DCR_REPROBE_INTERVAL = timedelta(hours=24)
 
 _CONTENT_FIELDS = (
     "name",
@@ -107,7 +123,30 @@ def _probe_entry(entry: CatalogEntry) -> ProbeResult:
     )
 
 
-def _apply_probe(template: MCPServerTemplate, entry: CatalogEntry, probe: ProbeResult, counts: SyncCounts) -> list[str]:
+def _dcr_reprobe_due(template: MCPServerTemplate, entry: CatalogEntry) -> bool:
+    if entry.auth_type != "oauth" or entry.oauth_credentials_source or not template.is_active:
+        return False
+    if (template.oauth_credentials or {}).get("client_id"):
+        # An operator registered this client with the vendor by hand and pasted it into
+        # admin, so the row is a shared-client entry, not a DCR one. The probe cannot see
+        # that client, and a server with no registration endpoint would read as a refusal.
+        return False
+    return template.last_probed_at is None or timezone.now() - template.last_probed_at >= DCR_REPROBE_INTERVAL
+
+
+def _claim_reprobe(template: MCPServerTemplate) -> bool:
+    """Take the re-probe slot with a conditional update, so two overlapping syncs mint one
+    client between them instead of one each."""
+    now = timezone.now()
+    if not MCPServerTemplate.objects.filter(pk=template.pk, last_probed_at=template.last_probed_at).update(
+        last_probed_at=now
+    ):
+        return False
+    template.last_probed_at = now
+    return True
+
+
+def _apply_probe_metadata(template: MCPServerTemplate, probe: ProbeResult) -> list[str]:
     changed: list[str] = []
     if probe.oauth_metadata:
         if template.oauth_metadata != probe.oauth_metadata:
@@ -117,6 +156,12 @@ def _apply_probe(template: MCPServerTemplate, entry: CatalogEntry, probe: ProbeR
         if issuer and template.oauth_issuer_url != issuer:
             template.oauth_issuer_url = issuer
             changed.append("oauth_issuer_url")
+    return changed
+
+
+def _apply_probe(template: MCPServerTemplate, entry: CatalogEntry, probe: ProbeResult, counts: SyncCounts) -> list[str]:
+    template.last_probed_at = timezone.now()
+    changed: list[str] = ["last_probed_at", *_apply_probe_metadata(template, probe)]
     if _activation_allowed(entry, probe):
         if not template.is_active:
             template.is_active = True
@@ -158,6 +203,20 @@ def _create_template(entry: CatalogEntry, skip_probe: bool, counts: SyncCounts) 
         template.save(update_fields=[*update_fields, "updated_at"])
 
 
+def _reprobe_dcr_entry(template: MCPServerTemplate, entry: CatalogEntry) -> list[str]:
+    probe = _probe_entry(entry)
+    changed = _apply_probe_metadata(template, probe)
+    if probe.dcr_registration_refused:
+        template.is_active = False
+        changed.append("is_active")
+        logger.warning(
+            "mcp_catalog_sync.deactivated_dcr_refused",
+            url=entry.url,
+            probe_errors=probe.errors,
+        )
+    return changed
+
+
 def _update_template(template: MCPServerTemplate, entry: CatalogEntry, skip_probe: bool, counts: SyncCounts) -> None:
     changed = [f for f in _CONTENT_FIELDS if getattr(template, f) != _entry_field_value(entry, f)]
     for f in changed:
@@ -195,6 +254,8 @@ def _update_template(template: MCPServerTemplate, entry: CatalogEntry, skip_prob
                 url=entry.url,
                 oauth_credentials_source=entry.oauth_credentials_source,
             )
+    elif not skip_probe and _dcr_reprobe_due(template, entry) and _claim_reprobe(template):
+        changed += _reprobe_dcr_entry(template, entry)
     if not changed:
         counts.unchanged += 1
         return
@@ -235,6 +296,13 @@ def sync_mcp_catalog(entries: list[CatalogEntry] | None = None, skip_probe: bool
                     counts.unchanged += 1
             else:
                 _update_template(template, entry, skip_probe, counts)
+        except SoftTimeLimitExceeded:
+            # The per-entry handler below exists to contain one bad vendor. Celery raises the
+            # soft limit inside whichever entry happens to be running, so letting that handler
+            # swallow it would log a spurious entry failure and keep probing until the hard
+            # limit kills the worker.
+            logger.warning("mcp_catalog_sync.soft_time_limit", url=entry.url)
+            raise
         except Exception:
             logger.exception("mcp_catalog_sync.entry_failed", url=entry.url)
             counts.failed += 1
