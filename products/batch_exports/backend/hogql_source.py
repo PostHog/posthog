@@ -24,7 +24,7 @@ from posthog.hogql.placeholders import find_placeholders, replace_placeholders
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 from posthog.hogql.visitor import CloningVisitor, clone_expr
 
-from posthog.clickhouse.events_json import UNPARSEABLE_PROPERTIES_KEY
+from posthog.clickhouse.events_json import NULL_KEYS_KEY, UNPARSEABLE_PROPERTIES_KEY
 
 if typing.TYPE_CHECKING:
     from posthog.models import Team, User
@@ -292,8 +292,8 @@ class SerializedExportProperties(CloningVisitor):
         self.event_restrictions = set(restricted_names.event)
         self.person_restrictions = set(restricted_names.person)
         if restrictions and context.uses_new_events_schema():
-            self.event_restrictions.add(UNPARSEABLE_PROPERTIES_KEY)
-            self.person_restrictions.add(UNPARSEABLE_PROPERTIES_KEY)
+            self.event_restrictions.update((UNPARSEABLE_PROPERTIES_KEY, NULL_KEYS_KEY))
+            self.person_restrictions.update((UNPARSEABLE_PROPERTIES_KEY, NULL_KEYS_KEY))
 
     def visit_field(self, node: ast.Field) -> ast.Expr:
         node = super().visit_field(node)

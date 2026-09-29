@@ -15,7 +15,7 @@ import (
 
 func TestProcessLineCleansEventProperties(t *testing.T) {
 	input := []byte(`{"$active_feature_flags":"undefined","$active_feature_flags":["beta",42,null,{"a.b":1}],"Account.client_id":"abc","Account":{"client_id":null},"huge":18446744073709551616,"max_uint":18446744073709551615,"too_negative":-9223372036854775809,"min_int":-9223372036854775808,"null_field":null,"dupe":"","dupe":"kept","emptydupe":"","emptydupe":null}`)
-	want := `{"Account":{"client_id":"abc"},"huge":"18446744073709551616","max_uint":18446744073709551615,"too_negative":"-9223372036854775809","min_int":-9223372036854775808,"dupe":"kept","emptydupe":""}`
+	want := `{"Account":{"client_id":"abc"},"huge":"18446744073709551616","max_uint":18446744073709551615,"too_negative":"-9223372036854775809","min_int":-9223372036854775808,"dupe":"kept","emptydupe":"","$null_keys":[["Account","client_id"],["null_field"],["emptydupe"]]}`
 
 	for _, width := range []int{0, 16, 256} {
 		var prefix strings.Builder
@@ -47,8 +47,8 @@ func TestProcessLineDropsHighVolumeEventProperties(t *testing.T) {
 }
 
 func TestProcessLinePreservesPersonProperties(t *testing.T) {
-	input := []byte(`{"$active_feature_flags":["flag"],"$feature/test":true,"$set":{"name":"value"},"nested.key":"value","drop":null}`)
-	want := `{"$active_feature_flags":["flag"],"$feature/test":true,"$set":{"name":"value"},"nested":{"key":"value"}}`
+	input := []byte(`{"$active_feature_flags":["flag"],"$feature/test":true,"$set":{"name":"value"},"nested.key":"value","drop":null,"$null_keys":[["forged"]]}`)
+	want := `{"$active_feature_flags":["flag"],"$feature/test":true,"$set":{"name":"value"},"nested":{"key":"value"},"$null_keys":[["drop"]]}`
 
 	var got bytes.Buffer
 	proc := processor{kind: personProperties}
@@ -133,7 +133,7 @@ func TestProcessLineQuarantinesInvalidComplexProperties(t *testing.T) {
 		`{"$feature_flags":["flag"]}`:                   `{"$feature_flags":{},"$unparseable_properties":"{\"$feature_flags\":[\"flag\"]}"}`,
 		`{"$feature_flags":true}`:                       `{"$feature_flags":{},"$unparseable_properties":"{\"$feature_flags\":true}"}`,
 		`{"$feature_flags":42}`:                         `{"$feature_flags":{},"$unparseable_properties":"{\"$feature_flags\":42}"}`,
-		`{"$feature_flags":null}`:                       `{}`,
+		`{"$feature_flags":null}`:                       `{"$null_keys":[["$feature_flags"]]}`,
 		`{"$unparseable_properties":"spoofed","$exception_list":"[redacted]","kept":"value"}`: `{"$exception_list":[],"kept":"value","$unparseable_properties":"{\"$exception_list\":\"[redacted]\"}"}`,
 		`{"$exception_list":[1]}`:  `{"$exception_list":[],"$unparseable_properties":"{\"$exception_list\":[1]}"}`,
 		`{"$exception_list":true}`: `{"$exception_list":[],"$unparseable_properties":"{\"$exception_list\":true}"}`,
@@ -422,7 +422,7 @@ func TestProcessLineStringBytes(t *testing.T) {
 
 func TestRunChunked(t *testing.T) {
 	input := "2\n{\"drop\":null,\"keep\":1}\n{\"$feature/enabled\":true}\n1\n{\"drop\":null}\n"
-	want := "{\"keep\":1}\n{\"$feature_flags\":{\"enabled\":true}}\n{}\n"
+	want := "{\"keep\":1,\"$null_keys\":[[\"drop\"]]}\n{\"$feature_flags\":{\"enabled\":true}}\n{\"$null_keys\":[[\"drop\"]]}\n"
 	var output bytes.Buffer
 
 	if err := runChunked(strings.NewReader(input), &output, eventProperties); err != nil {
@@ -708,7 +708,13 @@ func TestProcessLineSplitsTemporaryProperties(t *testing.T) {
 			name:      "dotted roots and normalization",
 			input:     `{"$set.profile.score":7,"$set.profile.missing":null,"$sdk_debug_probe.a":1,"$sdk_debug_probe.a":2,"$sdk_debug_probe.large":18446744073709551616,"$sdk_debug_current_session_duration.value":42,"$set_extra":true,"$debug_custom":"keep","custom.$set":"keep"}`,
 			permanent: `{"$set_extra":true,"$debug_custom":"keep","custom":{"$set":"keep"}}`,
-			temporary: `{"$set":{"profile":{"score":7}},"$sdk_debug_probe":{"a":1,"large":"18446744073709551616"},"$sdk_debug_current_session_duration":{"value":42}}`,
+			temporary: `{"$set":{"profile":{"score":7}},"$sdk_debug_probe":{"a":1,"large":"18446744073709551616"},"$sdk_debug_current_session_duration":{"value":42},"$null_keys":[["$set","profile","missing"]]}`,
+		},
+		{
+			name:      "null keys",
+			input:     `{"plan":null,"address":{"zip":null,"city":"Paris"},"billing":{"vat":null},"items":[null,{"sku":null,"qty":1}],"$null_keys":[["forged"]],"$null_keys.nested":1,"$set":{"plan":null},"kept":true}`,
+			permanent: `{"address":{"city":"Paris"},"billing":{},"items":[null,{"qty":1}],"kept":true,"$null_keys":[["plan"],["address","zip"],["billing","vat"],["items","1","sku"]]}`,
+			temporary: `{"$set":{},"$null_keys":[["$set","plan"]]}`,
 		},
 		{
 			name: "nothing temporary", input: `{"custom":true}`, permanent: `{"custom":true}`, temporary: `{}`,

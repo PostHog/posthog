@@ -462,7 +462,8 @@ class TestNewEventsSchemaArraySubcolumns(SimpleTestCase):
 
         if blob:
             assert any(
-                isinstance(value, list) and "$unparseable_properties" in value for value in context.values.values()
+                isinstance(value, list) and {"$unparseable_properties", "$null_keys"} <= set(value)
+                for value in context.values.values()
             ), printed
         else:
             assert "events.properties" not in printed, printed

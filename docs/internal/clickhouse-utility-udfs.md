@@ -42,6 +42,33 @@ The temporary cleaner emits `{}` because the permanent cleaner preserves the ori
 Run both event cleaners on the original document to retain that guarantee.
 Malformed JSON still fails instead of entering this quarantine path.
 
+### Null properties
+
+ClickHouse JSON cannot store a null, so the event, person, and temporary cleaners remove every object field whose value is null, at any depth.
+Each cleaner lists the fields it removed in a top-level `$null_keys` array, so a reader can restore them.
+Each entry is a path of segments from the document root: object keys, and array positions as decimal strings.
+A key that contains a dot stays one segment, so paths are unambiguous.
+Paths address the cleaned document, after dotted-key expansion, in the order the cleaner removes the fields.
+
+```sql
+SELECT JSONCleanPostHogEventProperties('{"plan":null,"address":{"zip":null,"city":"Paris"},"items":[null,{"sku":null}]}');
+-- {"address":{"city":"Paris"},"items":[null,{}],"$null_keys":[["plan"],["address","zip"],["items","1","sku"]]}
+```
+
+A document without null object fields gets no `$null_keys`, and its output does not change.
+Null array elements stay in place, because ClickHouse stores them in a nullable array, so they are not listed.
+An object that loses all its fields stays in the output as `{}`.
+ClickHouse does not store an empty object, so a reader creates missing parent objects along a path.
+An object inside an array keeps its position, so a missing segment is always an object key.
+A reader restores a path only where the stored document has no value: `{"a":null,"a":1}` stores `a` as `1` and still lists `["a"]`.
+
+Fields removed inside `$feature_flags`, `$exception_*` properties, and `$mcp_listed_tool_names` are not listed, because normalization changes the shape of those values.
+A typed property that is itself null, such as `"$feature_flags": null`, is listed.
+The temporary cleaner lists nulls removed from temporary properties, such as `["$set","plan"]`; the event cleaner never lists them.
+Every cleaner discards a `$null_keys` property in its input, including dotted forms such as `$null_keys.x`.
+A quarantined document has no `$null_keys`, because `$unparseable_properties` keeps the original input.
+HogQL masks `$null_keys` under property restrictions in the same way as `$unparseable_properties`; other whole-document reads return it as stored.
+
 ### `JSONCleanPostHogTemporaryProperties(json)`
 
 Accepts a JSON object and retains only the following top-level properties, including their dotted descendants. It uses the event cleaner's dotted-key expansion, null-object-field removal, duplicate handling, and integer protection, without coercing values to declared schema types. Non-object input fails.

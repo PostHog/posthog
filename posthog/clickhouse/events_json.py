@@ -13,6 +13,7 @@ WRITABLE_EVENTS_JSON_TABLE = "writable_events_json"
 DISTRIBUTED_EVENTS_JSON_TABLE = "events_json"
 KAFKA_EVENTS_NATIVE_JSON_TABLE = "kafka_events_json_native_json"
 UNPARSEABLE_PROPERTIES_KEY = "$unparseable_properties"
+NULL_KEYS_KEY = "$null_keys"
 
 
 EVENTS_PROPERTIES_JSON_SUBCOLUMN_DECLARED_TYPES: dict[str, str] = {

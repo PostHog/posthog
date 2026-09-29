@@ -135,5 +135,5 @@ def test_every_restrictable_blob_column_is_masked_with_the_keys_of_its_property_
     expected = {**_MASKED_BLOBS, **dict.fromkeys(_UNMASKED_BLOBS, frozenset())}
     if use_new_events_schema:
         for label in ("events.properties (EventsTable)", "events.person_properties (EventsPersonSubTable)"):
-            expected[label] |= {"$unparseable_properties"}
+            expected[label] |= {"$unparseable_properties", "$null_keys"}
     assert masked == expected

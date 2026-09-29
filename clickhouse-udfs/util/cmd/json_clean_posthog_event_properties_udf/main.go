@@ -11,6 +11,7 @@ import (
 	"os"
 	"runtime/pprof"
 	"slices"
+	"strconv"
 	"strings"
 	"unsafe"
 )
@@ -46,6 +47,8 @@ const (
 	maxJSONArrayDepth        = 8
 	unparseablePropertiesKey = "$unparseable_properties"
 	maxRecycledValues        = 4096
+	// ClickHouse JSON cannot store a null, so the cleaner lists the path of every null object field it removes here.
+	nullKeysKey = "$null_keys"
 )
 
 var errMaxJSONDepth = errors.New("maximum JSON depth exceeded")
@@ -89,6 +92,11 @@ func isTemporaryProperty(key string) bool {
 		return true
 	}
 	return strings.HasPrefix(root, "$sdk_debug_")
+}
+
+func isNullKeysProperty(key string) bool {
+	rest, ok := strings.CutPrefix(key, nullKeysKey)
+	return ok && (rest == "" || rest[0] == '.')
 }
 
 func makePathRules(paths ...string) *pathRule {
@@ -172,6 +180,13 @@ type mergeKey struct {
 	key    string
 }
 
+// Array positions stay integers until a null is recorded, so walking large arrays does not format every index.
+type pathSegment struct {
+	key     string
+	index   int
+	isIndex bool
+}
+
 type processor struct {
 	data            []byte
 	pos             int
@@ -187,6 +202,8 @@ type processor struct {
 	stringBuf       bytes.Buffer
 	tooDeepArrays   bool
 	discard         bool
+	path            []pathSegment
+	nullKeys        *value
 }
 
 func processLine(rawLine []byte, buf *bytes.Buffer) error {
@@ -236,13 +253,21 @@ func (p *processor) processLine(rawLine []byte, buf *bytes.Buffer) error {
 	}
 
 	cleaned, err := p.cleanProperties(parsed)
+	nullKeys := p.nullKeys
+	p.nullKeys = nil
 	if err != nil {
 		p.recycle(parsed)
+		p.recycle(nullKeys)
 		if errors.Is(err, errMaxJSONDepth) {
 			p.writeUnparseableProperties(buf, rawLine)
 			return nil
 		}
 		return fmt.Errorf("json clean error: %w", err)
+	}
+	if nullKeys != nil && len(nullKeys.values) > 0 && cleaned.kind == kindObject {
+		cleaned.entries = append(cleaned.entries, entry{key: nullKeysKey, value: nullKeys})
+	} else {
+		p.recycle(nullKeys)
 	}
 	// Normalization can decode stringified JSON and wrap objects in arrays.
 	if p.mutated && exceedsJSONArrayDepth(cleaned, 0) {
@@ -534,7 +559,9 @@ func (p *processor) parseObject(depth, arrayDepth int) (*value, error) {
 		if depth == 1 {
 			switch p.kind {
 			case eventProperties:
-				p.discard = isDroppedEventProperty(key) || isTemporaryProperty(key)
+				p.discard = isDroppedEventProperty(key) || isTemporaryProperty(key) || isNullKeysProperty(key)
+			case personProperties:
+				p.discard = isNullKeysProperty(key)
 			case temporaryProperties:
 				p.discard = !isTemporaryProperty(key)
 			}
@@ -830,7 +857,9 @@ func (p *processor) cleanNode(pathRules *pathRule, v *value, depth int) (*value,
 			if child.kind < kindObject {
 				continue
 			}
+			p.path = append(p.path, pathSegment{index: i, isIndex: true})
 			cleaned, err := p.cleanNode(pathRules, child, depth+1)
+			p.popPathSegment()
 			if err != nil {
 				return nil, err
 			}
@@ -854,9 +883,12 @@ func (p *processor) cleanObject(pathRules *pathRule, obj *value, depth int) erro
 		if pathRules != nil {
 			childPathRules = pathRules.children[entry.key]
 		}
+		recordedNullKeys := p.nullKeyCount()
 		cleaned := entry.value
 		if cleaned.kind >= kindObject {
+			p.path = append(p.path, pathSegment{key: entry.key})
 			cleaned, err = p.cleanNode(childPathRules, cleaned, depth+1)
+			p.popPathSegment()
 			if err != nil {
 				p.retainUnprocessedEntries(obj, writeIdx, readIdx)
 				return err
@@ -882,10 +914,14 @@ func (p *processor) cleanObject(pathRules *pathRule, obj *value, depth int) erro
 					cleaned = p.reuseAsEmptyArray(cleaned)
 				}
 			}
+			// Normalization wraps objects in arrays, stringifies elements and decodes strings, so a path recorded
+			// inside a typed property may not address its stored value.
+			p.truncateNullKeys(recordedNullKeys)
 		}
 		if cleaned.kind == kindNull {
 			p.mutated = true
 			p.recycle(cleaned)
+			p.recordNullKey(entry.key)
 			continue
 		}
 		if writeIdx != readIdx || cleaned != entry.value {
@@ -909,6 +945,50 @@ func (p *processor) retainUnprocessedEntries(obj *value, writeIdx, readIdx int) 
 	remaining := len(obj.entries) - readIdx
 	copy(obj.entries[writeIdx:writeIdx+remaining], obj.entries[readIdx:])
 	obj.entries = obj.entries[:writeIdx+remaining]
+}
+
+func (p *processor) popPathSegment() {
+	// A popped key still points into the input row, which the processor must not retain.
+	p.path[len(p.path)-1] = pathSegment{}
+	p.path = p.path[:len(p.path)-1]
+}
+
+func (p *processor) nullKeyCount() int {
+	if p.nullKeys == nil {
+		return 0
+	}
+	return len(p.nullKeys.values)
+}
+
+func (p *processor) truncateNullKeys(n int) {
+	if p.nullKeyCount() == n {
+		return
+	}
+	for _, path := range p.nullKeys.values[n:] {
+		p.recycle(path)
+	}
+	clear(p.nullKeys.values[n:])
+	p.nullKeys.values = p.nullKeys.values[:n]
+}
+
+func (p *processor) recordNullKey(key string) {
+	if p.nullKeys == nil {
+		p.nullKeys = p.newValue(kindArray)
+	}
+	path := p.newValue(kindArray)
+	for _, segment := range p.path {
+		name := p.newValue(kindString)
+		if segment.isIndex {
+			name.s = strconv.Itoa(segment.index)
+		} else {
+			name.s = segment.key
+		}
+		path.values = append(path.values, name)
+	}
+	name := p.newValue(kindString)
+	name.s = key
+	path.values = append(path.values, name)
+	p.nullKeys.values = append(p.nullKeys.values, path)
 }
 
 func (p *processor) expandDottedEntries(entries []entry, depth int) ([]entry, error) {
