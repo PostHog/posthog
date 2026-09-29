@@ -1,5 +1,6 @@
 import json
 import uuid
+import dataclasses
 from datetime import UTC, datetime
 from typing import Any, cast
 
@@ -13,7 +14,7 @@ from pydantic import ValidationError as PydanticValidationError
 from temporalio import activity
 from temporalio.api.enums.v1 import EventType
 from temporalio.exceptions import ApplicationError, CancelledError
-from temporalio.testing import WorkflowEnvironment
+from temporalio.testing import ActivityEnvironment, WorkflowEnvironment
 from temporalio.worker import Replayer, UnsandboxedWorkflowRunner, Worker
 
 from posthog.api.capture import CaptureInternalError
@@ -21,6 +22,7 @@ from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.temporal.ai_observability.sentiment.extraction import truncate_to_head_tail
 from posthog.temporal.ai_observability.sentiment.schema import SentimentResult
+from posthog.temporal.common.errors import NonReportableError
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.ai_observability.backend.llm.errors import (
@@ -47,6 +49,7 @@ from .evaluation_errors import (
     status_reason_detail_for_terminal_user_error,
     terminal_user_error_result_from_application_error,
 )
+from .evaluation_event_io import hydrate_event_reference
 from .evaluation_llm_judge import (
     JUDGE_EVENT_MAX_CHARS,
     NumericWithNAEvalResult,
@@ -998,6 +1001,25 @@ class TestRunEvaluationWorkflow:
                 )
 
         assert mock_fetch.call_count == 1
+
+    @pytest.mark.parametrize(
+        "attempt,retryable",
+        [
+            pytest.param(1, True, id="first attempt"),
+            pytest.param(2, True, id="second attempt"),
+            pytest.param(3, False, id="last attempt"),
+        ],
+    )
+    def test_a_missing_generation_gets_two_retries_before_it_fails_the_run(self, attempt: int, retryable: bool):
+        env = ActivityEnvironment()
+        env.info = dataclasses.replace(env.info, attempt=attempt)
+        with patch(HYDRATE_FETCH, return_value=None):
+            with pytest.raises(ApplicationError) as raised:
+                env.run(hydrate_event_reference, dict(THIN_REFERENCE))
+
+        assert raised.value.type == "generation_not_found"
+        assert raised.value.non_retryable is not retryable
+        assert isinstance(raised.value, NonReportableError) is retryable
 
     def test_parse_inputs(self):
         """Test that parse_inputs correctly parses workflow inputs"""

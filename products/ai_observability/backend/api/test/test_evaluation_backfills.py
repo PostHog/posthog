@@ -26,11 +26,14 @@ from posthog.rate_limit import (
     AIObservabilityBackfillEstimateSustainedThrottle,
     AIObservabilityBackfillEstimateThrottle,
 )
-from posthog.temporal.ai_observability.run_aggregate_evaluation import INGESTION_LAG_MARGIN_SECONDS
 from posthog.temporal.ai_observability.run_session_evaluation import AI_EVENTS_RETENTION_DAYS
 
 from products.access_control.backend.models.access_control import AccessControl
-from products.ai_observability.backend.api.evaluation_backfills import BACKFILL_RETENTION_MARGIN, BACKFILL_START_GRACE
+from products.ai_observability.backend.api.evaluation_backfills import (
+    BACKFILL_AI_EVENTS_LAG,
+    BACKFILL_RETENTION_MARGIN,
+    BACKFILL_START_GRACE,
+)
 from products.ai_observability.backend.backfill_candidates import BackfillScope
 from products.ai_observability.backend.models.evaluation_backfill import EvaluationBackfill, EvaluationBackfillStatus
 from products.ai_observability.backend.models.evaluations import Evaluation
@@ -421,7 +424,7 @@ class TestEvaluationBackfillsApi(APIBaseTest):
 
         estimate = self.client.post(f"{self.url}/estimate/", body, format="json")
         assert estimate.status_code == status.HTTP_200_OK, estimate.json()
-        expected_end = now - timedelta(seconds=INGESTION_LAG_MARGIN_SECONDS)
+        expected_end = now - BACKFILL_AI_EVENTS_LAG
         assert abs(datetime.fromisoformat(estimate.json()["window_end"]) - expected_end) < timedelta(seconds=5)
         expected_start = now - timedelta(days=AI_EVENTS_RETENTION_DAYS)
         assert abs(datetime.fromisoformat(estimate.json()["window_start"]) - expected_start) < timedelta(seconds=5)
@@ -469,7 +472,7 @@ class TestEvaluationBackfillsApi(APIBaseTest):
     @patch(f"{API_MODULE}.sync_connect")
     def test_a_generation_backfill_stops_short_of_the_ai_events_lag(self, connect, _count):
         connect.return_value = _temporal_client()
-        margin = timedelta(seconds=INGESTION_LAG_MARGIN_SECONDS)
+        margin = BACKFILL_AI_EVENTS_LAG
         before = timezone.now()
 
         estimate = self.client.post(f"{self.url}/estimate/", _body(), format="json")
