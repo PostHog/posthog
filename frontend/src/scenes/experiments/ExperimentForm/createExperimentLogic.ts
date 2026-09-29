@@ -64,20 +64,29 @@ function experimentWritePayloadForApi(
     } as unknown as Parameters<typeof experimentsCreate>[1]
 }
 
-function pickVariantDetails<T>(details: Record<string, T>, keys: string[], sourceKeys: string[]): Record<string, T> {
+const isUnique = (keys: string[], key: string): boolean => keys.indexOf(key) === keys.lastIndexOf(key)
+
+function pickVariantDetails<T>(details: Record<string, T>, keys: string[], previousKeys: string[]): Record<string, T> {
+    // Adding or removing a variant shifts the positions, so only a same-length change can be a rename
+    const sameCount = previousKeys.length === keys.length
+    const heldKey = Object.keys(details).find((key) => !previousKeys.includes(key))
     const picked: Record<string, T> = {}
     keys.forEach((key, index) => {
-        if (Object.hasOwn(details, sourceKeys[index])) {
-            picked[key] = details[sourceKeys[index]]
+        const previousKey = previousKeys[index]
+        const sourceKey =
+            sameCount && key !== previousKey ? (isUnique(previousKeys, previousKey) ? previousKey : heldKey) : key
+        if (sourceKey === undefined || !Object.hasOwn(details, sourceKey)) {
+            return
         }
+        // While a key collides with another variant's, hold its details under the old key until it's unique again
+        picked[isUnique(keys, key) ? key : sourceKey] = details[sourceKey]
     })
     return picked
 }
 
 /**
- * Variant notes and screenshots are keyed by variant key, so keep them attached to their variants: a variant whose
- * key was edited in place brings its details to the new key, and details for keys no variant has are dropped.
- * Pass `previousVariants` when the variants have just changed, to detect renames.
+ * Keeps variant notes and screenshots attached to their variants when keys are renamed, and drops details that no
+ * variant has. Pass `previousVariants` when the variants have just changed, to detect renames.
  */
 function alignVariantDetails(
     parameters: Experiment['parameters'],
@@ -90,19 +99,12 @@ function alignVariantDetails(
     }
     const keys = variants.map(({ key }) => key)
     const previousKeys = previousVariants.map(({ key }) => key)
-    const isUnique = (list: string[], key: string): boolean => list.indexOf(key) === list.lastIndexOf(key)
-    // Adding or removing a variant shifts the positions, so only a same-length change can be a rename. A key shared
-    // by two variants is ambiguous, and moving its details could hand one variant's details to the other.
-    const sameCount = previousKeys.length === keys.length
-    const sourceKeys = keys.map((key, index) =>
-        sameCount && isUnique(previousKeys, previousKeys[index]) && isUnique(keys, key) ? previousKeys[index] : key
-    )
 
     return {
         ...parameters,
-        ...(variant_notes && { variant_notes: pickVariantDetails(variant_notes, keys, sourceKeys) }),
+        ...(variant_notes && { variant_notes: pickVariantDetails(variant_notes, keys, previousKeys) }),
         ...(variant_screenshot_media_ids && {
-            variant_screenshot_media_ids: pickVariantDetails(variant_screenshot_media_ids, keys, sourceKeys),
+            variant_screenshot_media_ids: pickVariantDetails(variant_screenshot_media_ids, keys, previousKeys),
         }),
     }
 }

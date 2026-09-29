@@ -446,14 +446,21 @@ describe('createExperimentLogic', () => {
             expect(logic.values.experiment.parameters.variant_notes).toEqual({ new: 'One-page checkout' })
         })
 
-        it("does not hand a variant's details to another variant whose key it collides with", () => {
+        it("keeps a renamed variant's details through a key that collides with another variant's", () => {
             startWith(['control', 'test'], {
                 variant_notes: { control: 'Current checkout', test: 'One-page checkout' },
+                variant_screenshot_media_ids: { test: ['media-1'] },
             })
 
-            logic.actions.setFeatureFlagConfig({ variants: variantsWithKeys('control', 'control') })
+            for (const key of ['control', 'control-', 'control-b']) {
+                logic.actions.setFeatureFlagConfig({ variants: variantsWithKeys('control', key) })
+                expect(logic.values.experiment.parameters.variant_notes?.control).toEqual('Current checkout')
+            }
 
-            expect(logic.values.experiment.parameters.variant_notes).toEqual({ control: 'Current checkout' })
+            expect(logic.values.experiment.parameters).toEqual({
+                variant_notes: { control: 'Current checkout', 'control-b': 'One-page checkout' },
+                variant_screenshot_media_ids: { 'control-b': ['media-1'] },
+            })
         })
 
         it("drops a removed variant's details, without shifting the rest onto other variants", () => {
