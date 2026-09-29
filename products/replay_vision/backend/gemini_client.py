@@ -3,7 +3,7 @@
 from collections.abc import Callable, Iterable, Mapping
 from typing import Any, TypeVar
 
-from google.genai import types
+from google.genai import errors, types
 
 from posthog.llm.gateway_client import (
     ai_gateway_headers,
@@ -122,9 +122,10 @@ def assemble_stream(chunks: list[types.GenerateContentResponse]) -> types.Genera
 
     Parts keep their order, so thought signatures and function calls reach the next turn unchanged. The finish
     reason and usage come from the last chunk that carries them.
+
+    Raises a 503 `ServerError` when the stream ends with no finish reason and no prompt block: the SDK drops the
+    gateway's in-band error frame, so a cut stream would otherwise pass as a short answer.
     """
-    if not chunks:
-        return types.GenerateContentResponse()
     parts: list[types.Part] = []
     last_candidate: types.Candidate | None = None
     finish_reason: types.FinishReason | None = None
@@ -137,9 +138,20 @@ def assemble_stream(chunks: list[types.GenerateContentResponse]) -> types.Genera
                 parts.extend(candidate.content.parts)
             if candidate.finish_reason is not None:
                 finish_reason = candidate.finish_reason
-    final = chunks[-1]
     usage = next((chunk.usage_metadata for chunk in reversed(chunks) if chunk.usage_metadata), None)
     prompt_feedback = next((chunk.prompt_feedback for chunk in chunks if chunk.prompt_feedback), None)
+    if finish_reason is None and not (prompt_feedback and prompt_feedback.block_reason):
+        raise errors.ServerError(
+            503,
+            {
+                "error": {
+                    "code": 503,
+                    "message": f"Gemini stream ended without a finish reason after {len(chunks)} chunks",
+                    "status": "UNAVAILABLE",
+                }
+            },
+        )
+    final = chunks[-1]
     if last_candidate is None:
         # A blocked prompt streams no candidate; the feedback says why.
         return final.model_copy(update={"usage_metadata": usage, "prompt_feedback": prompt_feedback})

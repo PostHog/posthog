@@ -9,7 +9,10 @@ from unittest.mock import MagicMock, patch
 from django.test import override_settings
 
 import httpx
-from google.genai import types
+from google.genai import (
+    errors as genai_errors,
+    types,
+)
 
 from products.replay_vision.backend import (
     feedback_themes,
@@ -25,10 +28,12 @@ from products.replay_vision.backend.gemini_client import (
     replay_gateway_enabled,
     replay_gemini_client,
 )
+from products.replay_vision.backend.temporal.errors import FailureKind
+from products.replay_vision.backend.temporal.gemini import classify_gemini_error
 
 _GATEWAY = {"AI_GATEWAY_URL": "https://ai-gateway.example/v1", "AI_GATEWAY_API_KEY": "phs_test"}
 _UNSET = {"AI_GATEWAY_URL": "", "AI_GATEWAY_API_KEY": ""}
-_OK = {"candidates": [{"content": {"role": "model", "parts": [{"text": "ok"}]}}]}
+_OK = {"candidates": [{"content": {"role": "model", "parts": [{"text": "ok"}]}, "finishReason": "STOP"}]}
 _FLAG = "products.replay_vision.backend.gemini_client.feature_enabled_or_false"
 
 
@@ -248,7 +253,7 @@ class TestAssembleStream:
             [
                 _chunk(types.Part(text="a")),
                 _chunk(types.Part(text="b", thought_signature=b"sig")),
-                _chunk(types.Part(text="c")),
+                _chunk(types.Part(text="c"), finish=types.FinishReason.STOP),
             ]
         )
 
@@ -258,7 +263,12 @@ class TestAssembleStream:
         assert [(p.text, p.thought_signature) for p in parts] == [("a", None), ("b", b"sig"), ("c", None)]
 
     def test_thought_text_does_not_merge_into_answer_text(self) -> None:
-        response = assemble_stream([_chunk(types.Part(text="think", thought=True)), _chunk(types.Part(text="answer"))])
+        response = assemble_stream(
+            [
+                _chunk(types.Part(text="think", thought=True)),
+                _chunk(types.Part(text="answer"), finish=types.FinishReason.STOP),
+            ]
+        )
 
         assert response.candidates is not None and response.candidates[0].content is not None
         parts = response.candidates[0].content.parts
@@ -276,5 +286,53 @@ class TestAssembleStream:
         assert response.prompt_feedback is not None
         assert response.prompt_feedback.block_reason == types.BlockedReason.SAFETY
 
-    def test_an_empty_stream_is_an_empty_response(self) -> None:
-        assert assemble_stream([]).candidates is None
+    @pytest.mark.parametrize(
+        "chunks",
+        [
+            [],
+            [_chunk(types.Part(text='{"verdict": "ye'))],
+            [
+                types.GenerateContentResponse(
+                    usage_metadata=types.GenerateContentResponseUsageMetadata(prompt_token_count=3)
+                )
+            ],
+        ],
+        ids=["empty", "cut-after-text", "usage-only"],
+    )
+    def test_a_stream_without_a_finish_reason_raises_a_transient_error(
+        self, chunks: list[types.GenerateContentResponse]
+    ) -> None:
+        with pytest.raises(genai_errors.ServerError) as exc_info:
+            assemble_stream(chunks)
+
+        assert exc_info.value.code == 503
+        assert classify_gemini_error(exc_info.value) == FailureKind.PROVIDER_TRANSIENT
+
+
+_ERROR_FRAME = {"error": {"code": 503, "message": "upstream idle", "status": "UNAVAILABLE"}}
+_PARTIAL = {"candidates": [{"content": {"role": "model", "parts": [{"text": '{"verdict": "ye'}]}}]}
+
+
+@pytest.mark.parametrize(
+    "body",
+    [_sse(_PARTIAL, _ERROR_FRAME), _sse(_ERROR_FRAME), _sse(_PARTIAL)],
+    ids=["partial-then-error", "error-only", "clean-close-mid-answer"],
+)
+def test_a_cut_gateway_stream_raises_on_both_surfaces(body: bytes) -> None:
+    client, _ = _wired_gateway_client({"feature": "scanner"})
+    api_client = client.models._models._api_client
+    api_client._httpx_client = httpx.Client(
+        transport=httpx.MockTransport(
+            lambda _: httpx.Response(200, content=body, headers={"content-type": "text/event-stream"})
+        )
+    )
+    api_client._async_httpx_client = httpx.AsyncClient(
+        transport=httpx.MockTransport(
+            lambda _: httpx.Response(200, content=body, headers={"content-type": "text/event-stream"})
+        )
+    )
+
+    with pytest.raises(genai_errors.ServerError):
+        client.models.generate_content(model="gemini-test", contents="hi")
+    with pytest.raises(genai_errors.ServerError):
+        asyncio.run(client.aio.models.generate_content(model="gemini-test", contents="hi"))
