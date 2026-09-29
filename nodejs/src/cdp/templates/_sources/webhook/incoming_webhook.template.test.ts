@@ -258,6 +258,37 @@ describe('incoming webhook template', () => {
     })
 
     it.each([
+        ['api_key', 'utm_source'],
+        ['token', 'tokens_used'],
+    ])('drops the credential %s mapped at the top level and keeps %s', async (credential, kept) => {
+        const response = await tester.invoke(
+            {
+                event: 'the event',
+                distinct_id: 'hardcoded',
+                method: 'GET',
+                properties: {
+                    [credential]: `{request.query.${credential}}`,
+                    [kept]: `{request.query.${kept}}`,
+                },
+            },
+            {
+                request: {
+                    method: 'GET',
+                    body: {},
+                    stringBody: '',
+                    headers: {},
+                    query: { [credential]: 'secret-value', [kept]: 'kept-value' },
+                    ip: '127.0.0.1',
+                },
+            }
+        )
+        expect(response.capturedPostHogEvents[0].properties).toEqual({
+            $hog_function_execution_count: 1,
+            [kept]: 'kept-value',
+        })
+    })
+
+    it.each([
         ['tokens_used'],
         ['total_tokens'],
         ['api_key_hint'],

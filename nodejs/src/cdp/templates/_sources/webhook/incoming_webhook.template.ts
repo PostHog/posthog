@@ -60,7 +60,7 @@ if(empty(inputs.distinct_id)) {
 }
 
 let properties := {}
-for (let propertyKey, propertyValue in (inputs.properties ?? {})) {
+for (let propertyKey, propertyValue in withoutCredentials(inputs.properties ?? {})) {
   properties[propertyKey] := withoutCredentials(propertyValue)
 }
 
