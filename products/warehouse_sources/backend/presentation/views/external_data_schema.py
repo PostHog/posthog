@@ -1296,7 +1296,8 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         is_cdc = (sync_type == ExternalDataSchema.SyncType.CDC) or (
             sync_type is None and instance.sync_type == ExternalDataSchema.SyncType.CDC
         )
-        if is_cdc and source_type_supports_cdc(source.source_type):
+        leaving_cdc = sync_type is not None and not is_cdc and instance.sync_type == ExternalDataSchema.SyncType.CDC
+        if (is_cdc or leaving_cdc) and source_type_supports_cdc(source.source_type):
             self._handle_cdc_publication_change(instance, source, should_sync, sync_type, validated_data)
 
         if trigger_refresh:
@@ -1370,7 +1371,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             self._maybe_create_webhook(updated_instance)
 
         # Sync CDC extraction schedule after any CDC schema change
-        if is_cdc:
+        if is_cdc or leaving_cdc:
 
             def sync_cdc_schedule() -> None:
                 try:
@@ -1578,7 +1579,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         sync_type: str | None,
         validated_data: dict[str, Any],
     ) -> None:
-        """Add/remove the table from the CDC capture set when a schema is toggled or set to CDC."""
+        """Add/remove the table from the CDC capture set when a schema is toggled, set to CDC, or moved off CDC."""
         adapter = get_cdc_adapter(source)
         cdc_config = adapter.parse_cdc_config(source)
         if cdc_config.management_mode != "posthog" or not cdc_config.publication_name:
@@ -1593,9 +1594,14 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         newly_set_to_cdc = (
             sync_type == ExternalDataSchema.SyncType.CDC and instance.sync_type != ExternalDataSchema.SyncType.CDC
         )
+        leaving_cdc = (
+            sync_type is not None
+            and sync_type != ExternalDataSchema.SyncType.CDC
+            and instance.sync_type == ExternalDataSchema.SyncType.CDC
+        )
 
         # Add table to capture set when enabling CDC or toggling sync on
-        if newly_set_to_cdc or (should_sync is True and not instance.should_sync):
+        if not leaving_cdc and (newly_set_to_cdc or (should_sync is True and not instance.should_sync)):
             try:
                 adapter.add_table(source, db_schema, source_table_name)
             except Exception as e:
@@ -1626,8 +1632,9 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                 instance.initial_sync_complete = False
                 validated_data["initial_sync_complete"] = False
 
-        # Remove table from capture set when toggling sync off
-        elif should_sync is False and instance.should_sync:
+        # Remove table from capture set when toggling sync off or moving it off CDC. Left in, capture
+        # keeps decoding the table's changes only to drop them, and the source keeps streaming them.
+        elif leaving_cdc or (should_sync is False and instance.should_sync):
             adapter.remove_table(source, db_schema, source_table_name)
             instance.sync_type_config.pop(CDC_SNAPSHOT_LANE_KEY, None)
 

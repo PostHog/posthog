@@ -335,6 +335,34 @@ def test_toggling_sync_drops_the_snapshot_marker(team, user, client: HttpClient,
     assert "cdc_snapshot_lane" not in schema.sync_type_config
 
 
+@pytest.mark.parametrize("should_sync_before", [True, False])
+def test_moving_a_table_off_cdc_drops_it_from_the_publication(team, user, client: HttpClient, should_sync_before):
+    _, schema = _make_cdc_source_and_schema(team, cdc_table_mode="consolidated")
+    ExternalDataSchema.objects.filter(id=schema.id).update(should_sync=should_sync_before)
+    client.force_login(user)
+    with (
+        mock.patch(_PATCH_TARGETS["is_cdc_enabled_for_team"], return_value=True),
+        mock.patch(_PATCH_TARGETS["alter_cdc_publication"]) as alter_publication,
+        mock.patch(_PATCH_TARGETS["external_data_workflow_exists"], return_value=True),
+        mock.patch(_PATCH_TARGETS["sync_external_data_job_workflow"]),
+        mock.patch(_PATCH_TARGETS["sync_cdc_extraction_schedule"]) as sync_capture_schedule,
+        mock.patch(_PATCH_TARGETS["trigger_external_data_workflow"]),
+        mock.patch(f"{_VIEW}.pause_external_data_schedule"),
+        mock.patch(f"{_VIEW}.unpause_external_data_schedule"),
+    ):
+        response = client.patch(
+            f"/api/environments/{team.pk}/external_data_schemas/{schema.id}",
+            data={"sync_type": "full_refresh", "should_sync": True},
+            content_type="application/json",
+        )
+
+    assert response.status_code == 200, response.content
+    assert [call.kwargs["add"] for call in alter_publication.call_args_list] == [False]
+    sync_capture_schedule.assert_called_once()
+    schema.refresh_from_db()
+    assert schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH
+
+
 @pytest.mark.parametrize(("sync_frequency", "expected_status"), [("7day", 200), ("30day", 400)])
 def test_a_cdc_table_syncs_before_its_captured_changes_expire(
     team, user, client: HttpClient, sync_frequency, expected_status
