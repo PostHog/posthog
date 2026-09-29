@@ -33,8 +33,9 @@ from products.tasks.backend.logic.services.workflow_tasks import (
 )
 from products.tasks.backend.models import Channel, Task, TaskRun
 from products.tasks.backend.visibility import task_control_q, task_visibility_q
+from products.workflows.backend.facade.team_extension import TeamWorkflowsConfig
+from products.workflows.backend.facade.testing import create_workflow_for_test
 from products.workflows.backend.presentation.views.workflow_tasks import WorkflowTaskCreateSerializer
-from products.workflows.backend.models import HogFlow, TeamWorkflowsConfig
 
 SECRET = "test-tasks-create-jwt"
 
@@ -58,10 +59,10 @@ class TestWorkflowTasksAPI(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.client.logout()
-        self.hog_flow = HogFlow.objects.create(
-            team=self.team,
+        self.hog_flow = create_workflow_for_test(
+            team_id=self.team.id,
             name="Alert triage",
-            created_by=self.user,
+            created_by_id=self.user.id,
             trigger={"type": "manual"},
         )
         self.url = f"/api/projects/{self.team.id}/workflow_tasks/"
@@ -117,7 +118,7 @@ class TestWorkflowTasksAPI(APIBaseTest):
         task = Task.objects.get(id=body["id"])
         assert task.team_id == self.team.id
         assert task.origin_product == Task.OriginProduct.WORKFLOW
-        assert task.hog_flow_id == self.hog_flow.id
+        assert str(task.hog_flow_id) == self.hog_flow.id
         assert task.created_by_id == self.user.id
         assert task.description == "look into the alert"
         run = TaskRun.objects.get(id=body["run_id"])
@@ -370,7 +371,7 @@ class TestWorkflowTasksAPI(APIBaseTest):
     @patch("products.tasks.backend.logic.services.workflow_tasks.usage_limit_response")
     def test_refuses_an_owner_removed_from_the_organization(self, usage_limit_response_mock) -> None:
         former_member = self._create_user("former@posthog.com")
-        flow = HogFlow.objects.create(team=self.team, name="Orphaned", created_by=former_member)
+        flow = create_workflow_for_test(team_id=self.team.id, name="Orphaned", created_by_id=former_member.id)
         OrganizationMembership.objects.filter(user=former_member, organization=self.organization).delete()
 
         response = self._post(token=_token(self.team.id, str(flow.id)))
@@ -385,7 +386,7 @@ class TestWorkflowTasksAPI(APIBaseTest):
             flow_id = str(uuid4())
         else:
             other_team = self.create_team_with_organization(self.organization)
-            flow_id = str(HogFlow.objects.create(team=other_team, name="Theirs", created_by=self.user).id)
+            flow_id = create_workflow_for_test(team_id=other_team.id, name="Theirs", created_by_id=self.user.id).id
 
         response = self._post(token=_token(self.team.id, flow_id))
 
@@ -411,7 +412,7 @@ class TestWorkflowTasksAPI(APIBaseTest):
     @patch("products.tasks.backend.logic.services.workflow_tasks.usage_limit_response")
     def test_skips_creation_at_the_daily_cap(self, scope: str, usage_limit_response_mock) -> None:
         if scope == "per_workflow":
-            self._seed_created_tasks(WORKFLOW_TASK_RATE_CAP_PER_DAY, hog_flow_id=self.hog_flow.id)
+            self._seed_created_tasks(WORKFLOW_TASK_RATE_CAP_PER_DAY, hog_flow_id=UUID(self.hog_flow.id))
             expected_fragment = "This workflow reached its daily limit"
         else:
             # Two other workflows fill the team budget; this workflow is far under its own cap.
@@ -438,7 +439,7 @@ class TestWorkflowTasksAPI(APIBaseTest):
                 "workflow_task_team_rate_limit_per_day": WORKFLOW_TASK_TEAM_RATE_CAP_PER_DAY + 1,
             },
         )
-        self._seed_created_tasks(WORKFLOW_TASK_RATE_CAP_PER_DAY, hog_flow_id=self.hog_flow.id)
+        self._seed_created_tasks(WORKFLOW_TASK_RATE_CAP_PER_DAY, hog_flow_id=UUID(self.hog_flow.id))
         self._seed_created_tasks(
             WORKFLOW_TASK_TEAM_RATE_CAP_PER_DAY - WORKFLOW_TASK_RATE_CAP_PER_DAY,
             hog_flow_id=uuid4(),
@@ -483,7 +484,7 @@ class TestWorkflowTasksAPI(APIBaseTest):
         if case == "older_than_24h":
             self._seed_created_tasks(
                 WORKFLOW_TASK_RATE_CAP_PER_DAY,
-                hog_flow_id=self.hog_flow.id,
+                hog_flow_id=UUID(self.hog_flow.id),
                 created_at=django_timezone.now() - timedelta(hours=25),
             )
         else:
@@ -527,7 +528,7 @@ class TestWorkflowTasksAPI(APIBaseTest):
         # owner is over the usage limit; the retry of the already-created request must
         # still return the existing task.
         resolve_ids.return_value = {"server-1": None}
-        self._seed_created_tasks(WORKFLOW_TASK_RATE_CAP_PER_DAY, hog_flow_id=self.hog_flow.id)
+        self._seed_created_tasks(WORKFLOW_TASK_RATE_CAP_PER_DAY, hog_flow_id=UUID(self.hog_flow.id))
         with patch("products.tasks.backend.logic.services.workflow_tasks.usage_limit_response", return_value=object()):
             replay = self._post(
                 {"idempotency_key": "invocation-1", "connectors": ["server-1"], "max_parallel_tasks": 1}

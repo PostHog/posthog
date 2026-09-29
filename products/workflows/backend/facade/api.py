@@ -1,5 +1,5 @@
 from collections.abc import Iterable
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 from django.db.models import F
@@ -69,12 +69,20 @@ def search_workflows(
     access_control: UserAccessControl,
     limit: int,
     offset: int = 0,
+    include_archived: bool = False,
+    with_access_levels: bool = False,
+    include_count: bool = True,
 ) -> tuple[list[dict[str, Any]], int]:
+    """Ranked full-text search over a project's workflows, in the result shape of core search.
+
+    ``with_access_levels`` adds ``user_access_level``, the user's resolved level for each workflow.
+    ``include_count=False`` skips the count query and reports a total of 0.
+    """
+    statuses = [HogFlow.State.DRAFT, HogFlow.State.ACTIVE]
+    if include_archived:
+        statuses.append(HogFlow.State.ARCHIVED)
     queryset = access_control.filter_queryset_by_access_level(
-        HogFlow.objects.filter(
-            team__project_id=project_id,
-            status__in=(HogFlow.State.DRAFT, HogFlow.State.ACTIVE),
-        )
+        HogFlow.objects.filter(team__project_id=project_id, status__in=statuses)
     )
 
     if query:
@@ -83,13 +91,20 @@ def search_workflows(
     else:
         queryset = queryset.order_by(F("name").asc(nulls_first=True))
 
-    total_count = queryset.count()
-    fields = ["id", "name", "description", "status"]
+    total_count = queryset.count() if include_count else 0
+    fields = ["id", "name", "description", "status", "created_by_id"]
     if query:
         fields.append("rank")
 
+    rows = list(queryset[offset : offset + limit].values(*fields))
+    access_levels = (
+        access_control.bulk_object_access_levels("hog_flow", [(str(row["id"]), row["created_by_id"]) for row in rows])
+        if with_access_levels
+        else {}
+    )
+
     results: list[dict[str, Any]] = []
-    for workflow in queryset[offset : offset + limit].values(*fields):
+    for workflow in rows:
         result: dict[str, Any] = {
             "type": "hog_flow",
             "result_id": str(workflow["id"]),
@@ -101,6 +116,8 @@ def search_workflows(
         }
         if query:
             result["rank"] = workflow["rank"]
+        if with_access_levels:
+            result["user_access_level"] = access_levels.get(str(workflow["id"]))
         results.append(result)
 
     return results, total_count
@@ -174,6 +191,13 @@ def get_workflow_names(*, team_id: int, workflow_ids: Iterable[str]) -> dict[str
         str(pk): (name or "")
         for pk, name in HogFlow.objects.filter(team_id=team_id, id__in=list(workflow_ids)).values_list("id", "name")
     }
+
+
+def get_workflow_summary(*, team_id: int, workflow_id: str) -> WorkflowSummary:
+    row = HogFlow.objects.filter(team_id=team_id, id=workflow_id).values("id", "name", "status").first()
+    if row is None:
+        raise WorkflowNotFound()
+    return WorkflowSummary(id=str(row["id"]), name=row["name"] or "", status=row["status"])
 
 
 def has_active_workflows(*, team_id: int) -> bool:
@@ -256,7 +280,7 @@ def delete_ses_identity(identity: str) -> None:
 def get_maildev_mock_dns_records() -> list[dict[str, Any]]:
     from products.workflows.backend import providers  # noqa: PLC0415
 
-    return providers.MAILDEV_MOCK_DNS_RECORDS
+    return cast(list[dict[str, Any]], providers.MAILDEV_MOCK_DNS_RECORDS)
 
 
 def get_twilio_phone_numbers(*, account_sid: str, auth_token: str) -> list[dict]:

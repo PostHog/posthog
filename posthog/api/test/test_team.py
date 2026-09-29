@@ -48,7 +48,7 @@ from posthog.utils import get_instance_realm
 from products.access_control.backend.models.access_control import AccessControl
 from products.conversations.backend.playbook import compose_support_playbook
 from products.dashboards.backend.models.dashboard import Dashboard
-from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
+from products.workflows.backend.facade.team_extension import TeamWorkflowsConfig
 
 
 def team_api_test_factory():
