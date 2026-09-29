@@ -4080,9 +4080,10 @@ class FeatureFlagViewSet(
                 enum=["true", "false", "STALE"],
                 description=(
                     "'true' and 'false' filter on serving state, the flag's `active` column. 'STALE' "
-                    "answers a different question: it selects flags the staleness check calls stale, "
-                    "which means not called in 30 days, or never called, at least 30 days old and "
-                    "rolled out to everyone."
+                    "filters on something else: it selects enabled flags that the stale filter matches. "
+                    "A flag matches when it has not been called in 30 days, or when it has never been "
+                    "called, is at least 30 days old and is rolled out to everyone. Disabled flags are "
+                    "never STALE."
                 ),
             ),
             OpenApiParameter(

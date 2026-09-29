@@ -84,7 +84,7 @@ export const FeatureFlagsListQueryParams = () => zod.object({
         .enum(['STALE', 'false', 'true'])
         .optional()
         .describe(
-            "'true' and 'false' filter on serving state, the flag's `active` column. 'STALE' answers a different question: it selects flags the staleness check calls stale, which means not called in 30 days, or never called, at least 30 days old and rolled out to everyone."
+            "'true' and 'false' filter on serving state, the flag's `active` column. 'STALE' filters on something else: it selects enabled flags that the stale filter matches. A flag matches when it has not been called in 30 days, or when it has never been called, is at least 30 days old and is rolled out to everyone. Disabled flags are never STALE."
         ),
     archived: zod
         .enum(['false', 'true'])
