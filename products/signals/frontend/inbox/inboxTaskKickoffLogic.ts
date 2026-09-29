@@ -167,7 +167,15 @@ export function isActionCapableReport(report: SignalReport): boolean {
     )
 }
 
-export function buildDiscussReportPrompt(report: SignalReport | null, reportUrl: string, question: string): string {
+export function buildDiscussReportPrompt(
+    report: SignalReport | null,
+    reportUrl: string,
+    question: string,
+    intent?: 'measurement_plan'
+): string {
+    if (intent === 'measurement_plan' && report !== null) {
+        return `A person asked you to revise the proposed measurement on the PostHog Inbox report at ${reportUrl}. Their description of success is:\n\n${question.trim()}\n\nRead the report and its impact_measurement_plan artefacts first. Investigate which data can test this outcome. Use inbox-report-artefacts-create to append one impact_measurement_plan per measurable outcome, with a stable metric_id, a bounded live Trends query, goal_value, goal_direction, goal_grain, and decision_window_days. Set minimum_data_points only if you also supply an eligibility_query counting qualifying opportunities (not failures). To revise a plan, append a new version with the same metric_id; keep other plans. Do not activate a plan: a person reviews it. If the requested outcome is not measurable, explain what is missing instead of inventing a query or threshold. Do not create a check, start monitoring, change the report state, or open a PR. You may use inbox-reports-update to clarify the Expected impact prose without changing other sections.\n\n${NO_CHECKOUT_INSTRUCTIONS}`
+    }
     // The task is already linked to the report, but including the URL lets the agent open and read
     // the full report itself. The user's message follows after a blank line for clear separation.
     // `null` means the caller could not confirm the report's current state (the kickoff refetch
@@ -385,8 +393,12 @@ export interface inboxTaskKickoffLogicActions {
     discussReport: (
         report: SignalReport,
         reportUrl: string,
-        question: string
+        question: string,
+        agentQuestion?: string,
+        intent?: 'measurement_plan'
     ) => {
+        agentQuestion: string | undefined
+        intent: 'measurement_plan' | undefined
         question: string
         report: SignalReport
         reportUrl: string
@@ -485,7 +497,21 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
             runId,
             streamKey,
         }),
-        discussReport: (report: SignalReport, reportUrl: string, question: string) => ({ report, reportUrl, question }),
+        // `question` is the reader's own text: the chat shows it and the report's scout receives it as
+        // reader feedback. `agentQuestion` replaces it in the agent prompt only, for app-built requests.
+        discussReport: (
+            report: SignalReport,
+            reportUrl: string,
+            question: string,
+            agentQuestion?: string,
+            intent?: 'measurement_plan'
+        ) => ({
+            report,
+            reportUrl,
+            question,
+            agentQuestion,
+            intent,
+        }),
         createPrFromReport: (report: SignalReport, feedback?: string) => ({ report, feedback }),
         warmReportDiscussion: (report: SignalReport) => ({ report }),
         releaseReportDiscussionWarm: true,
@@ -668,7 +694,7 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
             actions.setActiveCreation({ streamKey: resolvedStreamKey ?? runId, taskId, runId })
             actions.openSidePanel(SidePanelTab.Max, REPORT_AI_PANEL)
         },
-        discussReport: async ({ report, reportUrl, question }) => {
+        discussReport: async ({ report, reportUrl, question, agentQuestion, intent }) => {
             // The CTAs carry this as a `disabledReason`, but Discuss also submits on Enter, and the
             // run endpoint enforces no consent of its own.
             if (values.aiConsentDisabledReason) {
@@ -707,7 +733,7 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
             }
             try {
                 const prompt = wrapWithPosthogContext(
-                    buildDiscussReportPrompt(currentReport, reportUrl, question),
+                    buildDiscussReportPrompt(currentReport, reportUrl, agentQuestion ?? question, intent),
                     contextItems
                 )
                 const warmLease = values.reportWarmLease?.reportId === report.id ? values.reportWarmLease : null

@@ -456,7 +456,7 @@ export const SignalsReportArtefactsCreateBody = /* @__PURE__ */ zod
         artefact_type: zod
             .string()
             .describe(
-                "The artefact type. One of: actionability_judgment, channel_assignment, code_reference, commit, dismissal, note, priority_judgment, related_to, repo_selection, safety_judgment, signal_finding, suggested_reviewers. Log types accumulate; status types (safety_judgment, actionability_judgment, priority_judgment, repo_selection, suggested_reviewers, channel_assignment) are latest-wins — appending a new version supersedes the previous one as the report's canonical status."
+                "The artefact type. One of: actionability_judgment, channel_assignment, code_reference, commit, dismissal, impact_measurement_plan, note, priority_judgment, related_to, repo_selection, safety_judgment, signal_finding, suggested_reviewers. Log types accumulate; status types (safety_judgment, actionability_judgment, priority_judgment, repo_selection, suggested_reviewers, channel_assignment) are latest-wins — appending a new version supersedes the previous one as the report's canonical status."
             ),
         content: zod
             .unknown()
@@ -1407,6 +1407,11 @@ export const signalsScoutEditReportBodyMetricsItemUnitMax = 40
 
 export const signalsScoutEditReportBodyMetricsItemCaptionMax = 500
 
+export const signalsScoutEditReportBodyMetricsItemGoalGrainDefault = `whole_window`
+export const signalsScoutEditReportBodyMetricsItemDecisionWindowDaysMax = 30
+
+export const signalsScoutEditReportBodyMetricsItemMinimumDataPointsMax = 1000
+
 export const signalsScoutEditReportBodyMetricsItemComparisonOneLabelMax = 40
 
 export const signalsScoutEditReportBodyMetricsMax = 6
@@ -1636,6 +1641,44 @@ export const SignalsScoutEditReportBody = /* @__PURE__ */ zod
                             .describe(
                                 'Optional context the tile cannot show, such as a filter that narrows the count or a caveat on the data. Omit it rather than restate the title, unit, or window.'
                             ),
+                        goal_value: zod
+                            .number()
+                            .nullish()
+                            .describe(
+                                'Proposed threshold after release. Informational only; does not schedule a check.'
+                            ),
+                        goal_direction: zod
+                            .union([
+                                zod
+                                    .enum(['at_most', 'at_least'])
+                                    .describe('\* `at_most` - at_most\n\* `at_least` - at_least'),
+                                zod.null(),
+                            ])
+                            .optional()
+                            .describe(
+                                'Whether success means at most or at least goal_value.\n\n\* `at_most` - at_most\n\* `at_least` - at_least'
+                            ),
+                        goal_grain: zod
+                            .enum(['whole_window', 'per_interval'])
+                            .describe('\* `whole_window` - whole_window\n\* `per_interval` - per_interval')
+                            .default(signalsScoutEditReportBodyMetricsItemGoalGrainDefault)
+                            .describe(
+                                'Whether the goal compares with the whole query window or each chart bucket.\n\n\* `whole_window` - whole_window\n\* `per_interval` - per_interval'
+                            ),
+                        decision_window_days: zod
+                            .number()
+                            .min(1)
+                            .max(signalsScoutEditReportBodyMetricsItemDecisionWindowDaysMax)
+                            .nullish()
+                            .describe(
+                                'Suggested days after release before assessing impact, not a monitoring schedule.'
+                            ),
+                        minimum_data_points: zod
+                            .number()
+                            .min(1)
+                            .max(signalsScoutEditReportBodyMetricsItemMinimumDataPointsMax)
+                            .nullish()
+                            .describe('Optional number of qualifying observations before assessing impact.'),
                         comparison: zod
                             .union([
                                 zod.object({
@@ -1739,6 +1782,11 @@ export const signalsScoutEmitReportBodyMetricsItemValueFormatDefault = `number`
 export const signalsScoutEmitReportBodyMetricsItemUnitMax = 40
 
 export const signalsScoutEmitReportBodyMetricsItemCaptionMax = 500
+
+export const signalsScoutEmitReportBodyMetricsItemGoalGrainDefault = `whole_window`
+export const signalsScoutEmitReportBodyMetricsItemDecisionWindowDaysMax = 30
+
+export const signalsScoutEmitReportBodyMetricsItemMinimumDataPointsMax = 1000
 
 export const signalsScoutEmitReportBodyMetricsItemComparisonOneLabelMax = 40
 
@@ -1981,6 +2029,44 @@ export const SignalsScoutEmitReportBody = /* @__PURE__ */ zod
                             .describe(
                                 'Optional context the tile cannot show, such as a filter that narrows the count or a caveat on the data. Omit it rather than restate the title, unit, or window.'
                             ),
+                        goal_value: zod
+                            .number()
+                            .nullish()
+                            .describe(
+                                'Proposed threshold after release. Informational only; does not schedule a check.'
+                            ),
+                        goal_direction: zod
+                            .union([
+                                zod
+                                    .enum(['at_most', 'at_least'])
+                                    .describe('\* `at_most` - at_most\n\* `at_least` - at_least'),
+                                zod.null(),
+                            ])
+                            .optional()
+                            .describe(
+                                'Whether success means at most or at least goal_value.\n\n\* `at_most` - at_most\n\* `at_least` - at_least'
+                            ),
+                        goal_grain: zod
+                            .enum(['whole_window', 'per_interval'])
+                            .describe('\* `whole_window` - whole_window\n\* `per_interval` - per_interval')
+                            .default(signalsScoutEmitReportBodyMetricsItemGoalGrainDefault)
+                            .describe(
+                                'Whether the goal compares with the whole query window or each chart bucket.\n\n\* `whole_window` - whole_window\n\* `per_interval` - per_interval'
+                            ),
+                        decision_window_days: zod
+                            .number()
+                            .min(1)
+                            .max(signalsScoutEmitReportBodyMetricsItemDecisionWindowDaysMax)
+                            .nullish()
+                            .describe(
+                                'Suggested days after release before assessing impact, not a monitoring schedule.'
+                            ),
+                        minimum_data_points: zod
+                            .number()
+                            .min(1)
+                            .max(signalsScoutEmitReportBodyMetricsItemMinimumDataPointsMax)
+                            .nullish()
+                            .describe('Optional number of qualifying observations before assessing impact.'),
                         comparison: zod
                             .union([
                                 zod.object({

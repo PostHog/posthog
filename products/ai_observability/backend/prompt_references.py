@@ -5,6 +5,8 @@ from typing import Any
 from django.db import InterfaceError, OperationalError
 from django.db.models import Q
 
+import structlog
+import posthoganalytics
 from rest_framework import serializers
 
 from posthog.dataclasses import frozen
@@ -13,6 +15,8 @@ from posthog.models.team.team import Team
 from posthog.storage.llm_prompt_cache import get_prompt_by_name_from_cache
 
 from products.ai_observability.backend.models.llm_prompt import LLMPrompt, LLMPromptDependency, LLMPromptLabel
+
+logger = structlog.get_logger(__name__)
 
 # Both charsets are enforced at write time (validate_prompt_name_value,
 # validate_prompt_label_name_value in posthog/api/llm_prompt_serializers.py),
@@ -435,3 +439,47 @@ def assemble_prompt_payload(
 
     assembled = PROMPT_REFERENCE_REGEX.sub(_splice, content)
     return {**payload, "prompt": assembled, "resolved_references": resolved}
+
+
+PROMPT_PARTIALS_FLAG = "prompt-partials"
+
+
+def prompt_partials_enabled(team: Team) -> bool:
+    """Kill switch for reference resolution. Flag off = tags pass through as plain text."""
+    try:
+        return bool(
+            posthoganalytics.feature_enabled(
+                PROMPT_PARTIALS_FLAG,
+                str(team.uuid),
+                groups={"organization": str(team.organization_id), "project": str(team.id)},
+                group_properties={"organization": {"id": str(team.organization_id)}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception:
+        # Flag service unavailable must not take down a prompt fetch.
+        return False
+
+
+def resolve_prompt_references(team: Team, content: str) -> str | None:
+    """Splice referenced partials into a managed prompt's `content`.
+
+    Internal features that read a team's managed prompt by name must resolve
+    reference tags the same way the SDK fetch path does, so a raw tag never
+    reaches an LLM. Returns `content` unchanged when the feature is off or there
+    is nothing to resolve, the assembled text when every reference resolves, or
+    None when a reference cannot be resolved so the caller falls back to its
+    in-code default prompt instead of sending a raw tag.
+    """
+    if not content or not PROMPT_REFERENCE_REGEX.search(content):
+        return content
+    if not prompt_partials_enabled(team):
+        return content
+    try:
+        return assemble_prompt_payload(team, {"name": "", "prompt": content})["prompt"]
+    except Exception:
+        # A broken reference or a cache outage must not send a raw tag to the model, but
+        # the caller only sees None, so record why here to separate it from an absent prompt.
+        logger.warning("prompt_reference_resolution_failed", team_id=team.id, exc_info=True)
+        return None
