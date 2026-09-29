@@ -136,6 +136,7 @@ export function TaxonomicPropertyFilter({
     const valuePresent = !!nestedGroup || filter?.type === 'cohort' || !!filter?.key
     const showInitialSearchInline =
         !disablePopover &&
+        !nestedGroup &&
         ((!filter?.type && (!filter || !(filter as any)?.key)) || filter?.type === PropertyFilterType.HogQL)
     const filterTaxonomicGroupType = filter ? propertyFilterTypeToTaxonomicFilterType(filter) : undefined
     const isKeyOnlyRow = isKeyOnlyForGroup(selectingKeyOnly, filterTaxonomicGroupType)

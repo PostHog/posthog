@@ -70,7 +70,37 @@ describe('TaxonomicPropertyFilter nested group rows', () => {
             </Provider>
         )
 
-        expect(screen.getByText(/Logged in/)).toBeInTheDocument()
-        expect(screen.getByText(/Chrome/)).toBeInTheDocument()
+        expect(screen.getByText(/Logged in.*Chrome/)).toBeInTheDocument()
+    })
+
+    it('labels a group instead of opening the picker when neither orFiltering nor disablePopover is set', () => {
+        const nestedGroup: PropertyGroupFilterValue = {
+            type: FilterLogicalOperator.And,
+            values: [
+                {
+                    key: 'id',
+                    value: 3,
+                    cohort_name: 'Logged in',
+                    operator: PropertyOperator.In,
+                    type: PropertyFilterType.Cohort,
+                },
+                { key: '$browser', value: 'Chrome', operator: PropertyOperator.Exact, type: PropertyFilterType.Event },
+            ],
+        }
+
+        render(
+            <Provider>
+                <PropertyFilters
+                    pageKey="nested-group-default-test"
+                    propertyFilters={[nestedGroup]}
+                    onChange={jest.fn()}
+                    addText="Filter"
+                    taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties, TaxonomicFilterGroupType.Cohorts]}
+                />
+            </Provider>
+        )
+
+        expect(screen.getByText(/Logged in.*Chrome/)).toBeInTheDocument()
+        expect(screen.queryByPlaceholderText(/^Search/)).not.toBeInTheDocument()
     })
 })

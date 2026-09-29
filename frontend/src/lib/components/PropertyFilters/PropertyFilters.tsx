@@ -165,6 +165,10 @@ export function PropertyFilters({
             'operator' in item &&
             (!item.operator || !isOperatorFlag(item.operator)) &&
             (item.value === undefined || item.value === null || item.value === '')
+        // A nested group has no key/value of its own, so the popover's closed
+        // state can't render a meaningful summary button for it — show the
+        // summary directly instead, same as `orFiltering`.
+        const rowDisablePopover = disablePopover || orFiltering || isPropertyGroupFilterLike(item)
         return (
             <React.Fragment key={displayedFilterIds[index]}>
                 {logicalRowDivider && index > 0 && index !== displayedFilters.length - 1 && (
@@ -181,7 +185,7 @@ export function PropertyFilters({
                     filters={displayedFilters}
                     pageKey={pageKey}
                     showConditionBadge={showConditionBadge}
-                    disablePopover={disablePopover || orFiltering}
+                    disablePopover={rowDisablePopover}
                     label={buttonText}
                     labelClassName={buttonClassName}
                     size={buttonSize}
@@ -229,7 +233,7 @@ export function PropertyFilters({
                                 schemaColumns={schemaColumns}
                                 dataWarehouseTableName={dataWarehouseTableName}
                                 propertyGroupType={propertyGroupType}
-                                disablePopover={disablePopover || orFiltering}
+                                disablePopover={rowDisablePopover}
                                 addText={addText}
                                 hasRowOperator={hasRowOperator}
                                 propertyAllowList={propertyAllowList}
