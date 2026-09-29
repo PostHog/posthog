@@ -191,7 +191,6 @@ posthog/tasks/test/test_team_access_cache_tasks.py::TestInvalidateTokenSync
 posthog/tasks/test/test_team_access_cache_tasks.py::TestInvalidateUserTokensSync
 posthog/tasks/test/test_team_access_cache_tasks.py::TestInvalidateUserTokensTask
 posthog/tasks/test/test_team_access_cache_tasks.py::TestInvalidationFailureMetrics
-posthog/tasks/test/test_usage_report.py::TestHasNonZeroUsage
 posthog/tasks/test/test_usage_report.py::TestSendNoUsage
 posthog/tasks/test/test_usage_report.py::TestTrimOversizeUsageReportPayload
 posthog/temporal/proxy_service/test/monitor_test.py::TestCheckCloudflareCertificateStatus
