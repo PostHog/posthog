@@ -1,16 +1,24 @@
 import dataclasses
+from collections.abc import Iterable
 from datetime import UTC, date, datetime, timedelta
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
     rest_api_resource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    build_dependent_resource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     JSONResponsePaginator,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    ClientConfig,
+    Endpoint,
+    EndpointResource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -27,7 +35,14 @@ MAX_RETRIES = 6
 
 @dataclasses.dataclass
 class FrontResumeConfig:
-    next_url: str
+    # Top-level endpoints resume from the absolute next-page link Front hands back.
+    next_url: Optional[str] = None
+    # Fan-out endpoints resume by parent: the child paths already fully synced, the parent in
+    # progress, and that parent's paginator state — see
+    # `common.rest_source.__init__._make_paginate_dependent_resource`.
+    completed: Optional[list[str]] = None
+    current: Optional[str] = None
+    child_state: Optional[dict[str, Any]] = None
 
 
 def _accept_headers() -> dict[str, str]:
@@ -110,6 +125,98 @@ def validate_credentials(api_token: str, path: str, require_scope: bool) -> tupl
     return True, None
 
 
+def _client_config(api_token: str) -> ClientConfig:
+    return {
+        "base_url": FRONT_BASE_URL,
+        "headers": _accept_headers(),
+        "auth": {"type": "bearer", "token": api_token},
+        "max_retries": MAX_RETRIES,
+    }
+
+
+def _endpoint_extra() -> Endpoint:
+    # Front pages carry rows under ``_results``; a missing key is a legit empty page
+    # (deleted resources can shrink a page), so this is not data_selector_required.
+    return {
+        "data_selector": "_results",
+        "paginator": JSONResponsePaginator(next_url_path=FRONT_NEXT_URL_PATH),
+    }
+
+
+def _source_response(config: FrontEndpointConfig, items: Any, column_hints: Any = None) -> SourceResponse:
+    return SourceResponse(
+        name=config.name,
+        items=items,
+        primary_keys=config.primary_keys,
+        partition_count=1,
+        partition_size=1,
+        partition_mode="datetime" if config.partition_key else None,
+        partition_format=config.partition_format if config.partition_key else None,
+        partition_keys=[config.partition_key] if config.partition_key else None,
+        sort_mode=config.sort_mode,
+        column_hints=column_hints,
+    )
+
+
+def _fanout_source(
+    config: FrontEndpointConfig,
+    api_token: str,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[FrontResumeConfig],
+) -> SourceResponse:
+    assert config.fanout is not None
+    parent_config = FRONT_ENDPOINTS[config.fanout.parent_name]
+    # Both listings already describe their own query params, so carry those through and let the
+    # builder add none of its own.
+    fanout = dataclasses.replace(
+        config.fanout,
+        parent_params=_build_initial_params(parent_config, False, None),
+        child_params=_build_initial_params(config, False, None),
+    )
+
+    initial_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None and (resume.completed or resume.current):
+            initial_state = {
+                "completed": resume.completed or [],
+                "current": resume.current,
+                "child_state": resume.child_state,
+            }
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        if state is not None:
+            resumable_source_manager.save_state(
+                FrontResumeConfig(
+                    completed=state.get("completed"),
+                    current=state.get("current"),
+                    child_state=state.get("child_state"),
+                )
+            )
+
+    dependent_resource = cast(
+        Iterable[Any],
+        build_dependent_resource(
+            endpoint_configs=FRONT_ENDPOINTS,
+            child_endpoint=config.name,
+            fanout=fanout,
+            client_config=_client_config(api_token),
+            path_format_values={},
+            team_id=team_id,
+            job_id=job_id,
+            db_incremental_field_last_value=None,
+            parent_endpoint_extra=_endpoint_extra(),
+            child_endpoint_extra=_endpoint_extra(),
+            page_size_param=None,
+            resume_hook=save_checkpoint,
+            initial_paginator_state=initial_state,
+        ),
+    )
+
+    return _source_response(config, lambda: dependent_resource)
+
+
 def front_source(
     api_token: str,
     endpoint: str,
@@ -121,34 +228,25 @@ def front_source(
 ) -> SourceResponse:
     config = FRONT_ENDPOINTS[endpoint]
 
+    if config.fanout is not None:
+        return _fanout_source(config, api_token, team_id, job_id, resumable_source_manager)
+
     params = _build_initial_params(config, should_use_incremental_field, db_incremental_field_last_value)
 
     resource_config: EndpointResource = {
         "name": endpoint,
-        "endpoint": {
-            "path": config.path,
-            "params": params,
-            # Front pages carry rows under ``_results``; a missing key is a legit empty page
-            # (deleted resources can shrink a page), so this is not data_selector_required.
-            "data_selector": "_results",
-            "paginator": JSONResponsePaginator(next_url_path=FRONT_NEXT_URL_PATH),
-        },
+        "endpoint": {**_endpoint_extra(), "path": config.path, "params": params},
     }
 
     rest_config: RESTAPIConfig = {
-        "client": {
-            "base_url": FRONT_BASE_URL,
-            "headers": _accept_headers(),
-            "auth": {"type": "bearer", "token": api_token},
-            "max_retries": MAX_RETRIES,
-        },
+        "client": _client_config(api_token),
         "resources": [resource_config],
     }
 
     initial_paginator_state: Optional[dict[str, Any]] = None
     if resumable_source_manager.can_resume():
         resume = resumable_source_manager.load_state()
-        if resume is not None:
+        if resume is not None and resume.next_url:
             initial_paginator_state = {"next_url": resume.next_url}
 
     def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
@@ -166,15 +264,4 @@ def front_source(
         initial_paginator_state=initial_paginator_state,
     )
 
-    return SourceResponse(
-        name=endpoint,
-        items=lambda: resource,
-        primary_keys=config.primary_keys,
-        partition_count=1,
-        partition_size=1,
-        partition_mode="datetime" if config.partition_key else None,
-        partition_format=config.partition_format if config.partition_key else None,
-        partition_keys=[config.partition_key] if config.partition_key else None,
-        sort_mode="asc",
-        column_hints=resource.column_hints,
-    )
+    return _source_response(config, lambda: resource, column_hints=resource.column_hints)

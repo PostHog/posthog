@@ -3428,24 +3428,24 @@ Note: Frill's llms.txt lists exactly nine reference pages: announcements, announ
 
 ## Front — gaps
 
-Today (9): `accounts`, `channels`, `contacts`, `conversations`, `events`, `inboxes`, `tags`, `teammates`, `teams`
+Today (18): `accounts`, `account_custom_fields`, `channels`, `contacts`, `contact_custom_fields`, `conversations`, `conversation_comments`, `conversation_custom_fields`, `conversation_messages`, `events`, `inboxes`, `inbox_custom_fields`, `link_custom_fields`, `tags`, `teammates`, `teammate_custom_fields`, `teams`, `ticket_statuses`
 
 Diffed against: <https://raw.githubusercontent.com/frontapp/front-api-specs/main/core-api/core-api.json>
 
-- [ ] `conversations/{id}/messages` — the email/SMS message bodies themselves; conversations without messages is metadata only (high)
-- [ ] `conversations/{id}/comments` — internal team discussion on each conversation, the collaboration signal (high)
-- [ ] `company/statuses (ticket statuses)` — lookup that resolves the ticket status ID already carried on synced conversations (high)
+- [x] `conversations/{id}/messages` — the email/SMS message bodies themselves; conversations without messages is metadata only (high)
+- [x] `conversations/{id}/comments` — internal team discussion on each conversation, the collaboration signal (high)
+- [x] `company/statuses (ticket statuses)` — lookup that resolves the ticket status ID already carried on synced conversations (high)
 - [ ] `conversations/{id}/followers` — membership table linking teammates to the conversations they watch (medium)
 - [ ] `teammate_groups (+ /teammates, /teams, /inboxes members)` — org structure and membership joins for the teammates and teams already synced (medium)
 - [ ] `contact_lists (+ contacts in list)` — customer segmentation lists and their membership rows (medium)
 - [ ] `contact_groups (+ contacts in group)` — the other contact grouping dimension, needed to break conversations down by contact segment (medium)
-- [ ] `custom_fields (accounts, contacts, conversations, inboxes, teammates, links)` — lookup describing the custom field definitions whose values ride on synced records (medium)
+- [x] `custom_fields (accounts, contacts, conversations, inboxes, teammates, links)` — lookup describing the custom field definitions whose values ride on synced records (medium)
 - [ ] `links (+ links/{id}/conversations)` — external resource links attached to conversations — the join to CRM/issue trackers (medium)
 - [ ] `knowledge_bases/{id}/articles (+ categories)` — help center content for deflection and article-coverage analysis (medium)
 - [ ] `shifts (+ shifts/{id}/teammates)` — coverage schedule and who was on it, to correlate response time with staffing (low)
 - [ ] `contacts/{id}/notes` — free-text account context recorded against a contact (low)
 
-Note: Diffed against Front's published OpenAPI 3.0 spec (128 GET operations). The top-level objects are all covered, but the sub-resources under /conversations — where the actual content lives — are entirely missing.
+Note: Diffed against Front's published OpenAPI 3.0 spec (128 GET operations). The top-level objects are all covered, as are the message and comment sub-resources under /conversations where the actual content lives. The remaining gaps are membership and grouping joins. `GET /custom_fields` is deprecated in favor of `GET /contacts/custom_fields` and is not synced.
 
 ## Fulcrum — gaps
 
