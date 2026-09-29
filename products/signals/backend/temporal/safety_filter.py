@@ -192,15 +192,24 @@ async def safety_filter(
         return SafetyFilterJudgeResponse.model_validate(data)
 
     signal_prompt = _build_safety_user_prompt(description, source_product, source_type)
-    mode = await model_mode(team_id) if team_id is not None else None
-    cache_key = _safe_verdict_cache_key(team_id, mode, signal_prompt) if team_id is not None and mode else None
+    if team_id is not None:
+        mode = await model_mode(team_id)
+        cache_key = _safe_verdict_cache_key(team_id, mode, signal_prompt)
+    else:
+        mode = None
+        cache_key = None
 
     if cache_key is not None:
         try:
-            if await get_async_client().get(cache_key) == b"1":
-                return SafetyFilterJudgeResponse(safe=True)
+            cached_safe = await get_async_client().get(cache_key)
         except (RedisError, ImproperlyConfigured) as error:
+            metrics.increment_safety_cache_lookup("error")
             logger.warning("Safety verdict cache read failed", error_type=type(error).__name__)
+        else:
+            if cached_safe == b"1":
+                metrics.increment_safety_cache_lookup("hit")
+                return SafetyFilterJudgeResponse(safe=True)
+            metrics.increment_safety_cache_lookup("miss")
 
     async def sonnet_verdict(trace_id: str | None) -> SafetyFilterJudgeResponse:
         try:
@@ -255,6 +264,7 @@ async def safety_filter(
         try:
             await get_async_client().setex(cache_key, SAFETY_CACHE_TTL_SECONDS, b"1")
         except (RedisError, ImproperlyConfigured) as error:
+            metrics.increment_safety_cache_write_error()
             logger.warning("Safety verdict cache write failed", error_type=type(error).__name__)
 
     return result

@@ -2,7 +2,7 @@ from collections.abc import Callable
 
 import pytest
 import time_machine
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, call, patch
 
 from fakeredis import FakeAsyncRedis
 from redis.exceptions import ConnectionError
@@ -93,6 +93,7 @@ async def test_safe_verdict_cache_preserves_repeated_signals_across_dates() -> N
         patch(f"{MODULE_PATH}.get_async_client", return_value=redis),
         patch(f"{MODULE_PATH}.model_mode", new=AsyncMock(return_value="typesafe-shadow")),
         patch(f"{MODULE_PATH}.run_model_decision", new=judge),
+        patch(f"{MODULE_PATH}.metrics.increment_safety_cache_lookup") as cache_lookup,
     ):
         with time_machine.travel("2026-09-10 10:00:00+00:00", tick=False):
             first = await safety_filter_activity(
@@ -119,6 +120,7 @@ async def test_safe_verdict_cache_preserves_repeated_signals_across_dates() -> N
 
     assert first.safe and second.safe and third.safe
     assert judge.await_count == 2
+    assert cache_lookup.call_args_list == [call("miss"), call("hit"), call("miss")]
 
 
 @pytest.mark.asyncio
@@ -176,8 +178,12 @@ async def test_redis_failure_still_runs_safety_judge() -> None:
         patch(f"{MODULE_PATH}.get_async_client", return_value=redis),
         patch(f"{MODULE_PATH}.model_mode", new=AsyncMock(return_value="typesafe-shadow")),
         patch(f"{MODULE_PATH}.run_model_decision", new=judge),
+        patch(f"{MODULE_PATH}.metrics.increment_safety_cache_lookup") as cache_lookup,
+        patch(f"{MODULE_PATH}.metrics.increment_safety_cache_write_error") as cache_write_error,
     ):
         result = await safety_filter(7, "A sample finding", source_product="pganalyze")
 
     assert result.safe
     judge.assert_awaited_once()
+    cache_lookup.assert_called_once_with("error")
+    cache_write_error.assert_called_once()
