@@ -30,7 +30,7 @@ import logging
 from datetime import timedelta
 from typing import Any
 
-from django.db.models import Count, F, Max, OuterRef, Q, Subquery
+from django.db.models import Count, F, Max, Q
 from django.utils import timezone
 
 from posthog.hogql import ast
@@ -65,9 +65,8 @@ from products.signals.backend.scout_harness.config_registry import live_scout_sk
 from products.signals.backend.scout_harness.profile.schema import Inventory
 from products.signals.backend.scout_harness.team_limits import withheld_skills_for_team
 from products.surveys.backend.models import Survey
-from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
-from products.warehouse_sources.backend.facade.types import ExternalDataJobStatus
-from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
+from products.warehouse_sources.backend.facade import api as warehouse_sources
+from products.workflows.backend.facade.api import get_workflow_activity_summary
 
 logger = logging.getLogger(__name__)
 
@@ -239,32 +238,16 @@ def _external_data_sources(team: Team) -> list[dict[str, Any]]:
     semantics of the `external-data-sources-list` API so a scout can spot a dead source from
     the profile alone without a follow-up list call.
     """
-    # Newest schema-level error across the source's non-deleted schemas. Ordered by most
-    # recently updated so a scout sees the freshest failure, matching the list API's intent.
-    latest_error = Subquery(
-        ExternalDataSchema.objects.filter(source_id=OuterRef("pk"), deleted=False, latest_error__isnull=False)
-        .order_by("-updated_at")
-        .values("latest_error")[:1]
-    )
-    rows = (
-        ExternalDataSource.objects.filter(team=team, deleted=False)
-        .annotate(
-            last_run_at=Max("jobs__created_at", filter=Q(jobs__status=ExternalDataJobStatus.COMPLETED)),
-            latest_error=latest_error,
-        )
-        .order_by("source_type", "id")
-        .values("source_type", "status", "prefix", "created_at", "last_run_at", "latest_error")
-    )
     return [
         {
-            "source_type": row["source_type"],
-            "status": row["status"],
-            "prefix": row["prefix"] or "",
-            "created_at": row["created_at"].isoformat() if row.get("created_at") else None,
-            "last_run_at": row["last_run_at"].isoformat() if row.get("last_run_at") else None,
-            "latest_error": row.get("latest_error"),
+            "source_type": source.source_type,
+            "status": source.status,
+            "prefix": source.prefix or "",
+            "created_at": source.created_at.isoformat(),
+            "last_run_at": source.last_run_at.isoformat() if source.last_run_at else None,
+            "latest_error": source.latest_error,
         }
-        for row in rows
+        for source in warehouse_sources.list_source_health(team.pk)
     ]
 
 
@@ -620,21 +603,18 @@ def _recent_hog_flows(team: Team) -> dict[str, Any]:
     HogFlow's `status` enum carries the flow's lifecycle state directly; we surface
     it as-is so the agent can distinguish drafts from active flows.
     """
-    qs = HogFlow.objects.filter(team=team)
-    total = qs.count()
-    active = qs.exclude(status="archived").count()
-    recent = qs.order_by("-updated_at")[:RECENT_ENTITY_LIMIT].values("id", "name", "status", "updated_at")
+    summary = get_workflow_activity_summary(team_id=team.id, recent_limit=RECENT_ENTITY_LIMIT)
     return {
-        "total_count": total,
-        "active_count": active,
+        "total_count": summary.total_count,
+        "active_count": summary.active_count,
         "recent": [
             {
-                "id": str(row["id"]),
-                "name": row["name"] or "",
-                "status": row["status"],
-                "updated_at": row["updated_at"].isoformat() if row["updated_at"] else None,
+                "id": flow.id,
+                "name": flow.name,
+                "status": flow.status,
+                "updated_at": flow.updated_at.isoformat() if flow.updated_at else None,
             }
-            for row in recent
+            for flow in summary.recent
         ],
     }
 

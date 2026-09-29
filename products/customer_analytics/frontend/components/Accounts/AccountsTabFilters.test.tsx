@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { BindLogic, Provider } from 'kea'
 
 import { userLogic } from 'scenes/userLogic'
@@ -19,13 +19,15 @@ import { AccountsTabFilters } from './AccountsTabFilters'
 describe('AccountsTabFilters', () => {
     let logic: ReturnType<typeof accountsLogic.build>
     let savedViews: ColumnConfigurationApi[]
+    let tagsRequest: jest.Mock
 
     beforeEach(() => {
         savedViews = []
+        tagsRequest = jest.fn(() => [200, ['enterprise']])
         useMocks({
             get: {
                 '/api/organizations/:organization_id/members/': () => [200, { results: [] }],
-                '/api/projects/:team_id/tags': () => [200, []],
+                '/api/projects/:team_id/tags': tagsRequest,
                 '/api/projects/:team_id/column_configurations': () => [
                     200,
                     { count: savedViews.length, results: savedViews },
@@ -97,6 +99,16 @@ describe('AccountsTabFilters', () => {
         fireEvent.click(screen.getByText('Edit'))
         expect(await screen.findByText('Edit view')).toBeInTheDocument()
         expect(screen.getByDisplayValue('Shared accounts')).toBeInTheDocument()
+    })
+
+    it('loads existing tags when the tag filter opens', async () => {
+        renderFilters()
+
+        fireEvent.click(screen.getByText('All tags'))
+        await waitFor(() => expect(tagsRequest).toHaveBeenCalled())
+        fireEvent.focus(screen.getByPlaceholderText('Select or type tags...'))
+
+        expect(await screen.findByText('enterprise')).toBeInTheDocument()
     })
 
     it('renders the "My accounts" checkbox', () => {

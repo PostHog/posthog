@@ -30,6 +30,12 @@ Validity findings are time-sensitive: every day an SRM goes unnoticed is a day o
 
 You author reports directly via the report channel (`scout-emit-report` / `scout-edit-report`): you've done the research, so you own each report 1:1 end-to-end rather than firing weak signals for a pipeline to cluster. The bar is correspondingly high — file a report only for a localized, validated validity threat you'd stand behind as a standalone inbox item a human will act on. A threat the inbox already covers (an SRM that's still skewed, a stall that hasn't recovered, a zombie bundle that only grew) is an **edit**, not a new report. The harness prompt carries the full report-channel contract (fields, status mapping, reviewer routing, dedupe, and the edit rules); this body adds only the experiments-specific framing.
 
+## Activity-history availability
+
+Activity history is optional. Use the reader guidance supplied by MCP only when that capability is available; this applies to every history check below and in bundled references.
+
+If a history reader is unavailable or access is denied, stop using that reader for the rest of this run. Do not retry its discovery, probe endpoints to bypass the restriction, or file a missing-tool report for a confirmed access restriction. Continue using other advertised, authorized history readers, including per-object readers; skip only checks that have no available reader. Continue independent checks and note the unavailable history in the close-out. Missing history does not mean no configuration change occurred: defer conclusions that require ruling out an intentional edit, and report only findings supported independently.
+
 ## Quick close-out: are experiments even active?
 
 Read `recent_experiments` off `scout-project-profile-get`. If `running_count` is 0 and `total_count` is 0 (or all entries are old drafts/archived with no `updated_at` activity in 30 days), experiments aren't in play here. Write one scratchpad entry:
@@ -108,7 +114,7 @@ If `exposure_criteria.exposure_config.event` is set, the experiment uses a custo
 Reading the output:
 
 - Rows with variant `false`, `''`, or null are evaluations that didn't bucket — exclude from the ratio, but note their share (a large share suggests release-condition issues).
-- The `$multiple` row is its own check (below) — exclude it from the ratio, matching PostHog's own SRM test.
+- The `$multiple` row is its own check (below) — exclude it from the ratio, matching the built-in SRM test.
 - **Sample-size gate:** per variant, the 2σ noise band on an expected share `p` with `n` total bucketed exposures is roughly `±2·sqrt(p·(1-p)/n)`. On 50/50 that's ±7pp at n=200, ±2.2pp at n=2,000, ±0.7pp at n=20,000. Flag SRM only when the observed share sits **> 3σ** from expected — at 10k exposures, 53/47 against a 50/50 config clears that bar; at 300 exposures, 60/40 doesn't. Below ~1,000 bucketed exposures total, don't call SRM at all; write a `pattern:` memory and recheck next run.
 
 A confirmed SRM is report-worthy on its own (the data is biased no matter the cause), but the finding lands much harder with a suspected cause. Cheap follow-ups: check `persons` vs `exposures` per variant (a high events-per-person skew in one variant suggests bots hashing to one bucket); check `feature-flags-activity-retrieve` for flag edits after launch (rebucketing); check whether the skew started at launch (wiring) or at a specific date (a change — find it in the activity log).

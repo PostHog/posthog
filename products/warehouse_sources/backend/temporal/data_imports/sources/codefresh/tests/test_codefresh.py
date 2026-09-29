@@ -8,8 +8,12 @@ from parameterized import parameterized
 from requests import PreparedRequest, Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.codefresh.codefresh import (
+    ACCOUNT_LOOKUP_FAILED,
+    ACCOUNT_LOOKUP_MESSAGE,
+    CODEFRESH_BASE_URL,
     CodefreshResumeConfig,
     _flatten,
+    _resolve_account_id,
     _transform_row,
     codefresh_source,
     validate_credentials,
@@ -61,10 +65,15 @@ def _wire(session: mock.MagicMock, responses: list[Response]) -> tuple[list[dict
     return param_snapshots, header_snapshots
 
 
-def _source(endpoint: str, manager: mock.MagicMock | None = None):
-    return codefresh_source(
-        "token", endpoint, team_id=1, job_id="j", resumable_source_manager=manager or _make_manager()
-    )
+def _source(endpoint: str, manager: mock.MagicMock | None = None, account_teams: Any = None):
+    """Build the source response, stubbing the /team lookup the ``users`` path needs for its
+    account id. Other endpoints never make that call, so the stub is inert for them."""
+    session = mock.MagicMock()
+    session.get.return_value = _response([{"account": "acc-1"}] if account_teams is None else account_teams)
+    with mock.patch(CODEFRESH_SESSION_PATCH, return_value=session):
+        return codefresh_source(
+            "token", endpoint, team_id=1, job_id="j", resumable_source_manager=manager or _make_manager()
+        )
 
 
 def _rows(source_response) -> list[dict[str, Any]]:
@@ -149,11 +158,12 @@ class TestTransformRow:
             ("pipelines", "spec.variables"),
             ("triggers", "event-data.endpoint"),
             ("triggers", "event-data.secret"),
+            ("users", "inviteUrl"),
         ]
     )
     def test_endpoint_redacts_secret_bearing_variables(self, endpoint: str, redacted_key: str) -> None:
-        # These endpoints expose plaintext config/CI variables or webhook secrets; the configured
-        # source must strip them.
+        # These endpoints expose plaintext config/CI variables, webhook secrets, or an invite URL
+        # that grants account access; the configured source must strip them.
         assert redacted_key in CODEFRESH_ENDPOINTS[endpoint].redact_keys
 
 
@@ -402,6 +412,41 @@ class TestValidateCredentials:
         if not expected_valid:
             assert error is not None
 
+    def test_users_schema_probes_the_resolved_users_path(self) -> None:
+        # The users path is only knowable after /team resolves the account id, so probing the
+        # unfilled path would report a 404 rather than whether the key can reach the data.
+        session = mock.MagicMock()
+        session.get.side_effect = [_response([{"account": "acc-9"}]), _FakeResponse(200)]
+        with mock.patch(CODEFRESH_SESSION_PATCH, return_value=session):
+            valid, _error = validate_credentials("token", schema_name="users")
+        assert valid is True
+        assert session.get.call_args.args[0] == "https://g.codefresh.io/api/accounts/acc-9/users?limit=1"
+
+    def test_users_schema_is_rejected_when_no_team_names_an_account(self) -> None:
+        # A 200 from /team that names no account passes a status probe but fails the sync later,
+        # so validation has to reject it rather than report the table as reachable.
+        session = mock.MagicMock()
+        session.get.return_value = _response([{"_id": "t1", "name": "users"}])
+        with mock.patch(CODEFRESH_SESSION_PATCH, return_value=session):
+            valid, error = validate_credentials("token", schema_name="users")
+        assert valid is False
+        assert error == ACCOUNT_LOOKUP_MESSAGE
+
+    @parameterized.expand([("unauthorized", 401), ("forbidden", 403)])
+    def test_users_schema_reports_the_status_the_team_lookup_returned(self, _name: str, status: int) -> None:
+        # A denied /team lookup is a credential answer, not an account answer, so the status
+        # mapping must report it instead of the account-lookup message.
+        denied = Response()
+        denied.status_code = status
+        denied._content = b"{}"
+        denied.url = f"{CODEFRESH_BASE_URL}/team"
+        session = mock.MagicMock()
+        session.get.side_effect = [denied, _FakeResponse(status)]
+        with mock.patch(CODEFRESH_SESSION_PATCH, return_value=session):
+            valid, error = validate_credentials("token", schema_name="users")
+        assert valid is False
+        assert error != ACCOUNT_LOOKUP_MESSAGE
+
     def test_connection_error_is_invalid(self) -> None:
         session = mock.MagicMock()
         session.get.side_effect = ConnectionError("boom")
@@ -409,6 +454,73 @@ class TestValidateCredentials:
             valid, error = validate_credentials("token")
         assert valid is False
         assert error is not None
+
+
+class TestAccountIdResolution:
+    def _patched(self, body: Any) -> mock.MagicMock:
+        session = mock.MagicMock()
+        session.get.return_value = _response(body)
+        return session
+
+    def test_returns_the_account_the_first_team_names(self) -> None:
+        session = self._patched([{"_id": "t1", "name": "users", "account": "acc-7"}])
+        with mock.patch(CODEFRESH_SESSION_PATCH, return_value=session):
+            assert _resolve_account_id("token") == "acc-7"
+
+    @parameterized.expand(
+        [
+            ("no_teams", []),
+            ("team_without_account", [{"_id": "t1", "name": "users"}]),
+            ("unexpected_envelope", {"docs": [{"account": "acc-7"}]}),
+        ]
+    )
+    def test_unresolvable_account_raises_the_curated_error(self, _name: str, body: Any) -> None:
+        # The message is what the user reads, because the source maps this prefix to an explanation
+        # in get_non_retryable_errors.
+        session = self._patched(body)
+        with mock.patch(CODEFRESH_SESSION_PATCH, return_value=session):
+            with pytest.raises(ValueError, match=ACCOUNT_LOOKUP_FAILED):
+                _resolve_account_id("token")
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_users_request_path_carries_the_resolved_account_id(self, MockSession) -> None:
+        session = MockSession.return_value
+        session.headers = {}
+        urls: list[str] = []
+
+        def _prepare(request: Any) -> mock.MagicMock:
+            urls.append(request.url)
+            return mock.MagicMock()
+
+        session.prepare_request.side_effect = _prepare
+        session.send.side_effect = [_response([{"_id": "u1", "userName": "ada"}])]
+
+        rows = _rows(_source("users", account_teams=[{"_id": "t1", "account": "acc-42"}]))
+
+        assert rows == [{"_id": "u1", "userName": "ada"}]
+        assert urls == ["https://g.codefresh.io/api/accounts/acc-42/users"]
+
+
+class TestEnvelopeEndpointFailsLoudOnAMissingDataKey:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_environments_rows_come_from_the_docs_envelope(self, MockSession) -> None:
+        session = MockSession.return_value
+        params, _headers = _wire(session, [_response({"docs": [{"_id": "e1", "name": "staging"}]})])
+
+        rows = _rows(_source("environments"))
+
+        assert rows == [{"_id": "e1", "name": "staging"}]
+        assert params[0] == {"limit": 100, "offset": 0}
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_body_without_the_docs_envelope_fails_loud(self, MockSession) -> None:
+        # Codefresh does not document this response body. A shape we did not expect must stop the
+        # sync instead of quietly syncing an empty table on every run.
+        session = MockSession.return_value
+        _wire(session, [_response([{"_id": "e1"}])])
+
+        with pytest.raises(ValueError, match="matched nothing in the response"):
+            _rows(_source("environments"))
 
 
 class TestCodefreshSourceResponse:
@@ -420,6 +532,9 @@ class TestCodefreshSourceResponse:
             ("images", ["id"], "created"),
             ("triggers", ["event", "pipeline"], None),
             ("step_types", ["id"], None),
+            ("environments", ["_id"], None),
+            ("teams", ["_id"], None),
+            ("users", ["_id"], None),
         ]
     )
     def test_source_response_primary_keys_and_partition(

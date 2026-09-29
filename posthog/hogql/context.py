@@ -101,6 +101,9 @@ class HogQLContext:
     top_level_settings: dict[str, object] = field(default_factory=dict)
     # Globals that will be resolved in the context of the query
     globals: Optional[dict] = None
+    # Standard-library names the bytecode compiler accepts for a direct call. The Python and Node
+    # standard libraries differ, so a caller whose bytecode runs elsewhere names what it can execute.
+    allowed_functions: Optional[dict[str, tuple[int, Optional[int]]]] = None
     property_type_overrides: Optional[dict[str, str]] = None
     # Per-query data that query runners want to ingest into the HogQL resolution (e.g. pending updates
     # merged into a table via UNION ALL in error tracking).

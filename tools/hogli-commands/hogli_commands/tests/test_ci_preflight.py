@@ -122,21 +122,25 @@ class TestStrictAndFixContracts:
         assert "mypy" not in ran
 
 
-class TestTaxonomyDriftCheck:
+class TestProjectionsDriftCheck:
     @pytest.mark.parametrize(
         "changed",
         [
             "posthog/taxonomy/taxonomy.py",
-            "bin/build-taxonomy-json.py",
+            "products/tasks/scripts/model_catalog_projection.py",
+            "tools/hogli-commands/hogli_commands/projections.py",
             "frontend/src/taxonomy/core-filter-definitions-by-group.json",
+            "products/tasks/backend/model_catalog.py",
+            "posthog/scopes.py",
+            "services/mcp/src/lib/oauth-scopes.generated.ts",
         ],
     )
     def test_every_side_of_the_drift_relation_triggers(self, changed: str) -> None:
-        check = next(chk for chk in DIFF_CHECKS if chk.key == "taxonomy")
+        check = next(chk for chk in DIFF_CHECKS if chk.key == "projections")
         assert matches_globs(changed, check.triggers)
 
     def test_concrete_triggers_still_point_at_real_files(self) -> None:
-        check = next(chk for chk in DIFF_CHECKS if chk.key == "taxonomy")
+        check = next(chk for chk in DIFF_CHECKS if chk.key == "projections")
         # Renaming the generator or its output leaves these triggers matching nothing,
         # and preflight stops catching a hand-edit with nothing else to notice.
         concrete = [trigger for trigger in check.triggers if "*" not in trigger]
@@ -177,7 +181,7 @@ class TestTaxonomyDriftCheck:
         assert result.exit_code == 0
         assert "needs python-env" in result.output
         ran = [arg for call in mock_run.call_args_list for arg in call.args[0]]
-        assert "build:taxonomy-json" not in ran
+        assert "build:projections" not in ran
 
     @patch("hogli_commands.ci_preflight._emit_telemetry")
     @patch("hogli_commands.ci_preflight._staleness", return_value=("pass", "even with master", {}))
@@ -203,11 +207,11 @@ class TestTaxonomyDriftCheck:
 
         result = runner.invoke(cli, ["ci:preflight", "--strict"])
 
-        # Without --check the verify command is the write path, which rewrites the JSON
-        # and exits 0, so a drifted push would report pass instead of blocking.
+        # If the verify command were the write path, it would rewrite the outputs and
+        # exit 0, so a drifted push would report pass instead of blocking.
         assert result.exit_code == 1
         dispatched = [call.args[0] for call in mock_run.call_args_list]
-        assert ["hogli", "build:taxonomy-json", "--check"] in dispatched
+        assert ["hogli", "build:projections", "--check"] in dispatched
 
 
 class TestStalenessRisks:
@@ -234,7 +238,7 @@ class TestStalenessRisks:
         conflicts: list[str] | None,
         expected_fragments: list[str],
     ) -> None:
-        risks = _staleness_risks(branch_files, master_files, conflicts)
+        risks = _staleness_risks(branch_files, master_files, conflicts, [])
         assert len(risks) == len(expected_fragments)
         for fragment, risk in zip(expected_fragments, risks):
             assert fragment in risk

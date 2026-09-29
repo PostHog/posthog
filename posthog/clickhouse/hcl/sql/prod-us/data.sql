@@ -1691,6 +1691,27 @@ CREATE TABLE posthog.web_pre_aggregated_teams (
   enabled_by String DEFAULT 'system',
   version UInt32 DEFAULT toUnixTimestamp(now())
 ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.web_analytics_team_selection', '{replica}-{shard}', version) ORDER BY (team_id) SETTINGS default_compression_codec = 'lz4', index_granularity = 8192;
+CREATE TABLE posthog.web_sessions_dimensional_preaggregated (
+  team_id Int64,
+  job_id UUID,
+  period_bucket DateTime,
+  session_id_v7 UInt128,
+  person_id UUID,
+  start_timestamp DateTime64(6, 'UTC'),
+  min_event_timestamp DateTime64(6, 'UTC'),
+  max_event_timestamp DateTime64(6, 'UTC'),
+  channel_type String,
+  utm_source String,
+  utm_medium String,
+  utm_campaign String,
+  utm_term String,
+  utm_content String,
+  referring_domain String,
+  entry_pathname String,
+  pageview_count UInt64,
+  computed_at DateTime64(6, 'UTC') DEFAULT now(),
+  expires_at DateTime64(6, 'UTC') DEFAULT now() + toIntervalDay(7)
+) ENGINE = Distributed('aux', 'posthog', 'sharded_web_sessions_dimensional_preaggregated', cityHash64(person_id));
 CREATE TABLE posthog.web_stats_daily_distributed (
   period_bucket DateTime,
   team_id UInt64,

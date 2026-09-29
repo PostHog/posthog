@@ -20,10 +20,10 @@ import {
     getDefaultModelForRuntimeAdapter,
     getEffortLabel,
     getEffortsForModel,
+    getHarnessLabel,
     getModelCost,
     getModelLabel,
     getRuntimeAdapterForModel,
-    getRuntimeAdapterLabel,
     listRuntimeAdapters,
     modelsForRuntimeAdapter,
 } from 'products/posthog_ai/frontend/utils/composerModels'
@@ -237,7 +237,7 @@ export function ComposerModelEffortPickers({
                         {adapters.length > 1 && (
                             <PickerSection
                                 title="Harness"
-                                current={getRuntimeAdapterLabel(selectedAdapter)}
+                                current={getHarnessLabel(selectedAdapter)}
                                 value={selectedAdapter}
                                 onValueChange={selectAdapter}
                             >
@@ -250,7 +250,7 @@ export function ComposerModelEffortPickers({
                                             (!!lockedRuntimeAdapter && adapter !== lockedRuntimeAdapter)
                                         }
                                     >
-                                        {getRuntimeAdapterLabel(adapter)}
+                                        {getHarnessLabel(adapter)}
                                     </DropdownMenuRadioItem>
                                 ))}
                             </PickerSection>

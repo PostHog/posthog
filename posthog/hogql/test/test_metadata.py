@@ -28,6 +28,7 @@ from posthog.hogql.taxonomy_validation import MAX_SUGGESTED_NAMES
 
 from posthog.api.services.query import process_query_model
 from posthog.models import EventDefinition, PropertyDefinition, Team
+from posthog.taxonomy.dynamic_properties import DYNAMIC_PROPERTY_PATTERNS
 
 from products.cohorts.backend.models.cohort import Cohort
 from products.product_analytics.backend.facade.models import InsightVariable
@@ -419,10 +420,13 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         taxonomy_warnings = [warning for warning in metadata.warnings if "project taxonomy" in warning.message]
         self.assertEqual(taxonomy_warnings, [])
 
-    def test_metadata_does_not_warn_for_allowlisted_dynamic_property(self):
+    @parameterized.expand([(pattern.prefix,) for pattern in DYNAMIC_PROPERTY_PATTERNS])
+    def test_metadata_does_not_warn_for_documented_dynamic_property(self, prefix: str):
+        # Every prefix the read_taxonomy tool tells an agent to construct by hand must pass this
+        # check. A name documented there and rejected here reads to the caller as a broken taxonomy.
         PropertyDefinition.objects.create(team=self.team, name="$geoip_country_code")
 
-        metadata = self._select("SELECT properties['$feature/my-flag'] FROM events")
+        metadata = self._select(f"SELECT properties['{prefix}some-id'] FROM events")
 
         taxonomy_warnings = [warning for warning in metadata.warnings if "project taxonomy" in warning.message]
         self.assertEqual(taxonomy_warnings, [])

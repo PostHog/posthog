@@ -111,9 +111,7 @@ export interface AccountsTableQueryPlan {
     columns: AccountsTablePlannedColumn[]
 }
 
-export interface BuildAccountsTableQueryPlanInput {
-    querySelectColumns: string[]
-    visibleColumnNames: string[]
+export interface AccountsTableDatasetInput {
     searchQuery: string
     tagsFilter: string[]
     assignmentStatus: AssignmentStatus
@@ -123,9 +121,13 @@ export interface BuildAccountsTableQueryPlanInput {
     accountFilters: AccountFilter[]
     relationshipDefinitionsById: Record<string, AccountRelationshipDefinitionApi>
     customPropertyDefinitionsById: Record<string, CustomPropertyDefinitionApi>
+}
+
+export interface BuildAccountsTableQueryPlanInput extends AccountsTableDatasetInput {
+    querySelectColumns: string[]
+    visibleColumnNames: string[]
     columnDisplay: AccountColumnDisplayState
-    sortOrder: AccountSortOrder
-    canSortClientSide: boolean
+    serverSortOrder: AccountSortOrder
 }
 
 function accountFieldFromExpression(expression: string): AccountsTableAccountField | null {
@@ -293,7 +295,7 @@ export function supportedAccountFilters(
     )
 }
 
-function queryFilters(input: BuildAccountsTableQueryPlanInput): AccountsTableFilter[] {
+function queryFilters(input: AccountsTableDatasetInput): AccountsTableFilter[] {
     if (input.accountIdFilter) {
         return [{ kind: 'account_id', accountId: input.accountIdFilter } satisfies AccountsTableAccountIdFilter]
     }
@@ -349,6 +351,15 @@ function queryFilters(input: BuildAccountsTableQueryPlanInput): AccountsTableFil
     return filters
 }
 
+export function accountsTableDatasetKey(input: AccountsTableDatasetInput): string {
+    const includeHiddenAccounts = input.accountIdFilter !== null
+    return JSON.stringify({
+        filters: queryFilters(input),
+        includeChurned: includeHiddenAccounts,
+        includeIgnored: includeHiddenAccounts,
+    })
+}
+
 function sortableColumn(column: AccountsTableColumn): AccountsTableSortableColumn {
     if (column.kind === 'custom_property_history') {
         return { kind: 'custom_property', definitionId: column.definitionId }
@@ -367,13 +378,13 @@ export function buildAccountsTableQueryPlan(input: BuildAccountsTableQueryPlanIn
     }
 
     let sort: AccountsTableSort | undefined
-    if (input.sortOrder && !input.canSortClientSide) {
-        const plannedColumn = columns.find((column) => column.visibleName === input.sortOrder?.column)
+    if (input.serverSortOrder) {
+        const plannedColumn = columns.find((column) => column.visibleName === input.serverSortOrder?.column)
         if (plannedColumn) {
             sort = {
                 column: sortableColumn(plannedColumn.column),
                 direction:
-                    input.sortOrder.direction === 'asc'
+                    input.serverSortOrder.direction === 'asc'
                         ? AccountsTableSortDirection.Ascending
                         : AccountsTableSortDirection.Descending,
             }

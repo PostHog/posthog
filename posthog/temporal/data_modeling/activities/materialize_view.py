@@ -331,7 +331,7 @@ class _CDPRowSink:
             # A missing write grant on the cdp_producer/ prefix is the same anticipated
             # provisioning gap `_list_files_to_produce` already tolerates quietly for reads (see its
             # `except PermissionError` branch) — not a bug worth paging on.
-            if not _is_s3_permission_denied(e):
+            if not _is_s3_permission_denied(e) and not isinstance(e, NonReportableError):
                 capture_exception(e)
             await self._logger.awarning(f"Failed to stage rows for CDP; discarding this run's staged rows: {e}")
             self.enabled = False
@@ -900,7 +900,8 @@ async def _clear_person_property_staging(sink: PersonPropertyRowSink, logger: Fi
         await sink.clear()
     except Exception as e:
         await logger.awarning(f"Could not clear stale person-property staging: {e}")
-        capture_exception(e)
+        if not isinstance(e, NonReportableError):
+            capture_exception(e)
 
 
 async def _stage_person_property_batch(
@@ -927,7 +928,8 @@ async def _stage_person_property_batch(
         await sink.logger.awarning(f"Failed to stage person-property batch {batch_index}: {e}")
         if fatal:
             raise
-        capture_exception(e)
+        if not isinstance(e, NonReportableError):
+            capture_exception(e)
 
 
 FAILED_UPDATE_REASON_PREFIX = "incremental update failed: "

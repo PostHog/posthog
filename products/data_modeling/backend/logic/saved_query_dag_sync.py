@@ -164,6 +164,14 @@ def resolve_dependency_to_node(
                 "properties": {"origin": "warehouse", "warehouse_table_id": str(warehouse_table.id)},
             },
         )
+        properties = {
+            **(node.properties if isinstance(node.properties, dict) else {}),
+            "origin": "warehouse",
+            "warehouse_table_id": str(warehouse_table.id),
+        }
+        if node.properties != properties:
+            node.properties = properties
+            node.save(update_fields=["properties", "updated_at"])
         return node
     # system table
     node, _ = Node.objects.get_or_create(
@@ -173,6 +181,11 @@ def resolve_dependency_to_node(
         type=NodeType.TABLE,
         defaults={"properties": {"origin": "posthog"}},
     )
+    properties = {**(node.properties if isinstance(node.properties, dict) else {}), "origin": "posthog"}
+    properties.pop("warehouse_table_id", None)
+    if node.properties != properties:
+        node.properties = properties
+        node.save(update_fields=["properties", "updated_at"])
     return node
 
 
@@ -378,14 +391,19 @@ def get_dependent_saved_queries(saved_query: "DataWarehouseSavedQuery") -> list[
 
     Every node of the saved query counts, not just one: the delete removes all of them, so a
     dependent hanging off a second DAG's node would lose its edge without ever blocking the delete.
-    A dependent that reads the query in more than one DAG is reported once.
+    A dependent that reads the query in more than one DAG is reported once, at its oldest node, so
+    the returned order is deterministic even when the query has nodes in several DAGs.
     """
     nodes = Node.objects.filter(team=saved_query.team, saved_query=saved_query)
-    dependent_nodes = Node.objects.filter(
-        team=saved_query.team,
-        incoming_edges__source__in=nodes,
-        saved_query__isnull=False,
-    ).select_related("saved_query")
+    dependent_nodes = (
+        Node.objects.filter(
+            team=saved_query.team,
+            incoming_edges__source__in=nodes,
+            saved_query__isnull=False,
+        )
+        .select_related("saved_query")
+        .order_by("created_at", "id")
+    )
     dependents: dict[str, DataWarehouseSavedQuery] = {}
     for dependent_node in dependent_nodes:
         dependent = dependent_node.saved_query

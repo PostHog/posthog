@@ -101,14 +101,15 @@ export const ConversationsOpenCreateBody = /* @__PURE__ */ zod
                                 'evaluation',
                                 'event',
                                 'insight',
+                                'instructions',
                                 'notebook',
                                 'text',
                             ])
                             .describe(
-                                '\* `action` - action\n\* `dashboard` - dashboard\n\* `error_tracking_issue` - error_tracking_issue\n\* `evaluation` - evaluation\n\* `event` - event\n\* `insight` - insight\n\* `notebook` - notebook\n\* `text` - text'
+                                '\* `action` - action\n\* `dashboard` - dashboard\n\* `error_tracking_issue` - error_tracking_issue\n\* `evaluation` - evaluation\n\* `event` - event\n\* `insight` - insight\n\* `instructions` - instructions\n\* `notebook` - notebook\n\* `text` - text'
                             )
                             .describe(
-                                'Attachment kind. Entity types carry `id` (+ optional `name`); `text` carries `value`.\n\n\* `action` - action\n\* `dashboard` - dashboard\n\* `error_tracking_issue` - error_tracking_issue\n\* `evaluation` - evaluation\n\* `event` - event\n\* `insight` - insight\n\* `notebook` - notebook\n\* `text` - text'
+                                "Attachment kind. Entity types carry `id` (+ optional `name`); `text` and `instructions` carry `value`. `instructions` is the caller's own guidance and renders into the trusted context block; every other kind renders into the untrusted block, which tells the agent to read it as data.\n\n\* `action` - action\n\* `dashboard` - dashboard\n\* `error_tracking_issue` - error_tracking_issue\n\* `evaluation` - evaluation\n\* `event` - event\n\* `insight` - insight\n\* `instructions` - instructions\n\* `notebook` - notebook\n\* `text` - text"
                             ),
                         id: zod
                             .unknown()
@@ -120,7 +121,10 @@ export const ConversationsOpenCreateBody = /* @__PURE__ */ zod
                             .string()
                             .optional()
                             .describe('Optional human-readable label rendered in the context block.'),
-                        value: zod.string().optional().describe('Free-text content. Only for `text` attachments.'),
+                        value: zod
+                            .string()
+                            .optional()
+                            .describe('Free-text content. Only for `text` and `instructions` attachments.'),
                     })
                     .describe(
                         'One typed attachment carried by a sandbox message.\n\nDEPRECATED PATH — do not extend. This structured `attached_context` (and its server-side wrap in\n`context_wrapper.py`) exists only for the legacy Max conversations bridge and is removed with it;\nthe live path wraps context client-side (`products\/posthog_ai\/frontend\/utils\/posthogContextBlock.ts`).'
@@ -154,6 +158,61 @@ export const ConversationsQueuePartialUpdateBody = /* @__PURE__ */ zod.looseObje
 
 export const ConversationsQueueClearCreateBody = /* @__PURE__ */ zod.looseObject({})
 
+export const coreMemoryCreateBodyTextMax = 10000
+
+export const CoreMemoryCreateBody = /* @__PURE__ */ zod.object({
+    text: zod
+        .string()
+        .max(coreMemoryCreateBodyTextMax)
+        .describe('What Max remembers about the project, as free-form text.'),
+    scraping_status: zod
+        .union([
+            zod
+                .enum(['pending', 'completed', 'skipped'])
+                .describe('\* `pending` - Pending\n\* `completed` - Completed\n\* `skipped` - Skipped'),
+            zod.enum(['']),
+            zod.null(),
+        ])
+        .optional(),
+})
+
+export const coreMemoryUpdateBodyTextMax = 10000
+
+export const CoreMemoryUpdateBody = /* @__PURE__ */ zod.object({
+    text: zod
+        .string()
+        .max(coreMemoryUpdateBodyTextMax)
+        .describe('What Max remembers about the project, as free-form text.'),
+    scraping_status: zod
+        .union([
+            zod
+                .enum(['pending', 'completed', 'skipped'])
+                .describe('\* `pending` - Pending\n\* `completed` - Completed\n\* `skipped` - Skipped'),
+            zod.enum(['']),
+            zod.null(),
+        ])
+        .optional(),
+})
+
+export const coreMemoryPartialUpdateBodyTextMax = 10000
+
+export const CoreMemoryPartialUpdateBody = /* @__PURE__ */ zod.object({
+    text: zod
+        .string()
+        .max(coreMemoryPartialUpdateBodyTextMax)
+        .optional()
+        .describe('What Max remembers about the project, as free-form text.'),
+    scraping_status: zod
+        .union([
+            zod
+                .enum(['pending', 'completed', 'skipped'])
+                .describe('\* `pending` - Pending\n\* `completed` - Completed\n\* `skipped` - Skipped'),
+            zod.enum(['']),
+            zod.null(),
+        ])
+        .optional(),
+})
+
 /**
  * Invoke an MCP tool by name.
  *
@@ -179,4 +238,83 @@ export const DocsSearchBody = /* @__PURE__ */ zod.object({
         .describe(
             'Natural-language description of what to find in the PostHog documentation. Inkeep performs hybrid (semantic + full-text) RAG, so phrase the query the way a user would ask the question.'
         ),
+})
+
+/**
+ * Stream a terminal model response through PostHog AI. Requires organization approval for AI data processing. SDK consumers must use getTerminalAiCreateUrl() with streaming fetch. The generated JSON client buffers the response and cannot parse SSE.
+ */
+export const terminalAiCreateBodyMessagesMax = 1000
+
+export const terminalAiCreateBodyMaxTokensMax = 8192
+
+export const terminalAiCreateBodyStreamDefault = true
+export const terminalAiCreateBodyToolsItemNameMax = 128
+
+export const terminalAiCreateBodyToolsItemDescriptionDefault = ``
+export const terminalAiCreateBodyToolsItemDescriptionMax = 20000
+
+export const terminalAiCreateBodyToolsMax = 100
+
+export const terminalAiCreateBodyTemperatureOneMin = 0
+export const terminalAiCreateBodyTemperatureOneMax = 1
+
+export const TerminalAiCreateBody = /* @__PURE__ */ zod.object({
+    model: zod
+        .enum(['claude-opus-5', 'claude-sonnet-5', 'claude-sonnet-4-6', 'claude-haiku-4-5'])
+        .describe('Model served by the PostHog provider.'),
+    messages: zod
+        .array(
+            zod.object({
+                role: zod.enum(['user', 'assistant']).describe('Author of this conversation message.'),
+                content: zod
+                    .union([zod.string(), zod.array(zod.record(zod.string(), zod.unknown()))])
+                    .describe('Anthropic text, image, or tool content blocks.'),
+            })
+        )
+        .min(1)
+        .max(terminalAiCreateBodyMessagesMax)
+        .describe('Conversation and tool results.'),
+    max_tokens: zod
+        .number()
+        .min(1)
+        .max(terminalAiCreateBodyMaxTokensMax)
+        .describe('Maximum output tokens for this generation.'),
+    stream: zod.boolean().default(terminalAiCreateBodyStreamDefault).describe('Always stream the model response.'),
+    system: zod
+        .union([zod.string(), zod.array(zod.record(zod.string(), zod.unknown())), zod.null()])
+        .optional()
+        .describe('Agent instructions.'),
+    tools: zod
+        .array(
+            zod.object({
+                name: zod
+                    .string()
+                    .max(terminalAiCreateBodyToolsItemNameMax)
+                    .describe('Name of a tool executed inside the terminal.'),
+                description: zod
+                    .string()
+                    .max(terminalAiCreateBodyToolsItemDescriptionMax)
+                    .default(terminalAiCreateBodyToolsItemDescriptionDefault)
+                    .describe('What the tool does.'),
+                input_schema: zod.record(zod.string(), zod.unknown()).describe("JSON schema for the tool's arguments."),
+                cache_control: zod
+                    .union([zod.record(zod.string(), zod.string()), zod.null()])
+                    .optional()
+                    .describe('Provider prompt cache settings.'),
+                eager_input_streaming: zod
+                    .union([zod.boolean(), zod.null()])
+                    .optional()
+                    .describe('Stream tool arguments as they are generated.'),
+            })
+        )
+        .max(terminalAiCreateBodyToolsMax)
+        .optional()
+        .describe('Tools executed by pi.'),
+    temperature: zod
+        .union([
+            zod.number().min(terminalAiCreateBodyTemperatureOneMin).max(terminalAiCreateBodyTemperatureOneMax),
+            zod.null(),
+        ])
+        .optional()
+        .describe('Sampling temperature.'),
 })

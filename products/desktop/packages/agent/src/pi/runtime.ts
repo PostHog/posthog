@@ -80,7 +80,10 @@ export class PiRuntime {
       });
     }
     if (command.type !== "bash") {
-      const isInterrupt = command.type === "abort";
+      const isInterrupt =
+        command.type === "abort" ||
+        command.type === "steer" ||
+        command.type === "compact";
       if (isInterrupt) {
         this.translator.markTurnInterrupted();
       }
@@ -89,18 +92,16 @@ export class PiRuntime {
         if (!response.success && isUserMessage && command.id) {
           this.removePendingUserMessageId(command.id);
         }
-        if (isInterrupt) {
-          this.translator.clearTurnInterrupted();
-        }
         return response;
       } catch (error) {
         if (isUserMessage && command.id) {
           this.removePendingUserMessageId(command.id);
         }
+        throw error;
+      } finally {
         if (isInterrupt) {
           this.translator.clearTurnInterrupted();
         }
-        throw error;
       }
     }
 

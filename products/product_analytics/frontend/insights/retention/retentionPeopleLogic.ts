@@ -76,6 +76,7 @@ export interface retentionPeopleLogicActions {
             | TraceSpansAttributeBreakdownQueryResponse
             | TraceSpansQueryResponse
             | null
+            | import('~/queries/schema').TraceSpansTreeQueryResponse
             | undefined,
         payload?:
             | {
@@ -107,6 +108,7 @@ export interface retentionPeopleLogicActions {
             | TraceSpansAttributeBreakdownQueryResponse
             | TraceSpansQueryResponse
             | null
+            | import('~/queries/schema').TraceSpansTreeQueryResponse
             | undefined
     } // insightVizDataLogic
     clearPeople: () => {
@@ -266,7 +268,7 @@ export const retentionPeopleLogic = kea<retentionPeopleLogicType>([
                     )
                 } else {
                     // `next` is a server-returned pagination URL, so no generated function can build it.
-                    // nosemgrep: prefer-codegen-api
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                     peopleResult = await api.get<RetentionTablePeoplePayload>(values.people.next as string)
                 }
                 const newPayload: RetentionTablePeoplePayload = {

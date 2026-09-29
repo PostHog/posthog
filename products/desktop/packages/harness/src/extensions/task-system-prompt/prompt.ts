@@ -1,4 +1,5 @@
 import type { TaskContext } from "@posthog/shared/task-context";
+import { buildTaskSummaryInstructions } from "./task-summary";
 
 export interface TaskPromptCapabilities {
   structuredInput?: boolean;
@@ -148,6 +149,10 @@ export function buildTaskSystemPrompt(
     buildPullRequestLinksPrompt(),
     buildShellEfficiencyPrompt(),
   );
+
+  if (context.environment === "cloud") {
+    sections.push(buildTaskSummaryInstructions());
+  }
 
   if (context.channelMode) {
     sections.push(

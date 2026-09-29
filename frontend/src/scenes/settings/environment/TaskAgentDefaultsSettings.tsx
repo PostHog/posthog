@@ -14,17 +14,18 @@ import {
     filterEffortForModel,
     getEffortLabel,
     getEffortsForModel,
+    getHarnessLabel,
     getModelCost,
     getModelLabel,
-    getRuntimeAdapterLabel,
     listRuntimeAdapters,
     modelsForRuntimeAdapter,
+    pickerModels,
 } from 'products/posthog_ai/frontend/utils/composerModels'
 import { TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import { type AIRunPreferenceDraft, taskAgentDefaultsLogic } from './taskAgentDefaultsLogic'
 
-const PI_HARNESS_LABEL = 'Pi'
+const PI_HARNESS_LABEL = getHarnessLabel(TaskRuntimeEnumApi.Pi)
 
 function PreferenceEditor({
     draft,
@@ -50,13 +51,14 @@ function PreferenceEditor({
 }): JSX.Element {
     const { catalogue } = useValues(modelCatalogueLogic)
 
-    // Grouped by harness off the same catalogue the composer renders, so a model you can pick for a
-    // run is always settable as a default and vice versa — including the Codex models that only
-    // Slack and PostHog Desktop drive today.
+    // Grouped by harness off the same list the composer offers, so a model you can pick for a run is
+    // always settable as a default and vice versa — including the Codex models that only Slack and
+    // PostHog Desktop drive today, and the retired one this level is already set to.
+    const offeredModels = useMemo(() => pickerModels(catalogue, draft.model), [catalogue, draft.model])
     const modelOptions = useMemo(() => {
-        const groups = listRuntimeAdapters(catalogue).map((adapter) => ({
-            title: getRuntimeAdapterLabel(adapter),
-            options: modelsForRuntimeAdapter(catalogue, adapter).map((choice) => ({
+        const groups = listRuntimeAdapters(offeredModels).map((adapter) => ({
+            title: getHarnessLabel(adapter),
+            options: modelsForRuntimeAdapter(offeredModels, adapter).map((choice) => ({
                 value: choice.model,
                 label: choice.display_name,
                 // Menu only: cost is what you compare models on while choosing, and says
@@ -76,7 +78,7 @@ function PreferenceEditor({
             return [...groups.slice(0, -1), { ...last, footer: <ModelCostFooter /> }]
         }
         return groups
-    }, [catalogue])
+    }, [offeredModels])
     const effortOptions = useMemo(() => getEffortsForModel(catalogue, draft.model), [catalogue, draft.model])
     const editingDisabled = restrictionReason ?? (saving ? 'Saving…' : undefined)
 

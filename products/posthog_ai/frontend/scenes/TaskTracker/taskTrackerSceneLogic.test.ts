@@ -13,14 +13,23 @@ import { initKeaTests } from '~/test/init'
 import { TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import { attachedContextLogic, runStreamLogic } from '../../api/logics'
+import { composerAttachmentsLogic } from '../../logics/composerAttachmentsLogic'
 import { composerOverrideLogic } from '../../logics/composerOverrideLogic'
 import { composerSeedLogic } from '../../logics/composerSeedLogic'
 import { runCancellationLogic } from '../../logics/runCancellationLogic'
 import { runInteractionLogic } from '../../logics/runInteractionLogic'
 import { TaskDraftPersistence, taskDraftStorageKey } from '../../logics/taskDraftPersistence'
+import { taskWarmLogic } from '../../logics/taskWarmLogic'
 import { toolStreamEventsLogic } from '../../logics/toolStreamEventsLogic'
+import { welcomeOverrideLogic } from '../../logics/welcomeOverrideLogic'
 import { OriginProduct, Task, TaskRunEnvironment, TaskRunStatus } from '../../types/taskTypes'
+import { uploadRunAttachments, uploadStagedTaskAttachments } from '../../utils/artifactUpload'
 import { taskTrackerSceneLogic } from './taskTrackerSceneLogic'
+
+jest.mock('../../utils/artifactUpload', () => ({
+    uploadRunAttachments: jest.fn(),
+    uploadStagedTaskAttachments: jest.fn(),
+}))
 
 const buildTask = (overrides: Partial<Task> = {}): Task => ({
     id: 'task-1',
@@ -46,6 +55,7 @@ describe('taskTrackerSceneLogic', () => {
     let logic: ReturnType<typeof taskTrackerSceneLogic.build>
     let createBody: Record<string, any> | null
     let runBody: Record<string, any> | null
+    let cancelledWarmRuns: string[]
     let toolEvents: ReturnType<typeof toolStreamEventsLogic.build>
 
     const myConfigResponse = (resolved: Record<string, any> | null): Record<string, any> => ({
@@ -62,6 +72,7 @@ describe('taskTrackerSceneLogic', () => {
         localStorage.clear()
         createBody = null
         runBody = null
+        cancelledWarmRuns = []
         useMocks({
             get: {
                 '/api/code/invites/check-access/': { has_access: true, has_loops_access: false },
@@ -79,6 +90,10 @@ describe('taskTrackerSceneLogic', () => {
                     runBody = (await request.json()) as Record<string, any>
                     return [200, { id: 'new-task', latest_run: { id: 'run-1' } }]
                 },
+                '/api/projects/:team/tasks/:taskId/runs/:id/cancel/': ({ params }) => {
+                    cancelledWarmRuns.push(params.id as string)
+                    return [200, {}]
+                },
             },
         })
         initKeaTests()
@@ -95,6 +110,76 @@ describe('taskTrackerSceneLogic', () => {
     afterEach(() => {
         logic?.unmount()
         toolEvents?.unmount()
+    })
+
+    describe('file attachments', () => {
+        let attachments: ReturnType<typeof composerAttachmentsLogic.build>
+
+        beforeEach(() => {
+            attachments = composerAttachmentsLogic({ attachmentsKey: 'scene' })
+            attachments.mount()
+            attachments.actions.addFiles([new File(['a'], 'rows.csv')])
+        })
+
+        afterEach(() => {
+            attachments.unmount()
+        })
+
+        // With no warm lease the create must give up warm reuse, which it does by leaving `branch` off.
+        it('stages the files on the cold task and attaches them to its run', async () => {
+            ;(uploadStagedTaskAttachments as jest.Mock).mockResolvedValue(['art-1'])
+            router.actions.push('/tasks/new')
+            logic.mount()
+            logic.actions.setNewTaskData({ description: 'Why does this chart look wrong?' })
+            await expectLogic(logic).toFinishAllListeners()
+            await expectLogic(logic, () => logic.actions.submitNewTask()).toFinishAllListeners()
+
+            expect(createBody).not.toHaveProperty('branch')
+            expect(uploadStagedTaskAttachments).toHaveBeenCalledWith('997', 'new-task', [expect.any(File)])
+            expect(runBody?.pending_user_artifact_ids).toEqual(['art-1'])
+            expect(attachments.values.attachments).toEqual([])
+            expect(attachments.values.uploading).toBe(false)
+        })
+
+        it('keeps the files staged and never starts the run when the upload fails', async () => {
+            ;(uploadStagedTaskAttachments as jest.Mock).mockRejectedValue(new Error('S3 said no'))
+            router.actions.push('/tasks/new')
+            logic.mount()
+            logic.actions.setNewTaskData({ description: 'Why does this chart look wrong?' })
+            await expectLogic(logic).toFinishAllListeners()
+            await expectLogic(logic, () => logic.actions.submitNewTask()).toFinishAllListeners()
+
+            expect(runBody).toBeNull()
+            expect(attachments.values.attachments).toHaveLength(1)
+            expect(attachments.values.uploading).toBe(false)
+        })
+
+        it('hands a leased warm run back when the upload to it fails', async () => {
+            ;(uploadRunAttachments as jest.Mock).mockRejectedValue(new Error('S3 said no'))
+            const warm = taskWarmLogic({ panelId: undefined })
+            warm.mount()
+            warm.actions.setWarmLease({ key: 'k', taskId: 'warm-task', runId: 'warm-run' })
+            router.actions.push('/tasks/new')
+            logic.mount()
+            logic.actions.setNewTaskData({ description: 'Why does this chart look wrong?' })
+            await expectLogic(logic).toFinishAllListeners()
+            await expectLogic(logic, () => logic.actions.submitNewTask()).toFinishAllListeners()
+
+            expect(cancelledWarmRuns).toEqual(['warm-run'])
+            warm.unmount()
+        })
+    })
+
+    it('still offers a warm run its branch when nothing is attached', async () => {
+        router.actions.push('/tasks/new')
+        logic.mount()
+        logic.actions.setNewTaskData({ description: 'Summarize a sample funnel' })
+        await expectLogic(logic).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.submitNewTask()).toFinishAllListeners()
+
+        expect(createBody).toHaveProperty('branch', null)
+        expect(uploadStagedTaskAttachments).not.toHaveBeenCalled()
+        expect(runBody).not.toHaveProperty('pending_user_artifact_ids')
     })
 
     it.each([
@@ -151,7 +236,7 @@ describe('taskTrackerSceneLogic', () => {
         [null, ''],
         ['/tasks/another-task', ''],
         ['/tasks/another-task', 'A different task'],
-        ['/activity/explore', ''],
+        ['/activity/events', ''],
     ] as const)(
         'handles a startup stop and draft when navigating to %s with a new draft=%s',
         async (destination, newDraft) => {
@@ -259,7 +344,10 @@ describe('taskTrackerSceneLogic', () => {
             })
             logic.mount()
             router.actions.push('/tasks/new')
-            logic.actions.setNewTaskData({ description: 'Explain the example chart' })
+            logic.actions.setNewTaskData({
+                description: 'Explain the example chart',
+                seedContextItems: [{ type: 'skill', key: 'example-skill' }],
+            })
             logic.actions.submitNewTask()
             const streamKey = logic.values.activeCreation!.streamKey
             expect(runStreamLogic({ streamKey }).values.streamPhase).toBe('provisioning')
@@ -284,6 +372,7 @@ describe('taskTrackerSceneLogic', () => {
             expect(logic.values.newTaskData.description).toBe(
                 'Explain the example chart\n\nInclude a weekly comparison\n\nAlso include a chart'
             )
+            expect(logic.values.newTaskData.seedContextItems).toEqual([{ type: 'skill', key: 'example-skill' }])
             expect(logic.values.isSubmittingTask).toBe(false)
             expect(router.values.location.pathname).toContain('/tasks/new')
             expect(toolEvents.values.applyBackTargetClaims[streamKey]).toBeUndefined()
@@ -320,6 +409,24 @@ describe('taskTrackerSceneLogic', () => {
             { targetId: 'insight-1:activation-1', tools: ['create_insight'] },
         ])
         expect(router.values.location.pathname).toContain('/tasks/new-task')
+    })
+
+    // The backend strips `pending_user_message` and echoes the stripped text. An optimistic bubble that keeps
+    // the trailing whitespace never matches that echo, so the first message rendered twice.
+    it('sends and echoes the first message without surrounding whitespace', async () => {
+        logic.mount()
+        logic.actions.setNewTaskData({ description: '  do the thing \n' })
+        logic.actions.submitNewTask()
+        const streamKey = logic.values.activeCreation!.streamKey
+        expect(runStreamLogic({ streamKey }).values.threadItems).toEqual([
+            expect.objectContaining({ type: 'human_message', text: 'do the thing' }),
+        ])
+
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(createBody).toMatchObject({ description: 'do the thing' })
+        expect(runBody).toMatchObject({ pending_user_message: 'do the thing' })
+        expect(logic.values.newTaskData.description).toBe('')
     })
 
     // A warm sandbox is adopted inside `tasks/create`, which returns the activated Run as `latest_run`.
@@ -456,24 +563,44 @@ describe('taskTrackerSceneLogic', () => {
     // The seeded first message wraps the on-screen context, and the wrapped non-text refs must be marked
     // sent under the created task's id — otherwise the run's first follow-up (sent via
     // `runInteractionLogic`, which prunes against the task-scoped store) re-wraps the same refs.
-    it('marks seeded context sent for the created task so the first follow-up will not re-wrap it', async () => {
-        logic.mount()
-        attachedContextLogic().actions.registerContext('scene', [
-            { type: 'insight', key: 'sig', label: 'Signups' },
-            { type: 'text', value: 'always resend me' },
-        ])
+    it.each(['scene', 'seed', 'both'])(
+        'marks %s context sent for the created task without adding it to later sends',
+        async (source) => {
+            logic.mount()
+            const contextItems = [
+                { type: 'insight', key: 'sig', label: 'Signups' },
+                { type: 'text', value: 'always resend me' },
+            ]
+            if (source !== 'seed') {
+                attachedContextLogic().actions.registerContext(
+                    'scene',
+                    source === 'both' ? [{ type: 'insight', key: 'scene-sig', label: 'Scene signups' }] : contextItems
+                )
+            }
+            if (source === 'scene') {
+                logic.actions.setNewTaskData({ description: 'why the drop?' })
+                logic.actions.submitNewTask()
+            } else {
+                composerSeedLogic().actions.setSeed({ prompt: 'why the drop?', autoSubmit: true, contextItems })
+            }
 
-        logic.actions.setNewTaskData({ description: 'why the drop?' })
-        logic.actions.submitNewTask()
-        await expectLogic(logic).toFinishAllListeners()
+            await expectLogic(logic).toFinishAllListeners()
 
-        // The message sent to the agent is wrapped; the task description stays raw.
-        expect(runBody?.pending_user_message).toContain('<posthog_untrusted_context>')
-        expect(runBody?.pending_user_message).toContain('- insight sig ("Signups")')
-        expect(createBody?.description).toBe('why the drop?')
-        // Only the entity ref is marked sent (text items always resend), under the created task's id.
-        expect(attachedContextLogic().values.sentContextKeysByTask).toEqual({ 'new-task': ['insight:sig'] })
-    })
+            expect(runBody?.pending_user_message).toContain('<posthog_untrusted_context>')
+            expect(runBody?.pending_user_message).toContain('- insight sig ("Signups")')
+            expect(runBody?.pending_user_message).toContain(
+                source === 'both' ? '- insight scene-sig ("Scene signups")' : '- insight sig ("Signups")'
+            )
+            expect(createBody?.description).toBe('why the drop?')
+            expect(attachedContextLogic().values.sentContextKeysByTask).toEqual({
+                'new-task': source === 'both' ? ['insight:scene-sig', 'insight:sig'] : ['insight:sig'],
+            })
+            expect(logic.values.newTaskData.seedContextItems).toBeUndefined()
+            expect(attachedContextLogic().values.contextItems).toHaveLength(
+                source === 'seed' ? 0 : source === 'both' ? 1 : 2
+            )
+        }
+    )
 
     // The tasks backend has no server-side consent check (unlike the conversations coordinator), so a
     // send must be blocked client-side before it ever reaches `api.tasks.create` — otherwise a sandbox
@@ -588,7 +715,7 @@ describe('taskTrackerSceneLogic', () => {
     })
 
     // The side panel shares this logic, so a hidden picker can still hold a remembered repo. It must not reach the requests.
-    it('keeps a hidden repository out of the warm and create requests', async () => {
+    it.each(['global', 'runner'])('keeps a repository hidden by a %s override out of requests', async (scope) => {
         useMocks({
             get: {
                 '/api/projects/:team/integrations/': {
@@ -598,7 +725,10 @@ describe('taskTrackerSceneLogic', () => {
         })
         const overrides = composerOverrideLogic()
         overrides.mount()
-        overrides.actions.registerComposerOverride('new-workflow', { hideRepositorySelector: true })
+        overrides.actions.registerComposerOverride('new-workflow', { hideRepositorySelector: scope === 'global' })
+        if (scope === 'runner') {
+            logic = taskTrackerSceneLogic({ panelId: 'btw', composerOverride: { hideRepositorySelector: true } })
+        }
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
         logic.actions.setNewTaskData({ repositoryConfig: { integrationId: 7, repository: 'acme/widgets' } })
@@ -615,11 +745,40 @@ describe('taskTrackerSceneLogic', () => {
         overrides.unmount()
     })
 
+    it('keeps runner composer settings independent of scene overrides', () => {
+        const overrides = composerOverrideLogic()
+        const headlines = welcomeOverrideLogic()
+        overrides.mount()
+        headlines.mount()
+        overrides.actions.registerComposerOverride('scene', { placeholder: 'Edit this notebook' })
+        headlines.actions.registerHeadlines('scene', ['Make changes'])
+        logic.mount()
+        const panel = taskTrackerSceneLogic({
+            panelId: 'btw',
+            composerOverride: { placeholder: 'Ask a side question...', hideRepositorySelector: true },
+            welcomeHeadlines: ['What would you like to know?'],
+        })
+        panel.mount()
+
+        expect(panel.values.effectiveComposerOverride).toEqual({
+            placeholder: 'Ask a side question...',
+            hideRepositorySelector: true,
+        })
+        expect(panel.values.displayHeadline).toBe('What would you like to know?')
+        expect(logic.values.effectiveComposerOverride).toEqual({ placeholder: 'Edit this notebook' })
+        expect(logic.values.displayHeadline).toBe('Make changes')
+
+        panel.unmount()
+        expect(logic.values.effectiveComposerOverride).toEqual({ placeholder: 'Edit this notebook' })
+        headlines.unmount()
+        overrides.unmount()
+    })
+
     // An embedded instance (e.g. Max's side panel runner) keeps the run in place instead of navigating the
     // host to `/tasks/:id`, and must never have its `activeCreation` cleared by unrelated main-app
     // navigation. Guards against either guard (`props.panelId` in `submitNewTask` / `urlToAction`) being
     // dropped, which would yank the host to the tasks scene or silently drop the panel's in-flight run.
-    it.each(['/tasks/some-other-task', '/activity/explore'])(
+    it.each(['/tasks/some-other-task', '/activity/events'])(
         'keeps an embedded creation in place after navigation to %s',
         async (destination) => {
             const panelLogic = taskTrackerSceneLogic({ panelId: 'test-panel' })
@@ -661,6 +820,7 @@ describe('taskTrackerSceneLogic', () => {
                     error_message: null,
                     output: null,
                     task_summary: null,
+                    task_tags: [],
                     state: {},
                     artifacts: [],
                     created_at: '2026-01-01T00:00:00Z',
@@ -691,7 +851,7 @@ describe('taskTrackerSceneLogic', () => {
         expect(router.values.location.pathname).toContain(expectedPath ?? initialPath)
     })
 
-    it.each([null, '/activity/explore'])('keeps a URL prompt attached until navigation to %s', async (destination) => {
+    it.each([null, '/activity/events'])('keeps a URL prompt attached until navigation to %s', async (destination) => {
         let finishCreation!: (response: [number, Record<string, unknown>]) => void
         const creation = new Promise<[number, Record<string, unknown>]>((resolve) => {
             finishCreation = resolve
@@ -755,15 +915,31 @@ describe('taskTrackerSceneLogic', () => {
     it('picks up a seed set before mount and prefills without submitting when autoSubmit is false', async () => {
         const seedLogic = composerSeedLogic()
         seedLogic.mount()
-        seedLogic.actions.setSeed({ prompt: 'analyze churn', autoSubmit: false })
+        const contextItems = [{ type: 'skill', key: 'example-skill' }]
+        seedLogic.actions.setSeed({ prompt: 'analyze churn', autoSubmit: false, contextItems })
 
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.newTaskData.description).toBe('analyze churn')
+        expect(logic.values.newTaskData.seedContextItems).toEqual(contextItems)
         expect(seedLogic.values.seed).toBeNull()
         // No submit: submitting opens an optimistic activeCreation, prefill-only leaves it null.
         expect(logic.values.activeCreation).toBeNull()
+
+        seedLogic.actions.setSeed({ prompt: 'unrelated request', autoSubmit: false })
+        expect(logic.values.newTaskData.seedContextItems).toBeUndefined()
+
+        seedLogic.actions.setSeed({ prompt: 'analyze churn', autoSubmit: false, contextItems })
+        logic.actions.setNewTaskData({ description: 'different request' })
+        expect(logic.values.newTaskData.seedContextItems).toBeUndefined()
+
+        seedLogic.actions.setSeed({ prompt: 'analyze churn', autoSubmit: false, contextItems })
+        logic.actions.setNewTaskData({ description: 'analyze churn' })
+        expect(logic.values.newTaskData.seedContextItems).toEqual(contextItems)
+        logic.unmount()
+        logic.mount()
+        expect(logic.values.newTaskData.seedContextItems).toBeUndefined()
 
         seedLogic.unmount()
     })

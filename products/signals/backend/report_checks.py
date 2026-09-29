@@ -9,11 +9,13 @@ The soak window is the check's own clock. A fix does not always arrive as a merg
 plenty land in the skills store with nothing to date the window from — so the author says when the
 check runs rather than the system reading it off a merge.
 
-An author who writes the check *before* the fix exists has no date to name at all. The research
-turn is the case: it writes its check while the report is still being authored. Such a check names
-a soak duration instead and is stored `pending`, and the report's own transition to `resolved`
-starts its clock — whatever caused the transition, a merged pull request, a manual resolve, or an
-MCP state write. See ``CheckSpec`` and ``report_check_authoring.arm_pending_checks``.
+A check on a report that has not resolved cannot name a useful date, because the fix it tests is
+not live yet. The research turn is the clearest case: it writes its check while the report is still
+being authored, so it names a soak duration instead. Such a check is stored `pending`, and the
+report's own transition to `resolved` starts its clock — whatever caused the transition, a merged
+pull request, a manual resolve, or an MCP state write. A scout that names a date on an open report
+gets the same treatment, with the gap it left as the soak. See ``CheckSpec`` and
+``report_check_authoring.arm_pending_checks``.
 
 This module stays Django-free and schema-free for the same reason as ``report_metrics``: model and
 Temporal payload modules import it during process setup.
@@ -22,14 +24,16 @@ Temporal payload modules import it during process setup.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from products.signals.backend.report_metrics import validate_live_metric_query, validate_metric_id
 
-CheckOutcome = Literal["passed", "failed", "errored"]
+CheckOutcome = Literal["passed", "failed", "errored", "inconclusive"]
+# Why an `inconclusive` verdict could not settle the claim. Only `awaiting_data` keeps the check open.
+CheckInconclusiveReason = Literal["awaiting_data", "unmeasurable", "needs_manual_verification", "no_fix_to_measure"]
 CheckOperator = Literal["lte", "gte", "between"]
 
 MAX_ACTIVE_CHECKS_PER_REPORT = 5
@@ -62,6 +66,10 @@ DEFAULT_CHECK_EXPIRY_AFTER_LAST_RUN = timedelta(days=30)
 # A check whose query keeps failing is misconfigured, not unlucky. Three errored runs retire it so a
 # broken lane stops costing a query per tick.
 MAX_CONSECUTIVE_CHECK_ERRORS = 3
+# How long an `awaiting_data` check waits before each look again. The list is short, because a check
+# on a surface with almost no traffic can wait forever. After the last wait, the next
+# `awaiting_data` verdict ends the check as `inconclusive`.
+AWAITING_DATA_RETRY_WAITS = (timedelta(hours=24), timedelta(hours=72), timedelta(days=7))
 
 
 class CheckThresholdBounds(BaseModel):
@@ -253,6 +261,16 @@ class AgentCheckConfig(BaseModel):
         if any(len(hint) > MAX_CHECK_PROBE_HINT_LENGTH for hint in hints):
             raise ValueError(f"a probe hint must be at most {MAX_CHECK_PROBE_HINT_LENGTH} characters")
         return hints
+
+
+def soak_minutes_from_gap(next_run_at: datetime, since: datetime) -> int:
+    """The soak a dated check keeps while its report has not resolved.
+
+    The author left a gap before the first run to allow for deploy and soak time, so that gap is
+    what the check waits out once the report resolves, bounded by what a soak may be.
+    """
+    minutes = round((next_run_at - since).total_seconds() / 60)
+    return max(MIN_CHECK_SOAK_HOURS * 60, min(minutes, MAX_CHECK_SOAK_HOURS * 60))
 
 
 CHECK_CONFIG_SCHEMAS: Mapping[str, type[BaseModel]] = {

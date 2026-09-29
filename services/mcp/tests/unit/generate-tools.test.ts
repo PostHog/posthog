@@ -98,6 +98,32 @@ describe('composeToolSchema', () => {
         expect(result.toolInputsImports).toEqual([])
     })
 
+    it('requires a PATCH field without removing its Orval description', () => {
+        const config: ToolConfig = {
+            operation: 'things_partial_update',
+            enabled: true,
+            param_overrides: { destination: { required: true } },
+        }
+        const resolved = makeResolved({
+            method: 'PATCH',
+            operation: {
+                operationId: 'things_partial_update',
+                parameters: [],
+                requestBody: {
+                    content: {
+                        'application/json': {
+                            schema: { properties: { destination: { type: 'integer' } } },
+                        },
+                    },
+                },
+            },
+        })
+
+        const result = composeToolSchema(config, resolved, makeSpec(), stubGetQuerySchema)
+
+        expect(result.schemaExpr).toContain("ThingsPartialUpdateBody.shape['destination'].nonoptional()")
+    })
+
     it('collects toolInputsImports from param_overrides with input_schema', () => {
         const config: ToolConfig = {
             operation: 'things_create',
@@ -1340,6 +1366,35 @@ describe('system_prompt_hint flows into tool definitions', () => {
     })
 })
 
+describe('per-tool category in tool definitions', () => {
+    it.each([
+        { toolCategory: undefined, expected: 'AI observability' },
+        { toolCategory: 'Experiments', expected: 'Experiments' },
+    ])('uses $expected when the tool category is $toolCategory', ({ toolCategory, expected }) => {
+        const toolConfig: EnabledToolConfig = {
+            operation: 'llm_prompts_list',
+            enabled: true,
+            scopes: ['llm_prompt:read'],
+            annotations: { readOnly: true, destructive: false, idempotent: true },
+            ...(toolCategory ? { category: toolCategory } : {}),
+        }
+        const resolved: ResolvedOperation = {
+            method: 'GET',
+            path: '/api/environments/{project_id}/llm_prompts/',
+            operation: { operationId: 'llm_prompts_list', description: 'List prompts' },
+        }
+        const definitions = generateDefinitionsJson([
+            {
+                config: { category: 'AI observability', feature: 'llm_analytics', url_prefix: '/ai-observability', tools: {} },
+                enabledTools: [['llma-prompt-list', toolConfig, resolved]],
+                enabledWrappers: [],
+                yamlDir: '/tmp',
+            },
+        ]) as Record<string, { category?: string; feature?: string }>
+        expect(definitions['llma-prompt-list']).toMatchObject({ category: expected, feature: 'llm_analytics' })
+    })
+})
+
 describe('generateQueryWrapperFile with use_optimized_output', () => {
     const minimalQuerySchema = {
         definitions: {
@@ -1765,6 +1820,32 @@ describe('generateToolCode with informational response wrapping', () => {
         expect(result.code).toContain('"thing-references", "Use it only to identify relevant things.")')
         expect(result.needsWithInformationalResponse).toBe(true)
         expect(result.toolUtilsValueImports).toEqual(new Set(['omitResponseFields', 'withInformationalResponse']))
+    })
+})
+
+describe('generateToolCode with a text projection', () => {
+    it('projects outside the enrichment, so the projected fields can name `_posthogUrl`', () => {
+        const config: ToolConfig = {
+            operation: 'things_list',
+            enabled: true,
+            list: true,
+            enrich_url: '{id}',
+            response: { text_include: ['id', 'status', '_posthogUrl'] },
+        }
+
+        const result = generateToolCode(
+            'things-list',
+            config,
+            makeResolved(),
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+
+        expect(result.code).toContain('withTextProjection(await withPostHogUrl(context, {')
+        expect(result.code).toContain("}, '/things'), ['id', 'status', '_posthogUrl'])")
+        expect(result.toolUtilsValueImports).toEqual(new Set(['withTextProjection']))
     })
 })
 
