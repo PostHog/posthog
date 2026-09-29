@@ -1283,6 +1283,7 @@ class TestQueryRunner(BaseTest):
         }
         mock_cache_manager.lookup.return_value.entry = mock_entry
         mock_cache_manager.lookup.return_value.failure = None
+        mock_cache_manager.open_failure.return_value = None
         mock_query_cache_cls.return_value = mock_cache_manager
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
 
