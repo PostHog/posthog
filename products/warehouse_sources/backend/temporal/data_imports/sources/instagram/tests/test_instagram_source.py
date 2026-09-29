@@ -180,7 +180,7 @@ class TestInstagramSource:
         assert isinstance(media, ResumableSourceManager)
         assert media._data_class is InstagramResumeConfig
         # Each table checkpoints a URL built for its own edge, so the Redis slots differ.
-        assert media._key != comments._key
+        assert (media._key, media._field) != (comments._key, comments._field)
 
     # Each supported version's pin must reach the request layer verbatim, so a source pinned to
     # an older Graph API version keeps hitting its own path once v26.0 is the default.

@@ -831,8 +831,19 @@ class _Cursor:
 
 
 def _manager() -> ResumableSourceManager[_Cursor]:
-    inputs = cast(SourceInputs, SimpleNamespace(team_id=1, job_id="job-1", logger=MagicMock()))
+    inputs = cast(SourceInputs, SimpleNamespace(team_id=1, schema_id="schema-1", job_id="job-1", logger=MagicMock()))
     return ResumableSourceManager[_Cursor](inputs, _Cursor)
+
+
+def _empty_redis() -> MagicMock:
+    redis = MagicMock()
+    redis.hexists.return_value = False
+    redis.exists.return_value = 0
+    return redis
+
+
+def _committed_ids(redis: MagicMock) -> list[str]:
+    return [json.loads(call.kwargs["mapping"][""])["id"] for call in redis.pipeline.return_value.hset.call_args_list]
 
 
 def _table_source(manager: ResumableSourceManager[_Cursor], ids: list[str], stage_before_yield: bool):
@@ -924,7 +935,7 @@ class TestResumeCursorCommit:
     async def test_cursor_persisted_covers_exactly_the_staged_batches(
         self, stage_before_yield: bool, expected_committed: list[str]
     ) -> None:
-        redis = MagicMock()
+        redis = _empty_redis()
         manager = _manager()
         pipeline = _runnable_pipeline(manager, _table_source(manager, ["a", "b", "c"], stage_before_yield))
         shutdown = WorkerShuttingDownError("id", "type", "queue", 1, "workflow", "workflow_type")
@@ -935,11 +946,11 @@ class TestResumeCursorCommit:
         await _run_expecting(pipeline, redis, WorkerShuttingDownError)
 
         assert cast(AsyncMock, pipeline._process_batch).await_count == 2
-        assert [json.loads(call.args[1])["id"] for call in redis.set.call_args_list] == expected_committed
+        assert _committed_ids(redis) == expected_committed
 
     @pytest.mark.asyncio
     async def test_cursor_not_persisted_for_rows_the_batcher_still_holds(self) -> None:
-        redis = MagicMock()
+        redis = _empty_redis()
         manager = _manager()
 
         def items():
@@ -958,11 +969,11 @@ class TestResumeCursorCommit:
         await _run_expecting(pipeline, redis, WorkerShuttingDownError)
 
         cast(AsyncMock, pipeline._process_batch).assert_not_awaited()
-        redis.set.assert_not_called()
+        redis.pipeline.return_value.execute.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_rows_buffered_when_the_source_raises_are_staged_with_their_cursor(self) -> None:
-        redis = MagicMock()
+        redis = _empty_redis()
         manager = _manager()
 
         def items():
@@ -975,7 +986,7 @@ class TestResumeCursorCommit:
         await _run_expecting(pipeline, redis, RuntimeError)
 
         assert cast(AsyncMock, pipeline._process_batch).await_count == 1
-        assert [json.loads(call.args[1])["id"] for call in redis.set.call_args_list] == ["a"]
+        assert _committed_ids(redis) == ["a"]
 
 
 def _recording_producer(events: list[str] | None = None) -> PostgresProducer:
@@ -1059,7 +1070,7 @@ class TestFinalMarkerIsTheLastDataRow:
     async def _run(self, pipeline: PipelineV3, redis: MagicMock | None = None) -> None:
         with ExitStack() as stack:
             stack.enter_context(
-                patch.object(ResumableSourceManager, "_get_redis", lambda self: nullcontext(redis or MagicMock()))
+                patch.object(ResumableSourceManager, "_get_redis", lambda self: nullcontext(redis or _empty_redis()))
             )
             for name in (
                 "reset_rows_synced_if_needed",
@@ -1103,8 +1114,8 @@ class TestFinalMarkerIsTheLastDataRow:
         # repeated as the final marker.
         events: list[str] = []
         manager = _manager()
-        redis = MagicMock()
-        redis.set.side_effect = lambda *_a, **_k: events.append("commit")
+        redis = _empty_redis()
+        redis.pipeline.return_value.execute.side_effect = lambda *_a, **_k: events.append("commit")
         pipeline = self._staging_pipeline(["a", "b"], manager)
         pipeline._pg_producer = _recording_producer(events)
         producer = pipeline._pg_producer
@@ -1121,8 +1132,8 @@ class TestFinalMarkerIsTheLastDataRow:
         manager = _manager()
         if staged:
             manager.save_state(_Cursor("a"))
-        redis = MagicMock()
-        redis.set.side_effect = lambda *_a, **_k: events.append("commit")
+        redis = _empty_redis()
+        redis.pipeline.return_value.execute.side_effect = lambda *_a, **_k: events.append("commit")
         pipeline = _make_pipeline()
         pipeline._pg_producer = _recording_producer(events)
         pipeline._resumable_source_manager = manager

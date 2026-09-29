@@ -597,6 +597,11 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
             try:
                 if isinstance(new_source, ResumableSource):
                     resumable_source_manager = new_source.get_resumable_source_manager(source_inputs)
+                    # A reset rebuilds the table from the first row, so it must not continue an earlier
+                    # run's walk. V3 drops the unloaded batches of a failed full-refresh or append job,
+                    # so a cursor from that job can point past rows that never landed.
+                    if reset_pipeline or model.pipeline_version == ExternalDataJob.PipelineVersion.V3:
+                        await database_sync_to_async_pool(resumable_source_manager.discard_state_from_other_jobs)()
                     source_response = await database_sync_to_async_pool(new_source.source_for_pipeline)(
                         config, resumable_source_manager, source_inputs
                     )
@@ -982,6 +987,8 @@ async def _run(
 
         result = await pipeline.run()
         del pipeline
+        if resumable_source_manager is not None:
+            await database_sync_to_async_pool(resumable_source_manager.clear_all_state)()
         await logger.adebug("Finished running pipeline")
         return result
     except Exception as e:
