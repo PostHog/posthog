@@ -331,8 +331,10 @@ Late failure callbacks preserve results from generations that already completed 
 The worker ends the session after success or failure.
 The browser can close during generation and retrieve the result later without restoring a sandbox.
 Suggestions remain separate from the saved rubric until a person selects and saves them.
+Save includes checked suggestions. Add selected is optional; it moves them into the editable list before saving.
 Save rubric edits before generating suggestions; generation uses the saved criteria.
 Every save must retain the shared default criteria, which owners can edit or disable.
+Edits to shared defaults apply only to that scout. Custom criteria appear above the shared defaults in the editor.
 Revision checks protect concurrent saves, and each completion checks its generation identifier before updating the config.
 
 See `products/tasks/backend/logic/services/mts_example/` for a complete working example.
