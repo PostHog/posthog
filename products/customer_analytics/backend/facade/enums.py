@@ -1,11 +1,17 @@
-from enum import Enum
+from enum import StrEnum
 
 from django.db import models
 
 
-class AccountPropertyPinKind(str, Enum):
+class AccountPropertyPinKind(StrEnum):
     CUSTOM_PROPERTY = "custom_property"
     RELATIONSHIP = "relationship"
+
+
+ACCOUNT_PROPERTY_PIN_KIND_CHOICES: tuple[tuple[str, str], ...] = (
+    (AccountPropertyPinKind.CUSTOM_PROPERTY.value, "Custom property"),
+    (AccountPropertyPinKind.RELATIONSHIP.value, "Relationship"),
+)
 
 
 class AccountViewVisibility(models.TextChoices):
@@ -57,4 +63,5 @@ __all__ = [
     "OwnershipRoleDiagnostic",
     "OwnershipRoleState",
     "TaskDigestCadence",
+    "ACCOUNT_PROPERTY_PIN_KIND_CHOICES",
 ]
