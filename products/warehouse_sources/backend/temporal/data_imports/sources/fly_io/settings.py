@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Any, Optional
 
 from posthog.dataclasses import frozen
 
@@ -14,6 +14,8 @@ class FlyIoFanoutConfig:
     path_params: dict[str, str]
     # Parent row field -> the column each child row carries it under.
     parent_fields: dict[str, str]
+    # Extra query params for the child request.
+    child_params: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -104,6 +106,9 @@ FLY_IO_ENDPOINTS: dict[str, FlyIoEndpointConfig] = {
             parent="machines",
             path_params={"app_name": "app_name", "machine_id": "id"},
             parent_fields={"app_name": "app_name", "id": "machine_id"},
+            # The endpoint returns 20 events when `limit` is omitted and caps at 50. It is not
+            # paginated, so 50 is the most history a sync can see for a machine.
+            child_params={"limit": 50},
         ),
     ),
     "machine_versions": FlyIoEndpointConfig(

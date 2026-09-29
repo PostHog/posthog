@@ -246,6 +246,22 @@ class TestFanout:
 
     @mock.patch(FLY_IO_SESSION_PATCH)
     @mock.patch(CLIENT_SESSION_PATCH)
+    def test_machine_events_asks_for_the_largest_window(self, MockClientSession, MockFlyIoSession) -> None:
+        # The endpoint returns 20 events when `limit` is omitted and caps at 50, and it is not
+        # paginated, so omitting the param silently drops the older events of a busy machine.
+        session = MockClientSession.return_value
+        MockFlyIoSession.return_value = session
+        snaps = _wire(
+            session,
+            [_response({"machines": [{"id": "m1", "app_name": "app1"}], "next_cursor": None}), _response([])],
+        )
+
+        _rows(fly_io_source("tok", "machine_events", "acme", team_id=1, job_id="j"))
+
+        assert snaps[1]["params"]["limit"] == 50
+
+    @mock.patch(FLY_IO_SESSION_PATCH)
+    @mock.patch(CLIENT_SESSION_PATCH)
     def test_null_child_body_yields_no_rows(self, MockClientSession, MockFlyIoSession) -> None:
         # Fly.io serializes an empty collection as `null` rather than `[]`; a machine with no events
         # must be an empty child, not a failed sync.

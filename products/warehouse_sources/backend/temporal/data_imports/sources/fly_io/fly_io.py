@@ -213,8 +213,11 @@ def _fanout_resources(config: FlyIoEndpointConfig, org_slug: str) -> list[Endpoi
         "endpoint": {
             "path": config.path,
             "params": {
-                placeholder: {"type": "resolve", "resource": fanout.parent, "field": parent_field}
-                for placeholder, parent_field in fanout.path_params.items()
+                **{
+                    placeholder: {"type": "resolve", "resource": fanout.parent, "field": parent_field}
+                    for placeholder, parent_field in fanout.path_params.items()
+                },
+                **fanout.child_params,
             },
             "paginator": SinglePagePaginator(),
             # These endpoints return a bare array, so no data selector applies. It stays unrequired
