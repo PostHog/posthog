@@ -237,6 +237,19 @@ class TestPgAnalyzeIssueRecordFetcher(ClickhouseTestMixin, BaseTest):
         assert self._sync(table) == ["issue_1"]
         assert self._sync(table) == []
 
+    def test_dispatch_keeps_idempotency_key_when_ledger_write_fails(self):
+        table = IssuesTable(["issue_1"])
+        records = self._fetch(table)
+        emit = AsyncMock()
+        with patch.object(SignalEmissionRecord.objects, "abulk_create", side_effect=RuntimeError("Ledger unavailable")):
+            with pytest.raises(RuntimeError, match="All 1 signal emissions failed"):
+                self._process(records, emit)
+
+        self._process(self._fetch(table), emit)
+
+        assert [call.kwargs["idempotency_key"] for call in emit.await_args_list] == ["issue_1", "issue_1"]
+        assert self._fetch(table) == []
+
     def test_non_actionable_issues_are_not_reprocessed(self):
         from products.signals.backend.emission.tests.test_emit_signals import _make_llm_response
 

@@ -526,6 +526,7 @@ async def _emit_signals(
                     description=output.description,
                     weight=output.weight,
                     extra=output.extra,
+                    idempotency_key=output.source_id if record_processed_outputs else None,
                 )
                 if record_processed_outputs:
                     await _record_processed_outputs(team, [output])
