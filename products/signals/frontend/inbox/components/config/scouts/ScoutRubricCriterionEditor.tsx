@@ -132,12 +132,12 @@ export function ScoutRubricCriterionEditor({
                                 },
                                 className: '!p-2',
                                 content: (
-                                    <div className="flex flex-col gap-1">
+                                    <div className="flex flex-col gap-3">
                                         <p className="mb-0 break-words text-sm">
                                             <strong>Passes when: </strong>
                                             <span>{criterion.pass_condition}</span>
                                         </p>
-                                        <p className="mb-0 break-words text-xs text-secondary">
+                                        <p className="mb-0 break-words text-sm">
                                             <strong>Applies: </strong>
                                             <span>{criterion.applicability}</span>
                                         </p>
