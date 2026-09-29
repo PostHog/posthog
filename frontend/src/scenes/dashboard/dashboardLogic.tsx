@@ -483,7 +483,7 @@ export interface dashboardLogicActions {
         layouts: Record<number, DashboardTile['layouts']>
     ) => {
         dashboard: DashboardType
-        layouts: Record<number, DashboardTile['layouts']>
+        layouts: Record<number, Record<string, never> | Record<DashboardLayoutSize, TileLayout> | undefined>
     }
     applyWidgetIssueMetadataChange: (payload: {
         context: WidgetIssueMetadataContext
@@ -3650,30 +3650,24 @@ export const dashboardLogic = kea<dashboardLogicType>([
                           }))
                       )
                   )
-                : null
+                : values.dashboardLayouts
             const layouts = tileLayoutsFromDashboard(dashboard)
-            if (preserveDraftLayouts) {
-                values.dashboard.tiles.forEach((tile) => {
-                    if (tile.id in layouts) {
-                        layouts[tile.id] = values.dashboardLayouts[tile.id]
-                    }
-                })
-            }
             const tiles = dashboard.tiles.map((tile) => {
                 const previousTile = previousTiles.get(tile.id)
-                if (previousTile && preserveDraftLayouts) {
-                    return { ...tile, layouts: previousTile.layouts }
-                }
                 const draftSm = previousTile?.layouts?.sm
                 const originalSm = originalLayouts?.[tile.id]?.sm
                 if (
                     draftSm &&
                     originalSm &&
+                    (preserveDraftLayouts || layoutsPersisted) &&
                     (draftSm.x !== originalSm.x ||
                         draftSm.y !== originalSm.y ||
                         draftSm.w !== originalSm.w ||
                         draftSm.h !== originalSm.h)
                 ) {
+                    if (preserveDraftLayouts) {
+                        layouts[tile.id] = values.dashboardLayouts[tile.id]
+                    }
                     return { ...tile, layouts: previousTile.layouts }
                 }
                 return tile
