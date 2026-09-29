@@ -154,24 +154,29 @@ export function ScoutRubricsModal({
                                 Changes to shared defaults apply only to this scout. Generate suggestions from its
                                 instructions and recent runs, or add your own criteria.
                             </p>
-                            <LemonButton
-                                type="secondary"
-                                icon={<IconSparkles />}
-                                onClick={confirmReplaceSuggestions}
-                                loading={generationSubmitting || generationActive}
-                                disabledReason={
-                                    generationActive
-                                        ? 'Suggestions are being generated'
-                                        : saving
-                                          ? 'Saving rubrics'
-                                          : hasUnsavedChanges
-                                            ? 'Save rubric changes before generating suggestions'
-                                            : undefined
-                                }
-                                data-attr="scout-rubrics-generate"
-                            >
-                                {generationActive ? 'Generating suggestions' : 'Generate suggestions'}
-                            </LemonButton>
+                            <div className="flex flex-col items-center gap-1">
+                                <LemonButton
+                                    type="secondary"
+                                    icon={<IconSparkles />}
+                                    onClick={confirmReplaceSuggestions}
+                                    loading={generationSubmitting || generationActive}
+                                    disabledReason={
+                                        generationActive
+                                            ? 'Suggestions are being generated'
+                                            : saving
+                                              ? 'Saving rubrics'
+                                              : hasUnsavedChanges
+                                                ? 'Save rubric changes before generating suggestions'
+                                                : undefined
+                                    }
+                                    data-attr="scout-rubrics-generate"
+                                >
+                                    {generationActive ? 'Generating suggestions' : 'Generate suggestions'}
+                                </LemonButton>
+                                {!generationActive && !generationSubmitting && (
+                                    <span className="text-xs text-secondary">Takes a few minutes</span>
+                                )}
+                            </div>
                         </div>
 
                         {generationActive && (

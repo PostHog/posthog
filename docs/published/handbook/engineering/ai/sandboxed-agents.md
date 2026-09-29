@@ -329,6 +329,7 @@ The follow-up is bounded to 240,000 serialized bytes; an oversized request fails
 Only the validated final suggestions are stored on the scout config; a failed generation preserves the saved rubric.
 Late failure callbacks preserve results from generations that already completed or failed.
 The worker ends the session after success or failure.
+A note below Generate suggestions says that generation takes a few minutes.
 The browser can close during generation and retrieve the result later without restoring a sandbox.
 Suggestions remain separate from the saved rubric until a person selects and saves them.
 Save includes checked suggestions and shows the number of new criteria it will add.
