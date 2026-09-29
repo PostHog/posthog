@@ -12,7 +12,7 @@ from dateutil.relativedelta import relativedelta
 from posthog.models.team import Team
 
 SELECTOR_ATTRIBUTE_REGEX = r"([a-zA-Z]*)\[(.*)=[\'|\"](.*)[\'|\"]\]"
-ATTRIBUTE_PAIR_REGEX = r"\[\s*([^\]\s=\"']+)\s*=\s*(['\"])((?:\\.|(?!\2).)*)\2\s*\]"
+ATTRIBUTE_PAIR_REGEX = r"\[\s*([^\]\s=\"']+)\s*=\s*(['\"])((?:\\.|(?!\\|\2).)*)\2\s*\]"
 
 
 LAST_UPDATED_TEAM_ACTION: dict[int, datetime.datetime] = {}

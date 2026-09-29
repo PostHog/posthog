@@ -129,7 +129,7 @@ def _chain_escaped_value(value: str) -> str:
 # regex has to name them in chain order to match.
 _UNPREFIXED_CHAIN_ATTRIBUTES = {"attr_id", "href", "text", "nth-child", "nth-of-type"}
 # A `;` inside a quoted value, like style="a: b; c: d", does not end the element.
-_WITHIN_ELEMENT = r'(?:[^;"]|"(?:\\.|[^"])*")*?'
+_WITHIN_ELEMENT = r'(?:[^;"]|"(?:\\.|[^"\\])*")*?'
 
 
 def _chain_attribute_order(key: str) -> str:
