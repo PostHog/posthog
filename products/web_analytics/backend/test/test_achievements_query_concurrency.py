@@ -87,7 +87,7 @@ class TestAchievementQueryConcurrency(SimpleTestCase):
             patch.object(evaluators, "execute_hogql_query") as execute,
         ):
             actions.filter.return_value.select_related.return_value.order_by.return_value.__getitem__.return_value = [
-                Mock()
+                Mock(id=1, steps_json=[])
             ]
             with self.assertRaises(ConcurrencyLimitExceeded):
                 evaluators.evaluate_conversions(self.ctx, self.prior)
