@@ -548,6 +548,7 @@ def test_execute_event_deletion_applies_hogql_predicate(cluster: ClickhouseClust
 
     cluster.any_host(partial(_insert_events_with_distinct_ids, chrome_events + firefox_events)).result()
     cluster.any_host(partial(_insert_person_distinct_id, team.id, "chrome-user", CHROME_PERSON_ID)).result()
+    cluster.any_host(partial(_insert_person_distinct_id, team.id, "firefox-user", uuid4())).result()
     assert cluster.any_host(partial(_count_events_by_name, team.id, "$pageview")).result() == 15
 
     deletion_ctx = DeletionRequestContext(

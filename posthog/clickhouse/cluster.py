@@ -964,8 +964,9 @@ class MutationRunner(abc.ABC):
         # cosmetic spacing differences between our formatting and what
         # `system.mutations.command` stored don't break the byte-equality match.
         # ClickHouse stores a table after FROM or JOIN qualified with the database, so both sides drop
-        # that prefix; string values such as 'posthog.com' stay intact. Dictionary names are strings
-        # ClickHouse does not qualify, so callers pass them as `db.dictionary`.
+        # that prefix. The pattern matches string literals first and writes them back unchanged, so a
+        # value such as 'FROM posthog.events' cannot make two different commands compare equal.
+        # Dictionary names are strings ClickHouse does not qualify, so callers pass them as `db.dictionary`.
         alter_prefix = f"ALTER TABLE {settings.CLICKHOUSE_DATABASE}.{self.table} "
         # Render each command's parameters here and bind the finished text as an ordinary parameter,
         # rather than interpolating the template into a $__sql$ heredoc and letting the driver
@@ -990,7 +991,7 @@ class MutationRunner(abc.ABC):
                                     replaceRegexpAll(
                                         replaceRegexpAll(
                                             replaceOne(formatQuerySingleLine(alter), %(__alter_prefix)s, ''),
-                                            %(__table_database_prefix)s, '\\1 '
+                                            %(__table_database_prefix)s, '\\1\\2'
                                         ),
                                         '[ \\t\\n]+', ' '
                                     )
@@ -1004,7 +1005,7 @@ class MutationRunner(abc.ABC):
             ) commands
             LEFT OUTER JOIN (
                 SELECT
-                    trim(BOTH ' ' FROM replaceRegexpAll(replaceRegexpAll(command, %(__table_database_prefix)s, '\\1 '), '[ \\t\\n]+', ' ')) as command,
+                    trim(BOTH ' ' FROM replaceRegexpAll(replaceRegexpAll(command, %(__table_database_prefix)s, '\\1\\2'), '[ \\t\\n]+', ' ')) as command,
                     argMax(mutation_id, create_time) as mutation_id  -- Get the most recent mutation for each command
                 FROM system.mutations
                 WHERE
@@ -1021,7 +1022,7 @@ class MutationRunner(abc.ABC):
                 "__database": settings.CLICKHOUSE_DATABASE,
                 "__table": self.table,
                 "__alter_prefix": alter_prefix,
-                "__table_database_prefix": rf"\b(FROM|JOIN) {re.escape(settings.CLICKHOUSE_DATABASE)}\.",
+                "__table_database_prefix": rf"('(?:[^'\\]|\\.)*')|\b(FROM |JOIN ){re.escape(settings.CLICKHOUSE_DATABASE)}\.",
                 "__since": since,
                 # self.parameters are already rendered into __command_*; passing them again would
                 # reintroduce the substitution this avoids.

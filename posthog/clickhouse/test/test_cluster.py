@@ -441,13 +441,13 @@ def test_find_existing_mutations_handles_database_qualified_subquery(cluster: Cl
         )
 
     # ClickHouse stores the bare subquery table as `<db>.person_distinct_id2`.
-    runner = _runner(f"{settings.CLICKHOUSE_DATABASE}.com")
+    runner = _runner(f"it's FROM {settings.CLICKHOUSE_DATABASE}.com")
     shard_mutations = cluster.map_one_host_per_shard(runner).result()
     wait_and_check_mutations_on_shards(cluster, shard_mutations)
     assert cluster.map_one_host_per_shard(runner).result() == shard_mutations
 
-    # Dropping the prefix from string values too would make this command match the one above.
-    existing = cluster.map_all_hosts(_runner("com").find_existing_mutations).result()
+    # Dropping the prefix inside string values too would make this command match the one above.
+    existing = cluster.map_all_hosts(_runner("it's FROM com").find_existing_mutations).result()
     assert all(not mutations for mutations in existing.values())
 
 
