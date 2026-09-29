@@ -1,8 +1,10 @@
-# Mobilehog release checks
+# posthog release checks
 
-Mobilehog lives in `products/desktop/apps/mobilehog`.
+The posthog mobile app lives in `products/desktop/apps/mobilehog`.
 Its bundle ID is `com.posthog.mobilehog`.
 The build workflows for `apps/mobile` target a different app.
+Build and install a new native binary to update the displayed app name to `posthog`.
+Keep the bundle ID and storage keys stable so updates preserve existing installations.
 
 ## Updates
 

@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "mobilehog",
+    "name": "posthog",
     "slug": "mobilehog",
     "owner": "posthog",
     "version": "0.1.0",
