@@ -29,16 +29,23 @@ ID_REPORT_LIMIT = 20
 # evaluate. See `uses_realtime_membership` in rust/feature-flags/src/cohorts/cohort_models.rs.
 REALTIME_GATED_COHORT_TYPES = (CohortType.REALTIME, CohortType.BEHAVIORAL)
 
+# The catchable signals that end a run without unwinding it. SIGTERM reaches the command when it
+# is the container's main process or is killed by hand. A run in a toolbox `kubectl exec` shell
+# never gets SIGTERM, because a pod stop signals only the main process, but a hangup of that
+# shell's terminal ends it with SIGHUP.
+UNWIND_SIGNALS = (signal.SIGTERM, signal.SIGHUP)
+
 
 @contextmanager
-def sigterm_unwinds() -> Iterator[bool]:
-    """Raise on SIGTERM instead of dying in place, when SIGTERM is this command's to take.
+def termination_unwinds() -> Iterator[bool]:
+    """Raise on SIGTERM and SIGHUP instead of dying in place, when they are this command's to take.
 
-    A pod roll otherwise kills the process between a team's cohort saves committing and its
+    Either signal otherwise kills the process between a team's cohort saves committing and its
     coalesced cache rebuild being enqueued, and nothing sweeps that back: the service-cache
     verifier does not compare cohorts, and a rerun finds nothing left to change. Unwinding lets
     the coalescing block dispatch the teams it has already recorded. `KeyboardInterrupt` because
-    the per-cohort `except Exception` must not swallow it.
+    the per-cohort `except Exception` must not swallow it. SIGKILL cannot be caught, so an
+    expired toolbox claim or an OOM kill still loses the rebuild of the team in progress.
 
     Yields whether the unwind is in place. The admin view runs the command inside a web worker,
     which owns its own shutdown, so the caller must not coalesce rebuilds it cannot flush there.
@@ -49,21 +56,27 @@ def sigterm_unwinds() -> Iterator[bool]:
         yield False
         return
 
-    if signal.getsignal(signal.SIGTERM) is not signal.SIG_DFL:
-        # Something else owns SIGTERM, a web worker serving the admin view for one. Taking it
+    dispositions = {signum: signal.getsignal(signum) for signum in UNWIND_SIGNALS}
+    if any(disposition not in (signal.SIG_DFL, signal.SIG_IGN) for disposition in dispositions.values()):
+        # Something else owns one of them, a web worker serving the admin view for one. Taking it
         # over would replace that shutdown path, and a handler installed outside Python reads
         # back as `None`, which cannot be restored afterwards.
         yield False
         return
 
     def raise_interrupt(signum: int, frame: FrameType | None) -> None:
-        raise KeyboardInterrupt("received SIGTERM")
+        raise KeyboardInterrupt(f"received {signal.Signals(signum).name}")
 
-    signal.signal(signal.SIGTERM, raise_interrupt)
+    # An ignored signal cannot end the run, so it stays ignored. `nohup` ignores SIGHUP, and a
+    # run started under it must survive the hangup it asked to survive.
+    taken = [signum for signum, disposition in dispositions.items() if disposition is signal.SIG_DFL]
+    for signum in taken:
+        signal.signal(signum, raise_interrupt)
     try:
         yield True
     finally:
-        signal.signal(signal.SIGTERM, signal.SIG_DFL)
+        for signum in taken:
+            signal.signal(signum, signal.SIG_DFL)
 
 
 def _summarize_ids(ids: list[int]) -> str:
@@ -181,7 +194,7 @@ class Command(BaseCommand):
         total_teams = teams_qs.count()
 
         # Process each team separately
-        with sigterm_unwinds() as coalesce_rebuilds:
+        with termination_unwinds() as coalesce_rebuilds:
             for team in teams_qs:
                 teams_processed += 1
                 logger.info(
@@ -375,7 +388,7 @@ class Command(BaseCommand):
         # Each save fires two whole-team flags-cache rebuilds, so the block coalesces them into one
         # dispatch per team. Scoping it to one team means that team reads a stale cache only while
         # its own cohorts are being resaved, rather than until the whole run finishes. Without the
-        # SIGTERM unwind nothing flushes the block on shutdown, so an unprotected run keeps the
+        # signal unwind nothing flushes the block on shutdown, so an unprotected run keeps the
         # per-save enqueues instead.
         rebuilds: AbstractContextManager[set[int]] = (
             coalesced_cohort_flags_cache_rebuilds() if coalesce_rebuilds else nullcontext(set())

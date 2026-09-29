@@ -15,13 +15,19 @@ from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
-from posthog.management.commands.resave_cohorts import StaleFlagsCacheError, sigterm_unwinds
+from posthog.management.commands.resave_cohorts import UNWIND_SIGNALS, StaleFlagsCacheError, termination_unwinds
 from posthog.models.team.team import Team
 from posthog.test.db_context_capturing import capture_db_queries
 
 from products.cohorts.backend.models.cohort import Cohort
 
 from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION
+
+
+def _default_unwind_signals(test: SimpleTestCase) -> None:
+    for signum in UNWIND_SIGNALS:
+        previous = signal.signal(signum, signal.SIG_DFL)
+        test.addCleanup(signal.signal, signum, previous if previous is not None else signal.SIG_DFL)
 
 
 def _has_condition_hash(obj: Any) -> bool:
@@ -549,10 +555,9 @@ class TestResaveCohortsCommandTwoTeams(BaseTest):
 class TestResaveCohortsCommandFlagsCacheRebuilds(BaseTest):
     def setUp(self) -> None:
         super().setUp()
-        # The command coalesces only when SIGTERM is unclaimed, which is the CLI case. Pin the
-        # disposition so the test runner's own does not decide which path runs.
-        previous = signal.signal(signal.SIGTERM, signal.SIG_DFL)
-        self.addCleanup(signal.signal, signal.SIGTERM, previous if previous is not None else signal.SIG_DFL)
+        # The command coalesces only when no other handler owns SIGTERM or SIGHUP, which is the CLI
+        # case. Pin the dispositions so the test runner's own do not decide which path runs.
+        _default_unwind_signals(self)
 
     def _seed_two_teams(self) -> tuple[Team, Team]:
         team_a: Team = self.team
@@ -602,27 +607,30 @@ class TestResaveCohortsCommandFlagsCacheRebuilds(BaseTest):
         assert str(team_a.id) in str(error.value)
 
 
-class TestSigtermUnwinds(SimpleTestCase):
+def _other_handler(signum: int, frame: object) -> None: ...
+
+
+class TestTerminationUnwinds(SimpleTestCase):
     def setUp(self) -> None:
         super().setUp()
-        previous = signal.signal(signal.SIGTERM, signal.SIG_DFL)
-        self.addCleanup(signal.signal, signal.SIGTERM, previous if previous is not None else signal.SIG_DFL)
+        _default_unwind_signals(self)
 
-    def test_sigterm_raises_inside_the_block_and_is_restored_after(self) -> None:
-        with sigterm_unwinds() as unwinds:
+    @parameterized.expand([("sigterm", signal.SIGTERM), ("sighup", signal.SIGHUP)])
+    def test_the_signal_raises_inside_the_block_and_is_restored_after(self, _name: str, signum: int) -> None:
+        with termination_unwinds() as unwinds:
             assert unwinds
-            handler = signal.getsignal(signal.SIGTERM)
+            handler = signal.getsignal(signum)
             assert callable(handler)
             with pytest.raises(KeyboardInterrupt):
-                handler(signal.SIGTERM, None)
+                handler(signum, None)
 
-        assert signal.getsignal(signal.SIGTERM) is signal.SIG_DFL
+        assert signal.getsignal(signum) is signal.SIG_DFL
 
     def test_off_the_main_thread_it_reports_no_unwind(self) -> None:
         unwinds: list[bool] = []
 
         def run() -> None:
-            with sigterm_unwinds() as unwind:
+            with termination_unwinds() as unwind:
                 unwinds.append(unwind)
 
         thread = threading.Thread(target=run)
@@ -630,18 +638,25 @@ class TestSigtermUnwinds(SimpleTestCase):
         thread.join()
 
         assert unwinds == [False]
-        assert signal.getsignal(signal.SIGTERM) is signal.SIG_DFL
+        assert all(signal.getsignal(signum) is signal.SIG_DFL for signum in UNWIND_SIGNALS)
 
-    def test_a_handler_someone_else_installed_is_left_in_place(self) -> None:
-        def other_handler(signum: int, frame: object) -> None: ...
+    @parameterized.expand(
+        [
+            ("sigterm_claimed", signal.SIGTERM, _other_handler, False),
+            ("sighup_claimed", signal.SIGHUP, _other_handler, False),
+            ("sighup_ignored_by_nohup", signal.SIGHUP, signal.SIG_IGN, True),
+        ]
+    )
+    def test_a_disposition_someone_else_set_is_left_in_place(
+        self, _name: str, signum: int, disposition: Any, expected_unwinds: bool
+    ) -> None:
+        signal.signal(signum, disposition)
 
-        signal.signal(signal.SIGTERM, other_handler)
+        with termination_unwinds() as unwinds:
+            assert unwinds is expected_unwinds
+            assert signal.getsignal(signum) is disposition
 
-        with sigterm_unwinds() as unwinds:
-            assert not unwinds
-            assert signal.getsignal(signal.SIGTERM) is other_handler
-
-        assert signal.getsignal(signal.SIGTERM) is other_handler
+        assert signal.getsignal(signum) is disposition
 
 
 class TestResaveCohortsCommandTeamSelection(BaseTest):
