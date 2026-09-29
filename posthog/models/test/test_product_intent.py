@@ -30,7 +30,7 @@ from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_analytics.backend.facade.models import Insight
 from products.surveys.backend.models import Survey
-from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
+from products.workflows.backend.facade.testing import create_workflow_for_test
 
 
 class TestProductIntent(BaseTest):
@@ -842,21 +842,21 @@ class TestProductIntent(BaseTest):
     def test_has_activated_workflows_with_active_workflow(self):
         self.product_intent.product_type = ProductKey.WORKFLOWS
         self.product_intent.save()
-        HogFlow.objects.create(team=self.team, name="Test workflow", status=HogFlow.State.ACTIVE)
+        create_workflow_for_test(team_id=self.team.id, name="Test workflow", status="active")
 
         assert self.product_intent.has_activated_workflows() is True
 
     def test_has_not_activated_workflows_with_draft_workflow_only(self):
         self.product_intent.product_type = ProductKey.WORKFLOWS
         self.product_intent.save()
-        HogFlow.objects.create(team=self.team, name="Test workflow", status=HogFlow.State.DRAFT)
+        create_workflow_for_test(team_id=self.team.id, name="Test workflow", status="draft")
 
         assert self.product_intent.has_activated_workflows() is False
 
     def test_has_not_activated_workflows_with_archived_workflow_only(self):
         self.product_intent.product_type = ProductKey.WORKFLOWS
         self.product_intent.save()
-        HogFlow.objects.create(team=self.team, name="Test workflow", status=HogFlow.State.ARCHIVED)
+        create_workflow_for_test(team_id=self.team.id, name="Test workflow", status="archived")
 
         assert self.product_intent.has_activated_workflows() is False
 

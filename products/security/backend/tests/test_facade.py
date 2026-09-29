@@ -5,7 +5,7 @@ from prometheus_client import REGISTRY
 
 from posthog.models import User
 
-from products.security.backend.facade.api import decide, is_email_code_exempt, shadow_check
+from products.security.backend.facade.api import decide, is_email_code_exempt, is_signup_risk_exempt, shadow_check
 from products.security.backend.facade.contracts import SubjectInput
 from products.security.backend.facade.enums import Outcome, Surface
 from products.security.backend.tests.helpers import block_rule, exempt_rule, seed_rules
@@ -38,6 +38,16 @@ class TestFacade(BaseTest):
         seed_rules(exempt_rule(targetValue="mfa@example.com"))
         assert is_email_code_exempt("MFA@example.com") is True
         assert is_email_code_exempt("other@example.com") is False
+
+    def test_signup_risk_exemption(self) -> None:
+        seed_rules(exempt_rule(targetValue="trusted@example.org", scope="signup_risk"))
+        assert is_signup_risk_exempt("Trusted@example.org") is True
+        assert is_email_code_exempt("trusted@example.org") is False
+        assert is_signup_risk_exempt("other@example.org") is False
+
+    def test_signup_risk_exemption_fails_closed(self) -> None:
+        with patch("products.security.backend.facade.api.current_snapshot", side_effect=RuntimeError("boom")):
+            assert is_signup_risk_exempt("trusted@example.org") is False
 
     def test_email_code_exemption_fails_closed(self) -> None:
         with patch("products.security.backend.facade.api.current_snapshot", side_effect=RuntimeError("boom")):

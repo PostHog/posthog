@@ -28,6 +28,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, RootModel, ValidationError, field_validator, model_validator
 
 from products.signals.backend.enums import ReportLinkKind, ReportPriority
+from products.signals.backend.report_checks import CheckInconclusiveReason, CheckOutcome
 from products.tasks.backend.facade.repo_selection_types import RepoSelectionResult
 
 # Product / type identifier parts must be routing-safe — mirrors the custom-agent identifier
@@ -934,12 +935,20 @@ class CheckResult(BaseModel):
     check_id: str = Field(description="UUID of the SignalReportCheck this run belongs to.")
     kind: str = Field(description="The check's kind, e.g. `metric_threshold`.")
     title: str = Field(description="The check's title, copied so the log entry reads on its own.")
-    outcome: Literal["passed", "failed", "errored"] = Field(
+    outcome: CheckOutcome = Field(
         description=(
-            "`passed` (the expectation held), `failed` (it did not), or `errored` (the check could not be measured)."
+            "`passed` (the expectation held), `failed` (it did not), `errored` (the check could not be measured), "
+            "or `inconclusive` (the run worked but could not settle the claim)."
         )
     )
     explanation: str = Field(description="One line saying what was measured and how it compared.")
+    reason: CheckInconclusiveReason | None = Field(
+        default=None,
+        description=(
+            "Why an `inconclusive` run could not settle the claim. Required on `inconclusive`, absent on any other "
+            "outcome."
+        ),
+    )
     observed_value: float | None = Field(default=None, description="The measured value; absent when the run errored.")
     baseline_value: float | None = Field(
         default=None, description="The value recorded when the check was written, when the author gave one."
@@ -956,6 +965,12 @@ class CheckResult(BaseModel):
         if not v.strip():
             raise ValueError("must not be empty or whitespace-only")
         return v
+
+    @model_validator(mode="after")
+    def reason_must_match_outcome(self) -> CheckResult:
+        if (self.outcome == "inconclusive") != (self.reason is not None):
+            raise ValueError("`reason` is required on an `inconclusive` result and refused on any other")
+        return self
 
 
 class CheckLifecycleEntry(BaseModel):

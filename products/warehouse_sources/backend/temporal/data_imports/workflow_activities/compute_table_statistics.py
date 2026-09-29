@@ -20,8 +20,8 @@ import json
 import uuid
 import dataclasses
 from collections.abc import Callable, Iterable
-from datetime import date, datetime, timedelta
-from decimal import Decimal
+from datetime import UTC, date, datetime, timedelta
+from decimal import Decimal, localcontext
 from typing import Any
 
 from django.conf import settings
@@ -160,8 +160,11 @@ def _aggregate_add_action_stats(add_actions: Any, columns: dict[str, Any]) -> tu
 
         mins = [v for v in data.get(min_key, []) if v is not None] if min_key in data else []
         maxs = [v for v in data.get(max_key, []) if v is not None] if max_key in data else []
-        min_value = str(min(mins)) if mins else None
-        max_value = str(max(maxs)) if maxs else None
+        # A source string column can carry a NUL (0x00) byte; min_value/max_value land in a Postgres
+        # text column, which rejects it outright. Stripping it is consistent with treating these
+        # bounds as approximate (delta-rs already truncates long strings here).
+        min_value = str(min(mins)).replace("\x00", "") if mins else None
+        max_value = str(max(maxs)).replace("\x00", "") if maxs else None
         has_min_max = bool(mins or maxs)
 
         result[name] = _ColumnStat(
@@ -268,6 +271,19 @@ class _UnparseableValue(Exception):
     """
 
 
+def _normalize_timestamp(delta_type: str, value: datetime) -> datetime:
+    """Give a Delta timestamp one offset shape per type, whatever shape its spelling carried.
+
+    A `timestamp` is a UTC instant and a `timestamp_ntz` is a wall clock, but writers disagree on
+    whether to spell the offset out: a commit log can carry a `timestamp` bound with no offset while
+    the stored bound came from the Add-action scan's UTC-aware value, or the reverse. The fold
+    compares the two, and comparing a naive datetime with an aware one raises TypeError.
+    """
+    if delta_type == "timestamp_ntz":
+        return value.replace(tzinfo=None)
+    return value.astimezone(UTC) if value.tzinfo is not None else value.replace(tzinfo=UTC)
+
+
 def _parse_stored_value(delta_type: Any, text: str) -> Any:
     """Parse a stored min/max back into the Python value `str()` produced from the Add-action scan.
 
@@ -291,7 +307,7 @@ def _parse_stored_value(delta_type: Any, text: str) -> Any:
         if delta_type == "date":
             return date.fromisoformat(text)
         if delta_type in ("timestamp", "timestamp_ntz"):
-            return datetime.fromisoformat(text)
+            return _normalize_timestamp(delta_type, datetime.fromisoformat(text))
         if delta_type.startswith("decimal("):
             return Decimal(text)
     except (ValueError, ArithmeticError):
@@ -323,10 +339,14 @@ def _parse_log_value(delta_type: Any, value: Any) -> Any:
         if delta_type == "date":
             return date.fromisoformat(value)
         if delta_type in ("timestamp", "timestamp_ntz"):
-            return datetime.fromisoformat(value)
+            return _normalize_timestamp(delta_type, datetime.fromisoformat(value))
         if delta_type.startswith("decimal("):
-            scale = int(delta_type[len("decimal(") : -1].split(",")[1])
-            return Decimal(value).quantize(Decimal(1).scaleb(-scale))
+            precision, scale = (int(p) for p in delta_type[len("decimal(") : -1].split(","))
+            # The default context (28 significant digits) is narrower than Delta allows (up to 38),
+            # so a value using the column's full precision would otherwise blow the context and
+            # raise a spurious InvalidOperation on quantize even though it fits the column's type.
+            with localcontext(prec=precision):
+                return Decimal(value).quantize(Decimal(1).scaleb(-scale))
     except (ValueError, ArithmeticError):
         raise _UnparseableValue(f"cannot parse log value as {delta_type}") from None
     raise TypeError(f"no log representation for {delta_type}")
