@@ -208,18 +208,6 @@ Each file documents the table's columns, types, nullability, and notable structu
 See [`models-flags-experiments.md`](https://github.com/PostHog/posthog/blob/master/products/posthog_ai/skills/querying-posthog-data/references/models-flags-experiments.md) for a good example.
 Register your new reference in [`products/posthog_ai/skills/querying-posthog-data/SKILL.md`](https://github.com/PostHog/posthog/blob/master/products/posthog_ai/skills/querying-posthog-data/SKILL.md) under **Data Schema**.
 
-## Tool failures and query reliability
-
-The AI tool invocation endpoint can return HTTP 200 with `success: false`. Check the tool outcome, not only the HTTP status. Failed results include an optional `error` object with a value-free `type`, stable `code`, and `retry_strategy` (`never`, `once`, or `adjusted`). The MCP server preserves these fields when it reports a failed call. Older backends without the object still produce a failed tool result.
-
-Recovery advice follows the original exception through query helper wrappers. Invalid input needs a corrected query; temporary capacity failures permit one unchanged retry. ClickHouse execution timeouts, estimated execution-time limits, query-size limits, and memory limits require a smaller or narrower query. Transport timeouts and cancelled PostgreSQL statements permit one unchanged retry. Unknown failures do not invite automatic retries. The server does not add a retry loop for tool-result failures.
-
-MCP analytics error fields contain the category and code, not the tool's free-text error message, which can contain caller data. Tool execution counts include `exec call` attempts rejected before dispatch when the target tool is known. `info` and `schema` requests remain discovery activity.
-
-The backend emits paired SLO lifecycle events for `mcp_execute_sql` and `mcp_read_data_schema` after authorization and argument validation. Their duration covers tool execution and result preparation. A handled validation or permission rejection completes the service operation successfully with `tool_success: false`; timeouts, capacity failures, memory limits, and unexpected errors fail the service operation. Use `tool_success` for the caller's outcome and `outcome` for service reliability.
-
-`MCP_QUERY_SLO_SAMPLE_RATE` defaults to 0.1 in production and 1.0 in tests. A single sampling decision preserves each start/completion pair. Weight sampled events by `1 / sample_rate`, treating an absent rate as 1. Match `correlation_id` when looking for missing completions, and exclude starts still within the execution deadline. Backend lifecycle events do not cover authentication or MCP dispatcher rejections; use MCP call events for those failures.
-
 ## Code generation pipeline
 
 The pipeline turns Django serializers into MCP tool handlers via OpenAPI.
