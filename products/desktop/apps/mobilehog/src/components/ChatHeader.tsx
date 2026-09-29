@@ -1,9 +1,8 @@
 import { useNavigation, useRouter } from "expo-router";
-import { StyleSheet, Text, View } from "react-native";
+import { StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { GlassCircleButton } from "@/components/Glass";
-import { MenuIcon } from "@/components/Icons";
-import { colors, fonts } from "@/lib/theme";
+import { MenuIcon, NewChatIcon } from "@/components/Icons";
 
 interface ChatHeaderProps {
   showNewChat?: boolean;
@@ -24,7 +23,7 @@ export function ChatHeader({ showNewChat = true }: ChatHeaderProps) {
       <View style={{ flex: 1 }} pointerEvents="none" />
       {showNewChat ? (
         <GlassCircleButton onPress={() => router.replace("/(drawer)")}>
-          <Text style={styles.plus}>+</Text>
+          <NewChatIcon />
         </GlassCircleButton>
       ) : null}
     </View>
@@ -41,12 +40,5 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 16,
-  },
-  plus: {
-    fontFamily: fonts.sans,
-    fontSize: 26,
-    lineHeight: 30,
-    color: colors.ink,
-    marginTop: -2,
   },
 });

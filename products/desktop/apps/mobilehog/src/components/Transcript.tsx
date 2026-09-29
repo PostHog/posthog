@@ -7,8 +7,10 @@ import {
   Text,
   View,
 } from "react-native";
+import Animated, { FadeIn } from "react-native-reanimated";
 import { Glass } from "@/components/Glass";
 import { Markdown } from "@/components/Markdown";
+import { ShimmerText } from "@/components/ShimmerText";
 import type { TaskSession } from "@/lib/session";
 import { colors, fonts, radius } from "@/lib/theme";
 import type { Block, PermissionRequest, ToolStatus } from "@/lib/transcript";
@@ -203,6 +205,31 @@ function useNow(enabled: boolean): number {
   return now;
 }
 
+// Fun stand-ins for "Working", rotated while a turn runs.
+const BUSY_WORDS = [
+  "Working",
+  "Thinking",
+  "Noodling",
+  "Rummaging",
+  "Sniffing around",
+  "Cooking",
+  "Poking at it",
+  "Hedgehogging",
+];
+
+function useBusyWord(enabled: boolean): string {
+  const [index, setIndex] = useState(0);
+  useEffect(() => {
+    if (!enabled) return;
+    const timer = setInterval(
+      () => setIndex((value) => (value + 1) % BUSY_WORDS.length),
+      5000,
+    );
+    return () => clearInterval(timer);
+  }, [enabled]);
+  return BUSY_WORDS[index] ?? "Working";
+}
+
 export function StatusLine({
   label,
   active,
@@ -216,6 +243,9 @@ export function StatusLine({
   open?: boolean;
   onPress?: () => void;
 }) {
+  const rotate = active && label === "Working";
+  const word = useBusyWord(rotate);
+  const shown = rotate ? word : label;
   return (
     <Pressable
       onPress={onPress}
@@ -225,7 +255,13 @@ export function StatusLine({
       {onPress ? (
         <Text style={[styles.chevron, open && styles.chevronOpen]}>›</Text>
       ) : null}
-      <Text style={styles.statusLabel}>{label}</Text>
+      {active ? (
+        <Animated.View key={shown} entering={FadeIn.duration(260)}>
+          <ShimmerText style={styles.statusLabel}>{shown}</ShimmerText>
+        </Animated.View>
+      ) : (
+        <Text style={styles.statusLabel}>{shown}</Text>
+      )}
       {active ? (
         <ActivityIndicator size="small" color={colors.inkMute} />
       ) : null}

@@ -27,12 +27,15 @@ export default function TaskScreen() {
     useSessions();
   const setModel = useComposer((s) => s.setModel);
   const scrollRef = useRef<ScrollView>(null);
-  // Follow the bottom only until the first transcript paints; after that the
-  // reader owns the scroll position, except when they send a message.
-  const didInitialScroll = useRef(false);
+  // The transcript replays in batches, so follow the bottom as content grows
+  // until the reader scrolls or sends; from then on they own the position.
+  const followBottom = useRef(true);
   const pendingScrollTo = useRef<string | null>(null);
   const [viewportHeight, setViewportHeight] = useState(0);
   const [composerHeight, setComposerHeight] = useState(0);
+  // Extra room below the transcript only while a sent message is pinned near
+  // the top; it goes away once the reply lands so idle chats have no gap.
+  const [pinRoom, setPinRoom] = useState(false);
   const topPadding = insets.top + 70;
 
   const runId = task.data?.latest_run?.id;
@@ -56,19 +59,18 @@ export default function TaskScreen() {
     !!session &&
     (session.runStatus === "queued" || session.runStatus === "not_started") &&
     !blocks?.some((block) => block.kind !== "user");
+
+  const turnActive = !!session?.turnActive;
   useEffect(() => {
-    if (blocks && blocks.length > 0 && !didInitialScroll.current) {
-      didInitialScroll.current = true;
-      requestAnimationFrame(() =>
-        scrollRef.current?.scrollToEnd({ animated: false }),
-      );
-    }
-  }, [blocks]);
+    if (!turnActive) setPinRoom(false);
+  }, [turnActive]);
 
   const send = async (text: string): Promise<void> => {
     // The bubble lays out before the request resolves, so pick the id first.
     const blockId = `local-${Date.now()}`;
     pendingScrollTo.current = blockId;
+    followBottom.current = false;
+    setPinRoom(true);
     await sendPrompt(id, text, blockId);
   };
 
@@ -95,10 +97,20 @@ export default function TaskScreen() {
             paddingTop: topPadding,
             // Clear the floating composer, and leave room to pin a fresh
             // message near the top of the screen.
-            paddingBottom: Math.max(composerHeight + 16, viewportHeight - 200),
+            paddingBottom: pinRoom
+              ? Math.max(composerHeight + 16, viewportHeight - 200)
+              : composerHeight + 16,
           },
         ]}
         keyboardDismissMode="interactive"
+        onScrollBeginDrag={() => {
+          followBottom.current = false;
+        }}
+        onContentSizeChange={() => {
+          if (followBottom.current) {
+            scrollRef.current?.scrollToEnd({ animated: false });
+          }
+        }}
       >
         {session ? (
           <Transcript
