@@ -1,8 +1,8 @@
 import json
 import time
 import asyncio
-from collections.abc import AsyncGenerator
-from typing import Optional
+from collections.abc import AsyncGenerator, Iterator
+from typing import TYPE_CHECKING, Optional
 
 from django.conf import settings
 
@@ -15,6 +15,9 @@ from products.tasks.backend.logic.services.connection_token import SANDBOX_EVENT
 from products.tasks.backend.logic.services.sandbox_config import SANDBOX_TTL_SECONDS
 from products.tasks.backend.metrics import observe_stream_write_skipped
 from products.tasks.backend.redis import get_tasks_stream_redis_async, get_tasks_stream_redis_sync
+
+if TYPE_CHECKING:
+    from redis.asyncio.client import Pipeline
 
 logger = structlog.get_logger(__name__)
 
@@ -116,6 +119,45 @@ class TaskRunStreamAlreadyCompleted(Exception):
     def __init__(self, *, last_accepted_seq: int):
         self.last_accepted_seq = last_accepted_seq
         super().__init__("Task run stream is already complete")
+
+
+def _decode_stream_messages(messages: list) -> Iterator[TaskRunStreamEntry]:
+    """Flatten an XREAD reply into (stream ID, parsed JSON) pairs."""
+    for _, stream_messages in messages:
+        for stream_id, message in stream_messages:
+            yield _normalize_stream_id(stream_id), json.loads(message.get(DATA_KEY, b""))
+
+
+def _is_complete_sentinel(data: dict) -> bool:
+    """Return True for a complete sentinel. Raise TaskRunStreamError for an error sentinel."""
+    status: str = data.get("status", "")
+    if status == "error":
+        raise TaskRunStreamError(data.get("error", "Unknown stream error"))
+    return status == "complete"
+
+
+def _check_next_sequence(sequence: int, last_sequence: int, *, completed: bool) -> bool:
+    """Return True if sequence is the next unseen sequence, False if it is a duplicate.
+
+    Raises when the stream is complete or when the sequence skips ahead.
+    """
+    if completed:
+        raise TaskRunStreamAlreadyCompleted(last_accepted_seq=last_sequence)
+    if sequence <= last_sequence:
+        return False
+    if sequence != last_sequence + 1:
+        raise TaskRunStreamSequenceGap(
+            expected_sequence=last_sequence + 1,
+            received_sequence=sequence,
+            last_accepted_seq=last_sequence,
+        )
+    return True
+
+
+def _sequenced_write_result(stream_id: str | None) -> TaskRunStreamWriteResult:
+    if stream_id is None:
+        return TASK_RUN_STREAM_WRITE_SKIPPED
+    return TaskRunStreamWriteResult(accepted=True, stream_id=stream_id)
 
 
 def get_task_run_stream_key(run_id: str) -> str:
@@ -299,45 +341,33 @@ class TaskRunRedisStream:
             if now - start_time > self._timeout:
                 raise TaskRunStreamError("Stream timeout — task run took too long")
 
-            try:
-                messages = await self._redis_client.xread(
-                    {self._stream_key: current_id},
-                    block=block_ms,
-                    count=count,
-                )
+            messages = await self._xread(current_id, block_ms=block_ms, count=count)
 
-                if not messages:
-                    now = asyncio.get_running_loop().time()
-                    if keepalive_interval_seconds is not None and now - last_yield_time >= keepalive_interval_seconds:
-                        last_yield_time = now
-                        yield None
-                    continue
+            if not messages:
+                now = asyncio.get_running_loop().time()
+                if keepalive_interval_seconds is not None and now - last_yield_time >= keepalive_interval_seconds:
+                    last_yield_time = now
+                    yield None
+                continue
 
-                for _, stream_messages in messages:
-                    for stream_id, message in stream_messages:
-                        normalized_stream_id = _normalize_stream_id(stream_id)
-                        current_id = normalized_stream_id
-                        raw = message.get(DATA_KEY, b"")
-                        data = json.loads(raw)
+            for stream_id, data in _decode_stream_messages(messages):
+                current_id = stream_id
+                if data.get("type") != "STREAM_STATUS":
+                    last_yield_time = asyncio.get_running_loop().time()
+                    yield stream_id, data
+                elif _is_complete_sentinel(data):
+                    return
 
-                        if data.get("type") == "STREAM_STATUS":
-                            status: str = data.get("status", "")
-                            if status == "complete":
-                                return
-                            elif status == "error":
-                                raise TaskRunStreamError(data.get("error", "Unknown stream error"))
-                        else:
-                            last_yield_time = asyncio.get_running_loop().time()
-                            yield normalized_stream_id, data
-
-            except (TaskRunStreamError, GeneratorExit):
-                raise
-            except redis_exceptions.ConnectionError:
-                raise TaskRunStreamError("Connection lost to task run stream")
-            except redis_exceptions.TimeoutError:
-                raise TaskRunStreamError("Stream read timeout")
-            except redis_exceptions.RedisError:
-                raise TaskRunStreamError("Stream read error")
+    async def _xread(self, current_id: str, *, block_ms: int, count: Optional[int]) -> list:
+        """Run XREAD and translate Redis failures into TaskRunStreamError."""
+        try:
+            return await self._redis_client.xread({self._stream_key: current_id}, block=block_ms, count=count)
+        except redis_exceptions.ConnectionError:
+            raise TaskRunStreamError("Connection lost to task run stream")
+        except redis_exceptions.TimeoutError:
+            raise TaskRunStreamError("Stream read timeout")
+        except redis_exceptions.RedisError:
+            raise TaskRunStreamError("Stream read error")
 
     def _maxlen_for_event(self, event: dict) -> int:
         if self._thin_tail and event.get("event_id"):
@@ -493,54 +523,49 @@ class TaskRunRedisStream:
         sequence_key = get_task_run_stream_sequence_key(self._stream_key)
         completed_key = get_task_run_stream_completed_key(self._stream_key)
         watched_key = get_task_run_stream_watched_key(self._stream_key)
-        pending_side_effect_key = (
-            get_task_run_stream_side_effect_pending_key(self._stream_key, pending_side_effect, sequence)
-            if pending_side_effect is not None
-            else None
-        )
+        watch_keys = [sequence_key, completed_key]
+        if self._presence_gated:
+            watch_keys.append(watched_key)
 
         while True:
             async with self._redis_client.pipeline(transaction=True) as pipe:
                 try:
-                    if self._presence_gated:
-                        await pipe.watch(sequence_key, completed_key, watched_key)
-                    else:
-                        await pipe.watch(sequence_key, completed_key)
-                    last_sequence_raw = await pipe.get(sequence_key)
-                    last_sequence = _normalize_redis_int(last_sequence_raw)
-                    if await pipe.exists(completed_key):
-                        raise TaskRunStreamAlreadyCompleted(last_accepted_seq=last_sequence)
-
-                    if sequence <= last_sequence:
+                    await pipe.watch(*watch_keys)
+                    last_sequence = _normalize_redis_int(await pipe.get(sequence_key))
+                    completed = bool(await pipe.exists(completed_key))
+                    if not _check_next_sequence(sequence, last_sequence, completed=completed):
                         return TASK_RUN_STREAM_WRITE_DUPLICATE
-
-                    if sequence != last_sequence + 1:
-                        raise TaskRunStreamSequenceGap(
-                            expected_sequence=last_sequence + 1,
-                            received_sequence=sequence,
-                            last_accepted_seq=last_sequence,
-                        )
 
                     mirror = not self._presence_gated or bool(await pipe.exists(watched_key))
 
                     pipe.multi()
-                    if mirror:
-                        pipe.xadd(
-                            self._stream_key,
-                            {DATA_KEY: json.dumps(event)},
-                            maxlen=self._maxlen_for_event(event),
-                            approximate=True,
-                        )
-                        pipe.expire(self._stream_key, self._timeout)
-                    pipe.set(sequence_key, sequence, ex=self._sequence_timeout)
-                    if pending_side_effect_key is not None:
-                        pipe.set(pending_side_effect_key, "1", ex=self._sequence_timeout)
+                    self._queue_sequenced_write(
+                        pipe, event, sequence, mirror=mirror, pending_side_effect=pending_side_effect
+                    )
                     results = await pipe.execute()
-                    if not mirror:
-                        return TASK_RUN_STREAM_WRITE_SKIPPED
-                    return TaskRunStreamWriteResult(accepted=True, stream_id=_normalize_stream_id(results[0]))
+                    return _sequenced_write_result(_normalize_stream_id(results[0]) if mirror else None)
                 except redis_exceptions.WatchError:
                     continue
+
+    def _queue_sequenced_write(
+        self, pipe: "Pipeline", event: dict, sequence: int, *, mirror: bool, pending_side_effect: str | None
+    ) -> None:
+        """Queue the stream write, the sequence advance, and the pending side effect on a MULTI pipeline.
+
+        When mirror is True, the XADD reply is the first result of the transaction.
+        """
+        if mirror:
+            pipe.xadd(
+                self._stream_key,
+                {DATA_KEY: json.dumps(event)},
+                maxlen=self._maxlen_for_event(event),
+                approximate=True,
+            )
+            pipe.expire(self._stream_key, self._timeout)
+        pipe.set(get_task_run_stream_sequence_key(self._stream_key), sequence, ex=self._sequence_timeout)
+        if pending_side_effect is not None:
+            pending_key = get_task_run_stream_side_effect_pending_key(self._stream_key, pending_side_effect, sequence)
+            pipe.set(pending_key, "1", ex=self._sequence_timeout)
 
     async def _write_event_with_sequence_for_tests(
         self, event: dict, sequence: int, pending_side_effect: str | None = None
@@ -550,19 +575,9 @@ class TaskRunRedisStream:
         completed_key = get_task_run_stream_completed_key(self._stream_key)
         watched_key = get_task_run_stream_watched_key(self._stream_key)
         last_sequence = await self.get_last_sequence()
-
-        if await self._redis_client.exists(completed_key):
-            raise TaskRunStreamAlreadyCompleted(last_accepted_seq=last_sequence)
-
-        if sequence <= last_sequence:
+        completed = bool(await self._redis_client.exists(completed_key))
+        if not _check_next_sequence(sequence, last_sequence, completed=completed):
             return TASK_RUN_STREAM_WRITE_DUPLICATE
-
-        if sequence != last_sequence + 1:
-            raise TaskRunStreamSequenceGap(
-                expected_sequence=last_sequence + 1,
-                received_sequence=sequence,
-                last_accepted_seq=last_sequence,
-            )
 
         mirror = not self._presence_gated or bool(await self._redis_client.exists(watched_key))
         stream_id = await self._xadd_event(event) if mirror else None
@@ -570,9 +585,7 @@ class TaskRunRedisStream:
         if pending_side_effect is not None:
             pending_key = get_task_run_stream_side_effect_pending_key(self._stream_key, pending_side_effect, sequence)
             await self._redis_client.set(pending_key, "1", ex=self._sequence_timeout)
-        if stream_id is None:
-            return TASK_RUN_STREAM_WRITE_SKIPPED
-        return TaskRunStreamWriteResult(accepted=True, stream_id=stream_id)
+        return _sequenced_write_result(stream_id)
 
     async def mark_complete(self) -> None:
         """Write a completion sentinel to signal end of stream."""
