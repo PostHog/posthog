@@ -57,8 +57,6 @@ Each class docstring carries its own reasoning.
 
 A scheme also answers `rejects_headers(headers)`, the part of the check that needs no body: `HmacSha256` refuses a missing or malformed signature header and a missing, malformed or stale timestamp header there, and `BearerJwt` refuses a request that carries no bearer token. The answer is the same INVALID the full check would reach, with the same status, log line and metric outcome, so an unauthenticated caller cannot make an endpoint read a body of up to the request limit for it. A scheme that cannot decide from headers alone answers `False`, which is what `SnsSignature` does, and so does an HMAC scheme whose secret is unset, so an unconfigured endpoint still answers NOT_CONFIGURED.
 
-For Standard Webhooks, use `signed_input="id_timestamp_body"` with `delivery_id_header` and `timestamp_header`, `encoding="base64"`, and `prefix="v1,"`. The signed bytes are `{delivery_id}.{timestamp}.{body}`. Pass the decoded signing key as bytes through `secret_getter`; string keys are UTF-8 encoded. The account-audit endpoint uses this scheme directly because it must return its admission result synchronously.
-
 Three duties fall on the incarnation rather than on `BearerJwt`, and none is enforced:
 
 - **Key discovery.** The scheme takes a `jwks_uri_getter`, so a provider that publishes its `jwks_uri` inside an OpenID metadata document fetches that document in the getter.

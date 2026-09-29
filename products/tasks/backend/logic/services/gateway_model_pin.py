@@ -19,6 +19,7 @@ _FIRST_PARTY_AGENT_MODELS: list[str] = list(
 
 PRODUCT_ALLOWED_MODELS: dict[str, list[str]] = {
     "posthog_ai": _FIRST_PARTY_AGENT_MODELS,
+    "onboarding": _FIRST_PARTY_AGENT_MODELS,
     "review_hog": _FIRST_PARTY_AGENT_MODELS,
     "slack_app": _FIRST_PARTY_AGENT_MODELS,
     "workflows": _FIRST_PARTY_AGENT_MODELS,

@@ -8,6 +8,7 @@ from django.db import models, transaction
 from django.db.models import Q
 
 from posthog.helpers.encrypted_fields import EncryptedTextField
+from posthog.models.scoping.manager import TeamScopedManager
 from posthog.models.utils import UpdatedMetaFields, UUIDModel
 
 from products.growth.backend.enrichment.icp_lists import clear_lists_cache
@@ -36,6 +37,8 @@ class AccountAuditAdmission(models.Model):
     )
     workflow_id = models.UUIDField(default=uuid4, unique=True, editable=False)
     created_at = models.DateTimeField(auto_now_add=True)
+
+    objects = TeamScopedManager()
 
     class Meta:
         constraints = [

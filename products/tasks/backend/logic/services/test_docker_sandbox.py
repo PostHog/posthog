@@ -306,6 +306,7 @@ class TestDockerSandboxUnit:
             template=SandboxTemplate.DEFAULT_BASE,
             environment_variables={
                 "POSTHOG_API_URL": "http://localhost:8000",
+                "AI_GATEWAY_URL": "http://127.0.0.1:8080",
                 "POSTHOG_PROJECT_ID": "1",
             },
         )
@@ -318,6 +319,7 @@ class TestDockerSandboxUnit:
 
         env_args = " ".join(docker_args)
         assert "POSTHOG_API_URL=http://host.docker.internal:8000" in env_args
+        assert "AI_GATEWAY_URL=http://host.docker.internal:8080" in env_args
         assert "POSTHOG_PROJECT_ID=1" in env_args
 
     @patch("products.tasks.backend.logic.services.docker_sandbox.subprocess.run")

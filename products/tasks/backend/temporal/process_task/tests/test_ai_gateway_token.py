@@ -1136,3 +1136,27 @@ class TestPosthogAiMint:
             post.return_value = response
             mint_scoped_token(ai_product="posthog_ai", team_id=2)
         assert post.call_args.kwargs["json"]["ttl_seconds"] == MAX_SANDBOX_TTL_SECONDS + 3600
+
+
+@pytest.mark.parametrize(
+    "origin,internal,mints",
+    [
+        ("onboarding_audit", True, True),
+        ("onboarding_audit", False, False),
+        ("onboarding", False, False),
+        ("onboarding", True, False),
+    ],
+)
+def test_onboarding_cost_routing_requires_server_provenance(
+    settings: Settings, origin: str, internal: bool, mints: bool
+) -> None:
+    settings.SANDBOX_AI_GATEWAY_URL = "https://ai-gateway.example.com"
+    settings.SANDBOX_AI_GATEWAY_PRODUCTS = "onboarding"
+    with patch("products.tasks.backend.temporal.process_task.utils.mint_scoped_token", return_value="phe_test") as mint:
+        env = ai_gateway_env_vars(
+            team_id=123, origin_product=origin, internal=internal, model="claude-sonnet-5", runtime="acp"
+        )
+    assert ("AI_GATEWAY_TOKEN" in env) is mints
+    assert mint.called is mints
+    if mints:
+        mint.assert_called_once_with(ai_product="onboarding", team_id=123, user=None)

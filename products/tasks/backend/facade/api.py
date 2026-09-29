@@ -7258,6 +7258,8 @@ def create_task(
             validated_data["github_user_integration"] = github_user_integration.integration
 
     if validated_data["origin_product"] == Task.OriginProduct.ONBOARDING_AUDIT:
+        validated_data["repository"] = None
+        validated_data["repositories"] = []
         validated_data.pop("github_integration", None)
         validated_data.pop("github_user_integration", None)
 

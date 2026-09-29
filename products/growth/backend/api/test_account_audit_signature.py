@@ -2,7 +2,7 @@ import time_machine
 
 from django.test import SimpleTestCase
 
-from products.growth.backend.api.account_audits import AccountAuditStartViewSet
+from products.growth.backend.presentation.views.account_audits import AccountAuditStartViewSet
 
 
 class TestAccountAuditSignature(SimpleTestCase):

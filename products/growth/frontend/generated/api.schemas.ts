@@ -21,7 +21,7 @@ export interface AccountAuditStartRequestApi {
      */
     reason: string
     /**
-     * Name of the single-file skill to load from project 2's skill store.
+     * Name of the single-file skill in the deployment's internal Growth project.
      * @maxLength 64
      */
     skill_name?: string

@@ -31,7 +31,7 @@ export const GrowthAccountAuditsStartCreateBody = /* @__PURE__ */ zod.object({
         .string()
         .max(growthAccountAuditsStartCreateBodySkillNameMax)
         .default(growthAccountAuditsStartCreateBodySkillNameDefault)
-        .describe("Name of the single-file skill to load from project 2's skill store."),
+        .describe("Name of the single-file skill in the deployment's internal Growth project."),
 })
 
 /**

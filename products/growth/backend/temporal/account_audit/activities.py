@@ -1,5 +1,10 @@
+import hashlib
 from typing import Any
+from uuid import UUID
 
+from django.conf import settings
+
+from asgiref.sync import async_to_sync
 from pydantic import BaseModel, Field
 from temporalio import activity
 
@@ -14,6 +19,8 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.notebooks.backend.facade import api as notebooks_facade
 from products.skills.backend.facade import api as skills_facade
 from products.tasks.backend.facade import api as tasks_facade
+from products.tasks.backend.facade.billing import get_task_run_cost
+from products.tasks.backend.facade.cancellation import cancel_task_run
 
 
 class AccountAuditOutput(BaseModel):
@@ -52,6 +59,7 @@ class AccountAuditTaskRunStatus:
     status: str
     terminal: bool
     notebook_short_id: str | None = None
+    cost_pending: bool = False
 
 
 def _notebook_short_id(output: dict[str, Any] | None) -> str | None:
@@ -94,16 +102,32 @@ def start_account_audit_activity(input: AccountAuditStartInput) -> str:
             raise RuntimeError("Existing account audit task is invalid")
         return str(existing.latest_run.id)
 
-    skill = skills_facade.get_skill_prompt(team_id=2, skill_name=input.skill_name)
+    skill = skills_facade.get_skill_prompt(
+        team_id=settings.GROWTH_ENRICHMENT_INTERNAL_TEAM_ID, skill_name=input.skill_name
+    )
     if skill is None or not skill.body.strip():
         raise RuntimeError("Account audit skill is unavailable")
+
+    notebook_short_id = hashlib.sha256(origin_key.encode()).hexdigest()[:12]
+    if notebooks_facade.get_notebook(team.id, notebook_short_id) is None:
+        async_to_sync(notebooks_facade.aupsert_notebook)(
+            team.id,
+            notebook_short_id,
+            title="Account audit",
+            content={"type": "doc", "content": []},
+            text_content="",
+            created_by_id=input.user_id,
+            last_modified_by_id=input.user_id,
+            creation_source="server",
+        )
 
     created = tasks_facade.create_and_run_task(
         team=team,
         title="Account audit",
         description=(
             f"{skill.body}\n\nAudit reason: {input.reason}\n\nThe audited project ID is {team.id}. "
-            "Use this project for every query and notebook. Create a notebook with PostHog MCP. "
+            f"Use this project for every query. Save the audit to the existing notebook {notebook_short_id} "
+            "with PostHog MCP, even if the skill asks you to create a notebook. "
             "Read the saved notebook before you return its short ID as notebook_short_id."
         ),
         origin_product=tasks_facade.TaskOriginProduct.ONBOARDING_AUDIT,
@@ -116,6 +140,7 @@ def start_account_audit_activity(input: AccountAuditStartInput) -> str:
         model="claude-sonnet-5",
         output_schema=AccountAuditOutput,
         extra_run_state={
+            "audit_notebook_short_id": notebook_short_id,
             "audit_reason": input.reason,
             "audit_skill_name": input.skill_name,
             "audit_skill_version": skill.version,
@@ -135,6 +160,8 @@ def get_account_audit_task_run_status_activity(input: TaskRunStatusInput) -> Acc
     return AccountAuditTaskRunStatus(
         status=run.status,
         terminal=run.is_terminal,
+        cost_pending=bool(run.state.get("unprocessed_request_ids"))
+        and not run.state.get("token_cost_incomplete", False),
         notebook_short_id=_notebook_short_id(run.output)
         if run.status == tasks_facade.TaskRunStatus.COMPLETED
         else None,
@@ -151,15 +178,14 @@ def finish_account_audit_activity(input: AccountAuditFinishInput) -> str:
         or run.task_origin_product != tasks_facade.TaskOriginProduct.ONBOARDING_AUDIT
         or run.created_by_id != input.user_id
         or _notebook_short_id(run.output) != input.notebook_short_id
+        or run.state.get("audit_notebook_short_id") != input.notebook_short_id
     ):
         raise RuntimeError("Account audit task output could not be verified")
 
     notebook = notebooks_facade.get_notebook(input.team_id, input.notebook_short_id)
     if (
         notebook is None
-        or run.created_at is None
         or notebook.created_by_id != input.user_id
-        or notebook.created_at < run.created_at
         or not any(
             line.strip() and not line.lstrip().startswith("#") for line in (notebook.text_content or "").splitlines()
         )
@@ -175,6 +201,7 @@ def finish_account_audit_activity(input: AccountAuditFinishInput) -> str:
     if team is None or user is None or not user.distinct_id or not team.organization.is_ai_data_processing_approved:
         raise RuntimeError("Account audit attribution or AI approval is unavailable")
 
+    cost = get_task_run_cost(run_id=UUID(input.task_run_id), team_id=input.team_id)
     notebook_url = absolute_uri(f"/project/{input.team_id}/notebooks/{notebook.short_id}")
     with ph_scoped_capture(region=get_instance_region() or "US", raise_on_error=True) as capture:
         capture(
@@ -186,6 +213,7 @@ def finish_account_audit_activity(input: AccountAuditFinishInput) -> str:
                 "notebook_url": notebook_url,
                 "reason": input.reason,
                 "skill_name": input.skill_name,
+                "token_cost": cost.token_cost,
                 "$insert_id": f"account-audit-finished-{input.task_run_id}",
             },
             groups=groups(team.organization, team),
@@ -193,7 +221,27 @@ def finish_account_audit_activity(input: AccountAuditFinishInput) -> str:
     return notebook_url
 
 
+@activity.defn
+@close_db_connections
+def cancel_account_audit_task_activity(input: AccountAuditStartInput) -> None:
+    task = tasks_facade.get_task_by_origin_key(input.team_id, input.origin_key)
+    if task is None or task.latest_run is None:
+        return
+    if task.origin_product != tasks_facade.TaskOriginProduct.ONBOARDING_AUDIT:
+        raise ValueError("Task is not an account audit")
+    outcome, _ = cancel_task_run(
+        task.latest_run.id,
+        task.id,
+        input.team_id,
+        reason="Account audit workflow stopped before completion",
+        source="account_audit",
+    )
+    if outcome == "unavailable":
+        raise RuntimeError("Could not cancel the account audit task")
+
+
 ACTIVITIES = [
+    cancel_account_audit_task_activity,
     start_account_audit_activity,
     get_account_audit_task_run_status_activity,
     finish_account_audit_activity,

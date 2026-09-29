@@ -5,10 +5,13 @@ from uuid import uuid4
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
+from parameterized import parameterized
 from temporalio import activity
+from temporalio.client import WorkflowFailureError
+from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
@@ -54,6 +57,9 @@ async def test_workflow_polls_until_the_task_creates_a_notebook() -> None:
     statuses = iter(
         [
             AccountAuditTaskRunStatus(status="in_progress", terminal=False),
+            AccountAuditTaskRunStatus(
+                status="completed", terminal=True, notebook_short_id="audit123", cost_pending=True
+            ),
             AccountAuditTaskRunStatus(status="completed", terminal=True, notebook_short_id="audit123"),
         ]
     )
@@ -97,6 +103,7 @@ async def test_workflow_polls_until_the_task_creates_a_notebook() -> None:
     assert origin_keys[0].startswith("growth-account-audit-org-1:")
 
 
+@override_settings(GROWTH_ENRICHMENT_INTERNAL_TEAM_ID=2)
 class TestStartAccountAuditActivity(SimpleTestCase):
     def test_starts_a_repo_less_task_with_only_audit_scopes(self) -> None:
         team = SimpleNamespace(id=4, organization=SimpleNamespace(is_ai_data_processing_approved=True))
@@ -128,6 +135,14 @@ class TestStartAccountAuditActivity(SimpleTestCase):
                 "products.growth.backend.temporal.account_audit.activities.tasks_facade.create_and_run_task",
                 return_value=created,
             ) as create_task,
+            patch(
+                "products.growth.backend.temporal.account_audit.activities.notebooks_facade.get_notebook",
+                return_value=None,
+            ),
+            patch(
+                "products.growth.backend.temporal.account_audit.activities.notebooks_facade.aupsert_notebook",
+                new_callable=AsyncMock,
+            ) as create_notebook,
         ):
             team_objects.select_related.return_value.filter.return_value.first.return_value = team
             user_objects.filter.return_value.first.return_value = user
@@ -150,7 +165,9 @@ class TestStartAccountAuditActivity(SimpleTestCase):
         assert create_task.call_args.kwargs["repository"] is None
         assert create_task.call_args.kwargs["create_pr"] is False
         assert "The audited project ID is 4." in create_task.call_args.kwargs["description"]
+        assert create_notebook.call_args.args[0] == 4
         assert create_task.call_args.kwargs["extra_run_state"] == {
+            "audit_notebook_short_id": create_notebook.call_args.args[1],
             "audit_reason": "testing",
             "audit_skill_name": "custom-audit",
             "audit_skill_version": 1,
@@ -211,6 +228,7 @@ class TestStartAccountAuditActivity(SimpleTestCase):
             task_origin_product="onboarding_audit",
             created_by_id=5,
             output={"notebook_short_id": "missing"},
+            state={"audit_notebook_short_id": "missing"},
             created_at=now,
         )
         with (
@@ -237,13 +255,15 @@ class TestStartAccountAuditActivity(SimpleTestCase):
 
         scoped_capture.assert_not_called()
 
-    def test_capture_requires_the_audit_run_and_a_new_notebook_with_content(self) -> None:
+    @parameterized.expand([(0,), (27,), (None,)])
+    def test_capture_requires_the_audit_notebook_and_includes_native_cost(self, token_cost: int | None) -> None:
         now = timezone.now()
         run = SimpleNamespace(
             status="completed",
             task_origin_product="onboarding_audit",
             created_by_id=5,
             output={"notebook_short_id": "audit123"},
+            state={"audit_notebook_short_id": "audit123"},
             created_at=now,
         )
         notebook = SimpleNamespace(
@@ -258,7 +278,7 @@ class TestStartAccountAuditActivity(SimpleTestCase):
             organization_id="org-1",
             team_id=4,
             user_id=5,
-            task_run_id="run-1",
+            task_run_id="00000000-0000-0000-0000-000000000001",
             notebook_short_id="audit123",
             reason="testing",
             skill_name="custom-audit",
@@ -274,6 +294,10 @@ class TestStartAccountAuditActivity(SimpleTestCase):
             ),
             patch("products.growth.backend.temporal.account_audit.activities.Team.objects") as team_objects,
             patch("products.growth.backend.temporal.account_audit.activities.User.objects") as user_objects,
+            patch(
+                "products.growth.backend.temporal.account_audit.activities.get_task_run_cost",
+                return_value=SimpleNamespace(token_cost=token_cost),
+            ),
             patch(
                 "products.growth.backend.temporal.account_audit.activities.absolute_uri",
                 return_value="https://us.posthog.com/project/4/notebooks/audit123",
@@ -297,10 +321,58 @@ class TestStartAccountAuditActivity(SimpleTestCase):
                 "notebook_url": result,
                 "reason": "testing",
                 "skill_name": "custom-audit",
-                "$insert_id": "account-audit-finished-run-1",
+                "$insert_id": "account-audit-finished-00000000-0000-0000-0000-000000000001",
+                "token_cost": token_cost,
             }
 
-            notebook.created_at = now - timedelta(seconds=1)
-            with self.assertRaisesRegex(RuntimeError, "notebook could not be verified"):
+            run.state["audit_notebook_short_id"] = "different-notebook"
+            with self.assertRaisesRegex(RuntimeError, "task output could not be verified"):
                 finish_account_audit_activity(input)
             capture.assert_called_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "task_status,notebook_id", [("failed", None), ("cancelled", None), ("completed", None), ("in_progress", None)]
+)
+async def test_failed_or_expired_audits_fail_and_cancel_the_task(
+    monkeypatch: pytest.MonkeyPatch, task_status: str, notebook_id: str | None
+) -> None:
+    monkeypatch.setattr("products.growth.backend.temporal.account_audit.workflow.TASK_TIMEOUT", timedelta(seconds=60))
+    cancelled: list[str] = []
+
+    @activity.defn(name="start_account_audit_activity")
+    async def start(_input: AccountAuditStartInput) -> str:
+        return "run-1"
+
+    @activity.defn(name="get_account_audit_task_run_status_activity")
+    async def status(_input: TaskRunStatusInput) -> AccountAuditTaskRunStatus:
+        return AccountAuditTaskRunStatus(
+            status=task_status, terminal=task_status != "in_progress", notebook_short_id=notebook_id
+        )
+
+    @activity.defn(name="cancel_account_audit_task_activity")
+    async def cancel(input: AccountAuditStartInput) -> None:
+        cancelled.append(input.origin_key)
+
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue="account-audit-failure-test",
+            workflows=[AccountAuditWorkflow],
+            activities=[start, status, cancel],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            with pytest.raises(WorkflowFailureError) as failure:
+                await env.client.execute_workflow(
+                    AccountAuditWorkflow.run,
+                    AccountAuditWorkflowInput(organization_id="org-1", team_id=4, user_id=5),
+                    id="audit-failure",
+                    task_queue="account-audit-failure-test",
+                    execution_timeout=timedelta(minutes=5),
+                )
+    assert isinstance(failure.value.cause, ApplicationError)
+    assert failure.value.cause.type == (
+        "AccountAuditTimedOut" if task_status == "in_progress" else "AccountAuditTaskFailed"
+    )
+    assert len(cancelled) == 1

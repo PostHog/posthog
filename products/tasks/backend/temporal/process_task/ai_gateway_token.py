@@ -74,6 +74,7 @@ _MAX_CAP_DECIMAL_PLACES = 6
 MINTABLE_PRODUCTS = frozenset(
     {
         "posthog_ai",
+        "onboarding",
         "review_hog",
         "slack_app",
         "signals_scout",
@@ -167,8 +168,11 @@ def mint_refusal(
     runtime: str | None,
     internal: bool = False,
     prior_slack_run: bool = False,
+    origin_product: str | None = None,
 ) -> str | None:
     """Why a routed run must not mint; a run without a token stays on the Python gateway."""
+    if ai_product == "onboarding" and (origin_product != "onboarding_audit" or not internal):
+        return "no_onboarding_provenance"
     if ai_product == "slack_app" and not has_slack_provenance(
         state, internal=internal, prior_slack_run=prior_slack_run
     ):

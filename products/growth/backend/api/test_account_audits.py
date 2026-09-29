@@ -16,6 +16,7 @@ from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.db import IntegrityError, transaction
 from django.db.models.deletion import ProtectedError
+from django.test import override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -25,11 +26,11 @@ from posthog.models import Team
 from posthog.models.file_system.file_system_view_log import FileSystemViewLog
 from posthog.models.user import User
 
-from products.growth.backend.api.account_audits import COOLDOWN, AccountAuditStartViewSet
+from products.growth.backend.account_audits import COOLDOWN, AccountAuditService
 from products.growth.backend.models import AccountAuditAdmission, AccountAuditCredential
-from products.workflows.backend.models import HogFlow
 
 
+@override_settings(GROWTH_ENRICHMENT_INTERNAL_TEAM_ID=2)
 class TestAccountAuditStartAPI(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -83,14 +84,14 @@ class TestAccountAuditStartAPI(APIBaseTest):
     def _request_patches(self):
         with (
             patch(
-                "products.growth.backend.api.account_audits.AccountAuditStartViewSet._credential_is_eligible",
+                "products.growth.backend.account_audits.AccountAuditService._credential_is_eligible",
                 return_value=True,
             ) as eligible,
             patch(
-                "products.growth.backend.api.account_audits.resolve_audit_actor_for_team", return_value=self.user.id
+                "products.growth.backend.account_audits.resolve_audit_actor_for_team", return_value=self.user.id
             ) as actor,
-            patch("products.growth.backend.api.account_audits.get_skill_prompt", return_value=MagicMock()) as skill,
-            patch("products.growth.backend.api.account_audits.async_to_sync", return_value=MagicMock()) as dispatch,
+            patch("products.growth.backend.account_audits.get_skill_prompt", return_value=MagicMock()) as skill,
+            patch("products.growth.backend.account_audits.async_to_sync", return_value=MagicMock()) as dispatch,
         ):
             yield eligible, actor, skill, dispatch
 
@@ -107,7 +108,7 @@ class TestAccountAuditStartAPI(APIBaseTest):
 
         self.assertEqual(first.status_code, 202)
         self.assertEqual(second.status_code, 202)
-        admission = AccountAuditAdmission.objects.get(credential=self.credential)
+        admission = AccountAuditAdmission.objects.unscoped().get(credential=self.credential)
         self.assertEqual(first.json(), {"workflow_id": str(admission.workflow_id), "team_id": self.team.id})
         self.assertEqual(second.json(), {"workflow_id": str(admission.workflow_id), "team_id": self.team.id})
         self.assertEqual(dispatch.return_value.call_count, 2)
@@ -191,7 +192,7 @@ class TestAccountAuditStartAPI(APIBaseTest):
         skill.assert_called_once_with(team_id=2, skill_name="activation-audit")
         self.assertEqual(dispatch.return_value.call_args.kwargs["reason"], "activation-review")
         self.assertEqual(dispatch.return_value.call_args.kwargs["skill_name"], "activation-audit")
-        admission = AccountAuditAdmission.objects.get(credential=self.credential)
+        admission = AccountAuditAdmission.objects.unscoped().get(credential=self.credential)
         self.assertEqual(admission.reason, "activation-review")
         self.assertEqual(admission.skill_name, "activation-audit")
 
@@ -206,7 +207,7 @@ class TestAccountAuditStartAPI(APIBaseTest):
             response = self._post(payload)
 
         self.assertEqual(response.status_code, 202)
-        admission = AccountAuditAdmission.objects.get(credential=self.credential)
+        admission = AccountAuditAdmission.objects.unscoped().get(credential=self.credential)
         self.assertEqual(response.json(), {"workflow_id": str(admission.workflow_id), "team_id": self.team.id})
 
     def test_rejects_a_temporal_conflict_for_another_workflow(self) -> None:
@@ -216,7 +217,7 @@ class TestAccountAuditStartAPI(APIBaseTest):
             response = self._post(payload)
 
         self.assertEqual(response.status_code, 503)
-        self.assertTrue(AccountAuditAdmission.objects.filter(credential=self.credential).exists())
+        self.assertTrue(AccountAuditAdmission.objects.unscoped().filter(credential=self.credential).exists())
 
     def test_rejects_invalid_missing_and_stale_signatures(self) -> None:
         payload = {"organization_id": str(self.organization.id), "team_id": self.team.id}
@@ -238,7 +239,7 @@ class TestAccountAuditStartAPI(APIBaseTest):
             )
 
         self.assertEqual(response.status_code, 401)
-        self.assertFalse(AccountAuditAdmission.objects.exists())
+        self.assertFalse(AccountAuditAdmission.objects.unscoped().exists())
 
     def test_rejects_a_signature_for_a_different_raw_body(self) -> None:
         payload = {"organization_id": str(self.organization.id), "team_id": self.team.id}
@@ -246,7 +247,7 @@ class TestAccountAuditStartAPI(APIBaseTest):
             response = self._post(payload, signing_body=b'{"organization_id":"different","team_id":1}')
 
         self.assertEqual(response.status_code, 401)
-        self.assertFalse(AccountAuditAdmission.objects.exists())
+        self.assertFalse(AccountAuditAdmission.objects.unscoped().exists())
 
     def test_rejects_malformed_and_extra_payloads(self) -> None:
         payloads = [
@@ -294,7 +295,7 @@ class TestAccountAuditStartAPI(APIBaseTest):
                     )
                     self.assertEqual(response.status_code, 400)
 
-        self.assertFalse(AccountAuditAdmission.objects.exists())
+        self.assertFalse(AccountAuditAdmission.objects.unscoped().exists())
 
     def test_rejects_without_ai_processing_approval(self) -> None:
         self.organization.is_ai_data_processing_approved = False
@@ -305,7 +306,7 @@ class TestAccountAuditStartAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, 403)
         self.assertFalse(dispatch.return_value.called)
-        self.assertFalse(AccountAuditAdmission.objects.exists())
+        self.assertFalse(AccountAuditAdmission.objects.unscoped().exists())
 
     def test_rejects_when_the_audit_skill_is_unavailable_without_admitting(self) -> None:
         payload = {"organization_id": str(self.organization.id), "team_id": self.team.id}
@@ -316,7 +317,7 @@ class TestAccountAuditStartAPI(APIBaseTest):
         self.assertEqual(response.status_code, 400)
         skill.assert_called_once_with(team_id=2, skill_name="onboarding-account-audit")
         self.assertFalse(dispatch.return_value.called)
-        self.assertFalse(AccountAuditAdmission.objects.exists())
+        self.assertFalse(AccountAuditAdmission.objects.unscoped().exists())
 
     def test_rejects_a_team_from_another_organization(self) -> None:
         payload = {"organization_id": str(uuid4()), "team_id": self.team.id}
@@ -347,17 +348,19 @@ class TestAccountAuditStartAPI(APIBaseTest):
         self.assertEqual(response.status_code, 409)
         self.assertEqual(response.json()["detail"], "This delivery ID has another audit request.")
         self.assertEqual(dispatch.return_value.call_count, 1)
-        self.assertEqual(AccountAuditAdmission.objects.count(), 1)
+        self.assertEqual(AccountAuditAdmission.objects.unscoped().count(), 1)
 
     @time_machine.travel("2026-01-01T00:00:00Z", tick=False)
     def test_accepts_a_new_delivery_at_the_cooldown_boundary(self) -> None:
-        AccountAuditAdmission.objects.create(
+        AccountAuditAdmission.objects.unscoped().create(
             credential=self.credential,
             webhook_id="earlier-delivery",
             organization_id=self.organization.id,
             team_id=self.team.id,
         )
-        AccountAuditAdmission.objects.filter(webhook_id="earlier-delivery").update(created_at=timezone.now() - COOLDOWN)
+        AccountAuditAdmission.objects.unscoped().filter(webhook_id="earlier-delivery").update(
+            created_at=timezone.now() - COOLDOWN
+        )
         payload = {"organization_id": str(self.organization.id), "team_id": self.team.id}
         with self._request_patches():
             response = self._post(payload, webhook_id="new-delivery")
@@ -365,7 +368,7 @@ class TestAccountAuditStartAPI(APIBaseTest):
         self.assertEqual(response.status_code, 202)
 
     def test_admission_enforces_one_row_per_credential_delivery(self) -> None:
-        AccountAuditAdmission.objects.create(
+        AccountAuditAdmission.objects.unscoped().create(
             credential=self.credential,
             webhook_id="delivery-1",
             organization_id=self.organization.id,
@@ -374,48 +377,30 @@ class TestAccountAuditStartAPI(APIBaseTest):
 
         with self.assertRaises(IntegrityError):
             with transaction.atomic():
-                AccountAuditAdmission.objects.create(
+                AccountAuditAdmission.objects.unscoped().create(
                     credential=self.credential,
                     webhook_id="delivery-1",
                     organization_id=self.organization.id,
                     team_id=self.team.id,
                 )
 
-    def _source_team(self) -> Team:
-        source_team, _ = Team.objects.get_or_create(
-            id=2,
-            defaults={"organization": self.organization, "project": self.team.project, "name": "source"},
-        )
-        return source_team
-
+    @override_settings(GROWTH_ENRICHMENT_INTERNAL_TEAM_ID=37)
     def test_credential_requires_an_active_staff_owner_and_matching_source_workflow(self) -> None:
-        source_team = self._source_team()
-        flow = HogFlow.objects.create(team=source_team, created_by=self.user, name="audit", status="active")
-        self.credential.workflow_id = flow.id
-        self.credential.save(update_fields=["workflow_id"])
         credential = AccountAuditCredential.objects.select_related("owner").get(pk=self.credential.pk)
-
-        self.assertTrue(AccountAuditStartViewSet._credential_is_eligible(credential))
-        self.user.is_staff = False
-        self.user.save(update_fields=["is_staff"])
-        credential.refresh_from_db()
-        self.assertFalse(AccountAuditStartViewSet._credential_is_eligible(credential))
-        self.user.is_staff = True
-        self.user.is_active = False
-        self.user.save(update_fields=["is_staff", "is_active"])
-        credential.refresh_from_db()
-        self.assertFalse(AccountAuditStartViewSet._credential_is_eligible(credential))
-        self.user.is_active = True
-        self.user.save(update_fields=["is_active"])
-        flow.team = self.team
-        flow.save(update_fields=["team"])
-        credential.refresh_from_db()
-        self.assertFalse(AccountAuditStartViewSet._credential_is_eligible(credential))
+        with patch("products.growth.backend.account_audits.is_workflow_active_for_owner", return_value=True) as active:
+            self.assertTrue(AccountAuditService._credential_is_eligible(credential))
+            active.assert_called_once_with(team_id=37, workflow_id=credential.workflow_id, owner_id=self.user.id)
+            for field in ("is_staff", "is_active"):
+                setattr(credential.owner, field, False)
+                self.assertFalse(AccountAuditService._credential_is_eligible(credential))
+                setattr(credential.owner, field, True)
+            active.return_value = False
+            self.assertFalse(AccountAuditService._credential_is_eligible(credential))
 
     def test_preserves_historic_admissions_when_an_owner_or_credential_is_deleted(self) -> None:
         owner = User.objects.create_user(email="audit-owner@example.com", password=None, first_name="Audit")
         credential = AccountAuditCredential.objects.create(owner=owner, workflow_id=uuid4(), signing_secret=self.secret)
-        admission = AccountAuditAdmission.objects.create(
+        admission = AccountAuditAdmission.objects.unscoped().create(
             credential=credential,
             webhook_id="delivery-1",
             organization_id=self.organization.id,
@@ -425,22 +410,25 @@ class TestAccountAuditStartAPI(APIBaseTest):
         owner.delete()
         credential.refresh_from_db()
         self.assertIsNone(credential.owner)
-        self.assertFalse(AccountAuditStartViewSet._credential_is_eligible(credential))
+        self.assertFalse(AccountAuditService._credential_is_eligible(credential))
         with self.assertRaises(ProtectedError):
             credential.delete()
-        self.assertTrue(AccountAuditAdmission.objects.filter(pk=admission.pk).exists())
+        self.assertTrue(AccountAuditAdmission.objects.unscoped().filter(pk=admission.pk).exists())
 
 
+@override_settings(GROWTH_ENRICHMENT_INTERNAL_TEAM_ID=2)
 class TestProvisionAccountAuditCredential(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.user.is_staff = True
         self.user.save(update_fields=["is_staff"])
-        self.source_team, _ = Team.objects.get_or_create(
-            id=2,
-            defaults={"organization": self.organization, "project": self.team.project, "name": "source"},
+        self.workflow_id = uuid4()
+        self.active_workflow = patch(
+            "products.growth.backend.management.commands.provision_account_audit_credential.is_workflow_active_for_owner",
+            return_value=True,
         )
-        self.flow = HogFlow.objects.create(team=self.source_team, created_by=self.user, name="audit", status="active")
+        self.active_workflow.start()
+        self.addCleanup(self.active_workflow.stop)
 
     def _command(self, *, rotate_key_id: UUID) -> None:
         call_command(
@@ -448,7 +436,7 @@ class TestProvisionAccountAuditCredential(APIBaseTest):
             "--owner-id",
             str(self.user.id),
             "--workflow-id",
-            str(self.flow.id),
+            str(self.workflow_id),
             "--rotate-key-id",
             str(rotate_key_id),
             stdout=StringIO(),
@@ -458,7 +446,7 @@ class TestProvisionAccountAuditCredential(APIBaseTest):
         other_user = User.objects.create_user(email="other-owner@example.com", password=None, first_name="Other")
         credential = AccountAuditCredential.objects.create(
             owner=other_user,
-            workflow_id=self.flow.id,
+            workflow_id=self.workflow_id,
             signing_secret="whsec_" + base64.b64encode(b"b" * 32).decode(),
         )
 
@@ -469,10 +457,9 @@ class TestProvisionAccountAuditCredential(APIBaseTest):
         self.assertTrue(credential.is_active)
 
     def test_rejects_rotating_a_credential_for_another_workflow(self) -> None:
-        other_flow = HogFlow.objects.create(team=self.source_team, created_by=self.user, name="other", status="active")
         credential = AccountAuditCredential.objects.create(
             owner=self.user,
-            workflow_id=other_flow.id,
+            workflow_id=uuid4(),
             signing_secret="whsec_" + base64.b64encode(b"b" * 32).decode(),
         )
 
