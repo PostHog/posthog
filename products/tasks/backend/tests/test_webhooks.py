@@ -1986,16 +1986,23 @@ class TestFindTaskRun(TestCase):
         result = find_task_run(branch="feature/my-branch", repository="posthog/posthog")
         self.assertEqual(result, task_run)
 
-    @parameterized.expand([("branch", False), ("signed_head_branch", True)])
-    def test_branch_fallback_prefers_newest_run_even_when_it_is_terminal(self, _name, signed_head_branch):
-        branch_fields = (
-            {
-                "branch": "master",
-                "output": {"head_branches": [{"repository": "posthog/posthog", "branch": "feature/shared-branch"}]},
-            }
-            if signed_head_branch
-            else {"branch": "feature/shared-branch"}
-        )
+    @parameterized.expand(
+        [
+            ("branch", {"branch": "feature/shared-branch"}),
+            (
+                "signed_head_branch",
+                {
+                    "branch": "master",
+                    "output": {"head_branches": [{"repository": "posthog/posthog", "branch": "feature/shared-branch"}]},
+                },
+            ),
+            (
+                "self_driving_head_branch",
+                {"branch": "master", "state": {"self_driving_head_branch": "feature/shared-branch"}},
+            ),
+        ]
+    )
+    def test_branch_fallback_prefers_newest_run_even_when_it_is_terminal(self, _name, branch_fields):
         TaskRun.objects.create(
             task=self.task,
             team=self.team,

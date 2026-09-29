@@ -1,5 +1,7 @@
+from datetime import timedelta
+
 from django.db import transaction
-from django.db.models import Case, IntegerField, Q, Value, When
+from django.db.models import Case, DateTimeField, ExpressionWrapper, F, IntegerField, Q, Value, When
 
 import structlog
 
@@ -28,6 +30,15 @@ logger = structlog.get_logger(__name__)
 TASK_RUN_SELECT_RELATED = ("task", "task__created_by", "team")
 
 _TERMINAL_RUN_STATUSES = (TaskRun.Status.COMPLETED, TaskRun.Status.FAILED, TaskRun.Status.CANCELLED)
+
+# Postgres has no statistics for the JSON head-branch keys, so it overestimates matches and
+# serves `ORDER BY created_at DESC LIMIT 1` by walking task_run_created_at_idx backwards.
+# On a miss that walk reads every run. The index cannot serve this expression, so the planner
+# uses the partial head-branch index and sorts the few rows it returns.
+_NEWEST_FIRST_WITHOUT_CREATED_AT_INDEX = (
+    ExpressionWrapper(F("created_at") + timedelta(0), output_field=DateTimeField()).desc(),
+    F("id").desc(),
+)
 
 
 def _run_repository_filter(repository: str) -> Q:
@@ -110,7 +121,7 @@ def find_task_run(
                 task__deleted=False,
             )
             .exclude(status__in=(TaskRun.Status.FAILED, TaskRun.Status.CANCELLED))
-            .order_by("-created_at", "-id")
+            .order_by(*_NEWEST_FIRST_WITHOUT_CREATED_AT_INDEX)
             .select_related(*TASK_RUN_SELECT_RELATED)
             .first()
         )
@@ -162,6 +173,7 @@ def find_task_run(
                     task__deleted=False,
                 )
                 .exclude(status__in=_TERMINAL_RUN_STATUSES)
+                .order_by(*_NEWEST_FIRST_WITHOUT_CREATED_AT_INDEX)
                 .select_related(*TASK_RUN_SELECT_RELATED)
                 .first()
             )
