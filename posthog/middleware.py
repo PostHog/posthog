@@ -1251,6 +1251,15 @@ class OAuthCoopMiddleware:
         "/api/agentic/oauth/",
     )
 
+    SIGNUP_AND_LOGIN_PATHS = (
+        "/login",
+        "/login/",
+        "/signup",
+        "/signup/",
+        "/organization/confirm-creation",
+        "/organization/confirm-creation/",
+    )
+
     def __init__(self, get_response):
         self.get_response = get_response
 
@@ -1284,7 +1293,7 @@ class OAuthCoopMiddleware:
             session = getattr(request, "session", None)
             session_next = session.get("next", "") if session is not None else ""
             return self._targets_oauth_flow(request.GET.get("next", "")) or self._targets_oauth_flow(session_next)
-        if path in ("/login", "/login/", "/signup", "/signup/"):
+        if path in self.SIGNUP_AND_LOGIN_PATHS:
             return self._targets_oauth_flow(request.GET.get("next", ""))
         return False
 
