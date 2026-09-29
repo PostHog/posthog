@@ -53,6 +53,7 @@ def manager(inputs: SourceInputs) -> Iterator[ResumableSourceManager[GivebutterR
 
 
 def pages(response: SourceResponse) -> Generator[list[dict[str, Any]]]:
+    # Givebutter resources are synchronous even though SourceResponse also supports async sources.
     items = cast(Iterable[list[dict[str, Any]]], response.items())
     return cast(Generator[list[dict[str, Any]]], iter(items))
 
