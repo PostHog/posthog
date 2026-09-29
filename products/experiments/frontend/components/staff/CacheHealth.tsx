@@ -12,7 +12,12 @@ import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag'
 import { humanFriendlyLargeNumber, humanFriendlyNumber, humanizeBytes } from 'lib/utils/numbers'
 
-import { CacheGrowthResponse, CachePartitionRow, CacheTableStats, queryPerformanceLogic } from './queryPerformanceLogic'
+import {
+    CacheGrowthResponse,
+    CachePartitionRow,
+    CacheTableStats,
+    queryPerformanceLogic,
+} from 'products/experiments/frontend/scenes/queryPerformanceLogic'
 
 const GROWTH_RANGE_OPTIONS = [
     { label: '48h', hours: 48 },
