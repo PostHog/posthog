@@ -82,9 +82,9 @@ def npm_ranges(spec: str) -> list[MajorRange]:
             elif token.startswith(">="):
                 low = max(low, _major(token[2:]))
             elif token.startswith(">"):
-                # `>5` or `>5.1` excludes every 5.x; only a full `>5.1.0` still admits later 5.x.
+                # A bare `>5` excludes every 5.x; `>5.1` means `>=5.2.0` and still admits major 5.
                 bound = token[1:]
-                low = max(low, _major(bound) + 1 if re.fullmatch(r"v?\d+(\.\d+)?", bound) else _major(bound))
+                low = max(low, _major(bound) + 1 if re.fullmatch(r"v?\d+", bound) else _major(bound))
             elif token.startswith("<="):
                 high = _major(token[2:]) if high is None else min(high, _major(token[2:]))
             elif token.startswith("<"):
@@ -356,6 +356,7 @@ def test_go_sdk_stays_on_its_major() -> None:
         ("<5.0.0-0", 5, False, False),
         (">5", 5, False, False),
         (">5.0.0", 5, False, True),
+        (">5.1", 5, False, True),
         (">4 <6", 5, True, True),
     ],
 )
