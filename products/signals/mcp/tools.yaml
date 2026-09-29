@@ -36,9 +36,14 @@ tools:
             has already been pushed to a remote branch: repository, branch, commit_sha, message — usually recorded
             automatically when you push via git_signed_commit. Only create one yourself for a commit pushed to a remote
             by other means; never record a commit that is not on a remote branch — an unpushed or local-only commit is
-            always a mistake), `note` (free-form: note). Status types are latest-wins — appending a new version
-            supersedes the previous one as the report's canonical status: `priority_judgment` (explanation, priority
-            P0–P4), `actionability_judgment` (explanation, actionability, already_addressed), `safety_judgment`
+            always a mistake), `note` (free-form: note). `impact_measurement_plan` stores one proposed outcome:
+            metric_id, title, kind, bounded InsightVizNode Trends query, goal_value, goal_direction, goal_grain
+            (whole_window or per_interval), and decision_window_days or minimum_data_points (which requires an
+            eligibility_query counting qualifying opportunities). Read existing plans first, then append a new version
+            with the same metric_id to revise one without changing the others. Leave activated=false; approval is a
+            separate action. This proposal never starts monitoring. Status types are latest-wins — appending a new
+            version supersedes the previous one as the report's canonical status: `priority_judgment` (explanation,
+            priority P0–P4), `actionability_judgment` (explanation, actionability, already_addressed), `safety_judgment`
             (choice), `repo_selection` (repository, reason), `suggested_reviewers` (a list of {github_login}). Status
             judgments are consequential, not advisory: the canonical priority/actionability steer what humans and agents
             pick up next, and PostHog's automation uses them when deciding which reports to act on. `content` is a JSON
@@ -719,8 +724,10 @@ tools:
             estimated longitudinal points; its snapshot is only an optional cached fallback. An affected-users metric
             counts distinct people through one series with `math: dau`. Consumers derive a `BoldNumber` query for each
             metric's whole-window `aggregated_value` and an `ActionsBar` query for its longitudinal buckets; never sum
-            affected-user buckets. Opt-in: only available to scouts that list `emit_report` in their skill's
-            `allowed_tools`.
+            affected-user buckets. Optional `links` records how the new report relates to existing reports
+            (`duplicate_of`, `depends_on`, `part_of`, `follow_up_of`, `recurrence_of`). Send them here rather than in a
+            later `scout-edit-report`, because autostart reads them when the report is created. Opt-in: only available
+            to scouts that list `emit_report` in their skill's `allowed_tools`.
     scout-emit-signal:
         operation: signals_scout_emit_signal
         enabled: true
@@ -1211,6 +1218,9 @@ tools:
     signals-report-pr-review-comments-create:
         operation: signals_report_pr_review_comments_create
         enabled: false
+    signals-reports-artefacts-activate-create:
+        operation: signals_reports_artefacts_activate_create
+        enabled: false
     signals-reports-available-reviewers-retrieve:
         operation: signals_reports_available_reviewers_retrieve
         enabled: false
@@ -1387,6 +1397,15 @@ tools:
             removed. Call scout-project-profile-get directly with the same arguments.'
     signals-scout-report-checks-list:
         operation: signals_scout_report_checks_list
+        enabled: false
+    signals-scout-rubrics-generate:
+        operation: signals_scout_rubrics_generate
+        enabled: false
+    signals-scout-rubrics-retrieve:
+        operation: signals_scout_rubrics_retrieve
+        enabled: false
+    signals-scout-rubrics-update:
+        operation: signals_scout_rubrics_update
         enabled: false
     signals-scout-run-now:
         operation: signals_scout_config_run

@@ -3,7 +3,7 @@ import time
 import asyncio
 from collections.abc import Coroutine
 from datetime import timedelta
-from typing import Any
+from typing import Any, NamedTuple
 from uuid import uuid4
 
 import pytest
@@ -18,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     DeltaBatchConsumerAdapter,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
+    _SYNC_POOLS,
     BATCH_TABLE,
     CLAIM_ELIGIBILITY_INTERVAL,
     LEASE_TABLE,
@@ -29,10 +30,12 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     QueueDepth,
     _orphaned_candidate_runs_sql,
     _queue_depth_sql,
+    _sync_connection_pool,
     build_status_dual_write_sql,
 )
 
 # Distinct per-pod identities for the group-lease tests.
+_JOBS_DB = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db"
 OWNER_A = str(uuid4())
 OWNER_B = str(uuid4())
 
@@ -706,6 +709,56 @@ class TestVerifyGroupLeaseSync:
         )
 
         assert owns is expected
+
+    @pytest.fixture(autouse=True)
+    def _fresh_pool(self):
+        _SYNC_POOLS.clear()
+        yield
+        for pool in _SYNC_POOLS.values():
+            for pooled in pool._idle:
+                pooled.close()
+        _SYNC_POOLS.clear()
+
+    @pytest.mark.asyncio
+    async def test_consecutive_checks_reuse_one_connection(self, conn, _db_url):
+        # Every in-flight batch verifies its lease before each lasting side effect; dialing the queue
+        # DB for each check was a connection setup per batch.
+        await _insert_lease(conn, team_id=1, schema_id="s1", owner=OWNER_A, expires_in_seconds=300)
+
+        with patch(f"{_JOBS_DB}.psycopg.connect", wraps=psycopg.connect) as connect:
+            for _ in range(3):
+                assert BatchQueue.verify_group_lease_sync(
+                    _db_url, team_id=1, schema_id="s1", owner_token=OWNER_A, connect_timeout_seconds=5
+                )
+
+        connect.assert_called_once()
+        assert _sync_connection_pool(_db_url, 5).idle_count == 1
+
+    @pytest.mark.asyncio
+    async def test_a_dropped_pooled_connection_is_replaced_not_reported_as_a_lost_lease(self, conn, _db_url):
+        # A pooler cull or failover closes idle server sessions behind the pool's back. The check must
+        # answer from a fresh connection: raising here makes the caller abandon a batch it still owns.
+        await _insert_lease(conn, team_id=1, schema_id="s1", owner=OWNER_A, expires_in_seconds=300)
+        assert BatchQueue.verify_group_lease_sync(
+            _db_url, team_id=1, schema_id="s1", owner_token=OWNER_A, connect_timeout_seconds=5
+        )
+        pool = _sync_connection_pool(_db_url, 5)
+        (pooled,) = pool._idle
+        # Kill the server side of the pooled session so the next query on it fails mid-flight.
+        await conn.execute(
+            "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE pid = %s",
+            [pooled.info.backend_pid],
+        )
+
+        with patch(f"{_JOBS_DB}.psycopg.connect", wraps=psycopg.connect) as connect:
+            owns = BatchQueue.verify_group_lease_sync(
+                _db_url, team_id=1, schema_id="s1", owner_token=OWNER_A, connect_timeout_seconds=5
+            )
+
+        assert owns is True
+        connect.assert_called_once()
+        assert pooled.closed
+        assert pool.idle_count == 1 and pool._idle[0] is not pooled
 
 
 @pytest.mark.django_db(transaction=True)
@@ -1424,14 +1477,20 @@ class TestCountBatchesForRun:
             assert BatchQueue.count_batches_for_run(sync_conn, job_id="job-missing") == 0
 
 
-async def _batch_state(conn: psycopg.AsyncConnection[Any], batch_id: str) -> tuple[str, int, Any]:
+class _BatchState(NamedTuple):
+    state: str
+    attempt: int
+    changed_at: Any
+
+
+async def _batch_state(conn: psycopg.AsyncConnection[Any], batch_id: str) -> _BatchState:
     cur = await conn.execute(
         f"SELECT latest_state, latest_attempt, state_changed_at FROM {BATCH_TABLE} WHERE id = %s",
         (batch_id,),
     )
     row = await cur.fetchone()
     assert row is not None
-    return row[0], row[1], row[2]
+    return _BatchState(row[0], row[1], row[2])
 
 
 @pytest.mark.django_db(transaction=True)

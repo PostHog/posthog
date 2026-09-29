@@ -8,6 +8,7 @@ import pytest
 from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import patch
 
+from django.db import transaction
 from django.db.utils import IntegrityError
 from django.test import override_settings
 from django.utils import timezone
@@ -414,6 +415,23 @@ class TestActivityLogModel(BaseTest):
             warning = mock_logger.warn.call_args
             self.assertEqual(warning.args[0], "activity_log.failed_to_write_to_activity_log")
             self.assertIsInstance(warning.kwargs["exception"], IntegrityError)
+
+    def test_strict_write_failure_escapes_active_transaction(self) -> None:
+        with self.settings(TEST=False, ACTIVITY_LOG_TRANSACTION_MANAGEMENT=True):
+            with patch.object(ActivityLog.objects, "create", side_effect=IntegrityError("write timed out")):
+                with self.assertRaises(IntegrityError):
+                    with transaction.atomic():
+                        log_activity(
+                            organization_id=self.organization.id,
+                            team_id=self.team.id,
+                            user=self.user,
+                            was_impersonated=False,
+                            item_id="12345",
+                            scope="FeatureFlag",
+                            activity="updated",
+                            detail=Detail(changes=[Change(type="FeatureFlag", field="active", action="created")]),
+                            strict=True,
+                        )
 
     def test_does_not_throw_if_cannot_log_activity(self) -> None:
         # Assert on the module logger directly instead of assertLogs: the root logger sits at
