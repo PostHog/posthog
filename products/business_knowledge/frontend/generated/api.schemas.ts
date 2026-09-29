@@ -133,6 +133,15 @@ export interface PlaygroundChatListApi {
     has_open_turn: boolean
 }
 
+export interface PaginatedPlaygroundChatListListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: PlaygroundChatListApi[]
+}
+
 /**
  * * `running` - Running
  * * `completed` - Completed
@@ -641,6 +650,17 @@ export type BusinessKnowledgeRepositoriesSearchParams = {
      * Limit the search to this owner/repo. It must already be selected. Omit to search every selected repository.
      */
     repo?: string
+}
+
+export type BusinessKnowledgePlaygroundChatsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
 }
 
 export type BusinessKnowledgeSourcesListParams = {
