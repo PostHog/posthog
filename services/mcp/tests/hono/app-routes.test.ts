@@ -510,4 +510,59 @@ describe('Hono App Routes', () => {
             }
         })
     })
+
+    describe('POST /docs/mcp', () => {
+        const rpc = (
+            app: ReturnType<typeof createApp>['app'],
+            method: string,
+            params: Record<string, unknown> = {}
+        ): Promise<Response> =>
+            app.request('/docs/mcp', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' },
+                body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
+            })
+
+        afterEach(() => {
+            vi.unstubAllEnvs()
+            vi.restoreAllMocks()
+        })
+
+        it('returns 404 while the feature flag is off', async () => {
+            vi.stubEnv('FEATURE_FLAG_OVERRIDES', JSON.stringify({ 'mcp-public-docs-search': false }))
+            const { app } = createApp(mockRedis)
+
+            const res = await rpc(app, 'tools/list')
+
+            expect(res.status).toBe(404)
+        })
+
+        it('lists only docs-search without a token', async () => {
+            vi.stubEnv('FEATURE_FLAG_OVERRIDES', JSON.stringify({ 'mcp-public-docs-search': true }))
+            const { app } = createApp(mockRedis)
+
+            const res = await rpc(app, 'tools/list')
+
+            expect(res.status).toBe(200)
+            const body = (await res.json()) as { result: { tools: { name: string }[] } }
+            expect(body.result.tools.map((t) => t.name)).toEqual(['docs-search'])
+        })
+
+        it('answers docs-search from the public API endpoint', async () => {
+            vi.stubEnv('FEATURE_FLAG_OVERRIDES', JSON.stringify({ 'mcp-public-docs-search': true }))
+            const fetchSpy = vi
+                .spyOn(globalThis, 'fetch')
+                .mockResolvedValue(new Response(JSON.stringify({ content: '# Feature flags' }), { status: 200 }))
+            const { app } = createApp(mockRedis)
+
+            const res = await rpc(app, 'tools/call', { name: 'docs-search', arguments: { query: 'feature flags' } })
+
+            const body = (await res.json()) as { result: { content: { text: string }[]; isError?: boolean } }
+            expect(body.result).toEqual({ content: [{ type: 'text', text: '# Feature flags' }] })
+            const [url, init] = fetchSpy.mock.calls[0]!
+            expect(String(url)).toMatch(/\/api\/public_docs_search\/$/)
+            expect(init?.headers).not.toHaveProperty('Authorization')
+            expect(JSON.parse(String(init?.body))).toEqual({ query: 'feature flags' })
+        })
+    })
 })

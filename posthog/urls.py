@@ -55,6 +55,7 @@ from products.notebooks.backend.facade.sql_v2 import (
     notebook_sql_v2_data_plane,
     notebook_sql_v2_data_plane_status,
 )
+from products.posthog_ai.backend.api import PublicDocsSearchViewSet
 from products.product_tours.backend.api import product_tours
 from products.security.backend.presentation.hub_api import urlpatterns as security_hub_urlpatterns
 from products.signals.backend import views as signals_views
@@ -211,6 +212,10 @@ urlpatterns = [
     opt_slash_path(
         "api/public_source_configs",
         PublicSourceConfigViewSet.as_view({"get": "list"}),
+    ),
+    opt_slash_path(
+        "api/public_docs_search",
+        PublicDocsSearchViewSet.as_view({"post": "create"}),
     ),
     # Internal agent-proxy side-effect callback (auth: sandbox event ingest JWT)
     path(

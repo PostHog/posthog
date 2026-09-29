@@ -24,6 +24,8 @@ flowchart TB
 
 The Worker no longer serves the protocol itself — an earlier iteration ran a stateful Cloudflare Durable Object (`mcp.ts`) for this, but that has been removed in favor of always proxying to Hono.
 
+`/docs/mcp` is the one MCP route that needs no token. It serves only `docs-search`, so agents can search PostHog docs before their user has an account. The Worker proxies it to Hono before the token check, and `src/hono/public-docs-handler.ts` serves it with the MCP SDK in stateless mode. It limits requests per client IP and calls the public `/api/public_docs_search/` endpoint. The `mcp-public-docs-search` feature flag turns the route on; while the flag is off, the route returns 404. It is a separate path because a client that gets no 401 on `/mcp` never starts the OAuth flow.
+
 ### Protocol dialects: legacy stateful and 2026-07-28 stateless
 
 The Hono dispatcher serves both MCP dialects side by side (`src/lib/stateless-protocol.ts` holds the shared constants):
