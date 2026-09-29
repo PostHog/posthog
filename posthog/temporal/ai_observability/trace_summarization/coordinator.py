@@ -79,13 +79,6 @@ with temporalio.workflow.unsafe.imports_passed_through():
 logger = structlog.get_logger(__name__)
 
 
-def _summarization_window(run_start: datetime, window_minutes: int) -> tuple[str, str]:
-    """The window every child of a run summarizes, offset so traces have time to complete."""
-    window_end = run_start - timedelta(minutes=DEFAULT_WINDOW_OFFSET_MINUTES)
-    window_start = window_end - timedelta(minutes=window_minutes)
-    return window_start.strftime("%Y-%m-%dT%H:%M:%SZ"), window_end.strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
 def _empty_summarization_results() -> dict[str, Any]:
     return {
         "teams_succeeded": 0,
@@ -115,6 +108,19 @@ class BatchTraceSummarizationCoordinatorInputs:
     results_so_far: dict[str, Any] | None = None
     window_start: str | None = None
     window_end: str | None = None
+
+
+def _with_summarization_window(
+    inputs: BatchTraceSummarizationCoordinatorInputs, run_start: datetime
+) -> BatchTraceSummarizationCoordinatorInputs:
+    """Set the window every child of a run summarizes, offset so traces have time to complete."""
+    window_end = run_start - timedelta(minutes=DEFAULT_WINDOW_OFFSET_MINUTES)
+    window_start = window_end - timedelta(minutes=inputs.window_minutes)
+    return dataclasses.replace(
+        inputs,
+        window_start=window_start.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        window_end=window_end.strftime("%Y-%m-%dT%H:%M:%SZ"),
+    )
 
 
 @temporalio.workflow.defn(name=COORDINATOR_WORKFLOW_NAME)
@@ -228,10 +234,7 @@ class BatchTraceSummarizationCoordinatorWorkflow(PostHogWorkflow):
             if not (inputs.window_start and inputs.window_end):
                 # workflow_start_time, not start_time: a worker can pick the run up late, for
                 # example during a deploy, and that must not shift the hour the run covers.
-                window_start, window_end = _summarization_window(
-                    temporalio.workflow.info().workflow_start_time, inputs.window_minutes
-                )
-                inputs = dataclasses.replace(inputs, window_start=window_start, window_end=window_end)
+                inputs = _with_summarization_window(inputs, temporalio.workflow.info().workflow_start_time)
             await self._dispatch_sliding_window(
                 inputs, team_ids, per_team_jobs, per_team_filters, results_so_far, child_id_prefix
             )
