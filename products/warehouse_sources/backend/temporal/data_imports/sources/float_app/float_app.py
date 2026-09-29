@@ -27,6 +27,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.float_app.
 )
 
 FLOAT_BASE_URL = "https://api.float.com/v3"
+REQUEST_TIMEOUT_SECONDS = 60
 # Float rejects requests without a User-Agent that identifies the app and a contact email. This is a
 # static integration identifier, not user data, so it's hardcoded rather than surfaced as a form field.
 USER_AGENT = "PostHog Data Warehouse (hey@posthog.com)"
@@ -176,11 +177,11 @@ class ReportWindow:
     end: str
 
 
-def _month_windows(today: date, lookback_months: int) -> list[ReportWindow]:
-    """Calendar months from `lookback_months` before this month through this month, oldest first."""
+def _month_windows(today: date, month_count: int) -> list[ReportWindow]:
+    """The latest `month_count` calendar months, including this month, oldest first."""
     month_index = today.year * 12 + (today.month - 1)
     windows: list[ReportWindow] = []
-    for offset in range(lookback_months, -1, -1):
+    for offset in range(max(month_count - 1, 0), -1, -1):
         year, month = divmod(month_index - offset, 12)
         start = date(year, month + 1, 1)
         next_year, next_month = divmod(month_index - offset + 1, 12)
@@ -216,6 +217,7 @@ def _report_window_pages(
             f"{FLOAT_BASE_URL}{config.path}",
             headers=headers,
             params={"start_date": window.start, "end_date": window.end},
+            timeout=REQUEST_TIMEOUT_SECONDS,
         )
         response.raise_for_status()
         payload = response.json()

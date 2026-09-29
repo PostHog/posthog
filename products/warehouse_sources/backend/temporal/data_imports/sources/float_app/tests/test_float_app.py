@@ -10,6 +10,7 @@ from requests import Response
 from products.warehouse_sources.backend.temporal.data_imports.sources.float_app.float_app import (
     DELETE_LOG_LIMIT,
     PER_PAGE,
+    REQUEST_TIMEOUT_SECONDS,
     FloatAppResumeConfig,
     ReportWindow,
     _month_windows,
@@ -39,7 +40,7 @@ def _response(items: list[dict[str, Any]], headers: dict[str, str] | None = None
     return resp
 
 
-def _response_body(body: dict[str, Any]) -> Response:
+def _response_body(body: dict[str, Any] | list[Any]) -> Response:
     resp = Response()
     resp.status_code = 200
     resp._content = json.dumps(body).encode()
@@ -282,14 +283,12 @@ class TestPublicHolidayWindow:
 class TestMonthWindows:
     def test_walks_whole_months_oldest_first_ending_with_this_month(self) -> None:
         assert _month_windows(date(2026, 3, 17), 2) == [
-            ReportWindow(start="2026-01-01", end="2026-01-31"),
             ReportWindow(start="2026-02-01", end="2026-02-28"),
             ReportWindow(start="2026-03-01", end="2026-03-31"),
         ]
 
     def test_crosses_the_year_boundary(self) -> None:
         assert _month_windows(date(2026, 1, 5), 2) == [
-            ReportWindow(start="2025-11-01", end="2025-11-30"),
             ReportWindow(start="2025-12-01", end="2025-12-31"),
             ReportWindow(start="2026-01-01", end="2026-01-31"),
         ]
@@ -307,12 +306,20 @@ class TestReportWindows:
         "products.warehouse_sources.backend.temporal.data_imports.sources.float_app.float_app._month_windows"
     )
 
-    def _wire_reports(self, MockSession, bodies: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def _wire_reports(
+        self, MockSession: mock.MagicMock, bodies: list[dict[str, Any] | list[Any]]
+    ) -> list[dict[str, Any]]:
         session = MockSession.return_value
         captured: list[dict[str, Any]] = []
 
-        def _get(url: str, headers: Any = None, params: Any = None):
+        def _get(
+            url: str,
+            headers: dict[str, str] | None = None,
+            params: dict[str, str] | None = None,
+            timeout: float | None = None,
+        ) -> Response:
             captured.append(dict(params or {}))
+            assert timeout == REQUEST_TIMEOUT_SECONDS
             return _response_body(bodies[len(captured) - 1])
 
         session.get.side_effect = _get
@@ -370,7 +377,9 @@ class TestReportWindows:
 
     @mock.patch(FLOAT_SESSION_PATCH)
     @mock.patch(MONTH_WINDOWS_PATCH, return_value=WINDOWS)
-    def test_clears_the_cursor_after_the_last_window(self, _windows, MockSession) -> None:
+    def test_clears_the_cursor_after_the_last_window(
+        self, _windows: mock.MagicMock, MockSession: mock.MagicMock
+    ) -> None:
         # A retry after the source finished would otherwise resume from the stale cursor and skip
         # every earlier month.
         self._wire_reports(MockSession, [{"people": [{"people_id": 1}]}, {"people": [{"people_id": 2}]}])
@@ -383,7 +392,12 @@ class TestReportWindows:
     @pytest.mark.parametrize("body", [{}, {"people": None}, {"people": {"1": {}}}, []])
     @mock.patch(FLOAT_SESSION_PATCH)
     @mock.patch(MONTH_WINDOWS_PATCH, return_value=WINDOWS)
-    def test_a_changed_envelope_fails_loud(self, _windows, MockSession, body) -> None:
+    def test_a_changed_envelope_fails_loud(
+        self,
+        _windows: mock.MagicMock,
+        MockSession: mock.MagicMock,
+        body: dict[str, Any] | list[Any],
+    ) -> None:
         # Silently reading a changed shape as an empty month would drop that month from a table
         # that is fully replaced every sync.
         self._wire_reports(MockSession, [body, body])
