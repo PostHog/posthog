@@ -5,6 +5,7 @@ import typing
 import asyncio
 import datetime as dt
 import threading
+import dataclasses
 import faulthandler
 import collections.abc
 from collections import defaultdict
@@ -14,10 +15,19 @@ from temporalio import workflow
 
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.open_telemetry import initialize_otel
+from posthog.temporal.common.options import (
+    ConcurrencyOptions,
+    ConnectionOptions,
+    MTLSOptions,
+    SlotOptions,
+    TunerOptions,
+    WorkerOptions,
+)
 
 with workflow.unsafe.imports_passed_through():
     from django.conf import settings
     from django.core.management.base import BaseCommand, CommandError
+
 
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.temporal.ai import AI_ACTIVITIES, AI_WORKFLOWS, POSTHOG_CODE_SLACK_ACTIVITIES, POSTHOG_CODE_SLACK_WORKFLOWS
@@ -313,6 +323,12 @@ from products.wizard.backend.facade.temporal import (
     ACTIVITIES as WIZARD_ACTIVITIES,
     WORKFLOWS as WIZARD_WORKFLOWS,
 )
+
+if typing.TYPE_CHECKING:
+    import argparse
+
+    from _typeshed import DataclassInstance
+
 
 # When adding modules to a queue, also add their paths to that fleet's filter in the
 # check_temporal_worker_changes step of .github/workflows/container-images-cd.yml
@@ -633,20 +649,51 @@ else:
 
 LOGGER = get_logger(__name__)
 
+_T = typing.TypeVar("_T", bound="DataclassInstance")
+
+
+def _from_options(dataclass: type[_T], options: dict[str, typing.Any], *, prefix: str = "") -> _T:
+    """Consume options to initialize a dataclass.
+
+    Expects options to be already properly parsed.
+    """
+    names = {f.name for f in dataclasses.fields(dataclass)}
+    return dataclass(
+        **{
+            name: options.pop(f"{prefix}{name}")
+            for name in names
+            if f"{prefix}{name}" in options and options[f"{prefix}{name}"] is not None
+        }
+    )
+
+
+def _try_from_options(dataclass: type[_T], options: dict[str, typing.Any]) -> _T | None:
+    try:
+        return _from_options(dataclass, options)
+    except TypeError:
+        return None
+
+
+def _str_as_timedelta_seconds(s: str) -> dt.timedelta:
+    return dt.timedelta(seconds=int(s))
+
 
 class Command(BaseCommand):
     help = "Start Temporal Python Django-aware Worker"
 
-    def add_arguments(self, parser):
+    def add_arguments(self, parser: argparse.ArgumentParser):
         parser.add_argument(
             "--temporal-host",
             default=settings.TEMPORAL_HOST,
             help="Hostname for Temporal Scheduler",
+            dest="host",
         )
         parser.add_argument(
             "--temporal-port",
             default=settings.TEMPORAL_PORT,
             help="Port for Temporal Scheduler",
+            dest="port",
+            type=int,
         )
         parser.add_argument(
             "--namespace",
@@ -669,9 +716,7 @@ class Command(BaseCommand):
             help="Optional client cert",
         )
         parser.add_argument(
-            "--client-key",
-            default=settings.TEMPORAL_CLIENT_KEY,
-            help="Optional client key",
+            "--client-key", default=settings.TEMPORAL_CLIENT_KEY, help="Optional client key", dest="client_private_key"
         )
         parser.add_argument(
             "--metrics-port",
@@ -680,9 +725,10 @@ class Command(BaseCommand):
         )
         parser.add_argument(
             "--graceful-shutdown-timeout-seconds",
-            type=int,
-            default=settings.GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS,
+            type=_str_as_timedelta_seconds,
+            default=dt.timedelta(seconds=settings.GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS),
             help="Time that the worker will wait after shutdown before canceling activities, in seconds",
+            dest="graceful_shutdown_timeout",
         )
         parser.add_argument(
             "--max-concurrent-workflow-tasks",
@@ -695,6 +741,30 @@ class Command(BaseCommand):
             type=int,
             default=settings.MAX_CONCURRENT_ACTIVITIES,
             help="Maximum number of concurrent activity tasks for this worker",
+        )
+        parser.add_argument(
+            "--activity-maximum-slots",
+            type=int,
+            default=settings.MAX_CONCURRENT_ACTIVITIES,
+            help="Maximum number of activity task slots for this worker. Requires tuner options to be set",
+        )
+        parser.add_argument(
+            "--activity-minimum-slots",
+            type=int,
+            default=1,
+            help="Minimum number of activity task slots for this worker. Requires tuner options to be set",
+        )
+        parser.add_argument(
+            "--workflow-maximum-slots",
+            type=int,
+            default=settings.MAX_CONCURRENT_WORKFLOW_TASKS,
+            help="Maximum number of workflow task slots for this worker. Requires tuner options to be set",
+        )
+        parser.add_argument(
+            "--workflow-minimum-slots",
+            type=int,
+            default=5,
+            help="Minimum number of workflow task slots for this worker. Requires tuner options to be set",
         )
         parser.add_argument(
             "--use-pydantic-converter",
@@ -716,9 +786,10 @@ class Command(BaseCommand):
         )
         parser.add_argument(
             "--activity-ramp-throttle-ms",
-            type=int,
-            default=settings.TEMPORAL_ACTIVITY_RAMP_THROTTLE_MS,
+            type=_str_as_timedelta_seconds,
+            default=dt.timedelta(milliseconds=settings.TEMPORAL_ACTIVITY_RAMP_THROTTLE_MS),
             help="Minimum milliseconds between two activity slot issues when the resource-based tuner is on",
+            dest="activity_ramp_throttle",
         )
         parser.add_argument(
             "--health-port",
@@ -740,29 +811,24 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
-        temporal_host = options["temporal_host"]
-        temporal_port = options["temporal_port"]
-        namespace = options["namespace"]
-        task_queue = options["task_queue"]
-        server_root_ca_cert = options.get("server_root_ca_cert", None)
-        client_cert = options.get("client_cert", None)
-        client_key = options.get("client_key", None)
-        graceful_shutdown_timeout_seconds = options.get("graceful_shutdown_timeout_seconds", None)
-        max_concurrent_workflow_tasks = options.get("max_concurrent_workflow_tasks", None)
-        max_concurrent_activities = options.get("max_concurrent_activities", None)
+        connection_options = _from_options(ConnectionOptions, options)
+        mtls_options = _from_options(MTLSOptions, options)
+        worker_options = _from_options(WorkerOptions, options)
+        concurrency_options = _from_options(ConcurrencyOptions, options)
+        tuner_options: TunerOptions | None = _try_from_options(TunerOptions, options)
+        activity_slot_options = _from_options(SlotOptions, options, prefix="activity_")
+        workflow_slot_options = _from_options(SlotOptions, options, prefix="workflow_")
+
         use_pydantic_converter = options["use_pydantic_converter"]
-        target_memory_usage = options.get("target_memory_usage", None)
-        target_cpu_usage = options.get("target_cpu_usage", None)
-        activity_ramp_throttle_ms = options.get("activity_ramp_throttle_ms", None)
         health_port = options.get("health_port", None)
         health_max_idle_seconds = options.get("health_max_idle_seconds", None)
         disable_combined_metrics_server = options.get("disable_combined_metrics_server", False)
 
         try:
-            workflows = list(WORKFLOWS_DICT[task_queue])
-            activities = list(ACTIVITIES_DICT[task_queue])
+            workflows = list(WORKFLOWS_DICT[worker_options.task_queue])
+            activities = list(ACTIVITIES_DICT[worker_options.task_queue])
         except KeyError:
-            raise ValueError(f'Task queue "{task_queue}" not found in WORKFLOWS_DICT or ACTIVITIES_DICT')
+            raise ValueError(f'Task queue "{worker_options.task_queue}" not found in WORKFLOWS_DICT or ACTIVITIES_DICT')
 
         # Data-import source modules import vendor SDKs (google-ads, etc.) at module scope, and those
         # SDKs register protobuf descriptors into a process-global pool that rejects a second
@@ -773,9 +839,6 @@ class Command(BaseCommand):
         # import the vendor SDKs, so they keep their fast startup.
         if workflows_include_data_import_syncs(workflows):
             load_all_sources()
-
-        if options["client_key"]:
-            options["client_key"] = "--SECRET--"
 
         structlog.reset_defaults()
 
@@ -796,7 +859,8 @@ class Command(BaseCommand):
         # TEMPORAL_OTEL_PLUGIN_ENABLED.
         enable_otel = (
             settings.TEMPORAL_OTEL_PLUGIN_ENABLED is True
-            or task_queue in (settings.MAX_AI_TASK_QUEUE, settings.TASKS_TASK_QUEUE, settings.WIZARD_TASK_QUEUE)
+            or worker_options.task_queue
+            in (settings.MAX_AI_TASK_QUEUE, settings.TASKS_TASK_QUEUE, settings.WIZARD_TASK_QUEUE)
         ) and settings.OTEL_SERVICE_NAME is not None
         if enable_otel is True:
             # Mypy doesn't understand we have already checked settings.OTEL_SERVICE_NAME
@@ -852,27 +916,25 @@ class Command(BaseCommand):
 
         with asyncio.Runner() as runner:
             loop = runner.get_loop()
-            otel_log_mirror = build_vision_log_mirror() if task_queue == settings.REPLAY_VISION_TASK_QUEUE else None
+            otel_log_mirror = (
+                build_vision_log_mirror() if worker_options.task_queue == settings.REPLAY_VISION_TASK_QUEUE else None
+            )
             configure_logger(loop=loop, otel_log_mirror=otel_log_mirror)
 
             logger = LOGGER.bind(
-                host=temporal_host,
-                port=temporal_port,
-                namespace=namespace,
-                task_queue=task_queue,
-                graceful_shutdown_timeout_seconds=graceful_shutdown_timeout_seconds,
-                max_concurrent_workflow_tasks=max_concurrent_workflow_tasks,
-                max_concurrent_activities=max_concurrent_activities,
-                target_memory_usage=target_memory_usage,
-                target_cpu_usage=target_cpu_usage,
-                activity_ramp_throttle_ms=activity_ramp_throttle_ms,
+                connection=connection_options,
+                task_queue=worker_options.task_queue,
+                graceful_shutdown_timeout_seconds=worker_options.graceful_shutdown_timeout,
+                concurrency=concurrency_options,
+                tuner=tuner_options,
+                activity_slots=activity_slot_options,
                 health_port=health_port,
                 health_max_idle_seconds=health_max_idle_seconds,
                 combined_metrics_server_enabled=not disable_combined_metrics_server,
             )
             logger.info("Starting Temporal Worker")
 
-            if task_queue == settings.SURFACING_SCORING_SWEEP_TASK_QUEUE:
+            if worker_options.task_queue == settings.SURFACING_SCORING_SWEEP_TASK_QUEUE:
                 from posthog.temporal.session_replay.surfacing_scoring_sweep.scorer import warmup_best_effort
 
                 # Best-effort: surfacing shares this queue with the rest of the
@@ -883,32 +945,25 @@ class Command(BaseCommand):
 
             worker = runner.run(
                 create_worker(
-                    temporal_host,
-                    temporal_port,
+                    connection_options.host,
+                    connection_options.port,
                     metrics_port=metrics_port,
-                    namespace=namespace,
-                    task_queue=task_queue,
-                    server_root_ca_cert=server_root_ca_cert,
-                    client_cert=client_cert,
-                    client_key=client_key,
+                    namespace=connection_options.namespace,
+                    task_queue=worker_options.task_queue,
+                    server_root_ca_cert=mtls_options.server_root_ca_cert,
+                    client_cert=mtls_options.client_cert,
+                    client_key=mtls_options.client_private_key,
                     workflows=workflows,
                     activities=activities,
-                    graceful_shutdown_timeout=(
-                        dt.timedelta(seconds=graceful_shutdown_timeout_seconds)
-                        if graceful_shutdown_timeout_seconds is not None
-                        else None
-                    ),
-                    max_concurrent_workflow_tasks=max_concurrent_workflow_tasks,
-                    max_concurrent_activities=max_concurrent_activities,
-                    metric_prefix=TASK_QUEUE_METRIC_PREFIXES.get(task_queue, None),
+                    graceful_shutdown_timeout=worker_options.graceful_shutdown_timeout,
+                    max_concurrent_workflow_tasks=concurrency_options.max_concurrent_workflow_tasks,
+                    max_concurrent_activities=concurrency_options.max_concurrent_activities,
+                    metric_prefix=TASK_QUEUE_METRIC_PREFIXES.get(worker_options.task_queue, None),
                     use_pydantic_converter=use_pydantic_converter,
-                    target_memory_usage=target_memory_usage,
-                    target_cpu_usage=target_cpu_usage,
-                    activity_ramp_throttle=(
-                        dt.timedelta(milliseconds=activity_ramp_throttle_ms)
-                        if activity_ramp_throttle_ms is not None
-                        else None
-                    ),
+                    target_memory_usage=tuner_options.target_memory_usage if tuner_options else None,
+                    target_cpu_usage=tuner_options.target_cpu_usage if tuner_options else None,
+                    activity_slot_options=activity_slot_options,
+                    workflow_slot_options=workflow_slot_options,
                     enable_combined_metrics_server=not disable_combined_metrics_server,
                     enable_open_telemetry_plugin=enable_otel,
                 )
@@ -921,9 +976,9 @@ class Command(BaseCommand):
                 # healthy worker — k8s then reaps every replica on a fixed cycle. Refuse to serve a
                 # probe that can only ever fail; a worker that won't start is far louder than one
                 # that restarts forever.
-                if not is_task_queue_supported(task_queue, LivenessInterceptor):
+                if not is_task_queue_supported(worker_options.task_queue, LivenessInterceptor):
                     raise CommandError(
-                        f"Refusing to start the health server: task queue '{task_queue}' is not covered by "
+                        f"Refusing to start the health server: task queue '{worker_options.task_queue}' is not covered by "
                         f"LivenessInterceptor, so /healthz would report process uptime as idle time and fail "
                         f"after {health_max_idle_seconds}s regardless of worker health. Add the queue to "
                         f"LivenessInterceptor.task_queue, or unset TEMPORAL_HEALTH_PORT / "

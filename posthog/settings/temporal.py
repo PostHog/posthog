@@ -20,9 +20,7 @@ TEMPORAL_SECRET_KEY: str = os.getenv("TEMPORAL_SECRET_KEY", SECRET_KEY)
 TEMPORAL_FALLBACK_SECRET_KEYS: list[str] = get_list(os.getenv("TEMPORAL_FALLBACK_SECRET_KEYS", "")) or [SECRET_KEY]
 
 
-GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS: int | None = get_from_env(
-    "GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS", None, optional=True, type_cast=int
-)
+GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS: int | None = get_from_env("GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS", 300, type_cast=int)
 MAX_CONCURRENT_WORKFLOW_TASKS: int | None = get_from_env(
     "MAX_CONCURRENT_WORKFLOW_TASKS", None, optional=True, type_cast=int
 )
