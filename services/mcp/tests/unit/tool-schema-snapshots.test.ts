@@ -102,6 +102,7 @@ describe('Tool schema snapshots', () => {
             'agent-platform': true,
             'billing-alerts': true,
             'experiment-setup-context': true,
+            'scouts-tool-access': true,
         }
         const tools = [...(await getToolsFromContext(context, { featureFlags }))].sort((a, b) =>
             a.name.localeCompare(b.name)

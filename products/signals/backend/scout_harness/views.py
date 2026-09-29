@@ -59,6 +59,7 @@ from posthog.models.user import User
 from posthog.permissions import AccessControlPermission, APIScopePermission, get_authenticator_scopes
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
 from posthog.temporal.common.client import sync_connect
+from posthog.temporal.oauth import SCOUT_GRANTABLE_WRITE_SCOPES
 from posthog.user_permissions import UserPermissions
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -164,7 +165,7 @@ from products.signals.backend.scout_harness.team_limits import (
     resolve_team_metadata,
     withheld_skills_for_team,
 )
-from products.signals.backend.scout_harness.tool_catalogue import get_scout_tool_catalogue
+from products.signals.backend.scout_harness.tool_catalogue import get_scout_tool_catalogue, scout_tool_access_enabled
 from products.signals.backend.scout_harness.tools.checks import (
     InvalidCheckResultError,
     InvalidCheckWriteError,
@@ -2478,7 +2479,15 @@ def _upsert_scout_config(
 
     # The per-team cap only gates net-new enables: creating an enabled row or
     # flipping a disabled row on. Reasserting an already-enabled scout stays exempt.
-    existing = SignalScoutConfig.objects.for_team(team_id).filter(skill_name=skill_name).first()
+    existing = SignalScoutConfig.objects.for_team(team_id).select_for_update().filter(skill_name=skill_name).first()
+    team = Team.objects.get(id=team_id)
+    defaults = _resolve_scout_config_grants(
+        request=request,
+        team=team,
+        skill_name=skill_name,
+        config=existing,
+        data=tunables,
+    )
     will_enable = (
         tunables.get("enabled", True)
         if existing is None
@@ -2493,7 +2502,7 @@ def _upsert_scout_config(
         team_id=team_id,
         skill_name=skill_name,
         defaults={
-            **tunables,
+            **defaults,
             "created_by": request.user,
             "enabled_by": request.user if tunables.get("enabled", True) else None,
         },
@@ -2528,6 +2537,7 @@ def _upsert_scout_config(
                 },
             }
 
+    config = SignalScoutConfig.objects.for_team(team_id).select_for_update().get(id=config.id)
     # The coordinator or another caller may have won the create race. Apply only
     # fields supplied by this request so omitted settings remain untouched.
     update = SignalScoutConfigUpdateSerializer(
@@ -2537,6 +2547,15 @@ def _upsert_scout_config(
         context=serializer_context,
     )
     update.is_valid(raise_exception=True)
+    update.validated_data.update(
+        _resolve_scout_config_grants(
+            request=request,
+            team=team,
+            skill_name=skill_name,
+            config=config,
+            data=update.validated_data,
+        )
+    )
     save_kwargs: dict[str, Any] = {}
     if not config.enabled and update.validated_data.get("enabled"):
         save_kwargs["enabled_by"] = request.user
@@ -2595,6 +2614,7 @@ def create_scout_for_source(
     # Resolved before the transaction: it reads the `signals-scout` flag, and the block below
     # holds row locks on the skill and its config.
     max_enabled_scouts = max_enabled_scouts_for_team(team.id)
+    _assert_scout_tool_selection_access(request=request, team=team, data=config_options)
 
     with transaction.atomic():
         try:
@@ -2629,25 +2649,6 @@ def create_scout_for_source(
             # Only when one was given: the upsert applies every tunable to a row that already
             # exists, and a blank would clear a label the existing scout was renamed to.
             tunables["display_name"] = display_name
-        if "write_scopes" in tunables:
-            # Creating the scout in this request makes the requester its author, which is who its
-            # runs act as. Reusing an existing name adopts someone else's scout and its config, so
-            # that path asks for the same claim a config edit does. Compared against the stored
-            # grant, because the create form sends an empty list by default and applying that to an
-            # existing scout is a revocation, not a no-op.
-            existing_config = (
-                SignalScoutConfig.objects.for_team(team.id).select_for_update().filter(skill_name=name).first()
-            )
-            current_scopes = _stored_write_scopes(existing_config.write_scopes) if existing_config else []
-            if sorted(set(tunables["write_scopes"])) != sorted(current_scopes):
-                assert_can_grant_scout_write_scopes(
-                    request=request,
-                    team=team,
-                    skill_name=name,
-                    config=existing_config,
-                    added_scopes=_added_write_scopes(tunables["write_scopes"], current=current_scopes),
-                    authored_by_requester=skill_created,
-                )
         if source_product and source_id:
             # Reusing a name adopts the existing config, and the source pair is what the owning
             # product's report route trusts — so adopting an unowned scout would expose everything it
@@ -2857,31 +2858,6 @@ def _stored_write_scopes(raw: object) -> list[str]:
     return [scope for scope in raw if isinstance(scope, str)]
 
 
-def _requested_write_scopes_change(request: Request, *, current: list[str] | None) -> bool:
-    """Whether this request asks to change a scout's granted write scopes.
-
-    Read off the raw body rather than validated data, because the answer decides whether the
-    authorization gate runs and that has to be decided before anything is applied. Comparing
-    against the stored grant keeps a client that resends a whole config object — MCP callers do —
-    from needing the gate for an edit that changes nothing.
-    """
-    data = request.data
-    if not isinstance(data, dict) or "write_scopes" not in data:
-        return False
-    requested = data["write_scopes"]
-    if not isinstance(requested, list):
-        # Malformed input still counts as an attempt to change the field; the serializer rejects it.
-        return True
-    return sorted({scope for scope in requested if isinstance(scope, str)}) != sorted(current or [])
-
-
-def _added_write_scopes(requested: object, *, current: list[str] | None) -> set[str]:
-    """The scopes a request would add to a scout's grant. Tolerates a raw, unvalidated body."""
-    if not isinstance(requested, list):
-        return set()
-    return {scope for scope in requested if isinstance(scope, str)} - set(current or [])
-
-
 def assert_can_grant_scout_write_scopes(
     *,
     request: Request,
@@ -2889,7 +2865,6 @@ def assert_can_grant_scout_write_scopes(
     skill_name: str,
     config: SignalScoutConfig | None,
     added_scopes: set[str],
-    authored_by_requester: bool = False,
 ) -> None:
     """Gate on changing what one scout may write in the project.
 
@@ -2900,8 +2875,6 @@ def assert_can_grant_scout_write_scopes(
     reads identity sources the person set themselves (the version-history creator, then who
     enabled or created the config). `LLMSkillOwner` is deliberately not consulted: any skill editor
     can rewrite the owner list, so it would let an editor appoint themselves and pass this gate.
-    `authored_by_requester` covers the same person creating the scout and its grant in one request,
-    before a version row exists to resolve.
 
     A scoped credential must also carry each scope it adds. A personal API key or OAuth token minted
     with only `signal_scout:write` is a deliberate narrowing, and letting it configure a run that
@@ -2921,13 +2894,89 @@ def assert_can_grant_scout_write_scopes(
     level = UserPermissions(user=user, team=team).current_team.effective_membership_level
     if level is not None and level >= OrganizationMembership.Level.ADMIN:
         return
-    if authored_by_requester:
-        return
     if resolve_scout_acting_user_id(team, skill_name, config) == user.pk:
         return
     raise exceptions.PermissionDenied(
         "Only the person who authored this scout or a project admin can change its write access."
     )
+
+
+def _assert_scout_tool_selection_access(*, request: Request, team: Team, data: Mapping[str, Any]) -> None:
+    if "allowed_mcp_tools" not in data and "tool_preset" not in data:
+        return
+    if _sandbox_bound_task_id(request) is not None:
+        raise exceptions.PermissionDenied("Sandbox tokens cannot change a scout's tool selection.")
+    if not scout_tool_access_enabled(team):
+        raise exceptions.ValidationError({"allowed_mcp_tools": "Scout tool access is not enabled for this project."})
+
+
+def _resolve_scout_config_grants(
+    *,
+    request: Request,
+    team: Team,
+    skill_name: str,
+    config: SignalScoutConfig | None,
+    data: dict[str, Any],
+) -> dict[str, Any]:
+    current_scopes = set(_stored_write_scopes(config.write_scopes)) if config else set()
+    current_tools = config.allowed_mcp_tools if config else None
+    selects_tools = "allowed_mcp_tools" in data or "tool_preset" in data
+    resolved = dict(data)
+    if selects_tools:
+        if "tool_preset" in data:
+            preset = next(
+                preset for preset in get_scout_tool_catalogue().tool_presets if preset.name == data["tool_preset"]
+            )
+            resolved["allowed_mcp_tools"] = list(preset.tools)
+        else:
+            resolved["tool_preset"] = "custom" if data["allowed_mcp_tools"] is not None else None
+
+    selected_tools = resolved.get("allowed_mcp_tools", current_tools)
+    if "write_scopes" in data and (current_tools is not None or selected_tools is not None):
+        raise exceptions.ValidationError(
+            {"write_scopes": "Write access comes from the tool list. Edit allowed_mcp_tools instead."}
+        )
+
+    if selects_tools and selected_tools is not None:
+        write_tools = {
+            entry.definition.name: entry.definition
+            for entry in get_scout_tool_catalogue().tools
+            if not entry.definition.read_only
+        }
+        derived = {
+            scope for name in selected_tools if name in write_tools for scope in write_tools[name].required_scopes
+        } & SCOUT_GRANTABLE_WRITE_SCOPES
+        resolved["write_scopes"] = sorted(derived)
+        # Null already permits every tool within the existing scopes; narrowing it adds no tool grant.
+        added_tools = set(selected_tools) - set(current_tools) if current_tools is not None else set()
+        added_write_tools = added_tools & write_tools.keys()
+        required = {scope for name in added_write_tools for scope in write_tools[name].required_scopes}
+        if added_write_tools or derived - current_scopes:
+            assert_can_grant_scout_write_scopes(
+                request=request,
+                team=team,
+                skill_name=skill_name,
+                config=config,
+                added_scopes=required | (derived - current_scopes),
+            )
+    elif selects_tools and current_tools is not None:
+        # Clearing an explicit list restores every operation allowed by the retained scopes.
+        assert_can_grant_scout_write_scopes(
+            request=request,
+            team=team,
+            skill_name=skill_name,
+            config=config,
+            added_scopes=current_scopes,
+        )
+    elif "write_scopes" in data and set(data["write_scopes"]) != current_scopes:
+        assert_can_grant_scout_write_scopes(
+            request=request,
+            team=team,
+            skill_name=skill_name,
+            config=config,
+            added_scopes=set(data["write_scopes"]) - current_scopes,
+        )
+    return resolved
 
 
 def scout_config_context(team: Team, skill_names: list[str], request: Request) -> dict[str, Any]:
@@ -3250,27 +3299,13 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         )
         serializer.is_valid(raise_exception=True)
         skill_name = serializer.validated_data["skill_name"]
+        _assert_scout_tool_selection_access(request=request, team=team, data=serializer.validated_data)
         max_enabled_scouts = max_enabled_scouts_for_team(team_id)
         # Upsert, so the grant is compared against whatever row already exists — registering a
         # config for an existing scout is the same widening as patching one. The row stays locked
         # from the comparison to the save, so a grant revoked in between cannot be written back by
         # a request that compared against the old value.
         with transaction.atomic():
-            existing = (
-                SignalScoutConfig.objects.unscoped()
-                .select_for_update()
-                .filter(team_id=team_id, skill_name=skill_name)
-                .first()
-            )
-            current_scopes = _stored_write_scopes(existing.write_scopes) if existing else []
-            if _requested_write_scopes_change(request, current=current_scopes):
-                assert_can_grant_scout_write_scopes(
-                    request=request,
-                    team=team,
-                    skill_name=skill_name,
-                    config=existing,
-                    added_scopes=_added_write_scopes(request.data.get("write_scopes"), current=current_scopes),
-                )
             if not LLMSkill.objects.filter(team_id=team_id, name=skill_name, is_latest=True, deleted=False).exists():
                 raise exceptions.ValidationError(
                     {"skill_name": "No skill with this name exists on this project. Author the skill first."}
@@ -3315,6 +3350,7 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def partial_update(self, request: Request, *args, **kwargs) -> Response:
         team = _canonical_team(self)
         team_id = team.id
+        _assert_scout_tool_selection_access(request=request, team=team, data=request.data)
         if self._sets_structured_output_schema(request):
             self._assert_can_author_structured_output_schema()
         config_id = _parse_run_id_or_404(kwargs)
@@ -3329,15 +3365,6 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             )
             if config is None:
                 raise exceptions.NotFound()
-            current_scopes = _stored_write_scopes(config.write_scopes)
-            if _requested_write_scopes_change(request, current=current_scopes):
-                assert_can_grant_scout_write_scopes(
-                    request=request,
-                    team=team,
-                    skill_name=config.skill_name,
-                    config=config,
-                    added_scopes=_added_write_scopes(request.data.get("write_scopes"), current=current_scopes),
-                )
             serializer = SignalScoutConfigUpdateSerializer(
                 config,
                 data=request.data,
@@ -3349,6 +3376,15 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 },
             )
             serializer.is_valid(raise_exception=True)
+            serializer.validated_data.update(
+                _resolve_scout_config_grants(
+                    request=request,
+                    team=team,
+                    skill_name=config.skill_name,
+                    config=config,
+                    data=serializer.validated_data,
+                )
+            )
             enabling = not config.enabled and serializer.validated_data.get("enabled")
             if enabling:
                 _reject_if_enabled_cap_reached(team_id, config.skill_name, cap=max_enabled_scouts)

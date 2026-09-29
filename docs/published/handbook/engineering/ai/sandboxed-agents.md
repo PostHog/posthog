@@ -212,6 +212,24 @@ See `posthog/temporal/oauth.py` for the full list.
 > **Principle of least privilege**: default to `"read_only"` unless your agent genuinely needs to create or modify resources.
 > This limits blast radius if the agent misbehaves.
 
+### Scout tool selections
+
+Scout configs can store an exact `allowed_mcp_tools` list beside their scope grants.
+`null` preserves unrestricted tool selection within the scout's scopes; `[]` selects no additional tools.
+The `read_only` and `support_notes` tool presets expand into a snapshot when saved, so later preset changes do not change existing grants.
+A preset containing a non-holdable tool is rejected, as is an explicit selection containing unknown, superseded, non-holdable, or built-in run-context tools.
+
+For an explicit list, the API derives `write_scopes` from selected write tools and refuses direct scope edits.
+Adding a write tool requires the scout's acting user or a project admin, and a credential carrying its required scopes, even if the scout already holds those scopes.
+Removing tools or narrowing an unrestricted selection without adding scopes needs ordinary scout configuration access.
+Clearing the list restores unrestricted tool selection and requires grant authorization; it preserves the last derived scopes, which can then be edited separately.
+Sandbox-bound tokens cannot change either tool-selection field.
+Both fields and their initial values are activity-logged.
+
+The write path is gated by `scouts-tool-access` and fails closed when the flag is absent or unavailable.
+Keep the flag disabled until tool enforcement ships: storing a list alone does not restrict tools at runtime.
+The tool picker and runtime enforcement are separate changes.
+
 ### Activity attribution
 
 A sandboxed agent authenticates as a person, so the activity log names that person as the actor.

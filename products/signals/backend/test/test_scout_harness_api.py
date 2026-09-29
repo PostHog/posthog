@@ -1534,6 +1534,184 @@ class TestScoutHarnessConfigWriteScopesAPI(APIBaseTest):
         config.refresh_from_db()
         assert config.write_scopes == (requested if expected == status.HTTP_200_OK else current)
 
+    @parameterized.expand(
+        [
+            ("read", ["insight-get"], []),
+            ("write", ["dashboard-create"], ["dashboard:write"]),
+            ("empty", [], []),
+        ]
+    )
+    def test_tool_list_derives_scopes_and_audits(self, _name: str, tools: list[str], scopes: list[str]) -> None:
+        self._authored_by(self.user)
+        config = self._config(write_scopes=["insight:write"])
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            response = self.client.patch(self._detail_url(str(config.id)), {"allowed_mcp_tools": tools}, format="json")
+        assert response.status_code == 200, response.json()
+        config.refresh_from_db()
+        assert config.allowed_mcp_tools == tools
+        assert config.tool_preset == "custom"
+        assert config.write_scopes == scopes
+        assert response.json()["allowed_mcp_tools"] == tools
+        log = ActivityLog.objects.filter(scope="SignalScoutConfig", item_id=str(config.id), activity="updated").latest(
+            "created_at"
+        )
+        assert log.detail is not None
+        fields = {change["field"] for change in log.detail["changes"]}
+        assert {"allowed MCP tools", "tool preset", "write access"} <= fields
+
+    @parameterized.expand(
+        [
+            ("add_scope", None, [], ["dashboard-create"], 403),
+            ("same_scope_new_tool", ["dashboard-create"], ["dashboard:write"], ["dashboard-update"], 403),
+            ("remove", ["dashboard-create"], ["dashboard:write"], [], 200),
+            ("narrow_unrestricted", None, ["dashboard:write"], ["dashboard-create"], 200),
+            ("clear", ["dashboard-create"], ["dashboard:write"], None, 403),
+        ]
+    )
+    def test_tool_grant_actor_boundary(
+        self, _name: str, current: list[str] | None, scopes: list[str], requested: list[str] | None, expected: int
+    ) -> None:
+        self._authored_by(self._other_member())
+        config = self._config(allowed_mcp_tools=current, write_scopes=scopes)
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            response = self.client.patch(
+                self._detail_url(str(config.id)), {"allowed_mcp_tools": requested}, format="json"
+            )
+        assert response.status_code == expected, response.json()
+        config.refresh_from_db()
+        assert config.allowed_mcp_tools == (requested if expected == 200 else current)
+        if expected == 403:
+            assert config.write_scopes == scopes
+
+    @parameterized.expand(
+        [
+            ("missing", ["signal_scout:write"], 403),
+            ("present", ["signal_scout:write", "dashboard:write"], 200),
+        ]
+    )
+    def test_new_tool_requires_credential_scope_even_if_already_granted(
+        self, _name: str, scopes: list[str], expected: int
+    ) -> None:
+        self._authored_by(self.user)
+        config = self._config(allowed_mcp_tools=["dashboard-create"], write_scopes=["dashboard:write"])
+        token = self._personal_api_key(scopes)
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            response = self.client.patch(
+                self._detail_url(str(config.id)),
+                {"allowed_mcp_tools": ["dashboard-update"]},
+                format="json",
+                HTTP_AUTHORIZATION=f"Bearer {token}",
+            )
+        assert response.status_code == expected, response.json()
+
+    def test_clear_tool_list_preserves_scopes_then_allows_direct_edit(self) -> None:
+        self._authored_by(self.user)
+        config = self._config(
+            allowed_mcp_tools=["dashboard-create"], tool_preset="custom", write_scopes=["dashboard:write"]
+        )
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            response = self.client.patch(self._detail_url(str(config.id)), {"allowed_mcp_tools": None}, format="json")
+        assert response.status_code == 200, response.json()
+        assert response.json()["write_scopes"] == ["dashboard:write"]
+        assert response.json()["tool_preset"] is None
+        response = self.client.patch(self._detail_url(str(config.id)), {"write_scopes": []}, format="json")
+        assert response.status_code == 200, response.json()
+        config.refresh_from_db()
+        assert config.allowed_mcp_tools is None
+        assert config.write_scopes == []
+
+    @parameterized.expand(
+        [
+            ("saved", {"write_scopes": []}),
+            ("incoming", {"write_scopes": [], "allowed_mcp_tools": []}),
+            ("clearing", {"write_scopes": [], "allowed_mcp_tools": None}),
+        ]
+    )
+    def test_explicit_list_refuses_direct_scope_edits(self, _name: str, payload: dict) -> None:
+        self._authored_by(self.user)
+        config = self._config(allowed_mcp_tools=["dashboard-create"], write_scopes=["dashboard:write"])
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            response = self.client.patch(self._detail_url(str(config.id)), payload, format="json")
+        assert response.status_code == 400, response.json()
+        assert "Write access comes from the tool list" in str(response.json())
+
+    @parameterized.expand([(False,), (None,), (RuntimeError("Flag unavailable"),)])
+    def test_tool_list_fails_closed_without_flag(self, result: object) -> None:
+        config = self._config()
+        with patch(
+            "posthoganalytics.feature_enabled",
+            **({"side_effect": result} if isinstance(result, Exception) else {"return_value": result}),
+        ):
+            response = self.client.patch(self._detail_url(str(config.id)), {"allowed_mcp_tools": []}, format="json")
+        assert response.status_code == 400, response.json()
+        config.refresh_from_db()
+        assert config.allowed_mcp_tools is None
+        assert response.json()["attr"] == "allowed_mcp_tools"
+
+    @parameterized.expand([({"allowed_mcp_tools": []},), ({"tool_preset": "read_only"},)])
+    def test_sandbox_token_cannot_select_tools(self, payload: dict) -> None:
+        self._authored_by(self.user)
+        config = self._config()
+        run = _make_run(self.team, scout_config=config, skill_name=config.skill_name)
+        _authenticate_as_scout(self, scopes=["signal_scout:write"], sandbox_task_id=run.task_run.task_id)
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            response = self.client.patch(self._detail_url(str(config.id)), payload, format="json")
+        assert response.status_code == 403, response.json()
+        config.refresh_from_db()
+        assert config.allowed_mcp_tools is None
+
+    def test_preset_is_snapshotted_and_reordered_list_does_not_log(self) -> None:
+        config = self._config()
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            response = self.client.patch(self._detail_url(str(config.id)), {"tool_preset": "read_only"}, format="json")
+        assert response.status_code == 200, response.json()
+        config.refresh_from_db()
+        assert config.tool_preset == "read_only"
+        assert config.allowed_mcp_tools is not None
+        assert "insight-get" in config.allowed_mcp_tools
+        assert "scout-notes-list" not in config.allowed_mcp_tools
+        assert config.write_scopes == []
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            response = self.client.patch(
+                self._detail_url(str(config.id)),
+                {"allowed_mcp_tools": ["insight-get", "dashboard-get"]},
+                format="json",
+            )
+            assert response.status_code == 200, response.json()
+            before = ActivityLog.objects.filter(scope="SignalScoutConfig", item_id=str(config.id)).count()
+            response = self.client.patch(
+                self._detail_url(str(config.id)),
+                {"allowed_mcp_tools": ["dashboard-get", "insight-get", "insight-get"]},
+                format="json",
+            )
+        assert response.status_code == 200, response.json()
+        assert ActivityLog.objects.filter(scope="SignalScoutConfig", item_id=str(config.id)).count() == before
+
+    def test_config_create_and_upsert_tool_grants(self) -> None:
+        self._authored_by(self.user)
+        url = f"/api/projects/{self.team.id}/signals/scout/configs/"
+        payload = {"skill_name": "signals-scout-hygiene", "enabled": False, "allowed_mcp_tools": ["dashboard-create"]}
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            for expected in (201, 200):
+                response = self.client.post(url, payload, format="json")
+                assert response.status_code == expected, response.json()
+                assert response.json()["write_scopes"] == ["dashboard:write"]
+        config = SignalScoutConfig.objects.get(team=self.team, skill_name=payload["skill_name"])
+        log = ActivityLog.objects.filter(scope="SignalScoutConfig", item_id=str(config.id), activity="created").latest(
+            "created_at"
+        )
+        assert log.detail is not None
+        fields = {change["field"]: change.get("after") for change in log.detail["changes"]}
+        assert fields["allowed MCP tools"] == ["dashboard-create"]
+        assert fields["tool preset"] == "custom"
+        token = self._personal_api_key(["signal_scout:write", "llm_skill:write"])
+        payload["allowed_mcp_tools"] = ["dashboard-update"]
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            response = self.client.post(url, payload, format="json", HTTP_AUTHORIZATION=f"Bearer {token}")
+        assert response.status_code == 403, response.json()
+        config.refresh_from_db()
+        assert config.allowed_mcp_tools == ["dashboard-create"]
+
 
 class TestWriteScopesValidation(SimpleTestCase):
     @parameterized.expand(
@@ -1567,6 +1745,32 @@ class TestWriteScopesValidation(SimpleTestCase):
             assert serializer.validated_data["write_scopes"] == expected
         else:
             assert "write_scopes" in serializer.errors
+
+    @parameterized.expand(
+        [
+            ("unknown", ["invented-tool", "another-unknown"]),
+            ("superseded", ["signals-scout-config-update"]),
+            ("unholdable", ["create-feature-flag"]),
+            ("context", ["scout-emit-report", "scout-notes-list"]),
+        ]
+    )
+    def test_tool_validation_names_every_rejected_tool(self, _name: str, tools: list[str]) -> None:
+        serializer = SignalScoutConfigUpdateSerializer(data={"allowed_mcp_tools": tools}, partial=True)
+        assert not serializer.is_valid()
+        for tool in tools:
+            assert tool in str(serializer.errors["allowed_mcp_tools"])
+
+    def test_tool_list_and_preset_are_mutually_exclusive(self) -> None:
+        serializer = SignalScoutConfigUpdateSerializer(
+            data={"allowed_mcp_tools": [], "tool_preset": "read_only"}, partial=True
+        )
+        assert not serializer.is_valid()
+        assert "not both" in str(serializer.errors)
+
+    def test_support_notes_preset_is_rejected_until_its_write_scope_is_grantable(self) -> None:
+        serializer = SignalScoutConfigUpdateSerializer(data={"tool_preset": "support_notes"}, partial=True)
+        assert not serializer.is_valid()
+        assert "conversations-tickets-notes-create" in str(serializer.errors)
 
 
 class TestScoutHarnessConfigModelAPI(APIBaseTest):
@@ -4147,6 +4351,14 @@ class TestScoutHarnessToolCatalogueAPI(APIBaseTest):
         assert len(body["tools"]) > 500
         assert [preset["name"] for preset in body["presets"]] == list(SCOUT_SCOPE_PRESETS)
         assert set(body["grantable_write_scopes"]) == set(SCOUT_GRANTABLE_WRITE_SCOPES)
+        presets = {preset["name"]: preset for preset in body["tool_presets"]}
+        assert set(presets) == {"read_only", "support_notes"}
+        assert set(presets["support_notes"]["tools"]) - set(presets["read_only"]["tools"]) == {
+            "conversations-tickets-notes-create"
+        }
+        catalogue_names = {tool["name"] for tool in body["tools"]}
+        for preset in presets.values():
+            assert set(preset["tools"]) <= catalogue_names
 
     def test_leaves_out_the_tools_a_successor_replaced(self) -> None:
         # A picker that offered a superseded tool would configure a scout for a tool on its way out.
