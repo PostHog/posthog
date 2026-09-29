@@ -1,5 +1,6 @@
 import re
 import time
+from collections import deque
 from html.parser import HTMLParser
 from typing import TypedDict
 from urllib.parse import urljoin, urlparse, urlunparse
@@ -317,14 +318,14 @@ def _is_on_site(url: str, origin: str) -> bool:
 
 def read_sitemap_urls(source_urls: list[str], *, origin: str) -> list[str]:
     deadline = time.monotonic() + _MAX_SITEMAP_SECONDS
-    queue = [url for url in source_urls if has_same_public_origin(url, origin)]
-    seen_sitemaps: set[str] = set()
+    queued = list(dict.fromkeys(url for url in source_urls if has_same_public_origin(url, origin)))[
+        :_MAX_SITEMAP_FETCHES
+    ]
+    queue = deque(queued)
+    seen_sitemaps = set(queued)
     pages: dict[str, None] = {}
-    while queue and len(seen_sitemaps) < _MAX_SITEMAP_FETCHES and time.monotonic() < deadline:
-        sitemap_url = queue.pop(0)
-        if sitemap_url in seen_sitemaps:
-            continue
-        seen_sitemaps.add(sitemap_url)
+    while queue and time.monotonic() < deadline:
+        sitemap_url = queue.popleft()
         text = _fetch_sitemap(sitemap_url, deadline=deadline)
         if text is None:
             continue
@@ -340,7 +341,9 @@ def read_sitemap_urls(source_urls: list[str], *, origin: str) -> list[str]:
             if not _is_on_site(location, origin):
                 continue
             if is_index:
-                queue.append(location)
+                if location not in seen_sitemaps and len(seen_sitemaps) < _MAX_SITEMAP_FETCHES:
+                    seen_sitemaps.add(location)
+                    queue.append(location)
             elif len(pages) < _MAX_SITEMAP_URLS:
                 pages[location] = None
     return list(pages)
