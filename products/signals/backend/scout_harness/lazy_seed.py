@@ -67,6 +67,7 @@ _FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 # (or vice versa). The agentskills.io spec also defines `assets/`; if we ever want to
 # support binary attachments, add to both consumers in the same change.
 _ALLOWED_BUNDLE_SUBDIRS = ("references", "scripts")
+_BYTECODE_CACHE_DIR = "__pycache__"
 # Mirror the per-skill contract limits enforced by the REST API at
 # `products/skills/backend/api/skill_services.py` (`MAX_SKILL_*`). The seed
 # bypasses the service layer (no "create from scratch with files" helper exists), so
@@ -432,7 +433,7 @@ def _parse_canonical_skill(skill_dir: Path, *, is_scout: bool = True) -> Canonic
         if not subdir.is_dir():
             continue
         for file_path in sorted(subdir.rglob("*")):
-            if not file_path.is_file():
+            if not file_path.is_file() or _BYTECODE_CACHE_DIR in file_path.relative_to(subdir).parts:
                 continue
             rel_path = file_path.relative_to(skill_dir).as_posix()
             if len(rel_path) > _MAX_SKILL_FILE_PATH_LENGTH:

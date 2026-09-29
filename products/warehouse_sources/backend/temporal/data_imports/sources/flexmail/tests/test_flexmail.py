@@ -290,15 +290,133 @@ class TestValidateCredentials:
         assert kwargs["auth"] == HTTPBasicAuth("12345", "flexmail-token")
 
 
+class TestContactFanout:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_fans_out_over_contacts_and_carries_the_contact_id(self, MockSession) -> None:
+        session = MockSession.return_value
+        params = _wire(
+            session,
+            [
+                _envelope([{"id": 29}, {"id": 30}], total=2),
+                _envelope(
+                    [{"id": 4, "name": "newsletter signup form", "_links": {"self": {"href": "/sources/4"}}}], total=1
+                ),
+                _envelope([{"id": 7, "name": "import"}], total=1),
+            ],
+        )
+
+        rows = _rows(_source("contact_sources"))
+
+        # A contact's source rows are indistinguishable from the account-wide `sources` table
+        # without the contact id, so the join column has to survive onto every row.
+        assert rows == [
+            {"contact_id": 29, "id": 4, "name": "newsletter signup form"},
+            {"contact_id": 30, "id": 7, "name": "import"},
+        ]
+        assert [p.get("offset") for p in params] == [0, 0, 0]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_walks_offset_pages_within_one_contact(self, MockSession) -> None:
+        session = MockSession.return_value
+        first_page = [{"id": i} for i in range(PAGE_SIZE)]
+        params = _wire(
+            session,
+            [
+                _envelope([{"id": 29}], total=1),
+                _envelope(first_page, total=PAGE_SIZE + 1),
+                _envelope([{"id": 999}], total=PAGE_SIZE + 1, offset=PAGE_SIZE),
+            ],
+        )
+
+        rows = _rows(_source("contact_sources"))
+
+        assert len(rows) == PAGE_SIZE + 1
+        assert all(row["contact_id"] == 29 for row in rows)
+        assert [p["offset"] for p in params[1:]] == [0, PAGE_SIZE]
+
+    @mock.patch(SLEEP_PATCH)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_skips_a_contact_deleted_since_the_listing(self, MockSession, _sleep) -> None:
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _envelope([{"id": 29}, {"id": 30}], total=2),
+                _json_response({"title": "Not Found"}, status_code=404),
+                _envelope([{"id": 7, "name": "import"}], total=1),
+            ],
+        )
+
+        rows = _rows(_source("contact_sources"))
+
+        assert rows == [{"contact_id": 30, "id": 7, "name": "import"}]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_interest_subscriptions_fetch_once_per_contact_without_pagination_params(self, MockSession) -> None:
+        session = MockSession.return_value
+        subscription = {
+            "interest_id": "1f0b2e6c-0000-4000-8000-000000000001",
+            "_links": {"self": {"href": "/contacts/29/interest-subscriptions/1f0b"}},
+            # The embedded interest repeats a row of the `interests` table we already sync.
+            "_embedded": {"interest": {"id": "1f0b2e6c-0000-4000-8000-000000000001", "name": "Programming"}},
+        }
+        params = _wire(
+            session,
+            [
+                _envelope([{"id": 29}], total=1),
+                _json_response({"total": 1, "_embedded": {"item": [subscription]}}),
+            ],
+        )
+
+        rows = _rows(_source("contact_interest_subscriptions"))
+
+        assert rows == [{"contact_id": 29, "interest_id": "1f0b2e6c-0000-4000-8000-000000000001"}]
+        assert session.send.call_count == 2
+        assert "offset" not in params[1] and "limit" not in params[1]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resumes_without_refetching_a_finished_contact(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _envelope([{"id": 29}, {"id": 30}], total=2),
+                _envelope([{"id": 7, "name": "import"}], total=1),
+            ],
+        )
+
+        manager = _make_manager(FlexmailResumeConfig(fanout_state={"completed": ["/contacts/29/sources"]}))
+        rows = _rows(_source("contact_sources", manager))
+
+        assert rows == [{"contact_id": 30, "id": 7, "name": "import"}]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_checkpoints_which_contacts_finished(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _envelope([{"id": 29}], total=1),
+                _envelope([{"id": 7, "name": "import"}], total=1),
+            ],
+        )
+
+        manager = _make_manager()
+        _rows(_source("contact_sources", manager))
+
+        saved = [call.args[0] for call in manager.save_state.call_args_list]
+        assert saved, "the fan-out must checkpoint its progress through the contact list"
+        assert saved[-1].fanout_state is not None
+        assert "/contacts/29/sources" in saved[-1].fanout_state["completed"]
+
+
 class TestFlexmailSourceResponse:
     @parameterized.expand([(e,) for e in ENDPOINTS])
     def test_source_response_shape(self, endpoint: str) -> None:
         response = _source(endpoint)
         assert response.name == endpoint
-        assert response.primary_keys == ["id"]
+        # Wired from the endpoint config, not hardcoded: a fan-out table keyed on the bare
+        # sub-resource id would seed a duplicate row per contact.
+        assert response.primary_keys == FLEXMAIL_ENDPOINTS[endpoint].primary_keys
         # No stable creation timestamp exists on most resources, so we don't partition.
         assert response.partition_mode is None
-
-    def test_every_endpoint_uses_id_primary_key(self) -> None:
-        assert all(config.primary_keys == ["id"] for config in FLEXMAIL_ENDPOINTS.values())
-        assert set(FLEXMAIL_ENDPOINTS) == set(ENDPOINTS)
