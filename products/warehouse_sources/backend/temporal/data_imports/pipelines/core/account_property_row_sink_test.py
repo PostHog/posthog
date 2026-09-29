@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from typing import cast
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, call, patch
@@ -212,7 +213,7 @@ async def test_stage_delta_snapshot_falls_back_to_latest_version_after_a_vacuum_
 
     assert staged is True
     assert clear.await_count == 2
-    sink.logger.awarning.assert_awaited_once()
+    cast(AsyncMock, sink.logger.awarning).assert_awaited_once()
     assert open_delta.call_args_list == [
         call("s3://data-warehouse/dlt/table", version=7, storage_options={"region_name": "us-east-1"}),
         call("s3://data-warehouse/dlt/table", version=None, storage_options={"region_name": "us-east-1"}),
