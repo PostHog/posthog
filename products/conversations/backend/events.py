@@ -418,12 +418,15 @@ def _get_assignee_user_properties(ticket: Ticket, user_id: int | str) -> dict:
     }
 
 
-def _get_assignee_display_properties(ticket: Ticket, assignee_type: str | None, assignee_id: str | None) -> dict:
+def _get_assignee_display_properties(
+    ticket: Ticket, assignee_type: str | None, assignee_id: str | None, role: Role | None = None
+) -> dict:
     """Readable assignee fields, so a workflow filter can name a teammate or a team.
 
     `assignee_role_name` is set only for role assignments, `assignee_email` and `assignee_name`
     only for user assignments. A filter on the raw `assignee_id` needs a numeric user id or a role
-    UUID, which nobody building a workflow has to hand.
+    UUID, which nobody building a workflow has to hand. Pass `role` when the caller loaded it with
+    the assignment, so message events do not query the role a second time.
     """
     unset = {"assignee_role_name": None, "assignee_email": None, "assignee_name": None}
     if not assignee_id:
@@ -431,12 +434,11 @@ def _get_assignee_display_properties(ticket: Ticket, assignee_type: str | None, 
     if assignee_type == "user":
         return {**unset, **_get_assignee_user_properties(ticket, assignee_id)}
     if assignee_type == "role":
-        role_name = (
-            Role.objects.filter(id=assignee_id, organization_id=ticket.team.organization_id)
-            .values_list("name", flat=True)
-            .first()
-        )
-        return {**unset, "assignee_role_name": role_name}
+        if role is None:
+            role = Role.objects.filter(id=assignee_id, organization_id=ticket.team.organization_id).first()
+        if role is None or role.organization_id != ticket.team.organization_id:
+            return unset
+        return {**unset, "assignee_role_name": role.name}
     return unset
 
 
@@ -445,17 +447,18 @@ def _get_assignment_properties(ticket: Ticket) -> dict:
 
     `assignee_type` is "user", "role", or None (unassigned).
     """
-    assignment = TicketAssignment.objects.filter(ticket_id=ticket.id).first()
+    assignment = TicketAssignment.objects.select_related("role").filter(ticket_id=ticket.id).first()
     assignee_type: str | None = None
     assignee_id: str | None = None
+    role: Role | None = None
     if assignment is not None and assignment.user_id is not None:
         assignee_type, assignee_id = "user", str(assignment.user_id)
     elif assignment is not None and assignment.role_id is not None:
-        assignee_type, assignee_id = "role", str(assignment.role_id)
+        assignee_type, assignee_id, role = "role", str(assignment.role_id), assignment.role
     return {
         "assignee_type": assignee_type,
         "assignee_id": assignee_id,
-        **_get_assignee_display_properties(ticket, assignee_type, assignee_id),
+        **_get_assignee_display_properties(ticket, assignee_type, assignee_id, role=role),
     }
 
 
