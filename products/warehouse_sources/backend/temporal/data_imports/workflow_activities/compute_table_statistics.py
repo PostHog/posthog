@@ -246,9 +246,20 @@ def _read_commit_actions(table_uri: str, storage_options: dict[str, str], versio
     filesystem = pafs.PyFileSystem(DeltaStorageHandler(table_uri, storage_options))
     with filesystem.open_input_stream(f"_delta_log/{version:020d}.json") as stream:
         raw = stream.read()
+    return _parse_commit_actions(raw)
+
+
+def _parse_commit_actions(raw: bytes) -> list[dict[str, Any]]:
+    """The actions of one `_delta_log` commit file, which holds one JSON action per line feed.
+
+    Split on the line feed alone, because `str.splitlines()` also breaks on U+0085, U+2028 and
+    U+2029. JSON allows those characters raw inside a string, and an action's `stats` embed the
+    table's own min and max strings, so one of them cuts an action in half and leaves the fragment
+    unparseable.
+    """
     # Floats as Decimal: a decimal column's stats arrive as JSON numbers, and a float would lose
     # the digits the stored representation keeps.
-    return [json.loads(line, parse_float=Decimal) for line in raw.decode().splitlines() if line.strip()]
+    return [json.loads(line, parse_float=Decimal) for line in raw.decode().split("\n") if line.strip()]
 
 
 # Actions a commit may carry without touching the live file set or the schema. Anything else
