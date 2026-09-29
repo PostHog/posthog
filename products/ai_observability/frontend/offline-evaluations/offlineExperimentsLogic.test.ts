@@ -201,6 +201,9 @@ describe('offlineExperimentsLogic', () => {
         const listUrl = combineUrl(router.values.location.pathname, router.values.searchParams)
         const listSearch = { ...router.values.searchParams }
 
+        logic.actions.setFilters({ search: 'a run' })
+        expect(logic.values.dateRange).toEqual(initialRange)
+
         logic.actions.setFilters({ date_from: '-7d', run_source: 'ci', statuses: 'failed' })
         await jest.advanceTimersByTimeAsync(150)
         expect(logic.values.cursorStack).toEqual([])

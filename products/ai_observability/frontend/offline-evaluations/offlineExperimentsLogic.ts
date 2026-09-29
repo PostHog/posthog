@@ -347,7 +347,9 @@ export const offlineExperimentsLogic = kea<offlineExperimentsLogicType>([
         resolvedNow: [
             dayjs().toISOString(),
             {
-                setFilters: () => dayjs().toISOString(),
+                // Score trends ignore search, so a search keeps their date window and does not reload them.
+                setFilters: (state, { filters }) =>
+                    Object.keys(filters).every((key) => key === 'search') ? state : dayjs().toISOString(),
                 hydrateUrl: (_, { search }) => offlineListClockFromUrl(search) ?? dayjs().toISOString(),
                 refresh: () => dayjs().toISOString(),
             },
