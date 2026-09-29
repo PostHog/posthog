@@ -100,8 +100,10 @@ def _choice_indices(question: Question, label: dict[str, Any]) -> list[int] | No
     return sorted(set(indices))
 
 
-def _span(edges: dict[str, Any]) -> list[dict[str, int]]:
+def _span(edges: Any) -> list[dict[str, int]]:
     """A span with both edges, or none: an answer missing one is dropped rather than failing the snapshot."""
+    if not isinstance(edges, dict):
+        return []
     start, end = edges.get("startMs"), edges.get("endMs")
     return [{"startMs": start, "endMs": end}] if type(start) is int and type(end) is int else []
 
@@ -109,7 +111,7 @@ def _span(edges: dict[str, Any]) -> list[dict[str, int]]:
 def _itemized_spans(label: dict[str, Any]) -> list[dict[str, int]]:
     spans: list[dict[str, int]] = []
     for item in label.get("items") or []:
-        for edges in item.get("spans") or [item]:
+        for edges in (item.get("spans") if isinstance(item, dict) else None) or [item]:
             spans.extend(_span(edges))
     return spans
 

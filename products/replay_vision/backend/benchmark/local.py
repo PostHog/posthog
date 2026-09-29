@@ -81,6 +81,8 @@ def pull_version(s3: Any, layout: BenchmarkLayout, tier: Tier, dest: Path, now: 
     """Copy a built version's labels and one tier of its built cases into `dest`. `s3` is a boto3 S3 client."""
     if not _exists(s3, layout.bucket, layout.manifest_key):
         raise RuntimeError(f"{layout.root} has no manifest: the version is not built yet")
+    # An earlier pull's record would otherwise vouch for the files this pull is replacing.
+    (dest / _PULL_RECORD).unlink(missing_ok=True)
     for key, name in (
         (layout.manifest_key, "manifest.json"),
         (layout.questions_key, "questions.json"),

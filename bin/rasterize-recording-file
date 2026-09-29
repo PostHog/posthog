@@ -20,7 +20,7 @@ IMAGE_NAME="recording-rasterizer:local"
 INPUT="$(cd "$(dirname "$1")" && pwd)/$(basename "$1")"
 mkdir -p "$2"
 OUT_DIR="$(cd "$2" && pwd)"
-OPTIONS="${3:-"{}"}"
+OPTIONS="${3-"{}"}"
 
 case "$(uname -m)" in
 arm64 | aarch64) PLATFORM="linux/arm64" ;;

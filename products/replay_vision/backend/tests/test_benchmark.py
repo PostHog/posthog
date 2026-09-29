@@ -92,6 +92,12 @@ def _question(kind: str, **definition: Any) -> Question:
             {"present": True, "moments": [{"startMs": 1_000, "endMs": 4_000}]},
         ),
         (
+            "an_item_that_is_not_an_object_is_skipped",
+            _question("itemized"),
+            {"items": ["stray", {"spans": [7, {"startMs": 1_000, "endMs": 2_000}]}]},
+            {"present": True, "moments": [{"startMs": 1_000, "endMs": 2_000}]},
+        ),
+        (
             "no_markers_means_absent",
             _question("timeline_marking"),
             {"markers": []},

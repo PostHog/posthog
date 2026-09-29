@@ -55,16 +55,21 @@ def _upload_video(client: RawGenAIClient, path: Path) -> genai_types.File:
             mime_type="video/mp4", display_name=f"replay-vision-benchmark-{path.parent.name}"
         ),
     )
-    waited = 0.0
-    while uploaded.state and uploaded.state.name == "PROCESSING":
-        if waited >= _MAX_PROCESSING_WAIT_SECONDS:
-            raise RuntimeError(f"Gemini file for {path} stuck in PROCESSING after {waited:.0f}s")
-        time.sleep(0.5)
-        waited += 0.5
-        uploaded = client.files.get(name=uploaded.name or "")
-    state = uploaded.state.name if uploaded.state else None
-    if state != "ACTIVE" or not uploaded.uri:
-        raise RuntimeError(f"Gemini upload for {path} ended in state {state!r}")
+    try:
+        waited = 0.0
+        while uploaded.state and uploaded.state.name == "PROCESSING":
+            if waited >= _MAX_PROCESSING_WAIT_SECONDS:
+                raise RuntimeError(f"Gemini file for {path} stuck in PROCESSING after {waited:.0f}s")
+            time.sleep(0.5)
+            waited += 0.5
+            uploaded = client.files.get(name=uploaded.name or "")
+        state = uploaded.state.name if uploaded.state else None
+        if state != "ACTIVE" or not uploaded.uri:
+            raise RuntimeError(f"Gemini upload for {path} ended in state {state!r}")
+    except Exception:
+        # The file exists once the upload returns, so a failed wait must not leave it behind.
+        _delete_file_quiet(client, uploaded.name)
+        raise
     return uploaded
 
 
@@ -89,12 +94,14 @@ class _Uploads:
         if case_id not in self._tasks:
             path = self._benchmark.video_path(case_id)
             self._tasks[case_id] = asyncio.ensure_future(asyncio.to_thread(_upload_video, self._client, path))
-        return await self._tasks[case_id]
+        # Shielded, so a case that times out mid-upload leaves the upload to finish and be deleted below.
+        return await asyncio.shield(self._tasks[case_id])
 
     async def delete_all(self) -> None:
-        for task in self._tasks.values():
-            if task.done() and not task.cancelled() and task.exception() is None:
-                await asyncio.to_thread(_delete_file_quiet, self._client, task.result().name)
+        results = await asyncio.gather(*self._tasks.values(), return_exceptions=True)
+        for uploaded in results:
+            if isinstance(uploaded, genai_types.File):
+                await asyncio.to_thread(_delete_file_quiet, self._client, uploaded.name)
 
 
 def build_cases(benchmark: LocalBenchmark, model: str) -> list[BaseEvalCase]:
