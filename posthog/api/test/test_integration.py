@@ -934,7 +934,7 @@ class TestDatabricksIntegration:
 
 class TestGitLabIntegration:
     @pytest.fixture(autouse=True)
-    def setup_integration(self, db):
+    def setup_integration(self, db: None) -> None:
         self.organization = Organization.objects.create(name="Test Org")
         self.team = Team.objects.create(organization=self.organization, name="Test Team")
         self.user = User.objects.create_and_join(
@@ -951,8 +951,8 @@ class TestGitLabIntegration:
         ids=["http_scheme", "no_scheme", "blocked_host"],
     )
     def test_create_with_invalid_hostname_returns_validation_error(
-        self, client: HttpClient, hostname, expected_error_message
-    ):
+        self, client: HttpClient, hostname: str, expected_error_message: str
+    ) -> None:
         client.force_login(self.user)
 
         with patch("posthog.models.integration.gitlab.requests.get") as mock_get:
