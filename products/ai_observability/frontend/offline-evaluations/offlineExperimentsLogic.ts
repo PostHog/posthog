@@ -56,6 +56,7 @@ export interface offlineExperimentsLogicValues {
     scorerSearch: string
     scorersById: Record<string, ScoreDefinitionApi>
     suggestedScorers: string[] | null
+    suggestedScorersError: boolean
     suggestedScorersLoading: boolean
     trendFilters: OfflineOverviewTrendFilters
 }
@@ -378,6 +379,10 @@ export const offlineExperimentsLogic = kea<offlineExperimentsLogicType>([
         scorerOptionsError: [
             false,
             { loadOfflineScorerOptions: () => false, loadOfflineScorerOptionsFailure: () => true },
+        ],
+        suggestedScorersError: [
+            false,
+            { loadOfflineSuggestedScorers: () => false, loadOfflineSuggestedScorersFailure: () => true },
         ],
     })),
     selectors({

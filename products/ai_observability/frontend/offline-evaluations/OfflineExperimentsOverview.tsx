@@ -34,13 +34,14 @@ export function OfflineExperimentsOverview(props: OfflineExperimentsLogicProps):
         filters,
         scorerIds,
         suggestedScorersLoading,
+        suggestedScorersError,
         hasExperiments,
         trendFilters,
         dateRange,
         cursorStack,
         refreshKey,
     } = useValues(logic)
-    const { setFilters, openChooser, nextPage, previousPage, refresh } = useActions(logic)
+    const { setFilters, openChooser, nextPage, previousPage, refresh, loadOfflineSuggestedScorers } = useActions(logic)
     const columns: LemonTableColumns<OfflineExperimentReadApi> = [
         {
             title: 'Experiment',
@@ -201,6 +202,10 @@ export function OfflineExperimentsOverview(props: OfflineExperimentsLogicProps):
                             />
                         ))}
                     </div>
+                ) : suggestedScorersError ? (
+                    <LemonBanner type="error" action={{ children: 'Try again', onClick: loadOfflineSuggestedScorers }}>
+                        Could not load suggested scores. Try again or choose scores yourself.
+                    </LemonBanner>
                 ) : (
                     <LemonBanner type="info" action={{ children: 'Choose scores', onClick: openChooser }}>
                         Choose recurring scores to follow their results over time.

@@ -101,6 +101,23 @@ describe('offlineExperimentsLogic', () => {
         expect(logic.values.scorerIds).toEqual(overviewScorers.map(({ id }) => id))
     })
 
+    it('reports a failed score suggestion and clears it when a retry succeeds', async () => {
+        router.actions.push(urls.aiObservabilityOfflineEvaluations(), {})
+        jest.mocked(api.aiObservabilityOfflineExperimentsScorerSummariesList).mockRejectedValueOnce(
+            new Error('Summaries failed')
+        )
+        const logic = offlineExperimentsLogic(props)
+        logic.mount()
+        await jest.advanceTimersByTimeAsync(150)
+        expect(logic.values.scorerIds).toEqual([])
+        expect(logic.values.suggestedScorersError).toBe(true)
+
+        logic.actions.loadOfflineSuggestedScorers()
+        await jest.advanceTimersByTimeAsync(0)
+        expect(logic.values.suggestedScorersError).toBe(false)
+        expect(logic.values.scorerIds).toEqual(overviewScorers.map(({ id }) => id))
+    })
+
     it('uses shared URL score selections without overwriting personal preferences', async () => {
         const saved = [overviewScorers[0].id]
         const shared = [overviewScorers[1].id]
