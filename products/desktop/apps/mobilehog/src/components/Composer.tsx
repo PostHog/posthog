@@ -1,11 +1,10 @@
-import {
-  formatGatewayModelName,
-  getReasoningEffortOptions,
-} from "@posthog/shared";
+import { Host, Image } from "@expo/ui/swift-ui";
+import { getReasoningEffortOptions } from "@posthog/shared";
 import { useRouter } from "expo-router";
 import { useState } from "react";
 import {
   ActivityIndicator,
+  type ColorValue,
   Pressable,
   StyleSheet,
   Text,
@@ -15,8 +14,46 @@ import {
 import { Glass } from "@/components/Glass";
 import { ArrowUpIcon, StopIcon } from "@/components/Icons";
 import { useComposer } from "@/lib/composer";
-import { useModels } from "@/lib/queries";
 import { colors, fonts, radius } from "@/lib/theme";
+
+const BRANDS = new Set(["claude", "gemini", "anthropic", "openai"]);
+const ACRONYMS = new Set(["gpt", "o"]);
+
+// "claude-opus-5-5" reads as "Opus 5.5": no brand, version digits joined.
+function shortModelName(id: string): string {
+  const parts = (id.split("/").pop() ?? id).split("-");
+  // Keep the brand when it is the only name, as in "gemini-3-pro".
+  const dropBrand = BRANDS.has(parts[0]) && /^[a-z]/.test(parts[1] ?? "");
+  const words = parts
+    .slice(dropBrand ? 1 : 0)
+    .filter((part) => !/^\d{8}$/.test(part));
+  const out: string[] = [];
+  for (const word of words) {
+    const previous = out[out.length - 1];
+    if (/^\d+$/.test(word) && previous && /^\d+(\.\d+)*$/.test(previous)) {
+      out[out.length - 1] = `${previous}.${word}`;
+    } else if (ACRONYMS.has(word)) {
+      out.push(word.toUpperCase());
+    } else {
+      out.push(word.charAt(0).toUpperCase() + word.slice(1));
+    }
+  }
+  return out.join(" ");
+}
+
+function Glyph({
+  name,
+  color = colors.ink,
+}: {
+  name: "plus" | "mic";
+  color?: ColorValue;
+}) {
+  return (
+    <Host matchContents>
+      <Image systemName={name} size={17} color={color} />
+    </Host>
+  );
+}
 
 interface ComposerProps {
   placeholder: string;
@@ -41,8 +78,6 @@ export function Composer({
   const router = useRouter();
   const [text, setText] = useState("");
   const { model, adapter, reasoning } = useComposer();
-  const models = useModels();
-  const found = models.data?.find((candidate) => candidate.id === model);
   const effort = getReasoningEffortOptions(adapter, model)?.find(
     (option) => option.value === reasoning,
   )?.name;
@@ -68,11 +103,17 @@ export function Composer({
       />
       <View style={styles.row}>
         <Pressable
+          accessibilityLabel="Add attachment"
+          style={({ pressed }) => [styles.circle, pressed && { opacity: 0.6 }]}
+        >
+          <Glyph name="plus" />
+        </Pressable>
+        <Pressable
           onPress={() => router.push("/config")}
           style={({ pressed }) => [styles.pill, pressed && { opacity: 0.6 }]}
         >
           <Text style={styles.pillText} numberOfLines={1}>
-            {found ? formatGatewayModelName(found) : model}
+            {shortModelName(model)}
             {effort ? <Text style={styles.pillMuted}> {effort}</Text> : null}
           </Text>
         </Pressable>
@@ -93,6 +134,12 @@ export function Composer({
           </Pressable>
         ) : null}
         <View style={{ flex: 1 }} />
+        <Pressable
+          accessibilityLabel="Dictate"
+          style={({ pressed }) => [styles.circle, pressed && { opacity: 0.6 }]}
+        >
+          <Glyph name="mic" />
+        </Pressable>
         {busy && onStop ? (
           <Pressable
             onPress={onStop}
@@ -122,6 +169,8 @@ export function Composer({
   );
 }
 
+const CONTROL = 40;
+
 const styles = StyleSheet.create({
   shell: {
     borderRadius: 28,
@@ -139,20 +188,30 @@ const styles = StyleSheet.create({
     maxHeight: 140,
     paddingTop: 0,
   },
-  row: { flexDirection: "row", alignItems: "center", gap: 8 },
+  row: { flexDirection: "row", alignItems: "center", gap: 6 },
+  circle: {
+    width: CONTROL,
+    height: CONTROL,
+    borderRadius: CONTROL / 2,
+    backgroundColor: colors.fill,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   pill: {
+    height: CONTROL,
+    justifyContent: "center",
     backgroundColor: colors.fill,
     paddingHorizontal: 12,
-    paddingVertical: 8,
     borderRadius: radius.pill,
   },
-  pillWide: { maxWidth: 150 },
-  pillText: { fontFamily: fonts.sansMedium, fontSize: 13, color: colors.ink },
+  // Only the repository gives way when the row runs out of room.
+  pillWide: { flexShrink: 1, maxWidth: 130 },
+  pillText: { fontFamily: fonts.sansMedium, fontSize: 15, color: colors.ink },
   pillMuted: { color: colors.inkMute },
   send: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: CONTROL,
+    height: CONTROL,
+    borderRadius: CONTROL / 2,
     backgroundColor: colors.dark,
     alignItems: "center",
     justifyContent: "center",
