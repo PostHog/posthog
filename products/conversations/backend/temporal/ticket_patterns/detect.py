@@ -126,6 +126,10 @@ def _load_candidates(team_id: int, settings: DetectionSettings) -> tuple[list[Ti
         Ticket.objects.filter(
             team_id=team_id,
             created_at__gte=cutoff,
+            # Active only. A spike is a call to act, so a ticket the team already resolved or
+            # snoozed inside the window does not add to one, and tickets closed as spam or
+            # duplicates cannot inflate the count or use up the per-team cap. The settings copy
+            # states this, because it is a rule a person would not otherwise guess.
             status__in=[Status.NEW, Status.OPEN, Status.PENDING],
         ).order_by("-created_at")[:MAX_TICKETS_PER_TEAM]
     )

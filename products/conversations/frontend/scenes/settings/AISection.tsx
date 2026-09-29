@@ -43,7 +43,10 @@ const CHANNEL_SETTINGS_TABS: Record<TicketChannel, string> = {
     github: 'github',
 }
 
-// The Slack alert template shipped in products/workflows/backend/templates/support-spike-alert.json.
+// The Slack alert template shipped in products/workflows/backend/templates/support-spike-alert.json,
+// whose `id` this must match. Copied rather than imported, because the template is workflows backend
+// data. Changing it means changing all three copies: there, here, and SUPPORT_SPIKE_ALERT_ID in
+// products/workflows/backend/test/test_support_spike_alert_template.py.
 const SPIKE_ALERT_TEMPLATE_ID = '019d4a7c-3b21-0000-9f04-6e2b8c15d730'
 
 const TICKET_TYPES = ['how_to', 'diagnostic', 'account_billing'] as const
@@ -291,7 +294,9 @@ export function AISection(): JSX.Element {
                                 </label>
                                 <p className="text-xs text-muted-alt mb-0">
                                     Subjects and opening messages from recent tickets are sent to an AI model to group
-                                    them. Requires AI data processing consent at the organization level.
+                                    them. Only tickets that are still new, open or pending count, so a ticket resolved
+                                    before the next check does not. Requires AI data processing consent at the
+                                    organization level.
                                 </p>
                             </div>
                             <LemonSwitch

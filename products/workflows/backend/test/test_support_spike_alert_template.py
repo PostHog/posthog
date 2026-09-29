@@ -2,6 +2,8 @@ from django.test import SimpleTestCase
 
 from products.workflows.backend.templates import get_global_template_by_id
 
+# Must match the template's own `id`, and SPIKE_ALERT_TEMPLATE_ID in
+# products/conversations/frontend/scenes/settings/AISection.tsx, which is the button that opens it.
 SUPPORT_SPIKE_ALERT_ID = "019d4a7c-3b21-0000-9f04-6e2b8c15d730"
 # The topic and the summary are written by a model from customer ticket text, so a customer
 # can put `<!channel>` or a labelled link in them.
