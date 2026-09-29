@@ -703,8 +703,13 @@ class RecordCheckResultRequestSerializer(serializers.Serializer):
     """Request body for `scout-check-record-result`: the verdict on one dispatched report check."""
 
     check_id = serializers.UUIDField(help_text="The check this run was dispatched to answer, as given in the run note.")
+    # The tool does not take `inconclusive` yet, so the schema agents read does not offer it.
     outcome = serializers.ChoiceField(
-        choices=SignalReportCheck.Outcome.choices,
+        choices=[
+            choice
+            for choice in SignalReportCheck.Outcome.choices
+            if choice[0] != SignalReportCheck.Outcome.INCONCLUSIVE
+        ],
         help_text=(
             "`passed` when the expectation still holds, `failed` when it does not, and `errored` when you "
             "could not establish either. `failed` retires the check, so use it for a conclusion, not a suspicion."

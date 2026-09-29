@@ -31,7 +31,9 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 
 from products.signals.backend.report_metrics import validate_live_metric_query, validate_metric_id
 
-CheckOutcome = Literal["passed", "failed", "errored"]
+CheckOutcome = Literal["passed", "failed", "errored", "inconclusive"]
+# Why an `inconclusive` verdict could not settle the claim. Only `awaiting_data` keeps the check open.
+CheckInconclusiveReason = Literal["awaiting_data", "unmeasurable", "needs_manual_verification", "no_fix_to_measure"]
 CheckOperator = Literal["lte", "gte", "between"]
 
 MAX_ACTIVE_CHECKS_PER_REPORT = 5
@@ -64,6 +66,13 @@ DEFAULT_CHECK_EXPIRY_AFTER_LAST_RUN = timedelta(days=30)
 # A check whose query keeps failing is misconfigured, not unlucky. Three errored runs retire it so a
 # broken lane stops costing a query per tick.
 MAX_CONSECUTIVE_CHECK_ERRORS = 3
+# An `awaiting_data` verdict looks again after 24 hours, then 72, then 7 days. The steps are capped,
+# because a check on a surface with almost no traffic can wait forever. After the last step, the
+# next `awaiting_data` verdict ends the check as `inconclusive`.
+AWAITING_DATA_FIRST_RETRY_AFTER = timedelta(hours=24)
+AWAITING_DATA_RETRY_FACTOR = 3
+AWAITING_DATA_MAX_RETRY_AFTER = timedelta(days=7)
+MAX_AWAITING_DATA_RETRIES = 3
 
 
 class CheckThresholdBounds(BaseModel):

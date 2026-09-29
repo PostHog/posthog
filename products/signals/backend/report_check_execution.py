@@ -20,7 +20,7 @@ from datetime import datetime, timedelta
 from functools import partial
 
 from django.db import transaction
-from django.db.models import F, Window
+from django.db.models import Case, F, Value, When, Window
 from django.db.models.functions import RowNumber
 from django.utils import timezone
 
@@ -54,11 +54,16 @@ from products.signals.backend.report_check_telemetry import (
     capture_report_checks_expired,
 )
 from products.signals.backend.report_checks import (
+    AWAITING_DATA_FIRST_RETRY_AFTER,
+    AWAITING_DATA_MAX_RETRY_AFTER,
+    AWAITING_DATA_RETRY_FACTOR,
     DEFAULT_CHECK_SOAK_HOURS,
+    MAX_AWAITING_DATA_RETRIES,
     MAX_CHECK_HORIZON,
     MAX_CONSECUTIVE_CHECK_ERRORS,
     CheckComparison,
     CheckConfigValidationError,
+    CheckInconclusiveReason,
     CheckOutcome,
     MetricThresholdConfig,
     parse_check_config,
@@ -96,6 +101,7 @@ class CheckRunSummary:
     passed: int
     failed: int
     errored: int
+    inconclusive: int = 0
     # An `agent` check the tick started a scout run for, and one the fleet could not take yet.
     # Neither is an outcome: both rows are still active and still owe a verdict.
     dispatched: int = 0
@@ -107,6 +113,13 @@ class CheckVerdict:
     outcome: CheckOutcome
     explanation: str
     observed_value: float | None = None
+    # Required on an `inconclusive` verdict and refused on any other, so a stored reason always
+    # explains the outcome next to it.
+    reason: CheckInconclusiveReason | None = None
+
+    def __post_init__(self) -> None:
+        if (self.outcome == "inconclusive") != (self.reason is not None):
+            raise ValueError("an `inconclusive` verdict needs a reason, and no other verdict takes one")
 
 
 @frozen
@@ -221,11 +234,23 @@ def measure_check(check: SignalReportCheck, *, deadline: float) -> CheckVerdict:
     return evaluate_check_value(comparison=config.comparison, observed_value=measurement.value, subject=check.title)
 
 
+def awaiting_data_retry_after(retries_so_far: int) -> timedelta:
+    """How long an `awaiting_data` check waits before it looks again: 24 hours, then 72, then 7 days."""
+    return min(
+        AWAITING_DATA_FIRST_RETRY_AFTER * AWAITING_DATA_RETRY_FACTOR**retries_so_far, AWAITING_DATA_MAX_RETRY_AFTER
+    )
+
+
 def _next_state(check: SignalReportCheck, verdict: CheckVerdict, now: datetime) -> _CheckTransition:
     """The check's status after this verdict, its next run time, and its remaining runs.
 
     Re-arming anchors on `now` rather than the missed slot, so a coordinator outage cannot leave a
     recurring check owing a burst of catch-up runs.
+
+    An `inconclusive` verdict never counts toward `MAX_CONSECUTIVE_CHECK_ERRORS`, because the run
+    worked. Only `awaiting_data` keeps the check open. It retires as `inconclusive` when its retries
+    run out or the next look would fall past the horizon, so a check that said why on every run does
+    not end as a silent `expired`.
     """
     if verdict.outcome == "failed":
         return _CheckTransition(
@@ -242,6 +267,20 @@ def _next_state(check: SignalReportCheck, verdict: CheckVerdict, now: datetime) 
             return _CheckTransition(
                 status=SignalReportCheck.Status.EXPIRED, next_run_at=None, runs_remaining=check.runs_remaining
             )
+        return _CheckTransition(
+            status=SignalReportCheck.Status.ACTIVE, next_run_at=retry_at, runs_remaining=check.runs_remaining
+        )
+
+    if verdict.outcome == "inconclusive":
+        retire = _CheckTransition(
+            status=SignalReportCheck.Status.INCONCLUSIVE, next_run_at=None, runs_remaining=check.runs_remaining
+        )
+        if verdict.reason != "awaiting_data" or check.consecutive_inconclusive >= MAX_AWAITING_DATA_RETRIES:
+            return retire
+        retry_at = now + awaiting_data_retry_after(check.consecutive_inconclusive)
+        # `>=`, because a row due exactly at its horizon is swept rather than collected.
+        if retry_at >= check.expires_at:
+            return retire
         return _CheckTransition(
             status=SignalReportCheck.Status.ACTIVE, next_run_at=retry_at, runs_remaining=check.runs_remaining
         )
@@ -304,7 +343,14 @@ def record_check_verdict(
         current.runs_remaining = transition.runs_remaining
         current.last_run_at = now
         current.last_outcome = verdict.outcome
-        current.consecutive_errors = current.consecutive_errors + 1 if verdict.outcome == "errored" else 0
+        current.last_outcome_reason = verdict.reason
+        if verdict.outcome == "errored":
+            current.consecutive_errors += 1
+        elif verdict.outcome != "inconclusive":
+            current.consecutive_errors = 0
+        current.consecutive_inconclusive = (
+            current.consecutive_inconclusive + 1 if verdict.outcome == "inconclusive" else 0
+        )
         if transition.next_run_at is not None:
             current.next_run_at = transition.next_run_at
         # Whatever the verdict, no run is waiting on this check any more. Clearing it here rather
@@ -317,7 +363,9 @@ def record_check_verdict(
                 "runs_remaining",
                 "last_run_at",
                 "last_outcome",
+                "last_outcome_reason",
                 "consecutive_errors",
+                "consecutive_inconclusive",
                 "next_run_at",
                 "dispatched_at",
                 "updated_at",
@@ -332,6 +380,7 @@ def record_check_verdict(
                 title=current.title,
                 outcome=verdict.outcome,
                 explanation=verdict.explanation,
+                reason=verdict.reason,
                 observed_value=verdict.observed_value,
                 baseline_value=config.baseline_value if config is not None else None,
                 threshold=_describe_comparison(config.comparison) if config is not None else None,
@@ -433,6 +482,9 @@ def expire_overdue_checks(now: datetime) -> int:
 
     Pending rows are swept too, so a check waiting on a report that never resolves retires at the
     horizon instead of waiting forever for a clock that will not start.
+
+    An active row whose last run was `inconclusive` retires as `inconclusive`, not `expired`: its
+    runs already said why they could not settle the claim.
     """
 
     overdue = list(
@@ -451,7 +503,17 @@ def expire_overdue_checks(now: datetime) -> int:
         id__in=[check.id for check in overdue],
         status__in=SignalReportCheck.OPEN_STATUSES,
         expires_at__lte=now,
-    ).update(status=SignalReportCheck.Status.EXPIRED, updated_at=now)
+    ).update(
+        status=Case(
+            When(
+                status=SignalReportCheck.Status.ACTIVE,
+                last_outcome=SignalReportCheck.Outcome.INCONCLUSIVE,
+                then=Value(SignalReportCheck.Status.INCONCLUSIVE),
+            ),
+            default=Value(SignalReportCheck.Status.EXPIRED),
+        ),
+        updated_at=now,
+    )
     if expired:
         _log_expired_checks(overdue, now, expired)
         _report_expired_checks(overdue)
@@ -472,7 +534,9 @@ def _log_expired_checks(overdue: list[SignalReportCheck], now: datetime, expired
         if expired == len(overdue)
         else set(
             SignalReportCheck.all_teams.filter(
-                id__in=[check.id for check in overdue], status=SignalReportCheck.Status.EXPIRED, updated_at=now
+                id__in=[check.id for check in overdue],
+                status__in=[SignalReportCheck.Status.EXPIRED, SignalReportCheck.Status.INCONCLUSIVE],
+                updated_at=now,
             ).values_list("id", flat=True)
         )
     )
@@ -608,7 +672,14 @@ def run_due_report_checks(*, now: datetime | None = None, limit: int = MAX_CHECK
     expired = expire_overdue_checks(now)
     park_checks_on_unresolved_reports(now)
     deadline = time.monotonic() + CHECK_RUN_TIME_BUDGET_SECONDS
-    counts: dict[str, int] = {"passed": 0, "failed": 0, "errored": 0, "dispatched": 0, "deferred": 0}
+    counts: dict[str, int] = {
+        "passed": 0,
+        "failed": 0,
+        "errored": 0,
+        "inconclusive": 0,
+        "dispatched": 0,
+        "deferred": 0,
+    }
     for check in collect_due_checks(now, limit=limit):
         if time.monotonic() >= deadline:
             break
