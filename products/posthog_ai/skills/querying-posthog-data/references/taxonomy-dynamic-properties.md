@@ -41,7 +41,7 @@ Then query person properties like `$survey_dismissed/{id}` or `$survey_responded
 ```sql
 SELECT id, key, name, active
 FROM system.feature_flags
-WHERE NOT deleted
+WHERE NOT deleted AND NOT archived
 ORDER BY created_at DESC
 LIMIT 20
 ```

@@ -18,7 +18,7 @@ Don't use this for **active** stale-flag cleanup — that's `cleaning-up-stale-f
 
 ## The gotcha that makes this non-trivial
 
-`system.feature_flags` exposes `deleted` as a boolean but does **not** expose `deleted_at`, `updated_at`, or `last_modified_at`. There's no way to filter soft-deleted flags by deletion time in a single SQL query — trying to use those columns will return `Unable to resolve field`.
+`system.feature_flags` exposes `deleted` as a boolean and `updated_at` as the last write to the row, but does **not** expose `deleted_at` or `last_modified_at` — selecting those returns `Unable to resolve field`. A soft delete is a normal save, so `updated_at` approximates the deletion time, but only for a flag whose last write was the deletion. Use it to narrow the candidate set, never to date a deletion.
 
 The actual deletion timestamp lives in the per-flag activity log, reachable only via `posthog:feature-flags-activity-retrieve` (one call per flag id). There is no bulk activity endpoint.
 

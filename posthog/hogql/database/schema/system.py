@@ -989,6 +989,7 @@ feature_flags: PostgresTable = PostgresTable(
         ),
         "rollout_percentage": IntegerDatabaseField(
             name="rollout_percentage",
+            nullable=True,
             description=(
                 "Deprecated column that is no longer written, so it is usually null. "
                 "Read the rollout from filters.groups[].rollout_percentage instead."
@@ -1005,7 +1006,7 @@ feature_flags: PostgresTable = PostgresTable(
             name="last_called_at",
             nullable=True,
             description=(
-                "When PostHog last received a $feature_flag_called event for this flag. "
+                "The timestamp of the most recent $feature_flag_called event for this flag. "
                 "It can be null for a flag that SDKs still evaluate, because an evaluation "
                 "that sends no event does not update it."
             ),

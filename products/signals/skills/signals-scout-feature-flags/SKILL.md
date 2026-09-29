@@ -85,7 +85,7 @@ ORDER BY calls_14d DESC
 LIMIT 100
 ```
 
-This single read powers cliff candidates (`calls_24h` far below `calls_14d / 14`) and the volume ranking that scopes everything else — it scales fine even on projects where `$feature_flag_called` is the top event at millions/day. It does **not** power ghost detection: ghost keys live in the tail below the `LIMIT`, so use the dedicated anti-join in the ghost pattern instead. For the roster side, query `system.feature_flags` via `execute-sql` (`id`, `key`, `name`, `filters`, `rollout_percentage`, `deleted`) — on projects with hundreds of flags this beats paginating `feature-flag-get-all`; note it carries **no `active` column**, so config state still comes from the flag tools. **Timezone footgun:** HogQL string timestamp literals parse in the _project_ timezone, not UTC — use `now() - INTERVAL N DAY` for recency windows, never hand-written timestamp strings.
+This single read powers cliff candidates (`calls_24h` far below `calls_14d / 14`) and the volume ranking that scopes everything else — it scales fine even on projects where `$feature_flag_called` is the top event at millions/day. It does **not** power ghost detection: ghost keys live in the tail below the `LIMIT`, so use the dedicated anti-join in the ghost pattern instead. For the roster side, query `system.feature_flags` via `execute-sql` (`id`, `key`, `name`, `filters`, `active`, `archived`, `deleted`, `last_called_at`) — on projects with hundreds of flags this beats paginating `feature-flag-get-all`. **Timezone footgun:** HogQL string timestamp literals parse in the _project_ timezone, not UTC — use `now() - INTERVAL N DAY` for recency windows, never hand-written timestamp strings.
 
 Before any per-flag deep dive, normalize against the whole stream: if **total** `$feature_flag_called` volume cliffed across all flags at once, that's one SDK/capture-path finding (or known ingestion trouble), not N per-flag findings.
 
@@ -309,7 +309,7 @@ Direct calls (read-only):
 - `feature-flags-dependent-flags-retrieve` — flags whose conditions reference this one; the per-flag cleanup-safety check.
 - `advanced-activity-logs-list` (`scopes: ["FeatureFlag"]`) — project-wide flag change timeline, including deletions that `feature-flags-activity-retrieve` can't reach anymore.
 - `execute-sql` against `events` — the traffic side. Properties on `$feature_flag_called`: `$feature_flag` (key), `$feature_flag_response` (`true`/`false`/variant key).
-- `execute-sql` against `system.feature_flags` — the bulk roster side (`id`, `key`, `name`, `filters`, `rollout_percentage`, `deleted`; no `active` column). Powers the ghost anti-join and any roster-wide aggregation without pagination.
+- `execute-sql` against `system.feature_flags` — the bulk roster side (`id`, `key`, `name`, `filters`, `active`, `archived`, `deleted`, `last_called_at`). Powers the ghost anti-join and any roster-wide aggregation without pagination.
 - `read-data-schema` — confirm `$feature_flag_called` exists and check property shape before aggregating.
 
 Stale-flag health issues (the deterministic classifier you read, never re-run):

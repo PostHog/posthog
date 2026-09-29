@@ -410,7 +410,7 @@ SELECT id, name, count FROM system.cohorts WHERE name ILIKE '%paying%' AND NOT d
 ```sql
 SELECT key, name, active
 FROM system.feature_flags
-WHERE NOT deleted
+WHERE NOT deleted AND NOT archived
 ORDER BY created_at DESC
 LIMIT 20
 ```
