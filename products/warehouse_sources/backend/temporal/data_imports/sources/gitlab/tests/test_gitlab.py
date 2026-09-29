@@ -245,7 +245,9 @@ class TestValidateCredentials:
         [
             (200, True, None),
             (401, False, "Invalid GitLab personal access token"),
-            (404, False, "not found"),
+            # A 404 can't tell a missing project from one the token can't see, so the message has to
+            # carry the next step rather than dead-ending on "not accessible".
+            (404, False, "not accessible with this token. Check the spelling and that your token has read access"),
         ],
     )
     def test_status_code_mapping(self, status_code, expected_valid, expected_msg_substr):

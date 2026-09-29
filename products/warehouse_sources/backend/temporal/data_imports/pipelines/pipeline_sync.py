@@ -1,4 +1,6 @@
+import json
 import uuid
+import hashlib
 import datetime as dt
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -39,6 +41,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers 
     build_table_name,
     resolve_table_and_folder_names,
 )
+from products.warehouse_sources.backend.temporal.data_imports.query_folder_state import advance_query_folder_pointer
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import (
     filter_dwh_columns_by_enabled_columns,
 )
@@ -49,6 +52,76 @@ from products.warehouse_sources.backend.types import (
 )
 
 LOGGER = get_logger(__name__)
+
+
+def _record_query_folder_pointer(
+    schema_id: uuid.UUID,
+    team_id: int,
+    previous_folder: Optional[str],
+    queryable_folder: str,
+    job_id: str,
+    logger: FilteringBoundLogger,
+) -> None:
+    """Record the pointer move, so the publish step knows when each slot stopped being read.
+
+    Written right after the pointer write rather than inside it, because the pointer lives on the
+    table row and the record on the schema row. A crash between the two leaves a move unrecorded,
+    which the next record detects and treats as unknown history, so the gap is safe. Best effort for
+    the same reason: the pointer has landed, and failing the sync here would discard a load that
+    succeeded.
+    """
+
+    def _mutate(config: dict[str, Any]) -> None:
+        advance_query_folder_pointer(
+            config, previous_folder=previous_folder, queryable_folder=queryable_folder, job_id=job_id
+        )
+
+    try:
+        retry_on_db_connection_drop(lambda: update_sync_type_config_keys(schema_id, team_id, mutate=_mutate))
+    except Exception:
+        logger.warning(f"Could not record the query folder pointer move to {queryable_folder}", exc_info=True)
+
+
+# `sync_type_config` key holding the fingerprint of the inputs the table's `columns` were last built
+# from, so a sync whose inputs match can skip introspecting the table again.
+REGISTERED_SCHEMA_FINGERPRINT_KEY = "registered_schema_fingerprint"
+
+
+def registered_schema_fingerprint(
+    delta_schema_json: str,
+    table_schema_dict: dict[str, str],
+    enabled_columns: Any,
+    primary_keys: Any,
+    incremental_field: Any,
+) -> str:
+    """Hash of everything `columns` is a pure function of, apart from the introspection itself.
+
+    The ClickHouse DESCRIBE reads the Delta log's schema, so the same Delta schema gives the same
+    introspection. The rest are the projection inputs applied after it, which a user can change
+    between syncs (the column picker, a primary key) and which must invalidate the skip.
+    """
+    payload = {
+        "delta_schema": delta_schema_json,
+        "table_schema": table_schema_dict,
+        "enabled_columns": enabled_columns,
+        "primary_keys": primary_keys,
+        "incremental_field": incremental_field,
+    }
+    return hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode()).hexdigest()
+
+
+def _record_registered_schema_fingerprint(
+    schema_id: uuid.UUID, team_id: int, fingerprint: str, logger: FilteringBoundLogger
+) -> None:
+    # Best effort: without the stamp the next sync introspects again, which is the safe direction.
+    try:
+        retry_on_db_connection_drop(
+            lambda: update_sync_type_config_keys(
+                schema_id, team_id, updates={REGISTERED_SCHEMA_FINGERPRINT_KEY: fingerprint}
+            )
+        )
+    except Exception:
+        logger.warning("Could not record the registered schema fingerprint", exc_info=True)
 
 
 def merge_columns(
@@ -193,6 +266,7 @@ async def validate_schema_and_update_table(
     queryable_folder: str,
     table_schema_dict: Optional[dict[str, str]] = None,
     primary_keys: Optional[list[str]] = None,
+    delta_schema_json: Optional[str] = None,
 ) -> None:
     """
     Async version of validate_schema_and_update_table_sync.
@@ -207,6 +281,9 @@ async def validate_schema_and_update_table(
         row_count: The count of synced rows
         table_format: The format of the table
         table_schema_dict: The schema of the table
+        delta_schema_json: The Delta table's schema. When given and unchanged since the columns were
+            last registered (together with the projection inputs), the ClickHouse introspection and
+            the column write are skipped; the pointer flip and the row count still happen.
     """
     logger = LOGGER.bind(team_id=team_id)
 
@@ -274,6 +351,7 @@ async def validate_schema_and_update_table(
 
             if table_created:
                 table = table_created
+                previous_queryable_folder = table.queryable_folder
                 table.format = table_params["format"]
                 table.url_pattern = new_url_pattern
                 table.queryable_folder = queryable_folder
@@ -294,6 +372,9 @@ async def validate_schema_and_update_table(
                         internally_computed_url_pattern=True,
                     )
                 )
+                _record_query_folder_pointer(
+                    _schema_id, team_id, previous_queryable_folder, queryable_folder, run_id, logger
+                )
 
             else:
                 logger.debug(f"Creating table for schema: {str(schema_id)}")
@@ -302,6 +383,7 @@ async def validate_schema_and_update_table(
                     created_via=DataWarehouseTableCreatedVia.SOURCE,
                     **table_params,
                 )
+                _record_query_folder_pointer(_schema_id, team_id, None, queryable_folder, run_id, logger)
                 if row_count == 0:
                     # table_params holds 0 for a table an earlier attempt already filled. get_count()
                     # can block long enough for the pooled connection to go stale, as above.
@@ -310,6 +392,29 @@ async def validate_schema_and_update_table(
                 table_created = table
 
             assert isinstance(table_created, DataWarehouseTable) and table_created is not None
+
+            # Prefer source-detected PKs (always present) over the schema model's PKs (only set
+            # for CDC and user-picked incremental keys) so non-CDC schemas don't drop their PKs.
+            effective_primary_keys = primary_keys or external_data_schema.primary_key_columns
+
+            fingerprint: Optional[str] = None
+            if delta_schema_json is not None:
+                fingerprint = registered_schema_fingerprint(
+                    delta_schema_json,
+                    table_schema_dict or {},
+                    external_data_schema.enabled_columns,
+                    effective_primary_keys,
+                    external_data_schema.incremental_field,
+                )
+                if (
+                    fingerprint == (external_data_schema.sync_type_config or {}).get(REGISTERED_SCHEMA_FINGERPRINT_KEY)
+                    and table_created.columns
+                    and external_data_schema.table_id == table_created.id
+                ):
+                    logger.debug(
+                        f"Registered schema unchanged for {_schema_name} ({_schema_id}), skipping introspection"
+                    )
+                    return
 
             # safe_expose_ch_error=False keeps failures as ServerException (see except clause below)
             # instead of the generic, user-facing Exception get_columns() raises by default.
@@ -328,9 +433,6 @@ async def validate_schema_and_update_table(
                     columns = merge_columns(db_columns, table_schema_dict or {}, existing_columns)
                     # Project to enabled_columns so disabled columns the user already deselected don't
                     # creep back into HogQL via the Delta schema (which still contains them historically).
-                    # Prefer source-detected PKs (always present) over the schema model's PKs (only set
-                    # for CDC and user-picked incremental keys) so non-CDC schemas don't drop their PKs.
-                    effective_primary_keys = primary_keys or external_data_schema.primary_key_columns
                     columns = filter_dwh_columns_by_enabled_columns(
                         columns,
                         external_data_schema.enabled_columns,
@@ -357,6 +459,8 @@ async def validate_schema_and_update_table(
             # stale. A dropped connection mid-atomic-block rolls the block back, so retrying it whole
             # is safe.
             retry_on_db_connection_drop(_persist_columns)
+            if fingerprint is not None:
+                _record_registered_schema_fingerprint(_schema_id, team_id, fingerprint, logger)
 
         except ServerException as err:
             # 636 (CANNOT_EXTRACT_TABLE_STRUCTURE) and 742 (DELTA_KERNEL_ERROR, "No files in log
@@ -438,6 +542,7 @@ async def register_cdc_companion_table(
                 deleted=False,
             ).first()
 
+            previous_queryable_folder = companion_table.queryable_folder if companion_table else None
             if companion_table:
                 table = companion_table
                 table.format = table_format
@@ -464,6 +569,9 @@ async def register_cdc_companion_table(
                     created_via=DataWarehouseTableCreatedVia.SOURCE,
                     **table_params,
                 )
+            _record_query_folder_pointer(
+                schema_id, team_id, previous_queryable_folder, queryable_folder, run_id, logger
+            )
 
             raw_db_columns = companion_table.get_columns()
             db_columns = {key: str(column.get("clickhouse", "")) for key, column in raw_db_columns.items()}

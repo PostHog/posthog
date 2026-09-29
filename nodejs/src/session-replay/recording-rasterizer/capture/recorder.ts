@@ -10,7 +10,7 @@ import {
 } from '~/session-replay/recording-rasterizer/types'
 import { elapsed } from '~/session-replay/recording-rasterizer/utils'
 
-import { BlockProxy } from './block-proxy'
+import { BlockProxy, BlockSource } from './block-proxy'
 import { BrowserPool } from './browser-pool'
 import { capturePlayback } from './capture'
 import { CapturePage } from './capture-page'
@@ -53,6 +53,7 @@ export interface RasterizeOptions {
     // Aborting closes the page, which unsticks a pending CDP send and makes the capture loop fail
     // fast, so the browser-pool slot is reclaimed instead of riding out a doomed attempt.
     signal?: AbortSignal
+    blockSource?: BlockSource
 }
 
 export async function rasterizeRecording(
@@ -99,7 +100,7 @@ export async function rasterizeRecording(
             log
         )
 
-        const blockProxy = new BlockProxy(cfg, log)
+        const blockProxy = options.blockSource ?? new BlockProxy(cfg, log)
         const blockCount = await blockProxy.fetchBlocks(input)
         const compressedBytes = blockProxy.totalCompressedBytes
         log.info({ blockCount, compressedBytes }, 'block listing fetched')

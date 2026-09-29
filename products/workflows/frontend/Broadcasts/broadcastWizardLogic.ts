@@ -291,6 +291,9 @@ export interface broadcastWizardLogicActions {
     saveBroadcastFinished: (broadcast: HogFlowApi | null) => {
         broadcast: HogFlowApi | null
     }
+    saveName: () => {
+        value: true
+    }
     setAudienceProperties: (properties: AnyPropertyFilter[]) => {
         properties: AnyPropertyFilter[]
     }
@@ -445,6 +448,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         prevStep: true,
         continueStep: true,
         setName: (name: string) => ({ name }),
+        saveName: true,
         setAudienceProperties: (properties: AnyPropertyFilter[]) => ({ properties }),
         setGoalEnabled: (enabled: boolean) => ({ enabled }),
         setConversion: (conversion: HogFlowConversionApi) => ({ conversion }),
@@ -1083,6 +1087,43 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                     await breakpoint(EMAIL_AUTOSAVE_RETRY_MS)
                     actions.setEmail(values.email)
                     return
+                }
+            }
+            actions.replayDeferredEdit()
+        },
+        saveName: async () => {
+            // A new broadcast has no draft yet, and a live one is not renamed in place.
+            if (
+                !values.name.trim() ||
+                !values.broadcastId ||
+                !values.currentProjectId ||
+                values.broadcast?.status !== 'draft' ||
+                values.name === values.broadcast.name
+            ) {
+                return
+            }
+            const projectId = String(values.currentProjectId)
+            try {
+                await getSaveQueue(cache, values).run(async () => {
+                    actions.draftAutosaved(
+                        await patchWithoutClobbering(
+                            projectId,
+                            values.broadcastId!,
+                            { name: values.name },
+                            values.broadcast?.updated_at
+                        )
+                    )
+                })
+            } catch (error: any) {
+                if (error instanceof EditedElsewhereError) {
+                    // The rename stays local unless the other edit renamed it too, and the next save carries it.
+                    const attempted = values.name
+                    actions.applyExternalEdit(error.latest, values.broadcast)
+                    if (values.name !== attempted) {
+                        lemonToast.info("This broadcast was renamed somewhere else, so your new name wasn't saved.")
+                    }
+                } else {
+                    lemonToast.error(`Couldn't save the name: ${error?.detail || error?.message || 'unknown error'}`)
                 }
             }
             actions.replayDeferredEdit()

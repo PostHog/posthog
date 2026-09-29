@@ -1,6 +1,6 @@
 import asyncio
 from datetime import UTC, datetime
-from typing import Any, cast
+from typing import Any, NamedTuple, cast
 
 import pytest
 from unittest.mock import AsyncMock, patch
@@ -21,6 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.batch_consumer import (
     QUEUE_RETRY_MAX_ATTEMPTS,
+    CoalescingDeclined,
     OwnershipLostError,
     _is_admin_shutdown_error,
     _is_connect_timeout_error,
@@ -3686,3 +3687,231 @@ class TestIsRetryableError:
     )
     def test_pattern_classification(self, message: str, retryable: bool):
         assert DeltaBatchConsumerAdapter().is_retryable_error(Exception(message)) is retryable
+
+
+def _run_batches(count: int, *, run_uuid: str = "run-1", start: int = 0, **overrides: Any) -> list[PendingBatch]:
+    return [
+        _make_batch(
+            id=f"00000000-0000-0000-0000-{run_uuid[-1]}{start + offset:011d}",
+            run_uuid=run_uuid,
+            batch_index=start + offset,
+            sync_type="incremental",
+            **overrides,
+        )
+        for offset in range(count)
+    ]
+
+
+class TestCoalesceGroup:
+    """Which consecutive batches the Delta sink may load as one write. A set that crosses a run, skips
+    an index or grows past the caps would merge rows the writer must never see together."""
+
+    def _sets(self, batches: list[PendingBatch]) -> list[list[int]]:
+        return [[b.batch_index for b in s] for s in DeltaBatchConsumerAdapter().coalesce_group(batches)]
+
+    def test_consecutive_batches_of_one_run_form_one_set(self):
+        assert self._sets(_run_batches(3)) == [[0, 1, 2]]
+
+    def test_a_gap_in_the_indexes_splits_the_set(self):
+        batches = _run_batches(2) + _run_batches(1, start=3)
+        assert self._sets(batches) == [[0, 1], [3]]
+
+    def test_a_set_never_crosses_a_run(self):
+        batches = _run_batches(2, run_uuid="run-1") + _run_batches(2, run_uuid="run-2")
+        assert self._sets(batches) == [[0, 1], [0, 1]]
+
+    def test_a_final_only_marker_row_stays_alone(self):
+        # An older producer repeats the last batch's index as a final-only row; it is not a new batch.
+        batches = _run_batches(2)
+        marker = _make_batch(
+            id="00000000-0000-0000-0000-999999999999",
+            run_uuid="run-1",
+            batch_index=1,
+            is_final_batch=True,
+            sync_type="incremental",
+        )
+        assert self._sets([*batches, marker]) == [[0, 1], [1]]
+
+    @pytest.mark.parametrize(
+        "overrides",
+        [
+            {"sync_type": "cdc"},
+            {"metadata": {"cdc_write_mode": "scd2_append"}},
+            {"destination_ids": ["dest-1"]},
+            {"latest_attempt": 1},
+        ],
+        ids=["cdc", "scd2_companion", "external_destinations", "redelivery"],
+    )
+    def test_batches_the_sink_loads_one_at_a_time(self, overrides: dict[str, Any]):
+        batches = [
+            _make_batch(
+                id=f"00000000-0000-0000-0000-{i:012d}",
+                run_uuid="run-1",
+                batch_index=i,
+                **({"sync_type": "incremental"} | overrides),
+            )
+            for i in range(3)
+        ]
+        assert self._sets(batches) == [[0], [1], [2]]
+
+    @pytest.mark.parametrize(
+        "count,overrides,expected",
+        [
+            (3, {"row_count": 300_000, "byte_size": 1}, [[0], [1], [2]]),
+            (3, {"row_count": 1, "byte_size": 40 * 1024 * 1024}, [[0], [1], [2]]),
+            (9, {"row_count": 1, "byte_size": 1}, [list(range(8)), [8]]),
+        ],
+        ids=["rows", "bytes", "count"],
+    )
+    def test_sets_are_capped(self, count: int, overrides: dict[str, Any], expected: list[list[int]]):
+        assert self._sets(_run_batches(count, **overrides)) == expected
+
+
+class _BatchStatus(NamedTuple):
+    batch_id: str
+    job_state: str
+    attempt: int
+
+
+class TestProcessGroupCoalescing:
+    _CONSUMER_QUEUE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue"
+
+    def _consumer(self, process_batches: Any, process_batch: Any) -> BatchConsumer:
+        config = ConsumerConfig(database_url="postgres://unused:unused@localhost/unused", max_attempts=3)
+        consumer = BatchConsumer(config=config, process_batch=process_batch, process_batches=process_batches)
+        consumer._poll_conn = _make_healthy_conn()
+        consumer._recovery_conn = _make_healthy_conn()
+        return consumer
+
+    async def _run_group(self, consumer: BatchConsumer, batches: list[PendingBatch]) -> list[_BatchStatus]:
+        statuses: list[_BatchStatus] = []
+
+        async def record_status(conn, *, batch_id, job_state, attempt, **kwargs):
+            statuses.append(_BatchStatus(batch_id, job_state, attempt))
+            return True
+
+        with (
+            patch(f"{self._CONSUMER_QUEUE}.update_status_unless_failed", side_effect=record_status),
+            patch(f"{self._CONSUMER_QUEUE}.unlock_for_batches", new_callable=AsyncMock),
+            patch(f"{self._CONSUMER_QUEUE}.verify_advisory_lock", new_callable=AsyncMock, return_value=True),
+            patch.object(DeltaBatchConsumerAdapter, "should_process_batch", new_callable=AsyncMock, return_value=True),
+            patch.object(consumer, "_connect", new_callable=AsyncMock, return_value=_make_healthy_conn()),
+        ):
+            await consumer._process_group((1, "schema-1"), batches)
+        return statuses
+
+    @pytest.mark.asyncio
+    async def test_a_set_is_loaded_once_and_every_member_gets_its_statuses(self):
+        # Recovery, the claim gates and the reconcile sweeps all read per-batch status rows, so a
+        # member left without them would look unclaimed or stranded.
+        loaded: list[list[int]] = []
+
+        async def process_batches(batches, verify_ownership=None):
+            loaded.append([b.batch_index for b in batches])
+
+        process_batch = AsyncMock()
+        consumer = self._consumer(process_batches, process_batch)
+        batches = _run_batches(3)
+
+        statuses = await self._run_group(consumer, batches)
+
+        assert loaded == [[0, 1, 2]]
+        process_batch.assert_not_called()
+        assert statuses == [*[(b.id, "executing", 1) for b in batches], *[(b.id, "succeeded", 1) for b in batches]]
+
+    @pytest.mark.parametrize(
+        "error,expected_latest_attempt,expected_status_attempt",
+        [
+            # Declined before writing: the members are loaded as they are.
+            (CoalescingDeclined("schemas differ"), 0, 1),
+            # Failed after the write may have landed: each member is a redelivery, so its own
+            # idempotency check scans the commit history for the set's write.
+            (RuntimeError("merge blew up"), 1, 2),
+        ],
+        ids=["declined", "failed"],
+    )
+    @pytest.mark.asyncio
+    async def test_a_set_that_cannot_load_falls_back_to_its_members(
+        self, error: Exception, expected_latest_attempt: int, expected_status_attempt: int
+    ):
+        process_batches = AsyncMock(side_effect=error)
+        seen: list[tuple[int, int]] = []
+
+        async def process_batch(batch, verify_ownership=None):
+            seen.append((batch.batch_index, batch.latest_attempt))
+
+        consumer = self._consumer(process_batches, process_batch)
+        batches = _run_batches(2)
+
+        statuses = await self._run_group(consumer, batches)
+
+        assert seen == [(0, expected_latest_attempt), (1, expected_latest_attempt)]
+        # The set's own executing rows come first; each member then goes through the single-batch
+        # transitions, at the same attempt when nothing was written and at the next one otherwise.
+        assert statuses == [
+            (batches[0].id, "executing", 1),
+            (batches[1].id, "executing", 1),
+            (batches[0].id, "executing", expected_status_attempt),
+            (batches[0].id, "succeeded", expected_status_attempt),
+            (batches[1].id, "executing", expected_status_attempt),
+            (batches[1].id, "succeeded", expected_status_attempt),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_without_a_set_loader_every_batch_is_single(self):
+        process_batch = AsyncMock()
+        consumer = self._consumer(None, process_batch)
+
+        await self._run_group(consumer, _run_batches(3))
+
+        assert process_batch.await_count == 3
+
+
+class TestBatchPhaseTracking:
+    def test_phase_gauges_follow_the_batch_bound_to_the_processing_context(self) -> None:
+        from products.warehouse_sources.backend.temporal.data_imports.batch_phase import (
+            BATCH_PHASE_AGE_SECONDS_MAX,
+            BATCHES_IN_PHASE,
+        )
+        from products.warehouse_sources.backend.temporal.data_imports.workload_report import report_phase
+
+        consumer = _make_consumer()
+        consumer._health_reporter = lambda: None
+        batch = _make_batch()
+
+        with consumer._batch_log_context(batch, attempt=1):
+            report_phase("read")
+            consumer._report_health()
+            assert BATCHES_IN_PHASE.labels(phase="read")._value.get() == 1
+            assert BATCHES_IN_PHASE.labels(phase="claimed")._value.get() == 0
+            assert BATCH_PHASE_AGE_SECONDS_MAX.labels(phase="read")._value.get() >= 0
+
+        consumer._report_health()
+        assert BATCHES_IN_PHASE.labels(phase="read")._value.get() == 0
+        assert BATCH_PHASE_AGE_SECONDS_MAX.labels(phase="read")._value.get() == 0
+
+        report_phase("write")
+        consumer._report_health()
+        assert BATCHES_IN_PHASE.labels(phase="write")._value.get() == 0
+
+    def test_watchdog_trip_names_the_phase_the_batch_stopped_in(self) -> None:
+        from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3 import (
+            batch_consumer as batch_consumer_module,
+        )
+        from products.warehouse_sources.backend.temporal.data_imports.workload_report import report_phase
+
+        consumer = _make_consumer(stuck_batch_timeout_seconds=0.0)
+        calls: list[int] = []
+        consumer._health_reporter = lambda: calls.append(1)
+        batch = _make_batch()
+
+        with consumer._batch_log_context(batch, attempt=1), patch.object(batch_consumer_module, "logger") as logger:
+            report_phase("write")
+            consumer._report_health()
+
+        assert calls == []  # tripped: liveness withheld
+        logger.error.assert_called_once()
+        kwargs = logger.error.call_args.kwargs
+        assert kwargs.get("batch_id") == batch.id
+        assert kwargs.get("phase") == "write"
+        assert kwargs.get("phase_seconds") is not None

@@ -64,6 +64,9 @@ export interface LoopHogFlowSource {
    * the detail carries it; a list row leaves it undefined. */
   draft?: unknown;
   draft_updated_at?: string | null;
+  /** The newest task the workflow created. A backend that predates the field
+   * omits it, which reads as a loop that never ran. */
+  last_run?: { task_id: string; status: string; ran_at: string } | null;
 }
 
 /** Task inputs the form owns. Anything else on the step is left as found. */
@@ -590,8 +593,8 @@ export function hogFlowToLoop(
     context_target: spaceFromTaskInputs(inputs),
     internal: false,
     origin_product: LOOPS_ORIGIN_PRODUCT,
-    last_run_at: null,
-    last_run_status: null,
+    last_run_at: flow.last_run?.ran_at ?? null,
+    last_run_status: flow.last_run ? loopRunStatus(flow.last_run.status) : null,
     last_error: null,
     consecutive_failures: 0,
     created_at: flow.created_at,
