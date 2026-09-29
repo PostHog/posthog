@@ -1,5 +1,6 @@
 /* oxlint-disable react-hooks/rules-of-hooks -- useMocks is a test helper, not a React hook */
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -274,11 +275,13 @@ describe('reportListLogic', () => {
         let includeSourceMetadata: (string | null)[]
         let queriedReportIds: string[][]
         let scoutName: string
+        let sourceMetadataStatus: number
 
         beforeEach(async () => {
             includeSourceMetadata = []
             queriedReportIds = []
             scoutName = 'signals-scout-support'
+            sourceMetadataStatus = 200
             useMocks({
                 get: {
                     '/api/projects/:team_id/signals/reports/available_reviewers': {},
@@ -306,6 +309,9 @@ describe('reportListLogic', () => {
                     '/api/projects/:team_id/signals/reports/source_metadata/': async ({ request }) => {
                         const { report_ids } = (await request.json()) as { report_ids: string[] }
                         queriedReportIds.push(report_ids)
+                        if (sourceMetadataStatus !== 200) {
+                            return [sourceMetadataStatus, { detail: 'nope' }]
+                        }
                         return [
                             200,
                             {
@@ -349,6 +355,25 @@ describe('reportListLogic', () => {
                 ['scouted', 'no-signals'],
             ])
             expect(logic.values.reports[0].scout_name).toEqual('signals-scout-billing')
+        })
+
+        // Deploy skew: a bundle with the source line can reach a backend without the endpoint, and
+        // DRF answers 405 for a missing `detail=False` action. The rows keep their values either way.
+        it.each([
+            ['a backend fault, which reaches error tracking', 500, true],
+            ['a method the backend does not serve yet, which does not', 405, false],
+            ['a path the backend does not serve yet, which does not', 404, false],
+        ])('keeps the source line on %s', async (_name: string, status: number, reported: boolean) => {
+            const captureException = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined)
+            sourceMetadataStatus = status
+
+            logic.actions.refresh()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(queriedReportIds).toHaveLength(2)
+            expect(logic.values.reports[0].scout_name).toEqual('signals-scout-support')
+            expect(captureException.mock.calls.length > 0).toBe(reported)
+            captureException.mockRestore()
         })
     })
 

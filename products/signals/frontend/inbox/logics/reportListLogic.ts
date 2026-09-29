@@ -5,6 +5,7 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { ApiConfig, CountedPaginatedResponse } from 'lib/api'
+import { isUnavailableEndpointError, shouldReportApiFailure } from 'lib/api-error'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { derivePrState } from 'lib/signals/prState'
@@ -702,7 +703,11 @@ export const reportListLogic = kea<reportListLogicType>([
                     )
                 )
             } catch (error) {
-                posthog.captureException(error)
+                // The rows keep their previous values, so only a backend fault is worth an issue. A
+                // route the backend does not serve yet is a deploy in progress, not a defect.
+                if (shouldReportApiFailure(error) && !isUnavailableEndpointError(error)) {
+                    posthog.captureException(error)
+                }
             } finally {
                 requested.forEach((id) => inFlight.delete(id))
             }
