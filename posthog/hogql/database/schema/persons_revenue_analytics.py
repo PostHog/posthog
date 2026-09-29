@@ -1,4 +1,5 @@
 from collections import defaultdict
+from uuid import UUID
 
 import structlog
 
@@ -14,7 +15,9 @@ from posthog.hogql.database.models import (
     UUIDDatabaseField,
 )
 from posthog.hogql.database.schema.util.revenue_analytics import get_table_kind, is_event_view
+from posthog.hogql.database.schema.util.where_clause_extractor import extract_uuid_constants
 from posthog.hogql.errors import ResolutionError
+from posthog.hogql.visitor import clone_expr
 
 from posthog.exchange_rate_constants import EXCHANGE_RATE_DECIMAL_PRECISION
 from posthog.schema_enums import DatabaseSchemaManagedViewTableKind
@@ -44,8 +47,12 @@ FIELDS: dict[str, FieldOrTable] = {
     ),
 }
 
+PERSON_ID_PUSHDOWN_MAX_IDS = 100
 
-def _select_from_persons_revenue_analytics_table(context: HogQLContext) -> ast.SelectQuery | ast.SelectSetQuery:
+
+def _select_from_persons_revenue_analytics_table(
+    context: HogQLContext, person_ids: list[ast.Constant] | None = None
+) -> ast.SelectQuery | ast.SelectSetQuery:
     from posthog.hogql.database.schema.persons import PersonsTable  # noqa: PLC0415 — circular import
 
     from products.revenue_analytics.backend.views import RevenueAnalyticsCustomerView, RevenueAnalyticsRevenueItemView
@@ -100,6 +107,31 @@ def _select_from_persons_revenue_analytics_table(context: HogQLContext) -> ast.S
                 )
 
         if person_id_chain is not None:
+            # Scope every per-customer aggregate to the requested persons before it runs. Without this,
+            # a single-person lookup sums revenue and MRR for every customer first and only then filters.
+            customer_where: ast.Expr | None = None
+            customer_id_where: ast.Expr | None = None
+            if person_ids:
+                customer_where = _person_id_in(person_id_chain, person_ids)
+                customer_ids: ast.Expr
+                if is_event_view(customer_view.name):
+                    # Event views use the person id, as a canonical UUID string, as the customer id.
+                    customer_ids = ast.Tuple(
+                        exprs=[ast.Constant(value=str(UUID(str(constant.value)))) for constant in person_ids]
+                    )
+                else:
+                    customer_ids = ast.SelectQuery(
+                        select=[ast.Field(chain=[RevenueAnalyticsCustomerView.get_generic_view_alias(), "id"])],
+                        select_from=ast.JoinExpr(
+                            alias=RevenueAnalyticsCustomerView.get_generic_view_alias(),
+                            table=ast.Field(chain=[customer_view.name]),
+                        ),
+                        where=_person_id_in(person_id_chain, person_ids),
+                    )
+                customer_id_where = ast.CompareOperation(
+                    op=ast.CompareOperationOp.In, left=ast.Field(chain=["customer_id"]), right=customer_ids
+                )
+
             # Get the aggregated revenue by customer_id
             revenue_agg = ast.SelectQuery(
                 select=[
@@ -110,6 +142,7 @@ def _select_from_persons_revenue_analytics_table(context: HogQLContext) -> ast.S
                     alias=RevenueAnalyticsRevenueItemView.get_generic_view_alias(),
                     table=ast.Field(chain=[revenue_item_view.name]),
                 ),
+                where=clone_expr(customer_id_where) if customer_id_where else None,
                 group_by=[ast.Field(chain=["customer_id"])],
             )
 
@@ -120,6 +153,7 @@ def _select_from_persons_revenue_analytics_table(context: HogQLContext) -> ast.S
                     ast.Alias(alias="mrr", expr=ast.Call(name="sum", args=[ast.Field(chain=["mrr"])])),
                 ],
                 select_from=ast.JoinExpr(table=ast.Field(chain=[mrr_view.name])),
+                where=customer_id_where,
                 group_by=[ast.Field(chain=["customer_id"])],
             )
 
@@ -182,6 +216,7 @@ def _select_from_persons_revenue_analytics_table(context: HogQLContext) -> ast.S
                         ),
                     ),
                 ),
+                where=customer_where,
             )
 
             queries.append(query)
@@ -218,6 +253,54 @@ def _select_from_persons_revenue_analytics_table(context: HogQLContext) -> ast.S
     )
 
 
+def _person_id_in(person_id_chain: list[str | int], person_ids: list[ast.Constant]) -> ast.Expr:
+    return ast.CompareOperation(
+        op=ast.CompareOperationOp.In,
+        left=ast.Call(name="toUUID", args=[ast.Field(chain=person_id_chain)]),
+        right=ast.Tuple(
+            exprs=[ast.Call(name="toUUID", args=[ast.Constant(value=constant.value)]) for constant in person_ids]
+        ),
+    )
+
+
+def _extract_person_id_filter(table: LazyTable, node: ast.SelectQuery) -> list[ast.Constant] | None:
+    """Literal person ids from a `person_id = X` or `person_id IN (...)` term in the WHERE of a query
+    that reads this table directly, or None.
+
+    Pushing the ids down is safe because the outer WHERE still applies to the result. It fails open
+    (returns None) on joins, OR-nested terms, and non-literal values.
+    """
+    select_from = node.select_from
+    if node.where is None or select_from is None or select_from.next_join is not None:
+        return None
+    if not isinstance(select_from.table, ast.Field):
+        return None
+    table_type = select_from.table.type
+    while isinstance(table_type, ast.TableAliasType):
+        table_type = table_type.table_type
+    if not isinstance(table_type, ast.LazyTableType) or table_type.table is not table:
+        return None
+
+    terms = node.where.exprs if isinstance(node.where, ast.And) else [node.where]
+    for term in terms:
+        if not isinstance(term, ast.CompareOperation) or term.op not in (
+            ast.CompareOperationOp.Eq,
+            ast.CompareOperationOp.In,
+        ):
+            continue
+        left_type = term.left.type
+        while isinstance(left_type, ast.FieldAliasType):
+            left_type = left_type.type
+        if not isinstance(left_type, ast.FieldType) or left_type.name != "person_id":
+            continue
+        if term.op == ast.CompareOperationOp.Eq and not isinstance(term.right, ast.Constant):
+            continue
+        constants = extract_uuid_constants(term.right)
+        if constants and len(constants) <= PERSON_ID_PUSHDOWN_MAX_IDS:
+            return constants
+    return None
+
+
 class PersonsRevenueAnalyticsTable(LazyTable):
     description: str = (
         "Revenue and MRR aggregated per person from the revenue analytics views. "
@@ -231,7 +314,7 @@ class PersonsRevenueAnalyticsTable(LazyTable):
         context: HogQLContext,
         node: ast.SelectQuery,
     ):
-        return _select_from_persons_revenue_analytics_table(context)
+        return _select_from_persons_revenue_analytics_table(context, _extract_person_id_filter(self, node))
 
     def to_printed_clickhouse(self, context):
         return "persons_revenue_analytics"

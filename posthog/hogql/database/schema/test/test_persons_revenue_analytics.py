@@ -366,15 +366,27 @@ class TestPersonsRevenueAnalytics(TestPersonsRevenueAnalyticsMixin):
                 modifiers=self.MODIFIERS,
             )
 
-            self.assertEqual(
-                sorted(results.results),
-                sorted(
-                    [
-                        (warehouse_person.uuid, Decimal("283.8496260553"), Decimal("22.9631447238")),
-                        (UUID(self.PERSON_ID), Decimal("279.28474"), Decimal("0")),
-                    ]
-                ),
-            )
+            expected_rows = [
+                (warehouse_person.uuid, Decimal("283.8496260553"), Decimal("22.9631447238")),
+                (UUID(self.PERSON_ID), Decimal("279.28474"), Decimal("0")),
+            ]
+            self.assertEqual(sorted(results.results), sorted(expected_rows))
+
+            # A single-person lookup pushes the person filter into each per-customer aggregate
+            # and must return the same row as the unscoped table.
+            for expected_row in expected_rows:
+                person_results = execute_hogql_query(
+                    parse_select(
+                        "SELECT person_id, revenue, mrr FROM persons_revenue_analytics WHERE person_id = {id}",
+                        placeholders={"id": ast.Constant(value=str(expected_row[0]))},
+                    ),
+                    self.team,
+                    user=self.user,
+                    modifiers=self.MODIFIERS,
+                )
+                self.assertEqual(person_results.results, [expected_row])
+                assert person_results.clickhouse is not None
+                self.assertEqual(person_results.clickhouse.count("in(customer_id, "), 4)
 
     def test_warehouse_join_named_persons_pointing_elsewhere_is_ignored(self):
         self.create_sources()
