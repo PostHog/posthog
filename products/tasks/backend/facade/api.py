@@ -40,7 +40,7 @@ from django.db.models import (
     When,
 )
 from django.db.models.fields.json import KeyTextTransform, KeyTransform
-from django.db.models.functions import Cast, Coalesce
+from django.db.models.functions import Coalesce
 from django.utils import timezone as django_timezone
 from django.utils.http import content_disposition_header
 
@@ -10480,6 +10480,7 @@ def list_task_comments(
     *,
     team_id: int,
     task_id: UUID,
+    user_id: int | None,
     artifact_id: str | None,
     include_resolved: bool,
     limit: int,
@@ -10491,6 +10492,7 @@ def list_task_comments(
         return list_comments(
             team_id=team_id,
             task_id=task_id,
+            user_id=user_id,
             artifact_id=artifact_id,
             include_resolved=include_resolved,
             limit=limit,
@@ -10562,6 +10564,7 @@ def retrieve_task_comment(
     *,
     team_id: int,
     task_id: UUID,
+    user_id: int | None,
     comment_id: UUID,
     limit: int,
     cursor: str | None,
@@ -10574,6 +10577,7 @@ def retrieve_task_comment(
         return retrieve_comment(
             team_id=team_id,
             task_id=task_id,
+            user_id=user_id,
             comment_id=comment_id,
             limit=limit,
             cursor=cursor,
@@ -10690,17 +10694,9 @@ def _task_activity_qs(team_id: int, user_id: int) -> QuerySet[TaskActivity]:
     return TaskActivity.objects.for_team(team_id).filter(user_id=user_id, task__in=visible_tasks)
 
 
-def _visible_canvas_comment_ids(team_id: int, user_id: int) -> QuerySet[Canvas, dict[str, str]]:
-    return (
-        Canvas.objects.for_team(team_id)
-        .filter(deleted=False)
-        .filter(visible_channels_q(user_id, relation="channel"))
-        .annotate(comment_item_id=Cast("id", output_field=CharField()))
-        .values("comment_item_id")
-    )
-
-
 def _comment_activity_qs(team_id: int, user_id: int) -> QuerySet[TaskCommentActivity]:
+    from products.tasks.backend.logic.services.task_comments import visible_canvas_comment_item_ids
+
     visible_tasks = _activity_visible_task_qs(team_id, user_id)
     return (
         TaskCommentActivity.objects.for_team(team_id)
@@ -10708,7 +10704,7 @@ def _comment_activity_qs(team_id: int, user_id: int) -> QuerySet[TaskCommentActi
         .filter(
             Q(
                 comment__scope__in=CANVAS_COMMENT_SCOPES,
-                comment__item_id__in=_visible_canvas_comment_ids(team_id, user_id),
+                comment__item_id__in=visible_canvas_comment_item_ids(team_id, user_id),
             )
             | (~Q(comment__scope__in=CANVAS_COMMENT_SCOPES) & Q(task__in=visible_tasks))
         )

@@ -3,14 +3,16 @@ from collections.abc import Callable, Sequence
 from datetime import datetime
 from uuid import UUID
 
-from django.db.models import Count, Q, QuerySet
+from django.db.models import CharField, Count, Q, QuerySet
+from django.db.models.functions import Cast
 
 from posthog.models import Comment
 from posthog.models.comment.comment import CANVAS_COMMENT_SCOPES
 from posthog.models.comment.utils import DESKTOP_COMMENT_SCOPES
 
+from products.canvas.backend.models import Canvas
 from products.tasks.backend.facade import contracts
-from products.tasks.backend.models import TaskArtifact, TaskRun, TaskThreadMessage
+from products.tasks.backend.models import Channel, TaskArtifact, TaskRun, TaskThreadMessage
 
 COMMENT_STATES = frozenset({"open", "resolved"})
 LEGACY_TASK_RUN_LIMIT = 100
@@ -20,7 +22,7 @@ LIST_CONTENT_BYTES = 1024
 SELECTED_TEXT_BYTES = 1024
 DETAIL_CONTENT_BUDGET_BYTES = 64 * 1024
 ANCHOR_QUOTE_BYTES = 4096
-TASK_ITEM_COMMENT_SCOPES = sorted(DESKTOP_COMMENT_SCOPES - {"task"})
+TASK_ITEM_COMMENT_SCOPES = sorted(DESKTOP_COMMENT_SCOPES - {"task"} - CANVAS_COMMENT_SCOPES)
 
 
 class InvalidTaskCommentCursor(ValueError):
@@ -125,12 +127,27 @@ def _without_emoji(comments: QuerySet[Comment]) -> QuerySet[Comment]:
     )
 
 
-def _comments(team_id: int, task_id: UUID) -> QuerySet[Comment]:
+def visible_canvas_comment_item_ids(team_id: int, user_id: int | None) -> QuerySet[Canvas, dict[str, str]]:
+    return (
+        Canvas.objects.for_team(team_id)
+        .filter(deleted=False)
+        .filter(Channel.visible_to_q(user_id, relation="channel"))
+        .annotate(comment_item_id=Cast("id", output_field=CharField()))
+        .values("comment_item_id")
+    )
+
+
+def _comments(team_id: int, task_id: UUID, user_id: int | None) -> QuerySet[Comment]:
     task_id_string = str(task_id)
     return _without_emoji(
         Comment.objects.filter(team_id=team_id, deleted=False).filter(
             Q(scope="task", item_id=task_id_string)
             | Q(scope__in=TASK_ITEM_COMMENT_SCOPES, item_context__taskId=task_id_string)
+            | Q(
+                scope__in=CANVAS_COMMENT_SCOPES,
+                item_context__taskId=task_id_string,
+                item_id__in=visible_canvas_comment_item_ids(team_id, user_id),
+            )
         )
     )
 
@@ -267,12 +284,13 @@ def list_comments(
     *,
     team_id: int,
     task_id: UUID,
+    user_id: int | None,
     artifact_id: str | None,
     include_resolved: bool,
     limit: int,
     cursor: str | None,
 ) -> contracts.TaskCommentPageDTO:
-    comments = _comments(team_id, task_id)
+    comments = _comments(team_id, task_id, user_id)
     roots_qs = comments.filter(source_comment_id__isnull=True)
     if artifact_id:
         roots_qs = roots_qs.filter(scope__in=["task_artifact", *CANVAS_COMMENT_SCOPES], item_id=artifact_id)
@@ -398,6 +416,7 @@ def retrieve_comment(
     *,
     team_id: int,
     task_id: UUID,
+    user_id: int | None,
     comment_id: UUID,
     limit: int,
     cursor: str | None,
@@ -405,7 +424,7 @@ def retrieve_comment(
     content_offset: int,
 ) -> contracts.TaskCommentDetailDTO | None:
     return _retrieve_thread(
-        base_comments=_comments(team_id, task_id),
+        base_comments=_comments(team_id, task_id, user_id),
         target_names=lambda roots: _target_names_for_roots(team_id=team_id, task_id=task_id, roots=roots),
         comment_id=comment_id,
         limit=limit,

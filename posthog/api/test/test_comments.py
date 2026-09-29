@@ -531,6 +531,38 @@ class TestComments(APIBaseTest, QueryMatchingTest):
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
+    @parameterized.expand([("public_space", "public", True), ("another_users_personal_space", "personal", False)])
+    def test_task_comments_include_canvas_comments_only_from_visible_spaces(
+        self, _name: str, channel_type: str, visible: bool
+    ) -> None:
+        task = self._task_artifact_target()
+        owner = User.objects.create_and_join(self.organization, f"canvas-owner-{channel_type}@posthog.com", None)
+        channel = (
+            apps.get_model("tasks", "Channel")
+            .objects.unscoped()
+            .create(team=self.team, name=f"{channel_type}-canvas-space", channel_type=channel_type, created_by=owner)
+        )
+        canvas = (
+            apps.get_model("canvas", "Canvas")
+            .objects.unscoped()
+            .create(team=self.team, channel=channel, name="Space canvas", created_by=owner, generation_task_id=task.id)
+        )
+        root = Comment.objects.create(
+            team=self.team,
+            created_by=owner,
+            scope="desktop_canvas",
+            item_id=str(canvas.id),
+            item_context={"taskId": str(task.id), "anchor": {"kind": "document"}},
+            content="Feedback on the canvas",
+        )
+        client = self._sandbox_task_comment_client(task.id)
+
+        listed = client.get(f"/api/projects/{self.team.id}/tasks/{task.id}/comments/")
+        detail = client.get(f"/api/projects/{self.team.id}/tasks/{task.id}/comments/{root.id}/")
+
+        assert [row["id"] for row in listed.json()["comments"]] == ([str(root.id)] if visible else [])
+        assert detail.status_code == (status.HTTP_200_OK if visible else status.HTTP_404_NOT_FOUND)
+
     def test_task_comments_require_the_sandbox_task_binding(self) -> None:
         task = self._task_artifact_target()
 

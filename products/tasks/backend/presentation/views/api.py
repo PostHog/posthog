@@ -632,6 +632,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             page = tasks_facade.list_task_comments(
                 team_id=self.team_id,
                 task_id=task_id,
+                user_id=self._user_id(),
                 artifact_id=params.validated_data.get("artifact_id"),
                 include_resolved=params.validated_data["include_resolved"],
                 limit=params.validated_data["limit"],
@@ -662,6 +663,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             comment = tasks_facade.retrieve_task_comment(
                 team_id=self.team_id,
                 task_id=task_id,
+                user_id=self._user_id(),
                 comment_id=parsed_comment_id,
                 limit=params.validated_data["limit"],
                 cursor=params.validated_data.get("cursor"),
