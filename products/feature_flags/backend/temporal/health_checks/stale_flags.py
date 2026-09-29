@@ -76,6 +76,10 @@ class StaleFeatureFlagsCheck(HealthCheck):
     # Postgres-heavy and one issue per stale flag rather than per team, so smaller
     # batches than the default policy.
     policy = HealthExecutionPolicy(batch_size=250, max_concurrent=2)
+    # The live gate refuses a batch only when it holds a team with open issues, and every active
+    # team is batched, so a broken gate fails a small share of batches. The default 10% threshold
+    # would report that run as a success, so any failed team fails the run here.
+    not_processed_threshold = 0.0
     remediation = Remediation(
         human="""
             Open the flag and confirm the staleness evidence is still current. Check every

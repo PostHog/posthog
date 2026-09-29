@@ -893,6 +893,9 @@ class TestStaleFlagsContract(SimpleTestCase):
         # reach of the flags UI.
         assert registration.dry_run is False
         assert registration.rollout_percentage == 1.0
+        # A live gate refusal fails only the batches that hold teams with open issues, which the
+        # default threshold hides behind a successful run.
+        assert registration.not_processed_threshold == 0.0
         assert registration.schedule == "0 6 * * 1"
         assert registration.remediation is not None
         # Payloads carry flag keys and names, so the Health API must gate them on flag access.
