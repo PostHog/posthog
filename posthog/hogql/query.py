@@ -712,6 +712,31 @@ class HogQLQueryExecutor:
         )
 
         validate_prompt_jev_access(self.team)
+        # The resolver types __preview_promptJev calls without model output, so an invalid query fails before any model call.
+        Resolver(
+            context=dataclasses.replace(
+                self.context,
+                team_id=self.team.pk,
+                team=self.team,
+                user=self.user,
+                enable_select_queries=True,
+                modifiers=self.query_modifiers,
+                database=self.context.database
+                or Database.create_for(
+                    team=self.team,
+                    user=self.user,
+                    user_access_control=self.context.user_access_control,
+                    modifiers=self.query_modifiers,
+                    timings=self.timings,
+                    bypass_warehouse_access_control=self.context.bypass_warehouse_access_control,
+                    trigger="executor",
+                ),
+                warnings=[],
+                notices=[],
+                errors=[],
+            ),
+            dialect="clickhouse",
+        ).visit(clone_expr(self.select_query, True))
         self._prompt_jev_tables = []
         runner = PromptJevRunner(team_id=self.team.pk, distinct_id=self.user.distinct_id if self.user else None)
 

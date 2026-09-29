@@ -256,6 +256,7 @@ class TestPromptJevQuery(ClickhouseTestMixin, APIBaseTest):
             ("SELECT __preview_promptJev('a', 'q')", "named SELECT"),
             ("SELECT __preview_promptJev('a', 'q') AS p ORDER BY p", "outside"),
             ("SELECT __preview_promptJev('a', 'q') AS p WHERE p > 0.5", "outer query"),
+            ("SELECT labl FROM (SELECT __preview_promptJev('refund', 'Refund?') AS label)", "labl"),
             ("SELECT __preview_promptJev(toString(number), 'q') AS p FROM numbers(1001)", "at most 1000"),
             (
                 "SELECT __preview_promptJev(toString(number), 'Topic?') AS a, __preview_promptJev(toString(number), 'Tone?') AS b FROM numbers(600)",
