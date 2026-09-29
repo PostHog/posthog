@@ -242,6 +242,54 @@ describe('supportTicketsSceneLogic', () => {
             expect(router.values.searchParams.search).toBeUndefined()
         })
 
+        it('keeps a cleared spike cleared when another filter changes', async () => {
+            router.actions.push(urls.supportTickets(), { ids: 'ticket-a,ticket-b' })
+            logic = supportTicketsSceneLogic()
+            logic.mount()
+
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.spikeTicketIds).toEqual(['ticket-a', 'ticket-b'])
+
+            await expectLogic(logic, () => {
+                logic.actions.clearSpikeFilter()
+            }).toFinishAllListeners()
+
+            expect(router.values.searchParams.ids).toBeUndefined()
+
+            await expectLogic(logic, () => {
+                logic.actions.setStatusFilter(['open'])
+            }).toFinishAllListeners()
+
+            expect(logic.values.spikeTicketIds).toEqual([])
+            expect(router.values.searchParams.ids).toBeUndefined()
+        })
+
+        it('asks for exactly the spike tickets, ignoring the filters already applied', async () => {
+            // A spike link names a set of tickets. Sending the persisted filters too returned
+            // their intersection, so the list showed fewer tickets than the banner claimed.
+            let lastParams: URLSearchParams | null = null
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/conversations/tickets/': ({ request }) => {
+                        lastParams = new URL(request.url).searchParams
+                        return [200, { count: 0, results: [] }]
+                    },
+                },
+            })
+            router.actions.push(urls.supportTickets())
+            logic = supportTicketsSceneLogic()
+            logic.mount()
+            await expectLogic(logic, () => {
+                logic.actions.setStatusFilter(['pending'])
+            }).toFinishAllListeners()
+
+            router.actions.push(urls.supportTickets(), { ids: 'ticket-a,ticket-b' })
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(lastParams!.get('ids')).toBe('ticket-a,ticket-b')
+            expect(lastParams!.get('status')).toBeNull()
+        })
+
         it('detaches an active view when the URL changes to explicit filters', async () => {
             router.actions.push(urls.supportTickets())
             logic = supportTicketsSceneLogic()

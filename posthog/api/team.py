@@ -1991,7 +1991,9 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                 raise serializers.ValidationError({"ai_reply_modes": "Must be an object or null."})
         from products.conversations.backend.api.ai_context import validate_ai_context_conversations_settings
         from products.conversations.backend.api.ai_reply_playbook import validate_playbook_conversations_settings
+        from products.conversations.backend.api.ticket_patterns import validate_ticket_patterns_conversations_settings
 
+        validate_ticket_patterns_conversations_settings(value)
         existing = getattr(self.instance, "conversations_settings", None) if self.instance is not None else None
         validate_playbook_conversations_settings(value, existing=existing if isinstance(existing, dict) else None)
         validate_ai_context_conversations_settings(

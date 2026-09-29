@@ -653,7 +653,9 @@ class ProjectBackwardCompatSerializer(
             validate_authorized_url_wildcards(value["widget_domains"])
         from products.conversations.backend.api.ai_context import validate_ai_context_conversations_settings
         from products.conversations.backend.api.ai_reply_playbook import validate_playbook_conversations_settings
+        from products.conversations.backend.api.ticket_patterns import validate_ticket_patterns_conversations_settings
 
+        validate_ticket_patterns_conversations_settings(value)
         # conversations_settings lives on the passthrough Team, not on Project, so a partial
         # update that omits docs_source still normalizes against the saved source.
         existing = self.instance.passthrough_team.conversations_settings if self.instance is not None else None

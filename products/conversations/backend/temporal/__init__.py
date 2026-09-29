@@ -27,6 +27,11 @@ from products.conversations.backend.temporal.pipeline import (
     support_safety_filter_activity,
     support_validate_activity,
 )
+from products.conversations.backend.temporal.ticket_patterns.coordinator import (
+    TicketPatternsCoordinatorWorkflow,
+    ticket_patterns_collect_eligible_teams_activity,
+)
+from products.conversations.backend.temporal.ticket_patterns.detect import ticket_patterns_detect_activity
 from products.conversations.backend.temporal.zendesk_import.activities import (
     zendesk_import_batch_activity,
     zendesk_import_enumerate_tickets_activity,
@@ -45,6 +50,7 @@ WORKFLOWS = [
     AccountChannelSummaryWorkflow,
     ZendeskImportCoordinatorWorkflow,
     ZendeskImportBatchWorkflow,
+    TicketPatternsCoordinatorWorkflow,
 ]
 
 ACTIVITIES = [
@@ -67,4 +73,6 @@ ACTIVITIES = [
     zendesk_import_batch_activity,
     zendesk_import_update_job_status_activity,
     zendesk_import_update_job_progress_activity,
+    ticket_patterns_collect_eligible_teams_activity,
+    ticket_patterns_detect_activity,
 ]

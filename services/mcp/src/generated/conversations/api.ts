@@ -69,6 +69,12 @@ export const ConversationsTicketsListQueryParams = () => zod.object({
         .describe(
             'Comma-separated list of email addresses to filter by, matched case-insensitively against `email_from` (max 100). When combined with `distinct_ids`, tickets matching either the distinct_ids or the emails are returned (OR).'
         ),
+    ids: zod
+        .string()
+        .optional()
+        .describe(
+            'Comma-separated list of ticket `id`s to narrow the list to (max 100; later entries are dropped). An entry that is not a UUID is skipped, so a value with no usable id returns no tickets rather than the whole inbox.'
+        ),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     order_by: zod

@@ -222,6 +222,7 @@ export interface supportTicketsSceneLogicValues {
     selectedTickets: Ticket[]
     slaFilter: TicketSlaState | 'all'
     sorting: Sorting | null
+    spikeTicketIds: string[]
     statusFilter: TicketStatus[]
     tagsExcludeFilter: string[]
     tagsFilter: string[]
@@ -256,6 +257,9 @@ export interface supportTicketsSceneLogicActions {
         value: true
     }
     clearSelectedTickets: () => {
+        value: true
+    }
+    clearSpikeFilter: () => {
         value: true
     }
     loadSavedView: (shortId: string) => {
@@ -313,6 +317,9 @@ export interface supportTicketsSceneLogicActions {
     }
     setSorting: (sorting: Sorting | null) => {
         sorting: Sorting | null
+    }
+    setSpikeFilter: (ticketIds: string[]) => {
+        ticketIds: string[]
     }
     setStatusFilter: (statuses: TicketStatus[]) => {
         statuses: TicketStatus[]
@@ -389,6 +396,9 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
     props({} as SupportTicketsSceneLogicProps),
     key((props: SupportTicketsSceneLogicProps) => props?.key || 'SupportTicketsScene'),
     actions({
+        // Narrow the list to an explicit set of tickets, e.g. the ones behind a detected spike.
+        setSpikeFilter: (ticketIds: string[]) => ({ ticketIds }),
+        clearSpikeFilter: true,
         setStatusFilter: (statuses: TicketStatus[]) => ({ statuses }),
         setChannelFilter: (channel: TicketChannel | 'all') => ({ channel }),
         setSlaFilter: (sla: TicketSlaState | 'all') => ({ sla }),
@@ -421,6 +431,13 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
         clearSelectedTickets: true,
     }),
     reducers({
+        spikeTicketIds: [
+            [] as string[],
+            {
+                setSpikeFilter: (_, { ticketIds }) => ticketIds,
+                clearSpikeFilter: () => [],
+            },
+        ],
         tickets: [
             [] as Ticket[],
             {
@@ -722,38 +739,45 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                 params.distinct_ids = props.distinctIds.join(',')
             }
 
-            if (values.statusFilter.length > 0) {
-                params.status = values.statusFilter.join(',')
-            }
-            if (values.priorityFilter.length > 0) {
-                params.priority = values.priorityFilter.join(',')
-            }
-            if (values.aiEnabled && values.aiTriageResultFilter.length > 0) {
-                params.ai_triage_result = values.aiTriageResultFilter.join(',')
-            }
-            if (values.channelFilter !== 'all') {
-                params.channel_source = values.channelFilter
-            }
-            if (values.slaFilter !== 'all') {
-                params.sla = values.slaFilter
-            }
-            if (values.assigneeFilterEntries.length > 0) {
-                params.assignee = values.assigneeFilterEntries.map(encodeAssigneeEntry).join(',')
-            }
-            if (values.tagsFilter.length > 0) {
-                params[values.tagsMatch === 'all' ? 'tags_all' : 'tags'] = JSON.stringify(values.tagsFilter)
-            }
-            if (values.tagsExcludeFilter.length > 0) {
-                params.tags_exclude = JSON.stringify(values.tagsExcludeFilter)
-            }
-            if (values.searchQuery) {
-                params.search = values.searchQuery
-            }
-            if (values.dateFrom) {
-                params.date_from = values.dateFrom
-            }
-            if (values.dateTo) {
-                params.date_to = values.dateTo
+            // A spike link asks for one exact set of tickets. Applying the persisted filters on top
+            // would return their intersection, so the list would show fewer tickets than the banner
+            // that opened it named.
+            if (values.spikeTicketIds.length > 0) {
+                params.ids = values.spikeTicketIds.join(',')
+            } else {
+                if (values.statusFilter.length > 0) {
+                    params.status = values.statusFilter.join(',')
+                }
+                if (values.priorityFilter.length > 0) {
+                    params.priority = values.priorityFilter.join(',')
+                }
+                if (values.aiEnabled && values.aiTriageResultFilter.length > 0) {
+                    params.ai_triage_result = values.aiTriageResultFilter.join(',')
+                }
+                if (values.channelFilter !== 'all') {
+                    params.channel_source = values.channelFilter
+                }
+                if (values.slaFilter !== 'all') {
+                    params.sla = values.slaFilter
+                }
+                if (values.assigneeFilterEntries.length > 0) {
+                    params.assignee = values.assigneeFilterEntries.map(encodeAssigneeEntry).join(',')
+                }
+                if (values.tagsFilter.length > 0) {
+                    params[values.tagsMatch === 'all' ? 'tags_all' : 'tags'] = JSON.stringify(values.tagsFilter)
+                }
+                if (values.tagsExcludeFilter.length > 0) {
+                    params.tags_exclude = JSON.stringify(values.tagsExcludeFilter)
+                }
+                if (values.searchQuery) {
+                    params.search = values.searchQuery
+                }
+                if (values.dateFrom) {
+                    params.date_from = values.dateFrom
+                }
+                if (values.dateTo) {
+                    params.date_to = values.dateTo
+                }
             }
             params.order_by = values.orderBy
             params.limit = SUPPORT_TICKETS_PAGE_SIZE
@@ -804,6 +828,13 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
         },
         setStatusFilter: () => {
             actions.clearActiveView()
+            actions.setCurrentPage(1)
+        },
+        setSpikeFilter: () => {
+            // setCurrentPage is what reloads the list, as it is for every other filter here.
+            actions.setCurrentPage(1)
+        },
+        clearSpikeFilter: () => {
             actions.setCurrentPage(1)
         },
         setPriorityFilter: () => {
@@ -969,12 +1000,32 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             applyUrlFilters: buildUrl,
             setActiveView: buildUrl,
             clearActiveView: buildUrl,
+            // A cleared spike must leave the URL too. buildUrl copies unknown params forward,
+            // so a leftover `ids` would survive the next filter change and urlToAction would
+            // put the spike filter straight back.
+            clearSpikeFilter: () => {
+                if (props.distinctIds?.length || router.values.searchParams.ids === undefined) {
+                    return
+                }
+                const searchParams = { ...router.values.searchParams }
+                delete searchParams.ids
+                cache.selfNavigating = true
+                return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
+            },
         }
     }),
     urlToAction(({ actions, values, props, cache }) => ({
         '/support/tickets': (_, searchParams) => {
             if (props.distinctIds?.length) {
                 return
+            }
+            const urlIds = typeof searchParams.ids === 'string' ? searchParams.ids.split(',').filter(Boolean) : []
+            if (!objectsEqual(urlIds, values.spikeTicketIds)) {
+                if (urlIds.length) {
+                    actions.setSpikeFilter(urlIds)
+                } else {
+                    actions.clearSpikeFilter()
+                }
             }
             // A URL change we wrote ourselves already matches state — re-applying it would
             // clobber filters not encoded in the URL. External navigations don't set this.

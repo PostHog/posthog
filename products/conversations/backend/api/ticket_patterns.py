@@ -1,0 +1,185 @@
+from uuid import UUID
+
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field
+from rest_framework import serializers, status, viewsets
+from rest_framework.decorators import action
+from rest_framework.request import Request
+from rest_framework.response import Response
+
+from posthog.api.mixins import ValidatedRequest, validated_request
+from posthog.api.routing import TeamAndOrgViewSetMixin
+
+from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
+from products.conversations.backend.models import Ticket
+from products.conversations.backend.temporal.ticket_patterns.constants import (
+    LOOKBACK_MINUTES_RANGE,
+    MIN_REQUESTERS_RANGE,
+    MIN_TICKETS_RANGE,
+)
+from products.conversations.backend.temporal.ticket_patterns.eligibility import is_master_flag_enabled
+from products.conversations.backend.temporal.ticket_patterns.recent import dismiss_spike, recent_spikes, spike_key
+
+
+def validate_ticket_patterns_conversations_settings(value: dict) -> None:
+    """Reject malformed ticket spike detection settings. Raises DRF ValidationError."""
+    # Reject rather than clamp, so a typo in the window length is visible instead of silently
+    # becoming a different setting.
+    for threshold_key, (low, high) in (
+        ("ticket_patterns_lookback_minutes", LOOKBACK_MINUTES_RANGE),
+        ("ticket_patterns_min_tickets", MIN_TICKETS_RANGE),
+        ("ticket_patterns_min_requesters", MIN_REQUESTERS_RANGE),
+    ):
+        if threshold_key not in value:
+            continue
+        threshold = value.get(threshold_key)
+        # Null stays in the payload so the settings merge writes it and the threshold falls
+        # back to its default. Popping it would make an explicit reset a silent no-op.
+        if threshold is None:
+            continue
+        if not isinstance(threshold, int) or isinstance(threshold, bool) or not low <= threshold <= high:
+            raise serializers.ValidationError({threshold_key: f"Must be a whole number from {low} to {high}."})
+    for switch_key in ("ticket_patterns_enabled", "ticket_patterns_banner_enabled"):
+        if switch_key in value and not isinstance(value[switch_key], bool):
+            raise serializers.ValidationError({switch_key: "Must be true or false."})
+
+
+class TicketPatternSerializer(serializers.Serializer):
+    key = serializers.SerializerMethodField(help_text="Identity of this spike. Send it back to dismiss the spike.")
+    topic = serializers.CharField(help_text="Short label for the problem the tickets share.")
+    summary = serializers.CharField(
+        allow_blank=True, help_text="One sentence describing what the customers are hitting."
+    )
+    ticket_ids = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="IDs of the tickets in this spike.",
+    )
+    ticket_count = serializers.IntegerField(help_text="How many tickets the spike covers.")
+    requester_count = serializers.IntegerField(help_text="How many distinct customers reported it.")
+    detected_at = serializers.DateTimeField(help_text="When detection reported this spike.")
+    dismissed_by = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Name of the teammate who dismissed this spike for the project, if anyone has.",
+    )
+    dismissed_at = serializers.DateTimeField(required=False, allow_null=True, help_text="When the spike was dismissed.")
+
+    @extend_schema_field(OpenApiTypes.STR)
+    def get_key(self, spike: dict) -> str:
+        return spike_key(spike)
+
+
+class TicketPatternDismissSerializer(serializers.Serializer):
+    key = serializers.CharField(help_text="Identity of the spike to dismiss: the `key` from the list response.")
+
+
+class TicketPatternDismissErrorSerializer(serializers.Serializer):
+    detail = serializers.CharField(help_text="Why the spike could not be dismissed.")
+
+
+class TicketPatternViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.GenericViewSet):
+    """Spikes reported for this project in the last day.
+
+    Reads a short-lived cache written when detection reports, not a table. The durable record is
+    the `$conversation_ticket_pattern_detected` event, so an empty list means "nothing recent or
+    nothing cached", never "this never happened".
+
+    A spike is made of ticket text, so it is scoped as ticket data: a user sees a spike only when
+    they can open every ticket in it, and never learns that the others exist.
+    """
+
+    scope_object = "ticket"
+    scope_object_read_actions = ["list"]
+    scope_object_write_actions = ["dismiss"]
+    queryset = Ticket.objects.all()
+    # The list is capped at MAX_RECENT_SPIKES and returned whole, so a page envelope would
+    # describe a response this view never sends.
+    pagination_class = None
+
+    def get_serializer_class(self) -> type[serializers.Serializer]:
+        # Per action, so the generated client asks for a key to dismiss rather than a whole spike.
+        if self.action == "dismiss":
+            return TicketPatternDismissSerializer
+        return TicketPatternSerializer
+
+    def _detection_is_live(self) -> bool:
+        """Whether this project should be seeing spikes at all.
+
+        Reported spikes outlive both switches by up to a day, so a team that turned detection off,
+        or one the rollout flag was pulled from, must stop seeing them rather than wait out the
+        cache.
+        """
+        if not (self.team.conversations_settings or {}).get("ticket_patterns_enabled"):
+            return False
+        return is_master_flag_enabled(self.team)
+
+    def _visible_spikes(self) -> list[dict]:
+        """The cached spikes this user may see, whole.
+
+        A spike is all-or-nothing rather than narrowed to the readable tickets, because its topic
+        and summary are written from every ticket in the cluster. Trimming the id list would still
+        hand over text derived from tickets the user cannot open, and there is no way to redact
+        that without asking the model again. Whole-spike visibility also makes the project-wide
+        dismissal defensible: anyone who can dismiss a spike can already read all of it.
+        """
+        spikes = recent_spikes(self.team_id)
+        if not spikes:
+            return []
+
+        # Only well-formed ids reach the query: this list is a cache blob, and an id the Ticket
+        # model cannot parse raises rather than returning nothing, which would fail the inbox
+        # scene the banner sits on instead of just dropping the banner.
+        parsed: dict[int, list[str]] = {}
+        for index, spike in enumerate(spikes):
+            ids = []
+            for ticket_id in spike.get("ticket_ids", []):
+                try:
+                    ids.append(str(UUID(str(ticket_id))))
+                except (ValueError, AttributeError, TypeError):
+                    # A spike is only shown whole, so an unparseable id means it cannot be shown.
+                    ids = []
+                    break
+            if ids:
+                parsed[index] = ids
+
+        every_id = {ticket_id for ids in parsed.values() for ticket_id in ids}
+        if not every_id:
+            return []
+
+        queryset = Ticket.objects.filter(team_id=self.team_id, id__in=every_id)
+        uac = self.user_access_control
+        if bool(uac.blocked_resource_ids_by_scope.get("ticket")) or not uac.has_resource_access("ticket"):
+            queryset = uac.filter_queryset_by_access_level(queryset)
+        readable = {str(ticket_id) for ticket_id in queryset.values_list("id", flat=True)}
+
+        return [spikes[index] for index, ids in parsed.items() if readable.issuperset(ids)]
+
+    @extend_schema(
+        responses={200: TicketPatternSerializer(many=True)},
+        description="List the ticket spikes reported for this project in the last day, newest first.",
+    )
+    def list(self, request: Request, **kwargs) -> Response:
+        if not self._detection_is_live():
+            return Response([])
+        return Response(TicketPatternSerializer(self._visible_spikes(), many=True).data)
+
+    # @validated_request must sit OUTSIDE @action: DRF's @action resets func.kwargs, wiping any
+    # schema annotation applied earlier, so the generated client would describe the wrong response.
+    @validated_request(
+        TicketPatternDismissSerializer,
+        responses={204: None, 404: OpenApiResponse(response=TicketPatternDismissErrorSerializer)},
+        description="Dismiss one spike for everyone in the project, so the inbox banner stops showing it.",
+    )
+    @action(detail=False, methods=["POST"])
+    def dismiss(self, request: ValidatedRequest, **kwargs) -> Response:
+        key = request.validated_data["key"]
+        # Dismissing is project-wide, so it is gated on the same visibility as reading: a user who
+        # cannot see the spike cannot hide it from the teammates who can.
+        if not self._detection_is_live() or not any(spike_key(s) == key for s in self._visible_spikes()):
+            return Response({"detail": "No such spike."}, status=status.HTTP_404_NOT_FOUND)
+
+        user = request.user
+        name = getattr(user, "first_name", "") or getattr(user, "email", "") or "a teammate"
+        if not dismiss_spike(self.team_id, key, name):
+            return Response({"detail": "No such spike."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(status=status.HTTP_204_NO_CONTENT)
