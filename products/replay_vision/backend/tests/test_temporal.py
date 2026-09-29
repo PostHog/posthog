@@ -1237,6 +1237,21 @@ class TestObservationStateActivities:
         assert observation.completed_at is not None
         assert observation.scanner_result == result.model_dump(mode="json")
 
+    def test_mark_succeeded_strips_nul_characters_from_result(self) -> None:
+        scanner = _make_scanner()
+        observation = _make_observation(scanner, status=ObservationStatus.RUNNING, started_at=timezone.now())
+        result = ScannerResult(model_output=MonitorOutput(verdict="yes", reasoning="saw a\x00b", confidence=0.9))
+
+        mark_observation_succeeded_activity(
+            MarkObservationSucceededInputs(
+                observation_id=observation.id, scanner_result=result, scanner_type=ScannerType.MONITOR
+            )
+        )
+
+        observation.refresh_from_db()
+        assert observation.status == ObservationStatus.SUCCEEDED
+        assert observation.scanner_result["model_output"]["reasoning"] == "saw ab"
+
     def test_mark_succeeded_does_not_overwrite_terminal_status(self) -> None:
         # Bounded UPDATE: failed/succeeded rows are sticky.
         scanner = _make_scanner()

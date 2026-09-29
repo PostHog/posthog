@@ -1,4 +1,5 @@
 from collections.abc import Callable, Container
+from typing import Any
 from uuid import UUID
 
 from django.db import transaction
@@ -54,6 +55,20 @@ _TERMINAL_SCAN_EVENTS: dict[str, str] = {
     ObservationStatus.FAILED: "replay_vision_scan_failed",
     ObservationStatus.INELIGIBLE: "replay_vision_scan_ineligible",
 }
+
+
+def _strip_nul(value: Any) -> Any:
+    """Recursively remove NUL from strings and keys, because Postgres jsonb cannot store `\\u0000`.
+
+    The model can copy a NUL from the recording into its output, and the write would then fail on every retry.
+    """
+    if isinstance(value, str):
+        return value.replace("\x00", "")
+    if isinstance(value, list):
+        return [_strip_nul(v) for v in value]
+    if isinstance(value, dict):
+        return {_strip_nul(k): _strip_nul(v) for k, v in value.items()}
+    return value
 
 
 def _capture_terminal_scan(*, observation_id: UUID, status: ObservationStatus, scanner_type: str, kind: str) -> None:
@@ -189,6 +204,7 @@ def mark_observation_ineligible_activity(inputs: MarkObservationIneligibleInputs
 @track_activity()
 def mark_observation_succeeded_activity(inputs: MarkObservationSucceededInputs) -> None:
     """Flip pending/running → succeeded and persist the scanner result. Idempotent: SUCCEEDED is not in the source filter."""
+    scanner_result = _strip_nul(inputs.scanner_result.model_dump(mode="json"))
     with transaction.atomic():
         updated = ReplayObservation.objects.filter(
             pk=inputs.observation_id,
@@ -196,7 +212,7 @@ def mark_observation_succeeded_activity(inputs: MarkObservationSucceededInputs) 
         ).update(
             status=ObservationStatus.SUCCEEDED,
             completed_at=timezone.now(),
-            scanner_result=inputs.scanner_result.model_dump(mode="json"),
+            scanner_result=scanner_result,
         )
         if not updated:
             return  # No state transition — retry against an already-terminal row.
@@ -228,7 +244,7 @@ def mark_observation_succeeded_activity(inputs: MarkObservationSucceededInputs) 
             observation_id=inputs.observation_id,
             team_id=obs["team_id"],
             scanner_id=obs["scanner_id"],
-            model_output=inputs.scanner_result.model_output.model_dump(mode="json"),
+            model_output=scanner_result["model_output"],
         )
     record_observation("succeeded", inputs.scanner_type)
     record_observation_e2e(inputs.scanner_type, (timezone.now() - obs["created_at"]).total_seconds())
