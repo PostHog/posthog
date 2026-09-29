@@ -96,14 +96,14 @@ export interface createExperimentLogicActions {
     createExperimentSuccess: () => {
         value: true
     }
+    openSavedExperiment: () => {
+        value: true
+    }
     resetExperiment: () => {
         value: true
     }
     saveExperiment: (openExperiment?: boolean) => {
         openExperiment: boolean
-    }
-    openSavedExperiment: () => {
-        value: true
     }
     saveExperimentFailure: () => {
         value: true
