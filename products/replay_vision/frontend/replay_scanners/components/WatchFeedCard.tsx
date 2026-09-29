@@ -327,7 +327,7 @@ export function WatchFeedCard({ item, position }: WatchFeedCardProps): JSX.Eleme
                         <CitedText text={headline.body.text} segments={headline.body.segments} />
                     </p>
                 )}
-                <div className="flex items-start gap-1.5 text-xs text-muted">
+                <div className="flex items-start gap-1.5 text-xs font-medium border-t pt-2">
                     <IconFlag className="mt-0.5 shrink-0 text-accent" aria-hidden />
                     <span>{watchReasonCopy(reason)}</span>
                 </div>

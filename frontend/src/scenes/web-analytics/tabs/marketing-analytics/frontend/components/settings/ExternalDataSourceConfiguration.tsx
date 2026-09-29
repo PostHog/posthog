@@ -18,6 +18,7 @@ import {
 import { ExternalDataSchemaStatus, ExternalDataSource, ManualLinkSourceType } from '~/types'
 
 import { SourceIcon } from 'products/data_warehouse/frontend/shared/components/SourceIcon'
+import { AddIntegrationButton } from 'products/marketing_analytics/frontend/components/AddIntegrationButton'
 
 import { useSortedPaginatedList } from '../../hooks/useSortedPaginatedList'
 import {
@@ -36,7 +37,6 @@ import {
     findSchemaByFieldName,
     nativeSourceDisplayLabel,
 } from '../../logic/utils'
-import { AddIntegrationButton } from '../MarketingAnalyticsFilters/AddIntegrationButton'
 import { ColumnMappingModal } from './ColumnMappingModal'
 import { ListDisplay } from './ListDisplay'
 import { ItemName, PaginationControls } from './PaginationControls'
