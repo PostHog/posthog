@@ -11,7 +11,7 @@ from temporalio.client import (
     ScheduleSpec,
 )
 
-from posthog.temporal.common.schedule import a_create_schedule, a_schedule_exists, a_update_schedule
+from posthog.temporal.common.schedule import a_create_schedule, a_delete_schedule, a_schedule_exists, a_update_schedule
 
 from products.experiments.backend.temporal.models import (
     CANARY_WORKFLOW_NAME,
@@ -113,8 +113,6 @@ async def create_experiment_scheduled_recalculation_schedules(client: Client) ->
 
 async def delete_experiment_scheduled_recalculation_schedules(client: Client) -> None:
     """Delete all 24 scheduled recalculation schedules."""
-    from posthog.temporal.common.schedule import a_delete_schedule  # noqa: PLC0415 — matches the sibling deleters
-
     for hour in range(24):
         try:
             await a_delete_schedule(client, f"{SCHEDULED_RECALCULATION_SCHEDULE_ID_PREFIX}-{hour:02d}")
