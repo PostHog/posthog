@@ -80,6 +80,7 @@ def _args(scope: DebugLogScope, functions: list[tuple[int, str]]) -> dict[str, A
 def count_debug_logs(scope: DebugLogScope, functions: list[tuple[int, str]]) -> DebugLogCount:
     if not functions:
         return DebugLogCount(lines=0, functions=0, teams=0, first_seen=None, last_seen=None)
+    # nosemgrep: clickhouse-fstring-param-audit - only constants are interpolated; scope and functions are bound parameters
     rows = sync_execute(
         f"""
         SELECT count(), uniqExact(log_source_id), uniqExact(team_id), min(timestamp), max(timestamp)
@@ -111,6 +112,7 @@ def delete_debug_logs(scope: DebugLogScope, functions: list[tuple[int, str]], wa
     if not functions:
         return
     # Waiting on every replica outlasts the client timeout in production, so it runs asynchronously.
+    # nosemgrep: clickhouse-fstring-param-audit - only constants are interpolated; scope and functions are bound parameters
     sync_execute(
         f"""
         DELETE FROM {_data_table()} {ON_CLUSTER_CLAUSE()}

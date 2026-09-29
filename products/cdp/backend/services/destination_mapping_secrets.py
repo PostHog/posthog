@@ -101,12 +101,12 @@ def _move_keys(hog_function: HogFunction, keys: list[str]) -> None:
 
 
 def move_mapping_secrets(keys: list[MappingSecretKey]) -> int:
-    keys_by_function: dict[str, list[str]] = {}
+    keys_by_function: dict[tuple[int, str], list[str]] = {}
     for secret_key in keys:
         if secret_key.movable:
-            keys_by_function.setdefault(secret_key.function_id, []).append(secret_key.key)
-    for function_id, function_keys in keys_by_function.items():
+            keys_by_function.setdefault((secret_key.team_id, secret_key.function_id), []).append(secret_key.key)
+    for (team_id, function_id), function_keys in keys_by_function.items():
         with transaction.atomic():
-            hog_function = HogFunction.objects.select_for_update().get(id=function_id)
+            hog_function = HogFunction.objects.select_for_update().get(team_id=team_id, id=function_id)
             _move_keys(hog_function, function_keys)
     return len(keys_by_function)
