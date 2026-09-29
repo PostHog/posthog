@@ -117,7 +117,7 @@ pub struct Config {
     #[envconfig(default = "60")]
     pub global_rate_limit_window_interval_secs: u64,
 
-    /// Max staleness before re-sync with Redis (seconds)
+    /// Base re-sync cadence (seconds). The pressure tier scales it
     #[envconfig(default = "15")]
     pub global_rate_limit_sync_interval_secs: u64,
 
@@ -138,27 +138,19 @@ pub struct Config {
     #[envconfig(default = "5000000")]
     pub global_rate_limit_token_distinctid_local_cache_max_entries: u64,
 
-    /// Minimum effective event count before a key earns a Redis sync. Keys below
-    /// this cannot be limited whatever other nodes report, so syncing them costs
-    /// two Redis keys per tick for no enforcement value. With an unbounded key
-    /// space this is what keeps the pipeline sized to enforceable keys rather
-    /// than to total traffic. 0 syncs every key.
-    ///
-    /// The level is per-pod, so this must stay well under
-    /// `threshold / pod_count` or a key sitting at the threshold but spread
-    /// evenly across the fleet would never sync and could never be limited.
+    /// Minimum local event count before a key earns a Redis read; `0` reads every key. Keep
+    /// it well under `threshold / pod_count`, or a key at its limit spread across pods is read
+    /// more than a window late.
     #[envconfig(default = "10")]
     pub global_rate_limit_min_sync_floor: u64,
 
-    /// Max keys drained from the pending-sync set per tick. Excess stays queued,
-    /// so a backlog shows up as sync staleness rather than a tick that overruns
-    /// its interval.
+    /// Max keys read, and max write entries sent, per tick. The rest wait, so a backlog
+    /// shows as staleness rather than a tick that overruns its interval.
     #[envconfig(default = "20000")]
     pub global_rate_limit_max_sync_keys_per_tick: usize,
 
-    /// Max Redis keys per individual command. Reads cost two keys per entity, so
-    /// an entity chunk is half this. Bounds how long any single command can take,
-    /// which is what the per-command timeouts below are budgeting for.
+    /// Max Redis keys per command (a read costs two per entity), so one command fits the
+    /// Redis client's response timeout.
     #[envconfig(default = "2000")]
     pub global_rate_limit_max_keys_per_command: usize,
 
@@ -179,8 +171,8 @@ pub struct Config {
     #[envconfig(default = "200000")]
     pub global_rate_limit_max_pending_sync_entries: usize,
 
-    /// How long a local cache entry survives regardless of access (seconds).
-    /// Bounds how stale a key's cached count can be before it is rebuilt.
+    /// Seconds since a cache entry was last written before it is dropped. Every request
+    /// and read rewrites the entry, so at or above the idle timeout this never fires first.
     #[envconfig(default = "600")]
     pub global_rate_limit_local_cache_ttl_secs: u64,
 
@@ -198,11 +190,13 @@ pub struct Config {
     /// limiting on its own unconfirmed counts. Unset uses each limiter's window; `0` disables.
     pub global_rate_limit_max_read_outage_secs: Option<u64>,
 
-    /// Timeout for a single global rate limiter Redis read command (milliseconds).
+    /// The limiter's cap on one Redis read command (milliseconds). The Redis
+    /// client's response timeout also applies, and the shorter one fires first.
     #[envconfig(default = "250")]
     pub global_rate_limit_read_timeout_ms: u64,
 
-    /// Timeout for a single global rate limiter Redis write command (milliseconds).
+    /// The limiter's cap on one Redis write command (milliseconds). The Redis
+    /// client's response timeout also applies, and the shorter one fires first.
     #[envconfig(default = "250")]
     pub global_rate_limit_write_timeout_ms: u64,
 
@@ -224,17 +218,16 @@ pub struct Config {
     /// Falls back to the shared redis_url if unset.
     pub global_rate_limit_redis_url: Option<String>,
 
-    /// Optional Redis reader URL for global rate limiter (replica).
-    /// When set alongside global_rate_limit_redis_url, creates a ReadWriteClient
-    /// that routes reads to replicas and writes to the primary.
+    /// Optional replica URL: with `global_rate_limit_redis_url` set, reads go here and writes
+    /// to the primary. A replica read that fails with a recoverable error retries on the primary.
     pub global_rate_limit_redis_reader_url: Option<String>,
 
-    /// Response timeout for dedicated global rate limiter Redis (milliseconds).
-    /// Defaults to redis_response_timeout_ms if unset.
+    /// Response timeout (ms) for the dedicated limiter Redis, defaulting to
+    /// `redis_response_timeout_ms`; ignored unless `global_rate_limit_redis_url` is set.
     pub global_rate_limit_redis_response_timeout_ms: Option<u64>,
 
-    /// Connection timeout for dedicated global rate limiter Redis (milliseconds).
-    /// Defaults to redis_connection_timeout_ms if unset.
+    /// Connection timeout (ms) for the dedicated limiter Redis, defaulting to
+    /// `redis_connection_timeout_ms`; ignored unless `global_rate_limit_redis_url` is set.
     pub global_rate_limit_redis_connection_timeout_ms: Option<u64>,
 
     /// Redis key holding the dynamic custom per-key rate-limit thresholds
@@ -472,16 +465,12 @@ pub struct Config {
     #[envconfig(default = "false")]
     pub capture_ingestion_warnings_kafka_tls: bool,
 
-    /// Per-token byte/second budget for the AI lane. `0` disables the limiter.
-    ///
-    /// The budget is enforced fleet-wide by the global rate limiter, over the
-    /// shared `GLOBAL_RATE_LIMIT_WINDOW_INTERVAL_SECS` sliding window, so the
-    /// cap a token actually sees is this value times the window length. Within
-    /// a window the token may spend the whole budget at once.
+    /// Per-token AI bytes per second, enforced fleet-wide as this times the AI byte window;
+    /// `0` (and import mode) disables it. A token may spend a whole window's budget at once.
     #[envconfig(default = "0")]
     pub ai_byte_limit_per_second: u64,
 
-    /// CSV list of `token=bytesPerSecond` pairs raising specific tokens' budgets.
+    /// CSV list of `token=bytesPerSecond` pairs setting specific tokens' budgets.
     /// Same unit as `ai_byte_limit_per_second`.
     pub ai_byte_limit_overrides_csv: Option<String>,
 
