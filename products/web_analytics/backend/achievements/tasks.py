@@ -55,7 +55,7 @@ ACHIEVEMENTS_FLAG = "web-analytics-achievements"
 SWEEP_ACTIVE_WINDOW_DAYS = 7
 RECOMPUTE_INTERVAL = timedelta(hours=20)
 RECOMPUTE_EXPIRES_SECONDS = 5 * 60
-RETRYABLE_ACHIEVEMENT_ERRORS = (ConcurrencyLimitExceeded, RedisError, *CH_TRANSIENT_ERRORS)
+TRANSIENT_ACHIEVEMENT_ERRORS = (ConcurrencyLimitExceeded, RedisError, *CH_TRANSIENT_ERRORS)
 TEAM_QUERY_TRACK_KEYS = [str(track.key) for track in TRACKS.values() if track.evaluator_key in INCREMENTAL_EVALUATORS]
 
 RECOMPUTE_RUNS = Counter(
@@ -133,7 +133,6 @@ def recompute_web_analytics_achievements_sync(
     ignore_result=True,
     queue=CeleryQueue.ANALYTICS_LIMITED.value,
     expires=RECOMPUTE_EXPIRES_SECONDS,
-    max_retries=0,
     soft_time_limit=120,
     time_limit=150,
 )
@@ -144,7 +143,7 @@ def recompute_web_analytics_achievements(team_id: int, user_id: int | None = Non
     except ConcurrencyLimitExceeded:
         RECOMPUTE_RUNS.labels(outcome="contention").inc()
         return
-    except RETRYABLE_ACHIEVEMENT_ERRORS:
+    except TRANSIENT_ACHIEVEMENT_ERRORS:
         RECOMPUTE_RUNS.labels(outcome="transient_error").inc()
         logger.warning("wa_achievements_recompute_transient_error", team_id=team_id, exc_info=True)
         return
@@ -161,7 +160,7 @@ def ensure_team_progress(team: Team) -> None:
 def get_or_create_progress(ctx: EvalContext, track: TrackDefinition) -> WebAnalyticsAchievementProgress:
     user_id = ctx.user.id if (track.scope == AchievementScope.USER and ctx.user is not None) else None
     canonical_team_id = ctx.team.parent_team_id or ctx.team.id
-    progress, _ = WebAnalyticsAchievementProgress.objects.for_team(ctx.team.id).get_or_create(
+    progress, _ = WebAnalyticsAchievementProgress.objects.for_team(canonical_team_id, canonical=True).get_or_create(
         team_id=canonical_team_id,
         user_id=user_id,
         track_key=str(track.key),
@@ -225,7 +224,7 @@ def _recompute_track(ctx: EvalContext, track: TrackDefinition) -> None:
         return
     try:
         evaluation = evaluate_track(ctx, track, progress)
-    except RETRYABLE_ACHIEVEMENT_ERRORS:
+    except TRANSIENT_ACHIEVEMENT_ERRORS:
         raise
     except Exception as e:
         logger.warning("wa_achievements_eval_failed", track=str(track.key), team_id=ctx.team.id, exc_info=True)

@@ -5,18 +5,18 @@ from datetime import UTC, date, datetime, timedelta
 from django.utils import timezone
 
 from posthog.hogql import ast
+from posthog.hogql.helpers.timestamp_visitor import parse_zoned_datetime_string
 from posthog.hogql.parser import parse_select
 from posthog.hogql.property import action_to_expr
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.dataclasses import frozen
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.actions.backend.models.action import Action
 from products.web_analytics.backend.achievements.definitions import STREAK_ARM_WEEKLY
-from products.web_analytics.backend.achievements.query_concurrency import get_achievement_query_limiter
+from products.web_analytics.backend.achievements.query_concurrency import achievement_query_scope
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import test_account_filter_expr
 from products.web_analytics.backend.models import WebAnalyticsInteraction, WebAnalyticsVisit
 
@@ -120,15 +120,6 @@ def _test_account_filter_expr(team: Team) -> ast.Expr:
 INGESTION_LAG = timedelta(hours=1)
 
 
-def _parse_timestamp(value: object) -> datetime | None:
-    if not isinstance(value, str):
-        return None
-    try:
-        return datetime.fromisoformat(value)
-    except ValueError:
-        return None
-
-
 def _time_window_expr(since: datetime | None, until: datetime) -> ast.Expr:
     before_until = ast.CompareOperation(
         op=ast.CompareOperationOp.Lt, left=ast.Field(chain=["timestamp"]), right=ast.Constant(value=until)
@@ -147,12 +138,9 @@ def _time_window_expr(since: datetime | None, until: datetime) -> ast.Expr:
 
 def evaluate_cumulative_pageviews(ctx: EvalContext, prior: PriorProgress) -> TrackEvaluation:
     until = timezone.now() - INGESTION_LAG
-    since = _parse_timestamp(prior.checkpoint.get("counted_through")) or prior.last_computed_at
+    since = parse_zoned_datetime_string(prior.checkpoint.get("counted_through")) or prior.last_computed_at
     total = prior.value if since is not None else 0
-    with (
-        tags_context(product=Product.WEB_ANALYTICS, feature=Feature.ENRICHMENT),
-        get_achievement_query_limiter().run(team_id=ctx.team.id),
-    ):
+    with achievement_query_scope(ctx.team.id):
         for team in _project_environment_teams(ctx.team):
             query = parse_select(
                 "SELECT count() FROM events WHERE and(event IN ('$pageview', '$screen'), {window}, {test})",
@@ -197,9 +185,9 @@ def _daily_buckets(checkpoint: dict[str, object], action_ids: list[int]) -> dict
 
 def evaluate_conversions(ctx: EvalContext, prior: PriorProgress) -> TrackEvaluation:
     actions = list(
-        Action.objects.filter(team__project_id=ctx.team.project_id, deleted=False).order_by(
-            "pinned_at", "-last_calculated_at"
-        )[:5]
+        Action.objects.filter(team__project_id=ctx.team.project_id, deleted=False)
+        .select_related("team")
+        .order_by("pinned_at", "-last_calculated_at")[:5]
     )
     if not actions:
         return TrackEvaluation(value=0, checkpoint={})
@@ -208,17 +196,14 @@ def evaluate_conversions(ctx: EvalContext, prior: PriorProgress) -> TrackEvaluat
     window_start = until - timedelta(days=CONVERSIONS_LOOKBACK_DAYS)
     action_ids = [action.id for action in actions]
     daily = _daily_buckets(prior.checkpoint, action_ids)
-    counted_through = _parse_timestamp(prior.checkpoint.get("counted_through"))
+    counted_through = parse_zoned_datetime_string(prior.checkpoint.get("counted_through"))
     if daily is None or counted_through is None:
         daily, since = {}, window_start
     else:
         since = max(counted_through.astimezone(UTC).replace(hour=0, minute=0, second=0, microsecond=0), window_start)
 
     rescanned: dict[str, list[int]] = {}
-    with (
-        tags_context(product=Product.WEB_ANALYTICS, feature=Feature.ENRICHMENT),
-        get_achievement_query_limiter().run(team_id=ctx.team.id),
-    ):
+    with achievement_query_scope(ctx.team.id):
         for team in _project_environment_teams(ctx.team):
             query = parse_select(
                 "SELECT toDate(toTimeZone(timestamp, 'UTC')) AS day FROM events WHERE and({window}, {events}, {test}) GROUP BY day",
@@ -241,7 +226,7 @@ def evaluate_conversions(ctx: EvalContext, prior: PriorProgress) -> TrackEvaluat
                     day_counts[index] += int(value or 0)
 
     oldest_kept_day = window_start.date().isoformat()
-    daily = {day: counts for day, counts in {**daily, **rescanned}.items() if day >= oldest_kept_day}
+    daily = {day: counts for day, counts in {**daily, **rescanned}.items() if day >= oldest_kept_day and any(counts)}
     per_action_totals = [sum(counts[index] for counts in daily.values()) for index in range(len(actions))]
     return TrackEvaluation(
         value=max(len(actions), max(per_action_totals, default=0)),

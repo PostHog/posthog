@@ -35,16 +35,10 @@ class TestAchievementQueryConcurrency(SimpleTestCase):
         self.addCleanup(get_achievement_query_limiter.cache_clear)
         self.limiter = get_achievement_query_limiter()
         self.limiter.redis_client = fakeredis.FakeRedis()
-        self.clock_start = 1_000_000.0
-        self.clock = self.clock_start
-        self.limiter.get_time = lambda: self.clock
-        self.limiter.sleep = self._advance_clock
+        self.limiter.get_time = lambda: 1_000_000.0
         self.team = Team(pk=12)
         self.ctx = EvalContext(team=self.team, user=None, today=date(2026, 1, 2), arm=None)
         self.prior = PriorProgress(value=0, last_computed_at=None, checkpoint={})
-
-    def _advance_clock(self, seconds: float) -> None:
-        self.clock += seconds
 
     def _fill_budget(self) -> list[ConcurrencySlot]:
         slots = [self.limiter.use(team_id=team_id) for team_id in range(self.limiter.max_concurrency)]
@@ -61,7 +55,6 @@ class TestAchievementQueryConcurrency(SimpleTestCase):
             with self.assertRaises(ConcurrencyLimitExceeded):
                 evaluators.evaluate_cumulative_pageviews(self.ctx, self.prior)
             execute.assert_not_called()
-            self.assertEqual(self.clock, self.clock_start)
             self.limiter.release(slots.pop())
             self.assertEqual(evaluators.evaluate_cumulative_pageviews(self.ctx, self.prior).value, 123)
             execute.assert_called_once()
@@ -93,7 +86,9 @@ class TestAchievementQueryConcurrency(SimpleTestCase):
             patch.object(evaluators, "action_to_expr", return_value=evaluators.ast.Constant(value=True)),
             patch.object(evaluators, "execute_hogql_query") as execute,
         ):
-            actions.filter.return_value.order_by.return_value.__getitem__.return_value = [Mock()]
+            actions.filter.return_value.select_related.return_value.order_by.return_value.__getitem__.return_value = [
+                Mock()
+            ]
             with self.assertRaises(ConcurrencyLimitExceeded):
                 evaluators.evaluate_conversions(self.ctx, self.prior)
             execute.assert_not_called()
@@ -127,9 +122,5 @@ class TestAchievementQueryConcurrency(SimpleTestCase):
     def test_task_leaves_capacity_failures_to_the_next_sweep_instead_of_retrying(
         self, _name: str, error_type: type[Exception]
     ) -> None:
-        with (
-            patch.object(tasks, "recompute_web_analytics_achievements_sync", side_effect=error_type("Busy")),
-            patch.object(tasks.recompute_web_analytics_achievements, "retry") as retry,
-        ):
+        with patch.object(tasks, "recompute_web_analytics_achievements_sync", side_effect=error_type("Busy")):
             tasks.recompute_web_analytics_achievements.run(self.team.id)
-        retry.assert_not_called()

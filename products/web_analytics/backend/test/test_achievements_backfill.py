@@ -34,7 +34,7 @@ class TestBackfill(BaseTest):
 
     def test_backfill_leaves_last_computed_at_unset(self) -> None:
         # Backfilling must not advance last_computed_at, or it would suppress the same-day live
-        # recompute (the once-per-day gate keys off last_computed_at).
+        # recompute (the recompute interval keys off last_computed_at).
         with (
             patch.object(tasks, "EVALUATORS", make_evaluators(loyal_days=lambda ctx: 5)),
             patch.object(tasks, "INCREMENTAL_EVALUATORS", make_incremental_evaluators()),

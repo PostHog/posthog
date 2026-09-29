@@ -1,8 +1,11 @@
+from collections.abc import Iterator
+from contextlib import contextmanager
 from functools import cache
 
 from django.conf import settings
 
 from posthog.clickhouse.client.limit import RateLimit
+from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.utils import generate_short_id
 
 
@@ -16,3 +19,12 @@ def get_achievement_query_limiter() -> RateLimit:
         ttl=15 * 60,
         allow_team_bypass=False,
     )
+
+
+@contextmanager
+def achievement_query_scope(team_id: int) -> Iterator[None]:
+    with (
+        tags_context(product=Product.WEB_ANALYTICS, feature=Feature.ENRICHMENT),
+        get_achievement_query_limiter().run(team_id=team_id),
+    ):
+        yield
