@@ -4,6 +4,7 @@ from typing import Any
 from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    Endpoint,
     EndpointResource,
     RESTAPIConfig,
     RESTClient,
@@ -61,19 +62,20 @@ def sevdesk_source(
     resumable_source_manager: ResumableSourceManager[SevdeskResumeConfig],
 ) -> SourceResponse:
     endpoint_config = schema_for_resource(ENDPOINTS, endpoint)
+    resource_endpoint: Endpoint = {
+        "path": endpoint_config.path,
+        "params": endpoint_config.params,
+        "data_selector": "objects",
+        "data_selector_malformed_retryable": True,
+        "paginator": {"type": "offset", "limit": PAGE_SIZE, "total_path": None},
+    }
     resource: EndpointResource = {
         "name": endpoint,
         "table_name": endpoint,
         "primary_key": list(endpoint_config.primary_keys),
         "write_disposition": "replace",
         "table_format": "delta",
-        "endpoint": {
-            "path": endpoint_config.path,
-            "params": endpoint_config.params,
-            "data_selector": "objects",
-            "data_selector_malformed_retryable": True,
-            "paginator": {"type": "offset", "limit": PAGE_SIZE, "total_path": None},
-        },
+        "endpoint": resource_endpoint,
     }
     config: RESTAPIConfig = {
         "client": {
