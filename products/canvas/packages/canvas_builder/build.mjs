@@ -238,8 +238,7 @@ const platformStylesheet = `
 @import "@posthog/quill/primitives.css";
 @import "@posthog/quill/tailwind.css";
 @custom-variant dark (&:where(.dark, .dark *));
-/* A card alone in a grid cell fills the cell, so cards side by side end on one line.
-   The preview sandbox (sandboxRuntime.ts) carries the same rule. */
+/* A lone card fills its grid cell so a row ends on one line; sandboxRuntime.ts carries the same rule. */
 @layer base {
   :where(.grid > *) > :where([data-slot="card"]:only-child) { height: 100%; }
 }

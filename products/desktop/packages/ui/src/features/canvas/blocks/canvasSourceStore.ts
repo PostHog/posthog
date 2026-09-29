@@ -1,6 +1,5 @@
 import type { ParamSchema } from "@posthog/core/canvas/blockLibrary/params";
 import type {
-  GridCells,
   GridGrowth,
   SourceFiles,
   SourceRange,
@@ -23,7 +22,6 @@ export interface CanvasEditSelection {
     inGrid: boolean;
     grow: GridGrowth | null;
     grid: SourceRange | null;
-    cells: GridCells | null;
   };
   params: ParamSchema | null;
 }

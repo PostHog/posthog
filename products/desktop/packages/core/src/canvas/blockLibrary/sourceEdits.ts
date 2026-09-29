@@ -25,10 +25,6 @@ export interface GridGrowth extends SourceRange {
   columns: number;
 }
 
-export interface GridCells extends SourceRange {
-  cells: number;
-}
-
 export interface SourceDropTarget extends SourceRange {
   place: DropPlace;
   grow?: GridGrowth;
@@ -274,18 +270,78 @@ function growGrid(files: SourceFiles, grid: GridGrowth): SourceFiles {
   );
 }
 
-export function shrinkGrid(files: SourceFiles, grid: GridCells): SourceFiles {
-  const remaining = Math.max(1, grid.cells - 1);
-  return rewriteGridColumns(files, grid, (columns) =>
-    Math.min(columns, remaining),
-  );
-}
-
 function startsInside(outer: SourceRange, inner: SourceRange): boolean {
   return (
     outer.file === inner.file &&
     inner.start > outer.start &&
     inner.end <= outer.end
+  );
+}
+
+function jsxElementEnd(source: string, start: number): number | null {
+  let depth = 0;
+  let index = start;
+  while (index < source.length) {
+    const char = source[index];
+    if (char === "{") {
+      index = skipBraces(source, index);
+      continue;
+    }
+    if (char !== "<") {
+      index += 1;
+      continue;
+    }
+    if (source[index + 1] === "/") {
+      const close = source.indexOf(">", index);
+      if (close === -1) return null;
+      depth -= 1;
+      index = close + 1;
+      if (depth === 0) return index;
+      continue;
+    }
+    const tag = scanOpeningTag(source, index);
+    if (!tag) return null;
+    if (source[tag.insertAt] === "/") {
+      index = tag.insertAt + 2;
+      if (depth === 0) return index;
+      continue;
+    }
+    depth += 1;
+    index = tag.insertAt + 1;
+  }
+  return null;
+}
+
+// Null when a child is an expression, such as a condition or a map, so its card count is unknown.
+function jsxChildCount(source: string, element: SourceRange): number | null {
+  const tag = scanOpeningTag(source, element.start);
+  if (!tag || source[tag.insertAt] !== ">") return null;
+  let index = tag.insertAt + 1;
+  let count = 0;
+  while (index < element.end) {
+    while (/\s/.test(source[index] ?? "")) index += 1;
+    if (source.startsWith("</", index)) return count;
+    if (source[index] !== "<") return null;
+    const end = jsxElementEnd(source, index);
+    if (end === null || end > element.end) return null;
+    count += 1;
+    index = end;
+  }
+  return null;
+}
+
+export function shrinkGrid(
+  files: SourceFiles,
+  grid: SourceRange,
+  removed: SourceRange,
+): SourceFiles {
+  if (!startsInside(grid, removed)) return files;
+  const source = files[grid.file];
+  const cells = source === undefined ? null : jsxChildCount(source, grid);
+  if (cells === null) return files;
+  const remaining = Math.max(1, cells - 1);
+  return rewriteGridColumns(files, grid, (columns) =>
+    Math.min(columns, remaining),
   );
 }
 
@@ -355,7 +411,7 @@ export function moveRange(
   files: SourceFiles,
   range: SourceRange,
   target: SourceDropTarget,
-  from: GridCells | null = null,
+  from: SourceRange | null = null,
 ): SourceFiles {
   const text = rangeText(files, range);
   const inside =
@@ -364,7 +420,8 @@ export function moveRange(
     target.end <= range.end;
   if (!text || inside) return files;
   let resized = files;
-  if (from && !startsInside(from, target)) resized = shrinkGrid(resized, from);
+  if (from && !startsInside(from, target))
+    resized = shrinkGrid(resized, from, range);
   if (target.grow && !startsInside(target.grow, range))
     resized = growGrid(resized, target.grow);
   const before = resized[range.file] ?? "";

@@ -753,8 +753,7 @@ ${FREEFORM_QUILL_CSS_URLS.map(
      over a dark app every time a preview scrolled into view. */
   body { font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; color: var(--foreground, inherit); background: var(--background, transparent); }
   #root { min-height: 100vh; }
-  /* A card alone in a grid cell fills the cell, so cards side by side end on one line.
-     The published build (canvas_builder/build.mjs) carries the same rule. */
+  /* A lone card fills its grid cell so a row ends on one line; canvas_builder/build.mjs carries the same rule. */
   @layer base {
     :where(.grid > *) > :where([data-slot="card"]:only-child) { height: 100%; }
   }

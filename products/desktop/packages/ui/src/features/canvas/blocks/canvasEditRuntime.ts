@@ -281,15 +281,6 @@ export function installCanvasEditing(
     return { ...grid, columns };
   };
 
-  const gridCells = (element: HTMLElement) => {
-    const grid = gridSourceOf(element);
-    const parent = element.parentElement;
-    if (!grid || !parent) return null;
-    const cells = Array.from(parent.children);
-    if (cells.some((cell) => parseSource(cell)?.repeated)) return null;
-    return { ...grid, cells: cells.length };
-  };
-
   const describe = (element: HTMLElement) => {
     const source = parseSource(element);
     const blockType = element.getAttribute("data-ph-block");
@@ -318,7 +309,6 @@ export function installCanvasEditing(
           getComputedStyle(element.parentElement).display.includes("grid"),
         grow: fullGridRow(element),
         grid: gridSourceOf(element),
-        cells: gridCells(element),
       },
     };
   };

@@ -170,7 +170,7 @@ export function useCanvasSourceActions(canvasId: string): CanvasSourceActions {
         entry.files,
         range,
         hit.target,
-        dragged.selection.layout.cells,
+        dragged.selection.layout.grid,
       );
       if (files !== entry.files) note("Moved", dragged.selection);
       apply(files, dragged.selection.blockId);
@@ -182,8 +182,10 @@ export function useCanvasSourceActions(canvasId: string): CanvasSourceActions {
         return;
       if (isRootSelection(entry, selection)) return;
       note("Removed", selection);
-      const cells = selection.layout.cells;
-      const files = cells ? shrinkGrid(entry.files, cells) : entry.files;
+      const grid = selection.layout.grid;
+      const files = grid
+        ? shrinkGrid(entry.files, grid, selection.source)
+        : entry.files;
       apply(removeRange(files, selection.source));
       store().setSelection(canvasId, null);
     };

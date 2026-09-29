@@ -72,10 +72,7 @@ describe("moveRange", () => {
       { [FILE]: ROW },
       range("<Card>C</Card>", ROW),
       target,
-      {
-        ...grid,
-        cells: 3,
-      },
+      grid,
     );
     expect(moved[FILE]).toContain(`className="grid gap-4 ${columns}"`);
   });
@@ -100,31 +97,49 @@ describe("moveRange", () => {
 describe("shrinkGrid", () => {
   it.each([
     {
+      children: "<Card>A</Card><Card>B</Card><Card>C</Card>",
       className: "grid sm:grid-cols-2 lg:grid-cols-3",
-      cells: 3,
       expected: "grid sm:grid-cols-2 lg:grid-cols-2",
     },
     {
+      children: '<Card>A</Card><Card title="B" />',
       className: "grid md:grid-cols-3",
-      cells: 2,
       expected: "grid md:grid-cols-1",
     },
-    { className: "grid grid-cols-2", cells: 4, expected: "grid grid-cols-2" },
-    { className: "grid grid-cols-12", cells: 3, expected: "grid grid-cols-12" },
+    {
+      children: "<Card>A</Card><Card>B</Card><Card>C</Card><Card>D</Card>",
+      className: "grid grid-cols-2",
+      expected: "grid grid-cols-2",
+    },
+    {
+      children: "<Card>A</Card><Card>B</Card><Card>C</Card>",
+      className: "grid grid-cols-12",
+      expected: "grid grid-cols-12",
+    },
+    {
+      children: "<Card>A</Card><Card>B</Card>{show && <Card>C</Card>}",
+      className: "grid grid-cols-3",
+      expected: "grid grid-cols-3",
+    },
   ])(
-    "$className with $cells cells becomes $expected",
-    ({ className, cells, expected }) => {
-      const source = `<div className="${className}"><p>A</p></div>`;
+    "$className around $children becomes $expected",
+    ({ children, className, expected }) => {
+      const source = `<div className="${className}">${children}</div>`;
+      const grid = { file: FILE, start: 0, end: source.length };
       const shrunk = shrinkGrid(
         { [FILE]: source },
-        {
-          file: FILE,
-          start: 0,
-          end: source.length,
-          cells,
-        },
+        grid,
+        range("<Card>A</Card>", source),
       );
-      expect(shrunk[FILE]).toBe(`<div className="${expected}"><p>A</p></div>`);
+      expect(shrunk[FILE]).toBe(
+        `<div className="${expected}">${children}</div>`,
+      );
     },
   );
+
+  it("leaves the grid alone when the removed card sits outside it", () => {
+    const grid = element("<div", "</div>", ROW);
+    const files = { [FILE]: ROW };
+    expect(shrinkGrid(files, grid, range("<Card>D</Card>", ROW))).toBe(files);
+  });
 });
