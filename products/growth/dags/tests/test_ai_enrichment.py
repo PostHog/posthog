@@ -121,8 +121,9 @@ class TestAiEnrichmentJob(_EnrichmentDagTestCase):
     def test_calls_batch_command_once_per_active_label_with_the_configured_limit_and_workers(self):
         config_a = self._config(name="label_a")
         config_b = self._config(name="label_b")
-        # No pending fetches for either label, so the absence-of-output check can't fire and
-        # mask what this test is actually asserting.
+        self._fetch(fetched_at=timezone.now() - timedelta(days=8))
+        # The only pending fetch is older than the 7-day lookback, so the absence-of-output check
+        # fires only if the pending count ignores the configured window.
 
         with patch(f"{_MODULE}.call_command") as mock_call_command:
             result = ai_enrichment_job.execute_in_process(

@@ -53,7 +53,7 @@ import pydantic
 from posthog.dags.common import JobOwners, skip_if_already_running
 from posthog.exceptions_capture import capture_exception
 
-from products.growth.backend.enrichment.labels import get_active_config, latest_fetches_within_qs
+from products.growth.backend.enrichment.labels import get_active_config, recent_latest_fetches_qs
 from products.growth.backend.models import EnrichmentLabelResult, EnrichmentPromptConfig, OrganizationEnrichment
 
 # Roughly a day of signups plus headroom. This is the run's spend cap: see the PR description
@@ -81,7 +81,10 @@ class AiEnrichmentConfig(dagster.Config):
     lookback_days: int = pydantic.Field(
         default=14,
         gt=0,
-        description="Candidates are orgs whose latest fetch is at most this many days old; passed through to --lookback-days.",
+        description=(
+            "Only orgs whose latest fetch is at most this many days old get a new label or a score repair; "
+            "passed through to --lookback-days."
+        ),
     )
     workers: int = pydantic.Field(
         default=5,
@@ -114,7 +117,7 @@ def count_pending_candidates(label: str, prompt_version: str, lookback_days: int
     attempted (see `ai_processing_approved` in enrichment/labels.py), so counting it here would
     make a day of nothing-but-declined-orgs look like a silent failure downstream.
     """
-    candidates = latest_fetches_within_qs(lookback_days)
+    candidates = recent_latest_fetches_qs(lookback_days)
     already_labeled = EnrichmentLabelResult.objects.filter(
         label_name=label, prompt_version=prompt_version, fetch_id__in=candidates.values_list("id", flat=True)
     ).values_list("fetch_id", flat=True)

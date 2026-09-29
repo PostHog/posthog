@@ -37,7 +37,7 @@ from products.growth.backend.enrichment.labels import (
     classify_payload,
     get_active_config,
     is_unknown_output,
-    latest_fetches_within_qs,
+    recent_latest_fetches_qs,
     signup_domain_for_organization,
     validate_input_fields,
     validate_output_fields,
@@ -105,7 +105,10 @@ class Command(BaseCommand):
             "--lookback-days",
             type=int,
             default=None,
-            help="Consider only orgs whose latest fetch is at most this many days old. Omit to walk the full archive.",
+            help=(
+                "Consider only orgs whose latest fetch is at most this many days old, for new labels and "
+                "score repairs alike. Omit to walk the full archive."
+            ),
         )
         parser.add_argument("--workers", type=int, default=5, help="Bounded concurrency for LLM calls")
         parser.add_argument(
@@ -356,7 +359,7 @@ class Command(BaseCommand):
                     counts["unknown"] += 1
 
         def _id_batches() -> Iterator[list[tuple[UUID, datetime]]]:
-            """Keyset-paginate latest_fetches_within_qs() newest first by (fetched_at, id) in
+            """Keyset-paginate recent_latest_fetches_qs() newest first by (fetched_at, id) in
             bounded chunks, so a multi-hour run never holds more than one page of full (payload +
             joined Organization) rows in memory. .iterator() alone doesn't guarantee that:
             DISABLE_SERVER_SIDE_CURSORS is true under pgbouncer, which silently degrades
@@ -368,7 +371,7 @@ class Command(BaseCommand):
             itself would make a resumed run re-enumerate the same already-processed prefix and
             attempt 0 forever whenever the newest --limit candidates already have a result."""
             candidates = (
-                latest_fetches_within_qs(lookback_days).order_by("-fetched_at", "-id").values_list("id", "fetched_at")
+                recent_latest_fetches_qs(lookback_days).order_by("-fetched_at", "-id").values_list("id", "fetched_at")
             )
             id_qs = candidates
             while True:

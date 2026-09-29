@@ -220,11 +220,19 @@ class TestKeysetPagination(_BatchCommandTestCase):
         assert "attempted 1" in out.getvalue()
         assert EnrichmentLabelResult.objects.filter(organization=fresh_org).exists()
 
-    def test_limit_labels_the_newest_fetches_first(self):
+    @parameterized.expand(
+        [
+            ("newest_first_under_a_limit", [5, 4, 3, 2, 1], 3, [2, 3, 4]),
+            ("ties_across_a_page_boundary", [1, 1, 1, 1, 1], None, [0, 1, 2, 3, 4]),
+        ]
+    )
+    def test_pages_walk_the_newest_fetches_first(
+        self, _name: str, ages_in_days: list[int], limit: int | None, labeled_indexes: list[int]
+    ) -> None:
         self._config()
         now = timezone.now()
-        orgs = [Organization.objects.create(name=f"org-{i}") for i in range(5)]
-        for org, age_days in zip(orgs, [5, 4, 3, 2, 1]):
+        orgs = [Organization.objects.create(name=f"org-{i}") for i in range(len(ages_in_days))]
+        for org, age_days in zip(orgs, ages_in_days):
             self._fetch(organization=org, fetched_at=now - timedelta(days=age_days))
         client = _mock_llm_client()
 
@@ -232,10 +240,10 @@ class TestKeysetPagination(_BatchCommandTestCase):
             patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client),
             patch(f"{_BATCH_COMMAND_MODULE}._ID_BATCH_SIZE", 2),
         ):
-            call_command("enrichment_label_batch", label="test_label", workers=1, limit=3)
+            call_command("enrichment_label_batch", label="test_label", workers=1, limit=limit)
 
         labeled = set(EnrichmentLabelResult.objects.values_list("organization_id", flat=True))
-        assert labeled == {org.id for org in orgs[2:]}
+        assert labeled == {orgs[i].id for i in labeled_indexes}
 
     def test_a_fetch_older_than_the_lookback_is_not_attempted(self):
         self._config()
