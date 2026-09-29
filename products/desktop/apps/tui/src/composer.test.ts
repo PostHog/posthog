@@ -140,4 +140,14 @@ describe("Composer", () => {
     expect(composer.render(30, true).editor.join("")).toContain("\x1b[7m");
     expect(composer.render(30, false).editor.join("")).not.toContain("\x1b[7m");
   });
+
+  it("reports while its suggestion list is open", async () => {
+    const composer = new Composer(
+      () => {},
+      () => {},
+    );
+    expect(composer.showingSuggestions()).toBe(false);
+    composer.handleInput("/");
+    await vi.waitFor(() => expect(composer.showingSuggestions()).toBe(true));
+  });
 });

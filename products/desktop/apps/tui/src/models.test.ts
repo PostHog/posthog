@@ -116,4 +116,29 @@ describe("piControl", () => {
       await piControl(sendCommand as never, "t1", "r1").commands(),
     ).toEqual([{ name: "review-pr", description: "Review a pull request" }]);
   });
+
+  it("stops the agent's current turn", async () => {
+    const sendCommand = vi.fn(
+      async ({
+        params,
+      }: {
+        params: { command: { id: string; type: string } };
+      }) => ({
+        success: true,
+        result: {
+          id: params.command.id,
+          type: "response",
+          command: params.command.type,
+          success: true,
+        },
+      }),
+    );
+
+    await piControl(sendCommand as never, "t1", "r1").abort();
+
+    expect(sendCommand.mock.calls[0][0]).toMatchObject({
+      method: "pi/rpc",
+      params: { command: { type: "abort" } },
+    });
+  });
 });

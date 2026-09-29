@@ -164,6 +164,11 @@ export function App({
   // Arrows keep walking the sidebar after it hands focus to a chat, until a pane is clicked.
   const [navigating, setNavigating] = useState(false);
   const closeGuard = useRef(new DoublePress(CLOSE_CONFIRM_MS));
+  const escapes = useRef(new DoublePress(CLOSE_CONFIRM_MS));
+  // Panes whose run is mid-turn, so Esc knows what to stop.
+  const runningTurns = useRef(
+    new Map<string, { taskId: string; runId: string } | null>(),
+  );
   const sidebarBox = useRef<DOMElement | null>(null);
   const paneBoxes = useRef(new Map<string, DOMElement>());
   const prChips = useRef(
@@ -684,6 +689,24 @@ export function App({
       onOfferKey(paneId, offer, key);
       return;
     }
+    // Esc stops a running turn; a second Esc straight after clears what is typed.
+    if (key?.kind === "dismiss" && !composer.showingSuggestions()) {
+      const turn = runningTurns.current.get(paneId);
+      if (turn && control) {
+        flashNotice("Stopping…");
+        control(turn.taskId, turn.runId)
+          .abort()
+          .then(
+            () => flashNotice("Stopped"),
+            (error: unknown) =>
+              flashNotice(`Couldn't stop: ${messageOf(error)}`),
+          );
+      }
+      if (escapes.current.press(Date.now())) composer.clear();
+      else if (!turn && !composer.isEmpty())
+        flashNotice("Press Esc again to clear");
+      return;
+    }
     composer.handleInput(sequence);
   };
 
@@ -802,6 +825,7 @@ export function App({
               (node.taskId ? taskModels.get(node.taskId)?.name : undefined)
             }
             onRunLive={(taskId, runId) => onRunLive(node.id, taskId, runId)}
+            onTurn={(turn) => runningTurns.current.set(node.id, turn)}
             chips={
               node.taskId && !taskOf(node.taskId)
                 ? []

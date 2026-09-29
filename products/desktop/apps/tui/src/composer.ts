@@ -93,6 +93,14 @@ export class Composer {
     );
   }
 
+  showingSuggestions(): boolean {
+    return this.editor.isShowingAutocomplete();
+  }
+
+  clear(): void {
+    this.setText("");
+  }
+
   isEmpty(): boolean {
     return this.editor.getText().trim() === "";
   }

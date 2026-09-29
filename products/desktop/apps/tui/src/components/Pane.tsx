@@ -63,6 +63,7 @@ export function Pane({
   chips,
   onPrChip,
   onRunLive,
+  onTurn,
   focused,
 }: {
   title: string;
@@ -86,6 +87,8 @@ export function Pane({
   onPrChip: (element: DOMElement | null, url: string | null) => void;
   // Called once the chat's run has a live sandbox.
   onRunLive: (taskId: string, runId: string) => void;
+  // The run while the agent is mid-turn, or null, so Esc can stop it.
+  onTurn: (turn: { taskId: string; runId: string } | null) => void;
   focused: boolean;
 }): ReactElement {
   // A split can hand a pane half a row; the title stays on top and the chat on the bottom, so the spare row falls between them.
@@ -160,6 +163,11 @@ export function Pane({
     view.entries.some((entry) => entry.type === "pi_run_started");
   useEffect(() => {
     if (live && task?.latest_run) onRunLive(task.id, task.latest_run.id);
+    onTurn(
+      live && transcript.turnOpen && task?.latest_run
+        ? { taskId: task.id, runId: task.latest_run.id }
+        : null,
+    );
   });
   const offer = openActions(lines);
   useEffect(() => {
