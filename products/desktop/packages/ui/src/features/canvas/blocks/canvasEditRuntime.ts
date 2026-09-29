@@ -193,6 +193,8 @@ export function installCanvasEditing(
   labels: Record<string, string>,
 ) {
   const PRIMARY = "#f54e00";
+  const SELECT_INSET = 4;
+  const SELECT_RADIUS = 10;
   let enabled = false;
   let rev = 0;
   let hovered: HTMLElement | null = null;
@@ -214,7 +216,7 @@ export function installCanvasEditing(
   const label = document.createElement("div");
   const line = document.createElement("div");
   hoverBox.style.cssText = `position:fixed;left:0;top:0;border:1px solid rgba(245,78,0,.45);border-radius:8px;opacity:0;transition:opacity 100ms ease;`;
-  selectBox.style.cssText = `position:fixed;left:0;top:0;border:1.5px solid ${PRIMARY};border-radius:10px;opacity:0;box-shadow:0 0 0 3px rgba(245,78,0,.08);transition:opacity 120ms ease;`;
+  selectBox.style.cssText = `position:fixed;left:0;top:0;border:1.5px solid ${PRIMARY};border-radius:${SELECT_RADIUS}px;opacity:0;box-shadow:0 0 0 3px rgba(245,78,0,.08);transition:opacity 120ms ease;`;
   label.style.cssText = `position:fixed;left:0;top:0;background:${PRIMARY};color:#fff;font:600 10.5px/18px system-ui,sans-serif;padding:0 7px;border-radius:5px 5px 0 0;opacity:0;white-space:nowrap;transition:opacity 120ms ease;`;
   line.style.cssText = `position:fixed;left:0;top:0;background:${PRIMARY};border-radius:99px;opacity:0;transition:opacity 120ms ease,transform 110ms ${EASE_OUT};`;
   const emptyHint = document.createElement("div");
@@ -279,6 +281,15 @@ export function installCanvasEditing(
     return { ...grid, columns };
   };
 
+  const gridCells = (element: HTMLElement) => {
+    const grid = gridSourceOf(element);
+    const parent = element.parentElement;
+    if (!grid || !parent) return null;
+    const cells = Array.from(parent.children);
+    if (cells.some((cell) => parseSource(cell)?.repeated)) return null;
+    return { ...grid, cells: cells.length };
+  };
+
   const describe = (element: HTMLElement) => {
     const source = parseSource(element);
     const blockType = element.getAttribute("data-ph-block");
@@ -307,6 +318,7 @@ export function installCanvasEditing(
           getComputedStyle(element.parentElement).display.includes("grid"),
         grow: fullGridRow(element),
         grid: gridSourceOf(element),
+        cells: gridCells(element),
       },
     };
   };
@@ -356,11 +368,13 @@ export function installCanvasEditing(
 
   const paint = () => {
     place(hoverBox, hovered && hovered !== selected ? hovered : null, 3);
-    place(selectBox, selected, 4);
+    place(selectBox, selected, SELECT_INSET);
     if (selected?.isConnected) {
       const rect = selected.getBoundingClientRect();
       label.textContent = labelFor(selected);
-      label.style.transform = `translate3d(${rect.left - 4}px, ${rect.top - 22}px, 0)`;
+      // Start the tab where the rounded corner ends, so it sits on the straight edge.
+      const left = rect.left - SELECT_INSET + SELECT_RADIUS;
+      label.style.transform = `translate3d(${left}px, ${rect.top - SELECT_INSET - 18}px, 0)`;
       label.style.opacity = "1";
     } else {
       label.style.opacity = "0";

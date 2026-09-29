@@ -25,6 +25,10 @@ export interface GridGrowth extends SourceRange {
   columns: number;
 }
 
+export interface GridCells extends SourceRange {
+  cells: number;
+}
+
 export interface SourceDropTarget extends SourceRange {
   place: DropPlace;
   grow?: GridGrowth;
@@ -237,22 +241,52 @@ export function insertBlock(
   return next;
 }
 
-function growGrid(files: SourceFiles, grid: GridGrowth): SourceFiles {
+const GRID_COLUMNS =
+  /((?:^|[\s"'`])(?:[a-z0-9@]+:)*grid-cols-)([1-9])(?![0-9])/g;
+
+// Every column count stays one digit, so the rewrite keeps the source length and other ranges stay valid.
+function rewriteGridColumns(
+  files: SourceFiles,
+  grid: SourceRange,
+  next: (columns: number) => number,
+): SourceFiles {
   const source = files[grid.file];
-  if (source === undefined || grid.columns >= MAX_GRID_COLUMNS) return files;
+  if (source === undefined) return files;
   const tagEnd = source.indexOf(">", grid.start);
   if (tagEnd === -1 || tagEnd > grid.end) return files;
   const openingTag = source.slice(grid.start, tagEnd);
-  const pattern = new RegExp(
-    `((?:^|[\\s"'\`])(?:[a-z0-9@]+:)*grid-cols-)${grid.columns}(?![0-9])`,
-    "g",
+  const rewritten = openingTag.replace(
+    GRID_COLUMNS,
+    (_match, prefix: string, columns: string) =>
+      `${prefix}${next(Number(columns))}`,
   );
-  if (!pattern.test(openingTag)) return files;
-  const grown = openingTag.replace(pattern, `$1${grid.columns + 1}`);
+  if (rewritten === openingTag) return files;
   return {
     ...files,
-    [grid.file]: source.slice(0, grid.start) + grown + source.slice(tagEnd),
+    [grid.file]: source.slice(0, grid.start) + rewritten + source.slice(tagEnd),
   };
+}
+
+function growGrid(files: SourceFiles, grid: GridGrowth): SourceFiles {
+  if (grid.columns >= MAX_GRID_COLUMNS) return files;
+  return rewriteGridColumns(files, grid, (columns) =>
+    columns === grid.columns ? columns + 1 : columns,
+  );
+}
+
+export function shrinkGrid(files: SourceFiles, grid: GridCells): SourceFiles {
+  const remaining = Math.max(1, grid.cells - 1);
+  return rewriteGridColumns(files, grid, (columns) =>
+    Math.min(columns, remaining),
+  );
+}
+
+function startsInside(outer: SourceRange, inner: SourceRange): boolean {
+  return (
+    outer.file === inner.file &&
+    inner.start > outer.start &&
+    inner.end <= outer.end
+  );
 }
 
 function removeText(source: string, range: SourceRange): string {
@@ -321,6 +355,7 @@ export function moveRange(
   files: SourceFiles,
   range: SourceRange,
   target: SourceDropTarget,
+  from: GridCells | null = null,
 ): SourceFiles {
   const text = rangeText(files, range);
   const inside =
@@ -328,8 +363,12 @@ export function moveRange(
     target.start >= range.start &&
     target.end <= range.end;
   if (!text || inside) return files;
-  const before = files[range.file] ?? "";
-  const afterRemoval = removeRange(files, range);
+  let resized = files;
+  if (from && !startsInside(from, target)) resized = shrinkGrid(resized, from);
+  if (target.grow && !startsInside(target.grow, range))
+    resized = growGrid(resized, target.grow);
+  const before = resized[range.file] ?? "";
+  const afterRemoval = removeRange(resized, range);
   const removedLength = before.length - (afterRemoval[range.file] ?? "").length;
   const shifted = shiftTarget(target, range, removedLength);
   const source = afterRemoval[shifted.file];

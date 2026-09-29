@@ -165,13 +165,14 @@ function TrendCard(props) {
           <ViewQueryDialog query={query} />
         </div>
       </CardHeader>
-      <CardContent>
+      {/* Chart last and pushed to the bottom, so charts side by side share a baseline. */}
+      <CardContent className="flex flex-1 flex-col">
         {state.loading ? (
           <SkeletonText lines={6} />
         ) : state.error ? (
           <CardError message={state.error} onRetry={onRetry} />
         ) : (
-          <div className="w-full" style={{ height }}>
+          <div className="mt-auto w-full" style={{ height }}>
             <ResponsiveContainer>
               <LineChart data={state.data.series}>
                 <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" />
@@ -262,7 +263,8 @@ export default function Canvas() {
         </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-3">
+      {/* One column per card in the row. */}
+      <div className="grid gap-4 md:grid-cols-2">
         <NumberCard
           title="Total events"
           state={{ ...events, data: events.data?.total }}

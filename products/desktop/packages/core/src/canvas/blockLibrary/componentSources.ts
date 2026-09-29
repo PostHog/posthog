@@ -187,7 +187,7 @@ export function Trend(props: TrendProps) {
         </div>
         <QueryButton query={query} hogql={result?.data?.hogql} />
       </CardHeader>
-      <CardContent>
+      <CardContent className="flex flex-1 flex-col justify-end">
         <BlockState loading={result.loading} error={result.error} empty={rows.length === 0} height={220}>
           <div className="h-56">
             <ResponsiveContainer width="100%" height="100%">
@@ -1135,8 +1135,9 @@ export function Insight(props: InsightProps) {
   const rows = result.data?.results ?? [];
   const kind = meta?.kind ?? "";
   const name = title || meta?.name || "Saved insight";
+  const charted = kind === "TrendsQuery" || kind === "StickinessQuery" || kind === "LifecycleQuery";
   const body = () => {
-    if (kind === "TrendsQuery" || kind === "StickinessQuery" || kind === "LifecycleQuery") return <TrendsBody rows={rows} display={meta?.display ?? ""} />;
+    if (charted) return <TrendsBody rows={rows} display={meta?.display ?? ""} />;
     if (kind === "FunnelsQuery") return <FunnelBody rows={rows} />;
     if (kind === "RetentionQuery") return <RetentionGrid cohorts={rows} period="period" />;
     if (kind === "HogQLQuery" || kind === "DataVisualizationNode" || kind === "DataTableNode") return <ResultTable columns={result.data?.columns ?? []} rows={rows} />;
@@ -1158,7 +1159,7 @@ export function Insight(props: InsightProps) {
         <BlockDescription text={props.description} />
         <div className="text-xs text-muted-foreground">Saved insight · {followFilters ? rangeLabel(filters.dateFrom) : "Its own dates"}</div>
       </CardHeader>
-      <CardContent>
+      <CardContent className={charted ? "flex flex-1 flex-col justify-end" : undefined}>
         {shortId ? (
           <BlockState loading={result.loading} error={result.error} empty={rows.length === 0} height={200}>
             {body()}
