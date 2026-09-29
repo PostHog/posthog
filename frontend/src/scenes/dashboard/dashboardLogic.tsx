@@ -478,6 +478,13 @@ export interface dashboardLogicActions {
             widgetType: string
         }[]
     }
+    applyDashboardUpdate: (
+        dashboard: DashboardType,
+        layouts: Record<number, DashboardTile['layouts']>
+    ) => {
+        dashboard: DashboardType
+        layouts: Record<number, DashboardTile['layouts']>
+    }
     applyWidgetIssueMetadataChange: (payload: {
         context: WidgetIssueMetadataContext
         delta: WidgetIssueMetadataDelta
@@ -1556,6 +1563,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
          * Dashboard layout & tiles.
          */
         updateLayouts: (layouts: ResponsiveLayouts) => ({ layouts }),
+        applyDashboardUpdate: (dashboard: DashboardType, layouts: Record<number, DashboardTile['layouts']>) => ({
+            dashboard,
+            layouts,
+        }),
         updateContainerWidth: (containerWidth: number, columns: number) => ({ containerWidth, columns }),
         updateTileColor: (tileId: number, color: InsightColor | null) => ({ tileId, color }),
         toggleTileDescription: (tileId: number) => ({ tileId }),
@@ -2114,6 +2125,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 loadDashboardMetadataSuccess: (_, { dashboard }) => tileLayoutsFromDashboard(dashboard),
                 [dashboardsModel.actionTypes.updateDashboardSuccess]: (state, { dashboard }) =>
                     dashboard?.id === props.id ? { ...tileLayoutsFromDashboard(dashboard), ...state } : state,
+                applyDashboardUpdate: (_, { layouts }) => layouts,
                 saveEditModeChangesSuccess: (state, { dashboard, payload }) =>
                     payload?.scope === 'layout' ? tileLayoutsFromDashboard(dashboard) : state,
                 receiveTileFromStream: (state, { tile }) => ({
@@ -2163,6 +2175,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             {
                 dashboardNotFound: () => null,
                 setAccessDeniedToDashboard: () => null,
+                applyDashboardUpdate: (_, { dashboard }) => dashboard,
                 updateLayouts: (state, { layouts }) => {
                     const itemLayouts = layoutsByTile(layouts)
 
@@ -2263,19 +2276,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     }
 
                     return null
-                },
-                [dashboardsModel.actionTypes.updateDashboardSuccess]: (state, { dashboard }) => {
-                    if (!state || !dashboard || state.id !== dashboard.id) {
-                        return state
-                    }
-                    const draftTiles = new Map(state.tiles.map((tile) => [tile.id, tile]))
-                    return {
-                        ...dashboard,
-                        tiles: dashboard.tiles.map((tile: DashboardTile) => ({
-                            ...tile,
-                            layouts: draftTiles.get(tile.id)?.layouts ?? tile.layouts,
-                        })),
-                    }
                 },
                 saveDashboardChangesSuccess: (state, { dashboard }) =>
                     state && dashboard
