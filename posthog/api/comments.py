@@ -843,7 +843,9 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
         thread_by_comment: dict[str, CommentSlackThread] = {}
         if ((scope and item_id) or pk) and self._slack_mirror_flag_enabled():
             if scope and item_id:
-                for thread in CommentSlackThread.objects.for_team(self.team.id).filter(scope=scope, item_id=item_id):
+                scopes = CANVAS_COMMENT_SCOPES if scope in CANVAS_COMMENT_SCOPES else {scope}
+                threads = CommentSlackThread.objects.for_team(self.team.id).filter(scope__in=scopes, item_id=item_id)
+                for thread in threads:
                     if thread.source_comment_id:
                         thread_by_comment[str(thread.source_comment_id)] = thread
             else:
