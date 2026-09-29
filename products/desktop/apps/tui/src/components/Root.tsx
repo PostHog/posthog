@@ -3,6 +3,7 @@ import { PostHogAPIClient } from "@posthog/api-client/posthog-client";
 import { Box, useWindowSize } from "ink";
 import { type ReactElement, useMemo, useState } from "react";
 import type { TuiAuth } from "../auth";
+import { createCloudRuns } from "../cloud";
 import type { Click } from "../mouse";
 import { WorkList } from "../work";
 import { App } from "./App";
@@ -17,18 +18,15 @@ function Workbench({
   auth: TuiAuth;
   clicks?: Clicks;
 }): ReactElement {
-  const work = useMemo(
-    () =>
-      new WorkList(
-        new PostHogAPIClient(
-          auth.apiHost,
-          () => auth.getAccessToken(),
-          () => auth.refreshAccessToken(),
-        ),
-      ),
-    [auth],
-  );
-  return <App work={work} clicks={clicks} />;
+  const { work, runs } = useMemo(() => {
+    const api = new PostHogAPIClient(
+      auth.apiHost,
+      () => auth.getAccessToken(),
+      () => auth.refreshAccessToken(),
+    );
+    return { work: new WorkList(api), runs: createCloudRuns(auth, api) };
+  }, [auth]);
+  return <App work={work} runs={runs} clicks={clicks} />;
 }
 
 export function Root({
