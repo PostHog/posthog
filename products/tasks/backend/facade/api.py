@@ -126,8 +126,10 @@ from products.tasks.backend.mentions import resolve_mentioned_user_ids
 from products.tasks.backend.models import (
     MCP_CREDENTIAL_OWNER_STATE_KEY,
     PRIOR_RUN_SUMMARY_STATE_KEY,
+    PRIOR_RUN_TAGS_STATE_KEY,
     TASK_OWNERSHIP_VERSION_STATE_KEY,
     TASK_RUN_SUMMARY_STATE_KEY,
+    TASK_RUN_TAGS_STATE_KEY,
     Channel,
     ChannelContextGeneration,
     ChannelFeedMessage,
@@ -235,6 +237,9 @@ __all__ = [
     "collect_task_run_state_metrics",
     "compute_repository_readiness",
     "create_and_run_task",
+    "get_owner_origin_latest_run",
+    "owner_origin_has_non_terminal_run",
+    "owner_origin_open_task_ids",
     "create_completed_sandbox_snapshot",
     "create_run",
     "create_sandbox_connection_token",
@@ -308,6 +313,7 @@ __all__ = [
     "list_task_repositories",
     "list_task_runs",
     "list_tasks",
+    "list_workflow_last_runs",
     "pi_cloud_runtime_enabled",
     "prepare_task_run_artifact_uploads",
     "prepare_task_staged_artifacts",
@@ -553,19 +559,20 @@ def _task_run_log_url(run: TaskRun) -> str | None:
     return presigned_url
 
 
-def _task_run_summary_for_viewer(
+def _can_read_task_run_summary(
     run: TaskRun,
     *,
     task: Task | None = None,
     user_id: int | None = None,
     include_agent_state: bool = False,
-) -> str | None:
+) -> bool:
     if include_agent_state:
-        return run.task_summary
+        return True
     parent = task if task is not None else run.task
-    if parent.origin_product == Task.OriginProduct.WORKFLOW and parent.created_by_id != user_id:
-        return None
-    return run.task_summary
+    # A missing viewer never matches, even when the creator was deleted and created_by_id is null.
+    return parent.origin_product != Task.OriginProduct.WORKFLOW or (
+        user_id is not None and parent.created_by_id == user_id
+    )
 
 
 def _task_run_detail_to_dto(
@@ -587,6 +594,9 @@ def _task_run_detail_to_dto(
     )
 
     state = parse_run_state(run.state)
+    can_read_summary = _can_read_task_run_summary(
+        run, task=task, user_id=user_id, include_agent_state=include_agent_state
+    )
     return contracts.TaskRunDetailDTO(
         id=run.id,
         task=run.task_id,
@@ -601,9 +611,8 @@ def _task_run_detail_to_dto(
         log_url=_task_run_log_url(run) if include_log_url else None,
         error_message=run.error_message,
         output=run.output,
-        task_summary=_task_run_summary_for_viewer(
-            run, task=task, user_id=user_id, include_agent_state=include_agent_state
-        ),
+        task_summary=run.task_summary if can_read_summary else None,
+        task_tags=run.task_tags if can_read_summary else [],
         state=_public_task_run_state(run.state, include_agent_keys=include_agent_state),
         artifacts=run.artifacts or [],
         created_at=run.created_at,
@@ -1778,6 +1787,72 @@ def create_and_run_task(
     )
 
 
+_NON_TERMINAL_RUN_STATUSES = (
+    TaskRun.Status.NOT_STARTED,
+    TaskRun.Status.QUEUED,
+    TaskRun.Status.IN_PROGRESS,
+)
+
+
+def owner_origin_has_non_terminal_run(*, team_id: int, created_by_id: int, origin_product: str) -> bool:
+    """Whether this owner already has a run of this origin that has not finished.
+
+    Internal origins are hidden from the task APIs, so callers that admit one run at a time
+    check here instead of listing tasks. ``origin_product`` is required so one product's open
+    run does not block another's. Soft-deleting a task does not stop its run, so deleted tasks count.
+    """
+    return TaskRun.objects.filter(
+        team_id=team_id,
+        task__team_id=team_id,
+        task__created_by_id=created_by_id,
+        task__origin_product=origin_product,
+        status__in=_NON_TERMINAL_RUN_STATUSES,
+    ).exists()
+
+
+def owner_origin_open_task_ids(*, team_id: int, created_by_id: int, origin_product: str) -> set[UUID]:
+    """Ids of this owner's tasks of this origin that have a run that has not finished, deleted tasks included."""
+    return set(
+        TaskRun.objects.filter(
+            team_id=team_id,
+            task__team_id=team_id,
+            task__created_by_id=created_by_id,
+            task__origin_product=origin_product,
+            status__in=_NON_TERMINAL_RUN_STATUSES,
+        ).values_list("task_id", flat=True)
+    )
+
+
+def get_owner_origin_latest_run(
+    *,
+    task_id: str | UUID,
+    team_id: int,
+    created_by_id: int,
+    origin_product: str,
+) -> contracts.TaskRunDTO | None:
+    """Latest run of a task, only when team, owner, and origin all match.
+
+    A miss on any of those is ``None``. Internal tasks are invisible on the normal task APIs,
+    so this is the read those products use for their own runs.
+    """
+    try:
+        task = Task.objects.filter(
+            id=task_id,
+            team_id=team_id,
+            created_by_id=created_by_id,
+            origin_product=origin_product,
+            deleted=False,
+        ).first()
+    except (ValueError, TypeError, DjangoValidationError):
+        return None
+    if task is None:
+        return None
+    run = task.runs.order_by("-created_at").first()
+    if run is None:
+        return None
+    return _task_run_to_dto(run, task=task)
+
+
 def create_wizard_cloud_run(
     *,
     team,
@@ -2526,6 +2601,7 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
     {
         "run_source",
         "pr_base_branch",
+        "stack_base_branch",
         "github_credential_source",
         TASK_OWNERSHIP_VERSION_STATE_KEY,
         "pr_authorship_mode",
@@ -2537,6 +2613,8 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "warm_activated",
         TASK_RUN_SUMMARY_STATE_KEY,
         PRIOR_RUN_SUMMARY_STATE_KEY,
+        TASK_RUN_TAGS_STATE_KEY,
+        PRIOR_RUN_TAGS_STATE_KEY,
         "sandbox_id",
         # Sandbox connection state is written only by the provisioning activity. A PATCHable
         # sandbox_backend/sandbox_url would let a task controller point the account-wide hogland
@@ -3087,6 +3165,7 @@ def update_task_run(
     only_if_non_terminal: bool = False,
     only_if_not_started: bool = False,
     caller_is_agent: bool = False,
+    user_id: int | None = None,
 ) -> contracts.TaskRunDetailDTO | None:
     """Apply a PATCH to a run: merge output/state, set completion, then dispatch side effects.
 
@@ -3160,7 +3239,7 @@ def update_task_run(
         if only_if_non_terminal and run.is_terminal:
             if validated_data.get("status") == run.status:
                 transaction.on_commit(lambda: resume_workflow_step_for_run(run))
-            return _task_run_detail_to_dto(run)
+            return _task_run_detail_to_dto(run, user_id=user_id)
         old_status = run.status
         old_pr_url = (run.output or {}).get("pr_url") if isinstance(run.output, dict) else None
         old_commit_head = _commit_push_head_sha(run.output)
@@ -3297,10 +3376,12 @@ def update_task_run(
     if new_status in _TERMINAL_TASK_RUN_STATUSES:
         resume_workflow_step_for_run(run)
 
-    return _task_run_detail_to_dto(run)
+    return _task_run_detail_to_dto(run, user_id=user_id)
 
 
 TASK_RUN_SUMMARY_MAX_CHARS = 1500
+TASK_RUN_TAGS_MAX_COUNT = 10
+TASK_RUN_TAG_MAX_CHARS = 50
 
 
 def validate_set_output(run_id: str | UUID, task_id: str | UUID, team_id: int, *, output: dict) -> str | None:
@@ -3320,7 +3401,7 @@ def validate_set_output(run_id: str | UUID, task_id: str | UUID, team_id: int, *
 
 
 def set_task_run_output(
-    run_id: str | UUID, task_id: str | UUID, team_id: int, *, output: dict
+    run_id: str | UUID, task_id: str | UUID, team_id: int, *, output: dict, user_id: int | None = None
 ) -> contracts.TaskRunDetailDTO | None:
     """Persist a run's output. Completes the run for structured-output tasks; posts Slack PR update."""
     run = _get_visible_run(run_id, task_id, team_id)
@@ -3341,7 +3422,7 @@ def set_task_run_output(
     _send_wizard_pr_ready_email_for_pr(run)
     if merged.get("pr_url"):
         post_pr_created_thread_update(run, merged["pr_url"])
-    return _task_run_detail_to_dto(run)
+    return _task_run_detail_to_dto(run, user_id=user_id)
 
 
 def set_task_run_summary(
@@ -3350,13 +3431,18 @@ def set_task_run_summary(
     team_id: int,
     *,
     summary: str,
+    tags: list[str] | None = None,
     include_agent_state: bool = False,
     user_id: int | None = None,
 ) -> contracts.TaskRunDetailDTO | None:
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
         return None
-    run.state = TaskRun.update_state_atomic(run.id, updates={TASK_RUN_SUMMARY_STATE_KEY: summary})
+    updates: dict[str, Any] = {TASK_RUN_SUMMARY_STATE_KEY: summary}
+    # Omitted tags keep the current set, so a summary-only call does not erase them.
+    if tags is not None:
+        updates[TASK_RUN_TAGS_STATE_KEY] = list(dict.fromkeys(tags))
+    run.state = TaskRun.update_state_atomic(run.id, updates=updates)
     run.refresh_from_db()
     run.publish_stream_state_event()
     return _task_run_detail_to_dto(run, include_agent_state=include_agent_state, user_id=user_id)
@@ -6266,6 +6352,41 @@ async def select_repository_for_message(team_id: int, user_id: int, message: str
     )
 
 
+def list_workflow_last_runs(
+    team_id: int, user_id: int | None, hog_flow_ids: Iterable[UUID]
+) -> dict[UUID, contracts.WorkflowLastRunDTO]:
+    """The newest visible task of each given workflow, keyed by workflow id, in one query.
+
+    Uses the same rows as the workflow's run history (``hog_flow_id`` task list with archived tasks
+    included), so a list row never names a run that the history hides. Workflows without a
+    visible task are absent from the result.
+    """
+    ids = list(hog_flow_ids)
+    if not ids:
+        return {}
+    latest_run = TaskRun.objects.filter(task=OuterRef("pk"), team_id=team_id).order_by("-created_at", "-id")
+    rows = (
+        _visible_task_qs(team_id, user_id)
+        .filter(hog_flow_id__in=ids, internal=False)
+        .order_by("hog_flow_id", "-created_at", "-id")
+        .distinct("hog_flow_id")
+        .annotate(
+            _run_status=Subquery(latest_run.values("status")[:1]),
+            _run_created_at=Subquery(latest_run.values("created_at")[:1]),
+        )
+        .values_list("hog_flow_id", "id", "created_at", "_run_status", "_run_created_at")
+    )
+    return {
+        hog_flow_id: contracts.WorkflowLastRunDTO(
+            hog_flow_id=hog_flow_id,
+            task_id=task_id,
+            status=run_status or TaskRun.Status.NOT_STARTED,
+            ran_at=run_created_at or created_at,
+        )
+        for hog_flow_id, task_id, created_at, run_status, run_created_at in rows
+    }
+
+
 #: Orderings the task list accepts, keyed by the value clients send. Both fall back to `-id` so a
 #: page boundary can't drop or repeat a row when two tasks share a timestamp. A null
 #: `last_activity_at` (rows written outside the ORM) sorts first under `DESC`, which is where a row
@@ -6704,7 +6825,9 @@ def get_task_summaries(
     summaries: list[contracts.TaskSummaryDTO] = []
     for task in tasks:
         raw = getattr(task, "_latest_run", None)
-        can_read_summary = task.origin_product != Task.OriginProduct.WORKFLOW or task.created_by_id == user_id
+        can_read_summary = task.origin_product != Task.OriginProduct.WORKFLOW or (
+            user_id is not None and task.created_by_id == user_id
+        )
         latest = _latest_run_summary(raw, getattr(task, "_latest_pr_run", None), can_read_summary=can_read_summary)
         summaries.append(
             contracts.TaskSummaryDTO(
@@ -8284,7 +8407,7 @@ def warm_task_resume_sandbox(
         "custom_image_id": custom_image_id,
     }
     extra_state.update(_github_credential_source_extra_state(resolved_pr_authorship_mode, None))
-    for protected_key in ("wizard_head_branch", "self_driving_head_branch", "github_read_access"):
+    for protected_key in ("wizard_head_branch", "self_driving_head_branch", "stack_base_branch", "github_read_access"):
         if protected_key in (previous_run.state or {}):
             extra_state[protected_key] = (previous_run.state or {})[protected_key]
     if "imported_from" in (previous_run.state or {}):
@@ -8651,6 +8774,8 @@ def run_task(
         extra_state = extra_state or {}
         if previous_run.task_summary:
             extra_state[PRIOR_RUN_SUMMARY_STATE_KEY] = previous_run.task_summary
+        if previous_run.task_tags:
+            extra_state[PRIOR_RUN_TAGS_STATE_KEY] = previous_run.task_tags
         if not is_pi_task:
             extra_state["resume_from_run_id"] = str(resume_from_run_id)
             extra_state.update(prev_state.resume_snapshot_carry_state())
@@ -8672,6 +8797,11 @@ def run_task(
         prev_self_driving_head_branch = (previous_run.state or {}).get("self_driving_head_branch")
         if prev_self_driving_head_branch:
             extra_state["self_driving_head_branch"] = prev_self_driving_head_branch
+        # The launch protects the stacked base only while the run is still on that exact branch, so
+        # carrying the marker is safe once the run moved to its own head branch.
+        prev_stack_base_branch = (previous_run.state or {}).get("stack_base_branch")
+        if prev_stack_base_branch:
+            extra_state["stack_base_branch"] = prev_stack_base_branch
         if pipeline_rerun and task.internal and is_implementation:
             extra_state["ai_stage"] = "implementation"
 

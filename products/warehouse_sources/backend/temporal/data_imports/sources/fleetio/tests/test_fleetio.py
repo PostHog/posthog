@@ -379,3 +379,82 @@ class TestServiceEntryLineItemsFanout:
         assert [row["service_entry_id"] for row in rows] == [22]
         saved = [call.args[0] for call in manager.save_state.call_args_list]
         assert any(state.completed is not None and completed in state.completed for state in saved)
+
+
+class TestPurchaseOrderLineItemsFanout:
+    """Line items are listed per purchase order, and the path binds the order's number, not its id."""
+
+    def _wire_fanout(self, session: mock.MagicMock, responses: list[Response]) -> list[str]:
+        session.headers = {}
+        urls: list[str] = []
+
+        def _prepare(request: Any) -> mock.MagicMock:
+            url = request.url
+            for key, value in (request.params or {}).items():
+                url = url.replace("{" + key + "}", str(value))
+            urls.append(url)
+            prepared = mock.MagicMock()
+            prepared.url = url
+            return prepared
+
+        session.prepare_request.side_effect = _prepare
+        session.send.side_effect = responses
+        return urls
+
+    def _line_items(self, manager: mock.MagicMock, **kwargs: Any):
+        return fleetio_source(
+            api_key="k",
+            account_token="a",
+            endpoint="purchase_order_line_items",
+            team_id=1,
+            job_id="j",
+            resumable_source_manager=manager,
+            **kwargs,
+        )
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_binds_the_parent_number_not_its_id(self, MockSession) -> None:
+        # Fleetio keys this path on the order number. Binding the id instead reads another order's
+        # line items (or 404s), and the rows would still look plausible.
+        session = MockSession.return_value
+        urls = self._wire_fanout(
+            session,
+            [
+                _response([{"id": 11, "number": 4001}, {"id": 22, "number": 4002}], None),
+                _response([{"id": 101, "part_id": 7}], None),
+                _response([{"id": 201}], "CUR2"),
+                _response([{"id": 202}], None),
+            ],
+        )
+
+        rows = _rows(self._line_items(_make_manager()))
+
+        assert urls[0].endswith("/api/purchase_orders")
+        assert urls[1] == "https://secure.fleetio.com/api/purchase_orders/4001/purchase_order_line_items"
+        assert urls[2] == "https://secure.fleetio.com/api/purchase_orders/4002/purchase_order_line_items"
+        # Neither identifier is on the line item itself, so both come from the parent row — the id
+        # populates the composite primary key that keeps line items from colliding on merge.
+        assert [(row["purchase_order_id"], row["purchase_order_number"], row["id"]) for row in rows] == [
+            (11, 4001, 101),
+            (22, 4002, 201),
+            (22, 4002, 202),
+        ]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_checkpoints_by_parent_and_resumes_past_completed_parents(self, MockSession) -> None:
+        session = MockSession.return_value
+        self._wire_fanout(
+            session,
+            [
+                _response([{"id": 11, "number": 4001}, {"id": 22, "number": 4002}], None),
+                _response([{"id": 201}], None),
+            ],
+        )
+
+        completed = "/purchase_orders/4001/purchase_order_line_items"
+        manager = _make_manager(FleetioResumeConfig(completed=[completed], current=None, child_state=None))
+        rows = _rows(self._line_items(manager))
+
+        assert [row["purchase_order_number"] for row in rows] == [4002]
+        saved = [call.args[0] for call in manager.save_state.call_args_list]
+        assert any(state.completed is not None and completed in state.completed for state in saved)
