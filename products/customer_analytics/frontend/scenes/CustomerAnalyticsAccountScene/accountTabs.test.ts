@@ -30,8 +30,8 @@ const tabs: AccountTabDefinition[] = [
 
 describe('account tabs', () => {
     it('falls back from an unavailable system route but keeps an unknown view route', () => {
-        expect(getActiveAccountTabId(tabs, emptyConfig, 'system:tasks')).toBe('system:notes')
-        expect(getActiveAccountTabId(tabs, emptyConfig, 'view:missing')).toBe('view:missing')
+        expect(getActiveAccountTabId(tabs, emptyConfig, 'system:tasks', 1)).toBe('system:notes')
+        expect(getActiveAccountTabId(tabs, emptyConfig, 'view:missing', 1)).toBe('view:missing')
     })
 
     it('does not apply system tab preferences while the tab settings flag is disabled', () => {
@@ -49,9 +49,10 @@ describe('account tabs', () => {
         expect(listVisibleAccountTabs(tabs, config, undefined, 1, false).map((tab) => tab.id)).toEqual([
             'system:notes',
             'system:users',
+            'view:shared',
         ])
-        expect(getDefaultAccountTabId(tabs, config, false)).toBe('system:notes')
-        expect(getDefaultAccountTabId(tabs, config, true)).toBe('system:users')
+        expect(getDefaultAccountTabId(tabs, config, 1, false)).toBe('system:notes')
+        expect(getDefaultAccountTabId(tabs, config, 1, true)).toBe('system:users')
     })
 
     it('does not opt into another user’s team view while reordering system tabs', () => {
@@ -71,5 +72,13 @@ describe('account tabs', () => {
             'system:users',
             'view:shared',
         ])
+    })
+
+    it('defaults to a visible view before a hidden system tab', () => {
+        const config = setAccountTabVisibility(tabs, tabs[2], emptyConfig, 1, true)
+        const allSystemTabsHidden = { ...config, hidden_tab_ids: ['system:notes', 'system:users'] }
+
+        expect(getDefaultAccountTabId(tabs, allSystemTabsHidden, 1)).toBe('view:shared')
+        expect(getDefaultAccountTabId(tabs, { ...allSystemTabsHidden, ordered_tab_ids: [] }, 1)).toBe('system:notes')
     })
 })

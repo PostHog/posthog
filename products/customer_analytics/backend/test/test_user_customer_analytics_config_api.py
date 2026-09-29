@@ -289,11 +289,25 @@ class TestUserCustomerAnalyticsConfigAPI(APIBaseTest):
 
         response = self.client.patch(self.endpoint, {"account_detail_tabs": account_detail_tabs}, format="json")
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
-        self.assertEqual(
-            response.json(),
-            config_body(pinned, {"enabled": True, "send_time": "07:30", "cadence": "every_day"}, account_detail_tabs),
+        expected = config_body(
+            pinned, {"enabled": True, "send_time": "07:30", "cadence": "every_day"}, account_detail_tabs
         )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(response.json(), expected)
+
+        rejected = self.client.patch(
+            self.endpoint,
+            {
+                "pinned_properties": [],
+                "task_digest": {"enabled": False},
+                "account_detail_tabs": {**account_detail_tabs, "hidden_tab_ids": ["not-a-tab"]},
+            },
+            format="json",
+        )
+
+        self.assertEqual(rejected.status_code, status.HTTP_400_BAD_REQUEST, rejected.json())
+        self.assertEqual(rejected.json()["attr"], "account_detail_tabs")
+        self.assertEqual(self.client.get(self.endpoint).json(), expected)
 
     def test_environment_url_resolves_to_the_canonical_team(self) -> None:
         # `for_team` canonicalizes its filter but not the create kwargs, so an environment (child

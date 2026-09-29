@@ -74,7 +74,7 @@ export function isAccountTabVisible(
     applySystemTabConfiguration = true
 ): boolean {
     const hidden = usesTabConfiguration(tab, applySystemTabConfiguration) && config.hidden_tab_ids.includes(tab.id)
-    return !hidden && !isUnselectedTeamView(tab, config, userId)
+    return !hidden && (!applySystemTabConfiguration || !isUnselectedTeamView(tab, config, userId))
 }
 
 export function listVisibleAccountTabs(
@@ -139,6 +139,7 @@ export function getAccountTabRoute(tabId: string): string {
 export function getDefaultAccountTabId(
     tabs: AccountTabDefinition[],
     config: AccountDetailTabsConfigApi,
+    userId: number | undefined,
     applySystemTabConfiguration = true
 ): string {
     const defaultTab = tabs.find((tab) => tab.id === config.default_tab_id)
@@ -149,10 +150,11 @@ export function getDefaultAccountTabId(
     ) {
         return defaultTab.id
     }
+    const isVisible = (tab: AccountTabDefinition): boolean =>
+        isAccountTabVisible(tab, config, userId, applySystemTabConfiguration)
     return (
-        tabs.find(
-            (tab) => tab.kind === 'system' && isAccountTabVisible(tab, config, undefined, applySystemTabConfiguration)
-        )?.id ??
+        tabs.find((tab) => tab.kind === 'system' && isVisible(tab))?.id ??
+        listOrderedAccountTabs(tabs, config, applySystemTabConfiguration).find(isVisible)?.id ??
         tabs.find((tab) => tab.kind === 'system')?.id ??
         'system:notes'
     )
@@ -162,9 +164,10 @@ export function getActiveAccountTabId(
     tabs: AccountTabDefinition[],
     config: AccountDetailTabsConfigApi,
     requestedTabId: string | undefined,
+    userId: number | undefined,
     applySystemTabConfiguration = true
 ): string {
-    const defaultTabId = getDefaultAccountTabId(tabs, config, applySystemTabConfiguration)
+    const defaultTabId = getDefaultAccountTabId(tabs, config, userId, applySystemTabConfiguration)
     if (!requestedTabId || !requestedTabId.startsWith('system:')) {
         return requestedTabId ?? defaultTabId
     }

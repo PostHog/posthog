@@ -22,7 +22,6 @@ import type {
     AccountViewApi,
     AccountViewContentApi,
     AccountViewVisibilityEnumApi,
-    PatchedAccountViewUpdateApi,
     UserCustomerAnalyticsConfigApi,
 } from '../../generated/api.schemas'
 import {
@@ -603,15 +602,12 @@ export const accountViewsLogic = kea<accountViewsLogicType>([
             }
             try {
                 const content = createAccountViewContent(values.editorDraft.components)
-                const update: PatchedAccountViewUpdateApi | undefined = editingView
-                    ? {
+                const view = editingView
+                    ? await accountViewsPartialUpdate(String(props.projectId), editingView.id, {
                           ...(editingView.can_edit ? { name: values.editorDraft.name.trim(), content } : {}),
                           ...(editingView.can_change_visibility ? { visibility: values.editorDraft.visibility } : {}),
                           version: editingView.version,
-                      }
-                    : undefined
-                const view = editingView
-                    ? await accountViewsPartialUpdate(String(props.projectId), editingView.id, update)
+                      })
                     : await accountViewsCreate(String(props.projectId), {
                           name: values.editorDraft.name.trim(),
                           content,

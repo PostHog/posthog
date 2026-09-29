@@ -285,6 +285,7 @@ class TestAccountViews(APIBaseTest):
         activities = ActivityLog.objects.filter(scope="AccountView", item_id=view["id"]).order_by("created_at")
         self.assertEqual([activity.activity for activity in activities], ["created", "updated", "updated"])
         for activity in activities:
+            assert isinstance(activity.detail, dict)
             self.assertIsNone(activity.detail.get("name"))
             self.assertNotIn("Sensitive workspace", str(activity.detail))
             self.assertNotIn("Updated workspace", str(activity.detail))

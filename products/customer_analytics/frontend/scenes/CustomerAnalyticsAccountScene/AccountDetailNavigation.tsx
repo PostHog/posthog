@@ -48,7 +48,7 @@ export function AccountDetailNavigation({
     const requestedTabIdFromRoute = requestedTab ? getAccountTabIdFromRoute(requestedTab) : undefined
     const requestedTabId =
         requestedTabIdFromRoute?.startsWith('view:') && !accountViewsEnabled ? undefined : requestedTabIdFromRoute
-    const activeTabId = getActiveAccountTabId(tabs, accountDetailTabs, requestedTabId, accountTabsEnabled)
+    const activeTabId = getActiveAccountTabId(tabs, accountDetailTabs, requestedTabId, user?.id, accountTabsEnabled)
     const activeTab = tabs.find((tab) => tab.id === activeTabId)
     const loadingView = activeTabId.startsWith('view:') && !activeTab && viewsLoading && accountViewsEnabled
     const viewLoadError = activeTabId.startsWith('view:') && !activeTab && !!viewsError && accountViewsEnabled
