@@ -12,7 +12,7 @@ import {
 } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import { type AppMetricsTimeSeriesResponse, loadAppMetricsTimeSeries } from 'lib/components/AppMetrics/appMetricsLogic'
+import { loadAppMetricsTimeSeries } from 'lib/components/AppMetrics/appMetricsLogic'
 import { dayjs } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -92,7 +92,8 @@ export interface pipelineOverviewSceneLogicValues {
     sources: ExternalDataSourceSerializersApi[] | null
     sourcesLoading: boolean
     syncingTableCount: number
-    destinationRowSeries: AppMetricsTimeSeriesResponse | null
+    lastUpdatedAt: string | null
+    destinationRowSeries: { labels: string[]; series: { id: string; values: number[] }[] } | null
     destinationRowSeriesLoading: boolean
     rowsByDestination: { key: string; label: string; data: number[]; type: 'area'; fill: { opacity: number } }[]
     hasIssues: boolean
@@ -138,6 +139,14 @@ export const pipelineOverviewSceneLogic = kea<pipelineOverviewSceneLogicType>([
         window: [
             7 as PipelineStatsWindow,
             { setWindow: (_: unknown, { window }: { window: PipelineStatsWindow }) => window },
+        ],
+        // Stamped when the polled numbers land, so the page can show that they are live rather
+        // than leaving a reader to guess whether a static count is stale.
+        lastUpdatedAt: [
+            null as string | null,
+            {
+                loadJobStatsSuccess: () => new Date().toISOString(),
+            },
         ],
     }),
     loaders(({ values }: any) => ({
@@ -191,24 +200,47 @@ export const pipelineOverviewSceneLogic = kea<pipelineOverviewSceneLogicType>([
             },
         ],
         destinationRowSeries: [
-            null as AppMetricsTimeSeriesResponse | null,
+            null as { labels: string[]; series: { id: string; values: number[] }[] } | null,
             {
-                loadDestinationRowSeries: async () =>
-                    await loadAppMetricsTimeSeries(
-                        {
-                            appSource: WAREHOUSE_APP_SOURCE,
-                            metricName: 'rows_synced',
-                            breakdownBy: 'instance_id',
-                            // An hourly grain over a day keeps the 24-hour window from collapsing
-                            // to a single point.
-                            interval: values.window === 1 ? 'hour' : 'day',
-                            // Both bounds are interpolated into `toDateTime(...)`, so they have to
-                            // be absolute timestamps.
-                            dateFrom: dayjs().subtract(values.window, 'day').toISOString(),
-                            dateTo: dayjs().toISOString(),
-                        },
-                        values.currentTeam?.timezone ?? 'UTC'
-                    ),
+                loadDestinationRowSeries: async () => {
+                    const destinations = values.destinations ?? []
+                    if (destinations.length === 0) {
+                        return { labels: [], series: [] }
+                    }
+                    const interval = values.window === 1 ? ('hour' as const) : ('day' as const)
+                    // Both bounds are interpolated into `toDateTime(...)`, so they have to be
+                    // absolute. The upper bound sits an hour ahead because the comparison is
+                    // exclusive and rows land continuously.
+                    const dateFrom = dayjs().subtract(values.window, 'day').toISOString()
+                    const dateTo = dayjs().add(1, 'hour').toISOString()
+                    // One request per destination, filtered on `instanceId`, rather than one
+                    // breakdown over every instance. The breakdown is capped at 100 rows, and a
+                    // team with thousands of tables pushes every destination out of that cap.
+                    const answers = await Promise.all(
+                        destinations.map(async (destination) => ({
+                            id: destination.id,
+                            response: await loadAppMetricsTimeSeries(
+                                {
+                                    appSource: WAREHOUSE_APP_SOURCE,
+                                    metricName: 'rows_synced',
+                                    instanceId: destination.id,
+                                    interval,
+                                    dateFrom,
+                                    dateTo,
+                                },
+                                values.currentTeam?.timezone ?? 'UTC'
+                            ),
+                        }))
+                    )
+                    return {
+                        labels: answers.find((a) => a.response.labels.length > 0)?.response.labels ?? [],
+                        series: answers.map((a) => ({
+                            id: a.id,
+                            // Without a breakdown the response carries a single unnamed series.
+                            values: a.response.series[0]?.values ?? [],
+                        })),
+                    }
+                },
             },
         ],
         recentFailures: [
@@ -217,6 +249,9 @@ export const pipelineOverviewSceneLogic = kea<pipelineOverviewSceneLogicType>([
                 loadRecentFailures: async () =>
                     await dataWarehouseCompletedActivityRetrieve(String(values.currentTeamId), {
                         outcome: 'failed',
+                        // Imports only. Without this a team with many failing views fills every
+                        // page with them and this list renders empty.
+                        kind: 'import',
                         // The window control sits in this section's own header. Without this the
                         // endpoint falls back to its own 30-day default and ignores the control.
                         cutoff_days: values.window,
@@ -237,6 +272,9 @@ export const pipelineOverviewSceneLogic = kea<pipelineOverviewSceneLogicType>([
             (healthIssues: DataHealthIssuesResponseApi | null): DataHealthIssueApi[] =>
                 (healthIssues?.results ?? [])
                     .filter((issue) => SYNC_ISSUE_TYPES.includes(issue.type))
+                    // A webhook table is pushed to on the vendor's schedule, never pulled on
+                    // ours, so it has no last sync and cannot have "stopped".
+                    .filter((issue) => issue.sync_type !== 'webhook')
                     .sort((a, b) => (ISSUE_SEVERITY[a.status] ?? 99) - (ISSUE_SEVERITY[b.status] ?? 99)),
         ],
         failingSyncCount: [
@@ -244,16 +282,11 @@ export const pipelineOverviewSceneLogic = kea<pipelineOverviewSceneLogicType>([
             (healthIssues: DataHealthIssuesResponseApi | null): number =>
                 (healthIssues?.results ?? []).filter((issue) => issue.type === 'external_data_sync').length,
         ],
-        /**
-         * One chart series per destination, biggest first so the legend order matches the stack.
-         * `rows_for` emits `rows_synced` under three instance ids per run — the schema, the
-         * destination, and `<schema>/<destination>` — so only ids matching a real destination are
-         * kept, which drops the schema-level and combined rows rather than double counting them.
-         */
+        /** One chart series per destination, biggest first so the legend matches the stack. */
         rowsByDestination: [
             (s: any) => [s.destinationRowSeries, s.destinations],
             (
-                series: AppMetricsTimeSeriesResponse | null,
+                answer: { labels: string[]; series: { id: string; values: number[] }[] } | null,
                 destinations: ExternalDataDestinationApi[] | null
             ): {
                 key: string
@@ -262,15 +295,14 @@ export const pipelineOverviewSceneLogic = kea<pipelineOverviewSceneLogicType>([
                 type: 'area'
                 fill: { opacity: number }
             }[] => {
-                if (!series || !destinations) {
+                if (!answer || !destinations) {
                     return []
                 }
                 const byId = new Map(destinations.map((d) => [d.id, d]))
-                return series.series
-                    .filter((s) => byId.has(s.name))
+                return answer.series
                     .map((s) => ({
-                        key: s.name,
-                        label: byId.get(s.name)?.name ?? s.name,
+                        key: s.id,
+                        label: byId.get(s.id)?.name ?? s.id,
                         data: s.values,
                         type: 'area' as const,
                         // `fill` is what makes an area series fill; `type` alone draws a line.
@@ -279,6 +311,7 @@ export const pipelineOverviewSceneLogic = kea<pipelineOverviewSceneLogicType>([
                         fill: { opacity: 0.25 },
                         total: s.values.reduce((a, b) => a + b, 0),
                     }))
+                    .filter((s) => s.total > 0)
                     .sort((a, b) => b.total - a.total)
                     .map(({ total: _total, ...rest }) => rest)
             },
@@ -325,6 +358,9 @@ export const pipelineOverviewSceneLogic = kea<pipelineOverviewSceneLogicType>([
             actions.loadRecentFailures()
         },
         refresh: () => actions.loadEverything(),
+        // The series are fetched one destination at a time, so the destination list has to land
+        // first. Chaining on success is what guarantees that on a reload as well as on mount.
+        loadDestinationsSuccess: () => actions.loadDestinationRowSeries(),
         loadEverything: () => {
             actions.loadJobStats()
             actions.loadRowsStats()
@@ -332,7 +368,6 @@ export const pipelineOverviewSceneLogic = kea<pipelineOverviewSceneLogicType>([
             actions.loadRecentFailures()
             actions.loadDestinations()
             actions.loadSources()
-            actions.loadDestinationRowSeries()
         },
         // Only the headline numbers poll. Reloading the tables under someone mid-read moves rows
         // they are looking at, and they change far less often than the counts do.
