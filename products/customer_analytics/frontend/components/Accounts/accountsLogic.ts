@@ -2113,7 +2113,6 @@ export const accountsLogic = kea<accountsLogicType>([
                 lemonToast.error('Failed to update tags')
             } finally {
                 if (cache.pendingTagSaves?.[accountId] === tags) {
-                    cache.pendingTagSaves = { ...cache.pendingTagSaves }
                     delete cache.pendingTagSaves[accountId]
                 }
                 actions.tagsUpdateFinished(accountId)
