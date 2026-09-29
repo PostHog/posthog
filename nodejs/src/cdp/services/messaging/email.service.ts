@@ -525,6 +525,8 @@ export class EmailService {
 
             if (
                 !isTest &&
+                invocation.hogFunction.metadata?.workflow_email_action === true &&
+                invocation.hogFunction.metadata?.match_email_to_accounts === true &&
                 (integration.config.provider ?? 'ses') === 'ses' &&
                 this.workflowConversationCaptureService
             ) {

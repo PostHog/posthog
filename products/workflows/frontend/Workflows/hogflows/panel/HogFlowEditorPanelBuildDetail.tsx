@@ -156,6 +156,22 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                             }}
                         />
                     </div>
+                    <LemonDivider className="my-0" />
+                    <div className="flex gap-2 justify-between items-center px-2 py-1">
+                        <LemonLabel info="Check To and CC recipients against your Customer analytics accounts. When an email matches an account, its content is saved in that account's Conversations. Emails sent before you turn this on are not added.">
+                            Match email to Accounts
+                        </LemonLabel>
+                        <LemonSwitch
+                            data-attr="workflow-email-match-accounts"
+                            checked={action.config.match_email_to_accounts === true}
+                            onChange={(checked) => {
+                                setWorkflowAction(action.id, {
+                                    ...action,
+                                    config: { ...action.config, match_email_to_accounts: checked },
+                                })
+                            }}
+                        />
+                    </div>
                 </>
             )}
 

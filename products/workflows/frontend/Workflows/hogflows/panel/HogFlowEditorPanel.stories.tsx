@@ -181,6 +181,7 @@ const meta: Meta<typeof HogFlowEditorPanel> = {
             get: {
                 '/api/environments/:team_id/hog_flows/:id/': PANEL_WORKFLOW,
                 '/api/environments/:team_id/messaging_categories': { count: 0, results: [] },
+                '/api/projects/:team_id/messaging_templates/': { count: 0, results: [] },
                 '/api/projects/:team_id/hog_function_templates': {
                     count: _hogFunctionTemplatesDestinations.results.length + 1,
                     results: [...(_hogFunctionTemplatesDestinations.results as unknown[]), EMAIL_TEMPLATE],

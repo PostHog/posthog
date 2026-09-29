@@ -765,6 +765,37 @@ describe('HogFunctionHandler', () => {
         })
     })
 
+    it.each([false, true])('passes the email step account-matching choice into the send for %s', async (enabled) => {
+        await insertHogFunctionTemplate(hub.postgres, {
+            id: 'template-email',
+            name: 'Email',
+            code: 'sendEmail(inputs.email)',
+            inputs_schema: [],
+        })
+        const emailConfig: Extract<HogFlowAction, { type: 'function_email' }>['config'] = {
+            template_id: 'template-email',
+            match_email_to_accounts: enabled,
+            inputs: {},
+        }
+        const flow = new FixtureHogFlowBuilder()
+            .withTeamId(team.id)
+            .withWorkflow({
+                actions: {
+                    email: { type: 'function_email', config: emailConfig },
+                },
+                edges: [],
+            })
+            .build()
+
+        const emailAction = findActionByType(flow, 'function_email')!
+        const hogFunction = await mockHogFlowFunctionsService.buildHogFunction(flow, emailAction.config, true)
+
+        expect(hogFunction.metadata).toMatchObject({
+            workflow_email_action: true,
+            match_email_to_accounts: enabled,
+        })
+    })
+
     describe('awaited templates', () => {
         let TASK_TEMPLATE_ID: string
         let awaitingHandler: HogFunctionHandler

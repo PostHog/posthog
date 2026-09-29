@@ -198,6 +198,7 @@ describe('EmailService', () => {
                 recordSkipped: jest.fn(),
             }
             Reflect.set(service, 'workflowConversationCaptureService', captureService)
+            invocation.hogFunction.metadata = { workflow_email_action: true, match_email_to_accounts: true }
             invocation.queueParameters = createEmailParams({
                 from: { integrationId: 1 },
                 cc: 'observer@example.com',
@@ -225,6 +226,7 @@ describe('EmailService', () => {
                 checkEligibility: jest.fn().mockResolvedValue('eligible'),
                 recordSkipped: jest.fn(),
             })
+            invocation.hogFunction.metadata = { workflow_email_action: true, match_email_to_accounts: true }
             invocation.queueParameters = createEmailParams({
                 from: { integrationId: 1 },
                 text: undefined,
@@ -244,6 +246,7 @@ describe('EmailService', () => {
                 recordSkipped: jest.fn().mockResolvedValue(undefined),
             }
             Reflect.set(service, 'workflowConversationCaptureService', captureService)
+            invocation.hogFunction.metadata = { workflow_email_action: true, match_email_to_accounts: true }
             invocation.queueParameters = createEmailParams({ from: { integrationId: 1 }, text: 'x'.repeat(200001) })
 
             const result = await service.executeSendEmail(invocation)
@@ -260,6 +263,7 @@ describe('EmailService', () => {
                 recordSkipped: jest.fn().mockResolvedValue(undefined),
             }
             Reflect.set(service, 'workflowConversationCaptureService', captureService)
+            invocation.hogFunction.metadata = { workflow_email_action: true, match_email_to_accounts: true }
 
             const parked = await service.executeSendEmail(invocation)
             expect(parked.finished).toBe(false)
@@ -273,10 +277,20 @@ describe('EmailService', () => {
             expect(sent.metrics.some((metric) => metric.metric_name === 'email_sent')).toBe(true)
         })
 
-        it('does not check eligibility or capture editor test sends', async () => {
+        it.each([
+            ['unconfigured', undefined, false],
+            ['disabled', false, true],
+            ['standalone email', true, false],
+            ['editor test send', true, true],
+        ])('skips account matching for %s sends', async (_, optIn, workflowAction) => {
             const captureService = { checkEligibility: jest.fn(), recordSkipped: jest.fn() }
             Reflect.set(service, 'workflowConversationCaptureService', captureService)
-            const result = await service.executeSendEmail(invocation, true)
+            invocation.hogFunction.metadata = {
+                workflow_email_action: workflowAction,
+                match_email_to_accounts: optIn,
+            }
+            const result = await service.executeSendEmail(invocation, optIn === true && workflowAction)
+            expect(sendEmailSpy).toHaveBeenCalledTimes(1)
             expect(captureService.checkEligibility).not.toHaveBeenCalled()
             expect(result.conversationCaptures).toBeUndefined()
         })

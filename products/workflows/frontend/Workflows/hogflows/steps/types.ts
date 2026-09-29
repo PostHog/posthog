@@ -368,6 +368,7 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
             // untracked SES configuration set. Absent/true means tracked. Keep in sync with
             // nodejs/src/cdp/schema/hogflow.ts.
             tracking_enabled: z.boolean().optional(),
+            match_email_to_accounts: z.boolean().optional(),
             template_uuid: z.string().optional(), // May be used later to specify a specific template version
             template_id: z.literal('template-email'),
             inputs: z.record(z.string(), CyclotronInputSchema),

@@ -350,7 +350,12 @@ export class HogFunctionHandler implements ActionHandler {
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction> & { skipped?: boolean }> {
         const hogFunction = await instrumentFn(
             { key: 'hogFlow.action.hogFunction.buildHogFunction', sendException: false },
-            () => this.hogFlowFunctionsService.buildHogFunction(invocation.hogFlow, action.config)
+            () =>
+                this.hogFlowFunctionsService.buildHogFunction(
+                    invocation.hogFlow,
+                    action.config,
+                    action.type === 'function_email'
+                )
         )
         const hogFunctionInvocation = await instrumentFn(
             { key: 'hogFlow.action.hogFunction.buildInvocation', sendException: false },

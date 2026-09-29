@@ -21,7 +21,11 @@ export class HogFlowFunctionsService {
         private hogFunctionExecutor: HogExecutorAsyncService
     ) {}
 
-    async buildHogFunction(hogFlow: HogFlow, configuration: Action['config']): Promise<HogFunctionType> {
+    async buildHogFunction(
+        hogFlow: HogFlow,
+        configuration: Action['config'],
+        isWorkflowEmailAction = false
+    ): Promise<HogFunctionType> {
         const template = await this.hogFunctionTemplateManager.getHogFunctionTemplate(configuration.template_id)
 
         if (!template) {
@@ -49,6 +53,11 @@ export class HogFlowFunctionsService {
             // send choke point, where only the synthetic hog function is in scope.
             metadata: {
                 ...config,
+                match_email_to_accounts:
+                    isWorkflowEmailAction &&
+                    'match_email_to_accounts' in configuration &&
+                    configuration.match_email_to_accounts === true,
+                workflow_email_action: isWorkflowEmailAction,
                 email_sending_rate_limit: hogFlow.email_sending_rate_limit ?? null,
                 email_sending_paused_at: hogFlow.email_sending_paused_at ?? null,
                 email_sending_paused_reason: hogFlow.email_sending_paused_reason ?? null,
