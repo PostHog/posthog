@@ -57,6 +57,16 @@ class TestPromptJev(SimpleTestCase):
         budget.visit(parse_select(query))
         self.assertEqual(budget.decisions, expected)
 
+    def test_unused_ctes_do_not_reserve_budget(self) -> None:
+        budget = PromptJevBudget()
+        budget.visit(
+            parse_select(
+                "WITH a AS (SELECT __preview_promptJev('a', 'q') AS p), "
+                "b AS (SELECT __preview_promptJev('b', 'q') AS p) SELECT 1"
+            )
+        )
+        self.assertEqual(budget.decisions, 0)
+
     @parameterized.expand(
         [
             ("__preview_promptJev('a', '')", "non-empty"),

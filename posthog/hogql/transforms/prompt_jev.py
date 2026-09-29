@@ -235,6 +235,10 @@ class PromptJevBudget(TraversingVisitor):
         self.decisions = 0
 
     def visit_select_query(self, node: ast.SelectQuery) -> None:
+        node = clone_expr(node)
+        ctes = node.ctes or {}
+        node.ctes = None
+        node.ctes = _CTEReferences.used(node, ctes) or None
         finder = _LocalFinder()
         for column in node.select:
             finder.visit(column)
@@ -252,7 +256,7 @@ class PromptJevBudget(TraversingVisitor):
             self.decisions += rows * len(finder.calls)
             if self.decisions > MAX_DECISIONS:
                 raise QueryError(
-                    f"__preview_promptJev allows at most {MAX_DECISIONS} row evaluations across all columns and SELECTs. "
+                    f"__preview_promptJev exceeds the query budget of {MAX_DECISIONS} row evaluations across all columns and SELECTs. "
                     f"This query reserves {self.decisions}. Add smaller LIMITs to the SELECTs containing Jev calls, "
                     "or use fewer Jev columns. A SELECT without LIMIT reserves 1000 rows per Jev column."
                 )
