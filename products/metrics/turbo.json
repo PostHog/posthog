@@ -10,9 +10,7 @@
                 "backend/tasks/**",
                 "backend/models.py",
                 "backend/migrations/**",
-                "backend/temporal/**",
-                "backend/alert_source_cycle.py",
-                "backend/alert_checkpoint.py"
+                "backend/temporal/**"
             ],
             "outputs": [],
             "cache": true
