@@ -229,6 +229,35 @@ class BaseTaskAPITest(TestCase):
             self.desktop_access_patcher.stop()
         super().tearDown()
 
+    def _oauth_client(self, client_id: str, *, scope: str = "task:read task:write") -> APIClient:
+        application = OAuthApplication.objects.create(
+            name="Task API client",
+            client_id=client_id,
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            algorithm="RS256",
+            redirect_uris="https://example.com/callback",
+            organization=self.organization,
+            user=self.user,
+        )
+        access_token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=application,
+            token=f"pha_task_{uuid.uuid4().hex}",
+            expires=django_timezone.now() + timedelta(hours=1),
+            scope=scope,
+            scoped_teams=[self.team.id],
+        )
+        OAuthRefreshToken.objects.create(
+            user=self.user,
+            application=application,
+            token=f"phr_task_{uuid.uuid4().hex}",
+            access_token=access_token,
+        )
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {access_token.token}")
+        return client
+
     def set_tasks_feature_flag(self, enabled=True):
         self._desktop_access_enabled = enabled
         if hasattr(self, "feature_flag_patcher"):
@@ -1034,35 +1063,6 @@ class TestTaskVisibilityInternalDebugRegionGate(BaseTaskAPITest):
 
 
 class TestTaskAPI(BaseTaskAPITest):
-    def _oauth_client(self, client_id: str, *, scope: str = "task:read task:write") -> APIClient:
-        application = OAuthApplication.objects.create(
-            name="Task API client",
-            client_id=client_id,
-            client_type=OAuthApplication.CLIENT_PUBLIC,
-            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
-            algorithm="RS256",
-            redirect_uris="https://example.com/callback",
-            organization=self.organization,
-            user=self.user,
-        )
-        access_token = OAuthAccessToken.objects.create(
-            user=self.user,
-            application=application,
-            token=f"pha_task_{uuid.uuid4().hex}",
-            expires=django_timezone.now() + timedelta(hours=1),
-            scope=scope,
-            scoped_teams=[self.team.id],
-        )
-        OAuthRefreshToken.objects.create(
-            user=self.user,
-            application=application,
-            token=f"phr_task_{uuid.uuid4().hex}",
-            access_token=access_token,
-        )
-        client = APIClient()
-        client.credentials(HTTP_AUTHORIZATION=f"Bearer {access_token.token}")
-        return client
-
     @patch("products.tasks.backend.presentation.views.api.get_task_usage")
     def test_usage_returns_task_cost_breakdown(self, mock_get_task_usage: MagicMock) -> None:
         task = self.create_task()
@@ -1606,6 +1606,8 @@ class TestTaskAPI(BaseTaskAPITest):
 
         assert response.status_code == (201 if combined_create else 200), response.json()
         assert "run_error" not in response.json()
+        if not combined_create:
+            assert response.json()["run"]["id"] == response.json()["latest_run"]["id"]
         run = TaskRun.objects.get(id=response.json()["latest_run"]["id"])
         assert run.status == TaskRun.Status.NOT_STARTED
         assert run.queued_at is None
@@ -1873,6 +1875,8 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED if combined_create else status.HTTP_200_OK)
         run = Task.objects.get(id=response.json()["id"]).runs.get()
         self.assertEqual(response.json()["latest_run"]["id"], str(run.id))
+        if not combined_create:
+            self.assertEqual(response.json()["run"]["id"], str(run.id))
         self.assertNotIn("run_error", response.json())
         mock_workflow.assert_called_once()
 
@@ -3236,6 +3240,7 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(data["id"], str(task.id))
         self.assertIn("latest_run", data)
         self.assertIsNotNone(data["latest_run"])
+        self.assertEqual(data["run"], data["latest_run"])
 
         latest_run = data["latest_run"]
         run_id = latest_run["id"]
@@ -13774,7 +13779,67 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+        self.assertEqual(response.headers.get("Retry-After"), "2")
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "runtime_unavailable",
+                "code": "sandbox_not_ready",
+                "error": "No active sandbox for this task run",
+            },
+        )
+
+    @parameterized.expand(
+        [
+            ("completed", TaskRun.Status.COMPLETED),
+            ("failed", TaskRun.Status.FAILED),
+            ("cancelled", TaskRun.Status.CANCELLED),
+        ]
+    )
+    def test_command_on_ended_run_without_sandbox_is_final(self, _name, run_status):
+        # A terminal run's sandbox is cleaned up and never comes back, so the missing-sandbox
+        # answer must be final — not the retryable 503 a still-starting run gets.
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=run_status, state={})
+
+        response = self.client.post(self._command_url(task, run), self._make_cancel(), format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        self.assertIsNone(response.headers.get("Retry-After"))
+        self.assertEqual(
+            response.json(),
+            {"code": "run_ended", "error": "This task run has ended and its sandbox is gone"},
+        )
+
+    @parameterized.expand(
+        [
+            ("cancel", {"jsonrpc": "2.0", "method": "cancel", "id": "req-1"}, status.HTTP_400_BAD_REQUEST),
+            (
+                "credential_response",
+                {
+                    "jsonrpc": "2.0",
+                    "method": "credential_response",
+                    "params": {"requestId": "cred-1", "credential": "claude_subscription_token", "error": "no_token"},
+                    "id": "req-1",
+                },
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+            ),
+        ]
+    )
+    def test_command_without_sandbox_for_desktop_grant(self, _name, body, expected_status):
+        task = self.create_task()
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            state={"claude_subscription_user_id": self.user.id},
+        )
+
+        client = self._oauth_client(ARRAY_APP_CLIENT_ID_DEV)
+        response = client.post(self._command_url(task, run), body, format="json")
+
+        self.assertEqual(response.status_code, expected_status)
         self.assertEqual(
             response.json(),
             {
@@ -14448,7 +14513,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
         self.assertIn("No active sandbox", response.json()["error"])
 
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)

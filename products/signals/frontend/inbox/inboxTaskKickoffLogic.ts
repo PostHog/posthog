@@ -307,7 +307,8 @@ async function createReportTask(
             (options) => tasksRunCreate(projectId, task.id, runOptions, options),
             disposables
         )
-        run = running.latest_run ?? null
+        // `?? latest_run` covers the deploy skew window where this bundle outruns the backend.
+        run = running.run ?? running.latest_run ?? null
     }
     if (!run) {
         throw new Error('The task has no run. Open the task list to check its status.')

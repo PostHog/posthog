@@ -12949,7 +12949,7 @@
         "feature_flag": "tasks"
     },
     "tasks-run-create": {
-        "description": "Start a cloud run for an existing task, or set `scheduled_at` for a one-off run within 30 days. Times without an offset use UTC. Confirm the returned time; execution starts at or after that time. Omit model fields to use saved defaults, or the previous run's model on resume. Use `tasks-models-retrieve` before an explicit model choice. Use `pending_user_message` for follow-up work and `resume_from_run_id` to continue a prior run. Poll `tasks-runs-list` or `tasks-runs-retrieve` for progress. Check `run_error` for a start failure. If the response is lost, check the runs before you retry. A repeated call can start another run.",
+        "description": "Start a cloud run for an existing task, or set `scheduled_at` for a one-off run within 30 days. Times without an offset use UTC. Confirm the returned time; execution starts at or after that time. Omit model fields to use saved defaults, or the previous run's model on resume. Use `tasks-models-retrieve` before an explicit model choice. Use `pending_user_message` for follow-up work and `resume_from_run_id` to continue a prior run. The created run is the top-level `run`; read `run.id` for run-scoped calls — the top-level `id` is the task's. Poll `tasks-runs-list` or `tasks-runs-retrieve` for progress. Check `run_error` for a start failure. If the response is lost, check the runs before you retry. A repeated call can start another run.",
         "category": "Tasks",
         "feature": "tasks",
         "summary": "Start or schedule task run",

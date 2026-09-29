@@ -100576,11 +100576,10 @@ export namespace Schemas {
     export type TaskRunResponseJsonSchema = { [key: string]: unknown } | null;
 
     /**
-     * Detail response for a task.
+     * The task ``run`` action's response: the refreshed task detail plus the run this call made.
      *
-     * Reads from a frozen ``TaskDetailDTO`` produced by the facade. ``github_integration`` /
-     * ``github_user_integration`` are integration ids, ``signal_report`` is the report id, and
-     * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
+     * ``run`` is the run the call created or activated — the payload a caller reads run-scoped ids
+     * from, instead of inferring them from ``latest_run`` (or, worse, the top-level task ``id``).
      */
     export interface TaskRunResponse {
       id: string;
@@ -100632,6 +100631,8 @@ export namespace Schemas {
       origin_key?: string | null;
       /** Error returned when the run could not start. */
       run_error?: string;
+      /** The run this call created or activated. Read run-scoped ids from here — `run.id` is the id the run's stream and command endpoints take, while the top-level `id` is the task's. Set on every 200; when `run_error` is also set, the run exists but its workflow did not start. */
+      run?: TaskRunDetailDTO | null;
     }
 
     export interface TaskRunStartRequest {

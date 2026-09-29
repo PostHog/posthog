@@ -1534,7 +1534,7 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                     // Same endpoint as the "Run again" button, but seeded with the user's message and chained
                     // from the finished run so the new run continues the thread, and carrying the picked model /
                     // reasoning effort (the resume schema can't, so we send the Claude create shape). The response
-                    // carries the new run id as `latest_run`; the consumer-provided `onRunStarted` re-points to it.
+                    // carries the new run as `run`; the consumer-provided `onRunStarted` re-points to it.
                     const createRequest = buildRunCreateRequest(
                         values.catalogue,
                         values.selectedModel,
@@ -1582,8 +1582,9 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                     if (!isCurrent()) {
                         return
                     }
-                    getWarmLogic()?.actions.consumeWarm(warmSubmission, result.latest_run?.id ?? null)
-                    const run = result.latest_run
+                    // `?? latest_run` covers the deploy skew window where this bundle outruns the backend.
+                    const run = result.run ?? result.latest_run
+                    getWarmLogic()?.actions.consumeWarm(warmSubmission, run?.id ?? null)
                     if (!run?.id) {
                         throw new Error('The run response did not include a run')
                     }
