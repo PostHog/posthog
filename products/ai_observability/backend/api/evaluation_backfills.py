@@ -29,6 +29,7 @@ from posthog.hogql.property import property_to_expr
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.dataclasses import frozen
+from posthog.event_usage import report_user_action
 from posthog.models.user import User
 from posthog.permissions import (
     AccessControlPermission,
@@ -462,6 +463,25 @@ class EvaluationBackfillViewSet(
         except BaseHogQLError as error:
             raise self._condition_rejected(evaluation, error)
 
+    def _report(self, event: str, properties: dict[str, Any]) -> None:
+        try:
+            report_user_action(self.request.user, event, properties, team=self.team, request=self.request)
+        except Exception:
+            logger.exception("llma.evaluation_backfill_capture_failed", analytics_event=event)
+
+    def _scope_properties(
+        self, evaluation: Evaluation, window: BackfillWindow, rerun_existing: bool, scope: BackfillScope
+    ) -> dict[str, Any]:
+        return {
+            "evaluation_id": str(evaluation.id),
+            "target": evaluation.target,
+            "evaluation_type": evaluation.evaluation_type,
+            "units_to_evaluate": scope.to_evaluate,
+            "units_already_evaluated": scope.already_judged,
+            "window_days": round((window.end - window.start).total_seconds() / 86400, 2),
+            "rerun_existing": rerun_existing,
+        }
+
     @extend_schema(
         request=EvaluationBackfillRequestSerializer,
         responses={200: EvaluationBackfillEstimateSerializer},
@@ -483,6 +503,10 @@ class EvaluationBackfillViewSet(
                 "window_start": window.start,
                 "window_end": window.end,
             }
+        )
+        self._report(
+            "evaluation backfill estimated",
+            self._scope_properties(evaluation, window, data["rerun_existing"], scope),
         )
         return Response(response.data)
 
@@ -616,6 +640,14 @@ class EvaluationBackfillViewSet(
             logger.exception("llma.evaluation_backfill_start_failed", backfill_id=str(backfill.pk))
             raise APIException("Couldn't confirm the backfill started. Check the list before starting another one.")
 
+        self._report(
+            "evaluation backfill started",
+            {
+                **self._scope_properties(evaluation, window, rerun_existing, scope),
+                "backfill_id": str(backfill.id),
+                "total_count": backfill.total_count,
+            },
+        )
         return Response(self.get_serializer(backfill).data, status=status.HTTP_201_CREATED)
 
     @extend_schema(request=None, responses={200: EvaluationBackfillSerializer})
@@ -633,4 +665,15 @@ class EvaluationBackfillViewSet(
                 logger.warning("llma.evaluation_backfill_cancel_failed", backfill_id=str(backfill.pk), error=str(error))
             # The status and finished_at were written by the update, not on this instance.
             backfill.refresh_from_db()
+            self._report(
+                "evaluation backfill cancelled",
+                {
+                    "backfill_id": str(backfill.pk),
+                    "evaluation_id": str(backfill.evaluation_id),
+                    "target": backfill.target,
+                    "dispatched_count": backfill.dispatched_count,
+                    "skipped_count": backfill.skipped_count,
+                    "total_count": backfill.total_count,
+                },
+            )
         return Response(self.get_serializer(backfill).data)

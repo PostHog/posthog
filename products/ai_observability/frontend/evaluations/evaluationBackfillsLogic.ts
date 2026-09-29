@@ -1,4 +1,5 @@
 import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import posthog from 'posthog-js'
 
 import { ApiError } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
@@ -615,7 +616,13 @@ export const evaluationBackfillsLogic = kea<evaluationBackfillsLogicType>([
         }
     }),
 
-    afterMount(({ actions, values }) => {
+    afterMount(({ actions, values, props }) => {
+        // Only the Backfills tab mounts this logic, so a mount is a view of the tab.
+        posthog.capture('evaluation backfills tab viewed', {
+            evaluation_id: props.evaluationId,
+            evaluation_type: values.evaluation?.evaluation_type,
+            target: values.evaluation?.target,
+        })
         actions.loadBackfills()
         if (values.evaluation) {
             actions.seedConditions(values.evaluation.conditions.map(toBackfillCondition))
