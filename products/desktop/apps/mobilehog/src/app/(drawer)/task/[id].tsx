@@ -1,6 +1,7 @@
+import { FlashList, type FlashListRef } from "@shopify/flash-list";
 import { useLocalSearchParams } from "expo-router";
-import { useEffect, useRef, useState } from "react";
-import { ScrollView, StyleSheet, Text, View } from "react-native";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { StyleSheet, Text, View } from "react-native";
 import { KeyboardStickyView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ChatHeader } from "@/components/ChatHeader";
@@ -8,7 +9,12 @@ import { Composer } from "@/components/Composer";
 import { DrawerScene } from "@/components/DrawerScene";
 import { FadeScrim } from "@/components/FadeScrim";
 import { Hedgehog } from "@/components/Hedgehog";
-import { StatusLine, Transcript } from "@/components/Transcript";
+import {
+  buildTranscriptRows,
+  StatusLine,
+  type TranscriptRow,
+  TranscriptRowView,
+} from "@/components/Transcript";
 import { useComposer } from "@/lib/composer";
 import { usePrefs } from "@/lib/prefs";
 import { useTask } from "@/lib/queries";
@@ -26,10 +32,7 @@ export default function TaskScreen() {
   const { connect, disconnect, sendPrompt, cancelTurn, respondToPermission } =
     useSessions();
   const setModel = useComposer((s) => s.setModel);
-  const scrollRef = useRef<ScrollView>(null);
-  // The transcript replays in batches, so follow the bottom as content grows
-  // until the reader scrolls or sends; from then on they own the position.
-  const followBottom = useRef(true);
+  const listRef = useRef<FlashListRef<TranscriptRow>>(null);
   const pendingScrollTo = useRef<string | null>(null);
   const [viewportHeight, setViewportHeight] = useState(0);
   const [composerHeight, setComposerHeight] = useState(0);
@@ -65,82 +68,91 @@ export default function TaskScreen() {
     if (!turnActive) setPinRoom(false);
   }, [turnActive]);
 
+  const workingLabel = session?.resuming
+    ? "Reconnecting"
+    : booting
+      ? "Starting sandbox"
+      : session?.connected
+        ? "Working"
+        : "Connecting";
+  const rows = useMemo(
+    () => (session ? buildTranscriptRows(session, workingLabel) : []),
+    [session, workingLabel],
+  );
+
   const send = async (text: string): Promise<void> => {
     // The bubble lays out before the request resolves, so pick the id first.
     const blockId = `local-${Date.now()}`;
     pendingScrollTo.current = blockId;
-    followBottom.current = false;
     setPinRoom(true);
     await sendPrompt(id, text, blockId);
   };
 
-  // Keep a sliver of the previous reply above the new message. Anything
-  // taller than the viewport starts at its top so as much as possible shows.
-  const onUserLayout = (blockId: string, y: number): void => {
-    if (pendingScrollTo.current !== blockId) return;
+  // Once the sent bubble is a row, pin it near the top with a sliver of the
+  // previous reply above it.
+  useEffect(() => {
+    const target = pendingScrollTo.current;
+    if (!target) return;
+    const index = rows.findIndex((row) => row.id === target);
+    if (index < 0) return;
     pendingScrollTo.current = null;
-    scrollRef.current?.scrollTo({
-      y: Math.max(0, topPadding + y - 56),
+    listRef.current?.scrollToIndex({
+      index,
+      viewPosition: 0,
+      viewOffset: 56,
       animated: true,
     });
-  };
+  }, [rows]);
 
   return (
     <DrawerScene>
       <ChatHeader />
-      <ScrollView
-        ref={scrollRef}
-        onLayout={(event) => setViewportHeight(event.nativeEvent.layout.height)}
-        contentContainerStyle={[
-          styles.scroll,
-          {
-            paddingTop: topPadding,
-            // Clear the floating composer, and leave room to pin a fresh
-            // message near the top of the screen.
-            paddingBottom: pinRoom
-              ? Math.max(composerHeight + 16, viewportHeight - 200)
-              : composerHeight + 16,
-          },
-        ]}
-        keyboardDismissMode="interactive"
-        onScrollBeginDrag={() => {
-          followBottom.current = false;
-        }}
-        onContentSizeChange={() => {
-          if (followBottom.current) {
-            scrollRef.current?.scrollToEnd({ animated: false });
-          }
-        }}
-      >
-        {session ? (
-          <Transcript
-            session={session}
-            workingLabel={
-              session.resuming
-                ? "Reconnecting"
-                : booting
-                  ? "Starting sandbox"
-                  : session.connected
-                    ? "Working"
-                    : "Connecting"
-            }
+      <FlashList
+        ref={listRef}
+        data={rows}
+        keyExtractor={(row) => row.id}
+        getItemType={(row) => row.kind}
+        renderItem={({ item }) => (
+          <TranscriptRowView
+            row={item}
             onPermission={(toolCallId, optionId) =>
               respondToPermission(id, toolCallId, optionId)
             }
-            onUserLayout={onUserLayout}
           />
-        ) : (
+        )}
+        ItemSeparatorComponent={Gap}
+        onLayout={(event) => setViewportHeight(event.nativeEvent.layout.height)}
+        contentContainerStyle={{
+          paddingTop: topPadding,
+          paddingHorizontal: 18,
+          // Clear the floating composer, and leave room to pin a fresh
+          // message near the top of the screen.
+          paddingBottom: pinRoom
+            ? Math.max(composerHeight + 16, viewportHeight - 200)
+            : composerHeight + 16,
+        }}
+        // Open at the end, and keep following it while the reader is near the
+        // bottom; a pinned message sits far enough up to opt out on its own.
+        maintainVisibleContentPosition={{
+          startRenderingFromBottom: true,
+          autoscrollToBottomThreshold: 0.2,
+          animateAutoScrollToBottom: false,
+        }}
+        keyboardDismissMode="interactive"
+        ListEmptyComponent={
           <View style={styles.loading}>
             <StatusLine
               label={task.error ? task.error.message : "Loading"}
               active={!task.error}
             />
           </View>
-        )}
-        {session?.error ? (
-          <Text style={styles.error}>{session.error}</Text>
-        ) : null}
-      </ScrollView>
+        }
+        ListFooterComponent={
+          session?.error ? (
+            <Text style={styles.error}>{session.error}</Text>
+          ) : null
+        }
+      />
       <KeyboardStickyView
         offset={{ closed: 0, opened: insets.bottom }}
         style={styles.dock}
@@ -168,9 +180,13 @@ export default function TaskScreen() {
   );
 }
 
+function Gap() {
+  return <View style={styles.gap} />;
+}
+
 const styles = StyleSheet.create({
-  loading: { paddingHorizontal: 18 },
-  scroll: { gap: 14 },
+  loading: { paddingTop: 4 },
+  gap: { height: 14 },
   error: {
     color: colors.danger,
     fontFamily: fonts.sans,
