@@ -11,6 +11,7 @@ import (
 	"os"
 	"runtime/pprof"
 	"slices"
+	"strconv"
 	"strings"
 	"unsafe"
 )
@@ -30,6 +31,14 @@ const (
 	eventProperties propertiesKind = iota
 	personProperties
 	temporaryProperties
+	eventEnvelope
+)
+
+const (
+	envelopeProperties = iota
+	envelopeTemporaryProperties
+	envelopePersonProperties
+	envelopeDocs
 )
 
 type pathRule struct {
@@ -187,6 +196,12 @@ type processor struct {
 	stringBuf       bytes.Buffer
 	tooDeepArrays   bool
 	discard         bool
+	collectNulls    bool
+	nullKeys        []string
+	path            []string
+	pathBuf         bytes.Buffer
+	docs            [envelopeDocs]bytes.Buffer
+	docNullKeys     [envelopeDocs][]string
 }
 
 func processLine(rawLine []byte, buf *bytes.Buffer) error {
@@ -195,6 +210,14 @@ func processLine(rawLine []byte, buf *bytes.Buffer) error {
 }
 
 func (p *processor) processLine(rawLine []byte, buf *bytes.Buffer) error {
+	if p.kind == eventEnvelope {
+		return p.processEnvelopeLine(rawLine, buf)
+	}
+	p.prepareLine(rawLine, buf)
+	return p.processDocument(rawLine, buf)
+}
+
+func (p *processor) prepareLine(rawLine []byte, buf *bytes.Buffer) {
 	for p.entryBufferMask != 0 {
 		i := bits.Len8(p.entryBufferMask) - 1
 		if cap(p.entryBuffers[i]) <= max(16, len(rawLine)) {
@@ -209,28 +232,46 @@ func (p *processor) processLine(rawLine []byte, buf *bytes.Buffer) error {
 	if p.stringBuf.Cap() > max(64*1024, 2*len(rawLine)) {
 		p.stringBuf = bytes.Buffer{}
 	}
-	p.data = rawLine
+	p.resetParser(rawLine)
+}
+
+func (p *processor) resetParser(data []byte) {
+	p.data = data
 	p.pos = 0
 	p.mutated = false
 	p.rawSafe = true
 	p.tooDeepArrays = false
+}
 
+// A nil value with a nil error means the document is too deep or nests arrays too deeply; the caller quarantines it.
+func (p *processor) parseDocument(raw []byte) (*value, error) {
+	p.resetParser(raw)
 	parsed, err := p.parseValue(1, 0)
 	if err != nil {
 		if errors.Is(err, errMaxJSONDepth) {
-			p.writeUnparseableProperties(buf, rawLine)
-			return nil
+			return nil, nil
 		}
-		return fmt.Errorf("json parse error: %w", err)
+		return nil, fmt.Errorf("json parse error: %w", err)
 	}
 	p.skipWS()
 	if p.pos != len(p.data) {
 		p.recycle(parsed)
-		return fmt.Errorf("json parse error: trailing data at byte %d", p.pos)
+		return nil, fmt.Errorf("json parse error: trailing data at byte %d", p.pos)
 	}
 	// Parsing counts arrays inside discarded properties so quarantine preserves rejected inputs.
 	if p.tooDeepArrays {
 		p.recycle(parsed)
+		return nil, nil
+	}
+	return parsed, nil
+}
+
+func (p *processor) processDocument(rawLine []byte, buf *bytes.Buffer) error {
+	parsed, err := p.parseDocument(rawLine)
+	if err != nil {
+		return err
+	}
+	if parsed == nil {
 		p.writeUnparseableProperties(buf, rawLine)
 		return nil
 	}
@@ -537,6 +578,9 @@ func (p *processor) parseObject(depth, arrayDepth int) (*value, error) {
 				p.discard = isDroppedEventProperty(key) || isTemporaryProperty(key)
 			case temporaryProperties:
 				p.discard = !isTemporaryProperty(key)
+			case eventEnvelope:
+				// Temporary properties are split off after parsing, so only the drop list is discarded here.
+				p.discard = isDroppedEventProperty(key)
 			}
 			p.mutated = p.mutated || p.discard
 		}
@@ -830,7 +874,13 @@ func (p *processor) cleanNode(pathRules *pathRule, v *value, depth int) (*value,
 			if child.kind < kindObject {
 				continue
 			}
+			if p.collectNulls {
+				p.path = append(p.path, strconv.Itoa(i))
+			}
 			cleaned, err := p.cleanNode(pathRules, child, depth+1)
+			if p.collectNulls {
+				p.path = p.path[:len(p.path)-1]
+			}
 			if err != nil {
 				return nil, err
 			}
@@ -856,7 +906,13 @@ func (p *processor) cleanObject(pathRules *pathRule, obj *value, depth int) erro
 		}
 		cleaned := entry.value
 		if cleaned.kind >= kindObject {
+			if p.collectNulls {
+				p.path = append(p.path, entry.key)
+			}
 			cleaned, err = p.cleanNode(childPathRules, cleaned, depth+1)
+			if p.collectNulls {
+				p.path = p.path[:len(p.path)-1]
+			}
 			if err != nil {
 				p.retainUnprocessedEntries(obj, writeIdx, readIdx)
 				return err
@@ -885,6 +941,9 @@ func (p *processor) cleanObject(pathRules *pathRule, obj *value, depth int) erro
 		}
 		if cleaned.kind == kindNull {
 			p.mutated = true
+			if p.collectNulls {
+				p.recordNullKey(entry.key)
+			}
 			p.recycle(cleaned)
 			continue
 		}
@@ -1449,6 +1508,267 @@ func borrowedBytes(s string) []byte {
 	return unsafe.Slice(unsafe.StringData(s), len(s))
 }
 
+// Envelope rows arrive as JSONEachRow, {"properties": "<json>", "person_properties": "<json>"}, and go back as
+// {"result": {...}} matching the named tuple declared for JSONCleanPostHogEvent.
+
+const (
+	envelopePropertiesField       = "properties"
+	envelopePersonPropertiesField = "person_properties"
+)
+
+var envelopeDocNames = [envelopeDocs]string{
+	envelopeProperties:          "properties",
+	envelopeTemporaryProperties: "temporary_properties",
+	envelopePersonProperties:    "person_properties",
+}
+
+func (p *processor) processEnvelopeLine(rawLine []byte, buf *bytes.Buffer) error {
+	p.prepareLine(rawLine, buf)
+
+	// The outer row is trusted ClickHouse output, so a parse failure is a protocol error.
+	p.kind = personProperties
+	outer, err := p.parseDocument(rawLine)
+	p.kind = eventEnvelope
+	if err != nil {
+		return fmt.Errorf("envelope row: %w", err)
+	}
+	if outer == nil || outer.kind != kindObject {
+		p.recycle(outer)
+		return fmt.Errorf("envelope row: expected a JSON object")
+	}
+	var properties, personProperties string
+	for _, field := range outer.entries {
+		if field.value.kind != kindString {
+			continue
+		}
+		switch field.key {
+		case envelopePropertiesField:
+			properties = field.value.s
+		case envelopePersonPropertiesField:
+			personProperties = field.value.s
+		}
+	}
+	// Escaped strings were copied out of stringBuf; unescaped ones borrow rawLine, which outlives this call.
+	p.recycle(outer)
+
+	p.cleanEventDocument(borrowedBytes(properties))
+	p.cleanPersonDocument(borrowedBytes(personProperties))
+
+	buf.Reset()
+	buf.WriteString(`{"result":{`)
+	for i, name := range envelopeDocNames {
+		if i > 0 {
+			buf.WriteByte(',')
+		}
+		writeJSONString(buf, name)
+		buf.WriteByte(':')
+		writeJSONString(buf, borrowedString(p.docs[i].Bytes()))
+	}
+	for i, name := range envelopeDocNames {
+		buf.WriteString(`,"`)
+		buf.WriteString(name)
+		buf.WriteString(`_null_keys":[`)
+		for j, key := range p.docNullKeys[i] {
+			if j > 0 {
+				buf.WriteByte(',')
+			}
+			writeJSONString(buf, key)
+		}
+		buf.WriteByte(']')
+	}
+	buf.WriteString("}}")
+
+	// Null keys can borrow the input row; drop them so the pool worker does not retain it.
+	for i := range p.docNullKeys {
+		clear(p.docNullKeys[i])
+		p.docNullKeys[i] = p.docNullKeys[i][:0]
+	}
+	clear(p.nullKeys)
+	p.nullKeys = p.nullKeys[:0]
+	return nil
+}
+
+func (p *processor) cleanEventDocument(raw []byte) {
+	permanent := &p.docs[envelopeProperties]
+	temporary := &p.docs[envelopeTemporaryProperties]
+	permanent.Reset()
+	temporary.Reset()
+	p.docNullKeys[envelopeProperties] = p.docNullKeys[envelopeProperties][:0]
+	p.docNullKeys[envelopeTemporaryProperties] = p.docNullKeys[envelopeTemporaryProperties][:0]
+
+	if isBlank(raw) {
+		permanent.WriteString("{}")
+		temporary.WriteString("{}")
+		return
+	}
+	quarantine := func() {
+		p.writeUnparseableProperties(permanent, raw)
+		temporary.Reset()
+		temporary.WriteString("{}")
+	}
+
+	parsed, err := p.parseDocument(raw)
+	if err != nil || parsed == nil || parsed.kind != kindObject {
+		p.recycle(parsed)
+		quarantine()
+		return
+	}
+
+	// Split the temporary allowlist off the top level; the drop list was discarded while parsing.
+	temporaryObject := p.newValue(kindObject)
+	writeIdx := 0
+	for _, property := range parsed.entries {
+		if isTemporaryProperty(property.key) {
+			temporaryObject.entries = append(temporaryObject.entries, property)
+			continue
+		}
+		parsed.entries[writeIdx] = property
+		writeIdx++
+	}
+	clear(parsed.entries[writeIdx:])
+	parsed.entries = parsed.entries[:writeIdx]
+
+	p.collectNulls = true
+	defer func() { p.collectNulls = false }()
+
+	p.nullKeys = p.nullKeys[:0]
+	cleaned, err := p.cleanEventProperties(parsed)
+	if err != nil || (p.mutated && exceedsJSONArrayDepth(cleaned, 0)) {
+		if err != nil {
+			p.recycle(parsed)
+		} else {
+			p.recycle(cleaned)
+		}
+		p.recycle(temporaryObject)
+		quarantine()
+		return
+	}
+	p.docNullKeys[envelopeProperties] = p.finishNullKeys(cleaned, p.docNullKeys[envelopeProperties])
+	p.writeValue(permanent, cleaned)
+	p.recycle(cleaned)
+
+	p.nullKeys = p.nullKeys[:0]
+	cleanedTemporary, err := p.cleanNode(nil, temporaryObject, 1)
+	if err != nil || (p.mutated && exceedsJSONArrayDepth(cleanedTemporary, 0)) {
+		// The permanent output already quarantines the raw document; do not duplicate it outside the allowlist.
+		if err != nil {
+			p.recycle(temporaryObject)
+		} else {
+			p.recycle(cleanedTemporary)
+		}
+		temporary.WriteString("{}")
+		return
+	}
+	p.docNullKeys[envelopeTemporaryProperties] = p.finishNullKeys(cleanedTemporary, p.docNullKeys[envelopeTemporaryProperties])
+	p.writeValue(temporary, cleanedTemporary)
+	p.recycle(cleanedTemporary)
+}
+
+func (p *processor) cleanPersonDocument(raw []byte) {
+	out := &p.docs[envelopePersonProperties]
+	out.Reset()
+	p.docNullKeys[envelopePersonProperties] = p.docNullKeys[envelopePersonProperties][:0]
+
+	if isBlank(raw) {
+		out.WriteString("{}")
+		return
+	}
+	p.kind = personProperties
+	parsed, err := p.parseDocument(raw)
+	p.kind = eventEnvelope
+	if err != nil || parsed == nil || parsed.kind != kindObject {
+		p.recycle(parsed)
+		p.writeUnparseableProperties(out, raw)
+		return
+	}
+
+	p.collectNulls = true
+	defer func() { p.collectNulls = false }()
+
+	p.nullKeys = p.nullKeys[:0]
+	cleaned, err := p.cleanNode(nil, parsed, 1)
+	if err != nil || (p.mutated && exceedsJSONArrayDepth(cleaned, 0)) {
+		if err != nil {
+			p.recycle(parsed)
+		} else {
+			p.recycle(cleaned)
+		}
+		p.writeUnparseableProperties(out, raw)
+		return
+	}
+	p.docNullKeys[envelopePersonProperties] = p.finishNullKeys(cleaned, p.docNullKeys[envelopePersonProperties])
+	p.writeValue(out, cleaned)
+	p.recycle(cleaned)
+}
+
+func isBlank(raw []byte) bool {
+	for _, c := range raw {
+		if c != ' ' && c != '\t' && c != '\n' && c != '\r' {
+			return false
+		}
+	}
+	return true
+}
+
+func (p *processor) recordNullKey(key string) {
+	if len(p.path) == 0 {
+		p.nullKeys = append(p.nullKeys, key)
+		return
+	}
+	p.pathBuf.Reset()
+	for _, segment := range p.path {
+		p.pathBuf.WriteString(segment)
+		p.pathBuf.WriteByte('.')
+	}
+	p.pathBuf.WriteString(key)
+	p.nullKeys = append(p.nullKeys, p.pathBuf.String())
+}
+
+// A duplicate or dotted key can leave a non-null value under a recorded path after cleaning.
+func (p *processor) finishNullKeys(root *value, out []string) []string {
+	for _, key := range p.nullKeys {
+		if slices.Contains(out, key) || pathExists(root, key) {
+			continue
+		}
+		out = append(out, key)
+	}
+	return out
+}
+
+// Cleaned keys never contain dots, so each segment is one object key or one array index.
+func pathExists(v *value, path string) bool {
+	for v != nil {
+		segment, rest, more := strings.Cut(path, ".")
+		switch v.kind {
+		case kindObject:
+			var next *value
+			for _, entry := range v.entries {
+				if entry.key == segment {
+					next = entry.value
+					break
+				}
+			}
+			v = next
+		case kindArray:
+			index, err := strconv.Atoi(segment)
+			if err != nil || index < 0 || index >= len(v.values) {
+				return false
+			}
+			v = v.values[index]
+		default:
+			return false
+		}
+		if v == nil {
+			return false
+		}
+		if !more {
+			return true
+		}
+		path = rest
+	}
+	return false
+}
+
 func readLine(reader *bufio.Reader) ([]byte, error) {
 	line, err := reader.ReadSlice('\n')
 	if err != bufio.ErrBufferFull {
@@ -1541,9 +1861,16 @@ func main() {
 	chunked := flag.Bool("chunked", false, "read a row-count header before each input chunk")
 	cleanPersonProperties := flag.Bool("person-properties", false, "clean person properties without event-specific transformations")
 	cleanTemporaryProperties := flag.Bool("temporary-properties", false, "retain only temporary event properties")
+	envelope := flag.Bool("event", false, "read JSONEachRow rows of event and person properties and write a JSONEachRow named tuple with every cleaned output")
 	flag.Parse()
-	if *cleanPersonProperties && *cleanTemporaryProperties {
-		fmt.Fprintln(os.Stderr, "person-properties and temporary-properties are mutually exclusive")
+	modes := 0
+	for _, enabled := range []bool{*cleanPersonProperties, *cleanTemporaryProperties, *envelope} {
+		if enabled {
+			modes++
+		}
+	}
+	if modes > 1 {
+		fmt.Fprintln(os.Stderr, "person-properties, temporary-properties and event are mutually exclusive")
 		os.Exit(1)
 	}
 
@@ -1574,6 +1901,9 @@ func main() {
 	}
 	if *cleanTemporaryProperties {
 		kind = temporaryProperties
+	}
+	if *envelope {
+		kind = eventEnvelope
 	}
 	if err := runner(os.Stdin, os.Stdout, kind); err != nil {
 		fmt.Fprintln(os.Stderr, err)

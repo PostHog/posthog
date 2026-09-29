@@ -73,9 +73,14 @@ def test_events_json_table_uses_dedicated_kafka_consumer_group(settings):
     assert f"CREATE TABLE IF NOT EXISTS {KAFKA_EVENTS_NATIVE_JSON_TABLE}" in kafka_table_query
     assert f"kafka_group_name = '{CONSUMER_GROUP_EVENTS_JSON_NATIVE_JSON}'" in kafka_table_query
     assert f"FROM {settings.CLICKHOUSE_DATABASE}.{KAFKA_EVENTS_NATIVE_JSON_TABLE}" in mv_query
-    assert "JSONCleanPostHogTemporaryProperties(" in mv_query
-    assert "accurateCastOrNull(if(isValidJSON(source.properties)" in mv_query
-    assert "accurateCastOrNull(if(isValidJSON(source.person_properties)" in mv_query
+    assert mv_query.count("JSONCleanPostHogEvent(properties, person_properties) AS cleaned") == 1
+    assert "JSONCleanPostHogEventProperties(" not in mv_query
+    assert "accurateCastOrNull(cleaned.properties," in mv_query
+    assert "accurateCastOrNull(cleaned.temporary_properties," in mv_query
+    assert "accurateCastOrNull(cleaned.person_properties," in mv_query
+    assert "cleaned.properties_null_keys AS properties_null_keys" in mv_query
+    assert "cleaned.temporary_properties_null_keys AS temporary_properties_null_keys" in mv_query
+    assert "cleaned.person_properties_null_keys AS person_properties_null_keys" in mv_query
 
 
 @pytest.mark.parametrize(

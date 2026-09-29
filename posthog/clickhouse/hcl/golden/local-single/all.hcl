@@ -1555,6 +1555,12 @@ database "posthog" {
     column "temporary_properties" {
       type = "JSON(max_dynamic_paths=32)"
     }
+    column "properties_null_keys" {
+      type = "Array(LowCardinality(String))"
+    }
+    column "temporary_properties_null_keys" {
+      type = "Array(LowCardinality(String))"
+    }
     column "timestamp" {
       type = "DateTime64(6, 'UTC')"
     }
@@ -1582,6 +1588,9 @@ database "posthog" {
     }
     column "person_properties" {
       type = "JSON(max_dynamic_paths=256, `$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_version` LowCardinality(String), `$device_type` LowCardinality(String), `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_time_zone` LowCardinality(String), `$initial_browser` LowCardinality(String), `$initial_browser_language` LowCardinality(String), `$initial_browser_version` LowCardinality(String), `$initial_device_type` LowCardinality(String), `$initial_geoip_city_name` LowCardinality(String), `$initial_geoip_continent_code` LowCardinality(String), `$initial_geoip_continent_name` LowCardinality(String), `$initial_geoip_country_code` LowCardinality(String), `$initial_geoip_country_name` LowCardinality(String), `$initial_geoip_subdivision_1_name` LowCardinality(String), `$initial_geoip_time_zone` LowCardinality(String), `$initial_os` LowCardinality(String), `$initial_os_version` LowCardinality(String), `$os` LowCardinality(String), `$os_version` LowCardinality(String))"
+    }
+    column "person_properties_null_keys" {
+      type = "Array(LowCardinality(String))"
     }
     column "group0_properties" {
       type = "String"
@@ -11407,6 +11416,13 @@ SQL
       type = "JSON(max_dynamic_paths=32)"
       ttl  = "toDateTime(inserted_at) + toIntervalDay(60)"
     }
+    column "properties_null_keys" {
+      type = "Array(LowCardinality(String))"
+    }
+    column "temporary_properties_null_keys" {
+      type = "Array(LowCardinality(String))"
+      ttl  = "toDateTime(inserted_at) + toIntervalDay(60)"
+    }
     column "timestamp" {
       type  = "DateTime64(6, 'UTC')"
       codec = "GCD, Default"
@@ -11438,6 +11454,9 @@ SQL
     }
     column "person_properties" {
       type = "JSON(max_dynamic_paths=256, `$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_version` LowCardinality(String), `$device_type` LowCardinality(String), `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_time_zone` LowCardinality(String), `$initial_browser` LowCardinality(String), `$initial_browser_language` LowCardinality(String), `$initial_browser_version` LowCardinality(String), `$initial_device_type` LowCardinality(String), `$initial_geoip_city_name` LowCardinality(String), `$initial_geoip_continent_code` LowCardinality(String), `$initial_geoip_continent_name` LowCardinality(String), `$initial_geoip_country_code` LowCardinality(String), `$initial_geoip_country_name` LowCardinality(String), `$initial_geoip_subdivision_1_name` LowCardinality(String), `$initial_geoip_time_zone` LowCardinality(String), `$initial_os` LowCardinality(String), `$initial_os_version` LowCardinality(String), `$os` LowCardinality(String), `$os_version` LowCardinality(String))"
+    }
+    column "person_properties_null_keys" {
+      type = "Array(LowCardinality(String))"
     }
     column "group0_properties" {
       type = "String"
@@ -17108,6 +17127,12 @@ SQL
     column "temporary_properties" {
       type = "JSON(max_dynamic_paths=32)"
     }
+    column "properties_null_keys" {
+      type = "Array(LowCardinality(String))"
+    }
+    column "temporary_properties_null_keys" {
+      type = "Array(LowCardinality(String))"
+    }
     column "timestamp" {
       type = "DateTime64(6, 'UTC')"
     }
@@ -17135,6 +17160,9 @@ SQL
     }
     column "person_properties" {
       type = "JSON(max_dynamic_paths=256, `$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_version` LowCardinality(String), `$device_type` LowCardinality(String), `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_time_zone` LowCardinality(String), `$initial_browser` LowCardinality(String), `$initial_browser_language` LowCardinality(String), `$initial_browser_version` LowCardinality(String), `$initial_device_type` LowCardinality(String), `$initial_geoip_city_name` LowCardinality(String), `$initial_geoip_continent_code` LowCardinality(String), `$initial_geoip_continent_name` LowCardinality(String), `$initial_geoip_country_code` LowCardinality(String), `$initial_geoip_country_name` LowCardinality(String), `$initial_geoip_subdivision_1_name` LowCardinality(String), `$initial_geoip_time_zone` LowCardinality(String), `$initial_os` LowCardinality(String), `$initial_os_version` LowCardinality(String), `$os` LowCardinality(String), `$os_version` LowCardinality(String))"
+    }
+    column "person_properties_null_keys" {
+      type = "Array(LowCardinality(String))"
     }
     column "group0_properties" {
       type = "String"
@@ -20398,18 +20426,10 @@ FROM
     SELECT
       uuid,
       event,
-      if(
-        isValidJSON(source.properties) AND startsWith(trimLeft(source.properties), '{'),
-        JSONCleanPostHogEventProperties(source.properties),
-        concat('{"$unparseable_properties":', toJSONString(source.properties), '}')
-      ) AS properties,
-      JSONCleanPostHogTemporaryProperties(
-        if(
-          isValidJSON(source.properties) AND startsWith(trimLeft(source.properties), '{'),
-          source.properties,
-          '{}'
-        )
-      ) AS temporary_properties,
+      cleaned.properties AS properties,
+      cleaned.temporary_properties AS temporary_properties,
+      cleaned.properties_null_keys AS properties_null_keys,
+      cleaned.temporary_properties_null_keys AS temporary_properties_null_keys,
       now64() AS inserted_at,
       timestamp,
       team_id,
@@ -20417,12 +20437,8 @@ FROM
       elements_chain,
       created_at,
       person_id,
-      if(
-        isValidJSON(source.person_properties)
-        AND startsWith(trimLeft(source.person_properties), '{'),
-        JSONCleanPostHogPersonProperties(source.person_properties),
-        concat('{"$unparseable_properties":', toJSONString(source.person_properties), '}')
-      ) AS person_properties,
+      cleaned.person_properties AS person_properties,
+      cleaned.person_properties_null_keys AS person_properties_null_keys,
       person_created_at,
       group0_properties,
       group1_properties,
@@ -20440,14 +20456,24 @@ FROM
       _timestamp,
       _offset,
       _partition,
-      arrayMap(
-        i -> (_headers.value[i]),
-        arrayFilter(
-          i -> ((_headers.name[i]) = 'kafka-consumer-breadcrumbs'),
-          arrayEnumerate(_headers.name)
-        )
-      ) AS consumer_breadcrumbs
-    FROM posthog.kafka_events_json_native_json AS source
+      consumer_breadcrumbs
+    FROM
+      (
+        SELECT
+          *,
+          _timestamp,
+          _offset,
+          _partition,
+          arrayMap(
+            i -> (_headers.value[i]),
+            arrayFilter(
+              i -> ((_headers.name[i]) = 'kafka-consumer-breadcrumbs'),
+              arrayEnumerate(_headers.name)
+            )
+          ) AS consumer_breadcrumbs,
+          JSONCleanPostHogEvent(properties, person_properties) AS cleaned
+        FROM posthog.kafka_events_json_native_json
+      ) AS source
   )
 SETTINGS
   input_format_try_infer_dates = 0,

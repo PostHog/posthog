@@ -42,6 +42,35 @@ The temporary cleaner emits `{}` because the permanent cleaner preserves the ori
 Run both event cleaners on the original document to retain that guarantee.
 Malformed JSON still fails instead of entering this quarantine path.
 
+### `JSONCleanPostHogEvent(properties, person_properties)`
+
+One call per event row for the native JSON events table. It takes the raw event and person properties, parses each document once, and returns a named tuple:
+
+| Field                            | Type            | Content                                                                              |
+| -------------------------------- | --------------- | ------------------------------------------------------------------------------------ |
+| `properties`                     | `String`        | What `JSONCleanPostHogEventProperties` returns                                       |
+| `temporary_properties`           | `String`        | What `JSONCleanPostHogTemporaryProperties` returns                                   |
+| `person_properties`              | `String`        | What `JSONCleanPostHogPersonProperties` returns                                      |
+| `properties_null_keys`           | `Array(String)` | Dotted paths of the object fields removed from `properties` because they were `null` |
+| `temporary_properties_null_keys` | `Array(String)` | The same for `temporary_properties`                                                  |
+| `person_properties_null_keys`    | `Array(String)` | The same for `person_properties`                                                     |
+
+The typed JSON column cannot store `null`, so the cleaners drop null fields. The null-key arrays keep the difference between a property sent as `null` and one never sent, and exports put the nulls back. A path is the flattened key path after dotted-key expansion, with array positions as numbers: `{"items":[{"a":null}]}` records `items.0.a`. A path that still holds a value after duplicate and dotted-key handling is not recorded, so `{"a":null,"a":1}` records nothing. Nulls inside arrays are not object fields; they stay in the array.
+
+The function never fails. Blank input becomes `{}`. Malformed, non-object, or too-deep input comes back quarantined under `$unparseable_properties` in that document, with `{}` temporary properties and no null keys, so the calling SQL needs no `isValidJSON` guards. Rows travel as `JSONEachRow` in both directions and the executable pool reads a chunk header before each batch.
+
+Read every field off one alias so the process runs once per row:
+
+```sql
+SELECT cleaned.properties, cleaned.temporary_properties, cleaned.properties_null_keys
+FROM (SELECT JSONCleanPostHogEvent(properties, person_properties) AS cleaned FROM events)
+```
+
+```sql
+SELECT JSONCleanPostHogEvent('{"$set":{"score":7},"$feature/demo":"control","plan":null,"custom":"kept"}', '{"email":null}');
+-- ('{"custom":"kept","$feature_flags":{"demo":"control"}}','{"$set":{"score":7}}','{}',['plan'],[],['email'])
+```
+
 ### `JSONCleanPostHogTemporaryProperties(json)`
 
 Accepts a JSON object and retains only the following top-level properties, including their dotted descendants. It uses the event cleaner's dotted-key expansion, null-object-field removal, duplicate handling, and integer protection, without coercing values to declared schema types. Non-object input fails.

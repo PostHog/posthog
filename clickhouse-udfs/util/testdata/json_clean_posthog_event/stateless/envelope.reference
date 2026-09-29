@@ -1,0 +1,6 @@
+('{"custom":"kept","nested":{"keep":1},"dotted":{},"items":[{},2],"$exception_types":["TypeError"],"$feature_flags":{"demo":"control","off":"$false"}}','{"$set":{"score":7},"$sdk_debug_probe":true}','{"name":"x","address":{}}',['plan','nested.deep','dotted.leaf','items.0.a'],['$set.gone'],['email','address.city'])
+('{"a":1,"Account":{"client_id":"abc"}}','{}','{}',['x'],[],[])
+('{}','{}','{}',[],[],[])
+('{"$unparseable_properties":"{\\"broken\\""}','{}','{"$unparseable_properties":"[1"}',[],[],[])
+('{"$unparseable_properties":"[]"}','{}','{"$unparseable_properties":"\\"text\\""}',[],[],[])
+('{"huge":"18446744073709551616"}','{"$set":{"profile":{}}}','{"n":1}',[],['$set.profile.missing'],['$initial_referrer'])

@@ -245,6 +245,8 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
     event String,
     properties {properties_json_type},
     temporary_properties {temporary_properties_json_type}{temporary_properties_storage},
+    properties_null_keys Array(LowCardinality(String)),
+    temporary_properties_null_keys Array(LowCardinality(String)){temporary_properties_storage},
     timestamp DateTime64(6, 'UTC'){gcd_codec},
     team_id Int64,
     distinct_id String,
@@ -254,6 +256,7 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
     elements_chain String,
     person_id UUID,
     person_properties {person_properties_json_type},
+    person_properties_null_keys Array(LowCardinality(String)),
     group0_properties String,
     group1_properties String,
     group2_properties String,
@@ -486,18 +489,26 @@ FROM {database}.{kafka_table}
     )
 
 
-def _clean_properties(column: str, cleaner: str, json_type: str) -> str:
-    fallback = f"concat('{{\"{UNPARSEABLE_PROPERTIES_KEY}\":', toJSONString({column}), '}}')"
-    cleaned = f"if(isValidJSON({column}) AND startsWith(trimLeft({column}), '{{'), {cleaner}({column}), {fallback})"
+# The subquery alias is computed once per row, so reading six tuple fields costs one process round trip.
+EVENTS_JSON_CLEANER = "JSONCleanPostHogEvent"
+EVENTS_JSON_CLEANED_ALIAS = "cleaned"
+
+
+def _cast_cleaned_properties(field: str, raw_column: str, json_type: str) -> str:
+    # The cleaner quarantines bad input itself; this fallback only covers a document the typed JSON column rejects.
+    fallback = f"concat('{{\"{UNPARSEABLE_PROPERTIES_KEY}\":', toJSONString({raw_column}), '}}')"
+    cleaned = f"{EVENTS_JSON_CLEANED_ALIAS}.{field}"
     escaped_type = escape_clickhouse_string(json_type)
     return f"ifNull(accurateCastOrNull({cleaned}, {escaped_type}), CAST({fallback}, {escaped_type}))"
 
 
-def _cast_temporary_properties(cleaned: str) -> str:
+def _cast_temporary_properties(field: str) -> str:
     # A materialized view converts a String into a JSON column at write time, outside its SELECT, where
     # the SELECT's SETTINGS do not apply. The explicit cast keeps date inference off for this column too.
     escaped_type = escape_clickhouse_string(TEMPORARY_PROPERTIES_JSON_TYPE)
-    return f"ifNull(accurateCastOrNull({cleaned}, {escaped_type}), CAST('{{}}', {escaped_type}))"
+    return (
+        f"ifNull(accurateCastOrNull({EVENTS_JSON_CLEANED_ALIAS}.{field}, {escaped_type}), CAST('{{}}', {escaped_type}))"
+    )
 
 
 def EVENTS_JSON_TABLE_MV_SQL(
@@ -523,6 +534,8 @@ uuid,
 event,
 {properties_expr} AS properties,
 {temporary_properties_expr} AS temporary_properties,
+{cleaned}.properties_null_keys AS properties_null_keys,
+{cleaned}.temporary_properties_null_keys AS temporary_properties_null_keys,
 now64() AS inserted_at,
 timestamp,
 team_id,
@@ -531,6 +544,7 @@ elements_chain,
 created_at,
 person_id,
 {person_properties_expr} AS person_properties,
+{cleaned}.person_properties_null_keys AS person_properties_null_keys,
 person_created_at,
 group0_properties,
 group1_properties,
@@ -548,14 +562,24 @@ coalesce(captured_at, created_at) AS captured_at,
 _timestamp,
 _offset,
 _partition,
+consumer_breadcrumbs
+FROM
+(
+SELECT
+*,
+_timestamp,
+_offset,
+_partition,
 arrayMap(
     i -> _headers.value[i],
     arrayFilter(
         i -> _headers.name[i] = 'kafka-consumer-breadcrumbs',
         arrayEnumerate(_headers.name)
     )
-) as consumer_breadcrumbs
-FROM {database}.{kafka_table} AS source
+) AS consumer_breadcrumbs,
+{cleaner}(properties, person_properties) AS {cleaned}
+FROM {database}.{kafka_table}
+) AS source
 )
 SETTINGS {insert_settings}
 """.format(
@@ -565,15 +589,12 @@ SETTINGS {insert_settings}
         on_cluster_clause=f"ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'" if on_cluster else "",
         database=settings.CLICKHOUSE_DATABASE,
         insert_settings=EVENTS_JSON_INSERT_SETTINGS,
-        temporary_properties_expr=_cast_temporary_properties(
-            "JSONCleanPostHogTemporaryProperties(if(isValidJSON(source.properties) "
-            "AND startsWith(trimLeft(source.properties), '{'), source.properties, '{}'))"
-        ),
-        properties_expr=_clean_properties(
-            "source.properties", "JSONCleanPostHogEventProperties", EVENTS_PROPERTIES_JSON_TYPE()
-        ),
-        person_properties_expr=_clean_properties(
-            "source.person_properties", "JSONCleanPostHogPersonProperties", PERSON_PROPERTIES_JSON_TYPE()
+        cleaner=EVENTS_JSON_CLEANER,
+        cleaned=EVENTS_JSON_CLEANED_ALIAS,
+        temporary_properties_expr=_cast_temporary_properties("temporary_properties"),
+        properties_expr=_cast_cleaned_properties("properties", "source.properties", EVENTS_PROPERTIES_JSON_TYPE()),
+        person_properties_expr=_cast_cleaned_properties(
+            "person_properties", "source.person_properties", PERSON_PROPERTIES_JSON_TYPE()
         ),
     )
 
@@ -786,10 +807,14 @@ def BULK_INSERT_EVENT_SQL(table_name: str | None = None, *, values: str = "") ->
     if table_name is None:
         table_name = EVENTS_DATA_TABLE()
 
-    # Native fixtures need ingestion cleanup, and VALUES cannot execute an external UDF.
+    # Native fixtures need ingestion cleanup, and VALUES cannot execute an external UDF. c3 is properties and c9
+    # is person_properties in the positional column list below.
     source = (
-        f"SELECT * REPLACE(JSONCleanPostHogEventProperties(source.c3) AS c3), "
-        f"JSONCleanPostHogTemporaryProperties(source.c3) FROM values({values}) AS source "
+        f"SELECT * EXCEPT ({EVENTS_JSON_CLEANED_ALIAS}) "
+        f"REPLACE ({EVENTS_JSON_CLEANED_ALIAS}.properties AS c3, {EVENTS_JSON_CLEANED_ALIAS}.person_properties AS c9), "
+        f"{EVENTS_JSON_CLEANED_ALIAS}.temporary_properties, {EVENTS_JSON_CLEANED_ALIAS}.properties_null_keys, "
+        f"{EVENTS_JSON_CLEANED_ALIAS}.temporary_properties_null_keys, {EVENTS_JSON_CLEANED_ALIAS}.person_properties_null_keys "
+        f"FROM (SELECT *, {EVENTS_JSON_CLEANER}(c3, c9) AS {EVENTS_JSON_CLEANED_ALIAS} FROM values({values})) AS source "
         f"SETTINGS {EVENTS_JSON_INSERT_SETTINGS}"
         if table_name == EVENTS_JSON_DATA_TABLE
         else f"VALUES{values}"
@@ -820,7 +845,7 @@ INSERT INTO {table_name}
     person_mode,
     created_at,
     _timestamp,
-    _offset{", temporary_properties" if table_name == EVENTS_JSON_DATA_TABLE else ""}
+    _offset{", temporary_properties, properties_null_keys, temporary_properties_null_keys, person_properties_null_keys" if table_name == EVENTS_JSON_DATA_TABLE else ""}
 )
 {source}
 """

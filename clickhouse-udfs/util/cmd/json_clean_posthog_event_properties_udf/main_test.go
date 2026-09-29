@@ -744,3 +744,154 @@ func TestProcessLineSplitsTemporaryProperties(t *testing.T) {
 		}
 	}
 }
+
+type envelopeResult struct {
+	Properties                  string   `json:"properties"`
+	TemporaryProperties         string   `json:"temporary_properties"`
+	PersonProperties            string   `json:"person_properties"`
+	PropertiesNullKeys          []string `json:"properties_null_keys"`
+	TemporaryPropertiesNullKeys []string `json:"temporary_properties_null_keys"`
+	PersonPropertiesNullKeys    []string `json:"person_properties_null_keys"`
+}
+
+func processEnvelope(t *testing.T, proc *processor, properties, personProperties string) envelopeResult {
+	t.Helper()
+	row, err := json.Marshal(map[string]string{"properties": properties, "person_properties": personProperties})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := proc.processLine(row, &out); err != nil {
+		t.Fatal(err)
+	}
+	var decoded struct {
+		Result envelopeResult `json:"result"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &decoded); err != nil {
+		t.Fatalf("output %s is not JSONEachRow: %v", out.String(), err)
+	}
+	return decoded.Result
+}
+
+func TestProcessEnvelopeLineSplitsEveryOutput(t *testing.T) {
+	proc := processor{kind: eventEnvelope}
+	got := processEnvelope(t, &proc,
+		`{"$set":{"score":7,"gone":null},"$sdk_debug_probe":true,"$feature/demo":"control","$feature/off":"false","$feature_flag_payload":{"x":1},"$ai_input":"secret","custom":"kept","plan":null,"nested":{"deep":null,"keep":1},"dotted.leaf":null,"items":[{"a":null},2],"$exception_types":"TypeError"}`,
+		`{"name":"x","email":null,"$initial_referrer":null,"address":{"city":null}}`,
+	)
+	want := envelopeResult{
+		Properties:                  `{"custom":"kept","nested":{"keep":1},"dotted":{},"items":[{},2],"$exception_types":["TypeError"],"$feature_flags":{"demo":"control","off":"$false"}}`,
+		TemporaryProperties:         `{"$set":{"score":7},"$sdk_debug_probe":true}`,
+		PersonProperties:            `{"name":"x","address":{}}`,
+		PropertiesNullKeys:          []string{"plan", "nested.deep", "dotted.leaf", "items.0.a"},
+		TemporaryPropertiesNullKeys: []string{"$set.gone"},
+		PersonPropertiesNullKeys:    []string{"email", "$initial_referrer", "address.city"},
+	}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("got  %+v\nwant %+v", got, want)
+	}
+}
+
+func TestProcessEnvelopeLineNullKeysIgnoreSurvivingValues(t *testing.T) {
+	proc := processor{kind: eventEnvelope}
+	tests := []struct {
+		name, properties string
+		want             []string
+	}{
+		{"duplicate keeps value", `{"a":null,"a":1}`, nil},
+		{"duplicate keeps later value", `{"a":1,"a":null}`, nil},
+		{"dotted key beats nested null", `{"Account.client_id":"abc","Account":{"client_id":null}}`, nil},
+		{"repeated null once", `{"x":null,"x":null}`, []string{"x"}},
+		{"dropped list never recorded", `{"$ai_input":null,"$feature_flag_payload":null,"kept":null}`, []string{"kept"}},
+		{"null flags map", `{"$feature_flags":null}`, []string{"$feature_flags"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := processEnvelope(t, &proc, tt.properties, `{}`)
+			if fmt.Sprint(got.PropertiesNullKeys) != fmt.Sprint(tt.want) {
+				t.Fatalf("null keys = %v, want %v", got.PropertiesNullKeys, tt.want)
+			}
+		})
+	}
+}
+
+func TestProcessEnvelopeLineQuarantinesBadInput(t *testing.T) {
+	proc := processor{kind: eventEnvelope}
+	poison := `{"$set":` + strings.Repeat(`[`, 9) + `1` + strings.Repeat(`]`, 9) + `}`
+	tests := []struct {
+		name, properties, person string
+		want                     envelopeResult
+	}{
+		{"blank", "", "  ", envelopeResult{Properties: "{}", TemporaryProperties: "{}", PersonProperties: "{}"}},
+		{"malformed", `{"broken"`, `[1`, envelopeResult{
+			Properties: `{"$unparseable_properties":"{\"broken\""}`, TemporaryProperties: "{}",
+			PersonProperties: `{"$unparseable_properties":"[1"}`,
+		}},
+		{"non-object", `[]`, `"text"`, envelopeResult{
+			Properties: `{"$unparseable_properties":"[]"}`, TemporaryProperties: "{}",
+			PersonProperties: `{"$unparseable_properties":"\"text\""}`,
+		}},
+		{"too deep arrays", poison, `{"ok":1}`, envelopeResult{
+			Properties: fmt.Sprintf(`{"$unparseable_properties":%q}`, poison), TemporaryProperties: "{}",
+			PersonProperties: `{"ok":1}`,
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := processEnvelope(t, &proc, tt.properties, tt.person)
+			if fmt.Sprint(got) != fmt.Sprint(tt.want) {
+				t.Fatalf("got  %+v\nwant %+v", got, tt.want)
+			}
+		})
+	}
+
+	var out bytes.Buffer
+	for _, row := range []string{`not json`, `[]`, `{"properties":1}` + "x"} {
+		if err := proc.processLine([]byte(row), &out); err == nil {
+			t.Fatalf("expected a protocol error for envelope row %s", row)
+		}
+	}
+	got := processEnvelope(t, &proc, `{"a":1}`, `{"b":2}`)
+	if got.Properties != `{"a":1}` || got.PersonProperties != `{"b":2}` {
+		t.Fatalf("processor did not recover after protocol errors: %+v", got)
+	}
+}
+
+func TestProcessEnvelopeLineMissingFields(t *testing.T) {
+	proc := processor{kind: eventEnvelope}
+	var out bytes.Buffer
+	if err := proc.processLine([]byte(`{"properties":"{\"a\":null}"}`), &out); err != nil {
+		t.Fatal(err)
+	}
+	want := `{"result":{"properties":"{}","temporary_properties":"{}","person_properties":"{}","properties_null_keys":["a"],"temporary_properties_null_keys":[],"person_properties_null_keys":[]}}`
+	if out.String() != want {
+		t.Fatalf("processLine() = %s, want %s", out.String(), want)
+	}
+}
+
+func TestRunChunkedEnvelope(t *testing.T) {
+	rows := []string{
+		`{"properties":"{\"keep\":1,\"drop\":null,\"$set\":{\"a\":1}}","person_properties":"{\"p\":null}"}`,
+		`{"properties":"{\"$feature/enabled\":true}","person_properties":""}`,
+		`{"properties":"","person_properties":"{}"}`,
+	}
+	input := "2\n" + rows[0] + "\n" + rows[1] + "\n1\n" + rows[2] + "\n"
+	var output bytes.Buffer
+	if err := runChunked(strings.NewReader(input), &output, eventEnvelope); err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSuffix(output.String(), "\n"), "\n")
+	if len(lines) != 3 {
+		t.Fatalf("got %d output lines, want 3: %q", len(lines), output.String())
+	}
+	want := []string{
+		`{"result":{"properties":"{\"keep\":1}","temporary_properties":"{\"$set\":{\"a\":1}}","person_properties":"{}","properties_null_keys":["drop"],"temporary_properties_null_keys":[],"person_properties_null_keys":["p"]}}`,
+		`{"result":{"properties":"{\"$feature_flags\":{\"enabled\":true}}","temporary_properties":"{}","person_properties":"{}","properties_null_keys":[],"temporary_properties_null_keys":[],"person_properties_null_keys":[]}}`,
+		`{"result":{"properties":"{}","temporary_properties":"{}","person_properties":"{}","properties_null_keys":[],"temporary_properties_null_keys":[],"person_properties_null_keys":[]}}`,
+	}
+	for i := range want {
+		if lines[i] != want[i] {
+			t.Fatalf("line %d = %s, want %s", i, lines[i], want[i])
+		}
+	}
+}
