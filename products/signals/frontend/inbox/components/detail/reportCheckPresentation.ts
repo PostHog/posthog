@@ -29,6 +29,8 @@ export interface ReportCheckRowData {
     cancelled: boolean
     /** Open checks can still be stopped; terminal ones cannot. */
     cancellable: boolean
+    /** An errored or expired check that no later check replaces yet. */
+    retryable: boolean
 }
 
 /** A soak window in the words the copy needs: "7 days", "36 hours", "90 minutes". */
@@ -70,6 +72,9 @@ function shortDate(value: string): string {
 
 /** Mirrors `SignalReportCheck.OPEN_STATUSES`: the two statuses a check can still produce a verdict from. */
 const OPEN_STATUSES = ['pending', 'active']
+
+/** Mirrors `report_check_authoring.RETRYABLE_CHECK_STATUSES`: the checks that ended without a verdict. */
+const RETRYABLE_STATUSES = ['errored', 'expired']
 
 /** A check is running when its scout run is open; dispatch also pushes `next_run_at` out to the result window. */
 function isRunning(check: SignalReportCheckApi): boolean {
@@ -116,6 +121,7 @@ function terminalCheckRow(
     explanation: string | undefined
 ): Pick<ReportCheckRowData, 'tag' | 'detail'> {
     const ranOn = check.last_run_at ? shortDate(check.last_run_at) : null
+    const errorReason = check.last_error?.trim() || explanation
 
     switch (check.status) {
         case 'passed':
@@ -125,7 +131,7 @@ function terminalCheckRow(
         case 'errored':
             return {
                 tag: { label: "Couldn't measure", type: 'warning' },
-                detail: joinDetail([`Gave up after ${check.consecutive_errors} tries`, ranOn, explanation]),
+                detail: joinDetail([`Gave up after ${check.consecutive_errors} tries`, ranOn, errorReason]),
             }
         case 'cancelled':
             return { tag: { label: 'Cancelled', type: 'muted' }, detail: `Stopped ${shortDate(check.updated_at)}` }
@@ -136,7 +142,11 @@ function terminalCheckRow(
     return check.last_run_at
         ? {
               tag: { label: 'Expired', type: 'muted' },
-              detail: joinDetail([`Last ran ${ranOn}`, `expired ${shortDate(check.updated_at)}`]),
+              detail: joinDetail([
+                  `Last ran ${ranOn}`,
+                  `expired ${shortDate(check.updated_at)}`,
+                  check.last_outcome === 'errored' ? check.last_error : null,
+              ]),
           }
         : {
               tag: { label: 'Never ran', type: 'muted' },
@@ -182,9 +192,23 @@ export function latestCheckExplanations(artefacts: SignalReportArtefact[]): Map<
     return explanations
 }
 
+/** The checks a later check retries, read from the `replaces_check_id` on each `check_scheduled` entry. */
+export function replacedCheckIds(artefacts: SignalReportArtefact[]): Set<string> {
+    const replaced = new Set<string>()
+    for (const artefact of artefacts) {
+        const replacesCheckId =
+            artefact.type === 'check_scheduled' ? (artefact.content as CheckScheduledContent)?.replaces_check_id : null
+        if (replacesCheckId) {
+            replaced.add(replacesCheckId)
+        }
+    }
+    return replaced
+}
+
 export function buildReportCheckRows(
     checks: SignalReportCheckApi[],
-    explanations: Map<string, string>
+    explanations: Map<string, string>,
+    replaced: Set<string> = new Set()
 ): ReportCheckRowData[] {
     return [...checks]
         .sort((a, b) => {
@@ -199,6 +223,7 @@ export function buildReportCheckRows(
                 ...(open ? openCheckRow(check) : terminalCheckRow(check, explanations.get(check.id))),
                 cancelled: check.status === 'cancelled',
                 cancellable: open,
+                retryable: RETRYABLE_STATUSES.includes(check.status) && !replaced.has(check.id),
             }
         })
 }
@@ -265,6 +290,7 @@ const CHECK_CANCELLED_REASONS: Record<string, string> = {
 export function checkScheduledEntry(content: CheckScheduledContent): CheckLifecycleEntry {
     const lane = laneRunsIt(content.kind, content.skill_name)
     const runs = content.runs && content.runs > 1 ? `${content.runs} runs` : null
+    const retry = content.replaces_check_id ? 'Retries an earlier check that could not settle' : null
 
     if (content.arms_on_resolve) {
         const start = content.soak_minutes
@@ -272,7 +298,7 @@ export function checkScheduledEntry(content: CheckScheduledContent): CheckLifecy
             : 'Starts when this report is resolved'
         return {
             tag: { label: 'Waiting for resolve', type: 'muted' },
-            detail: joinDetail([start, lane, runs]),
+            detail: joinDetail([retry, start, lane, runs]),
         }
     }
 
@@ -281,7 +307,7 @@ export function checkScheduledEntry(content: CheckScheduledContent): CheckLifecy
             label: content.next_run_at ? `Runs ${shortDate(content.next_run_at)}` : 'Scheduled',
             type: 'primary',
         },
-        detail: joinDetail([lane ?? 'The coordinator measures it', runs]),
+        detail: joinDetail([retry, lane ?? 'The coordinator measures it', runs]),
     }
 }
 
