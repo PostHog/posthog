@@ -1,8 +1,10 @@
 import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
 
-import api from 'lib/api'
+import { ApiConfig } from 'lib/api'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+
+import { notebooksKernelRestartCreate } from 'products/notebooks/frontend/generated/api'
 
 import { notebookKernelInfoLogic } from './notebookKernelInfoLogic'
 import { notebookNodeStalenessLogic } from './notebookNodeStalenessLogic'
@@ -130,7 +132,7 @@ export const notebookJupyterLogic = kea<notebookJupyterLogicType>([
             try {
                 // Awaited here rather than dispatched to the kernel logic, so "run all" starts only
                 // once the fresh kernel is up.
-                await api.notebooks.kernelRestart(props.shortId)
+                await notebooksKernelRestartCreate(String(ApiConfig.getCurrentTeamId()), props.shortId)
                 actions.resetExecutionCounter()
                 if (runAll) {
                     notebookRunLogic.findMounted({ shortId: props.shortId })?.actions.startRun()
