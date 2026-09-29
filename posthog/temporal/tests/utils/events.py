@@ -7,6 +7,8 @@ import typing
 import datetime as dt
 import itertools
 
+from django.conf import settings
+
 import aiohttp.client_exceptions
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_random_exponential
 
@@ -167,6 +169,33 @@ async def insert_event_values_in_clickhouse(
             )
             for event in events
         ],
+    )
+    if table == "sharded_events" and settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+        await mirror_events_into_native_json_table(client, [str(event["uuid"]) for event in events])
+
+
+async def mirror_events_into_native_json_table(client: ClickHouseClient, uuids: list[str]) -> None:
+    """Copy rows just written to sharded_events into sharded_events_json.
+
+    Native-JSON reads (HogQL models, backfills) target the JSON table. The ingest cleaners are executable
+    UDFs, which a VALUES insert cannot call, so the rows go through a SELECT like bulk_create_events does.
+    """
+    uuid_list = ", ".join(f"'{event_uuid}'" for event_uuid in uuids)
+    await execute_query(
+        client,
+        f"""
+    INSERT INTO sharded_events_json (
+        uuid, event, timestamp, _timestamp, person_id, team_id, properties, temporary_properties,
+        elements_chain, distinct_id, inserted_at, created_at, person_properties
+    )
+    SELECT
+        uuid, event, timestamp, _timestamp, person_id, team_id,
+        JSONCleanPostHogEventProperties(if(empty(properties), '{{}}', properties)),
+        JSONCleanPostHogTemporaryProperties(if(empty(properties), '{{}}', properties)),
+        elements_chain, distinct_id, inserted_at, created_at, if(empty(person_properties), '{{}}', person_properties)
+    FROM sharded_events
+    WHERE uuid IN ({uuid_list})
+    """,
     )
 
 

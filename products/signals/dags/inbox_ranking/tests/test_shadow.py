@@ -10,13 +10,25 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 from botocore.exceptions import ClientError
 
+from posthog import settings
+
 from products.signals.dags.inbox_ranking.common import partition_object_key
-from products.signals.dags.inbox_ranking.shadow.dag import GRADE_SCHEMA, grade_rows, impression_frame, load_scores
+from products.signals.dags.inbox_ranking.dataset.queries import region_app_host
+from products.signals.dags.inbox_ranking.shadow.dag import (
+    GRADE_SCHEMA,
+    grade_rows,
+    impression_frame,
+    load_scores,
+    score_lookback_dates,
+)
 from products.signals.dags.inbox_ranking.shadow.metrics import (
+    ALL_ROWS_SCOPE,
     ATTRIBUTION_WINDOW,
     HEURISTIC_ORDER,
     MODEL_ORDER,
     RANDOM_ORDER,
+    SCORED_ROWS_SCOPE,
+    RankingGrade,
     deduplicate_lists,
     grade_lists,
     join_scores,
@@ -30,6 +42,7 @@ from products.signals.dags.inbox_ranking.shadow.queries import IMPRESSION_LISTS_
 from products.signals.dags.inbox_ranking.shadow.telemetry import (
     SHADOW_RANKING_GRADED_EVENT,
     SHADOW_RUN_COMPLETED_EVENT,
+    SHADOW_SCORED_RANKING_GRADED_EVENT,
     shadow_grade_events,
 )
 from products.signals.dags.inbox_ranking.training.unseen import UNSEEN_SCORES_TABLE
@@ -40,6 +53,11 @@ WINDOW_START = datetime.datetime(2026, 9, 10, tzinfo=datetime.UTC)
 WINDOW_END = datetime.datetime(2026, 9, 11, tzinfo=datetime.UTC)
 UUID_A = "0198c0e8-93c8-0000-38f5-a934eeb1b93e"
 UUID_B = "0198c0e8-93c8-0000-38f5-a934eeb1b93f"
+UUID_C = "0198c0e8-93c8-0000-38f5-a934eeb1b940"
+
+
+def _by_order(grades: list[RankingGrade], *, scope: str = ALL_ROWS_SCOPE) -> dict[str, RankingGrade]:
+    return {grade.ranking_order: grade for grade in grades if grade.grading_scope == scope}
 
 
 def _lists(rows: list[dict[str, object]]) -> pd.DataFrame:
@@ -65,6 +83,11 @@ def _served(impression_id: str, report_ids: list[str], *, at: datetime.datetime 
     ]
 
 
+def _joined(served: pd.DataFrame, *, head: str = "open", **columns: object) -> pd.DataFrame:
+    """A frame shaped like `join_scores` output, for grades that need no availability logic."""
+    return served.assign(model_role="champion", head=head, score_pending=False, score_is_fallback=False, **columns)
+
+
 def _scores(report_ids: list[str], scores: list[float], *, snapshot_date: datetime.date, head: str = "open"):
     frame = pd.DataFrame(
         {
@@ -77,7 +100,10 @@ def _scores(report_ids: list[str], scores: list[float], *, snapshot_date: dateti
             "score": scores,
         }
     )
-    return frame.assign(available_at=pd.Timestamp(snapshot_date, tz="UTC") + datetime.timedelta(days=1, hours=7))
+    return frame.assign(
+        available_at=pd.Timestamp(snapshot_date, tz="UTC") + datetime.timedelta(days=1, hours=7),
+        score_is_fallback=False,
+    )
 
 
 def test_ndcg_rewards_putting_the_engaged_report_first():
@@ -213,12 +239,14 @@ def test_a_list_only_uses_scores_that_already_existed_when_it_was_served():
     assert joined["report_id"].tolist() == [UUID_A, UUID_B]
     assert joined["score"].iloc[0] == 0.4
     assert pd.isna(joined["score"].iloc[1])
+    # The unscored row is pending, not unknown: its score exists and lands after the impression.
+    assert joined["score_pending"].tolist() == [False, True]
     assert score_coverage(len(rows), joined) == 0.5
 
 
 def test_lists_without_an_outcome_or_a_choice_to_make_are_not_graded():
     rows = _lists([*_served("no_outcome", [UUID_A, UUID_B]), *_served("single", [UUID_A])])
-    graded = rows.assign(outcome_open=[False, False, True], score=0.5, head="open")
+    graded = _joined(rows, outcome_open=[False, False, True], score=0.5)
 
     assert served_lists(graded, "open") == []
 
@@ -228,15 +256,9 @@ def test_the_model_order_is_graded_against_the_served_order_and_chance():
     served = _lists(_served("first", [UUID_A, UUID_B, UUID_B + "-c", UUID_B + "-d"])).assign(
         outcome_open=[False, False, False, True], outcome_action=False
     )
-    joined = served.assign(
-        model_name="tabular_xgb",
-        model_version="2026-09-09",
-        model_role="champion",
-        head="open",
-        score=[0.1, 0.2, 0.3, 0.9],
-    )
+    joined = _joined(served, model_name="tabular_xgb", model_version="2026-09-09", score=[0.1, 0.2, 0.3, 0.9])
 
-    grades = {grade.ranking_order: grade for grade in grade_lists(joined, served=served)}
+    grades = _by_order(grade_lists(joined, served=served))
     ndcg_5 = {order: grade.ndcg_5 or 0.0 for order, grade in grades.items()}
 
     assert grades[MODEL_ORDER].mrr == 1.0
@@ -249,6 +271,8 @@ def test_the_model_order_is_graded_against_the_served_order_and_chance():
     # The served rank of the opened report, which is how much position bias these numbers carry.
     assert grades[MODEL_ORDER].positive_served_rank_mean == 4.0
     assert {grade.outcome for grade in grade_lists(joined, served=served)} == {"open"}
+    # Every row is scored, so the two scopes grade the same rows and report the same numbers.
+    assert _by_order(grade_lists(joined, served=served), scope=SCORED_ROWS_SCOPE)[MODEL_ORDER].mrr == 1.0
 
 
 def test_a_grade_carries_its_own_score_coverage_not_the_run_s():
@@ -257,9 +281,9 @@ def test_a_grade_carries_its_own_score_coverage_not_the_run_s():
     served = _lists(_served("first", [UUID_A, UUID_B, UUID_B + "-c", UUID_B + "-d"])).assign(
         outcome_open=[True, False, False, False], outcome_action=[True, False, False, False]
     )
-    scored = {"model_name": "tabular_xgb", "model_version": "2026-09-09", "model_role": "champion", "score": 0.5}
+    scored = {"model_name": "tabular_xgb", "model_version": "2026-09-09", "score": 0.5}
     joined = pd.concat(
-        [served.assign(head="open", **scored), served.head(2).assign(head="action", **scored)],
+        [_joined(served, head="open", **scored), _joined(served.head(2), head="action", **scored)],
         ignore_index=True,
     )
 
@@ -278,55 +302,93 @@ def test_the_chance_line_does_not_move_when_the_rows_arrive_in_another_order():
     served = _lists(_served("first", [UUID_A, UUID_B, UUID_B + "-c", UUID_B + "-d"])).assign(
         outcome_open=[False, True, False, True], outcome_action=False
     )
-    joined = served.assign(
-        model_name="tabular_xgb",
-        model_version="2026-09-09",
-        model_role="champion",
-        head="open",
-        score=[0.1, 0.2, 0.3, 0.9],
-    )
+    joined = _joined(served, model_name="tabular_xgb", model_version="2026-09-09", score=[0.1, 0.2, 0.3, 0.9])
 
     def chance(frame: pd.DataFrame) -> tuple:
-        grade = next(g for g in grade_lists(frame, served=served) if g.ranking_order == RANDOM_ORDER)
+        grade = _by_order(grade_lists(frame, served=served))[RANDOM_ORDER]
         return (grade.ndcg_5, grade.ndcg_10, grade.mrr)
 
     assert chance(joined.iloc[[3, 0, 2, 1]]) == chance(joined)
 
 
-def test_a_grade_keeps_unscored_positives_and_ranks_them_last():
+def test_a_list_with_no_scored_row_is_not_graded_and_its_neighbour_keeps_its_unscored_rows():
+    # Every score in the second list ties at minus infinity, so the model order collapses onto the
+    # served one and the two lines would draw level there for free.
     served = _lists(
         [
-            *_served("kept", [UUID_A, UUID_B, UUID_B + "-c"]),
-            *_served("dropped", [UUID_B + "-d", UUID_B + "-e"], at=SERVED_AT + datetime.timedelta(hours=2)),
+            *_served("kept", [UUID_A, UUID_B, UUID_C]),
+            *_served("unscored", [UUID_C + "-d", UUID_C + "-e"], at=SERVED_AT + datetime.timedelta(hours=2)),
         ]
     ).assign(outcome_open=[True, False, False, True, False], outcome_action=False)
     joined = join_scores(served, _scores([UUID_A, UUID_B], [0.9, 0.1], snapshot_date=DAY - datetime.timedelta(days=1)))
 
-    grade = next(grade for grade in grade_lists(joined, served=served) if grade.ranking_order == MODEL_ORDER)
+    grade = _by_order(grade_lists(joined, served=served))[MODEL_ORDER]
 
-    assert grade.lists == 2
-    assert grade.reports == 5
+    assert grade.lists == 1
+    assert grade.reports == 3
     assert grade.positive_coverage == 0.5
     assert grade.full_list_coverage == 0.0
+    assert grade.scored_list_share == 0.5
     assert grade.score_coverage == 0.4
+    assert grade.never_scored_share == pytest.approx(0.6)
     assert grade.mrr == 1.0
 
-    served["outcome_open"] = [False, False, True, True, False]
-    joined = join_scores(served, _scores([UUID_A, UUID_B], [0.9, 0.1], snapshot_date=DAY - datetime.timedelta(days=1)))
-    grade = next(grade for grade in grade_lists(joined, served=served) if grade.ranking_order == MODEL_ORDER)
-    assert grade.mrr == pytest.approx((1 / 3 + 1) / 2)
-    assert grade.positive_coverage == 0.0
+
+def test_a_part_scored_list_no_longer_costs_the_model_order_what_coverage_costs_it():
+    # The only opened report is one no score existed for. It sinks to the bottom of the model order
+    # and stays first in the served one, so a coverage gap reads as a ranking loss.
+    served = _lists(_served("first", [UUID_C, UUID_A, UUID_B])).assign(
+        outcome_open=[True, False, False], outcome_action=False
+    )
+    joined = join_scores(served, _scores([UUID_A, UUID_B], [0.1, 0.9], snapshot_date=DAY - datetime.timedelta(days=1)))
+
+    all_rows = _by_order(grade_lists(joined, served=served))
+    scored_rows = _by_order(grade_lists(joined, served=served), scope=SCORED_ROWS_SCOPE)
+
+    assert all_rows[MODEL_ORDER].mrr == pytest.approx(1 / 3)
+    assert all_rows[HEURISTIC_ORDER].mrr == 1.0
+    # On the rows the model could place there is no outcome left, so the list leaves the scored
+    # read instead of scoring the model down for a row it never saw.
+    assert scored_rows == {}
+    assert all_rows[MODEL_ORDER].never_scored_share == pytest.approx(1 / 3)
+
+
+def test_a_grade_says_why_the_rows_it_lacks_are_missing():
+    # score_coverage alone cannot separate "the training job has not scored it yet" from "the pool
+    # never held it", and only the first repairs itself overnight.
+    served = _lists(_served("first", [UUID_A, UUID_B, UUID_C])).assign(
+        outcome_open=[True, False, False], outcome_action=False
+    )
+    scores = pd.concat(
+        [
+            _scores([UUID_A], [0.9], snapshot_date=DAY - datetime.timedelta(days=1)).assign(score_is_fallback=True),
+            # Born on the day it was impressed: its score is written the next morning.
+            _scores([UUID_B], [0.4], snapshot_date=DAY),
+        ],
+        ignore_index=True,
+    )
+
+    grade = _by_order(grade_lists(join_scores(served, scores), served=served))[MODEL_ORDER]
+
+    assert grade.score_coverage == pytest.approx(1 / 3)
+    assert grade.score_pending_share == pytest.approx(1 / 3)
+    assert grade.never_scored_share == pytest.approx(1 / 3)
+    assert grade.scored_list_share == 1.0
+    assert grade.full_list_coverage == 0.0
+    # This champion line is candidate rows standing in for a missing champion partition.
+    assert grade.champion_is_fallback is True
+    # One scored row cannot separate two orders, so the scored read has nothing to say about it.
+    assert _by_order(grade_lists(join_scores(served, scores), served=served), scope=SCORED_ROWS_SCOPE) == {}
 
 
 def test_a_grade_carries_the_versions_that_scored_the_day():
     served = _lists([*_served("first", [UUID_A, UUID_B]), *_served("second", [UUID_A, UUID_B])]).assign(
         outcome_open=[True, False, True, False], outcome_action=False
     )
-    joined = served.assign(
+    joined = _joined(
+        served,
         model_name="tabular_xgb",
         model_version=["2026-09-01", "2026-09-02", "2026-09-01", "2026-09-02"],
-        model_role="champion",
-        head="open",
         score=0.5,
     )
 
@@ -342,7 +404,9 @@ class TestShadowQueries(ClickhouseTestMixin, BaseTest):
         at=SERVED_AT,
         tab: str = "all",
         list_size: int | None = None,
+        host: str | None = None,
     ) -> None:
+        host = region_app_host() if host is None else host
         _create_event(
             team=self.team,
             event="Inbox reports impressed",
@@ -351,6 +415,7 @@ class TestShadowQueries(ClickhouseTestMixin, BaseTest):
             properties={
                 "tab": tab,
                 "scope": "project",
+                "$host": host,
                 "impressions": impressions,
                 "$session_id": "0198c0e8-93c8-7000-8000-a934eeb1b940",
                 "list_size": len(impressions) if list_size is None else list_size,
@@ -369,6 +434,9 @@ class TestShadowQueries(ClickhouseTestMixin, BaseTest):
     def test_one_impression_event_is_one_ranked_list(self):
         self._impress([{"report_id": UUID_A, "rank": 1}, {"report_id": UUID_B, "rank": 2}])
         self._impress([{"report_id": UUID_A, "rank": 1}], distinct_id="user-2")
+        # The dogfood project holds every region's telemetry, and no score can ever exist for a
+        # report another region served, so its lists would only be graded on missing scores.
+        self._impress([{"report_id": UUID_C, "rank": 1}], distinct_id="user-3", host="other.posthog.com")
 
         rows = deduplicate_lists(impression_frame(self._rows(IMPRESSION_LISTS_SQL))).to_numpy().tolist()
 
@@ -376,6 +444,7 @@ class TestShadowQueries(ClickhouseTestMixin, BaseTest):
         assert len(lists) == 2
         by_report = {(row[0], row[5]): row[6] for row in rows}
         assert sorted(by_report.values()) == [1, 1, 2]
+        assert UUID_C not in {row[5] for row in rows}
 
     def test_merged_sections_reconstruct_the_render_and_exclude_an_incomplete_visit(self) -> None:
         self._impress([{"report_id": UUID_A, "rank": 1}], tab="monitoring", list_size=2)
@@ -439,6 +508,16 @@ def _scores_object(frame: pd.DataFrame) -> bytes:
     return sink.getvalue()
 
 
+def test_the_score_window_reaches_the_partition_day_a_birth_day_score_lands_in():
+    dates = score_lookback_dates(DAY)
+
+    # dt=D holds the scores of the reports born on D, so a window stopping at D-1 sees no score at
+    # all for a report impressed on its birth day and reads it as one the pool never held.
+    assert dates[-1] == DAY
+    assert dates[0] == DAY - datetime.timedelta(days=settings.INBOX_RANKING_SHADOW_SCORE_LOOKBACK_DAYS)
+    assert len(dates) == len(set(dates)) == settings.INBOX_RANKING_SHADOW_SCORE_LOOKBACK_DAYS + 1
+
+
 def test_load_scores_reads_the_window_and_names_the_family_of_older_objects():
     old_day, new_day = DAY - datetime.timedelta(days=2), DAY - datetime.timedelta(days=1)
     # An object written before `model_name` existed holds tabular rows and must not read as null.
@@ -488,19 +567,15 @@ def test_missing_champion_partition_uses_candidate_without_replacing_existing_ch
     champion = scores.loc[scores["model_role"] == "champion"]
     assert champion["report_id"].tolist() == [UUID_A, UUID_B]
     assert champion["score"].tolist() == [0.3, 0.7]
+    # Only the stand-in says so, so a grade can report that it is not a pure champion read.
+    assert champion["score_is_fallback"].tolist() == [True, False]
 
 
 def test_a_day_that_graded_nothing_still_reports_a_run():
     # A day whose lists had no score available at impression time grades nothing, and without a
     # run event that is byte-identical to a run that crashed before capturing anything.
     served = _lists(_served("first", [UUID_A, UUID_B])).assign(outcome_open=[True, False], outcome_action=False)
-    joined = served.assign(
-        model_name="tabular_xgb",
-        model_version="2026-09-09",
-        model_role="champion",
-        head="open",
-        score=[0.9, 0.1],
-    )
+    joined = _joined(served, model_name="tabular_xgb", model_version="2026-09-09", score=[0.9, 0.1])
 
     empty = shadow_grade_events(run_id="run-1", served_rows=12, served_lists=3, run_score_coverage=0.0, grades=[])
     graded = shadow_grade_events(
@@ -520,21 +595,26 @@ def test_a_day_that_graded_nothing_still_reports_a_run():
         "grades": 0,
         "reason": "no_available_scores",
     }
-    # The run event rides alongside the three orders, never instead of them.
-    assert [event.event for event in graded] == [SHADOW_RUN_COMPLETED_EVENT, *[SHADOW_RANKING_GRADED_EVENT] * 3]
+    assert [event.event for event in graded] == [
+        SHADOW_RUN_COMPLETED_EVENT,
+        *[SHADOW_RANKING_GRADED_EVENT] * 3,
+        *[SHADOW_SCORED_RANKING_GRADED_EVENT] * 3,
+    ]
+    assert graded[0].properties["grades"] == 6
+    for event_name, scope in (
+        (SHADOW_RANKING_GRADED_EVENT, ALL_ROWS_SCOPE),
+        (SHADOW_SCORED_RANKING_GRADED_EVENT, SCORED_ROWS_SCOPE),
+    ):
+        events = [event for event in graded if event.event == event_name]
+        assert {event.properties["grading_scope"] for event in events} == {scope}
+        assert {event.properties["ranking_order"] for event in events} == {MODEL_ORDER, HEURISTIC_ORDER, RANDOM_ORDER}
 
 
 def test_grade_rows_match_the_parquet_schema_exactly():
     # pa.Table.from_pylist drops keys the schema does not name, so a grade field added without a
     # column would vanish from the object without failing anything.
     served = _lists(_served("first", [UUID_A, UUID_B])).assign(outcome_open=[True, False], outcome_action=False)
-    joined = served.assign(
-        model_name="tabular_xgb",
-        model_version="2026-09-09",
-        model_role="champion",
-        head="open",
-        score=[0.9, 0.1],
-    )
+    joined = _joined(served, model_name="tabular_xgb", model_version="2026-09-09", score=[0.9, 0.1])
     graded = grade_rows(
         grade_lists(joined, served=served),
         partition_key=DAY.isoformat(),
@@ -544,4 +624,4 @@ def test_grade_rows_match_the_parquet_schema_exactly():
     )
 
     assert set(graded[0]) == set(GRADE_SCHEMA.names)
-    assert pa.Table.from_pylist(graded, schema=GRADE_SCHEMA).num_rows == 3
+    assert pa.Table.from_pylist(graded, schema=GRADE_SCHEMA).num_rows == 6

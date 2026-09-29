@@ -1,0 +1,28 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "attempted_tool": {
+            "default": "",
+            "description": "The tool the user tried before leaving feedback, if known.",
+            "maxLength": 200,
+            "type": "string"
+        },
+        "blocked": {
+            "default": true,
+            "description": "Whether the missing capability blocked the user's progress.",
+            "type": "boolean"
+        },
+        "goal": {
+            "description": "The user's intended outcome when using MCP.",
+            "maxLength": 500,
+            "type": "string"
+        },
+        "missing_capability": {
+            "description": "Capability, tool, or workflow support that is currently missing.",
+            "maxLength": 5000,
+            "type": "string"
+        }
+    },
+    "required": ["goal", "missing_capability"],
+    "type": "object"
+}

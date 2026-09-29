@@ -2,9 +2,10 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useEffect, useState } from 'react'
 
-import { LemonSegmentedButton, LemonTag } from '@posthog/lemon-ui'
+import { LemonSegmentedButton } from '@posthog/lemon-ui'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
+import { dashboardsModel } from '~/models/dashboardsModel'
 import { FileSystemIconType } from '~/queries/schema/schema-general'
 import { sceneLogic } from '~/scenes/sceneLogic'
 import { emptySceneParams } from '~/scenes/scenes'
@@ -38,6 +39,7 @@ export function HomepageConfiguration(): JSX.Element {
     const { homepage } = useValues(sceneLogic)
     const { currentTeam } = useValues(teamLogic)
     const { setHomepage } = useActions(sceneLogic)
+    const { loadDashboardsIfNeeded } = useActions(dashboardsModel)
 
     const isUsingProjectDefault = !homepage
     const isUsingNewTabHomepage = homepage?.sceneId === Scene.NewTab
@@ -102,6 +104,7 @@ export function HomepageConfiguration(): JSX.Element {
                                 setPendingMode(null)
                                 setHomepage(newTabHomepage)
                             } else if (newValue === 'default_dashboard') {
+                                loadDashboardsIfNeeded()
                                 const dashboardId = currentTeam?.primary_dashboard
                                 if (dashboardId) {
                                     setPendingMode(null)
@@ -126,14 +129,7 @@ export function HomepageConfiguration(): JSX.Element {
                         options={[
                             {
                                 value: 'launchpad' as const,
-                                label: (
-                                    <>
-                                        Launchpad{' '}
-                                        <LemonTag size="small" type="highlight" className="ml-1">
-                                            New
-                                        </LemonTag>
-                                    </>
-                                ),
+                                label: 'Launchpad',
                                 'data-attr': 'configure-home-modal-set-launchpad',
                                 tooltip: 'An AI-powered home with quick actions and recent items',
                             },

@@ -81,19 +81,17 @@ async fn start_harness() -> Harness {
     let producer = create_local_kafka_producer().await;
     let service = Arc::new(PersonHogLeaderService::new(
         Arc::clone(&cache),
-        producer.clone(),
-        topic,
         None,
         Arc::clone(&locks),
         Arc::new(InflightTracker::new()),
         NUM_PARTITIONS,
         Arc::new(DirtyIndex::new(1_000_000)),
-        test_recovery(KAFKA_BOOTSTRAP),
+        test_recovery(&topic, KAFKA_BOOTSTRAP),
         PropertySizeLimits::new(655360, 524288),
         WarningsProducer::new(producer, "clickhouse_ingestion_warnings".to_string()),
         Arc::new(DashMap::new()),
-        Some(Arc::clone(&fenced)),
-        None,
+        Arc::clone(&fenced),
+        common::live_authority(),
         Arc::new(EmittedVersions::new(1_000_000)),
     ));
     Harness {

@@ -371,7 +371,7 @@ export const insertBatchExport = async (postgres: PostgresRouter, team_id: Team[
 export const insertBatchExportDestination = async (postgres: PostgresRouter): Promise<any> => {
     const res = await insertRow(postgres, 'posthog_batchexportdestination', {
         id: new UUIDT().toString(),
-        type: 'S3',
+        type: 'AwsS3',
         config: {},
         integration_id: null,
         created_at: new Date().toISOString(),

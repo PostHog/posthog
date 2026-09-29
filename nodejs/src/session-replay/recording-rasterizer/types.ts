@@ -7,6 +7,8 @@ export interface RasterizeRecordingInput {
     // recording-api (the rasterizer cannot mint its own). Optional only during migration, before the
     // minting side has shipped.
     recording_api_token?: string
+    // Renders this `[windowId, event]` JSONL object instead of fetching blocks from recording-api.
+    source_s3_uri?: string
     max_virtual_time?: number // max virtual-time seconds before stopping capture (default: unlimited)
     playback_speed?: number // 1-360, defaults to 4
     start_offset_s?: number // seconds from session start to begin playback
@@ -24,6 +26,25 @@ export interface RasterizeRecordingInput {
     screenshot_quality?: number // JPEG quality 0-100 (default: 80, ignored for png)
     s3_bucket: string
     s3_key_prefix: string // e.g. "exports/mp4/team-123/task-456"
+}
+
+export interface ExtractThumbnailInput {
+    /** The rendered analysis MP4 to cut the frame from. */
+    source_s3_uri: string
+    /** Seconds into the analysis video, which is the time base the model's citations use. */
+    video_time_s: number
+    /** Pixels of burned-in metadata footer to crop off the bottom before scaling. */
+    footer_crop_px?: number
+    /** Output width; height follows the source aspect ratio. Defaults to 1280. */
+    width?: number
+    s3_bucket: string
+    s3_key_prefix: string
+    id: string
+}
+
+export interface ExtractThumbnailOutput {
+    s3_uri: string
+    file_size_bytes: number
 }
 
 /**
@@ -59,6 +80,8 @@ export interface RasterizeRecordingOutput {
     video_duration_s: number // actual playback duration of the output video
     playback_speed: number
     show_metadata_footer: boolean
+    // Pixels at the bottom of each frame the footer takes, which a consumer crops to get the page alone.
+    footer_height_px: number
     truncated: boolean // true when max_virtual_time stopped the recording early
     inactivity_periods: InactivityPeriod[]
     file_size_bytes: number

@@ -52,6 +52,7 @@ import type {
     EventsQuery,
 } from '../../../../../frontend/src/queries/schema/schema-general'
 import type { ErrorTrackingQueryIssueSeverity } from '../../../../../frontend/src/queries/schema/schema-general'
+import { eventsSourceLogic } from '../../components/EventsTable/eventsSourceLogic'
 import { issueActionsLogic } from '../../components/IssueActions/issueActionsLogic'
 import {
     DEFAULT_DATE_RANGE,
@@ -114,9 +115,11 @@ export interface errorTrackingIssueSceneLogicValues {
 export interface errorTrackingIssueSceneLogicActions {
     mutationFailure: (
         mutationName: string,
-        error: unknown
+        error: unknown,
+        issueId?: string | undefined
     ) => {
         error: unknown
+        issueId: string | undefined
         mutationName: string
     } // issueActionsLogic
     updateIssueAssignee: (
@@ -1067,10 +1070,14 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                 }
             },
             [issueActionsLogic.actionTypes.mutationSuccess]: ({ mutationName }) => {
-                if (mutationName === 'mergeIssues') {
+                if (mutationName === 'mergeIssues' || mutationName === 'splitIssues') {
                     actions.loadIssue()
                     actions.loadSummary()
                     actions.loadIssueFingerprints()
+                    actions.loadSpikeEvents()
+                    eventsSourceLogic
+                        .findMounted({ query: values.eventsQuery, queryKey: values.eventsQueryKey })
+                        ?.actions.loadData('force_blocking')
                 }
                 if (mutationName === 'createIssueCohort') {
                     actions.loadIssue()

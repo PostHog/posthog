@@ -35,40 +35,27 @@ class FunnelQueryBuilder:
     Builds funnel-metric queries (aggregate results and the metric-events
     precomputation write query).
 
-    Funnel construction is deeply coupled to the rest of the experiment query
-    builder: it reads the metric and CUPED config, calls shared exposure and
-    metric-value helpers, and the CUPED and maturity helpers call back into the
-    funnel helpers. To keep the move behavior-preserving, this class holds a
-    reference to the owning ``ExperimentQueryBuilder`` and reaches through it for
-    that shared state and those cross-cluster helpers. The optimized
-    (single-scan) and legacy (double-scan) paths intentionally live side by side
-    here without being merged.
+    Funnel construction is coupled to the rest of the experiment query builder:
+    it reads the metric and CUPED config, calls shared exposure and metric-value
+    helpers, and the CUPED and maturity helpers call back into the funnel helpers.
+    So this class holds a reference to the owning ``ExperimentQueryBuilder`` and
+    reads that shared state and those helpers through it.
     """
 
     def __init__(self, builder: "ExperimentQueryBuilder"):
         self._b = builder
 
     def build_funnel_query(self) -> ast.SelectQuery:
-        """
-        Builds query for funnel metrics.
-        Dispatches to optimized (single-scan) or legacy (double-scan) path.
-        """
         if self.should_use_optimized_funnel_query():
             return self.build_funnel_query_optimized()
         return self.build_funnel_query_legacy()
 
     def should_use_optimized_funnel_query(self) -> bool:
-        """
-        Returns True when the optimized single-scan funnel query should be used.
-        The legacy path is kept for precomputed exposures, where the exposures CTE
-        reads from a cheap preaggregated table (no double-scan penalty).
-
-        Also routes to legacy path for DW funnels, which use UNION ALL pattern
-        only implemented in the legacy path.
-        """
+        # With precomputed exposures, the exposures CTE of the legacy path reads from a
+        # cheap preaggregated table, so its second scan costs little.
         if self._b.preaggregation_job_ids and not self._b.breakdowns:
             return False
-        # Route DW funnels to legacy path which supports UNION ALL
+        # Only the legacy path implements the UNION ALL pattern for DW funnels.
         if isinstance(self._b.metric, ExperimentFunnelMetric) and self.has_datawarehouse_steps():
             return False
         # Activation-mode exposure is a join against flag exposures, not a single-event
@@ -81,9 +68,9 @@ class FunnelQueryBuilder:
     def build_funnel_query_legacy(self) -> ast.SelectQuery:
         """
         3-CTE funnel query: exposures, metric_events, entity_metrics.
-        Called "legacy" because it predates the single-scan optimized path,
-        but this is the primary path for precomputed queries — both exposures
-        and metric_events CTEs can read from precomputed tables here.
+        The name "legacy" comes from before the single-scan optimized path existed.
+        It is still the primary path for precomputed queries, because both the
+        exposures and the metric_events CTEs can read from precomputed tables here.
 
         Supports two patterns:
         1. Events-only: Single query with boolean step columns
@@ -91,20 +78,17 @@ class FunnelQueryBuilder:
         """
         assert isinstance(self._b.metric, ExperimentFunnelMetric)
 
-        # Validate DW funnel configuration before building query
         FunnelDWValidator.validate_funnel_metric(self._b.metric)
 
-        num_steps = len(self._b.metric.series) + 1  #  +1 as we are including exposure criteria
+        num_steps = len(self._b.metric.series) + 1  # +1 for step_0, the exposure step
 
-        # Determine which query pattern to use
         has_dw_steps = self.has_datawarehouse_steps()
 
-        # Track whether step columns need to be injected after parsing.
-        # Precomputed metric events already have steps extracted from the array.
+        # Precomputed metric events already extract the step columns from the steps
+        # array, so the step column injection below is skipped for them.
         inject_step_columns = True
 
         if self._b.metric_events_preaggregation_job_ids and not has_dw_steps:
-            # Read from precomputed table instead of scanning events
             inject_step_columns = False
             step_extracts = ", ".join(f"arrayElement(t.steps, {i + 1}) AS step_{i}" for i in range(num_steps))
             entity_id_cast = "toUUID(t.entity_id)" if self._b.entity_key == "person_id" else "t.entity_id"
@@ -134,8 +118,6 @@ class FunnelQueryBuilder:
                     )
             """
         elif has_dw_steps:
-            # UNION ALL pattern for heterogeneous sources
-            # We'll inject the UNION query directly as AST after building the main query
             metric_events_cte_str = """
                     metric_events AS (
                         SELECT 1 AS placeholder
@@ -158,18 +140,12 @@ class FunnelQueryBuilder:
 
         is_unordered_funnel = self._b.metric.funnel_order_type == StepOrderValue.UNORDERED
 
-        # Use separate exposures CTE to leverage precomputed exposure cache when available.
-        # The exposures query automatically falls back to scanning events if precomputation
-        # isn't enabled for the team.
-        #
-        # Unordered funnels need temporal filtering (metric_events.timestamp >= first_exposure_time)
-        # because the funnel UDF doesn't filter out events before the exposure.
-        # Ordered funnels don't need this - the UDF handles temporal ordering internally.
-
-        # Build the JOIN clause with conditional temporal filter. Activation mode needs it
-        # for ordered funnels too: step_0 rows are plain activation-event matches, and the
-        # UDF's ordering cannot express "at/after the first flag exposure", so events before
-        # the qualifying activation must be excluded here.
+        # Unordered funnels need the temporal filter because the funnel UDF does not drop
+        # events before the exposure. Ordered funnels do not need it, because the UDF
+        # enforces the step order. Activation mode needs it for ordered funnels too:
+        # step_0 rows are plain activation-event matches, and the UDF's ordering cannot
+        # express "at or after the first flag exposure", so the join must exclude events
+        # before the qualifying activation.
         is_activation_mode = self._b.context.activation_config is not None
         temporal_filter = (
             "AND metric_events.timestamp >= exposures.first_exposure_time"
@@ -201,22 +177,21 @@ class FunnelQueryBuilder:
                 FROM exposures
                 LEFT JOIN metric_events
                     {entity_id_join}
-                    {temporal_filter}  -- Only for unordered: filters out events before exposure
+                    {temporal_filter}
                 GROUP BY
                     exposures.entity_id,
                     exposures.variant
             )
         """
 
-        # Build exposure query, adding exposure_identifier for DW funnels
         exposure_query = self._b._get_exposure_query()
         if has_dw_steps:
-            # All DW steps are validated to use the same events_join_key
+            # FunnelDWValidator guarantees that all DW steps use the same events_join_key
             first_dw_step = next(s for s in self._b.metric.series if isinstance(s, ExperimentDataWarehouseNode))
             events_join_key_parts = cast(list[str | int], first_dw_step.events_join_key.split("."))
 
-            # Use argMin to pick one exposure_identifier per entity_id (from first exposure)
-            # This prevents fan-out when a user has multiple exposures with different join key values
+            # argMin takes the join key value from the first exposure. This prevents fan-out
+            # when the exposures of one entity have different join key values.
             exposure_query.select.append(
                 ast.Alias(
                     alias="exposure_identifier",
@@ -253,9 +228,8 @@ class FunnelQueryBuilder:
             SELECT
                 entity_metrics.variant AS variant,
                 count(entity_metrics.entity_id) AS num_users,
-                -- The return value from the funnel eval is zero indexed. So reaching first step means
-                -- it return 0, and so on. So reaching the last step means it will return
-                -- num_steps - 1
+                -- The funnel UDF returns a zero-indexed step, so an entity that reaches the
+                -- last step returns num_steps - 1
                 countIf(entity_metrics.value.1 = {{num_steps_minus_1}}) AS total_sum,
                 countIf(entity_metrics.value.1 = {{num_steps_minus_1}}) AS total_sum_of_squares
                 -- CUPED aggregation columns added programmatically below
@@ -279,26 +253,21 @@ class FunnelQueryBuilder:
                 exposure_alias="exposures",
             )
 
-        # Inject breakdown columns into the query AST
         if self._b.breakdown_injector:
             self._b.breakdown_injector.inject_funnel_breakdown_columns(query)
 
-        # Inject or replace the metric_events CTE based on whether DW steps are present
         if query.ctes and "metric_events" in query.ctes:
             if has_dw_steps:
-                # Replace with UNION ALL query for DW funnels
                 union_query = self.build_funnel_metric_events_union_query()
                 query.ctes["metric_events"] = ast.CTE(name="metric_events", expr=union_query, cte_type="subquery")
             else:
-                # Inject step columns into the metric_events CTE (skip when precomputed — already extracted)
                 if inject_step_columns:
                     metric_events_cte = query.ctes["metric_events"]
                     if isinstance(metric_events_cte, ast.CTE) and isinstance(metric_events_cte.expr, ast.SelectQuery):
                         step_columns = self.build_funnel_step_columns()
                         metric_events_cte.expr.select.extend(step_columns)
 
-        # Inject the additional selects we do for getting the data we need to render the funnel chart
-        # Add step counts - how many users reached each step
+        # step_counts feeds the funnel chart: the number of entities that reached each step
         step_count_exprs = []
         for i in range(1, num_steps):
             step_count_exprs.append(f"countIf(entity_metrics.value.1 >= {i})")
@@ -322,9 +291,8 @@ class FunnelQueryBuilder:
         """
         assert isinstance(self._b.metric, ExperimentFunnelMetric)
 
-        num_steps = len(self._b.metric.series) + 1  # +1 as we are including exposure criteria
+        num_steps = len(self._b.metric.series) + 1  # +1 for step_0, the exposure step
 
-        # CTE 1: base_events - single scan of events table
         # WHERE admits both exposure and conversion events. Exclusion filters are
         # embedded in step_0 only, not the WHERE clause, so conversion events from
         # internal users pass through (they only matter if the user has a valid exposure).
@@ -343,7 +311,6 @@ class FunnelQueryBuilder:
 
         is_unordered_funnel = self._b.metric.funnel_order_type == StepOrderValue.UNORDERED
 
-        # CTE 2: entity_metrics - GROUP BY entity_id, no JOIN
         temporal_setup = self.build_funnel_optimized_temporal_setup(is_unordered_funnel)
 
         ctes_sql = f"""
@@ -379,9 +346,8 @@ class FunnelQueryBuilder:
             SELECT
                 entity_metrics.variant AS variant,
                 count(entity_metrics.entity_id) AS num_users,
-                -- The return value from the funnel eval is zero indexed. So reaching first step means
-                -- it return 0, and so on. So reaching the last step means it will return
-                -- num_steps - 1
+                -- The funnel UDF returns a zero-indexed step, so an entity that reaches the
+                -- last step returns num_steps - 1
                 countIf(entity_metrics.value.1 = {{num_steps_minus_1}}) AS total_sum,
                 countIf(entity_metrics.value.1 = {{num_steps_minus_1}}) AS total_sum_of_squares
                 -- CUPED aggregation columns added programmatically below
@@ -405,19 +371,15 @@ class FunnelQueryBuilder:
                 exposure_alias="first_exposures",
             )
 
-        # Inject breakdown columns into the query AST
         if self._b.breakdown_injector:
             self._b.breakdown_injector.inject_funnel_breakdown_columns_optimized(query)
 
-        # Inject step columns into the base_events CTE
         if query.ctes and "base_events" in query.ctes:
             base_events_cte = query.ctes["base_events"]
             if isinstance(base_events_cte, ast.CTE) and isinstance(base_events_cte.expr, ast.SelectQuery):
                 step_columns = self.build_funnel_step_columns()
                 base_events_cte.expr.select.extend(step_columns)
 
-        # Inject maturity HAVING clause into entity_metrics CTE
-        # Use maxIf to only consider exposure events for maturity
         maturity_having = self.build_maturity_having_clause_optimized()
         if maturity_having is not None:
             if query.ctes and "entity_metrics" in query.ctes:
@@ -430,7 +392,7 @@ class FunnelQueryBuilder:
                             exprs=[entity_metrics_cte.expr.having, maturity_having]
                         )
 
-        # Add step counts - how many users reached each step
+        # step_counts feeds the funnel chart: the number of entities that reached each step
         step_count_exprs = []
         for i in range(1, num_steps):
             step_count_exprs.append(f"countIf(entity_metrics.value.1 >= {i})")
@@ -442,10 +404,8 @@ class FunnelQueryBuilder:
 
     def build_funnel_optimized_temporal_setup(self, is_unordered_funnel: bool) -> FunnelTemporalSetup:
         """
-        Returns the FunnelTemporalSetup (first exposures CTE, temporal join,
-        having clause) for the optimized funnel query.
-
-        Three call sites collapse into one place:
+        The first_exposures CTE, temporal join and HAVING clause of the optimized
+        funnel query depend on three cases:
 
         - Unordered funnels need temporal filtering because the UDF doesn't
           enforce that step_0 (exposure) precedes step_1..N. We exclude events
@@ -493,10 +453,6 @@ class FunnelQueryBuilder:
         )
 
     def build_variant_expr_for_funnel(self) -> ast.Expr:
-        """
-        Builds the variant selection expression based on multiple variant handling.
-        """
-
         if self._b.multiple_variant_handling == MultipleVariantHandling.FIRST_SEEN:
             return parse_expr(
                 "argMinIf(variant, timestamp, step_0 = 1)",
@@ -513,14 +469,11 @@ class FunnelQueryBuilder:
         """
         Returns the SELECT query that the lazy computation system wraps in an
         INSERT INTO experiment_metric_events_preaggregated. This is the write
-        path — it scans the events table and stores one row per matching event
-        with step indicators packed into an Array(UInt8).
+        path: it scans the events table and stores one row per matching event,
+        with the step indicators packed into an Array(UInt8).
 
         The query uses {time_window_min} and {time_window_max} placeholders filled
         by the lazy computation system for each daily bucket.
-
-        Returns:
-            Tuple of (query_string, placeholders_dict)
         """
         assert isinstance(self._b.metric, ExperimentFunnelMetric)
 
@@ -578,12 +531,8 @@ class FunnelQueryBuilder:
         return query_string, placeholders
 
     def build_funnel_step_columns(self) -> list[ast.Alias]:
-        """
-        Builds list of step column AST expressions: step_0, step_1, etc.
-        """
         assert isinstance(self._b.metric, ExperimentFunnelMetric)
 
-        # Check if any step is a data warehouse node
         has_dw_nodes = any(isinstance(step, ExperimentDataWarehouseNode) for step in self._b.metric.series)
 
         if has_dw_nodes:
@@ -592,7 +541,6 @@ class FunnelQueryBuilder:
                 "Mixed-source UNION ALL query pattern needs to be implemented."
             )
 
-        # Use FunnelStepBuilder abstraction for boolean columns
         step_builder = FunnelStepBuilder(self._b.metric.series, self._b.team)
         exposure_filter = self._b._build_exposure_step_predicate()
         return step_builder.build_boolean_columns(exposure_filter)
@@ -641,47 +589,32 @@ class FunnelQueryBuilder:
         return funnel_evaluation_expr(self._b.team, self._b.metric, events_alias="metric_events", include_exposure=True)
 
     def has_datawarehouse_steps(self) -> bool:
-        """
-        Check if funnel metric has any datawarehouse steps.
-
-        Returns:
-            True if any step in the series is ExperimentDataWarehouseNode
-        """
         assert isinstance(self._b.metric, ExperimentFunnelMetric)
         return any(isinstance(step, ExperimentDataWarehouseNode) for step in self._b.metric.series)
 
     def build_funnel_metric_events_union_query(self) -> ast.SelectSetQuery:
-        """
-        Build metric_events UNION ALL query for funnels with DW steps.
-
-        Uses MetricSourceInfo and FunnelStepBuilder abstractions.
-
-        Returns:
-            SelectSetQuery with UNION ALL combining events and DW sources
-        """
+        """metric_events as a UNION ALL of one events subquery and one subquery per DW step."""
         assert isinstance(self._b.metric, ExperimentFunnelMetric)
 
         step_builder = FunnelStepBuilder(self._b.metric.series, self._b.team)
 
-        # All DW steps are validated to use the same events_join_key
+        # FunnelDWValidator guarantees that all DW steps use the same events_join_key
         first_dw_step = next(s for s in self._b.metric.series if isinstance(s, ExperimentDataWarehouseNode))
         events_join_key = first_dw_step.events_join_key
 
-        # Build events subquery (always needed for exposure + event/action steps)
+        # The events subquery is always present, because it carries the exposure step
         events_subquery = self.build_funnel_events_subquery_for_union(step_builder, events_join_key)
 
-        # Build DW subqueries (one per DW step)
         dw_subqueries = []
         for i, step in enumerate(self._b.metric.series):
             if isinstance(step, ExperimentDataWarehouseNode):
                 dw_subquery = self.build_funnel_dw_step_subquery(step, i + 1, step_builder)
                 dw_subqueries.append(dw_subquery)
 
-        # Combine with UNION ALL
         all_subqueries = [events_subquery, *dw_subqueries]
         result = ast.SelectSetQuery.create_from_queries(all_subqueries, "UNION ALL")
 
-        # create_from_queries returns SelectQuery if only one query, but we always have at least 2 (events + DW)
+        # create_from_queries returns a SelectQuery for one query, but there are always at least two: events and DW
         assert isinstance(result, ast.SelectSetQuery)
         return result
 
@@ -689,21 +622,10 @@ class FunnelQueryBuilder:
         self, step_builder: FunnelStepBuilder, events_join_key: str
     ) -> ast.SelectQuery:
         """
-        Build events subquery for UNION pattern.
-
-        This subquery includes:
-        - Exposure events (step_0=1 when exposure, 0 otherwise)
-        - Event and action steps (step_N=1 when matches, 0 otherwise)
-        - DW steps (always step_N=0 in this subquery)
-
-        Args:
-            step_builder: FunnelStepBuilder instance for step columns
-            events_join_key: The event property key used to join with DW tables
-                (e.g. "properties.$user_id"). Used as entity_id so it matches the
-                DW subquery's data_warehouse_join_key.
-
-        Returns:
-            SELECT query for events table
+        Events subquery for the UNION ALL pattern, with these step columns:
+        - step_0: 1 for an exposure event, else 0
+        - step_N for an event or action step: 1 when the event matches, else 0
+        - step_N for a DW step: always 0, because the DW subqueries supply those rows
         """
         assert isinstance(self._b.metric, ExperimentFunnelMetric)
 
@@ -712,7 +634,6 @@ class FunnelQueryBuilder:
         events_join_key_parts = cast(list[str | int], events_join_key.split("."))
         entity_id_expr = ast.Call(name="toString", args=[ast.Field(chain=events_join_key_parts)])
 
-        # Build base SELECT fields
         select_fields: list[ast.Expr] = [
             ast.Alias(alias="entity_id", expr=entity_id_expr),
             ast.Alias(alias="variant", expr=self._b._build_variant_property()),
@@ -721,14 +642,8 @@ class FunnelQueryBuilder:
             ast.Alias(alias="session_id", expr=ast.Field(chain=["properties", "$session_id"])),
         ]
 
-        # Build step columns
-        # - step_0 (exposure): if(exposure_predicate, 1, 0)
-        # - step_N (event/action): if(step_filter, 1, 0)
-        # - step_N (DW): 0 (always 0 in events subquery)
-
         exposure_filter = self._b._build_exposure_step_predicate()
 
-        # step_0: exposure
         step_0 = ast.Alias(
             alias="step_0",
             expr=ast.Call(
@@ -744,18 +659,15 @@ class FunnelQueryBuilder:
             if not isinstance(step_source, ExperimentDataWarehouseNode):
                 step_filters[i + 1] = step_builder._build_step_filter(step_source)
 
-        # step_1, step_2, ...: event/action steps or DW steps
         for i, step_source in enumerate(self._b.metric.series):
             step_index = i + 1  # +1 because step_0 is exposure
 
             if isinstance(step_source, ExperimentDataWarehouseNode):
-                # DW step: always 0 in events subquery
                 step_col = ast.Alias(
                     alias=f"step_{step_index}",
                     expr=ast.Constant(value=0),
                 )
             else:
-                # Event or action step: if(step_filter, 1, 0)
                 step_col = ast.Alias(
                     alias=f"step_{step_index}",
                     expr=ast.Call(
@@ -766,11 +678,8 @@ class FunnelQueryBuilder:
 
             select_fields.append(step_col)
 
-        # Build WHERE clause - matches exposure OR any event/action step
-        # (DW steps will be queried separately)
         event_action_filters = list(step_filters.values())
 
-        # Build time window filter (experiment date range + conversion window)
         conversion_window_seconds = self._b._get_conversion_window_seconds()
         date_to_expr: ast.Expr
         if conversion_window_seconds > 0:
@@ -802,16 +711,14 @@ class FunnelQueryBuilder:
             ]
         )
 
-        # Combine step matching with time range
         where: ast.Expr
         if event_action_filters:
             step_match = ast.Or(exprs=[self._b._build_exposure_step_predicate(), ast.Or(exprs=event_action_filters)])
             where = ast.And(exprs=[time_range_filter, step_match])
         else:
-            # Only exposure events (all steps are DW)
+            # All steps are DW steps, so this subquery only needs the exposure events
             where = ast.And(exprs=[time_range_filter, self._b._build_exposure_step_predicate()])
 
-        # Build query
         query = ast.SelectQuery(
             select=select_fields,
             select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
@@ -826,36 +733,19 @@ class FunnelQueryBuilder:
         step_index: int,
         step_builder: FunnelStepBuilder,
     ) -> ast.SelectQuery:
-        """
-        Build subquery for a single DW step.
-
-        Uses MetricSourceInfo and FunnelStepBuilder abstractions for normalized output.
-
-        Args:
-            step: The DW node configuration
-            step_index: The step number (1-indexed, after exposure step_0)
-            step_builder: FunnelStepBuilder instance for step columns
-
-        Returns:
-            SELECT query for DW table
-        """
+        """Subquery for one DW step. `step_index` is 1-based, because step_0 is the exposure step."""
         assert isinstance(self._b.metric, ExperimentFunnelMetric)
 
-        # Use MetricSourceInfo for normalized schema
         source_info = MetricSourceInfo.from_source(step, entity_key=None)
 
-        # Build SELECT fields (entity_id, variant, timestamp, uuid, session_id)
-        # Cast to list[Expr] since Alias is a subclass of Expr
+        # list is invariant, so list[Alias] needs a cast to list[Expr]
         select_fields: list[ast.Expr] = cast(list[ast.Expr], source_info.build_select_fields())
 
-        # Add step columns (step_0=0, ..., step_N=1, ...) using FunnelStepBuilder
         step_columns = step_builder.build_constant_columns(active_step_index=step_index)
         select_fields.extend(step_columns)
 
-        # Build WHERE predicate
         where = self.build_dw_step_predicate(step, source_info)
 
-        # Build query
         query = ast.SelectQuery(
             select=select_fields,
             select_from=ast.JoinExpr(table=ast.Field(chain=[source_info.table_name])),
@@ -870,32 +760,20 @@ class FunnelQueryBuilder:
         source_info: MetricSourceInfo,
     ) -> ast.Expr:
         """
-        Build WHERE predicate for DW step filtering.
-
-        Filters by:
-        - Timestamp range (experiment dates + conversion window)
-        - DW node properties (custom filters)
-
-        Args:
-            step: The DW node configuration
-            source_info: MetricSourceInfo for this DW source
-
-        Returns:
-            Filter expression
+        Filters the DW table on the experiment date range plus the conversion window,
+        and on the DW node's property filters.
         """
         assert isinstance(self._b.metric, ExperimentFunnelMetric)
 
         conversion_window_seconds = self._b._get_conversion_window_seconds()
 
-        # Build timestamp filter
-        # Use unqualified field name for DW to avoid issues with dotted table names
+        # Use the unqualified field name, because a qualified name breaks for dotted DW table names
         timestamp_field = ast.Field(chain=[source_info.timestamp_field])
 
         # date_from <= timestamp < date_to + conversion_window
         date_from_expr = self._b.date_range_query.date_from_as_hogql()
         date_to_expr = self._b.date_range_query.date_to_as_hogql()
 
-        # Add conversion window to date_to
         date_to_with_window: ast.Expr
         if conversion_window_seconds > 0:
             date_to_with_window = ast.Call(
@@ -926,13 +804,9 @@ class FunnelQueryBuilder:
             ]
         )
 
-        # Build property filter from DW node
         dw_filter = data_warehouse_node_to_filter(self._b.team, step)
 
-        # Combine filters
         return ast.And(exprs=[timestamp_filter, dw_filter])
-
-    # --- Optimized funnel query helpers ---
 
     def build_variant_expr_for_funnel_optimized(self) -> ast.Expr:
         """

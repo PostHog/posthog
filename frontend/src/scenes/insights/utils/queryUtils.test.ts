@@ -1,6 +1,6 @@
 import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'
 import { Node, NodeKind, TrendsFilter, TrendsQuery } from '~/queries/schema/schema-general'
-import { InsightType } from '~/types'
+import { ChartDisplayType, InsightType } from '~/types'
 
 import {
     compareDataNodeQuery,
@@ -236,6 +236,17 @@ describe('compareQuery', () => {
         // Style changes must not count as a query change — otherwise every style tweak refetches
         expect(compareQuery(plain, styled, { ignoreVisualizationOnlyChanges: true })).toBe(true)
         expect(compareQuery(plain, styled)).toBe(false)
+    })
+
+    it.each([
+        ['reuses the result between a line chart and a bar chart', ChartDisplayType.ActionsBar, true],
+        ['reloads between a line chart and a metric', ChartDisplayType.Metric, false],
+    ])('%s', (_, display, expected) => {
+        const line = makeTrendsQuery({ display: ChartDisplayType.ActionsLineGraph })
+
+        expect(compareQuery(line, makeTrendsQuery({ display }), { ignoreVisualizationOnlyChanges: true })).toBe(
+            expected
+        )
     })
 })
 

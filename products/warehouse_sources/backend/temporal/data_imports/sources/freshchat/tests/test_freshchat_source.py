@@ -89,7 +89,13 @@ class TestFreshchatSource:
             ("users", ["id"]),
             ("groups", ["id"]),
             ("channels", ["id"]),
+            ("roles", ["id"]),
             ("accounts_configuration", ["app_id"]),
+            # The fan-out children aggregate rows from every parent, so the parent id is part of
+            # the key: a conversation can be listed under more than one user, and Freshchat
+            # documents no global uniqueness for message ids.
+            ("user_conversations", ["user_id", "id"]),
+            ("conversation_messages", ["conversation_id", "id"]),
         ],
     )
     def test_schema_primary_keys(self, name: str, primary_keys: list[str]) -> None:
@@ -105,45 +111,70 @@ class TestFreshchatSource:
         assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []
 
     @pytest.mark.parametrize(
-        "domain, status, schema_name, expected_valid, expect_probe",
+        "domain, probe, schema_name, expected_valid, expect_probe",
         [
-            ("acme.freshchat.com", 200, None, True, True),
-            ("acme.freshchat.com", 403, None, True, True),  # missing scope at source-create is accepted
-            ("acme.freshchat.com", 403, "agents", False, True),  # missing scope for a specific schema fails
-            ("acme.freshchat.com", 401, None, False, True),
-            ("acme.freshchat.com", None, None, False, True),  # connection error
-            ("not a domain!", 200, None, False, False),  # domain regex rejects before probing
+            ("acme.freshchat.com", (200, True), None, True, True),
+            # A Freshworks portal domain answers 200 with the web app's HTML, so a status-only check
+            # accepts a domain no sync can read.
+            ("acme.myfreshworks.com", (200, False), None, False, True),
+            ("acme.myfreshworks.com", (200, False), "agents", False, True),
+            # A non-JSON 403 is the same wrong host, so it must not be accepted as a missing scope.
+            ("acme.myfreshworks.com", (403, False), None, False, True),
+            ("acme.freshchat.com", (403, True), None, True, True),  # missing scope at source-create is accepted
+            ("acme.freshchat.com", (403, True), "agents", False, True),  # missing scope for a specific schema fails
+            ("acme.freshchat.com", (401, True), None, False, True),
+            ("acme.freshchat.com", (None, False), None, False, True),  # connection error
+            ("not a domain!", (200, True), None, False, False),  # domain regex rejects before probing
             # Non-Freshworks hosts are refused before probing — the stored token must never be
             # sent to a customer-chosen internal host (SSRF).
-            ("metadata.google.internal", 200, None, False, False),
-            ("api.default.svc.cluster.local", 200, None, False, False),
-            ("evilfreshchat.com", 200, None, False, False),  # suffix match must not accept lookalikes
+            ("metadata.google.internal", (200, True), None, False, False),
+            ("api.default.svc.cluster.local", (200, True), None, False, False),
+            ("evilfreshchat.com", (200, True), None, False, False),  # suffix match must not accept lookalikes
         ],
     )
     def test_validate_credentials(
         self,
         domain: str,
-        status: Optional[int],
+        probe: tuple[Optional[int], bool],
         schema_name: Optional[str],
         expected_valid: bool,
         expect_probe: bool,
     ) -> None:
         config = FreshchatSourceConfig(domain=domain, api_key="key")
-        with mock.patch(PATCH_VALIDATE, return_value=status) as mock_validate:
+        with mock.patch(PATCH_VALIDATE, return_value=probe) as mock_validate:
             is_valid, _ = self.source.validate_credentials(config, self.team_id, schema_name)
 
         assert is_valid is expected_valid
         if not expect_probe:
             mock_validate.assert_not_called()
 
-    def test_source_for_pipeline_plumbing(self) -> None:
-        inputs = _make_inputs("agents")
+    def test_non_json_response_message_matches_non_retryable_error(self) -> None:
+        # The classifier matches a substring of the raised message, so the variable URL must not stop
+        # the match; without it the user reads a raw parse failure instead of what to fix.
+        raised = "Non-JSON response from https://acme.myfreshworks.com/v2/agents"
+        matches = [friendly for key, friendly in self.source.get_non_retryable_errors().items() if key in raised]
+
+        assert matches and matches[0] is not None
+
+    @pytest.mark.parametrize(
+        "schema_name, primary_keys, partition_keys",
+        [
+            ("agents", ["id"], None),
+            # Messages is the one endpoint with a stable creation timestamp and real volume, so it
+            # is the one that partitions.
+            ("conversation_messages", ["conversation_id", "id"], ["created_time"]),
+        ],
+    )
+    def test_source_for_pipeline_plumbing(
+        self, schema_name: str, primary_keys: list[str], partition_keys: Optional[list[str]]
+    ) -> None:
+        inputs = _make_inputs(schema_name)
         manager = self.source.get_resumable_source_manager(inputs)
 
         response = self.source.source_for_pipeline(self.config, manager, inputs)
 
-        assert response.name == "agents"
-        assert response.primary_keys == ["id"]
-        # Full refresh, paged with an explicit ascending sort.
+        assert response.name == schema_name
+        assert response.primary_keys == primary_keys
         assert response.sort_mode == "asc"
-        assert response.partition_mode is None
+        assert response.partition_keys == partition_keys
+        assert response.partition_mode == ("datetime" if partition_keys else None)

@@ -9,7 +9,6 @@ the CLI-facing upload contract and are surfaced verbatim by the views.
 import hashlib
 import datetime
 from collections import Counter
-from dataclasses import dataclass
 from typing import Any
 
 from django.conf import settings
@@ -21,6 +20,7 @@ import structlog
 import posthoganalytics
 from rest_framework.exceptions import ValidationError
 
+from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.models.team.team import Team
 from posthog.models.utils import uuid7
@@ -58,11 +58,13 @@ class SymbolSetNotFoundError(Exception):
     pass
 
 
-@dataclass
+@frozen
 class SymbolSetUpload:
     chunk_id: str
     release_id: str | None
     content_hash: str | None
+    # Declaring the byte count earns a presigned PUT signed for exactly that length.
+    content_length: int | None = None
 
 
 def _extract_failure_code(error_codes: object) -> str | None:
@@ -95,7 +97,7 @@ def generate_symbol_set_file_key() -> str:
     return f"{settings.OBJECT_STORAGE_ERROR_TRACKING_SOURCE_MAPS_FOLDER}/{str(uuid7())}"
 
 
-def generate_symbol_set_upload_presigned_urls(file_key: str) -> dict[str, Any]:
+def generate_symbol_set_upload_presigned_urls(file_key: str, content_length: int | None = None) -> dict[str, Any]:
     pair = object_storage.get_presigned_post_pair(
         file_key=file_key,
         conditions=[["content-length-range", 0, ONE_HUNDRED_MEGABYTES]],
@@ -107,6 +109,20 @@ def generate_symbol_set_upload_presigned_urls(file_key: str) -> dict[str, Any]:
         # transfer-acceleration domain while regular S3 works, so the CLI needs a
         # standard-endpoint presigned POST to retry against.
         urls["fallback_presigned_url"] = pair.fallback
+
+    if content_length is not None:
+        # Presigned POST is an AWS S3 extension, and a store without it (Cloudflare R2 answers
+        # `501 NotImplemented`) can never receive a symbol set. Every store implements PUT, whose
+        # signed `content-length` stands in for the POST policy's `content-length-range`.
+        put_pair = object_storage.get_presigned_put_pair(
+            file_key=file_key,
+            content_length=content_length,
+            expiration=PRESIGNED_MULTIPLE_UPLOAD_TIMEOUT,
+        )
+        if put_pair.primary is not None:
+            urls["presigned_put_url"] = put_pair.primary
+            if put_pair.fallback is not None:
+                urls["fallback_presigned_put_url"] = put_pair.fallback
     return urls
 
 
@@ -209,6 +225,19 @@ def _validate_uploads(new_symbol_sets: list[SymbolSetUpload], team: Team) -> Non
                 code="invalid_release_id",
                 detail=f"Unknown release ID provided: {release_id}",
             )
+
+    # Refuse an oversized chunk before the client spends the bandwidth and `bulk_finish_upload`
+    # deletes the row it already created.
+    oversized = sorted(
+        ss.chunk_id
+        for ss in new_symbol_sets
+        if ss.content_length is not None and ss.content_length > ONE_HUNDRED_MEGABYTES
+    )
+    if oversized:
+        raise ValidationError(
+            code="file_too_large",
+            detail=f"Symbol sets larger than 100MB cannot be uploaded: {', '.join(oversized)}",
+        )
 
 
 def _binds_release(existing: ErrorTrackingSymbolSet, upload: SymbolSetUpload) -> bool:
@@ -323,7 +352,7 @@ def bulk_create_symbol_sets(
     def reissue_upload(existing: ErrorTrackingSymbolSet) -> None:
         storage_ptr = generate_symbol_set_file_key()
         id_url_map[existing.ref] = {
-            **generate_symbol_set_upload_presigned_urls(storage_ptr),
+            **generate_symbol_set_upload_presigned_urls(storage_ptr, new_symbol_set_map[existing.ref].content_length),
             "symbol_set_id": str(existing.id),
         }
         existing.storage_ptr = storage_ptr
@@ -338,7 +367,9 @@ def bulk_create_symbol_sets(
         symbol_sets_to_be_created = []
         for chunk_id in missing_sets:
             storage_ptr = generate_symbol_set_file_key()
-            id_url_map[chunk_id] = generate_symbol_set_upload_presigned_urls(storage_ptr)
+            id_url_map[chunk_id] = generate_symbol_set_upload_presigned_urls(
+                storage_ptr, new_symbol_set_map[chunk_id].content_length
+            )
             # Note that on creation, we /do not set/ the content hash. We use content hashes included in
             # the create request only to see if we can skip updated - we set the content hash when we
             # get upload confirmation, during `bulk_finish_upload`, not before
@@ -522,7 +553,9 @@ def bulk_start_upload(
     skip_on_conflict: bool,
 ) -> dict[str, dict[str, Any]]:
     uploads = [SymbolSetUpload(**data) for data in symbol_sets]
-    uploads.extend([SymbolSetUpload(chunk_id, release_id, None) for chunk_id in chunk_ids])
+    uploads.extend(
+        [SymbolSetUpload(chunk_id=chunk_id, release_id=release_id, content_hash=None) for chunk_id in chunk_ids]
+    )
 
     if not settings.OBJECT_STORAGE_ENABLED:
         raise ValidationError(

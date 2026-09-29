@@ -8,18 +8,21 @@ from django.utils import timezone
 from ..db import WRITER_DB
 from ..facade.enums import INTENTIONAL_TOLERATE_REASONS, ReviewState, RunPurpose, SnapshotResult
 from ..models import QuarantinedIdentifier, Run, RunSnapshot
-from . import baselines, ci_status, comment_markdown, comments
+from . import baselines, ci_status, comment_markdown, comments, quarantine
 
 
 def _stamp_quarantine(run: Run) -> None:
-    """Evaluate quarantine policy and freeze it on each snapshot."""
+    """Evaluate quarantine policy and freeze it on each snapshot.
+
+    A quarantine lifted at a commit this run does not contain still applies to this run.
+    """
     now = timezone.now()
     quarantined_ids = set(
         QuarantinedIdentifier.objects.using(WRITER_DB)
         .filter(repo_id=run.repo_id, run_type=run.run_type, team_id=run.team_id)
         .filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now))
         .values_list("identifier", flat=True)
-    )
+    ) | quarantine.identifiers_lifted_after_commit(run, now=now)
 
     if not quarantined_ids:
         run.snapshots.using(WRITER_DB).filter(is_quarantined=True).update(is_quarantined=False)
@@ -39,6 +42,25 @@ def _is_unresolved(s: RunSnapshot) -> bool:
     if s.review_state in (ReviewState.TOLERATED, ReviewState.APPROVED):
         return False
     return True
+
+
+def count_unresolved(run: Run) -> int:
+    """How many of a run's snapshots `_is_unresolved` flags, counted in SQL.
+
+    The run detail read needs only this number, and loading every snapshot to count a handful
+    costs seconds on a large run. Observe runs are never approvable, so nothing in them is
+    unresolved. The predicate must stay identical to `_is_unresolved`; a test pins the two
+    together.
+    """
+    if run.purpose == RunPurpose.OBSERVE:
+        return 0
+    return (
+        RunSnapshot.objects.filter(run_id=run.id)
+        .exclude(result=SnapshotResult.UNCHANGED)
+        .exclude(is_quarantined=True)
+        .exclude(review_state__in=(ReviewState.TOLERATED, ReviewState.APPROVED))
+        .count()
+    )
 
 
 def _changes_summary(run: Run) -> str:

@@ -17,6 +17,7 @@ if TYPE_CHECKING:
 
 from products.warehouse_sources.backend.facade.source_config import (
     SourceConfig,
+    SourceFieldCredentialAccountSelectConfig,
     SourceFieldFileUploadConfig,
     SourceFieldInputConfig,
     SourceFieldOauthAccountSelectConfig,
@@ -88,6 +89,7 @@ FieldType = Union[
     SourceFieldSelectConfig,
     SourceFieldOauthConfig,
     SourceFieldOauthAccountSelectConfig,
+    SourceFieldCredentialAccountSelectConfig,
     SourceFieldFileUploadConfig,
     SourceFieldSSHTunnelConfig,
 ]
@@ -477,20 +479,44 @@ class _BaseSource(ABC, Generic[ConfigType]):
         return None
 
 
+class SourceExtractionNotImplementedError(NotImplementedError):
+    """A source class carries no `source_for_pipeline` of its own, so only the base stub is left.
+
+    Reaching this in a sync means the worker runs an older build than the web code that created
+    the source: a scaffolded source is only connectable once its implementation ships. Kept
+    distinct from a plain `NotImplementedError`, which a source implementation raises for a real
+    defect the pipeline must keep reporting.
+    """
+
+
 class SimpleSource(_BaseSource[ConfigType], Generic[ConfigType]):
     """Base class for sources with standard pipeline creation."""
 
     def source_for_pipeline(self, config: ConfigType, inputs: SourceInputs) -> SourceResponse:
-        raise NotImplementedError()
+        raise SourceExtractionNotImplementedError(f"{type(self).__name__} does not implement source_for_pipeline")
 
 
 class ResumableSource(_BaseSource[ConfigType], Generic[ConfigType, ResumableData]):
     """Base class for sources that support resumable full-refresh imports."""
 
+    def resume_covers_run(self, *, incremental_or_append: bool, keyset_full_load_enabled: bool = False) -> bool:
+        """Whether this source's resume mechanism covers a run of this shape.
+
+        Only the retry budget reads this. A run it covers gets the resumable allowance, which is much
+        larger than the incremental one and far larger than the full-load one, on the grounds that
+        each attempt continues rather than restarting. A run it does not cover falls through to the
+        ordinary budgets, because extra attempts would each redo the whole read.
+
+        Default True: a REST source paginates the same way whichever sync type it runs. A source
+        whose mechanism is narrower than its class — keyset seeking is a full-load path, and a seek
+        gated behind a retry fallback covers almost nothing — narrows it here.
+        """
+        return True
+
     def source_for_pipeline(
         self, config: ConfigType, resumable_source_manager: ResumableSourceManager[ResumableData], inputs: SourceInputs
     ) -> SourceResponse:
-        raise NotImplementedError()
+        raise SourceExtractionNotImplementedError(f"{type(self).__name__} does not implement source_for_pipeline")
 
     @abstractmethod
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[ResumableData]:
@@ -541,6 +567,15 @@ class ExternalWebhookInfo:
     error: str | None = None
 
 
+def _serialized_input_has_value(serialized: dict[str, Any] | None) -> bool:
+    # A set secret is redacted to `{"secret": True}`, so the marker is the only proof it has a value.
+    if not serialized:
+        return False
+    if serialized.get("secret"):
+        return True
+    return serialized.get("value") not in (None, "")
+
+
 class WebhookSource(_BaseSource[ConfigType], Generic[ConfigType]):
     """Base class for sources that support webhook based imports."""
 
@@ -580,6 +615,18 @@ class WebhookSource(_BaseSource[ConfigType], Generic[ConfigType]):
         surfaces from `create_webhook`.
         """
         return None
+
+    def missing_webhook_inputs(self, inputs: dict[str, Any]) -> list[str]:
+        """Names of required ``webhookFields`` the hog function has no value for, from its serialized inputs.
+
+        While one is missing the webhook accepts and drops every delivery. Override where the
+        provider stores the credential under another input, so a configured webhook is not reported.
+        """
+        return [
+            field.name
+            for field in (self.get_source_config.webhookFields or [])
+            if getattr(field, "required", False) and not _serialized_input_has_value(inputs.get(field.name))
+        ]
 
     def get_desired_webhook_events(self, config: ConfigType, eligible_schema_names: list[str]) -> list[str] | None:
         """Events the webhook should subscribe to. ``None`` when the source has no

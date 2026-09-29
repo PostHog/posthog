@@ -12,14 +12,7 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { useMocks } from '~/mocks/jest'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { initKeaTests } from '~/test/init'
-import {
-    ActionType,
-    DashboardType,
-    EventDefinition,
-    InsightShortId,
-    QueryBasedInsightModel,
-    SidePanelTab,
-} from '~/types'
+import { ActionType, DashboardType, EventDefinition, InsightShortId, InsightModel, SidePanelTab } from '~/types'
 
 import { maxContextLogic } from './maxContextLogic'
 import { createMaxContextHelpers } from './maxTypes'
@@ -29,7 +22,7 @@ import { dashboardToMaxContext } from './utils'
 describe('maxContextLogic', () => {
     let logic: ReturnType<typeof maxContextLogic.build>
 
-    const mockInsight: Partial<QueryBasedInsightModel> = {
+    const mockInsight: Partial<InsightModel> = {
         short_id: 'insight-1' as InsightShortId,
         name: 'Test Insight',
         description: 'Test insight description',
@@ -47,17 +40,17 @@ describe('maxContextLogic', () => {
         type: 'insight',
     }
 
-    const mockDashboard: DashboardType<QueryBasedInsightModel> = {
+    const mockDashboard: DashboardType = {
         id: 1,
         name: 'Test Dashboard',
         description: 'Test dashboard description',
         tiles: [
             {
                 id: 1,
-                insight: mockInsight as QueryBasedInsightModel,
+                insight: mockInsight as InsightModel,
             },
         ],
-    } as DashboardType<QueryBasedInsightModel>
+    } as DashboardType
 
     const mockEvent: EventDefinition = {
         id: 'event-1',
@@ -614,7 +607,7 @@ describe('maxContextLogic', () => {
                 loadInsight: jest.fn(),
             },
             values: {
-                insight: mockInsight as QueryBasedInsightModel,
+                insight: mockInsight as InsightModel,
             },
         }
 
@@ -628,7 +621,7 @@ describe('maxContextLogic', () => {
         it('adds preloaded insight to context without loading', async () => {
             const insightData = {
                 id: 'insight-1' as InsightShortId,
-                preloaded: mockInsight as QueryBasedInsightModel,
+                preloaded: mockInsight as InsightModel,
             }
 
             await expectLogic(logic, () => {
@@ -647,7 +640,7 @@ describe('maxContextLogic', () => {
             }
 
             // Set the mock values that the function will read
-            mockInsightLogicInstance.values.insight = mockInsight as QueryBasedInsightModel
+            mockInsightLogicInstance.values.insight = mockInsight as InsightModel
 
             await expectLogic(logic, () => {
                 logic.actions.loadAndProcessInsight(insightData)
@@ -674,7 +667,7 @@ describe('maxContextLogic', () => {
             }
 
             // Set the mock values that the function will read
-            mockInsightLogicInstance.values.insight = mockInsight as QueryBasedInsightModel
+            mockInsightLogicInstance.values.insight = mockInsight as InsightModel
 
             await expectLogic(logic, () => {
                 logic.actions.loadAndProcessInsight(insightData)
@@ -693,7 +686,7 @@ describe('maxContextLogic', () => {
         const dashboardWithoutTiles = {
             ...mockDashboard,
             tiles: undefined,
-        } as unknown as DashboardType<QueryBasedInsightModel>
+        } as unknown as DashboardType
 
         afterEach(() => {
             jest.restoreAllMocks()

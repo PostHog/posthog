@@ -71,7 +71,7 @@ export const FREEFORM_WHITELIST: WhitelistEntry[] = [
   {
     name: "framer-motion",
     version: "12.23.12",
-    esm: `${ESM}/framer-motion@12.23.12?external=react,react-dom`,
+    esm: `${ESM}/framer-motion@12.23.12?external=react,react-dom&deps=motion-dom@12.23.12,motion-utils@12.23.6`,
   },
   { name: "zod", version: "3.25.76", esm: `${ESM}/zod@3.25.76` },
   {

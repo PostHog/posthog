@@ -138,7 +138,9 @@ The client emits Prometheus metrics at multiple layers:
 - `fake_client.py` — `FakePersonHogClient` for tests
 - `interceptor.py` — gRPC interceptors for client name headers and request metrics
 - `metrics.py` — Prometheus counters for routing decisions
-- `proto/generated/` — auto-generated protobuf stubs (do not edit)
 - `proto/__init__.py` — convenience re-exports of proto types
+
+The auto-generated protobuf stubs live outside this directory, in [`packages/personhog-proto`](/packages/personhog-proto/README.md).
+They install as the top-level `personhog` package. Do not edit them by hand.
 
 For updating proto definitions, see [`proto/README.md`](/proto/README.md).

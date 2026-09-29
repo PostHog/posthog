@@ -48,6 +48,7 @@ from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentic
 from posthog.event_usage import groups
 from posthog.middleware import is_read_only_impersonation
 from posthog.models import User
+from posthog.models.integration.codex import CodexAuthError, CodexReauthRequired
 from posthog.permissions import (
     APIScopePermission,
     get_authenticator_scoped_team_ids,
@@ -57,6 +58,7 @@ from posthog.permissions import (
 from posthog.rate_limit import TaskRunChartRenderThrottle
 from posthog.renderers import ServerSentEventRenderer
 from posthog.schema_migrations.upgrade import upgrade
+from posthog.security.outbound_proxy import internal_requests_session
 from posthog.temporal.oauth import SANDBOX_OAUTH_APP_CLIENT_IDS, TASK_AGENT_OAUTH_APP_CLIENT_IDS
 from posthog.utils import absolute_uri
 
@@ -85,6 +87,7 @@ from products.tasks.backend.facade.compute_quota import ComputeBillingLimitExcee
 from products.tasks.backend.facade.contracts import TaskAnalysisError, TaskRunLogAppendUnserialized
 from products.tasks.backend.facade.metrics import (
     StreamConnectionOutcome,
+    StreamTokenRoute,
     observe_stream_backlog_bytes,
     observe_stream_backlog_gap,
     observe_stream_backlog_oversized,
@@ -94,6 +97,7 @@ from products.tasks.backend.facade.metrics import (
     observe_stream_connection_opened,
     observe_stream_length_on_connect,
     observe_stream_resume_gap,
+    observe_stream_token_routed,
 )
 from products.tasks.backend.facade.model_catalogue import TASK_RUN_GATEWAY_PRODUCT, available_model_choices
 from products.tasks.backend.facade.run_config import (
@@ -135,6 +139,7 @@ from products.tasks.backend.presentation.serializers import (
     SlackThreadContextQuerySerializer,
     SlackThreadContextResponseSerializer,
     SlackThreadContextThreadSerializer,
+    StreamReadTokenQuerySerializer,
     StreamReadTokenResponseSerializer,
     TaskArtifactsResponseSerializer,
     TaskBasicSerializer,
@@ -192,6 +197,8 @@ from products.tasks.backend.presentation.serializers import (
     TaskRunSetOutputRequestSerializer,
     TaskRunSetSummaryRequestSerializer,
     TaskRunStartRequestSerializer,
+    TaskRunSubscriptionTokenRequestSerializer,
+    TaskRunSubscriptionTokenResponseSerializer,
     TaskRunUpdateSerializer,
     TaskSearchQuerySerializer,
     TaskSearchResultSerializer,
@@ -260,8 +267,6 @@ def _agent_run_disabled_response() -> Response:
 
 TASKS_PREWARM_SANDBOX_FLAG = "tasks-prewarm-sandbox"
 
-# One rollout per origin product — the Code app and PostHog AI reach different populations, so a shared
-# flag would drag one to 100% while rolling out the other.
 WARM_SANDBOX_FLAGS_BY_ORIGIN_PRODUCT: dict[str, str] = {
     tasks_facade.TaskOriginProduct.USER_CREATED: TASKS_PREWARM_SANDBOX_FLAG,
 }
@@ -270,6 +275,7 @@ WARM_SANDBOX_FLAGS_BY_ORIGIN_PRODUCT: dict[str, str] = {
 WARM_SANDBOX_UNGATED_ORIGIN_PRODUCTS: frozenset[str] = frozenset(
     {
         tasks_facade.TaskOriginProduct.POSTHOG_AI,
+        tasks_facade.TaskOriginProduct.SIGNAL_REPORT,
     }
 )
 
@@ -312,17 +318,7 @@ def _release_backlog_bytes(size_bytes: int) -> None:
 def _parse_backlog(log_content: str) -> tuple[list[dict], TaskRunStreamBacklogIndex]:
     # Runs via asyncio.to_thread: parsing a log at the byte cap takes long
     # enough to stall every other stream on the ASGI event loop.
-    entries: list[dict] = []
-    for log_line in log_content.splitlines():
-        log_line = log_line.strip()
-        if not log_line:
-            continue
-        try:
-            parsed_line = json.loads(log_line)
-        except json.JSONDecodeError:
-            continue
-        if isinstance(parsed_line, dict):
-            entries.append(parsed_line)
+    entries = list(tasks_facade.parse_task_run_log_entries(log_content))
     return entries, TaskRunStreamBacklogIndex(entries)
 
 
@@ -420,8 +416,8 @@ class TaskUsageUpstreamUnavailable(APIException):
     default_code = "task_usage_upstream_unavailable"
 
 
-class _SignalReportTaskCreateThrottle(UserRateThrottle):
-    """Rate-limits only signal-report task creation on the shared create endpoint.
+class _SignalReportTaskThrottle(UserRateThrottle):
+    """Rate-limits only signal-report task creation and sandbox warming on the shared endpoints.
 
     Report-started tasks run unbilled inference (the customer pays per PR), so their creation
     rate needs a per-user bound the generic create path doesn't; the per-report cap alone still
@@ -435,14 +431,24 @@ class _SignalReportTaskCreateThrottle(UserRateThrottle):
         return super().allow_request(request, view)
 
 
-class SignalReportTaskCreateBurstThrottle(_SignalReportTaskCreateThrottle):
+class SignalReportTaskCreateBurstThrottle(_SignalReportTaskThrottle):
     scope = "signal_report_task_create_burst"
     rate = "10/hour"
 
 
-class SignalReportTaskCreateSustainedThrottle(_SignalReportTaskCreateThrottle):
+class SignalReportTaskCreateSustainedThrottle(_SignalReportTaskThrottle):
     scope = "signal_report_task_create_day"
     rate = "30/day"
+
+
+class SignalReportTaskWarmBurstThrottle(_SignalReportTaskThrottle):
+    scope = "signal_report_task_warm_burst"
+    rate = "30/hour"
+
+
+class SignalReportTaskWarmSustainedThrottle(_SignalReportTaskThrottle):
+    scope = "signal_report_task_warm_day"
+    rate = "120/day"
 
 
 @extend_schema(tags=["tasks"])
@@ -466,8 +472,11 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     def get_throttles(self) -> list[BaseThrottle]:
         throttles = super().get_throttles()
-        if getattr(self, "action", None) == "create":
+        action = getattr(self, "action", None)
+        if action == "create":
             throttles += [SignalReportTaskCreateBurstThrottle(), SignalReportTaskCreateSustainedThrottle()]
+        elif action == "warm":
+            throttles += [SignalReportTaskWarmBurstThrottle(), SignalReportTaskWarmSustainedThrottle()]
         return throttles
 
     def _user_id(self) -> int | None:
@@ -569,7 +578,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         description="Retrieve a single task by ID.",
     )
     def retrieve(self, request, pk=None, **kwargs):
-        bypass_visibility = _can_bypass_visibility(request, self.team_id)
+        bypass_visibility = is_sandbox_agent_request(request, pk) or _can_bypass_visibility(request, self.team_id)
         task = tasks_facade.get_task_detail(pk, self.team_id, self._user_id(), bypass_visibility=bypass_visibility)
         if task is None:
             raise NotFound()
@@ -732,8 +741,8 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # the agent without the client ever calling the run endpoint — so the gates that endpoint puts
         # in front of a cloud run have to be applied here too. Without this, a warm booted while the
         # caller was entitled still runs after Desktop access or the usage limit turns against them.
-        # Scoped to warmable origins, which is what a warm can ever be reused for; the code-access
-        # exempt Inbox shapes are not among them, matching how the warm endpoint gates.
+        # Scoped to warmable origins, which is what a warm can ever be reused for. The repo-less Inbox
+        # discussion is one of them and stays code-access exempt below, matching how the warm endpoint gates.
         # `origin_product` is optional on the wire; `create_task` defaults it the same way.
         can_activate_warm_run = "branch" in validated_data and origin_product in WARMABLE_ORIGIN_PRODUCTS
         if can_activate_warm_run and is_sandbox_origin_request(request):
@@ -1286,7 +1295,12 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             ),
         },
         summary="Run task",
-        description="Create a new task run and kick off the workflow.",
+        description=(
+            "Create a new task run and kick off the workflow. **Responds with the task, not the "
+            "run**: the new run is nested under `latest_run`, and the top-level `id` is still the "
+            "task's. Read `latest_run.id` for anything run-scoped, such as the run's stream and "
+            "command endpoints."
+        ),
         include_serializer_context=True,
     )
     @action(detail=True, methods=["post"], url_path="run", required_scopes=["task:write"])
@@ -1422,7 +1436,11 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # Every warmable origin's submit path gates on Desktop access too — POSTHOG_AI is not in
         # `task_exempt_from_code_access`, only the Inbox shapes are — so warming applies it flat. A
         # caller who can't run the task must not be able to provision a sandbox for it either.
-        if access_response := code_access_required_response(request, self.organization):
+        signal_report = request.validated_data.get("signal_report")
+        code_access_allowed = False
+        if origin_product == tasks_facade.TaskOriginProduct.SIGNAL_REPORT:
+            code_access_allowed = code_access_required_response(request, self.organization) is None
+        elif access_response := code_access_required_response(request, self.organization):
             return access_response
 
         user_id = self._user_id()
@@ -1453,6 +1471,8 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             client_provenance=get_task_client_provenance(request),
             origin_product=request.validated_data["origin_product"],
             initial_permission_mode=request.validated_data.get("initial_permission_mode"),
+            signal_report_id=signal_report.id if signal_report is not None else None,
+            code_access_allowed=code_access_allowed,
         )
         if result is None:
             return Response(status=status.HTTP_200_OK)
@@ -1709,11 +1729,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         run = tasks_facade.get_task_run_detail(run_id, task_id, self.team_id)
         if run is None:
             raise NotFound()
-        if (
-            run.state.get("claude_model_access") == "own-subscription"
-            and run.state.get("claude_subscription_user_id") != self._user_id()
-        ):
-            raise PermissionDenied("Only the user who started this run can use its Claude plan.")
+        tasks_facade.ensure_subscription_owner(run.state, self._user_id())
 
     @validated_request(
         responses={
@@ -1832,6 +1848,15 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 TaskRunErrorResponseSerializer({"error": "Only cloud runs can be started via this endpoint"}).data,
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        if startable == "scheduled":
+            return Response(
+                TaskRunErrorResponseSerializer(
+                    {
+                        "error": "This run is scheduled to start automatically. Wait for it to start, or create a new run."
+                    }
+                ).data,
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         if startable.startswith("bad_status:"):
             current_status = startable.split(":", 1)[1]
             return Response(
@@ -1841,6 +1866,12 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     }
                 ).data,
                 status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if tasks_facade.task_run_awaits_report_activation(pk, task_id, self.team_id):
+            return Response(
+                TaskRunErrorResponseSerializer({"error": tasks_facade.REPORT_WARM_RUN_NOT_ACTIVATED}).data,
+                status=status.HTTP_409_CONFLICT,
             )
 
         # Backstop: don't launch the cloud workflow without Desktop access or for an over-limit team.
@@ -1974,6 +2005,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             validated_data=dict(request.validated_data),
             only_if_non_terminal=True,
             caller_is_agent=self._is_sandbox_agent_request(task_id),
+            user_id=self._user_id(),
         )
         if run is None:
             raise NotFound()
@@ -2005,7 +2037,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        run = tasks_facade.set_task_run_output(pk, task_id, self.team_id, output=output_data)
+        run = tasks_facade.set_task_run_output(pk, task_id, self.team_id, output=output_data, user_id=self._user_id())
         if run is None:
             raise NotFound()
         return Response(TaskRunDetailSerializer(run).data)
@@ -2017,7 +2049,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             404: OpenApiResponse(description="Run not found"),
         },
         summary="Set task run summary",
-        description="Replace the running summary for a task run.",
+        description="Replace the running summary for a task run, and optionally its slug tags.",
         strict_request_validation=True,
     )
     @action(
@@ -2033,6 +2065,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             task_id,
             self.team_id,
             summary=request.validated_data["summary"],
+            tags=request.validated_data.get("tags"),
             include_agent_state=self._is_sandbox_agent_request(task_id),
             user_id=self._user_id(),
         )
@@ -2218,6 +2251,87 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise NotFound()
         session_id, content_sha256 = result
         return Response(TaskSessionSyncResponseSerializer({"id": session_id, "content_sha256": content_sha256}).data)
+
+    @validated_request(
+        request_serializer=TaskRunSubscriptionTokenRequestSerializer,
+        parameters=[
+            OpenApiParameter(
+                name="X-Task-Run-Token",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.HEADER,
+                required=True,
+                description="Run-scoped Codex subscription token handed to the agent-server at launch",
+            ),
+        ],
+        responses={
+            200: OpenApiResponse(
+                response=TaskRunSubscriptionTokenResponseSerializer,
+                description="Short-lived ChatGPT access token for this run",
+            ),
+            400: OpenApiResponse(description="Missing required header"),
+            403: OpenApiResponse(description="Caller is not this run's sandbox, or the run token is invalid"),
+            404: OpenApiResponse(description="Task run not found"),
+            409: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer,
+                description="reauth_required: the run owner must reconnect their ChatGPT account",
+            ),
+            502: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer,
+                description="openai_unavailable: OpenAI did not answer the token refresh",
+            ),
+        },
+        summary="Issue a ChatGPT access token for a Codex run",
+        description="Give the run's agent-server a short-lived ChatGPT access token from the run owner's connected "
+        "account. Only the run's sandbox may call this, and it must present the run token it received at "
+        "launch. Send the digest of a token Codex rejected so the server refreshes it early, once.",
+    )
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="subscription_token",
+        required_scopes=["task:write"],
+    )
+    def subscription_token(self, request, pk=None, **kwargs):
+        task_id = self._ensure_task_accessible()
+        if not is_sandbox_agent_request(request, task_id):
+            raise PermissionDenied("Only this run's sandbox can request its ChatGPT access token.")
+        run_token = request.headers.get("X-Task-Run-Token")
+        if not run_token:
+            raise ValidationError({"X-Task-Run-Token": "This header is required."})
+        try:
+            grant = tasks_facade.issue_codex_subscription_access_grant(
+                pk,
+                task_id,
+                self.team_id,
+                run_token=run_token,
+                rejected_access_token_sha256=request.validated_data.get("rejected_access_token_sha256"),
+            )
+        except CodexReauthRequired:
+            return Response(
+                TaskRunErrorResponseSerializer(
+                    {"error": "The ChatGPT account for this run must be reconnected.", "code": "reauth_required"}
+                ).data,
+                status=status.HTTP_409_CONFLICT,
+            )
+        except CodexAuthError:
+            return Response(
+                TaskRunErrorResponseSerializer(
+                    {"error": "OpenAI did not answer the token refresh.", "code": "openai_unavailable"}
+                ).data,
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+        if grant is None:
+            raise PermissionDenied("The task run token is invalid")
+        return Response(
+            TaskRunSubscriptionTokenResponseSerializer(
+                {
+                    "access_token": grant.access_token,
+                    "account_id": grant.account_id,
+                    "plan_type": grant.plan_type,
+                    "expires_at": grant.expires_at,
+                }
+            ).data
+        )
 
     @validated_request(
         request_serializer=TaskRunRelayMessageRequestSerializer,
@@ -2798,6 +2912,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         ),
         strict_request_validation=True,
     )
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(detail=True, methods=["post"], url_path="analysis-activity", required_scopes=["task:write"])
     def analysis_activity(self, request, pk=None, **kwargs):
         task_id = self._ensure_task_accessible()
@@ -2938,6 +3053,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return Response(ConnectionTokenResponseSerializer({"token": token}).data)
 
     @validated_request(
+        query_serializer=StreamReadTokenQuerySerializer,
         responses={
             200: OpenApiResponse(
                 response=StreamReadTokenResponseSerializer,
@@ -2946,7 +3062,11 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             404: OpenApiResponse(description="Task run not found"),
         },
         summary="Get task run stream read token",
-        description="Generate a run-scoped JWT that authorizes reading this task run's live event stream via the agent-proxy.",
+        description=(
+            "Generate a run-scoped JWT that authorizes reading this task run's live event stream via the agent-proxy. "
+            "A run that keeps only a short live tail in Redis is routed to the proxy only when the client sets "
+            "resync=true, meaning it rebuilds from the durable run log when the proxy reports a trimmed cursor."
+        ),
     )
     @action(
         detail=True,
@@ -2960,18 +3080,21 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         token = tasks_facade.create_task_run_stream_read_token(pk, task_id, self.team_id)
         if stream_info is None or token is None:
             raise NotFound()
-        # Only the Django read leg serves the durable backlog, so thin-tail runs must
-        # not be routed to the agent-proxy — a proxy reader would silently lose
-        # everything behind the 500-entry live window.
+        client_can_resync = bool(getattr(request, "validated_query_data", {}).get("resync"))
+        thin_tail_withheld = run_stream_thin_tail(stream_info.state) and not client_can_resync
         stream_base_url = (
             None
-            if run_stream_thin_tail(stream_info.state)
+            if thin_tail_withheld
             else tasks_facade.resolve_stream_base_url(
                 distinct_id=request.user.distinct_id,
                 organization_id=self.team.organization_id,
                 force_proxy=tasks_facade.task_uses_pi_runtime(task_id, self.team_id),
             )
         )
+        route: StreamTokenRoute = "thin_tail_withheld"
+        if not thin_tail_withheld:
+            route = "proxy" if stream_base_url else "django"
+        observe_stream_token_routed(stream_info.origin_product, route, client_can_resync)
         return Response(StreamReadTokenResponseSerializer({"token": token, "stream_base_url": stream_base_url}).data)
 
     @validated_request(
@@ -2983,7 +3106,12 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             ),
             400: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer,
-                description="Invalid command or no active sandbox",
+                description=(
+                    "Invalid command, or no active sandbox. Code `sandbox_not_ready` is transient "
+                    "rather than a refusal — the run exists but its agent server is still starting, "
+                    "which is the usual answer to a command sent as soon as the run asks for one. "
+                    "Retry it until the request you are answering expires. Every other 400 is fatal."
+                ),
             ),
             403: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer,
@@ -3027,6 +3155,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             self._ensure_subscription_owner(task_id, pk)
         if method == "credential_response":
             run = tasks_facade.get_task_run_detail(pk, task_id, self.team_id)
+            # Only Claude tokens travel through the relay. Codex runs fetch theirs from the server.
             if (
                 run is None
                 or is_sandbox_oauth_request(request)
@@ -3061,6 +3190,14 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             )
         request_id = request.validated_data.get("id")
         params = request.validated_data.get("params")
+
+        if method in _HUMAN_STEERING_COMMAND_METHODS and tasks_facade.task_run_awaits_report_activation(
+            pk, task_id, self.team_id
+        ):
+            return Response(
+                TaskRunErrorResponseSerializer({"error": tasks_facade.REPORT_WARM_RUN_NOT_ACTIVATED}).data,
+                status=status.HTTP_409_CONFLICT,
+            )
 
         # A side question drives the agent and spends model tokens on the caller's behalf. Unlike
         # user_message below, it has no Inbox surface to exempt, so every caller takes both gates.
@@ -3171,6 +3308,16 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             ):
                 return access_response
 
+        if (
+            method == "set_config_option"
+            and params.get("configId") == "model"
+            and tasks_facade.task_run_model_outside_gateway_pin(pk, task_id, self.team_id, params.get("value"))
+        ):
+            return Response(
+                TaskRunErrorResponseSerializer({"error": "This run's gateway token does not allow that model."}).data,
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         connection = tasks_facade.get_task_run_sandbox_connection(
             pk, task_id, self.team_id, user_id=request.user.id, distinct_id=request.user.distinct_id
         )
@@ -3199,7 +3346,10 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             )
 
         if not self._is_valid_sandbox_url(connection.sandbox_url):
-            logger.warning(f"Blocked request to disallowed sandbox URL for task run {pk}")
+            # The URL is in the log line on purpose: it is what the allowlist judged, and
+            # without it a block cannot be diagnosed from logs. It carries no credential —
+            # sandbox auth travels separately, attached per request.
+            logger.warning(f"Blocked request to disallowed sandbox URL for task run {pk}: {connection.sandbox_url}")
             return Response(
                 TaskRunErrorResponseSerializer({"error": "Invalid sandbox URL"}).data,
                 status=status.HTTP_400_BAD_REQUEST,
@@ -3304,7 +3454,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         - http://127.0.0.1:{port} (Docker sandboxes)
         - https://*.modal.run (Modal sandboxes)
         - https://*.modal.host (Modal connect token sandboxes)
-        - the exact host of settings.HOGLAND_API_URL (hogland box proxy)
+        - the exact https origin of settings.HOGLAND_API_URL (hogland box proxy)
         """
         from urllib.parse import urlparse
 
@@ -3323,11 +3473,12 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         ):
             return True
 
-        hogland_host = urlparse(settings.HOGLAND_API_URL).hostname if settings.HOGLAND_API_URL else None
-        if parsed.scheme == "https" and hogland_host and parsed.hostname == hogland_host:
-            return True
-
-        return False
+        # Hogland is one configured origin, so delegate to the same exact-origin gate
+        # (https + host + port) that authorizes attaching the hogland bearer. One gate
+        # for both decisions means a URL this allowlist admits as hogland is always a
+        # URL the bearer may travel to, and vice versa — the previous inline check
+        # compared the hostname only, so it was slightly wider than the bearer gate.
+        return tasks_facade.is_hogland_sandbox_url(url)
 
     @staticmethod
     def _proxy_command_to_agent_server(
@@ -3352,14 +3503,26 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if sandbox_connect_token:
             params[sandbox_token_param] = sandbox_connect_token
 
-        return http_requests.post(
-            command_url,
-            json=payload,
-            headers=headers,
-            params=params,
-            timeout=5 if payload.get("method") == "credential_response" else 600,
-            allow_redirects=payload.get("method") != "credential_response",
-        )
+        request_kwargs: dict[str, Any] = {
+            "json": payload,
+            "headers": headers,
+            "params": params,
+            "timeout": 5 if payload.get("method") == "credential_response" else 600,
+            "allow_redirects": payload.get("method") != "credential_response",
+        }
+
+        if tasks_facade.is_hogland_sandbox_url(sandbox_url):
+            # In-cluster DNS answers for the hogland host with a private address, and the
+            # egress proxy answers 407 for it — so bypass HTTP(S)_PROXY for this one
+            # exact origin, the same way agent_command.send_agent_command does. Redirects are
+            # disabled outright (rather than validated against the allowlist) because this
+            # transport already skips the egress proxy that would otherwise constrain where a
+            # followed redirect could reach from the web pod.
+            request_kwargs["allow_redirects"] = False
+            with internal_requests_session() as session:
+                return session.post(command_url, **request_kwargs)
+
+        return http_requests.post(command_url, **request_kwargs)
 
     @validated_request(
         query_serializer=TaskRunSessionLogsQuerySerializer,
@@ -4274,6 +4437,7 @@ class LegacyDesktopAccessViewSet(viewsets.ViewSet):
         summary="Check PostHog Desktop access",
         description="Compatibility endpoint for released PostHog Desktop clients.",
     )
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(detail=False, methods=["get"], url_path="check-access")
     def check_access(self, request, **kwargs):
         team = getattr(request.user, "team", None)

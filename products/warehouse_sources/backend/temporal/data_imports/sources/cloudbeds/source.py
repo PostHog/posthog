@@ -62,7 +62,7 @@ class CloudbedsSource(ResumableSource[CloudbedsSourceConfig, CloudbedsResumeConf
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Cloudbeds",
             releaseStatus=ReleaseStatus.ALPHA,
-            caption="""Enter your Cloudbeds API key to pull your properties, reservations, guests, rooms, room types, and transactions into the PostHog Data warehouse.
+            caption="""Enter your Cloudbeds API key to pull your properties, reservations and their rate details, guests, rooms, room types, transactions, rate plans, and staff users into the PostHog Data warehouse.
 
 You can create an API key under **Settings → API credentials** in [Cloudbeds](https://hotels.cloudbeds.com). Note that Cloudbeds API keys expire after 30 days of inactivity, so a key that has not been used recently may need to be regenerated.
 

@@ -13,7 +13,7 @@ from posthog.ingress.contracts import (
     WebhookDelivery,
 )
 from posthog.ingress.dispatch.budget import DeliveryBudget, delivery_budget_seconds
-from posthog.ingress.dispatch.dedup import DeliveryClaim, DeliveryDedup
+from posthog.ingress.dispatch.dedup import DeliveryClaim, DeliveryClaimResult, DeliveryDedup
 from posthog.ingress.dispatch.registry import ConsumerRegistry
 from posthog.ingress.observability.metrics import observe_consumer_duration, observe_consumer_run, observe_ownership
 
@@ -52,9 +52,9 @@ class WebhookDispatcher:
         claim = (
             self._dedup.claim(provider=delivery.provider, consumer=consumer.name, delivery_id=delivery_id)
             if delivery_id
-            else DeliveryClaim.CLAIMED
+            else DeliveryClaimResult(state=DeliveryClaim.CLAIMED)
         )
-        if claim is DeliveryClaim.DONE:
+        if claim.state is DeliveryClaim.DONE:
             logger.info(
                 "ingress_consumer_deduped",
                 provider=delivery.provider,
@@ -64,7 +64,7 @@ class WebhookDispatcher:
             )
             observe_consumer_run(provider=delivery.provider, consumer=consumer.name, outcome="deduped")
             return True
-        if claim is DeliveryClaim.IN_PROGRESS:
+        if claim.state is DeliveryClaim.IN_PROGRESS:
             logger.info(
                 "ingress_consumer_in_flight",
                 provider=delivery.provider,
@@ -88,7 +88,12 @@ class WebhookDispatcher:
             )
             capture_exception(error)
             if delivery_id:
-                self._dedup.release(provider=delivery.provider, consumer=consumer.name, delivery_id=delivery_id)
+                self._dedup.release(
+                    provider=delivery.provider,
+                    consumer=consumer.name,
+                    delivery_id=delivery_id,
+                    token=claim.token,
+                )
             observe_consumer_run(provider=delivery.provider, consumer=consumer.name, outcome="failed")
             return False
         else:

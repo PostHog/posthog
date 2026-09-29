@@ -30,7 +30,7 @@ the standalone Skills product — see `products/skills/skills/`.
 hogli init:skill -- --product ai_observability --name my-new-skill
 ```
 
-See `products/posthog_ai/scripts/build_skills.py` for the build pipeline
+See `products/posthog_ai/scripts/build_skills/` for the build pipeline
 and `AGENTS.md` for conventions.
 
 ## Local testing

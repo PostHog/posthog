@@ -8,20 +8,26 @@ rules:
           and register the handlers in `products/<product>/backend/webhook_consumers.py`.
           An endpoint that genuinely needs DRF team scoping (Customer.io) keeps its view and
           subclasses `WebhookSignatureAuthentication`, which itself verifies through the ingress
-          schemes. `posthog/ingress/README.md` holds the transport contract.
+          schemes. An endpoint that must answer its sender synchronously, such as a Slack slash
+          command, keeps its view too and calls the provider's scheme builder directly, as
+          `validate_slack_request` does. `posthog/ingress/README.md` holds the transport contract.
 
           Why: a hand-rolled verifier repeats the parts that are easy to get wrong, the
           constant-time compare, the replay window and the exact signed input, and it lands
           outside the shared dedup, delivery budget, and delivery metrics, so a wedged
           consumer is invisible and holds the connection open.
 
-          The rule fires on three shapes: an `hmac` digest or compare in a module that also
-          reads one of the known signature headers, `hmac` inside a function named like a
-          signature verifier, and a vendor SDK call that verifies an inbound signature.
-          What it misses follows from those three. The header list is closed, so a provider
-          whose header is not in it is caught only by the other two branches. A verifier with
-          a name outside the regex, in a module that reads no known header, passes. So does a
-          vendor SDK the third branch does not name, and a verifier in another language.
+          A verifier the vendor ships in its own SDK, such as `stripe.WebhookSignature`, is not
+          a finding and stays as it is. It is maintained by the people who define the scheme, so
+          replacing it with a copy of our own reintroduces exactly the mistakes above. Ingress
+          wraps such a verifier at most, it never reimplements one.
+
+          The rule fires on two shapes: an `hmac` digest or compare in a module that also
+          reads one of the known signature headers, and `hmac` inside a function named like a
+          signature verifier. What it misses follows from those two. The header list is closed,
+          so a provider whose header is not in it is caught only by the other branch. A verifier
+          with a name outside the regex, in a module that reads no known header, passes. So does
+          a verifier in another language.
 
           Suppress a legitimate exception with
           `# nosemgrep: inbound-webhooks-go-through-ingress -- <reason>`.
@@ -91,12 +97,6 @@ rules:
                       - metavariable-regex:
                             metavariable: $VERIFY
                             regex: ^_?((is_|has_)?(verify|valid|check|match)[a-z0-9_]*(signature|webhook|digest)[a-z0-9_]*|(is_|has_)?[a-z0-9_]*(signature|webhook|digest)[a-z0-9_]*_(ok|valid|verified|match)[a-z0-9_]*)$
-                # A vendor SDK can own the compare, so neither branch above sees any `hmac`.
-                # These calls only ever verify an inbound signature; nothing signs with them.
-                - patterns:
-                      - pattern-either:
-                            - pattern: stripe.WebhookSignature.verify_header(...)
-                            - pattern: stripe.Webhook.construct_event(...)
       paths:
           include:
               - /common/**/*.py
@@ -111,13 +111,3 @@ rules:
               - '**/tests/**'
               - 'test_*.py'
               - '*_test.py'
-              # Ratchet. Each entry is a verifier that predates ingress, and the PR that
-              # migrates that endpoint removes its line. The paths are the ones on master,
-              # so the rule holds whether or not the migrations land with it.
-              - /ee/api/vercel/vercel_webhooks.py
-              - /ee/partners/stripe/api/provisioning/signature.py
-              - /posthog/models/integration/slack.py
-              - /products/conversations/backend/mailgun.py
-              - /products/conversations/backend/support_slack.py
-              - /products/user_interviews/backend/presentation/webhooks.py
-              - /products/workflows/backend/api/ses_events_webhook.py
