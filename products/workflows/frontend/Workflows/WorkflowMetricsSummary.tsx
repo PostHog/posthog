@@ -13,7 +13,9 @@ import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
 import { EmailLinksTable } from './EmailLinksTable'
 import { WorkflowMetricCard } from './WorkflowMetricCard'
 import {
+    type EmailLinkRow,
     type EmailMetric,
+    type EmailMetricName,
     type EmailMetricRow,
     METRIC_COLORS,
     type PushMetricRow,
@@ -50,7 +52,7 @@ function trackedEngagementColumn(value: number, row: EmailMetricRow): JSX.Elemen
 interface WorkflowMetricsSummaryProps extends WorkflowMetricsSummaryLogicProps {
     onSelectAction?: (actionId: string) => void
     /** Drill a per-email metric into its filtered logs (only bounced/blocked have a log filter). */
-    onMetricClick?: (metricKey: EmailMetric) => void
+    onMetricClick?: (metricKey: EmailMetricName) => void
 }
 
 export function WorkflowMetricsSummary({
@@ -129,14 +131,25 @@ export function WorkflowMetricsSummary({
                     // A prevented bounce is skipped before the provider sees it, so it is not part of
                     // `sent` and its rate reads against everything the step attempted to send.
                     const attempted = row.sent + row.bouncePrevented
-                    const issues = [
+                    const classifiedBounces = row.bouncedHard + row.bouncedSoft + row.bouncedUnknown
+                    const bounceIssues: { label: string; value: number; metric: EmailMetricName }[] = [
+                        { label: 'hard bounced', value: row.bouncedHard, metric: 'email_bounced_hard' },
+                        { label: 'soft bounced', value: row.bouncedSoft, metric: 'email_bounced_transient' },
                         {
-                            label: 'bounced',
-                            value: row.bounced,
+                            label: 'bounced, type unknown',
+                            value: row.bouncedUnknown,
+                            metric: 'email_bounced_undetermined',
+                        },
+                        // The rollup and its per-type rows are written together, so this is normally
+                        // zero. Showing any remainder keeps the tags adding up to the rollup.
+                        { label: 'bounced', value: Math.max(0, row.bounced - classifiedBounces), metric: 'email_bounced' },
+                    ]
+                    const issues = [
+                        ...bounceIssues.map((bounce) => ({
+                            ...bounce,
                             total: row.sent,
                             type: 'danger' as const,
-                            metric: 'email_bounced' as EmailMetric,
-                        },
+                        })),
                         {
                             label: 'marked as spam',
                             value: row.markedAsSpam,
