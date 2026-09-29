@@ -207,6 +207,8 @@ class PlatformAlertOutcome:
     # evaluation that cannot succeed.
     disable: bool = False
     grouping_key: str = ""
+    # The group's row is removed: a label set the query no longer returns and that holds nothing.
+    retire: bool = False
 
 
 @frozen

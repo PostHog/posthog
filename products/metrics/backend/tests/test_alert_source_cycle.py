@@ -318,6 +318,7 @@ class TestMetricsAlertEvaluation(APIBaseTest):
                     team=self.team,
                     configuration=configuration,
                     grouping_key=grouping_key_for({"pod": f"old-{index:04d}"}),
+                    state=PlatformAlert.State.FIRING,
                 )
         fresh = [
             _series([500.0], end=self.due_at, step=timedelta(minutes=5), labels={"pod": f"new-{i:04d}"})
@@ -336,7 +337,42 @@ class TestMetricsAlertEvaluation(APIBaseTest):
                 == MAX_GROUPS_PER_CONFIGURATION
             )
 
-    def test_the_group_cap_sits_below_the_query_facades_series_cap(self) -> None:
+    def test_a_vanished_group_that_is_not_firing_is_retired_and_frees_its_slot(self) -> None:
+        configuration = self._configuration()
+        first, _ = self._run(configuration, series=self._grouped(api=1.0, web=500.0))
+        self._record(first)
+        with team_scope(self.team.id):
+            configuration.next_check_at = self.due_at
+            configuration.save(update_fields=["next_check_at"])
+        replacement = [_series([500.0], end=self.due_at, step=timedelta(minutes=5), labels={"service_name": "worker"})]
+
+        second, _ = self._run(configuration, series=replacement)
+        self._record(second)
+
+        with team_scope(self.team.id):
+            keys = set(PlatformAlert.objects.filter(configuration=configuration).values_list("grouping_key", flat=True))
+        # api resolved before it vanished, so its row is gone; web was firing when it vanished, so it stays.
+        assert grouping_key_for({"service_name": "api"}) not in keys
+        assert grouping_key_for({"service_name": "web"}) in keys
+        assert grouping_key_for({"service_name": "worker"}) in keys
+
+    def test_stale_not_firing_groups_do_not_consume_the_cap(self) -> None:
+        configuration = self._configuration()
+        with team_scope(self.team.id):
+            for index in range(MAX_GROUPS_PER_CONFIGURATION):
+                PlatformAlert.objects.create(
+                    team=self.team,
+                    configuration=configuration,
+                    grouping_key=grouping_key_for({"pod": f"old-{index:04d}"}),
+                )
+        fresh = [_series([500.0], end=self.due_at, step=timedelta(minutes=5), labels={"pod": "new-0000"})]
+
+        evaluation, _ = self._run(configuration, series=fresh)
+
+        by_key = {o.grouping_key: o for o in evaluation.outcomes}
+        assert by_key[grouping_key_for({"pod": "new-0000"})].new_state == "firing"
+        assert "" not in by_key or by_key[""].consecutive_failures == 0
+
         # The facade truncates each clause at MAX_SERIES_PER_CLAUSE, so a cap at or above it could never see overflow.
         assert MAX_GROUPS_PER_CONFIGURATION < MAX_SERIES_PER_CLAUSE
 

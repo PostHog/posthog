@@ -276,6 +276,8 @@ class _GroupDecision:
     # A group the query did not answer this cycle. Its outcome carries no verdict on the
     # configuration's health, so it must not decide the failure counter.
     inconclusive: bool = False
+    # A vanished group that holds nothing: its row is removed so it stops occupying the cap.
+    retire: bool = False
 
 
 # Every outcome a configuration produced this cycle, and what delivery would announce for them.
@@ -379,6 +381,7 @@ def _recorded(
     notified: bool,
     consecutive_failures: int,
     disable: bool = False,
+    retire: bool = False,
 ) -> PlatformAlertOutcome:
     return PlatformAlertOutcome(
         configuration_id=check.id,
@@ -387,6 +390,7 @@ def _recorded(
         consecutive_failures=consecutive_failures,
         disable=disable,
         grouping_key=grouping_key,
+        retire=retire,
     )
 
 
@@ -405,6 +409,7 @@ def _delivery(check: PlatformAlertCheckInput, decisions: Sequence[_GroupDecision
             notified=decision.outcome.update_last_notified_at,
             consecutive_failures=failures if decision.inconclusive else decision.outcome.consecutive_failures,
             disable=decision.outcome.disable,
+            retire=decision.retire,
         )
         for decision in decisions
     )
@@ -477,7 +482,14 @@ def _inconclusive(
     outcome = _verdict(
         check, group, CheckInput(threshold_breached=False, is_inconclusive=True, muted=muted), (), now=now, skip=None
     )
-    return _GroupDecision(group=group, labels={}, value=None, outcome=outcome, inconclusive=True)
+    return _GroupDecision(
+        group=group,
+        labels={},
+        value=None,
+        outcome=outcome,
+        inconclusive=True,
+        retire=outcome.new_state == AlertState.NOT_FIRING,
+    )
 
 
 def _evaluate_groups(
@@ -494,17 +506,18 @@ def _evaluate_groups(
     rather than dropped, so a group that was firing is not stranded."""
     selected = _select_series(series, source)
     grouped = len(selected) > 1 or any(one.labels for one in selected)
-    # The cap counts the label sets the platform already remembers, or a configuration could add
-    # a fresh set of rows on every check and grow without bound.
-    remembered = {group.grouping_key for group in check.groups if group.grouping_key}
+    # The cap counts the label sets that are live: the ones the query returned and the remembered
+    # ones that still hold state. A remembered group that resolved and vanished is retired below,
+    # so churn in label sets cannot fill the cap for good.
+    occupied = {group.grouping_key for group in check.groups if group.grouping_key and group.state != "not_firing"}
     admitted: list[MetricSeries] = []
     new_keys: set[str] = set()
     overflow = 0
     for one in selected:
         key = grouping_key_for(one.labels)
-        if key == "" or key in remembered or len(remembered) + len(new_keys) < MAX_GROUPS_PER_CONFIGURATION:
+        if key == "" or key in occupied or len(occupied) + len(new_keys) < MAX_GROUPS_PER_CONFIGURATION:
             admitted.append(one)
-            if key and key not in remembered:
+            if key and key not in occupied:
                 new_keys.add(key)
         else:
             overflow += 1
@@ -522,7 +535,7 @@ def _evaluate_groups(
     if overflow:
         # Visible on the root group. Silently stopping at the cap would read as "nothing is wrong"
         # for every label set past it.
-        total = len(remembered) + len(new_keys) + overflow
+        total = len(occupied) + len(new_keys) + overflow
         too_many = ValueError(
             f"Too many groups ({total} > {MAX_GROUPS_PER_CONFIGURATION}); add filters or group by fewer labels"
         )

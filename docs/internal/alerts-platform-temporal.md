@@ -284,7 +284,8 @@ the clause whose series is evaluated. The window rules differ from logs below th
   overflow is always visible). Past the cap the first 50 label sets by key are
   evaluated and the overflow is recorded as a failed check on the root group, so a cap never reads as "nothing is
   wrong". A label set the platform remembers and the query no longer returns is inconclusive for its group, not
-  dropped, so a firing group is never stranded.
+  dropped, so a firing group is never stranded. Once such a group is not firing its row is retired, and only live
+  groups count toward the cap, so churn in label sets cannot fill the cap for good.
 
 Nothing creates a metrics platform configuration yet except `upsert_configuration`, so a production tick finds
 no metrics demand until one is written by hand.

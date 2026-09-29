@@ -189,10 +189,16 @@ def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now:
         alerts = _alerts_for_write(team_id, configurations, keys)
 
         written: list[PlatformAlert] = []
+        retired: list[PlatformAlert] = []
         for configuration in configurations:
             group_outcomes = by_configuration[str(configuration.id)]
             for outcome in group_outcomes:
                 alert = alerts[str(configuration.id)][outcome.grouping_key]
+                if outcome.retire and outcome.grouping_key:
+                    # A label set the query no longer returns and that holds nothing. The root row
+                    # is never retired: it carries the configuration's own state.
+                    retired.append(alert)
+                    continue
                 alert.state = outcome.new_state
                 if outcome.notified:
                     alert.last_notified_at = now
@@ -213,6 +219,8 @@ def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now:
             )
 
         PlatformAlert.objects.for_team(team_id).bulk_update(written, ["state", "last_notified_at"])
+        if retired:
+            PlatformAlert.objects.for_team(team_id).filter(id__in=[alert.id for alert in retired]).delete()
         PlatformAlertConfiguration.objects.for_team(team_id).bulk_update(
             configurations, ["consecutive_failures", "enabled", "next_check_at"]
         )
