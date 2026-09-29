@@ -88,7 +88,8 @@ export function createSessionsRowProps(query: DataTableNode): QueryContext['rowP
         return {
             className: 'cursor-pointer',
             onClick: (e: React.MouseEvent<HTMLTableRowElement>) => {
-                if ((e.target as HTMLElement).closest(INTERACTIVE_SELECTOR)) {
+                // A drag that selects text also fires a click, and the user wants to keep the selection
+                if ((e.target as HTMLElement).closest(INTERACTIVE_SELECTOR) || window.getSelection()?.toString()) {
                     return
                 }
                 const url = urls.sessionProfile(sessionId)
