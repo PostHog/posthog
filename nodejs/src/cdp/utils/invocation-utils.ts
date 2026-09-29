@@ -131,7 +131,9 @@ export async function buildHogFunctionInvocations(
                 sourceId: hogFunction.id,
                 sourceKind: 'hog_function',
                 step: 'inputs',
-                error: error.message,
+                // The VM quotes the argument it choked on, and an argument can be a secret input.
+                // This message leaves the process as a header on the parked record.
+                error: sanitizeLogMessage([error.message], getConfiguredSensitiveValues(hogFunction)),
                 errorClass,
             })
 

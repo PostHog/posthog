@@ -79,9 +79,13 @@ export class CdpEventsConsumer<
     }
 
     public async processBatch(
-        invocationGlobals: HogFunctionInvocationGlobals[]
+        invocationGlobals: HogFunctionInvocationGlobals[],
+        /** Runs after the build and before anything is queued, so a throw here queues nothing. */
+        beforeQueue?: () => Promise<void>
     ): Promise<{ backgroundTask: Promise<any>; invocations: CyclotronJobInvocation[] }> {
         if (!invocationGlobals.length) {
+            // A batch whose every message failed to parse still has records to write.
+            await beforeQueue?.()
             return { backgroundTask: Promise.resolve(), invocations: [] }
         }
 
@@ -102,6 +106,8 @@ export class CdpEventsConsumer<
         ])
 
         const invocationsToBeQueued = [...hogInvocations, ...hogflowInvocations]
+
+        await beforeQueue?.()
 
         // Emit a `running` lifecycle row for each freshly-created invocation.
         // This fires ONCE per invocation_id at creation — not on every dequeue
@@ -243,10 +249,11 @@ export class CdpEventsConsumer<
 
             return await instrumentFn('cdpConsumer.handleEachBatch', async () => {
                 const invocationGlobals = await this._parseKafkaBatch(messages)
-                const { backgroundTask } = await this.processBatch(invocationGlobals)
                 // Awaited, not backgrounded: the offsets for these messages are stored once this
                 // handler resolves, so a record has to exist by then or the event is gone.
-                await this.deadLetterService.produceForBatch(messages)
+                const { backgroundTask } = await this.processBatch(invocationGlobals, () =>
+                    this.deadLetterService.produceForBatch(messages)
+                )
 
                 return { backgroundTask }
             })

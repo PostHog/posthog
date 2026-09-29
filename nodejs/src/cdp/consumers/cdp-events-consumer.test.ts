@@ -627,10 +627,40 @@ describe('CdpEventsConsumer', () => {
                     dlq_step: 'filter',
                     dlq_team_id: String(team.id),
                     dlq_hog_function_ids: erroringFunction.id,
+                    dlq_class: 'drift',
                 })
                 expect(mockQueueInvocations).toHaveBeenCalledWith([
                     expect.objectContaining({ functionId: healthyFunction.id }),
                 ])
+            })
+
+            it('queues nothing when the batch is abandoned because parking refused', async () => {
+                // A refusal that leaves invocations queued delivers them again on the reprocess.
+                jest.spyOn(processor['deadLetterService'], 'produceForBatch').mockRejectedValue(new Error('topic gone'))
+                await insertHogFunction({
+                    ...HOG_EXAMPLES.simple_fetch,
+                    ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                    ...HOG_FILTERS_EXAMPLES.no_filters,
+                })
+
+                await expect(handleBatch([createKafkaMessage(createIncomingEvent(team.id, {}))])).rejects.toThrow(
+                    'topic gone'
+                )
+
+                expect(mockQueueInvocations).not.toHaveBeenCalled()
+            })
+
+            it("parks nothing when the failure is the owner's to fix", async () => {
+                // An unstamped throw cannot be attributed, so it is the owner's until the backfill runs.
+                await insertHogFunction({
+                    ...HOG_EXAMPLES.input_printer,
+                    ...HOG_INPUTS_EXAMPLES.secret_inputs,
+                    ...HOG_FILTERS_EXAMPLES.broken_filters_unstamped,
+                })
+
+                await handleBatch([createKafkaMessage(createIncomingEvent(team.id, {}))])
+
+                expect(mockProducerObserver.getProducedKafkaMessagesForTopic('cdp_events_dlq_test')).toHaveLength(0)
             })
 
             it('parks an event that throws unexpectedly instead of failing the whole batch', async () => {
