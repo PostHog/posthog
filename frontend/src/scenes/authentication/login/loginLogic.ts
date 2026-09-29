@@ -209,7 +209,7 @@ export interface loginLogicValues {
     loginTouched: boolean
     loginTouches: Record<string, boolean>
     loginValidationErrors: DeepPartialMap<LoginForm, ValidationErrorType>
-    noSignInMethodReportedForEmail: string | null
+    noSignInMethodReportedEmails: string[]
     precheckResponse: PrecheckResponseType
     precheckResponseLoading: boolean
     resendResponse: {
@@ -323,15 +323,15 @@ export interface loginLogicActions {
     setLoginValues: (values: DeepPartial<LoginForm>) => {
         values: DeepPartial<LoginForm>
     }
+    setNoSignInMethodReported: (email: string) => {
+        email: string
+    }
     startAutoRedirectToProvider: (
         provider: SSOProvider,
         email: string
     ) => {
         email: string
         provider: SSOProvider
-    }
-    setNoSignInMethodReported: (email: string) => {
-        email: string
     }
     submitCodeVerification: () => {
         value: boolean
@@ -458,10 +458,10 @@ export const loginLogic = kea<loginLogicType>([
             },
         ],
         // Precheck runs again on each blur and submit, so capture the banner event once per email.
-        noSignInMethodReportedForEmail: [
-            null as string | null,
+        noSignInMethodReportedEmails: [
+            [] as string[],
             {
-                setNoSignInMethodReported: (_, { email }) => email,
+                setNoSignInMethodReported: (state, { email }) => [...state, email],
             },
         ],
     }),
@@ -698,7 +698,7 @@ export const loginLogic = kea<loginLogicType>([
         precheckSuccess: async ({ payload }, breakpoint) => {
             const { precheckResponse } = values
             const precheckedEmail = payload?.email ?? values.login.email
-            if (values.hasNoConfiguredLoginMethod && values.noSignInMethodReportedForEmail !== precheckedEmail) {
+            if (values.hasNoConfiguredLoginMethod && !values.noSignInMethodReportedEmails.includes(precheckedEmail)) {
                 posthog.capture('login no sign-in method banner shown')
                 actions.setNoSignInMethodReported(precheckedEmail)
             }
