@@ -34,6 +34,7 @@ describe('createExperimentLogic', () => {
     let scannerCreateSpy: jest.Mock
     let scannerRequestBody: Record<string, unknown> | null
     let productIntentBodies: Record<string, unknown>[]
+    let createRequestBody: Experiment | null
 
     beforeEach(() => {
         // Clear persisted state to prevent it from affecting tests
@@ -41,6 +42,7 @@ describe('createExperimentLogic', () => {
         sessionStorage.clear()
         scannerRequestBody = null
         productIntentBodies = []
+        createRequestBody = null
         scannerCreateSpy = jest.fn(async ({ request }: { request: Request }) => {
             scannerRequestBody = (await request.json()) as Record<string, unknown>
             return [200, { id: 'scanner-123' }]
@@ -55,6 +57,7 @@ describe('createExperimentLogic', () => {
             post: {
                 [`/api/projects/${MOCK_TEAM_ID}/experiments`]: async ({ request }) => {
                     const body = (await request.json()) as Experiment
+                    createRequestBody = body
                     if (!body.name || !body.description) {
                         return [400, { detail: 'Validation error' }]
                     }
@@ -395,6 +398,91 @@ describe('createExperimentLogic', () => {
                 })
 
             expect(logic.values.experiment.feature_flag_config?.filters?.multivariate?.variants).toHaveLength(3)
+        })
+    })
+
+    describe('variant notes and screenshots', () => {
+        const variantsWithKeys = (...keys: string[]): { key: string; rollout_percentage: number }[] =>
+            keys.map((key) => ({ key, rollout_percentage: Math.floor(100 / keys.length) }))
+
+        const startWith = (keys: string[], parameters: Experiment['parameters']): void => {
+            logic.actions.setFeatureFlagConfig({ variants: variantsWithKeys(...keys) })
+            logic.actions.setExperimentValue('parameters', parameters)
+        }
+
+        it("moves a renamed variant's notes and screenshots to its new key", () => {
+            startWith(['control', 'test'], {
+                variant_notes: { control: 'Current checkout', test: 'One-page checkout' },
+                variant_screenshot_media_ids: { test: ['media-1', 'media-2'] },
+            })
+
+            logic.actions.setFeatureFlagConfig({ variants: variantsWithKeys('control', 'one-page') })
+
+            expect(logic.values.experiment.parameters).toEqual({
+                variant_notes: { control: 'Current checkout', 'one-page': 'One-page checkout' },
+                variant_screenshot_media_ids: { 'one-page': ['media-1', 'media-2'] },
+            })
+        })
+
+        it('follows a key retyped one character at a time, through an empty key', () => {
+            startWith(['control', 'test'], { variant_notes: { test: 'One-page checkout' } })
+
+            for (const key of ['tes', 'te', 't', '', 'n', 'ne', 'new']) {
+                logic.actions.setFeatureFlagConfig({ variants: variantsWithKeys('control', key) })
+            }
+
+            expect(logic.values.experiment.parameters.variant_notes).toEqual({ new: 'One-page checkout' })
+        })
+
+        it("does not hand a variant's details to another variant whose key it collides with", () => {
+            startWith(['control', 'test'], {
+                variant_notes: { control: 'Current checkout', test: 'One-page checkout' },
+            })
+
+            logic.actions.setFeatureFlagConfig({ variants: variantsWithKeys('control', 'control') })
+
+            expect(logic.values.experiment.parameters.variant_notes).toEqual({ control: 'Current checkout' })
+        })
+
+        it("drops a removed variant's details, without shifting the rest onto other variants", () => {
+            startWith(['control', 'test', 'test-2'], {
+                variant_notes: { test: 'One-page checkout', 'test-2': 'Express checkout' },
+                variant_screenshot_media_ids: { test: ['media-1'] },
+            })
+
+            logic.actions.setFeatureFlagConfig({ variants: variantsWithKeys('control', 'test-2') })
+
+            expect(logic.values.experiment.parameters).toEqual({
+                variant_notes: { 'test-2': 'Express checkout' },
+                variant_screenshot_media_ids: {},
+            })
+
+            // A variant added later under a removed variant's key starts empty
+            logic.actions.setFeatureFlagConfig({ variants: variantsWithKeys('control', 'test-2', 'test') })
+            expect(logic.values.experiment.parameters.variant_notes).toEqual({ 'test-2': 'Express checkout' })
+        })
+
+        it("saves only the details of the experiment's current variants", async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setExperiment({
+                    ...NEW_EXPERIMENT,
+                    name: 'Checkout flow',
+                    description: 'Test hypothesis',
+                    feature_flag_key: 'checkout-flow',
+                    parameters: {
+                        variant_notes: { test: 'One-page checkout', removed: 'Express checkout' },
+                        variant_screenshot_media_ids: { control: ['media-1'], removed: ['media-2'] },
+                    },
+                })
+                logic.actions.saveExperiment()
+            })
+                .toDispatchActions(['saveExperiment', 'createExperimentSuccess'])
+                .toFinishAllListeners()
+
+            expect(createRequestBody?.parameters).toEqual({
+                variant_notes: { test: 'One-page checkout' },
+                variant_screenshot_media_ids: { control: ['media-1'] },
+            })
         })
     })
 
