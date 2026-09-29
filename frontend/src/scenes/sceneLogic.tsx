@@ -919,6 +919,11 @@ export const sceneLogic = kea<sceneLogicType>([
                     return
                 }
 
+                if (projectLogic.values.currentProject && sceneId === Scene.ProjectPendingDeletion) {
+                    router.actions.replace(urls.projectHomepage())
+                    return
+                }
+
                 if (sceneId === Scene.OrganizationDeactivated || sceneId === Scene.OrganizationPendingDeletion) {
                     // The organization is open again, so let the member back in, as the server does. The server
                     // only matches the bare block path, and the router writes it with a `/project/<id>` prefix.

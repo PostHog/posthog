@@ -717,6 +717,13 @@ describe('sceneLogic', () => {
         })
     })
 
+    it('leaves the lockout screen for a project that is not pending deletion', async () => {
+        router.actions.push(urls.projectPendingDeletion())
+        await expectLogic(logic).delay(1)
+
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.projectHomepage())
+    })
+
     describe('a project pending deletion', () => {
         let priorAppContext: AppContext | undefined
 
