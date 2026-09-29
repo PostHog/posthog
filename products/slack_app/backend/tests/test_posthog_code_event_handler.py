@@ -550,6 +550,8 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         assert captured["posthog code slack mention received"]["posthog_user_identified"] is False
         assert captured[SLACK_MENTION_DROPPED_EVENT]["drop_reason"] == "user_unresolved:user_not_found"
         assert captured[SLACK_MENTION_DROPPED_EVENT]["replied"] is True
+        assert captured[SLACK_MENTION_DROPPED_EVENT]["slack_email_available"] is True
+        assert captured[SLACK_MENTION_DROPPED_EVENT]["posthog_account_exists"] is False
 
     @patch("products.slack_app.backend.api.posthoganalytics.capture")
     @patch("products.slack_app.backend.api._post_slack_user_ephemeral")

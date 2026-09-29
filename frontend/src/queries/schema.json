@@ -1502,6 +1502,10 @@
             "enum": ["Firing", "Not firing", "Errored", "Snoozed"],
             "type": "string"
         },
+        "AmazonAdsDefaultSources": {
+            "enum": ["amazon", "amazon_ads"],
+            "type": "string"
+        },
         "AnalyticsQueryResponseBase": {
             "additionalProperties": false,
             "properties": {
@@ -1794,6 +1798,9 @@
                 },
                 {
                     "$ref": "#/definitions/MCPModelBreakdownQuery"
+                },
+                {
+                    "$ref": "#/definitions/MCPProtocolVersionBreakdownQuery"
                 },
                 {
                     "$ref": "#/definitions/MCPToolTopUsersQuery"
@@ -10378,6 +10385,110 @@
             ],
             "type": "object"
         },
+        "CachedMCPProtocolVersionBreakdownQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "cache_key": {
+                    "type": "string"
+                },
+                "cache_target_age": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "calculation_trigger": {
+                    "description": "What triggered the calculation of the query, leave empty if user/immediate",
+                    "type": "string"
+                },
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "next_allowed_client_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "query_metadata": {
+                    "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_compare_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The resolved previous/comparison period date range, when comparing against another period"
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {
+                    "items": {
+                        "$ref": "#/definitions/MCPProtocolVersionBreakdownItem"
+                    },
+                    "type": "array"
+                },
+                "timezone": {
+                    "type": "string"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                },
+                "used_data_warehouse_sources": {
+                    "description": "Connector-synced data warehouse sources referenced by this query, if any.",
+                    "items": {
+                        "$ref": "#/definitions/DataWarehouseSourceUsage"
+                    },
+                    "type": "array"
+                },
+                "warnings": {
+                    "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
+                    "items": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/DataWarehouseSyncWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/AccessControlFilterWarning"
+                            }
+                        ]
+                    },
+                    "type": "array"
+                }
+            },
+            "required": [
+                "cache_key",
+                "is_cached",
+                "last_refresh",
+                "next_allowed_client_refresh",
+                "results",
+                "timezone"
+            ],
+            "type": "object"
+        },
         "CachedMCPToolCallBreakdownQueryResponse": {
             "additionalProperties": false,
             "properties": {
@@ -11559,6 +11670,10 @@
                     "format": "date-time",
                     "type": "string"
                 },
+                "previousTotalSessions": {
+                    "$ref": "#/definitions/integer",
+                    "description": "The same total for the previous period, the denominator for each row's previous session share."
+                },
                 "query_metadata": {
                     "type": "object"
                 },
@@ -11598,6 +11713,10 @@
                     "$ref": "#/definitions/integer",
                     "description": "Number of tools matching the date, category, and search filters."
                 },
+                "totalSessions": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Distinct sessions with any tool call in the window, ignoring category and search filters. The denominator for each row's session share."
+                },
                 "used_data_warehouse_sources": {
                     "description": "Connector-synced data warehouse sources referenced by this query, if any.",
                     "items": {
@@ -11625,9 +11744,11 @@
                 "is_cached",
                 "last_refresh",
                 "next_allowed_client_refresh",
+                "previousTotalSessions",
                 "results",
                 "timezone",
-                "totalCount"
+                "totalCount",
+                "totalSessions"
             ],
             "type": "object"
         },
@@ -26916,6 +27037,7 @@
                 "revenue_analytics_metadata",
                 "marketing_settings",
                 "marketing_analytics",
+                "customer_analytics",
                 "managed_viewsets",
                 "endpoints",
                 "sql_editor",
@@ -26932,6 +27054,7 @@
                 "experiment",
                 "feature_flag",
                 "feature_flag_off",
+                "data_modeling",
                 "data_pipeline",
                 "data_pipeline_metadata",
                 "data_warehouse",
@@ -26988,7 +27111,25 @@
                 "llm_prompts",
                 "llm_clusters",
                 "mcp_analytics",
-                "exports"
+                "exports",
+                "pulse",
+                "skill",
+                "wizard",
+                "data_catalog",
+                "warehouse_destination",
+                "warehouse_property",
+                "data_source",
+                "data_destination",
+                "data_transformation",
+                "event_filter",
+                "managed_migration",
+                "web_script",
+                "core_event",
+                "property_group",
+                "mcp_server",
+                "streamlit_app",
+                "sql_variable",
+                "business_knowledge"
             ],
             "type": "string"
         },
@@ -31761,6 +31902,10 @@
                     "description": "Customer-facing harness label, e.g. \"Claude Agent SDK\", \"OpenAI Codex\", \"Cursor\", \"Other\".",
                     "type": "string"
                 },
+                "harness_sessions": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Distinct sessions in this harness across all tools, in the same window and filters. The denominator for the tool's session share within the harness. Set only when the query has toolName."
+                },
                 "sessions": {
                     "$ref": "#/definitions/integer"
                 },
@@ -32119,6 +32264,127 @@
                 "results": {
                     "items": {
                         "$ref": "#/definitions/MCPModelBreakdownItem"
+                    },
+                    "type": "array"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                },
+                "used_data_warehouse_sources": {
+                    "description": "Connector-synced data warehouse sources referenced by this query, if any.",
+                    "items": {
+                        "$ref": "#/definitions/DataWarehouseSourceUsage"
+                    },
+                    "type": "array"
+                },
+                "warnings": {
+                    "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
+                    "items": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/DataWarehouseSyncWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/AccessControlFilterWarning"
+                            }
+                        ]
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["results"],
+            "type": "object"
+        },
+        "MCPProtocolVersionBreakdownItem": {
+            "additionalProperties": false,
+            "description": "One MCP protocol revision's share of tool calls.",
+            "properties": {
+                "is_current": {
+                    "description": "On the stateless 2026-07-28 revision or later, or the rolling draft.",
+                    "type": "boolean"
+                },
+                "protocol_version": {
+                    "type": "string"
+                },
+                "total_calls": {
+                    "$ref": "#/definitions/integer"
+                }
+            },
+            "required": ["protocol_version", "is_current", "total_calls"],
+            "type": "object"
+        },
+        "MCPProtocolVersionBreakdownQuery": {
+            "additionalProperties": false,
+            "description": "MCP tool-call activity grouped by negotiated protocol revision.",
+            "properties": {
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange"
+                },
+                "filterTestAccounts": {
+                    "type": "boolean"
+                },
+                "kind": {
+                    "const": "MCPProtocolVersionBreakdownQuery",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "properties": {
+                    "items": {
+                        "$ref": "#/definitions/MCPAnalyticsPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "response": {
+                    "$ref": "#/definitions/MCPProtocolVersionBreakdownQueryResponse"
+                },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
+        },
+        "MCPProtocolVersionBreakdownQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_compare_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The resolved previous/comparison period date range, when comparing against another period"
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {
+                    "items": {
+                        "$ref": "#/definitions/MCPProtocolVersionBreakdownItem"
                     },
                     "type": "array"
                 },
@@ -33596,6 +33862,22 @@
                 "p99_duration_ms": {
                     "type": "number"
                 },
+                "previous_calls": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Calls in the previous period: the same length of time right before the window, or for a to-date range (\"This month\") the same part of the previous unit."
+                },
+                "previous_errors": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Errored calls in the previous period."
+                },
+                "previous_p95_duration_ms": {
+                    "description": "p95 duration in the previous period, or null when no previous call carried a duration.",
+                    "type": ["number", "null"]
+                },
+                "previous_sessions": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Distinct sessions that called the tool in the previous period."
+                },
                 "sessions": {
                     "$ref": "#/definitions/integer"
                 },
@@ -33605,6 +33887,10 @@
                 "total_calls": {
                     "$ref": "#/definitions/integer"
                 },
+                "trend_score": {
+                    "description": "Sort key ranking growth relative to volume, so a small tool's spike doesn't outrank a large tool's surge. Not a percentage; only meaningful for ordering.",
+                    "type": "number"
+                },
                 "users": {
                     "$ref": "#/definitions/integer"
                 }
@@ -33612,6 +33898,7 @@
             "required": [
                 "tool",
                 "total_calls",
+                "previous_calls",
                 "errors",
                 "error_rate_pct",
                 "p50_duration_ms",
@@ -33620,7 +33907,11 @@
                 "users",
                 "sessions",
                 "first_seen",
-                "last_seen"
+                "last_seen",
+                "trend_score",
+                "previous_errors",
+                "previous_p95_duration_ms",
+                "previous_sessions"
             ],
             "type": "object"
         },
@@ -33704,6 +33995,10 @@
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
+                "previousTotalSessions": {
+                    "$ref": "#/definitions/integer",
+                    "description": "The same total for the previous period, the denominator for each row's previous session share."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -33733,6 +34028,10 @@
                     "$ref": "#/definitions/integer",
                     "description": "Number of tools matching the date, category, and search filters."
                 },
+                "totalSessions": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Distinct sessions with any tool call in the window, ignoring category and search filters. The denominator for each row's session share."
+                },
                 "used_data_warehouse_sources": {
                     "description": "Connector-synced data warehouse sources referenced by this query, if any.",
                     "items": {
@@ -33755,7 +34054,7 @@
                     "type": "array"
                 }
             },
-            "required": ["results", "totalCount"],
+            "required": ["previousTotalSessions", "results", "totalCount", "totalSessions"],
             "type": "object"
         },
         "MCPToolQualitySortColumn": {
@@ -33767,7 +34066,8 @@
                 "p99_duration_ms",
                 "users",
                 "sessions",
-                "last_seen"
+                "last_seen",
+                "trend_score"
             ],
             "type": "string"
         },
@@ -33923,6 +34223,14 @@
                 "p95_ms": {
                     "type": ["number", "null"]
                 },
+                "total_calls": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Calls to any tool in the same window and filters. The denominator for the tool's call share."
+                },
+                "total_conversations": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Conversations with a call to any tool in the same window and filters. The denominator for the tool's session share."
+                },
                 "users": {
                     "$ref": "#/definitions/integer"
                 },
@@ -33931,7 +34239,17 @@
                     "description": "Calls carrying a non-empty intent payload; the coverage denominator is `calls`."
                 }
             },
-            "required": ["calls", "errors", "p50_ms", "p95_ms", "users", "conversations", "with_intent"],
+            "required": [
+                "calls",
+                "errors",
+                "p50_ms",
+                "p95_ms",
+                "users",
+                "conversations",
+                "with_intent",
+                "total_calls",
+                "total_conversations"
+            ],
             "type": "object"
         },
         "MCPToolStatsQuery": {
@@ -36473,6 +36791,172 @@
                         "adsetStatsTableName"
                     ],
                     "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "campaignTableName": {
+                            "const": "campaigns",
+                            "type": "string"
+                        },
+                        "defaultSources": {
+                            "items": [
+                                {
+                                    "const": "openai",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "chatgpt",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "openai_ads",
+                                    "type": "string"
+                                }
+                            ],
+                            "maxItems": 3,
+                            "minItems": 3,
+                            "type": "array"
+                        },
+                        "idField": {
+                            "const": "id",
+                            "type": "string"
+                        },
+                        "nameField": {
+                            "const": "name",
+                            "type": "string"
+                        },
+                        "primarySource": {
+                            "const": "openai",
+                            "type": "string"
+                        },
+                        "sourceType": {
+                            "const": "OpenAIAds",
+                            "type": "string"
+                        },
+                        "statsTableName": {
+                            "const": "campaign_insights",
+                            "type": "string"
+                        }
+                    },
+                    "required": [
+                        "sourceType",
+                        "nameField",
+                        "idField",
+                        "campaignTableName",
+                        "statsTableName",
+                        "defaultSources",
+                        "primarySource"
+                    ],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "campaignTableName": {
+                            "const": "sp_campaigns",
+                            "type": "string"
+                        },
+                        "defaultSources": {
+                            "items": [
+                                {
+                                    "const": "amazon",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "amazon_ads",
+                                    "type": "string"
+                                }
+                            ],
+                            "maxItems": 2,
+                            "minItems": 2,
+                            "type": "array"
+                        },
+                        "idField": {
+                            "const": "campaign_id",
+                            "type": "string"
+                        },
+                        "nameField": {
+                            "const": "name",
+                            "type": "string"
+                        },
+                        "primarySource": {
+                            "const": "amazon",
+                            "type": "string"
+                        },
+                        "sourceType": {
+                            "const": "AmazonAds",
+                            "type": "string"
+                        },
+                        "statsTableName": {
+                            "const": "sp_campaign_reports",
+                            "type": "string"
+                        }
+                    },
+                    "required": [
+                        "sourceType",
+                        "nameField",
+                        "idField",
+                        "campaignTableName",
+                        "statsTableName",
+                        "defaultSources",
+                        "primarySource"
+                    ],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "campaignTableName": {
+                            "const": "CampaignPerformance",
+                            "type": "string"
+                        },
+                        "defaultSources": {
+                            "items": [
+                                {
+                                    "const": "rokt",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "rokt_ads",
+                                    "type": "string"
+                                }
+                            ],
+                            "maxItems": 2,
+                            "minItems": 2,
+                            "type": "array"
+                        },
+                        "idField": {
+                            "const": "campaign_id",
+                            "type": "string"
+                        },
+                        "nameField": {
+                            "const": "campaign_name",
+                            "type": "string"
+                        },
+                        "primarySource": {
+                            "const": "rokt",
+                            "type": "string"
+                        },
+                        "sourceType": {
+                            "const": "RoktAds",
+                            "type": "string"
+                        },
+                        "statsTableName": {
+                            "const": "CampaignPerformance",
+                            "type": "string"
+                        }
+                    },
+                    "required": [
+                        "sourceType",
+                        "nameField",
+                        "idField",
+                        "campaignTableName",
+                        "statsTableName",
+                        "defaultSources",
+                        "primarySource"
+                    ],
+                    "type": "object"
                 }
             ]
         },
@@ -38381,7 +38865,10 @@
                 "BingAds",
                 "SnapchatAds",
                 "PinterestAds",
-                "AppleSearchAds"
+                "AppleSearchAds",
+                "OpenAIAds",
+                "AmazonAds",
+                "RoktAds"
             ],
             "type": "string"
         },
@@ -38537,6 +39024,7 @@
                 "MCPToolCallsAndErrorsQuery",
                 "MCPHarnessBreakdownQuery",
                 "MCPModelBreakdownQuery",
+                "MCPProtocolVersionBreakdownQuery",
                 "MCPToolTopUsersQuery",
                 "MCPToolFailuresQuery",
                 "MCPToolFailureOccurrencesQuery",
@@ -38659,6 +39147,10 @@
             },
             "required": ["type"],
             "type": "object"
+        },
+        "OpenAIAdsDefaultSources": {
+            "enum": ["openai", "chatgpt", "openai_ads"],
+            "type": "string"
         },
         "PCADetectorConfig": {
             "additionalProperties": false,
@@ -39981,15 +40473,14 @@
         "ProductItemCategory": {
             "enum": [
                 "Analytics",
+                "Data",
                 "AI engineering",
-                "Behavior",
+                "Product engineering",
                 "Messaging",
-                "App monitoring",
-                "Features",
+                "Monitoring",
                 "Tools",
                 "Schema",
-                "Pipeline",
-                "Metadata",
+                "CDP",
                 "Unreleased"
             ],
             "type": "string"
@@ -47934,6 +48425,71 @@
                         },
                         "results": {
                             "items": {
+                                "$ref": "#/definitions/MCPProtocolVersionBreakdownItem"
+                            },
+                            "type": "array"
+                        },
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        },
+                        "used_data_warehouse_sources": {
+                            "description": "Connector-synced data warehouse sources referenced by this query, if any.",
+                            "items": {
+                                "$ref": "#/definitions/DataWarehouseSourceUsage"
+                            },
+                            "type": "array"
+                        },
+                        "warnings": {
+                            "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
+                            "items": {
+                                "anyOf": [
+                                    {
+                                        "$ref": "#/definitions/DataWarehouseSyncWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/AccessControlFilterWarning"
+                                    }
+                                ]
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["results"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
+                        "hogql": {
+                            "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers",
+                            "description": "Modifiers used when performing the query"
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "resolved_compare_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The resolved previous/comparison period date range, when comparing against another period"
+                        },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
+                        },
+                        "results": {
+                            "items": {
                                 "$ref": "#/definitions/MCPToolTopUserItem"
                             },
                             "type": "array"
@@ -48246,6 +48802,10 @@
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
                         },
+                        "previousTotalSessions": {
+                            "$ref": "#/definitions/integer",
+                            "description": "The same total for the previous period, the denominator for each row's previous session share."
+                        },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -48275,6 +48835,10 @@
                             "$ref": "#/definitions/integer",
                             "description": "Number of tools matching the date, category, and search filters."
                         },
+                        "totalSessions": {
+                            "$ref": "#/definitions/integer",
+                            "description": "Distinct sessions with any tool call in the window, ignoring category and search filters. The denominator for each row's session share."
+                        },
                         "used_data_warehouse_sources": {
                             "description": "Connector-synced data warehouse sources referenced by this query, if any.",
                             "items": {
@@ -48297,7 +48861,7 @@
                             "type": "array"
                         }
                     },
-                    "required": ["results", "totalCount"],
+                    "required": ["previousTotalSessions", "results", "totalCount", "totalSessions"],
                     "type": "object"
                 },
                 {
@@ -49270,6 +49834,9 @@
                 },
                 {
                     "$ref": "#/definitions/MCPModelBreakdownQuery"
+                },
+                {
+                    "$ref": "#/definitions/MCPProtocolVersionBreakdownQuery"
                 },
                 {
                     "$ref": "#/definitions/MCPToolTopUsersQuery"
@@ -50430,6 +50997,10 @@
                 }
             },
             "type": "object"
+        },
+        "RoktAdsDefaultSources": {
+            "enum": ["rokt", "rokt_ads"],
+            "type": "string"
         },
         "RootAssistantMessage": {
             "anyOf": [
@@ -51781,6 +52352,10 @@
                 },
                 "sections": {
                     "$ref": "#/definitions/SidebarSectionsConfiguration"
+                },
+                "starred_products_setup_completed": {
+                    "description": "True once the user saved or dismissed the setup that moves their custom products to starred products in the simple sidebar.",
+                    "type": "boolean"
                 }
             },
             "type": "object"
@@ -51824,7 +52399,7 @@
                 },
                 "tools": {
                     "$ref": "#/definitions/UIVisibilityConfig",
-                    "description": "\"Tools\" panel trigger in the Project section."
+                    "description": "\"Products\" panel trigger in the Project section."
                 }
             },
             "type": "object"
@@ -51835,11 +52410,11 @@
             "properties": {
                 "my_tools": {
                     "$ref": "#/definitions/UIVisibilityConfig",
-                    "description": "The \"My tools\" section, listing the user's selected tools."
+                    "description": "The \"My products\" section, listing the user's selected products."
                 },
                 "project": {
                     "$ref": "#/definitions/UIVisibilityConfig",
-                    "description": "The \"Project\" section (Home and the Data/Files/Tools/Starred panel triggers). Activity stays visible even when this section is hidden."
+                    "description": "The \"Project\" section (Home and the Data/Files/Products/Starred panel triggers). Activity stays visible even when this section is hidden."
                 },
                 "recents": {
                     "$ref": "#/definitions/UIVisibilityConfig",
@@ -54191,7 +54766,7 @@
                     "type": "number"
                 }
             },
-            "required": ["dateRange", "kind"],
+            "required": ["kind"],
             "type": "object"
         },
         "TraceSpansQueryResponse": {

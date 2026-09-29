@@ -145,8 +145,13 @@ GOOGLE_SHEETS_SERVICE_ACCOUNT_PRIVATE_KEY: str | None = os.getenv("GOOGLE_SHEETS
 GOOGLE_SHEETS_SERVICE_ACCOUNT_PRIVATE_KEY_ID: str | None = os.getenv("GOOGLE_SHEETS_SERVICE_ACCOUNT_PRIVATE_KEY_ID")
 GOOGLE_SHEETS_SERVICE_ACCOUNT_TOKEN_URI: str | None = os.getenv("GOOGLE_SHEETS_SERVICE_ACCOUNT_TOKEN_URI")
 
+# Only a local setup has a Redis on localhost. In a deployed environment nothing listens there,
+# so an environment that sets neither of these turned every warehouse Redis call into a connection
+# error. Leave the host unset instead, which lets the callers fall back to the shared REDIS_URL or
+# say that the feature is not configured.
+_DEFAULT_DATA_WAREHOUSE_REDIS_HOST = "localhost" if DEBUG or TEST else None
 DATA_WAREHOUSE_REDIS_HOST: str | None = os.getenv(
-    "DATA_WAREHOUSE_REDIS_HOST", os.getenv("POSTHOG_REDIS_HOST", "localhost")
+    "DATA_WAREHOUSE_REDIS_HOST", os.getenv("POSTHOG_REDIS_HOST", _DEFAULT_DATA_WAREHOUSE_REDIS_HOST)
 )
 DATA_WAREHOUSE_REDIS_PORT: str | None = os.getenv("DATA_WAREHOUSE_REDIS_PORT", os.getenv("POSTHOG_REDIS_PORT", "6379"))
 
@@ -163,3 +168,23 @@ WAREHOUSE_SOURCES_DATABASE_URL: str = (
 # Warehouse-pipeline and cyclotron Kafka config live in `posthog/settings/kafka.py`
 # (profiles `warehouse_sources` and `cyclotron`) — read from `settings.KAFKA_PROFILES[...]`
 # or via the back-compat top-level names that settings/kafka.py exposes.
+
+# Bounds on a set of queued batches the V3 loader writes to a Delta table as one commit. The loader
+# holds the whole set decoded in Arrow, then copies it once more while it deduplicates and partitions,
+# so a set must stay inside the memory slice the deltalite governor sizes per concurrent upsert
+# (memory_governor.py): with a 29 GiB pod, 16 groups in flight and a 2 GiB reserve, that slice is
+# about 1.3 GiB, of which 750 MiB goes to four partition workers. The row cap equals one extraction
+# chunk, the largest single batch the loader already takes, and the byte cap counts parquet on disk,
+# which decodes to Arrow several times its size. The count cap is only a backstop.
+DATA_WAREHOUSE_V3_COALESCE_MAX_BATCHES = get_from_env("DATA_WAREHOUSE_V3_COALESCE_MAX_BATCHES", 128, type_cast=int)
+DATA_WAREHOUSE_V3_COALESCE_MAX_ROWS = get_from_env("DATA_WAREHOUSE_V3_COALESCE_MAX_ROWS", 500_000, type_cast=int)
+DATA_WAREHOUSE_V3_COALESCE_MAX_BYTES = get_from_env(
+    "DATA_WAREHOUSE_V3_COALESCE_MAX_BYTES", 64 * 1024 * 1024, type_cast=int
+)
+# A set may span consecutive runs of one schema. Off keeps every set inside one run. Off by default
+# until every loader pod runs a build that reads the `members` commit tag: an older pod that
+# redelivers a later run's member of a cross-run set cannot find that member's commit, and on an
+# append table that loads its rows a second time.
+DATA_WAREHOUSE_V3_COALESCE_ACROSS_RUNS = get_from_env(
+    "DATA_WAREHOUSE_V3_COALESCE_ACROSS_RUNS", False, type_cast=str_to_bool
+)

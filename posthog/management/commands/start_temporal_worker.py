@@ -160,6 +160,10 @@ from products.alerts.backend.facade.temporal import (
     SHARED_ORCHESTRATION_ACTIVITIES as ALERTS_PLATFORM_SHARED_ORCHESTRATION_ACTIVITIES,
     SHARED_ORCHESTRATION_WORKFLOWS as ALERTS_PLATFORM_SHARED_ORCHESTRATION_WORKFLOWS,
 )
+from products.autoresearch.backend.facade.temporal import (
+    ACTIVITIES as AUTORESEARCH_ACTIVITIES,
+    WORKFLOWS as AUTORESEARCH_WORKFLOWS,
+)
 from products.batch_exports.backend.temporal import (
     ACTIVITIES as BATCH_EXPORTS_ACTIVITIES,
     WORKFLOWS as BATCH_EXPORTS_WORKFLOWS,
@@ -189,6 +193,10 @@ from products.customer_analytics.backend.facade.temporal import (
     ACCOUNT_PROPERTY_SYNC_WORKFLOWS,
     ACTIVITIES as CUSTOMER_ANALYTICS_ACTIVITIES,
     WORKFLOWS as CUSTOMER_ANALYTICS_WORKFLOWS,
+)
+from products.data_catalog.backend.facade.temporal import (
+    ACTIVITIES as DATA_CATALOG_DIGEST_ACTIVITIES,
+    WORKFLOWS as DATA_CATALOG_DIGEST_WORKFLOWS,
 )
 from products.data_quality.backend.facade.temporal import (
     ACTIVITIES as DATA_QUALITY_ACTIVITIES,
@@ -273,6 +281,8 @@ from products.signals.backend.emission.temporal_settings import (
 )
 from products.signals.backend.temporal import (
     ACTIVITIES as SIGNALS_PRODUCT_ACTIVITIES,
+    SELF_DRIVING_ACTIVITIES,
+    SELF_DRIVING_WORKFLOWS,
     WORKFLOWS as SIGNALS_PRODUCT_WORKFLOWS,
 )
 from products.stamphog.backend.facade.temporal import (
@@ -512,8 +522,8 @@ _task_queue_specs = [
     # workflows left, so a dedicated fleet for them isn't worth its reserved capacity.
     (
         settings.WEEKLY_DIGEST_TASK_QUEUE,
-        WEEKLY_DIGEST_WORKFLOWS + WA_DIGEST_WORKFLOWS,
-        WEEKLY_DIGEST_ACTIVITIES + WA_DIGEST_ACTIVITIES,
+        WEEKLY_DIGEST_WORKFLOWS + WA_DIGEST_WORKFLOWS + DATA_CATALOG_DIGEST_WORKFLOWS,
+        WEEKLY_DIGEST_ACTIVITIES + WA_DIGEST_ACTIVITIES + DATA_CATALOG_DIGEST_ACTIVITIES,
     ),
     (
         settings.LLMA_EVALS_TASK_QUEUE,
@@ -560,6 +570,16 @@ _task_queue_specs = [
         settings.LOGS_VOLUME_TICK_TASK_QUEUE,
         LOGS_VOLUME_TICK_WORKFLOWS,
         LOGS_VOLUME_TICK_ACTIVITIES,
+    ),
+    (
+        settings.AUTORESEARCH_TASK_QUEUE,
+        AUTORESEARCH_WORKFLOWS,
+        AUTORESEARCH_ACTIVITIES,
+    ),
+    (
+        settings.SELF_DRIVING_TASK_QUEUE,
+        SELF_DRIVING_WORKFLOWS,
+        SELF_DRIVING_ACTIVITIES,
     ),
     (
         settings.STAMPHOG_TASK_QUEUE,

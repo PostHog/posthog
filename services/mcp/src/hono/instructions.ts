@@ -33,6 +33,7 @@ import { toMcpInputSchema } from './tool-catalog'
 /** Presence of this tool is the runtime signal that the notebook cell surface
  *  (the `revamped-py-notebooks` flag) is live for this client. */
 const NOTEBOOK_ADD_CELL_TOOL = 'notebooks-add-cell'
+const NOTEBOOK_RUN_TOOL = 'notebooks-run'
 const DOCS_SEARCH_TOOL = 'docs-search'
 const BUSINESS_KNOWLEDGE_SEARCH_TOOL = 'business-knowledge-documents-search'
 
@@ -77,6 +78,7 @@ export class InstructionsBuilder {
                 }),
             renderUiEnabled: state.renderUiEnabled,
             notebookCellsEnabled: state.allTools.some((tool) => tool.name === NOTEBOOK_ADD_CELL_TOOL),
+            notebookRunEnabled: state.allTools.some((tool) => tool.name === NOTEBOOK_RUN_TOOL),
             docsSearchEnabled: state.allTools.some((tool) => tool.name === DOCS_SEARCH_TOOL),
         }
     }
@@ -200,8 +202,10 @@ export class InstructionsBuilder {
         if (clientContext.mcpConsumer === 'plugin' || isPostHogCodeConsumer(clientContext.mcpConsumer)) {
             return { guidesEnabled: false, skillsEnabled: false }
         }
+        // The connector's header-less `tools/list` advertises guides to every surface, so the call serves them too.
+        const { clientProfile } = state
         return {
-            guidesEnabled: state.clientProfile.isClaudeChatHost(),
+            guidesEnabled: clientProfile.isClaudeChatHost() || clientProfile.isAnthropicConnector(),
             skillsEnabled: state.toolFeatureFlags?.[MCP_EXEC_SKILLS_FEATURE_FLAG] === true,
         }
     }
