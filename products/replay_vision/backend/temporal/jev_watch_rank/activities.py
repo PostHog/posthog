@@ -30,8 +30,10 @@ from posthog.temporal.common.heartbeat import Heartbeater
 from products.ml_inference.backend.facade import api as decision_api
 from products.replay_vision.backend.consent import is_ai_data_processing_approved
 from products.replay_vision.backend.jev_watch_feed import (
+    JEV_WATCHABLE_MIN,
     WINDOW_CHUNK_SIZE,
     judge_scanner_window,
+    load_judged_ids,
     load_watch_ranks,
     refresh_watch_ranks_ttl,
     store_watch_ranks,
@@ -146,28 +148,31 @@ async def _judge_watch_ranks(inputs: JevWatchRankSweepInputs) -> JevWatchRankSwe
             window_ids = await sync_to_async(_scanner_window_ids)(team_id, scanner_id, window_start)
             if not window_ids:
                 continue
-            # Judgments accumulate: each sweep judges only the rows without a cached probability,
-            # newest first, and cached entries whose rows left the window are pruned. Coverage
+            # Judgments accumulate: each sweep judges only the rows the judged set does not hold,
+            # newest first, and cache entries whose rows left the window are pruned. Coverage
             # therefore grows across sweeps at MAX_JUDGED_PER_SCANNER per hour whatever the
             # scanner's volume, and a fully judged window costs nothing.
-            cached = await asyncio.to_thread(load_watch_ranks, team_id, [scanner_id])
-            kept = {str(row_id): cached[str(row_id)] for row_id in window_ids if str(row_id) in cached}
-            unjudged_ids = [row_id for row_id in window_ids if str(row_id) not in cached][:MAX_JUDGED_PER_SCANNER]
+            judged = await asyncio.to_thread(load_judged_ids, team_id, scanner_id)
+            unjudged_ids = [row_id for row_id in window_ids if str(row_id) not in judged][:MAX_JUDGED_PER_SCANNER]
             if not unjudged_ids:
                 await asyncio.to_thread(refresh_watch_ranks_ttl, team_id, scanner_id)
                 scanners_skipped_unchanged += 1
                 continue
-            judged_context_ids = [row_id for row_id in window_ids if str(row_id) in kept][:WINDOW_CHUNK_SIZE]
+            judged_context_ids = [row_id for row_id in window_ids if str(row_id) in judged][:WINDOW_CHUNK_SIZE]
             rows = await sync_to_async(_rows_by_id)(team_id, unjudged_ids)
             context_rows = await sync_to_async(_rows_by_id)(team_id, judged_context_ids)
             judgment = await asyncio.to_thread(judge_scanner_window, team_id, scanner_id, rows, context_rows)
-            merged = {
-                **kept,
-                **dict.fromkeys(judgment.skipped_no_prose, 0.0),
-                **judgment.probabilities,
+            # Sub-threshold judgments join only the judged set, keeping the watchable key — which
+            # the feed loads for every readable scanner on each request — small.
+            window_strs = {str(row_id) for row_id in window_ids}
+            cached_watchable = await asyncio.to_thread(load_watch_ranks, team_id, [scanner_id])
+            watchable = {
+                **{oid: p for oid, p in cached_watchable.items() if oid in window_strs},
+                **{oid: p for oid, p in judgment.probabilities.items() if p >= JEV_WATCHABLE_MIN},
             }
-            if merged:
-                await asyncio.to_thread(store_watch_ranks, team_id, scanner_id, merged, judgment.model)
+            all_judged = (judged & window_strs) | set(judgment.probabilities) | set(judgment.skipped_no_prose)
+            if all_judged:
+                await asyncio.to_thread(store_watch_ranks, team_id, scanner_id, all_judged, watchable, judgment.model)
             scanners_judged += 1
             observations_judged += len(judgment.probabilities)
             failed_chunks += judgment.failed_chunks
