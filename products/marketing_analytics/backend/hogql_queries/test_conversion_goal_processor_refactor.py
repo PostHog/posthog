@@ -200,6 +200,11 @@ class TestConversionGoalProcessorRefactor(BaseTest):
                 False,
             ),
             (
+                "revenue_name_only_in_a_string_value",
+                {"properties": [HogQLPropertyFilter(key="properties.plan = '$virt_revenue'")]},
+                True,
+            ),
+            (
                 "other_virtual_property",
                 {
                     "properties": [

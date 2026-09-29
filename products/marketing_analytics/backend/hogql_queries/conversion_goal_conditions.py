@@ -40,6 +40,16 @@ def add_conversion_goal_property_filters(
     return conditions
 
 
+def load_goal_action(conversion_goal: ConversionGoal, team: Team) -> Optional[Action]:
+    """The goal's action, or None when the goal is not an action goal or its action no longer resolves."""
+    if not isinstance(conversion_goal, ConversionGoalFilter2) or not conversion_goal.id:
+        return None
+    try:
+        return Action.objects.get(pk=int(conversion_goal.id), team__project_id=team.project_id)
+    except (Action.DoesNotExist, TypeError, ValueError):
+        return None
+
+
 def action_match_expr(conversion_goal: ConversionGoal, team: Team) -> Optional[ast.Expr]:
     """The goal's action as a condition, or None when its action no longer resolves for this project.
 
@@ -47,24 +57,15 @@ def action_match_expr(conversion_goal: ConversionGoal, team: Team) -> Optional[a
     Dashboard renders many goals at once and degrades a broken one to zero, while the attribution table
     renders one goal and can tell the user their goal is misconfigured.
     """
-    if not isinstance(conversion_goal, ConversionGoalFilter2) or not conversion_goal.id:
-        return None
-    try:
-        action = Action.objects.get(pk=int(conversion_goal.id), team__project_id=team.project_id)
-    except (Action.DoesNotExist, TypeError, ValueError):
-        return None
-    return action_to_expr(action)
+    action = load_goal_action(conversion_goal, team)
+    return action_to_expr(action) if action is not None else None
 
 
-def action_property_keys(conversion_goal: ConversionGoal, team: Team) -> list[str]:
-    """Property keys the goal's action steps filter on; empty when the goal has no resolvable action."""
-    if not isinstance(conversion_goal, ConversionGoalFilter2) or not conversion_goal.id:
-        return []
-    try:
-        action = Action.objects.get(pk=int(conversion_goal.id), team__project_id=team.project_id)
-    except (Action.DoesNotExist, TypeError, ValueError):
-        return []
-    return [prop["key"] for step in action.steps for prop in step.properties or [] if prop.get("key")]
+def action_step_properties(action: Action) -> list[tuple[str | None, str]]:
+    """(type, key) of every property filter across the action's steps."""
+    return [
+        (prop.get("type"), prop["key"]) for step in action.steps for prop in step.properties or [] if prop.get("key")
+    ]
 
 
 def conversion_goal_match_expr(conversion_goal: ConversionGoal, team: Team) -> Optional[ast.Expr]:

@@ -6,6 +6,7 @@ from dataclasses import (
     field as dataclass_field,
 )
 from datetime import datetime, timedelta
+from functools import cached_property
 from typing import ClassVar, Optional, Union
 
 import structlog
@@ -24,8 +25,12 @@ from posthog.hogql import ast
 from posthog.hogql.database.schema.channel_type import ChannelTypeExprs, create_channel_type_expr
 from posthog.hogql.database.schema.exchange_rate import convert_currency_call
 from posthog.hogql.database.schema.persons import REVENUE_ANALYTICS_VIRTUAL_PROPERTIES
+from posthog.hogql.errors import BaseHogQLError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
+from posthog.hogql.parser import parse_expr
+from posthog.hogql.property import action_to_expr
 from posthog.hogql.timings import HogQLTimings
+from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.dataclasses import frozen
 from posthog.models import PropertyDefinition, Team, User
@@ -34,6 +39,7 @@ from products.access_control.backend.property_access_control import (
     get_restricted_properties_for_team,
     get_restricted_property_names,
 )
+from products.actions.backend.models.action import Action
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
     LazyComputationResult,
     LazyComputationTable,
@@ -47,10 +53,10 @@ from .attribution_weights import (
     build_time_decay_weights,
 )
 from .conversion_goal_conditions import (
-    action_match_expr,
-    action_property_keys,
+    action_step_properties,
     add_conversion_goal_property_filters,
     conversion_goal_match_expr,
+    load_goal_action,
 )
 from .errors import MarketingPrecomputeNotReady
 from .marketing_analytics_config import MarketingAnalyticsConfig
@@ -65,6 +71,27 @@ from .utils import build_source_normalization_expr, test_account_conditions
 PRECOMPUTE_TTL_SECONDS = {"0d": 15 * 60, "1d": 60 * 60, "7d": 24 * 60 * 60, "default": 7 * 24 * 60 * 60}
 
 logger = structlog.get_logger(__name__)
+
+
+def _hogql_references_revenue_property(expression: str) -> bool:
+    """A HogQL filter's key is a whole expression, so find the fields it reads rather than matching text,
+    which would also match the name inside a string value."""
+    try:
+        expr = parse_expr(expression)
+    except BaseHogQLError:
+        return True  # The live path reports the broken filter; never try to precompute it.
+    finder = _FieldChainFinder()
+    finder.visit(expr)
+    return not finder.names.isdisjoint(REVENUE_ANALYTICS_VIRTUAL_PROPERTIES)
+
+
+class _FieldChainFinder(TraversingVisitor):
+    def __init__(self) -> None:
+        super().__init__()
+        self.names: set[str] = set()
+
+    def visit_field(self, node: ast.Field) -> None:
+        self.names.update(str(part) for part in node.chain)
 
 
 # kw_only off: the TRACKED_FIELDS table below reads as a table, one positional row per field.
@@ -462,7 +489,7 @@ class ConversionGoalProcessor:
         """Build base WHERE conditions for conversion goal filtering"""
         if self.goal.kind == "ActionsNode":
             # A goal whose action is gone matches nothing, so the Dashboard's other goals still render.
-            return [action_match_expr(self.goal, self.team) or ast.Constant(value=False)]
+            return [self._action_match_expr() or ast.Constant(value=False)]
 
         match = conversion_goal_match_expr(self.goal, self.team)
         return [match] if match is not None else []
@@ -597,22 +624,33 @@ class ConversionGoalProcessor:
             return False
         return True
 
+    @cached_property
+    def _goal_action(self) -> Optional[Action]:
+        # Loaded once: both the eligibility check and the match expression read it.
+        return load_goal_action(self.goal, self.team)
+
+    def _action_match_expr(self) -> Optional[ast.Expr]:
+        return action_to_expr(self._goal_action) if self._goal_action is not None else None
+
     def _uses_revenue_analytics_property(self) -> bool:
         """The revenue virtual properties resolve only through the revenue analytics join, which the
         precompute's plain events scan does not carry, so printing its INSERT fails with "Field not found".
         Other `$virt_` properties map to columns on the events table and precompute fine.
-
-        A substring match, because a HogQL filter's key is a whole expression such as
-        `person.properties.$virt_mrr > 0`.
         """
-        keys = [getattr(self.goal, "math_property", None)]
+        filters: list[tuple[str | None, str | None]] = [(None, getattr(self.goal, "math_property", None))]
         currency = getattr(self.goal, "math_property_revenue_currency", None)
         if currency is not None:
-            keys.append(currency.property)
-        keys.extend(getattr(prop, "key", None) for prop in self.goal.properties or [])
-        if self.goal.kind == "ActionsNode":
-            keys.extend(action_property_keys(self.goal, self.team))
-        return any(name in key for key in keys if key for name in REVENUE_ANALYTICS_VIRTUAL_PROPERTIES)
+            filters.append((None, currency.property))
+        filters.extend((getattr(prop, "type", None), getattr(prop, "key", None)) for prop in self.goal.properties or [])
+        if self.goal.kind == "ActionsNode" and self._goal_action is not None:
+            filters.extend(action_step_properties(self._goal_action))
+        return any(
+            _hogql_references_revenue_property(key)
+            if prop_type == "hogql"
+            else key in REVENUE_ANALYTICS_VIRTUAL_PROPERTIES
+            for prop_type, key in filters
+            if key
+        )
 
     def _should_use_precompute(self, date_from: Optional[datetime], date_to: Optional[datetime]) -> bool:
         """Read-path eligibility: flag on, explicit date range, goal precomputable, no restricted props."""
@@ -1370,7 +1408,7 @@ class ConversionGoalProcessor:
         # instead of matching all events
         if self.goal.kind == "ActionsNode":
             # A goal whose action is gone matches nothing, so the Dashboard's other goals still render.
-            return action_match_expr(self.goal, self.team) or ast.Constant(value=False)
+            return self._action_match_expr() or ast.Constant(value=False)
 
         # Fallback for other cases
         return ast.Constant(value=True)
