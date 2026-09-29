@@ -38696,6 +38696,7 @@ export namespace Schemas {
      * * `provider_key_quota_exceeded` - Provider API key quota exceeded
      * * `provider_key_rate_limited` - Provider API key is rate limited
      * * `model_not_found` - Model not found
+     * * `model_not_supported` - Model does not support chat completions
      * * `hog_error` - Hog evaluation code failed
      */
     export type EvaluationStatusReasonEnum = typeof EvaluationStatusReasonEnum[keyof typeof EvaluationStatusReasonEnum];
@@ -38710,6 +38711,7 @@ export namespace Schemas {
       ProviderKeyQuotaExceeded: 'provider_key_quota_exceeded',
       ProviderKeyRateLimited: 'provider_key_rate_limited',
       ModelNotFound: 'model_not_found',
+      ModelNotSupported: 'model_not_supported',
       HogError: 'hog_error',
     } as const;
 
@@ -56840,6 +56842,18 @@ export namespace Schemas {
       Metric: 'metric',
     } as const;
 
+    /**
+     * * `posthog` - posthog
+     * * `warehouse` - warehouse
+     */
+    export type NodeOriginEnum = typeof NodeOriginEnum[keyof typeof NodeOriginEnum];
+
+
+    export const NodeOriginEnum = {
+      Posthog: 'posthog',
+      Warehouse: 'warehouse',
+    } as const;
+
     export interface NodeSuspension {
       /** When the node was suspended. */
       at: string;
@@ -56875,6 +56889,16 @@ export namespace Schemas {
       /** @nullable */
       readonly metric_id: string | null;
       readonly lineage_issue: LineageIssue | null;
+      /** Where a table originates, or null for legacy and unrecognized nodes.
+       *
+       * * `posthog` - posthog
+       * * `warehouse` - warehouse */
+      readonly origin: NodeOriginEnum | null;
+      /**
+         * Warehouse table identifier for an imported table, or null when unavailable.
+         * @nullable
+         */
+      readonly warehouse_table_id: string | null;
       readonly created_at: string;
       /** @nullable */
       readonly updated_at: string | null;
@@ -76012,6 +76036,16 @@ export namespace Schemas {
       /** @nullable */
       readonly metric_id?: string | null;
       readonly lineage_issue?: LineageIssue | null;
+      /** Where a table originates, or null for legacy and unrecognized nodes.
+       *
+       * * `posthog` - posthog
+       * * `warehouse` - warehouse */
+      readonly origin?: NodeOriginEnum | null;
+      /**
+         * Warehouse table identifier for an imported table, or null when unavailable.
+         * @nullable
+         */
+      readonly warehouse_table_id?: string | null;
       readonly created_at?: string;
       /** @nullable */
       readonly updated_at?: string | null;
@@ -91930,6 +91964,32 @@ export namespace Schemas {
       status: SignalReportReingestionStatusStatusEnum;
       /** Report being re-ingested. */
       report_id: string;
+    }
+
+    export interface SignalReportSourceMetadata {
+      /** Report id. */
+      readonly id: string;
+      /** Distinct source products contributing signals to this report. Empty when it has none yet. */
+      readonly source_products: readonly string[];
+      /**
+         * skill_name slug of the scout that authored this report, when scout-authored; null otherwise.
+         * @nullable
+         */
+      readonly scout_name: string | null;
+    }
+
+    export interface SignalReportSourceMetadataRequest {
+      /**
+         * Reports to describe. At most 100 ids per call.
+         * @minItems 1
+         * @maxItems 100
+         */
+      report_ids: string[];
+    }
+
+    export interface SignalReportSourceMetadataResponse {
+      /** One entry per requested id, in request order, duplicates removed. An id with no signals in this project, including one that is not a report here, gets empty values. */
+      readonly reports: readonly SignalReportSourceMetadata[];
     }
 
     export interface SignalReportStateRequest {
@@ -117828,6 +117888,10 @@ export namespace Schemas {
      * When true, the list includes reports in every status with no default exclusions applied — currently that adds suppressed (dismissed) reports, which are otherwise hidden. Use it to see the full inbox state (e.g. deduplicating before creating a report) and read each row's status (plus dismissal_reason/dismissal_note on dismissed rows) before acting. Deleted reports are terminal and never returned. Defaults to false, which keeps the existing default exclusions. Ignored when an explicit 'status' filter is set — that filter alone decides which statuses are returned.
      */
     include_all_statuses?: boolean;
+    /**
+     * Fill `source_products` and `scout_name` on each row. These come from ClickHouse, so pass false to skip that lookup and get the page from Postgres only: rows then carry an empty `source_products` and a null `scout_name`. Load them after with `source_metadata`. Defaults to true.
+     */
+    include_source_metadata?: boolean;
     /**
      * Number of results to return per page.
      */

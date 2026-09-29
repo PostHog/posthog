@@ -3256,19 +3256,19 @@ Note: The Flexmail public API is contact-management only - it exposes no campaig
 
 ## FloatApp — gaps
 
-Today (20): `accounts`, `clients`, `currencies`, `deleted_logged_time`, `deleted_tasks`, `deleted_timeoffs`, `departments`, `holidays`, `logged_time`, `milestones`, `people`, `phases`, `project_tasks`, `projects`, `rate_cards`, `roles`, `status`, `tasks`, `timeoff_types`, `timeoffs`
+Today (24): `accounts`, `clients`, `currencies`, `deleted_logged_time`, `deleted_tasks`, `deleted_timeoffs`, `departments`, `holidays`, `logged_time`, `milestones`, `people`, `phases`, `project_expenses`, `project_stages`, `project_tasks`, `projects`, `public_holidays`, `rate_cards`, `reports_people`, `roles`, `status`, `tasks`, `timeoff_types`, `timeoffs`
 
 Diffed against: <https://developer.float.com/swagger-api-v3.yaml>
 
-- [ ] `/project-stages` — lookup table resolving the stage IDs carried on the projects we already sync (high)
+- [x] `/project-stages` — lookup table resolving the stage IDs carried on the projects we already sync (high)
 - [x] `/rate-cards` — lookup for the rate card IDs on people/projects; required to turn logged hours into billable value (high)
-- [ ] `/reports/people` — Float's headline utilization/capacity report per person, pre-aggregated (high)
+- [x] `/reports/people` — Float's headline utilization/capacity report per person, pre-aggregated (high)
 - [ ] `/reports/projects` — per-project scheduled vs logged vs billable breakdown (medium)
-- [ ] `/project-expenses` — non-labor project cost, needed for true project margin alongside logged_time (medium)
-- [ ] `/public-holidays` — region public holidays; distinct from the team /holidays table already synced, needed for correct capacity math (medium)
+- [x] `/project-expenses` — non-labor project cost, needed for true project margin alongside logged_time (medium)
+- [x] `/public-holidays` — region public holidays; distinct from the team /holidays table already synced, needed for correct capacity math (medium)
 - [x] `/currencies` — lookup for currency codes on rate cards and project budgets (low)
 
-Note: Machine-readable OpenAPI at /swagger-api-v3.yaml enumerates 26 resources; PostHog covers 20. /project-templates was excluded as config.
+Note: Machine-readable OpenAPI at /swagger-api-v3.yaml enumerates 26 resources; PostHog covers 24. /project-templates was excluded as config.
 
 ## Flowlu — **thin**
 
@@ -3340,14 +3340,14 @@ Note: Freshcaller's public API is genuinely small - calls, call_metrics (with in
 
 ## Freshchat — gaps
 
-Today (5): `accounts_configuration`, `agents`, `channels`, `groups`, `users`
+Today (8): `accounts_configuration`, `agents`, `channels`, `conversation_messages`, `groups`, `roles`, `user_conversations`, `users`
 
 Diffed against: <https://developers.freshchat.com/api/>
 
-- [ ] `/v2/users/{user_id}/conversations` — conversations are the product's core analytical object and are entirely absent today (high)
-- [ ] `/v2/conversations/{conversation_id}/messages` — message-level data for response time, volume and agent workload analysis (high)
-- [ ] `/v2/roles` — lookup resolving the role IDs carried on agents (high)
-- [ ] `/v2/reports/raw` — bulk raw data export - the practical way to land conversation/agent history at scale (medium)
+- [x] `/v2/users/{user_id}/conversations` — conversations are the product's core analytical object and are entirely absent today (high)
+- [x] `/v2/conversations/{conversation_id}/messages` — message-level data for response time, volume and agent workload analysis (high)
+- [x] `/v2/roles` — lookup resolving the role IDs carried on agents (high)
+- [ ] `/v2/reports/raw` — bulk raw data export - the practical way to land conversation/agent history at scale (medium) — not a readable collection: `POST /reports/raw` submits an async extraction job and `GET /reports/raw/{id}` returns a status plus a link to a generated CSV/JSON file. It needs a mandatory `event` type from a fixed enum, each of which yields a different report schema, over a window capped at one month (24 hours for chat transcripts) and no earlier than 15 months back. There is no single stable table behind it.
 - [ ] `/v2/outbound-messages` — outbound campaign message sends and their delivery state (medium)
 - [ ] `/v2/metrics/historical` — vendor-computed historical conversation/agent metrics (medium)
 
@@ -3355,14 +3355,14 @@ Note: There is no top-level GET /v2/conversations list - conversations are only 
 
 ## Freshdesk — gaps
 
-Today (14): `agents`, `business_hours`, `canned_response_folders`, `companies`, `contacts`, `groups`, `products`, `roles`, `satisfaction_ratings`, `skills`, `sla_policies`, `ticket_fields`, `tickets`, `time_entries`
+Today (20): `agents`, `business_hours`, `canned_response_folders`, `canned_responses`, `companies`, `contact_fields`, `contacts`, `conversations`, `groups`, `products`, `roles`, `satisfaction_ratings`, `skills`, `sla_policies`, `solution_articles`, `solution_categories`, `solution_folders`, `ticket_fields`, `tickets`, `time_entries`
 
 Diffed against: <https://developers.freshdesk.com/api/>
 
-- [ ] `/api/v2/tickets/{id}/conversations` — ticket replies and notes - the actual support conversation behind every ticket row we sync (high)
-- [ ] `/api/v2/contact_fields` — lookup resolving custom contact field IDs and their dropdown choices (high)
-- [ ] `/api/v2/canned_response_folders/{id}/responses` — the canned responses themselves; only their folders are synced today (high)
-- [ ] `/api/v2/solutions/categories (+ /categories/{id}/folders, /folders/{id}/articles)` — knowledge base hierarchy and article stats (hits, thumbs up/down) for deflection analysis (high)
+- [x] `/api/v2/tickets/{id}/conversations` — ticket replies and notes - the actual support conversation behind every ticket row we sync (high)
+- [x] `/api/v2/contact_fields` — lookup resolving custom contact field IDs and their dropdown choices (high)
+- [x] `/api/v2/canned_response_folders/{id}/responses` — the canned responses themselves; only their folders are synced today (high)
+- [x] `/api/v2/solutions/categories (+ /categories/{id}/folders, /folders/{id}/articles)` — knowledge base hierarchy and article stats (hits, thumbs up/down) for deflection analysis (high)
 - [ ] `/api/v2/company_fields` — lookup resolving custom company field IDs and choices (medium)
 - [ ] `/api/v2/custom_objects/schemas (+ /schemas/{id}/records)` — customer-defined objects linked to tickets; schemas act as the lookup for the records (medium)
 - [ ] `/api/v2/customer-satisfaction/surveys/{survey_id}/responses` — new-style CSAT responses; only legacy satisfaction_ratings are synced (medium)
