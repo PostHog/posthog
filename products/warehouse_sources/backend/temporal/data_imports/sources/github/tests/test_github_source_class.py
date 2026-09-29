@@ -158,25 +158,21 @@ class TestGithubSource:
         retryable_errors = self.source.get_retryable_errors()
         assert error_message_matches(observed_error, retryable_errors)
 
-    def test_ssl_eof_error_is_retryable_not_non_retryable(self):
-        # A TLS session cut at the socket while minting the installation access token
-        # (client_request has no in-process retry, unlike _fetch_page). Must stay retryable so a
-        # dropped connection to GitHub doesn't disable the source.
-        observed_error = (
+    @pytest.mark.parametrize(
+        "observed_error",
+        [
+            # A TLS session cut at the socket while minting the installation access token.
             "HTTPSConnectionPool(host='api.github.com', port=443): Max retries exceeded with url: "
             "/app/installations/123/access_tokens (Caused by SSLError(SSLEOFError(8, "
-            "'[SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1032)')))"
-        )
-        non_retryable_errors = self.source.get_non_retryable_errors()
-        assert not any(key in observed_error for key in non_retryable_errors)
-        retryable_errors = self.source.get_retryable_errors()
-        assert error_message_matches(observed_error, retryable_errors)
-
-    def test_read_timeout_is_retryable_not_non_retryable(self):
-        # A read timeout while minting the installation access token (client_request has no
-        # in-process retry, unlike _fetch_page's tenacity retry). Must stay retryable so a slow
-        # GitHub response doesn't disable the source.
-        observed_error = "HTTPSConnectionPool(host='api.github.com', port=443): Read timed out. (read timeout=10)"
+            "'[SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1032)')))",
+            # A read timeout on the same call.
+            "HTTPSConnectionPool(host='api.github.com', port=443): Read timed out. (read timeout=10)",
+        ],
+    )
+    def test_token_mint_transport_error_is_retryable_not_non_retryable(self, observed_error):
+        # Neither has an in-process retry (client_request has none, unlike _fetch_page's tenacity
+        # retry). Must stay retryable so a dropped connection or a slow response to GitHub doesn't
+        # disable the source.
         non_retryable_errors = self.source.get_non_retryable_errors()
         assert not any(key in observed_error for key in non_retryable_errors)
         retryable_errors = self.source.get_retryable_errors()
