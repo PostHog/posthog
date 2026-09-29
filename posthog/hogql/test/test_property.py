@@ -2013,6 +2013,14 @@ class TestProperty(BaseTest):
                 ast.Constant(value=1)
             )
 
+    # Filters created via the API can carry a single scalar for IN/NOT IN. Rejecting the scalar
+    # fails every query that uses the stored filter, so it must compile like a one-element list.
+    @parameterized.expand([("in",), ("not_in",)])
+    def test_scalar_value_for_in_operator_compiles_as_single_element_list(self, operator: str):
+        assert self._property_to_expr(
+            {"type": "event", "key": "action", "value": "edit_video", "operator": operator}
+        ) == self._property_to_expr({"type": "event", "key": "action", "value": ["edit_video"], "operator": operator})
+
     def test_every_negative_operator_is_known(self):
         # A negative operator missing from operator_is_negative silently negates per element on
         # array properties and loses its lowercase index hint, so the name pattern pins the set.
