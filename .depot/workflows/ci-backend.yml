@@ -1968,9 +1968,10 @@ jobs:
                         app_name=$(sed -E 's|^([^/]+/)*([^/]+)/migrations/.*|\2|' <<< "$file")
                       fi
 
-                      # Only show SQL for new migrations, not modifications to existing ones
-                      if git cat-file -e "$BASE_SHA:$file" 2>/dev/null; then
-                        echo "Skipping $file (already exists on base branch)"
+                      # A stacked PR can carry master's migration at this path. Keep a
+                      # conflicting version visible even when master has the same path.
+                      if git cat-file -e "$BASE_SHA:$file" 2>/dev/null || git diff --quiet upstream/master HEAD -- "$file"; then
+                        echo "Skipping $file (already exists on the base branch or matches master)"
                         continue
                       fi
 
@@ -2300,24 +2301,39 @@ jobs:
                   DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_persons" \
                     sqlx migrate info --source rust/persons_migrations/
                   python manage.py makemigrations --check --dry-run
-            - name: Check CH migrations
+            - name: List this PR's ClickHouse migrations
               env:
-                  BASE_REF: ${{ github.event.pull_request.base.ref }}
+                  BASE_SHA: ${{ github.event.pull_request.base.sha }}
               run: |
-                  # Count only migrations this PR adds; a stacked PR's base branch already carries the lower layers'.
+                  set -euo pipefail
+                  export LC_ALL=C
                   DIFF_BASE=upstream/master
-                  if [ -n "$BASE_REF" ] && [ "$BASE_REF" != "master" ]; then
-                      if git fetch --no-tags --depth=1 --filter=blob:none origin "$BASE_REF:refs/remotes/origin/$BASE_REF"; then
-                          DIFF_BASE="origin/$BASE_REF"
-                      else
-                          echo "::warning::Could not fetch base ref $BASE_REF; counting CH migrations against master instead"
+                  if [ -n "$BASE_SHA" ]; then
+                      if ! git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null; then
+                          git remote get-url origin >/dev/null 2>&1 || git remote add origin "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
+                          git fetch --no-tags --depth=1 --filter=blob:none origin "$BASE_SHA"
                       fi
+                      DIFF_BASE="$BASE_SHA"
                   fi
+                  ch_migrations() {
+                      # Migrations share most of their text, so rename detection would pair this PR's
+                      # migration with one master added later and report it as R, dropping it here.
+                      git diff --no-renames --name-only --diff-filter="$1" "$2"..HEAD -- 'posthog/clickhouse/migrations/[0-9]*' | sort
+                  }
+                  ch_migrations A upstream/master > "$RUNNER_TEMP/ch-master-added.txt"
+                  ch_migrations AM upstream/master > "$RUNNER_TEMP/ch-master-changed.txt"
+                  # A stacked branch can carry master's migrations, and master can edit one later.
+                  # Only a file that master lacks counts as this PR's addition.
+                  ch_migrations A "$DIFF_BASE" | comm -12 - "$RUNNER_TEMP/ch-master-added.txt" > "$RUNNER_TEMP/ch-migrations-added.txt"
+                  ch_migrations AM "$DIFF_BASE" | comm -12 - "$RUNNER_TEMP/ch-master-changed.txt" > "$RUNNER_TEMP/ch-migrations-changed.txt"
+                  cat "$RUNNER_TEMP/ch-migrations-changed.txt"
+
+            - name: Check CH migrations
+              run: |
                   # test_ch_migrations_are_safe requires a local master branch, while the
                   # comparison checkout is registered as upstream/master.
                   git show-ref --verify --quiet refs/heads/master || git branch master upstream/master
-                  # Same as above, except now for CH looking at files that were added in posthog/clickhouse/migrations/
-                  git diff --name-status "$DIFF_BASE"..HEAD | grep "A\sposthog/clickhouse/migrations/" | grep -v README | awk '{print $2}' | python manage.py test_ch_migrations_are_safe
+                  python manage.py test_ch_migrations_are_safe < "$RUNNER_TEMP/ch-migrations-added.txt"
 
             - name: Render CH migration SQL per cloud environment
               # CH migrations can build different `operations` lists at import time depending on
@@ -2329,18 +2345,8 @@ jobs:
               # grouped together; if all environments match, the environment level is collapsed.
               id: render_ch_sql
               if: github.event_name == 'pull_request'
-              env:
-                  BASE_REF: ${{ github.event.pull_request.base.ref }}
               run: |
-                  DIFF_BASE=upstream/master
-                  if [ -n "$BASE_REF" ] && [ "$BASE_REF" != "master" ]; then
-                      if git fetch --no-tags --depth=1 --filter=blob:none origin "$BASE_REF:refs/remotes/origin/$BASE_REF"; then
-                          DIFF_BASE="origin/$BASE_REF"
-                      else
-                          echo "::warning::Could not fetch base ref $BASE_REF; rendering CH migrations against master instead"
-                      fi
-                  fi
-                  CHANGED=$(git diff --name-only --diff-filter=AM "$DIFF_BASE"..HEAD | grep '^posthog/clickhouse/migrations/[0-9]' | grep -v __pycache__ || true)
+                  CHANGED=$(cat "$RUNNER_TEMP/ch-migrations-changed.txt")
                   if [ -z "$CHANGED" ]; then
                       echo "No ClickHouse migrations changed."
                       echo "has_changes=false" >> "$GITHUB_OUTPUT"
