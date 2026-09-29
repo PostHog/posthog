@@ -170,6 +170,7 @@ the row lists both.
 | clever                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | cliniko                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | cloudability                     | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| cloudinary                       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | cloudzero                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | coassemble                       | HTTP                        | requests                                                        | ✅                          |
 | coda                             | HTTP                        | requests                                                        | ✅                          |
@@ -481,6 +482,7 @@ the row lists both.
 | mongodb                          | DB protocol                 | pymongo                                                         | ➖                          |
 | monte_carlo                      | HTTP (GraphQL)              | requests                                                        | ✅                          |
 | motherduck                       | DB protocol                 | duckdb (MotherDuck `md:` connection)                            | ➖                          |
+| motion                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | moxie                            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | mssql                            | DB protocol                 | pyodbc / pymssql                                                | ➖                          |
 | mux                              | HTTP                        | requests                                                        | ✅                          |
@@ -969,7 +971,6 @@ doesn't conflict with concurrent PRs.
 - clio
 - clip
 - cloudbeds
-- cloudinary
 - clover
 - coassemble
 - cockroachdb
@@ -1226,7 +1227,6 @@ doesn't conflict with concurrent PRs.
 - moneybird
 - mono
 - moodle
-- motion
 - msg91
 - mycase
 - nasa
