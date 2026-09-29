@@ -121,6 +121,40 @@ export const Canvas: Story = {
     ),
 }
 
+export const Loading: Story = {
+    render: () => (
+        <LineageGraph
+            nodes={GRAPH_NODES}
+            edges={GRAPH_EDGES}
+            loading
+            variant="canvas"
+            showControls
+            showMinimap
+            panels={<span>Graph tools</span>}
+        />
+    ),
+}
+
+export const LoadingFocused: Story = {
+    render: () => (
+        <LineageGraph
+            nodes={GRAPH_NODES}
+            edges={GRAPH_EDGES}
+            loading
+            loadingCenter={{ name: 'revenue_summary', type: 'matview' }}
+            variant="full"
+            showControls
+            showMinimap
+            panels={<span>Graph tools</span>}
+        />
+    ),
+}
+
+export const LoadingDarkMode: Story = {
+    ...LoadingFocused,
+    globals: { theme: 'dark' },
+}
+
 export const SingleNode: Story = {
     render: () => <LineageGraph nodes={[mockNode({ id: '1', name: 'raw_events', type: 'table' })]} edges={[]} />,
 }

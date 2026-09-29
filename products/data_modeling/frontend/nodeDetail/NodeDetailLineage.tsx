@@ -3,7 +3,7 @@ import { router } from 'kea-router'
 import { useMemo } from 'react'
 
 import { IconExternal } from '@posthog/icons'
-import { LemonBanner, LemonButton, Spinner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
 import { IconFullScreen } from 'lib/lemon-ui/icons'
 import { LemonModal } from 'lib/lemon-ui/LemonModal/LemonModal'
@@ -23,6 +23,7 @@ export function NodeDetailLineage({ id }: { id: string }): JSX.Element {
         effectiveLastRunAt,
         effectiveLastRunStatus,
         lineageModalOpen,
+        node,
     } = useValues(nodeDetailSceneLogic({ id }))
     const { openLineageModal, closeLineageModal, loadLineageGraph } = useActions(nodeDetailSceneLogic({ id }))
 
@@ -48,8 +49,14 @@ export function NodeDetailLineage({ id }: { id: string }): JSX.Element {
 
     if (lineageGraphLoading) {
         return (
-            <div className="flex flex-1 min-h-[400px] max-h-[70vh] items-center justify-center border rounded bg-bg-light">
-                <Spinner />
+            <div className="flex-1 min-h-[400px] max-h-[70vh] w-full border rounded bg-bg-light overflow-hidden">
+                <LineageGraph
+                    nodes={[]}
+                    edges={[]}
+                    loading
+                    loadingCenter={node ? { name: node.name, type: node.type } : undefined}
+                    variant="full"
+                />
             </div>
         )
     }
