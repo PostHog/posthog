@@ -307,10 +307,10 @@ proto-codegen = [
 ]
 
 [tool.uv]
-exclude-dependencies = ["phonenumbers"]
 required-version = ">=0.10.2"
 add-bounds = "major"
 exclude-newer = "7 days"
+exclude-dependencies = ["phonenumbers"]
 exclude-newer-package = { hogql-parser = false, hogql-parser-rs = false, deltalite = false, posthoganalytics = false, pixelhog = false, django = false, modal = false, posthog-hogland = false, google-ads = false }
 
 [tool.uv.workspace]
