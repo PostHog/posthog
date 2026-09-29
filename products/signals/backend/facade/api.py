@@ -1175,6 +1175,14 @@ def repair_report_actionability_cache(
     return repair_latest_actionability(team_id=team_id, batch_size=batch_size, after=after)
 
 
+def resolve_audit_actor_for_team(team_id: int) -> int | None:
+    from products.signals.backend.temporal.agentic import (
+        resolve_acting_user_id_for_team,  # noqa: PLC0415 — keeps Temporal agent dependencies off the facade import path
+    )
+
+    return resolve_acting_user_id_for_team(team_id)
+
+
 def scout_creation_available(*, team_id: int, user_id: int) -> bool:
     """Whether to offer the user scout creation on the team's project.
 

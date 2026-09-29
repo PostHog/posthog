@@ -31,13 +31,18 @@ def _rescore_enabled() -> bool:
         return False
 
 
-async def start_account_audit(*, organization_id: str, team_id: int, user_id: int) -> str:
+async def start_account_audit(
+    *, organization_id: str, team_id: int, user_id: int, workflow_id: str | None = None
+) -> str:
     from products.growth.backend.temporal.account_audit.workflow import (  # noqa: PLC0415 — avoids loading Temporal workflows during Django startup
         AccountAuditWorkflow,
         AccountAuditWorkflowInput,
     )
 
-    workflow_id = AccountAuditWorkflow.workflow_id_for(organization_id)
+    id_reuse_policy = (
+        WorkflowIDReusePolicy.REJECT_DUPLICATE if workflow_id is not None else WorkflowIDReusePolicy.ALLOW_DUPLICATE
+    )
+    workflow_id = workflow_id or AccountAuditWorkflow.workflow_id_for(organization_id)
     client = await async_connect()
     await client.start_workflow(
         AccountAuditWorkflow.run,
@@ -45,7 +50,7 @@ async def start_account_audit(*, organization_id: str, team_id: int, user_id: in
         id=workflow_id,
         task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
         run_timeout=timedelta(hours=3),
-        id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+        id_reuse_policy=id_reuse_policy,
         id_conflict_policy=WorkflowIDConflictPolicy.FAIL,
     )
     return workflow_id

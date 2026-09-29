@@ -28,13 +28,16 @@ from products.growth.backend.temporal.account_audit.workflow import AccountAudit
 async def test_facade_dispatches_to_signals_queue() -> None:
     client = SimpleNamespace(start_workflow=AsyncMock())
     with patch("products.growth.backend.facade.api.async_connect", new_callable=AsyncMock, return_value=client):
-        workflow_id = await start_account_audit(organization_id="org-1", team_id=4, user_id=5)
+        workflow_id = await start_account_audit(
+            organization_id="org-1", team_id=4, user_id=5, workflow_id="reserved-audit-workflow"
+        )
 
-    assert workflow_id == AccountAuditWorkflow.workflow_id_for("org-1")
+    assert workflow_id == "reserved-audit-workflow"
     assert client.start_workflow.call_args.kwargs["id"] == workflow_id
     from django.conf import settings
 
     assert client.start_workflow.call_args.kwargs["task_queue"] == settings.VIDEO_EXPORT_TASK_QUEUE
+    assert client.start_workflow.call_args.kwargs["id_reuse_policy"].name == "REJECT_DUPLICATE"
     assert client.start_workflow.call_args.args[1] == AccountAuditWorkflowInput(
         organization_id="org-1", team_id=4, user_id=5
     )

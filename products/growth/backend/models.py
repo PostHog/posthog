@@ -1,15 +1,45 @@
 import json
 import hashlib
 from typing import Any
+from uuid import uuid4
 
 from django.core.exceptions import ValidationError
 from django.db import models, transaction
 from django.db.models import Q
 
+from posthog.helpers.encrypted_fields import EncryptedTextField
 from posthog.models.utils import UpdatedMetaFields, UUIDModel
 
 from products.growth.backend.enrichment.icp_lists import clear_lists_cache
 from products.growth.backend.enrichment.scoring_rules import validate_scoring_rules
+
+
+class AccountAuditCredential(models.Model):
+    public_key_id = models.UUIDField(default=uuid4, unique=True, editable=False)
+    signing_secret = EncryptedTextField()
+    owner = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, null=True, db_constraint=False, related_name="+"
+    )
+    workflow_id = models.UUIDField()
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+
+class AccountAuditAdmission(models.Model):
+    credential = models.ForeignKey(AccountAuditCredential, on_delete=models.PROTECT, related_name="admissions")
+    webhook_id = models.CharField(max_length=255)
+    organization_id = models.UUIDField()
+    team_id = models.BigIntegerField()
+    workflow_id = models.UUIDField(default=uuid4, unique=True, editable=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["credential", "webhook_id"], name="growth_audit_admission_delivery"),
+        ]
+        indexes = [
+            models.Index(fields=["organization_id", "created_at"], name="growth_audit_admission_time"),
+        ]
 
 
 class ProductPushCampaign(UUIDModel, UpdatedMetaFields):
