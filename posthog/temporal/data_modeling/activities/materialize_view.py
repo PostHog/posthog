@@ -988,6 +988,7 @@ async def _table_write_lock(table_uri: str, logger: FilteringBoundLogger) -> typ
         f"data_modeling:table_write:{table_uri}",
         timeout=TABLE_WRITE_LOCK_TIMEOUT_SECONDS,
         blocking_timeout=TABLE_WRITE_LOCK_WAIT_SECONDS,
+        sleep=1,
     )
     try:
         acquired = await lock.acquire()
