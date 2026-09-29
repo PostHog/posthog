@@ -1,5 +1,16 @@
 # Accounts table
 
+## Default pinned account properties
+
+Project admins choose an ordered set of default pinned properties under Customer analytics > Accounts settings.
+The defaults can include account custom properties and relationships.
+They appear in account detail sidebars and expanded Accounts rows until a user saves a personal selection.
+
+The user configuration inherits when it has no personal selection, including historical empty lists without an override marker or legacy pinned IDs.
+Reads resolve the current project defaults without copying them into the user row, so later project changes reach every user who still inherits.
+A personal save stores the complete ordered list and an override marker.
+A saved empty list means the user chose no pinned properties and no longer inherits project changes.
+
 ## Query scheduling
 
 Account row and overview requests use a dedicated frontend queue with two concurrent slots.

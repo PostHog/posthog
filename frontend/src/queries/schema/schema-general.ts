@@ -8888,6 +8888,11 @@ export interface EndpointsUsageTrendsQuery extends EndpointsUsageQueryBase<Endpo
     compareFilter?: CompareFilter
 }
 
+export interface CustomerAnalyticsPinnedProperty {
+    kind: 'custom_property' | 'relationship'
+    id: string
+}
+
 export interface CustomerAnalyticsConfig {
     activity_event: EventsNode | ActionsNode
     signup_pageview_event: EventsNode | ActionsNode
@@ -8895,6 +8900,7 @@ export interface CustomerAnalyticsConfig {
     subscription_event: EventsNode | ActionsNode
     payment_event: EventsNode | ActionsNode
     account_group_type_index?: integer | null
+    default_pinned_properties?: CustomerAnalyticsPinnedProperty[]
 }
 
 /**

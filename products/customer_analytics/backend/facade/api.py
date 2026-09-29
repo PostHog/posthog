@@ -1286,16 +1286,19 @@ def delete_account_view(*, team_id: int, user_id: int, view_id: UUID, expected_v
 # --- UserCustomerAnalyticsConfig ---
 
 
-InvalidPinnedAccountProperties = _user_customer_analytics_config_logic.InvalidPinnedAccountProperties
+InvalidPinnedAccountProperties = contracts.InvalidPinnedAccountProperties
 
 
 def _to_user_customer_analytics_config(
     config: UserCustomerAnalyticsConfigModel,
 ) -> contracts.UserCustomerAnalyticsConfig:
-    raw_references = config.properties[_user_customer_analytics_config_logic.PINNED_PROPERTIES_KEY]
+    raw_references = _user_customer_analytics_config_logic.read_pinned_properties(config)
     return contracts.UserCustomerAnalyticsConfig(
         pinned_properties=[
-            contracts.PinnedAccountProperty(kind=reference["kind"], id=UUID(str(reference["id"])))
+            contracts.PinnedAccountProperty(
+                kind=cast(Literal["custom_property", "relationship"], reference["kind"]),
+                id=UUID(str(reference["id"])),
+            )
             for reference in raw_references
         ],
         task_digest=_user_customer_analytics_config_logic.read_task_digest(config),
