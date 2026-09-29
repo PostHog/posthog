@@ -13,7 +13,11 @@ from posthog.models import Organization, Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.posthog_client import EXPECTED_CONTROL_FLOW_ERROR_TYPES, is_expected_activity_failure
 
-from products.ai_observability.backend.llm.errors import OutputTokenLimitError, StructuredOutputParseError
+from products.ai_observability.backend.llm.errors import (
+    ContentFilteredError,
+    OutputTokenLimitError,
+    StructuredOutputParseError,
+)
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
 from products.ai_observability.backend.models.taggers import Tagger
 
@@ -810,6 +814,7 @@ class TestSkippedResultsStayOutOfErrorTracking:
         [
             OutputTokenLimitError("The model reached its output token limit."),
             StructuredOutputParseError("The reply did not match the schema."),
+            ContentFilteredError("The request was rejected by the content filter."),
         ],
     )
     @pytest.mark.asyncio

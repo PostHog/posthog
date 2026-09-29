@@ -25,6 +25,7 @@ from posthog.temporal.ai_observability.sentiment.schema import SentimentResult
 from products.access_control.backend.models.access_control import AccessControl
 from products.ai_observability.backend.llm.errors import (
     AuthenticationError,
+    ContentFilteredError,
     ContextWindowExceededError,
     ModelNotFoundError,
     ModelPermissionError,
@@ -471,6 +472,38 @@ class TestRunEvaluationWorkflow:
         assert result.get("terminal_user_error") is not True
         assert "model" not in result
         mock_client.complete.assert_called_once()
+
+    @pytest.mark.django_db(transaction=True)
+    def test_execute_llm_judge_activity_skips_on_content_filter(self, setup_data, active_key_config):
+        team = setup_data["team"]
+        evaluation = {
+            "id": str(setup_data["evaluation"].id),
+            "name": "Test Evaluation",
+            "evaluation_type": "llm_judge",
+            "evaluation_config": {"prompt": "Is this response factually accurate?"},
+            "output_type": "boolean",
+            "output_config": {},
+            "team_id": team.id,
+        }
+        event_data = create_mock_event_data(
+            team.id,
+            properties={
+                "$ai_input": [{"role": "user", "content": "What is 2+2?"}],
+                "$ai_output_choices": [{"role": "assistant", "content": "4"}],
+            },
+        )
+
+        with patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client") as mock_client_class:
+            mock_client_class.return_value.complete.side_effect = ContentFilteredError(
+                "Could not parse response content as the request was rejected by the content filter"
+            )
+
+            result = execute_llm_judge_activity(ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data))
+
+        assert result["skipped"] is True
+        assert result["skip_reason"] == "content_filtered"
+        assert result.get("terminal_user_error") is not True
+        assert result["model"]
 
     @pytest.mark.parametrize(
         "output_config,expected_verdict,expected_applicable",

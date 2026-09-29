@@ -13,6 +13,7 @@ from posthoganalytics.ai.openai import (
 from pydantic import BaseModel, ValidationError, model_validator
 
 from products.ai_observability.backend.llm.errors import (
+    ContentFilteredError,
     ContextWindowExceededError,
     OutputTokenLimitError,
     QuotaExceededError,
@@ -250,6 +251,22 @@ class TestOpenAIAdapterErrorMapping:
 
         with patch("products.ai_observability.backend.llm.providers.openai.openai.OpenAI", return_value=mock_client):
             with pytest.raises(OutputTokenLimitError):
+                adapter.complete(request, api_key="sk-test", analytics=AnalyticsContext(capture=False))
+
+    def test_content_filter_refusal_maps_to_content_filtered(self) -> None:
+        adapter = OpenAIAdapter()
+        mock_client = MagicMock()
+        mock_client.beta.chat.completions.parse.side_effect = openai.ContentFilterFinishReasonError()
+        request = CompletionRequest(
+            model="gpt-5-mini",
+            system="s",
+            messages=[{"role": "user", "content": "x"}],
+            provider="openai",
+            response_format=_Verdict,
+        )
+
+        with patch("products.ai_observability.backend.llm.providers.openai.openai.OpenAI", return_value=mock_client):
+            with pytest.raises(ContentFilteredError):
                 adapter.complete(request, api_key="sk-test", analytics=AnalyticsContext(capture=False))
 
 
