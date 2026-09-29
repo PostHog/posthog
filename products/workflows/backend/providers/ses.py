@@ -19,6 +19,12 @@ from rest_framework import exceptions
 
 from posthog.dataclasses import frozen
 
+from products.workflows.backend.facade.contracts import (
+    EmailDomainDnsRecord,
+    EmailDomainVerification,
+    EmailDomainVerificationStatus,
+)
+
 if TYPE_CHECKING:
     from types_boto3_ses.client import SESClient
     from types_boto3_sesv2.client import SESV2Client
@@ -478,13 +484,13 @@ class SESProvider:
                     "Failed to associate configuration set '%s' with tenant '%s'", config_set, expected_tenant
                 )
 
-    def verify_email_domain(self, domain: str, mail_from_subdomain: str, team_id: int):
+    def verify_email_domain(self, domain: str, mail_from_subdomain: str, team_id: int) -> EmailDomainVerification:
         # Validate the domain contains valid characters for a domain name
         DOMAIN_REGEX = r"(?i)^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$"
         if not re.match(DOMAIN_REGEX, domain):
             raise exceptions.ValidationError("Please enter a valid domain or subdomain name.")
 
-        dns_records: list[dict[str, Any]] = []
+        dns_records: list[EmailDomainDnsRecord] = []
 
         # Start/ensure domain verification (TXT at _amazonses.domain) ---
         verification_token: str | None = None
@@ -631,6 +637,7 @@ class SESProvider:
         all_statuses = [verification_status, dkim_status, mail_from_status]
 
         # Normalize overall status
+        overall: EmailDomainVerificationStatus
         if (
             verification_status == "Success"
             and dkim_status == "Success"
