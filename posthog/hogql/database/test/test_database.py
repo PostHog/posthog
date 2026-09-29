@@ -565,6 +565,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             columns={
                 "event": {"hogql": "StringDatabaseField", "clickhouse": "String", "valid": True},
                 "vector": {"hogql": "NotARealDatabaseField", "clickhouse": "Array(Float64)", "valid": True},
+                "legacy": "NotARealClickHouseType",
             },
         )
 
@@ -575,6 +576,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         assert view is not None
         assert view.fields["event"].type == "string"
         assert view.fields["vector"].type == "unknown"
+        assert view.fields["legacy"].type == "unknown"
 
     def test_serialize_database_warehouse_table_s3_with_unknown_field(self):
         credentials = DataWarehouseCredential.objects.create(access_key="blah", access_secret="blah", team=self.team)

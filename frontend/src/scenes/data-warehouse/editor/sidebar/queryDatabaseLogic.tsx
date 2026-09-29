@@ -3944,6 +3944,10 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
             cache.retriedTableNames.add(tableName)
             posthog.capture('sql-editor-columns-retry-clicked')
             actions.hydrateTableFields([tableName])
+            // A skipped hydration sends no success or failure action, so it must not leave the table marked as retried.
+            if (values.tableFieldsStatus[tableName] !== 'loading') {
+                cache.retriedTableNames.delete(tableName)
+            }
         },
         hydrateTableFieldsSuccess: ({ tableNames }) => {
             const retried: Set<string> = cache.retriedTableNames ?? new Set()
