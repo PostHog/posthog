@@ -281,6 +281,12 @@ class TestHogConditionConfigurations(APIBaseTest):
 
         assert due_checks(self.team.id, SourceKind.METRICS.value, self.slot, self.cutoff) == ()
 
+    def test_upsert_rejects_an_unknown_condition_type(self) -> None:
+        with pytest.raises(AlertConditionValidationError):
+            self._copy("return true", condition_type="python")
+
+        assert due_checks(self.team.id, SourceKind.METRICS.value, self.slot, self.cutoff) == ()
+
     def test_a_threshold_configuration_carries_no_bytecode(self) -> None:
         self._copy(None, condition_type="threshold")
 

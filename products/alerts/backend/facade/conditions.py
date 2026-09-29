@@ -7,6 +7,7 @@ runs each through `run_alert_condition` under one `ConditionBudget` per batch.
 
 from products.alerts.backend.logic.hog_condition import (
     CONDITION_BATCH_BUDGET,
+    CONDITION_BATCH_WALL_BUDGET,
     CONDITION_MAX_SOURCE_BYTES,
     CONDITION_MEMORY_LIMIT,
     CONDITION_RUN_TIMEOUT,
@@ -24,6 +25,7 @@ from products.alerts.backend.logic.hog_condition import (
 
 __all__ = [
     "CONDITION_BATCH_BUDGET",
+    "CONDITION_BATCH_WALL_BUDGET",
     "CONDITION_MAX_SOURCE_BYTES",
     "CONDITION_MEMORY_LIMIT",
     "CONDITION_RUN_TIMEOUT",

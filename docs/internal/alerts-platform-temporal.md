@@ -303,7 +303,8 @@ The program sees `value`, `values` (newest first, 1-indexed in Hog), `previous`,
 Two limits keep a condition from delaying another alert. A CPU budget of `CONDITION_BATCH_BUDGET` (2 s) is shared
 by every condition in one batch; once it is spent, a check that has not started keeps its due time and is counted in
 `alerts_platform_checks_skipped_total{reason="condition_budget"}`. A wall timeout of `CONDITION_RUN_TIMEOUT` (1 s)
-per run stops a runaway loop. The CPU budget is the primary limit: measured under fifty activity threads, a correct
+per run stops a runaway loop, and a wall budget of `CONDITION_BATCH_WALL_BUDGET` (5 s) per batch stops the stage
+when many runs each waited on the GIL without spending CPU. The CPU budget is the primary limit: measured under fifty activity threads, a correct
 0.15 ms program waited over 200 ms for the GIL at p99, so a short wall timeout fails correct programs. A timeout with
 little CPU behind it is therefore reported as transient and holds the failure counter; a timeout the program earned,
 a memory limit, a runtime error or a non-boolean answer fail the check and count toward BROKEN.

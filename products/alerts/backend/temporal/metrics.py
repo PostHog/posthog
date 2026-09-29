@@ -124,10 +124,11 @@ def record_scheduler_lag(source: str, lag_ms: int) -> None:
 
 
 def record_condition_duration(source: str, duration_ms: float) -> None:
-    """Wall time of one Hog condition run. Rising p99 with flat CPU is GIL contention on the worker."""
+    """Wall time of one Hog condition verdict, every evaluated window included. Rising p99 with
+    flat CPU is GIL contention on the worker."""
     get_metric_meter({"source": source}).create_histogram_timedelta(
         name="alerts_platform_condition_duration_ms",
-        description="Wall time for one Hog condition run",
+        description="Wall time for one Hog condition verdict, every evaluated window included",
         unit="ms",
     ).record(dt.timedelta(milliseconds=duration_ms))
 

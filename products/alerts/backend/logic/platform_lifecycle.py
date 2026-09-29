@@ -10,7 +10,7 @@ from datetime import datetime
 from django.db import transaction
 from django.db.models import Exists, OuterRef, Q
 
-from products.alerts.backend.facade.conditions import compile_alert_condition
+from products.alerts.backend.facade.conditions import AlertConditionValidationError, compile_alert_condition
 from products.alerts.backend.facade.contracts import (
     PlatformAlertCheckInput,
     PlatformAlertGroupState,
@@ -235,8 +235,16 @@ def upsert_configuration(upsert: PlatformAlertUpsert) -> bool:
 
     Keyed on the row it came from, so a second run updates rather than duplicates.
     """
+    if upsert.condition_type not in PlatformAlertConfiguration.ConditionType.values:
+        raise AlertConditionValidationError(
+            f"Unsupported condition type {upsert.condition_type!r}", field="condition_type"
+        )
     # Compiled before the transaction: a program that cannot run is refused and nothing is written.
-    bytecode = compile_alert_condition(upsert.condition_source or "") if upsert.condition_type == "hog" else None
+    bytecode = (
+        compile_alert_condition(upsert.condition_source or "")
+        if upsert.condition_type == PlatformAlertConfiguration.ConditionType.HOG
+        else None
+    )
     with transaction.atomic():
         configuration, created = PlatformAlertConfiguration.objects.unscoped().update_or_create(
             legacy_configuration_id=upsert.legacy_configuration_id,

@@ -35,10 +35,15 @@ CONDITION_MEMORY_LIMIT = 4 * 1024 * 1024
 # budget and the evaluate activity's start-to-close, so 200 alerts cannot spend the activity.
 CONDITION_BATCH_BUDGET = timedelta(seconds=2)
 CONDITION_MAX_SOURCE_BYTES = 8 * 1024
+# Wall time the batch's conditions may take together. The CPU budget above does not see time a
+# run spends waiting for the GIL, and many such waits could still spend the activity's timeout.
+CONDITION_BATCH_WALL_BUDGET = timedelta(seconds=5)
 # Below this share of the wall timeout spent on CPU, a timeout is contention, not the program.
 CONDITION_OWN_TIME_SHARE = 0.5
 
-_DRY_RUN_VALUES = (12.0, 11.0, 9.0)
+# As many windows as a configuration can evaluate, so a program that reads a deep window is not
+# refused for a null the synthetic input never had.
+_DRY_RUN_VALUES = tuple(float(24 - index) for index in range(24))
 
 
 class AlertConditionValidationError(Exception):
@@ -84,15 +89,22 @@ class ConditionBudget:
     """CPU time the conditions of one batch may spend together."""
 
     def __init__(
-        self, total: timedelta = CONDITION_BATCH_BUDGET, run_timeout: timedelta = CONDITION_RUN_TIMEOUT
+        self,
+        total: timedelta = CONDITION_BATCH_BUDGET,
+        run_timeout: timedelta = CONDITION_RUN_TIMEOUT,
+        wall_total: timedelta = CONDITION_BATCH_WALL_BUDGET,
     ) -> None:
         self._total = total.total_seconds()
+        self._wall_total = wall_total.total_seconds()
         self._run_timeout = run_timeout
         self._spent = 0.0
+        self._started_at: float | None = None
 
     def take(self) -> timedelta | None:
-        """The wall timeout for the next run, or None once the batch's CPU budget is spent."""
-        if self._spent >= self._total:
+        """The wall timeout for the next run, or None once the batch's CPU or wall budget is spent."""
+        if self._started_at is None:
+            self._started_at = time.perf_counter()
+        if self._spent >= self._total or time.perf_counter() - self._started_at > self._wall_total:
             return None
         return self._run_timeout
 

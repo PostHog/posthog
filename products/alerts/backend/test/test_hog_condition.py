@@ -52,6 +52,10 @@ class TestCompileAlertCondition:
             is False
         )
 
+    def test_a_program_that_reads_a_deep_window_compiles(self) -> None:
+        # The dry run must offer at least as many windows as a configuration can evaluate.
+        assert compile_alert_condition("return values[12] + values[24] > 0")
+
     @parameterized.expand(
         [
             ("does_not_parse", "return (", "errors"),
@@ -111,6 +115,17 @@ class TestRunAlertCondition:
     def test_the_batch_budget_stops_further_runs_and_marks_them_transient(self) -> None:
         bytecode = compile_alert_condition("return true")
         budget = _budget(total=timedelta(microseconds=1))
+
+        first = run_alert_condition(bytecode, _context(), budget)
+        second = run_alert_condition(bytecode, _context(), budget)
+
+        assert first.breached is True
+        assert second.breached is None
+        assert second.transient is True
+
+    def test_the_batch_wall_budget_stops_further_runs_even_with_cpu_budget_left(self) -> None:
+        bytecode = compile_alert_condition("return true")
+        budget = _budget(wall_total=timedelta(microseconds=1))
 
         first = run_alert_condition(bytecode, _context(), budget)
         second = run_alert_condition(bytecode, _context(), budget)
