@@ -1,9 +1,12 @@
-import { Box, useInput } from "ink";
-import { type ReactElement, useEffect, useMemo, useState } from "react";
+import type { EventEmitter } from "node:events";
+import { Box, type DOMElement, measureElement, useApp, useInput } from "ink";
+import { type ReactElement, useEffect, useMemo, useRef, useState } from "react";
 import {
   activeWorkspace,
+  closeFocused,
   cycleFocus,
   focusPane,
+  focusSidebar,
   type LayoutNode,
   type LayoutState,
   loadLayout,
@@ -11,6 +14,8 @@ import {
   saveLayout,
   splitFocused,
 } from "../layout";
+import { type Click, hitTest, type Box as ScreenBox } from "../mouse";
+import { DoublePress, shortcutFor } from "../shortcuts";
 import {
   activateRow,
   firstSelectable,
@@ -24,6 +29,12 @@ import { Sidebar } from "./Sidebar";
 
 const PAGE_SIZE = 10;
 const REFRESH_MS = 10_000;
+const CLOSE_CONFIRM_MS = 1_000;
+
+function boxOf(element: DOMElement): ScreenBox {
+  const { x, y, width, height } = measureElement(element);
+  return { left: x + 1, top: y + 1, right: x + width, bottom: y + height };
+}
 
 // A split draws one line between neighbours: left of each column after the first, above each row after the first.
 function dividerProps(divider: "left" | "top" | null) {
@@ -39,7 +50,14 @@ function dividerProps(divider: "left" | "top" | null) {
     : {};
 }
 
-export function App({ work }: { work: WorkList }): ReactElement {
+export function App({
+  work,
+  clicks,
+}: {
+  work: WorkList;
+  clicks?: EventEmitter<{ click: [Click] }>;
+}): ReactElement {
+  const { exit } = useApp();
   const [layout, setLayout] = useState<LayoutState>(loadLayout);
   const [limit, setLimit] = useState(PAGE_SIZE);
   const [page, setPage] = useState<WorkPage>({
@@ -50,6 +68,10 @@ export function App({ work }: { work: WorkList }): ReactElement {
   });
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [selected, setSelected] = useState(-1);
+  const [notice, setNotice] = useState<string | null>(null);
+  const closeGuard = useRef(new DoublePress(CLOSE_CONFIRM_MS));
+  const sidebarBox = useRef<DOMElement | null>(null);
+  const paneBoxes = useRef(new Map<string, DOMElement>());
 
   useEffect(() => saveLayout(layout), [layout]);
 
@@ -89,13 +111,43 @@ export function App({ work }: { work: WorkList }): ReactElement {
   const workspace = activeWorkspace(layout);
   const sidebarFocused = layout.focus === "sidebar";
 
-  useInput((input, key) => {
-    if (key.tab) {
-      setLayout((current) => cycleFocus(current, key.shift ? -1 : 1));
+  const activate = (index: number): void => {
+    const row = rows[index];
+    if (!row) return;
+    setSelected(index);
+    const next = activateRow(layout, row);
+    if (next === "viewMore") {
+      setPage((current) => ({ ...current, loadingMore: true }));
+      setLimit((current) => current + PAGE_SIZE);
+    } else {
+      setLayout(next);
+    }
+  };
+
+  const close = (): void => {
+    if (!closeGuard.current.press(Date.now())) {
+      const last =
+        layout.workspaces.length === 1 && paneIds(workspace.root).length === 1;
+      setNotice(`Press again to ${last ? "quit" : "close this chat"}`);
+      setTimeout(() => setNotice(null), CLOSE_CONFIRM_MS);
       return;
     }
-    if (key.ctrl && input === "s") {
-      setLayout((current) => splitFocused(current, "row"));
+    setNotice(null);
+    const next = closeFocused(layout);
+    if (next === "quit") exit();
+    else setLayout(next);
+  };
+
+  useInput((input, key) => {
+    const shortcut = shortcutFor(input, key);
+    if (shortcut === "close") return close();
+    if (shortcut) {
+      const direction = shortcut === "splitDown" ? "column" : "row";
+      setLayout((current) => splitFocused(current, direction));
+      return;
+    }
+    if (key.tab) {
+      setLayout((current) => cycleFocus(current, key.shift ? -1 : 1));
       return;
     }
     if (!sidebarFocused) return;
@@ -115,15 +167,36 @@ export function App({ work }: { work: WorkList }): ReactElement {
         return next;
       });
     } else if (key.return) {
-      const next = activateRow(layout, rows[selectedIndex]);
-      if (next === "viewMore") {
-        setPage((current) => ({ ...current, loadingMore: true }));
-        setLimit((current) => current + PAGE_SIZE);
-      } else {
-        setLayout(next);
-      }
+      activate(selectedIndex);
     }
   });
+
+  // Clicking a row opens it like Enter; clicking elsewhere in the sidebar focuses it; clicking a pane focuses that pane.
+  const onClick = (click: Click): void => {
+    const sidebar = sidebarBox.current && boxOf(sidebarBox.current);
+    if (sidebar && hitTest(click, [["sidebar", sidebar]])) {
+      const index = click.row - sidebar.top;
+      if (moveSelection(rows, index - 1, 1) === index) activate(index);
+      else setLayout(focusSidebar);
+      return;
+    }
+    const panes = [...paneBoxes.current].map(
+      ([paneId, element]) => [paneId, boxOf(element)] as [string, ScreenBox],
+    );
+    const hit = hitTest(click, panes);
+    if (hit) setLayout((current) => focusPane(current, hit[0]));
+  };
+  const onClickRef = useRef(onClick);
+  onClickRef.current = onClick;
+
+  useEffect(() => {
+    if (!clicks) return;
+    const listener = (click: Click): void => onClickRef.current(click);
+    clicks.on("click", listener);
+    return () => {
+      clicks.off("click", listener);
+    };
+  }, [clicks]);
 
   const titleOf = (taskId: string | null): string => {
     if (taskId === null) return "New chat";
@@ -135,7 +208,16 @@ export function App({ work }: { work: WorkList }): ReactElement {
     divider: "left" | "top" | null,
   ): ReactElement =>
     node.kind === "pane" ? (
-      <Box key={node.id} flexGrow={1} flexBasis={0} {...dividerProps(divider)}>
+      <Box
+        key={node.id}
+        ref={(element) => {
+          if (element) paneBoxes.current.set(node.id, element);
+          else paneBoxes.current.delete(node.id);
+        }}
+        flexGrow={1}
+        flexBasis={0}
+        {...dividerProps(divider)}
+      >
         <Pane
           title={titleOf(node.taskId)}
           focused={!sidebarFocused && node.id === workspace.focusedPaneId}
@@ -161,6 +243,8 @@ export function App({ work }: { work: WorkList }): ReactElement {
   return (
     <Box flexGrow={1}>
       <Sidebar
+        boxRef={sidebarBox}
+        notice={notice}
         rows={rows}
         focused={sidebarFocused}
         selectedIndex={selectedIndex}
