@@ -52055,6 +52055,10 @@
                 },
                 "sections": {
                     "$ref": "#/definitions/SidebarSectionsConfiguration"
+                },
+                "starred_products_setup_completed": {
+                    "description": "True once the user saved or dismissed the setup that moves their custom products to starred products in the simple sidebar.",
+                    "type": "boolean"
                 }
             },
             "type": "object"
