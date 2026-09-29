@@ -531,7 +531,7 @@ export function FreeformCanvasView({
     ? browseVersionId
     : (publishedBuild?.sourceVersionId ?? headVersionId);
   const commentTarget = useMemo(
-    () => ({ scope: "desktop_canvas" as const, itemId: dashboardId }),
+    () => ({ scope: "canvas" as const, itemId: dashboardId }),
     [dashboardId],
   );
   const commentsQuery = useCommentsQuery(

@@ -223,7 +223,7 @@ describe("ActivityRow", () => {
       activityKind: "mention",
       channelId: "channel-1",
       commentId: "comment-1",
-      commentTarget: { scope: "desktop_canvas", itemId: "canvas-1" },
+      commentTarget: { scope: "canvas", itemId: "canvas-1" },
       author: {
         id: 2,
         uuid: "author",
@@ -257,7 +257,7 @@ describe("ActivityRow", () => {
         canvasCommentFocusKey("canvas-1")
       ],
     ).toEqual({
-      target: { scope: "desktop_canvas", itemId: "canvas-1" },
+      target: { scope: "canvas", itemId: "canvas-1" },
       threadId: "comment-1",
       nonce: expect.any(Number),
       openCommentsTab: true,
@@ -271,7 +271,7 @@ describe("ActivityRow", () => {
         item={item({
           channelId: "channel-1",
           commentId: "comment-1",
-          commentTarget: { scope: "desktop_canvas", itemId: "canvas-1" },
+          commentTarget: { scope: "canvas", itemId: "canvas-1" },
         })}
         menu={taskMenu()}
         onMarkRead={vi.fn()}
