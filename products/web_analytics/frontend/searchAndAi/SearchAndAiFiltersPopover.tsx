@@ -6,9 +6,7 @@ import { LemonButton, LemonDivider, Popover } from '@posthog/lemon-ui'
 
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { isWebAnalyticsPropertyFilter } from 'lib/components/PropertyFilters/utils'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { IconWithCount } from 'lib/lemon-ui/icons'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { WebAnalyticsDeviceToggle } from 'scenes/web-analytics/WebAnalyticsFilters'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 import {
@@ -21,7 +19,6 @@ export function SearchAndAiFiltersPopover(): JSX.Element {
     const { rawWebAnalyticsFilters, deviceTypeFilter, restrictedUiEnabled, hasIncompatibleFilters } =
         useValues(webAnalyticsLogic)
     const { setWebAnalyticsFilters } = useActions(webAnalyticsLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     return (
         <Popover
@@ -36,16 +33,13 @@ export function SearchAndAiFiltersPopover(): JSX.Element {
                         propertyFilters={rawWebAnalyticsFilters}
                         onChange={(filters) => setWebAnalyticsFilters(filters.filter(isWebAnalyticsPropertyFilter))}
                         propertyAllowList={restrictedUiEnabled ? WEB_ANALYTICS_PROPERTY_ALLOW_LIST : undefined}
-                        taxonomicGroupTypes={getWebAnalyticsTaxonomicGroupTypes(
-                            restrictedUiEnabled ?? false,
-                            !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_FILTERS_V2]
-                        )}
+                        taxonomicGroupTypes={getWebAnalyticsTaxonomicGroupTypes(restrictedUiEnabled ?? false)}
                         pageKey="web-analytics"
                         eventNames={['$pageview']}
                     />
                     <LemonDivider />
                     <div className="font-semibold">Device</div>
-                    <WebAnalyticsDeviceToggle variant="select" />
+                    <WebAnalyticsDeviceToggle />
                 </div>
             }
         >

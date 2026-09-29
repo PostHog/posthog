@@ -150,7 +150,7 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2026-08-19',
         pageUrl: urls.webAnalyticsAgents(),
-        featureFlags: [FEATURE_FLAGS.WEB_ANALYTICS_AGENT_ANALYTICS, FEATURE_FLAGS.WEB_ANALYTICS_FILTERS_V2],
+        featureFlags: [FEATURE_FLAGS.WEB_ANALYTICS_AGENT_ANALYTICS],
         testOptions: {
             includeNavigationInSnapshot: true,
             waitForLoadersToDisappear: true,
