@@ -152,8 +152,7 @@ ATLASSIAN_APP_CLIENT_SECRET = get_from_env("ATLASSIAN_APP_CLIENT_SECRET", "")
 #   marketplace app's own token. That token is written into the customer's Stripe Secret Store at
 #   account scope, so every member of their Stripe account can read it. It must not share an
 #   application with the orchestrator, because the provisioning namespace authorizes on application
-#   identity alone. Until this is set the two share one application and marketplace tokens can reach
-#   the provisioning endpoints.
+#   identity alone. Left unset, a new install gets no PostHog credential.
 # - STRIPE_SIGNING_SECRET: Used to verify the authenticity of incoming webhook/agentic provisioning requests from Stripe
 STRIPE_APP_CLIENT_ID = get_from_env("STRIPE_APP_CLIENT_ID", "")
 STRIPE_APP_OVERRIDE_AUTHORIZE_URL = get_from_env("STRIPE_APP_OVERRIDE_AUTHORIZE_URL", "")
