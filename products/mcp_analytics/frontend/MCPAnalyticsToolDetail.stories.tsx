@@ -7,7 +7,7 @@ import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 
-const TOOL_NAME = 'execute-sql'
+const TOOL_NAME = 'warehouse/execute-sql'
 
 // This tool's share of all MCP activity in the window: enough calls and sessions to exercise the
 // call-share and session-share subtitles on the Calls and Sessions tiles with a realistic percentage.
@@ -191,8 +191,4 @@ type Story = StoryObj<{}>
 
 export const ToolDetail: Story = {
     parameters: { testOptions: { viewportWidths: ['narrow', 'medium', 'wide'] } },
-}
-
-export const ToolDetailWithSlashInName: Story = {
-    parameters: { pageUrl: urls.mcpAnalyticsTool('postgres-readonly/pg_readonly_query') },
 }
