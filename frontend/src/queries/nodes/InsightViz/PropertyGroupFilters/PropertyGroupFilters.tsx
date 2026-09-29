@@ -54,8 +54,6 @@ export function PropertyGroupFilters({
     } = useActions(propertyGroupFilterLogic(logicProps))
 
     const behavioralFiltersEnabled = !!featureFlags[FEATURE_FLAGS.BEHAVIORAL_PROPERTY_FILTER]
-    // A nested group that survives inlining is not a leaf filter. The row below labels it and leaves
-    // it alone rather than editing it. Memoized so each row keeps a stable list across renders.
     const groupRows = useMemo(
         () =>
             propertyGroupFilter.values?.map((group: PropertyGroupFilterValue) =>

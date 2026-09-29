@@ -219,8 +219,7 @@ export const propertyFilterLogic = kea<propertyFilterLogicType>([
         remove: () => actions.update(),
         update: () => {
             const cleanedFilters = [...values.filters].filter(isRetainedFilterRow)
-            // `onChange` is the leaf-filter contract every caller writes against, but a retained row
-            // can be a nested group. The query schema accepts one, so it passes through here.
+            // A retained row can be a nested group; the query schema accepts one, so it passes through.
             props.onChange(cleanedFilters as AnyPropertyFilter[])
         },
     })),

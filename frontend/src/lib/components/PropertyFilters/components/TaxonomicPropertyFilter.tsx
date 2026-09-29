@@ -420,9 +420,7 @@ export function TaxonomicPropertyFilter({
                         {showOperatorValueSelect &&
                             placeOperatorValueSelectOnLeft &&
                             (operatorValueSelect ?? defaultOperatorValueSelect)}
-                        {/* A group row opens no picker: selecting a property there would replace
-                            every clause in the group. Removing it stays deliberate, via the row's
-                            own remove button. */}
+                        {/* A group row opens no picker: selecting a property would replace the whole group. */}
                         {editable && propertyKeyEditable && !nestedGroup ? editablePicker : filterContent}
                         {showOperatorValueSelect &&
                             !placeOperatorValueSelectOnLeft &&

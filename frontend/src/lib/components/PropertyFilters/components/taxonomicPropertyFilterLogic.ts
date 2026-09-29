@@ -76,7 +76,7 @@ export interface taxonomicPropertyFilterLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         filter: (filters: PropertyFilterRow[], filterIndex: number) => PropertyFilterRow | null
         activeTaxonomicGroup: (
-            filter: AnyPropertyFilter | null,
+            filter: PropertyFilterRow | null,
             taxonomicGroups: TaxonomicFilterGroup[]
         ) => TaxonomicFilterGroup | undefined
     }

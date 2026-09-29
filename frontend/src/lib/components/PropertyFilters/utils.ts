@@ -352,10 +352,8 @@ export function isPropertyGroupFilterLike(
     return filter?.type === FilterLogicalOperator.And || filter?.type === FilterLogicalOperator.Or
 }
 
-/** The filter editor draws one flat row per value, but a group's values can nest (see
- * `PropertyGroupFilterValue`). Inline a nested group whose operator joins its values the same way the
- * outer group already does, so every filter inside gets its own row. A nested group that joins its
- * values differently keeps one row, because flattening it would change what the insight returns. */
+/** Inlines a nested group into flat rows only when its operator matches the parent's — a different
+ * operator must stay one row, since flattening it would change what the insight returns. */
 export function inlineEquivalentPropertyGroups(
     values: PropertyFilterRow[],
     operator: FilterLogicalOperator
@@ -372,8 +370,7 @@ export function inlineEquivalentPropertyGroups(
     })
 }
 
-/** Plain-text description of a nested group, so a row the editor cannot edit still says what it
- * filters on. */
+/** Plain-text description of a nested group, for a row the editor cannot edit. */
 export function propertyGroupSummary(
     group: PropertyGroupFilterValue,
     cohortsById: Partial<Record<CohortType['id'], CohortType>>
