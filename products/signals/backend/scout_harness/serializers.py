@@ -704,7 +704,14 @@ class RecordCheckResultRequestSerializer(serializers.Serializer):
 
     check_id = serializers.UUIDField(help_text="The check this run was dispatched to answer, as given in the run note.")
     outcome = serializers.ChoiceField(
-        choices=SignalReportCheck.Outcome.choices,
+        choices=[
+            (outcome.value, outcome.label)
+            for outcome in (
+                SignalReportCheck.Outcome.PASSED,
+                SignalReportCheck.Outcome.FAILED,
+                SignalReportCheck.Outcome.ERRORED,
+            )
+        ],
         help_text=(
             "`passed` when the expectation still holds, `failed` when it does not, and `errored` when you "
             "could not establish either. `failed` retires the check, so use it for a conclusion, not a suspicion."

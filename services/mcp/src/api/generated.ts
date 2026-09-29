@@ -67336,6 +67336,7 @@ export namespace Schemas {
      * * `passed` - Passed
      * * `failed` - Failed
      * * `errored` - Errored
+     * * `inconclusive` - Inconclusive
      * * `expired` - Expired
      * * `cancelled` - Cancelled
      */
@@ -67348,6 +67349,7 @@ export namespace Schemas {
       Passed: 'passed',
       Failed: 'failed',
       Errored: 'errored',
+      Inconclusive: 'inconclusive',
       Expired: 'expired',
       Cancelled: 'cancelled',
     } as const;
@@ -67356,6 +67358,7 @@ export namespace Schemas {
      * * `passed` - Passed
      * * `failed` - Failed
      * * `errored` - Errored
+     * * `inconclusive` - Inconclusive
      */
     export type SignalReportCheckOutcomeEnum = typeof SignalReportCheckOutcomeEnum[keyof typeof SignalReportCheckOutcomeEnum];
 
@@ -67364,6 +67367,7 @@ export namespace Schemas {
       Passed: 'passed',
       Failed: 'failed',
       Errored: 'errored',
+      Inconclusive: 'inconclusive',
     } as const;
 
     export interface SignalReportCheck {
@@ -67384,6 +67388,7 @@ export namespace Schemas {
        * * `passed` - Passed
        * * `failed` - Failed
        * * `errored` - Errored
+       * * `inconclusive` - Inconclusive
        * * `expired` - Expired
        * * `cancelled` - Cancelled */
       readonly status: SignalReportCheckStatusEnum;
@@ -67414,7 +67419,8 @@ export namespace Schemas {
        *
        * * `passed` - Passed
        * * `failed` - Failed
-       * * `errored` - Errored */
+       * * `errored` - Errored
+       * * `inconclusive` - Inconclusive */
       readonly last_outcome: SignalReportCheckOutcomeEnum | null;
       /**
          * When the `agent` check's scout run started, cleared as soon as a verdict is recorded. A non-null value is what tells a reader the check is running rather than waiting, because dispatch also pushes `next_run_at` out to the result window. Always null on a `metric_threshold` check, which is measured in the tick that collects it.
@@ -86891,6 +86897,20 @@ export namespace Schemas {
     }
 
     /**
+     * * `passed` - Passed
+     * * `failed` - Failed
+     * * `errored` - Errored
+     */
+    export type RecordCheckResultRequestOutcomeEnum = typeof RecordCheckResultRequestOutcomeEnum[keyof typeof RecordCheckResultRequestOutcomeEnum];
+
+
+    export const RecordCheckResultRequestOutcomeEnum = {
+      Passed: 'passed',
+      Failed: 'failed',
+      Errored: 'errored',
+    } as const;
+
+    /**
      * Request body for `scout-check-record-result`: the verdict on one dispatched report check.
      */
     export interface RecordCheckResultRequest {
@@ -86901,7 +86921,7 @@ export namespace Schemas {
        * * `passed` - Passed
        * * `failed` - Failed
        * * `errored` - Errored */
-      outcome: SignalReportCheckOutcomeEnum;
+      outcome: RecordCheckResultRequestOutcomeEnum;
       /**
          * One or two sentences on what you looked at and what it showed. This is what a person reads on the report, so write it for them, with the numbers or entities you checked.
          * @maxLength 1000
