@@ -72,9 +72,9 @@ class DecisionRequest:
 
     def __post_init__(self) -> None:
         if self.team_id <= 0:
-            raise ValueError("a request needs the customer team it runs for")
+            raise ValueError(f"team_id must be positive, got {self.team_id}")
         if not self.ai_product:
-            raise ValueError("a request needs the product that asks")
+            raise ValueError("ai_product is required")
         if len(self.questions) > MAX_QUESTIONS_PER_REQUEST:
             raise ValueError(f"a request takes at most {MAX_QUESTIONS_PER_REQUEST} questions")
 

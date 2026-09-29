@@ -150,9 +150,9 @@ def build_system_one_client(
     :class:`SystemOneNotConfigured` when no server the caller allows is configured.
     """
     if not ai_product:
-        raise ValueError("A System One client needs the product that asks")
+        raise ValueError("ai_product is required")
     if team_id is not None and team_id <= 0:
-        raise ValueError("team_id must name a real team")
+        raise ValueError(f"team_id must be positive, got {team_id}")
     gateway = _usable_gateway()
     if gateway is not None:
         labels = dict(properties or {})
