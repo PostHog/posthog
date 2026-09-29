@@ -4,8 +4,8 @@ Coordinator workflow for batch trace summarization.
 This workflow discovers teams dynamically via the team discovery activity
 and spawns child workflows to process traces for each team.
 
-Uses continue_as_new after each batch to keep the workflow history bounded
-(Temporal has a 50K event limit per execution).
+Uses continue_as_new between teams, when Temporal suggests it, to keep the
+workflow history bounded (Temporal has a 50K event limit per execution).
 
 Per-team child workflows handle the case where a team has no traces
 gracefully (returning empty results).
@@ -13,7 +13,7 @@ gracefully (returning empty results).
 Teams are processed through a sliding window: up to max_concurrent_teams
 children (default 20) run at once, and the next team starts as soon as any
 child finishes. Every child in one run summarizes the same time window,
-fixed when the run starts.
+fixed from the time Temporal started the run.
 """
 
 import asyncio
@@ -218,12 +218,15 @@ class BatchTraceSummarizationCoordinatorWorkflow(PostHogWorkflow):
         )
 
         if temporalio.workflow.patched(SLIDING_WINDOW_PATCH_ID):
-            if inputs.window_start and inputs.window_end:
-                window: tuple[str, str] = (inputs.window_start, inputs.window_end)
-            else:
-                window = _summarization_window(temporalio.workflow.info().start_time, inputs.window_minutes)
+            if not (inputs.window_start and inputs.window_end):
+                # workflow_start_time, not start_time: a worker can pick the run up late, for
+                # example during a deploy, and that must not shift the hour the run covers.
+                window_start, window_end = _summarization_window(
+                    temporalio.workflow.info().workflow_start_time, inputs.window_minutes
+                )
+                inputs = dataclasses.replace(inputs, window_start=window_start, window_end=window_end)
             await self._dispatch_sliding_window(
-                inputs, team_ids, per_team_jobs, per_team_filters, results_so_far, child_id_prefix, window
+                inputs, team_ids, per_team_jobs, per_team_filters, results_so_far, child_id_prefix
             )
         else:
             await self._dispatch_batches(
@@ -257,7 +260,6 @@ class BatchTraceSummarizationCoordinatorWorkflow(PostHogWorkflow):
         per_team_filters: dict[int, list[dict[str, Any]]],
         results_so_far: dict[str, Any],
         child_id_prefix: str,
-        window: tuple[str, str],
     ) -> None:
         """Keep up to max_concurrent_teams children running, so one slow team holds one slot only."""
         in_flight = 0
@@ -287,12 +289,12 @@ class BatchTraceSummarizationCoordinatorWorkflow(PostHogWorkflow):
                     teams_remaining=len(team_ids) - index,
                     teams_processed_this_leg=index,
                 )
-                self._continue_as_new(inputs, team_ids[index:], per_team_jobs, per_team_filters, results_so_far, window)
+                self._continue_as_new(inputs, team_ids[index:], per_team_jobs, per_team_filters, results_so_far)
 
             level_jobs = self._level_jobs(inputs, team_id, per_team_jobs, per_team_filters)
             for job in level_jobs:
                 await temporalio.workflow.wait_condition(has_free_slot)
-                handle = await self._start_child(inputs, team_id, job, child_id_prefix, window)
+                handle = await self._start_child(inputs, team_id, job, child_id_prefix)
                 in_flight += 1
                 record_jobs_dispatched(1, "summarization", inputs.analysis_level)
                 pending.append(asyncio.create_task(collect(team_id, handle)))
@@ -319,7 +321,7 @@ class BatchTraceSummarizationCoordinatorWorkflow(PostHogWorkflow):
             ] = []
             for team_id in batch:
                 for job in self._level_jobs(inputs, team_id, per_team_jobs, per_team_filters):
-                    handle = await self._start_child(inputs, team_id, job, child_id_prefix, None)
+                    handle = await self._start_child(inputs, team_id, job, child_id_prefix)
                     workflow_handles.append((team_id, handle))
 
             if workflow_handles:
@@ -338,7 +340,7 @@ class BatchTraceSummarizationCoordinatorWorkflow(PostHogWorkflow):
                     teams_remaining=len(remaining),
                     teams_processed_this_leg=batch_start + len(batch),
                 )
-                self._continue_as_new(inputs, remaining, per_team_jobs, per_team_filters, results_so_far, None)
+                self._continue_as_new(inputs, remaining, per_team_jobs, per_team_filters, results_so_far)
 
     @staticmethod
     def _level_jobs(
@@ -366,7 +368,6 @@ class BatchTraceSummarizationCoordinatorWorkflow(PostHogWorkflow):
         team_id: int,
         job: JobConfig,
         child_id_prefix: str,
-        window: tuple[str, str] | None,
     ) -> ChildWorkflowHandle[BatchTraceSummarizationWorkflow, BatchSummarizationResult]:
         child_suffix = f"-{team_id}-{job.job_id}" if job.job_id else f"-{team_id}"
         return await temporalio.workflow.start_child_workflow(
@@ -379,8 +380,8 @@ class BatchTraceSummarizationCoordinatorWorkflow(PostHogWorkflow):
                 mode=inputs.mode,
                 window_minutes=inputs.window_minutes,
                 model=inputs.model,
-                window_start=window[0] if window else None,
-                window_end=window[1] if window else None,
+                window_start=inputs.window_start,
+                window_end=inputs.window_end,
                 event_filters=job.event_filters,
                 job_id=job.job_id,
                 job_name=job.name,
@@ -418,25 +419,16 @@ class BatchTraceSummarizationCoordinatorWorkflow(PostHogWorkflow):
         per_team_jobs: dict[int, list[JobConfig]],
         per_team_filters: dict[int, list[dict[str, Any]]],
         results_so_far: dict[str, Any],
-        window: tuple[str, str] | None,
     ) -> None:
         # Serialize for Temporal JSON (string keys)
         serializable_filters = {str(k): v for k, v in per_team_filters.items()}
         serializable_jobs = {str(k): [dataclasses.asdict(j) for j in v] for k, v in per_team_jobs.items()}
         temporalio.workflow.continue_as_new(
-            BatchTraceSummarizationCoordinatorInputs(
-                analysis_level=inputs.analysis_level,
-                max_items=inputs.max_items,
-                batch_size=inputs.batch_size,
-                mode=inputs.mode,
-                window_minutes=inputs.window_minutes,
-                model=inputs.model,
-                max_concurrent_teams=inputs.max_concurrent_teams,
+            dataclasses.replace(
+                inputs,
                 remaining_team_ids=remaining,
                 per_team_filters=serializable_filters,
                 per_team_jobs=serializable_jobs,
                 results_so_far=results_so_far,
-                window_start=window[0] if window else None,
-                window_end=window[1] if window else None,
             )
         )
