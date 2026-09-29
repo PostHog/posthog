@@ -562,11 +562,17 @@ class TestEventDefinitionAPI(APIBaseTest):
         result_names = [r["name"] for r in response.json()["results"]]
         assert result_names == expected_names
 
-    def test_search_keeps_explicit_ordering(self) -> None:
-        response = self.client.get("/api/projects/@current/event_definitions/?search=app&ordering=name")
+    @parameterized.expand(
+        [
+            ("served_field", "name", ["installed_app", "rated_app"]),
+            ("events_table_unserved_field", "event", ["installed_app", "rated_app"]),
+        ]
+    )
+    def test_search_keeps_explicit_ordering(self, _name: str, ordering: str, expected_names: list[str]) -> None:
+        response = self.client.get(f"/api/projects/@current/event_definitions/?search=app&ordering={ordering}")
         assert response.status_code == status.HTTP_200_OK
         result_names = [r["name"] for r in response.json()["results"]]
-        assert result_names == ["installed_app", "rated_app"]
+        assert result_names == expected_names
 
     def test_whitespace_search_does_not_change_default_ordering(self) -> None:
         default_response = self.client.get("/api/projects/@current/event_definitions/")

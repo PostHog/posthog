@@ -539,7 +539,9 @@ class EventDefinitionViewSet(
         else:
             order_expressions = self._stable_ordering(requested_ordering)
 
-        if has_search_terms and not requested_ordering:
+        # Any `ordering` parameter, served or not, keeps search results out of the shortest-name-first order.
+        # The events table sends `ordering=event` with every search and expects its usual order.
+        if has_search_terms and "ordering" not in self.request.GET:
             order_expressions = [("length(name)", "ASC"), *order_expressions]
 
         sql = create_event_definitions_sql(
