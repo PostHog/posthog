@@ -1,9 +1,11 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 
 import { IconChevronDown } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
+import { EDITOR_MODE_PARAM, EDITOR_MODE_VALUE } from 'scenes/max/aiFirstCreate/aiFirstMode'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 
@@ -11,6 +13,7 @@ import { manageDisabledReason } from './broadcastLifecycle'
 import { BroadcastSceneHeader } from './BroadcastSceneHeader'
 import { broadcastWizardLogic } from './broadcastWizardLogic'
 import { BroadcastWizardStepper } from './BroadcastWizardStepper'
+import { ComposerSkippedFeedback } from './ComposerSkippedFeedback'
 import { BroadcastContentStep } from './steps/BroadcastContentStep'
 import { BroadcastGoalStep } from './steps/BroadcastGoalStep'
 import { BroadcastRecipientsStep } from './steps/BroadcastRecipientsStep'
@@ -23,7 +26,10 @@ export function BroadcastWizard(): JSX.Element {
         useValues(broadcastWizardLogic)
     const { setStep, prevStep, continueStep, launchBroadcast, archiveBroadcast } = useActions(broadcastWizardLogic)
     const { broadcastId, broadcast } = useValues(broadcastWizardLogic)
+    const { searchParams } = useValues(router)
     useBroadcastAgentPanel()
+    // The composer's escape hatch opens the new-broadcast wizard in editor mode.
+    const skippedComposer = !broadcastId && searchParams[EDITOR_MODE_PARAM] === EDITOR_MODE_VALUE
 
     return (
         <SceneContent className="min-h-full w-full shrink-0" data-attr="broadcast-wizard">
@@ -58,6 +64,7 @@ export function BroadcastWizard(): JSX.Element {
                 }
             />
             <div className="mx-auto w-full max-w-4xl space-y-5">
+                {skippedComposer ? <ComposerSkippedFeedback /> : null}
                 <div className="space-y-3">
                     <div className="flex justify-center">
                         <BroadcastWizardStepper
