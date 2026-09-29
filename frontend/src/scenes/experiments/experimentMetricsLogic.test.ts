@@ -544,7 +544,7 @@ describe('experimentMetricsLogic', () => {
             expect(logic.values.secondaryMetricsResults[0]).toEqual(secondaryResult)
         })
 
-        it('renders the timeseries fallback and triggers a heal_latest_run to fill gaps', async () => {
+        it('renders the timeseries fallback and triggers a cold_run to fill gaps', async () => {
             let capturedBody: any
             useMocks({
                 get: {
@@ -568,8 +568,8 @@ describe('experimentMetricsLogic', () => {
                 .toFinishAllListeners()
             // The placeholder timeseries result is shown immediately for the metric it covered.
             expect(logic.values.primaryMetricsResults[0]).toEqual(primaryResult)
-            // A real run is fired to fill the gap (secondary).
-            expect(capturedBody).toEqual({ trigger: 'heal_latest_run' })
+            // The fallback is not a run, so there is no window to heal: a cold_run starts fresh.
+            expect(capturedBody).toEqual({ trigger: 'cold_run' })
         })
 
         it('keeps the timeseries placeholder visible while the triggered cold_run is still pending', async () => {
