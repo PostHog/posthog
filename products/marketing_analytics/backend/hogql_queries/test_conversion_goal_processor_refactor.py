@@ -175,6 +175,30 @@ class TestConversionGoalProcessorRefactor(BaseTest):
                 is expected
             )
 
+    @parameterized.expand(
+        [
+            ("revenue_math_property", {"math_property": "$virt_revenue"}, False),
+            (
+                "revenue_property_filter",
+                {"properties": [EventPropertyFilter(key="$virt_mrr", operator=PropertyOperator.GT, value=0)]},
+                False,
+            ),
+            (
+                "other_virtual_property",
+                {
+                    "properties": [
+                        EventPropertyFilter(key="$virt_is_bot", operator=PropertyOperator.EXACT, value="false")
+                    ]
+                },
+                True,
+            ),
+        ]
+    )
+    def test_revenue_analytics_properties_are_not_precomputable(self, _name: str, goal_overrides: dict, expected: bool):
+        # The precompute INSERT has no revenue analytics join, so a goal on a revenue virtual property
+        # fails to print there on every warm. It must take the live path instead.
+        assert self._processor(**goal_overrides).is_goal_precomputable() is expected
+
     def test_tracked_fields_match_touchpoints_table_schema(self):
         from posthog.clickhouse.preaggregation.marketing_touchpoints_sql import (
             MARKETING_TOUCHPOINTS_TRACKED_FIELD_NAMES,

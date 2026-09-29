@@ -64,6 +64,8 @@ PRECOMPUTE_TTL_SECONDS = {"0d": 15 * 60, "1d": 60 * 60, "7d": 24 * 60 * 60, "def
 
 logger = structlog.get_logger(__name__)
 
+REVENUE_ANALYTICS_VIRTUAL_PROPERTIES = frozenset({"$virt_revenue", "$virt_mrr"})
+
 
 # kw_only off: the TRACKED_FIELDS table below reads as a table, one positional row per field.
 @frozen(kw_only=False)
@@ -586,12 +588,23 @@ class ConversionGoalProcessor:
         for prop in self.goal.properties or []:
             if prop.type in ("person", "cohort"):
                 return False
+        if self._uses_revenue_analytics_property():
+            return False
         # The shared touchpoints precompute is config-agnostic: build_touchpoints_precompute_query()
         # always materializes the default UTM property names. A goal that remaps any tracked field via
         # schema_map would read mismatched columns on the conversion side, so use the direct path.
         if any(self._resolve_field_name(field) != field.event_property for field in TRACKED_FIELDS):
             return False
         return True
+
+    def _uses_revenue_analytics_property(self) -> bool:
+        """The revenue virtual properties resolve only through the revenue analytics join, which the
+        precompute's plain events scan does not carry, so printing its INSERT fails with "Field not found".
+        Other `$virt_` properties map to columns on the events table and precompute fine.
+        """
+        keys = {getattr(self.goal, "math_property", None)}
+        keys.update(getattr(prop, "key", None) for prop in self.goal.properties or [])
+        return not keys.isdisjoint(REVENUE_ANALYTICS_VIRTUAL_PROPERTIES)
 
     def _should_use_precompute(self, date_from: Optional[datetime], date_to: Optional[datetime]) -> bool:
         """Read-path eligibility: flag on, explicit date range, goal precomputable, no restricted props."""
