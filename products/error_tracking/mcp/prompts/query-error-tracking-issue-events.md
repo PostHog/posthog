@@ -14,6 +14,15 @@ Returns sampled events with plural exception fields (`$exception_types`, `$excep
 - `onlyAppFrames`: defaults to true to reduce vendor-frame noise.
 - `limit`: defaults to 1 and maxes at 20. Keep low unless the user asks for multiple examples.
 
+# Issue membership
+
+- An event belongs to the issue that its `$exception_fingerprint` maps to now. The HogQL field `issue_id` on `events` gives that issue.
+- One issue can own several fingerprints, for example after a merge. Sampled events can then show different exception types, values, and fingerprints than the issue name and description.
+- `$exception_issue_id` keeps the issue ID from capture time. After a merge or split it can differ from `issue_id`. Do not use it to decide issue membership.
+- To count the same events in `query-trends`, add a HogQL property filter `issue_id = toUUID('<issueId>')` to the `$exception` series. In `execute-sql`, use `WHERE event = '$exception' AND issue_id = toUUID('<issueId>')`. Do not filter on one `$exception_fingerprint`.
+- `filterTestAccounts` defaults to true here. `query-trends` and `execute-sql` do not filter test accounts unless you ask them to.
+- When no events match and the events table has events for this issue, the response has a `warning` that says why and how to see them.
+
 # Stack traces
 
 - A stack trace keeps at most the 50 frames closest to the error. `frames_omitted` gives the number of older frames that were left out.

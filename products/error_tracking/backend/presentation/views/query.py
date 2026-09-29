@@ -27,8 +27,11 @@ from products.error_tracking.backend.facade.query_utils import (
     DEFAULT_EVENT_CONTEXT_INCLUDES,
     ISSUE_FIELDS,
     build_date_range,
+    build_empty_issue_events_warning,
     build_event_selects,
     build_impact,
+    build_issue_event_coverage_selects,
+    build_issue_event_coverage_where,
     build_issue_event_where,
     build_issue_filters,
     build_issue_where,
@@ -239,13 +242,16 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             else DEFAULT_EVENT_CONTEXT_INCLUDES
         )
         event_selects = build_event_selects(includes)
+        search_query = cast(str | None, params.get("searchQuery"))
+        property_filters = cast(list[dict[str, object]], params.get("filterGroup", []))
+        filter_test_accounts = cast(bool, params.get("filterTestAccounts", True))
         query = EventsQuery(
             kind="EventsQuery",
             event="$exception",
             select=event_selects,
-            where=build_issue_event_where(issue_id, cast(str | None, params.get("searchQuery"))),
-            properties=cast(list[dict[str, object]], params.get("filterGroup", [])),
-            filterTestAccounts=cast(bool, params.get("filterTestAccounts", True)),
+            where=build_issue_event_where(issue_id, search_query),
+            properties=property_filters,
+            filterTestAccounts=filter_test_accounts,
             after=date_range.get("date_from"),
             before=date_range.get("date_to"),
             orderBy=[f"timestamp {params.get('orderDirection', 'DESC')}"],
@@ -279,4 +285,42 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         payload: dict[str, object] = {"results": results, "hasMore": has_more, "limit": limit, "offset": offset}
         if next_offset is not None:
             payload["nextOffset"] = next_offset
+        if not results and offset == 0 and not search_query and not property_filters:
+            warning = self._empty_issue_events_warning(request, issue_id, date_range, filter_test_accounts)
+            if warning:
+                payload["warning"] = warning
         return Response(payload)
+
+    def _empty_issue_events_warning(
+        self, request: ValidatedRequest, issue_id: str, date_range: dict[str, object], filter_test_accounts: bool
+    ) -> str | None:
+        coverage_query = EventsQuery(
+            kind="EventsQuery",
+            event="$exception",
+            select=build_issue_event_coverage_selects(issue_id),
+            where=build_issue_event_coverage_where(issue_id),
+            filterTestAccounts=False,
+            after=date_range.get("date_from"),
+            before=date_range.get("date_to"),
+            limit=1,
+            tags={"productKey": "error_tracking"},
+        )
+        try:
+            with tags_context(product=Product.ERROR_TRACKING, feature=Feature.QUERY):
+                data = (
+                    EventsQueryRunner(team=self.team, query=coverage_query, user=request.user)
+                    .calculate()
+                    .model_dump(mode="json")
+                )
+        except Exception:
+            logger.warning(
+                "error_tracking_issue_events_coverage_query_failed",
+                issue_id=issue_id,
+                team_id=self.team.pk,
+                exc_info=True,
+            )
+            return None
+        rows = data.get("results")
+        if not isinstance(rows, list) or not rows:
+            return None
+        return build_empty_issue_events_warning(rows[0], filter_test_accounts)

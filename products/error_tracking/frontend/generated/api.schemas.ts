@@ -1493,6 +1493,8 @@ export interface ErrorTrackingIssueEventsResponseApi {
     offset: number
     /** Offset to fetch the next page when hasMore is true. */
     nextOffset?: number
+    /** Present when no events matched but the events table has events for this issue. Explains why and how to see them. */
+    warning?: string
 }
 
 /**

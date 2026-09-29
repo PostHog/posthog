@@ -352,3 +352,7 @@ class ErrorTrackingIssueEventsResponseSerializer(serializers.Serializer):
     nextOffset = serializers.IntegerField(
         required=False, help_text="Offset to fetch the next page when hasMore is true."
     )
+    warning = serializers.CharField(
+        required=False,
+        help_text="Present when no events matched but the events table has events for this issue. Explains why and how to see them.",
+    )
