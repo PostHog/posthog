@@ -1,5 +1,6 @@
 import json
 import uuid
+from datetime import UTC, datetime
 from types import SimpleNamespace
 
 from posthog.test.base import BaseTest, NonAtomicBaseTest
@@ -1059,6 +1060,24 @@ class TestSystemTablesTeamIsolation(NonAtomicBaseTest):
         # A factory returns either a model instance or a bare id (error_tracking's testing door returns ids).
         assert str(getattr(obj_team1, "pk", obj_team1)) in ids
         assert str(getattr(obj_team2, "pk", obj_team2)) not in ids
+
+    def test_feature_flag_state_columns(self):
+        called_at = datetime(2026, 9, 1, 12, 0, 0, tzinfo=UTC)
+        live = FeatureFlag.objects.create(team=self.team, key="live", active=True, last_called_at=called_at)
+        disabled = FeatureFlag.objects.create(team=self.team, key="disabled", active=False)
+        archived = FeatureFlag.objects.create(team=self.team, key="archived", active=False, archived=True)
+
+        response = execute_hogql_query(
+            "SELECT key, active, archived, last_called_at, updated_at FROM system.feature_flags ORDER BY key",
+            team=self.team,
+            user=self.user,
+        )
+
+        assert response.results == [
+            ("archived", 0, 1, None, archived.updated_at),
+            ("disabled", 0, 0, None, disabled.updated_at),
+            ("live", 1, 0, called_at, live.updated_at),
+        ]
 
     def test_error_tracking_issue_severity(self):
         create_issue(team_id=self.team.pk, name="high_severity_issue", severity="high")
