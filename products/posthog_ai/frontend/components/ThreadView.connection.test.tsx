@@ -140,6 +140,46 @@ describe('ThreadView connection state', () => {
         expect(screen.getByTestId('max-sandbox-context-usage')).toHaveTextContent('Context 1% · $0.04')
     })
 
+    it('shows how long the current wait has lasted once it passes a few seconds', () => {
+        jest.useFakeTimers()
+        try {
+            act(() => logic.actions.sseOpened())
+            expect(screen.getByText('Setting up sandbox')).toBeVisible()
+
+            act(() => jest.advanceTimersByTime(5_000))
+            expect(screen.getByText('Setting up sandbox')).toBeVisible()
+
+            act(() => jest.advanceTimersByTime(70_000))
+            expect(screen.getByText('Setting up sandbox · 1m 15s')).toBeVisible()
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
+    // A new scroll key remounts the thread body and its footer row while ThreadView stays mounted. The
+    // virtualizer does the same to the footer row when the reader scrolls far from it.
+    it('keeps the wait time when the footer row remounts', () => {
+        jest.useFakeTimers()
+        try {
+            cleanup()
+            const thread = (scrollKey: string): JSX.Element => (
+                <Provider>
+                    <BindLogic logic={runStreamLogic} props={props}>
+                        <ThreadView virtualized={false} scrollRestorationKey={scrollKey} />
+                    </BindLogic>
+                </Provider>
+            )
+            const { rerender } = render(thread('before'))
+            act(() => logic.actions.sseOpened())
+            act(() => jest.advanceTimersByTime(75_000))
+
+            rerender(thread('after'))
+            expect(screen.getByText('Setting up sandbox · 1m 15s')).toBeVisible()
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
     it('uses the startup activity as the state indicator and keeps completed steps expandable', async () => {
         act(() => logic.actions.sseOpened())
         await waitFor(() => expect(screen.getByText('Setting up sandbox')).toBeVisible())

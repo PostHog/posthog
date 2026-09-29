@@ -13,6 +13,9 @@ import {
     useState,
 } from 'react'
 
+import { LemonButton } from '@posthog/lemon-ui'
+
+import { IconArrowDown } from 'lib/lemon-ui/icons'
 import { cn } from 'lib/utils/css-classes'
 
 /**
@@ -85,6 +88,12 @@ const FOLLOW_GRACE_MS = 1000
  * scroll or a measurement settle repositions rows without re-rendering them.
  */
 const ROW_BASE_STYLE: CSSProperties = { position: 'absolute', top: 0, left: 0, width: '100%' }
+
+/**
+ * How far from the bottom, in viewport heights, the reader must be before "Jump to latest" shows. Half a
+ * viewport keeps the button off a reader who is only a few lines up.
+ */
+const JUMP_TO_LATEST_MIN_VIEWPORTS = 0.5
 
 /**
  * Virtual keys for the synthetic header/footer rows — reserved prefixes that never collide with a user item
@@ -891,6 +900,48 @@ function Root<T>({
         }
     }, [virtualized, stickToBottom, noteProgrammaticScroll])
 
+    // A long run pushes its latest output far below a reopened thread's landing, and browser find can't
+    // reach rows the virtualizer hasn't rendered. The button gives the reader one step back to the end.
+    const [awayFromLatest, setAwayFromLatest] = useState(false)
+    useEffect(() => {
+        const el = scrollRef.current
+        if (!virtualized || !el) {
+            return
+        }
+        const updateAwayFromLatest = (): void => {
+            const distanceFromEnd = el.scrollHeight - el.clientHeight - el.scrollTop
+            setAwayFromLatest(distanceFromEnd > el.clientHeight * JUMP_TO_LATEST_MIN_VIEWPORTS)
+        }
+        updateAwayFromLatest()
+        el.addEventListener('scroll', updateAwayFromLatest, { passive: true })
+        // The distance to the end also changes with no scroll event: the virtualizer writes the content height
+        // straight to the DOM as rows load or grow, and the viewport can resize. Observe the viewport and the
+        // content container (its only child) so a still reader gets the button too.
+        const resizeObserver = new ResizeObserver(updateAwayFromLatest)
+        resizeObserver.observe(el)
+        if (el.firstElementChild) {
+            resizeObserver.observe(el.firstElementChild)
+        }
+        return () => {
+            el.removeEventListener('scroll', updateAwayFromLatest)
+            resizeObserver.disconnect()
+        }
+    }, [virtualized])
+
+    const jumpToLatest = useCallback((): void => {
+        setPinned(true)
+        const el = scrollRef.current
+        if (following && el) {
+            // By hand while the thread grows, like the live open: `scrollToIndex` arms the core's reconciler,
+            // which keeps re-targeting the growing end and undoes the reader's next upward scroll. The
+            // follow effect holds the bottom as the tail rows measure.
+            el.scrollTop = el.scrollHeight
+            noteProgrammaticScroll()
+        } else {
+            virtualizer.scrollToIndex(rowCount - 1, { align: 'end' })
+        }
+    }, [following, setPinned, virtualizer, rowCount, noteProgrammaticScroll])
+
     const rootValue = useMemo<RootContextValue>(
         () => ({
             measureElement: virtualizer.measureElement,
@@ -930,7 +981,7 @@ function Root<T>({
 
     return (
         <RootContext.Provider value={rootValue}>
-            <div className={cn('flex flex-col h-full min-h-0 w-full', className)}>
+            <div className={cn('relative flex flex-col h-full min-h-0 w-full', className)}>
                 {/*
                  * `overflow-anchor: none` because the virtualizer already owns every row's position and
                  * compensates content growth itself. Chrome's native scroll anchoring would compensate the
@@ -952,6 +1003,19 @@ function Root<T>({
                         ))}
                     </div>
                 </div>
+                {awayFromLatest && (
+                    <div className="absolute bottom-3 left-1/2 -translate-x-1/2 rounded bg-surface-primary shadow">
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            icon={<IconArrowDown />}
+                            onClick={jumpToLatest}
+                            data-attr="thread-jump-to-latest"
+                        >
+                            Jump to latest
+                        </LemonButton>
+                    </div>
+                )}
             </div>
         </RootContext.Provider>
     )

@@ -1,6 +1,7 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { type ReactNode, memo, useCallback, useEffect, useMemo, useState } from 'react'
 
+import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { inStorybookTestRunner } from 'lib/utils/dom'
 
 import { isTerminalRunStatus, runStreamLogic } from '../logics/runStreamLogic'
@@ -10,6 +11,7 @@ import { groupThreadActivity, type ThreadDisplayItem } from '../utils/groupThrea
 import { getRandomThinkingMessage } from '../utils/thinkingMessages'
 import { resolveToolCall } from '../utils/toolResolver'
 import { type TurnTrailer, computeTurnTrailers } from '../utils/turnTrailers'
+import { formatElapsedSeconds } from './ActivityElapsedTime'
 import { ContextUsageChip } from './ContextUsageChip'
 import { PullRequestCard } from './PullRequestCard'
 import { RunAlertActivity } from './RunAlertActivity'
@@ -158,6 +160,15 @@ export function ThreadView({
         !showConnectionStatus &&
         !pendingPermissionRequest &&
         displayItems.at(-1)?.type !== 'activity_group'
+    // The virtualizer unmounts the footer row when the reader scrolls far from it, so the start of the current
+    // wait lives here and not in the indicator. A new wait starts each time the thinking line shows again (a
+    // running tool or streaming text hides it) and when this view binds another stream.
+    const { key: streamLogicKey } = useMountedLogic(runStreamLogic)
+    const thinkingWaitKey = showThinking ? String(streamLogicKey) : null
+    const [thinkingWait, setThinkingWait] = useState(() => ({ key: thinkingWaitKey, startedAt: Date.now() }))
+    if (thinkingWait.key !== thinkingWaitKey) {
+        setThinkingWait({ key: thinkingWaitKey, startedAt: Date.now() })
+    }
     const thinkingPhase = streamPhase === 'provisioning' ? 'provisioning' : 'thinking'
     // Post-turn only: a reconnect refetch can fold in a pr_url mid-run, so gate on !isThinking.
     const pullRequestUrl = !isThinking ? runArtifacts.prUrl : undefined
@@ -171,6 +182,7 @@ export function ThreadView({
                     <ThreadFooter
                         showThinking={showThinking}
                         thinkingPhase={thinkingPhase}
+                        thinkingStartedAt={thinkingWait.startedAt}
                         pullRequestUrl={pullRequestUrl}
                         prBranch={branch}
                         showContextUsage={showContextUsageFooter}
@@ -182,6 +194,7 @@ export function ThreadView({
         [
             showThinking,
             thinkingPhase,
+            thinkingWait.startedAt,
             pullRequestUrl,
             branch,
             showContextUsageFooter,
@@ -302,6 +315,7 @@ const ThreadHeader = memo(function ThreadHeader({
 const ThreadFooter = memo(function ThreadFooter({
     showThinking,
     thinkingPhase,
+    thinkingStartedAt,
     pullRequestUrl,
     prBranch,
     showContextUsage,
@@ -310,6 +324,7 @@ const ThreadFooter = memo(function ThreadFooter({
 }: {
     showThinking: boolean
     thinkingPhase: 'thinking' | 'provisioning'
+    thinkingStartedAt: number
     pullRequestUrl?: string
     prBranch?: string
     showContextUsage?: boolean
@@ -331,6 +346,7 @@ const ThreadFooter = memo(function ThreadFooter({
                 <ThinkingIndicator
                     progress={thinkingPhase === 'provisioning' ? null : currentProgress}
                     phase={thinkingPhase}
+                    startedAt={thinkingStartedAt}
                 />
             )}
             {pullRequestUrl && <PullRequestCard prUrl={pullRequestUrl} branch={prBranch} />}
@@ -340,6 +356,9 @@ const ThreadFooter = memo(function ThreadFooter({
     )
 })
 
+/** A short pause needs no timer. A long one does, or the reader can't tell a slow step from a stuck run. */
+const THINKING_ELAPSED_MIN_SECONDS = 10
+
 /**
  * Bottom-of-thread "what's it doing right now" line for sandbox conversations. Reflects the latest
  * `_posthog/progress` message when present; during `provisioning` (the conversations/open POST / cold
@@ -348,11 +367,24 @@ const ThreadFooter = memo(function ThreadFooter({
 function ThinkingIndicator({
     progress,
     phase,
+    startedAt,
 }: {
     progress: string | null
     phase: 'thinking' | 'provisioning'
+    startedAt: number
 }): JSX.Element {
     const [fallbackMessage, setFallbackMessage] = useState(() => getRandomThinkingMessage())
+    const [now, setNow] = useState(Date.now)
+    const { isVisible } = usePageVisibility()
+
+    useEffect(() => {
+        if (!isVisible || inStorybookTestRunner()) {
+            return
+        }
+        setNow(Date.now())
+        const interval = setInterval(() => setNow(Date.now()), 1000)
+        return () => clearInterval(interval)
+    }, [isVisible])
 
     // Re-roll the gerund every 5s while genuinely thinking; static "Spinning up sandbox…" during provisioning
     // doesn't need it, and rotating in Storybook would make snapshots non-deterministic.
@@ -364,7 +396,12 @@ function ThinkingIndicator({
         return () => clearInterval(interval)
     }, [phase])
 
-    const message = progress?.trim() ? progress : phase === 'provisioning' ? 'Setting up sandbox' : fallbackMessage
+    const baseMessage = progress?.trim() ? progress : phase === 'provisioning' ? 'Setting up sandbox' : fallbackMessage
+    const elapsedSeconds = Math.floor((now - startedAt) / 1000)
+    const message =
+        elapsedSeconds >= THINKING_ELAPSED_MIN_SECONDS
+            ? `${baseMessage} · ${formatElapsedSeconds(elapsedSeconds)}`
+            : baseMessage
     // Match the LangGraph loader: a bubble-free reasoning line (muted brain icon + muted text), via the
     // shared Activity primitive — not a MessageTemplate bubble. Shimmers only while genuinely thinking;
     // provisioning stays static since it's infra boot, not model reasoning.
