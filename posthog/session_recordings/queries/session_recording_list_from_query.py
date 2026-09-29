@@ -388,6 +388,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
             self._team,
             experiment_id=self._query.experiment_exposure.experiment_id,
             variant=self._query.experiment_exposure.variant,
+            variants=self._query.experiment_exposure.variants,
             in_session=bool(self._query.experiment_exposure.in_session),
         )
         if self._experiment_exposure_linkage.population_filters_test_accounts:

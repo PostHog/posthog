@@ -39,6 +39,48 @@ class TargetableExperiment:
     variants: tuple[str, ...]
 
 
+@frozen
+class ExperimentVariantPromptContext:
+    """One variant, as an LLM prompt describes it."""
+
+    key: str
+    # The flag variant's display name, which the experiment UI treats as the variant's description.
+    description: str
+    rollout_percentage: float
+
+
+@frozen
+class ExperimentPromptContext:
+    """What an LLM prompt needs to describe an experiment and the change under test."""
+
+    id: int
+    name: str
+    # The experiment's description field, which carries the hypothesis and expected outcomes.
+    description: str
+    feature_flag_key: str
+    # Requestable variants only, excluded variants already removed.
+    variants: tuple[ExperimentVariantPromptContext, ...]
+    primary_metric_names: tuple[str, ...]
+
+
+@frozen
+class ExperimentStatus:
+    """The lifecycle facts a replay surface reads to decide whether an experiment is still worth watching."""
+
+    # Public status string: draft, running, paused, exposure_frozen, or stopped.
+    status: str
+    start_date: datetime | None
+    end_date: datetime | None
+    archived: bool
+    # The running-time calculator's recommended length in days, when one was set.
+    planned_duration_days: float | None
+
+    @property
+    def is_active(self) -> bool:
+        """True while the experiment collects exposures a replay surface can watch."""
+        return self.start_date is not None and self.end_date is None and not self.archived
+
+
 @dataclass(frozen=True)
 class CreateExperimentInput:
     """

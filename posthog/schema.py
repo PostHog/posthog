@@ -7079,6 +7079,14 @@ class RecordingsQueryExperimentExposureFilter(BaseModel):
         default=None,
         description=("Narrow to persons exposed to this variant. Defaults to all of the experiment's variants."),
     )
+    variants: list[str] | None = Field(
+        default=None,
+        description=(
+            "Narrow to persons exposed to any of these variants. Defaults to all of the"
+            " experiment's variants. Do not combine with `variant`, the single-variant"
+            " form that predates this field."
+        ),
+    )
 
 
 class ResultCustomization(RootModel[ResultCustomizationByValue | ResultCustomizationByPosition]):

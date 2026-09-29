@@ -5,6 +5,9 @@ from typing import Any
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from parameterized import parameterized
+from rest_framework.exceptions import ValidationError
+
 from posthog.hogql import ast
 
 from posthog.models import EventProperty
@@ -267,3 +270,28 @@ class TestExposedPopulationSelects(BaseTest):
         distinct_ids = exposed_distinct_ids_select(linkage)
         assert _select_aliases(distinct_ids) == ["distinct_id", "first_exposure_time"]
         assert _variant_filter(distinct_ids) == ["control", "test"]
+
+    def test_variants_narrow_the_population(self) -> None:
+        experiment = self._experiment()
+
+        single = resolve_exposure_linkage(self.team, experiment_id=experiment.pk, variant="test")
+        assert single.requested_variants == ["test"]
+
+        listed = resolve_exposure_linkage(
+            self.team, experiment_id=experiment.pk, variants=["test", "control", "test"]
+        )
+        assert listed.requested_variants == ["test", "control"]
+        assert _variant_filter(exposed_distinct_ids_select(listed)) == ["test", "control"]
+
+    @parameterized.expand(
+        [
+            ("unknown_variant_in_list", {"variants": ["control", "unknown"]}),
+            ("empty_list", {"variants": []}),
+            ("both_forms", {"variant": "control", "variants": ["test"]}),
+        ]
+    )
+    def test_a_bad_variants_request_is_refused(self, _name: str, kwargs: dict) -> None:
+        experiment = self._experiment()
+
+        with self.assertRaises(ValidationError):
+            resolve_exposure_linkage(self.team, experiment_id=experiment.pk, **kwargs)

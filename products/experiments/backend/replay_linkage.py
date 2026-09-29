@@ -318,9 +318,18 @@ def targetable_experiments(team: Team, *, experiment_ids: Sequence[int]) -> list
 
 
 def resolve_exposure_linkage(
-    team: Team, *, experiment_id: int, variant: str | None, in_session: bool = False
+    team: Team,
+    *,
+    experiment_id: int,
+    variant: str | None = None,
+    variants: list[str] | None = None,
+    in_session: bool = False,
 ) -> ExperimentExposureLinkage:
     """Validate the experiment and resolve how its exposed population will be read.
+
+    ``variants`` narrows the population to any subset of the experiment's variants; ``variant``
+    is the single-variant form that predates it, kept for existing callers. Pass at most one of
+    the two. With neither, the population covers every requestable variant.
 
     Raises ValidationError for experiments the linkage can't answer for: unknown or draft
     experiments, group-aggregated ones (whose exposed entities are groups rather than
@@ -348,12 +357,19 @@ def resolve_exposure_linkage(
     variant_keys = _requestable_variant_keys(experiment)
     if not variant_keys:
         raise ValidationError("This experiment's feature flag defines no variants.")
-    if variant is not None:
-        if variant not in variant_keys:
-            raise ValidationError(f"'{variant}' is not a variant of this experiment.")
-        requested_variants = [variant]
-    else:
+    if variant is not None and variants is not None:
+        raise ValidationError("Pass either 'variant' or 'variants', not both.")
+    if variants is not None and not variants:
+        raise ValidationError("'variants' must name at least one variant.")
+    requested = variants if variants is not None else ([variant] if variant is not None else None)
+    if requested is None:
         requested_variants = variant_keys
+    else:
+        for requested_key in requested:
+            if requested_key not in variant_keys:
+                raise ValidationError(f"'{requested_key}' is not a variant of this experiment.")
+        # Keep the caller's order, drop duplicates, so the query's IN list stays minimal.
+        requested_variants = list(dict.fromkeys(requested))
 
     session_exposure: SessionExposure | None = None
     if in_session:
@@ -508,7 +524,12 @@ def exposed_distinct_ids_select(
     )
 
 
-def exposed_persons_select(linkage: ExperimentExposureLinkage, *, include_multiple_variant: bool) -> ast.SelectQuery:
+def exposed_persons_select(
+    linkage: ExperimentExposureLinkage,
+    *,
+    include_multiple_variant: bool,
+    candidate_distinct_ids: ast.SelectQuery | None = None,
+) -> ast.SelectQuery:
     """One row per exposed distinct id, with the person and the attributed variant projected:
     (distinct_id, person_id, variant, first_exposure_time).
 
@@ -518,12 +539,21 @@ def exposed_persons_select(linkage: ExperimentExposureLinkage, *, include_multip
     "exclude" handling stay in, so a surface can count the people the analysis set aside; the
     key never names a real variant, so callers comparing variants skip those rows naturally.
 
+    ``candidate_distinct_ids`` carries the same contract as on
+    :func:`exposed_distinct_ids_select`: a one-column ``distinct_id`` select that is a superset
+    of the distinct ids the caller joins on.
+
     Pure AST construction, like :func:`exposed_distinct_ids_select`.
     """
     variants = list(linkage.requested_variants)
     if include_multiple_variant:
         variants.append(MULTIPLE_VARIANT_KEY)
-    return _exposed_population_select(linkage, project_attribution=True, variants=variants)
+    return _exposed_population_select(
+        linkage,
+        project_attribution=True,
+        variants=variants,
+        candidate_distinct_ids=candidate_distinct_ids,
+    )
 
 
 def _distinct_ids_mapped_to_exposed_persons_select(linkage: ExperimentExposureLinkage) -> ast.SelectQuery:
