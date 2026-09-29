@@ -732,10 +732,13 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                 return
             }
             try {
-                const prompt = wrapWithPosthogContext(
-                    buildDiscussReportPrompt(currentReport, reportUrl, agentQuestion ?? question, intent),
-                    contextItems
+                const discussPrompt = buildDiscussReportPrompt(
+                    currentReport,
+                    reportUrl,
+                    agentQuestion ?? question,
+                    intent
                 )
+                const prompt = wrapWithPosthogContext(discussPrompt, contextItems)
                 const warmLease = values.reportWarmLease?.reportId === report.id ? values.reportWarmLease : null
                 if (warmLease) {
                     actions.setReportWarmLease(null)
@@ -763,7 +766,12 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                     cache.disposables.add(() => stream.mount(), OPTIMISTIC_REPORT_STREAM, {
                         pauseOnPageHidden: false,
                     })
-                    stream.actions.startOptimisticRun(question)
+                    // Echo the prompt that was sent, not the raw question. The thread pairs an
+                    // optimistic message to its wire echo by message text, and the only part it
+                    // strips before comparing is the `wrapWithPosthogContext` block. A raw question
+                    // never matches the report framing around it, so its message would stay
+                    // unpaired and sit at the foot of the thread for the rest of the run.
+                    stream.actions.startOptimisticRun(discussPrompt)
                     actions.openReportTask(report, taskId, runId, streamKey)
                 }
                 captureInboxReportActionCompleted({ report, actionType: 'discuss', outcome: 'success' })
