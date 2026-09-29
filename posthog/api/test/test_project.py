@@ -15,6 +15,7 @@ from posthog.api.team import TeamCustomerAnalyticsConfigSerializer
 from posthog.api.test.test_team import EnvironmentToProjectRewriteClient, team_api_test_factory
 from posthog.constants import AvailableFeature
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.instance_setting import override_instance_config
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.person.util import get_person_by_uuid
 from posthog.models.personal_api_key import PersonalAPIKey
@@ -26,6 +27,8 @@ from posthog.test.persons import create_person, delete_person
 
 from products.customer_analytics.backend.facade.team_extension import TeamCustomerAnalyticsConfig
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
+from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
+from products.feature_flags.backend.models.team_feature_flags_config import FlagEvaluationsMode
 
 
 class TestProjectAPI(team_api_test_factory()):  # type: ignore
@@ -1033,6 +1036,7 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             "project_id",
             "user_access_level",
             "managed_viewsets",
+            "flag_evaluations_mode",
             "base_currency",
             "capture_dead_clicks",
             "cookieless_server_hash_mode",
@@ -1045,6 +1049,50 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             self.assertIn(field, data, f"/api/projects/ response is missing parity field '{field}'")
         # project_id on a Project equals its own id (Project ↔ Team is 1:1)
         self.assertEqual(data["project_id"], self.project.id)
+
+    def test_flag_evaluations_mode_is_read_only(self):
+        OrganizationFeatureFlagsConfig.objects.filter(organization=self.organization).update(
+            flag_evaluations_mode=FlagEvaluationsMode.READ_FLAG_EVALUATIONS
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.project.id}/", {"flag_evaluations_mode": FlagEvaluationsMode.EVENTS}
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["flag_evaluations_mode"], FlagEvaluationsMode.READ_FLAG_EVALUATIONS)
+        self.assertEqual(
+            OrganizationFeatureFlagsConfig.objects.get(organization=self.organization).flag_evaluations_mode,
+            FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
+        )
+
+    @parameterized.expand(
+        [
+            (
+                "read_flag_evaluations_reads_events",
+                FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
+                FlagEvaluationsMode.EVENTS,
+            ),
+            (
+                "flag_evaluations_only_keeps_its_mode",
+                FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+                FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+            ),
+        ]
+    )
+    def test_flag_evaluations_mode_while_the_usage_tab_is_forced_to_events(self, _name, stored_mode, expected_mode):
+        OrganizationFeatureFlagsConfig.objects.filter(organization=self.organization).update(
+            flag_evaluations_mode=stored_mode
+        )
+
+        with override_instance_config("FLAG_EVALUATIONS_USAGE_TAB_FORCE_EVENTS", True):
+            response = self.client.get(f"/api/projects/{self.project.id}/")
+
+        self.assertEqual(response.json()["flag_evaluations_mode"], expected_mode)
+        self.assertEqual(
+            OrganizationFeatureFlagsConfig.objects.get(organization=self.organization).flag_evaluations_mode,
+            stored_mode,
+        )
 
     def test_retrieve_project_does_not_500_when_broker_unavailable(self):
         # Regression: get_product_intents used to call calculate_product_activation.delay()
@@ -1093,17 +1141,69 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
     def test_customer_analytics_config_writes_through_to_team(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
+        definition_response = self.client.post(
+            f"/api/projects/{self.project.id}/custom_property_definitions/",
+            {"name": "Annual recurring revenue", "display_type": "currency", "is_big_number": True},
+            format="json",
+        )
+        self.assertEqual(definition_response.status_code, status.HTTP_201_CREATED, definition_response.json())
+        default_pins = [{"kind": "custom_property", "id": definition_response.json()["id"]}]
 
         response = self.client.patch(
             f"/api/projects/{self.project.id}/",
-            {"customer_analytics_config": {"activity_event": "$pageview"}},
+            {
+                "customer_analytics_config": {
+                    "activity_event": "$pageview",
+                    "default_pinned_properties": default_pins,
+                }
+            },
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         self.assertEqual(response.json()["customer_analytics_config"]["activity_event"], "$pageview")
+        self.assertEqual(
+            response.json()["customer_analytics_config"]["default_pinned_properties"],
+            default_pins,
+        )
 
         self.team.refresh_from_db()
         self.assertEqual(self.team.customer_analytics_config.activity_event, "$pageview")
+        self.assertEqual(self.team.customer_analytics_config.default_pinned_properties, default_pins)
+
+    def test_customer_analytics_default_pins_reject_invalid_references(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        definition_response = self.client.post(
+            f"/api/projects/{self.project.id}/custom_property_definitions/",
+            {"name": "Annual recurring revenue", "display_type": "currency", "is_big_number": True},
+            format="json",
+        )
+        self.assertEqual(definition_response.status_code, status.HTTP_201_CREATED, definition_response.json())
+        reference = {"kind": "custom_property", "id": definition_response.json()["id"]}
+
+        response = self.client.patch(
+            f"/api/projects/{self.project.id}/",
+            {"customer_analytics_config": {"default_pinned_properties": [reference, reference]}},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+        self.assertIn("duplicates", response.json()["detail"])
+
+    def test_project_member_cannot_change_customer_analytics_default_pins(self):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        response = self.client.patch(
+            f"/api/projects/{self.project.id}/",
+            {"customer_analytics_config": {"default_pinned_properties": []}},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.json())
+        config = get_or_create_team_extension(self.team, TeamCustomerAnalyticsConfig)
+        config.refresh_from_db()
+        self.assertEqual(config.default_pinned_properties, [])
 
     def test_customer_analytics_config_save_keeps_track_rules_written_meanwhile(self):
         config = get_or_create_team_extension(self.team, TeamCustomerAnalyticsConfig)

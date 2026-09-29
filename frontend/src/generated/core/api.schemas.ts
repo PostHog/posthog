@@ -866,6 +866,14 @@ export const AvailableSetupTaskIdsEnumApi = {
     UsePosthogInSlack: 'use_posthog_in_slack',
 } as const
 
+export type FlagEvaluationsModeEnumApi = (typeof FlagEvaluationsModeEnumApi)[keyof typeof FlagEvaluationsModeEnumApi]
+
+export const FlagEvaluationsModeEnumApi = {
+    Number0: 0,
+    Number1: 1,
+    Number2: 2,
+} as const
+
 /**
  * * `AED` - AED
  * * `AFN` - AFN
@@ -1806,6 +1814,28 @@ export interface TeamMarketingAnalyticsConfigApi {
     campaign_field_preferences?: MarketingAnalyticsCampaignFieldPreferencesApi
 }
 
+/**
+ * * `custom_property` - Custom property
+ * * `relationship` - Relationship
+ */
+export type AccountPropertyPinKindEnumApi =
+    (typeof AccountPropertyPinKindEnumApi)[keyof typeof AccountPropertyPinKindEnumApi]
+
+export const AccountPropertyPinKindEnumApi = {
+    CustomProperty: 'custom_property',
+    Relationship: 'relationship',
+} as const
+
+export interface TeamCustomerAnalyticsPinnedAccountPropertyApi {
+    /** Definition type for this default pinned account property.
+     *
+     * * `custom_property` - Custom property
+     * * `relationship` - Relationship */
+    kind: AccountPropertyPinKindEnumApi
+    /** Project-scoped custom property or relationship definition UUID. */
+    id: string
+}
+
 export interface TeamCustomerAnalyticsConfigApi {
     /** Event used as the activity signal (DAU/WAU/MAU). */
     activity_event?: unknown
@@ -1822,6 +1852,8 @@ export interface TeamCustomerAnalyticsConfigApi {
      * @nullable
      */
     account_group_type_index?: number | null
+    /** Ordered account properties shown until a user saves a personal pinned-property selection. Pass an empty list to show no properties by default. */
+    default_pinned_properties?: TeamCustomerAnalyticsPinnedAccountPropertyApi[]
 }
 
 /**
@@ -2694,6 +2726,8 @@ export interface ProjectBackwardCompatApi {
      */
     readonly user_access_level: string | null
     readonly managed_viewsets: ProjectBackwardCompatApiManagedViewsets
+    /** Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table. */
+    readonly flag_evaluations_mode: FlagEvaluationsModeEnumApi
     revenue_analytics_config?: TeamRevenueAnalyticsConfigApi
     marketing_analytics_config?: TeamMarketingAnalyticsConfigApi
     customer_analytics_config?: TeamCustomerAnalyticsConfigApi
@@ -3561,6 +3595,8 @@ export interface PatchedProjectBackwardCompatApi {
      */
     readonly user_access_level?: string | null
     readonly managed_viewsets?: PatchedProjectBackwardCompatApiManagedViewsets
+    /** Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table. */
+    readonly flag_evaluations_mode?: FlagEvaluationsModeEnumApi
     revenue_analytics_config?: TeamRevenueAnalyticsConfigApi
     marketing_analytics_config?: TeamMarketingAnalyticsConfigApi
     customer_analytics_config?: TeamCustomerAnalyticsConfigApi
