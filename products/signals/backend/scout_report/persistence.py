@@ -60,6 +60,7 @@ from products.signals.backend.artefact_schemas import (
     TaskRunArtefact,
     TitleChange,
 )
+from products.signals.backend.enums import ReportLinkWritePath
 from products.signals.backend.models import (
     MAX_SCOUT_CONTENT_REVISIONS,
     MAX_SCOUT_REPORT_NOTES,
@@ -169,6 +170,7 @@ def create_scout_report(
     charts: Sequence[ReportChart] = (),
     metrics: Sequence[ReportMetric] = (),
     suggested_prompts: Sequence[str] = (),
+    links: Sequence[ReportLink] = (),
     emit_signals: bool = True,
     run: SignalScoutRun | None = None,
     idempotency_key: str | None = None,
@@ -201,6 +203,11 @@ def create_scout_report(
     `suggested_prompts`, when supplied, become the prompts (questions or next-step actions) the
     inbox offers above the report's "Ask AI" box. Written on the same terms as `charts`, and for
     the same reason.
+
+    `links`, when supplied, become the report's typed `report_link` rows. They are written in the
+    same transaction as the report, so the link gates in `auto_start` see them when the caller
+    fires autostart. A link that `add_log` rejects rolls back the whole report and raises
+    `InvalidScoutReportError`.
 
     `idempotency_key`, when supplied, is stored on the report under a per-team unique index, so one
     key can only ever author one report. A call whose key a report already holds raises
@@ -296,6 +303,17 @@ def create_scout_report(
                 SignalReportArtefact.append_status(
                     team_id=team_id, report_id=report_id, content=priority, attribution=attribution
                 )
+            for link in links:
+                try:
+                    SignalReportArtefact.add_log(
+                        team_id=team_id,
+                        report_id=report_id,
+                        content=link,
+                        attribution=attribution,
+                        write_path=ReportLinkWritePath.EMIT,
+                    )
+                except ArtefactContentValidationError as err:
+                    raise InvalidScoutReportError(str(err))
             if suggested_reviewers is not None and len(suggested_reviewers.root) > 0:
                 SignalReportArtefact.append_status(
                     team_id=team_id,
@@ -619,6 +637,7 @@ def append_report_links(
                     report_id=report_id,
                     content=link,
                     attribution=attribution,
+                    write_path=ReportLinkWritePath.EDIT,
                 )
             except ArtefactContentValidationError as err:
                 raise InvalidScoutReportError(str(err))

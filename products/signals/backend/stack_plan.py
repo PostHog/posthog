@@ -30,7 +30,7 @@ from products.signals.backend.artefact_schemas import (
     TaskRunArtefact,
 )
 from products.signals.backend.billing import system_billing_exempt_reason
-from products.signals.backend.enums import ReportLinkKind
+from products.signals.backend.enums import ReportLinkKind, ReportLinkWritePath
 from products.signals.backend.implementation_pr import fetch_implementation_prs_for_reports
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportPullRequest
 from products.signals.backend.report_generation.research import ReportLayer
@@ -141,6 +141,7 @@ def create_layer_reports(
                 reason=f"Layer {index + 1} of {len(layers)} of the research plan.",
             ),
             attribution=attribution,
+            write_path=ReportLinkWritePath.PIPELINE,
         )
         if layer.depends_on is not None:
             SignalReportArtefact.add_log(
@@ -152,6 +153,7 @@ def create_layer_reports(
                     reason=f"Layer {index + 1} stacks on layer {layer.depends_on + 1}.",
                 ),
                 attribution=attribution,
+                write_path=ReportLinkWritePath.PIPELINE,
             )
         child_ids.append(child_id)
     logger.info("signals.stack_plan.layers_created", report_id=str(parent.id), team_id=team_id, layers=len(child_ids))

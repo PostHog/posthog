@@ -199,7 +199,7 @@ class ReportMetricInput:
 
 @dataclass(frozen=True)
 class ReportLinkInput:
-    """One typed, directed link the edit should write on the report: "this report `kind` that report"."""
+    """One typed, directed link to write on the report: "this report `kind` that report"."""
 
     kind: str
     report_id: str
@@ -426,14 +426,16 @@ def _build_edit_charts(charts: list[ReportChartInput] | None) -> list[ReportChar
 def _build_links(links: list[ReportLinkInput] | None) -> list[ReportLink]:
     """Turn the caller's links into content models, rejecting an unknown kind or a malformed id.
 
-    Pure and cheap, so a scout that named a kind wrong fails before the edit spends a judge call.
+    Pure and cheap, so a scout that named a kind wrong fails before the emit or edit spends a judge call.
     The invariants that need the database (a live target in this team, no cycle) are checked at the
     write, in `SignalReportArtefact.add_log`.
     """
     if not links:
         return []
     if len(links) > MAX_REPORT_LINKS_PER_WRITE:
-        raise InvalidScoutReportError(f"edit_report accepts at most {MAX_REPORT_LINKS_PER_WRITE} links ({len(links)})")
+        raise InvalidScoutReportError(
+            f"a report write accepts at most {MAX_REPORT_LINKS_PER_WRITE} links ({len(links)})"
+        )
     built: list[ReportLink] = []
     for link in links:
         try:
@@ -777,7 +779,7 @@ def _reviewer_reasons(reviewers: SuggestedReviewers | None) -> list[str]:
 
 
 def _link_reasons(links: Sequence[ReportLink]) -> list[str]:
-    """The scout-authored `reason` strings from the links an edit writes, for the safety judge.
+    """The scout-authored `reason` strings from the links an emit or edit writes, for the safety judge.
 
     A reason persists in the report-link artefact and renders in the work log that action-capable
     report agents read, so it goes in front of the judge like a reviewer reason does."""
@@ -1234,6 +1236,7 @@ def _capture_report_emitted(
     chart_count: int = 0,
     metric_count: int = 0,
     suggested_prompt_count: int = 0,
+    links: Sequence[ReportLink] = (),
 ) -> _ReportForward | None:
     """Emit the scout-owned `signals_scout_report_emitted` event — the report-channel counterpart to
     `signals_scout_run_finished`, fired once per `emit_report` call that reached a terminal outcome.
@@ -1274,6 +1277,8 @@ def _capture_report_emitted(
         "chart_count": chart_count,
         "metric_count": metric_count,
         "suggested_prompt_count": suggested_prompt_count,
+        "link_count": len(links),
+        "link_kinds": sorted({link.kind.value for link in links}),
         "title": title,
         "summary": _forwarded_summary(summary),
         "actionability": actionability,
@@ -1473,6 +1478,7 @@ async def emit_report(
     charts: list[ReportChartInput] | None = None,
     metrics: list[ReportMetricInput] | None = None,
     suggested_prompts: list[str] | None = None,
+    links: list[ReportLinkInput] | None = None,
     idempotency_key: str | None = None,
 ) -> EmitReportResult:
     """Author a full report: judge for safety, then persist at the judged status. Async entry (used by
@@ -1485,6 +1491,9 @@ async def emit_report(
     `charts` are the optional queries the inbox renders on the report, and `suggested_prompts` the
     optional prompts (questions or next-step actions) it offers above the report's "Ask AI" box.
 
+    `links` are typed links from the new report to others. They are written with the report, so the
+    link gates see a `duplicate_of` or `depends_on` link before autostart decides.
+
     `idempotency_key` names this emission, so a retry after a timeout returns the first report instead
     of a twin (see `_emit_idempotency_key`). One is derived from the content when the caller supplies
     none, so a resent call is safe either way."""
@@ -1495,6 +1504,7 @@ async def emit_report(
     allowed_metrics = await database_sync_to_async(_allowed_metrics, thread_sensitive=False)(team, metrics)
     metric_contents = _build_metrics(allowed_metrics)
     prompt_contents = _build_suggested_prompts(suggested_prompts)
+    built_links = _build_links(links)
     # Validate the explicit repository format up front (cheap, pure) so a malformed `owner/repo` fails
     # before the safety-judge LLM call rather than after. Free-form selection still runs only if surfaced.
     _normalize_repository(repository)
@@ -1521,6 +1531,7 @@ async def emit_report(
             chart_count=len(chart_contents),
             metric_count=len(metric_contents),
             suggested_prompt_count=len(prompt_contents),
+            links=built_links,
         )
         await _forward_report_event_async(team, forward)
         return result
@@ -1555,6 +1566,7 @@ async def emit_report(
         metrics=metric_contents,
         suggested_prompts=prompt_contents,
         reviewer_reasons=_reviewer_reasons(reviewers),
+        link_reasons=_link_reasons(built_links),
     )
     surfaced = _surfaced(judgement.status)
     repo_selection = (
@@ -1594,6 +1606,8 @@ async def emit_report(
             # is still reachable from the Dismissed view, where a click would hand the judge-rejected
             # wording to an action-capable agent run.
             suggested_prompts=prompt_contents if judgement.safety.choice else (),
+            # Same reason as the prompts: an unsafe report must not steer another report's autostart.
+            links=built_links if judgement.safety.choice else (),
             # Don't index the backing observations of a safety-suppressed (unsafe) report — they'd
             # otherwise become semantic-search / matching context despite never surfacing.
             emit_signals=judgement.safety.choice,
@@ -1634,6 +1648,7 @@ def emit_report_sync(
     charts: list[ReportChartInput] | None = None,
     metrics: list[ReportMetricInput] | None = None,
     suggested_prompts: list[str] | None = None,
+    links: list[ReportLinkInput] | None = None,
     idempotency_key: str | None = None,
 ) -> EmitReportResult:
     """Sync entry used by the DRF view path. Mirrors `emit_report` but keeps the sync DB work on the
@@ -1646,6 +1661,7 @@ def emit_report_sync(
     chart_contents = _build_charts(charts)
     metric_contents = _build_metrics(_allowed_metrics(team, metrics))
     prompt_contents = _build_suggested_prompts(suggested_prompts)
+    built_links = _build_links(links)
     # Validate the explicit repository format up front (cheap, pure) so a malformed `owner/repo` fails
     # before the safety-judge LLM call rather than after. Free-form selection still runs only if surfaced.
     _normalize_repository(repository)
@@ -1672,6 +1688,7 @@ def emit_report_sync(
             chart_count=len(chart_contents),
             metric_count=len(metric_contents),
             suggested_prompt_count=len(prompt_contents),
+            links=built_links,
         )
         if forward is not None:
             _forward_report_event_to_team(team=team, forward=forward)
@@ -1699,6 +1716,7 @@ def emit_report_sync(
         metrics=metric_contents,
         suggested_prompts=prompt_contents,
         reviewer_reasons=_reviewer_reasons(reviewers),
+        link_reasons=_link_reasons(built_links),
     )
     surfaced = _surfaced(judgement.status)
     repo_selection = (
@@ -1736,6 +1754,8 @@ def emit_report_sync(
             # is still reachable from the Dismissed view, where a click would hand the judge-rejected
             # wording to an action-capable agent run.
             suggested_prompts=prompt_contents if judgement.safety.choice else (),
+            # Same reason as the prompts: an unsafe report must not steer another report's autostart.
+            links=built_links if judgement.safety.choice else (),
             # Don't index the backing observations of a safety-suppressed (unsafe) report — they'd
             # otherwise become semantic-search / matching context despite never surfacing.
             emit_signals=judgement.safety.choice,
