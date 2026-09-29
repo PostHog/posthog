@@ -18,8 +18,8 @@
  * placeholder button is rendered — the heavy `ArmedTaxonomicPopoverMenu` is
  * mounted on first click and opened immediately via `defaultOpen`.
  */
-import { useValues } from 'kea'
-import { ReactElement, useMemo, useState } from 'react'
+import { useActions, useValues } from 'kea'
+import { ReactElement, useEffect, useMemo, useState } from 'react'
 
 import { IconChevronDown, IconFilter } from '@posthog/icons'
 
@@ -87,6 +87,8 @@ export interface TaxonomicPopoverMenuProps<ValueType extends TaxonomicFilterValu
     propertyAllowList?: AllowedProperties
     optionsFromProp?: Partial<Record<TaxonomicFilterGroupType, SimpleOption[]>>
     hideBehavioralCohorts?: boolean
+    /** Mark each cohort row with what feature flags can do with it. See `TaxonomicFilterProps`. */
+    showCohortFlagTargeting?: boolean
     endpointFilters?: Record<string, any>
     hogQLGlobals?: Record<string, any>
     showNumericalPropsOnly?: boolean
@@ -95,6 +97,8 @@ export interface TaxonomicPopoverMenuProps<ValueType extends TaxonomicFilterValu
     allowNonCapturedEvents?: boolean
     suggestedFiltersLabel?: string
     enableKeywordShortcuts?: boolean
+    /** Called when the lazy menu is first opened. */
+    onOpen?: () => void
     /** Trigger button styling, forwarded so the rebuilt menu's trigger
      *  matches the legacy `TaxonomicPopover` button at the call site. */
     triggerButtonProps?: TriggerButtonProps
@@ -156,7 +160,15 @@ export function TaxonomicPopoverMenu<ValueType extends TaxonomicFilterValue = Ta
     // button variant always resolves its own open state, so this is ignored.
     const [armOpenTo, setArmOpenTo] = useState<'menu' | 'combobox'>('combobox')
 
-    const { value, renderValue, placeholder = 'Select', placeholderClass, triggerButtonProps, triggerVariant } = props
+    const {
+        value,
+        renderValue,
+        placeholder = 'Select',
+        placeholderClass,
+        triggerButtonProps,
+        triggerVariant,
+        onOpen,
+    } = props
     const useInputTrigger = triggerVariant === 'input' && (value == null || value === '')
 
     if (armed) {
@@ -164,6 +176,7 @@ export function TaxonomicPopoverMenu<ValueType extends TaxonomicFilterValue = Ta
     }
 
     const arm = (to: 'menu' | 'combobox'): void => {
+        onOpen?.()
         setArmOpenTo(to)
         setArmed(true)
     }
@@ -200,7 +213,7 @@ export function TaxonomicPopoverMenu<ValueType extends TaxonomicFilterValue = Ta
                     placeholder,
                     placeholderClass,
                     triggerButtonProps,
-                    onClick: () => setArmed(true),
+                    onClick: () => arm('combobox'),
                 })
             )}
             <TaxonomicMenuToggle />
@@ -226,6 +239,7 @@ function ArmedTaxonomicPopoverMenu<ValueType extends TaxonomicFilterValue = Taxo
     propertyAllowList,
     optionsFromProp,
     hideBehavioralCohorts,
+    showCohortFlagTargeting,
     endpointFilters,
     hogQLGlobals,
     showNumericalPropsOnly,
@@ -244,6 +258,15 @@ function ArmedTaxonomicPopoverMenu<ValueType extends TaxonomicFilterValue = Taxo
     // here (not in the lazy outer component) so non-opened pickers don't
     // subscribe to it.
     const { dataWarehouseTablesMap } = useValues(databaseTableListLogic)
+    const { ensureAllTableFields } = useActions(databaseTableListLogic)
+    useEffect(() => {
+        if (
+            groupType === TaxonomicFilterGroupType.DataWarehouse ||
+            groupTypes?.includes(TaxonomicFilterGroupType.DataWarehouse)
+        ) {
+            ensureAllTableFields()
+        }
+    }, [groupType, groupTypes, ensureAllTableFields])
 
     // The group a synthetic `selected` entry should claim. `groupType` is
     // the popover's *default tab*, not the value's real category — and it's
@@ -310,6 +333,7 @@ function ArmedTaxonomicPopoverMenu<ValueType extends TaxonomicFilterValue = Taxo
             propertyAllowList={propertyAllowList}
             optionsFromProp={optionsFromProp}
             hideBehavioralCohorts={hideBehavioralCohorts}
+            showCohortFlagTargeting={showCohortFlagTargeting}
             endpointFilters={endpointFilters}
             hogQLGlobals={hogQLGlobals}
             showNumericalPropsOnly={showNumericalPropsOnly}

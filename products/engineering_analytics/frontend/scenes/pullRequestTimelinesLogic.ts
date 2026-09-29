@@ -6,14 +6,7 @@ import { ApiConfig } from 'lib/api'
 import { engineeringAnalyticsPullRequestTimelines } from '../generated/api'
 import type { PullRequestTimelinesApi } from '../generated/api.schemas'
 import { DeliveryScope, deliveryScopeKey, deliveryScopeParams } from '../lib/deliveryScope'
-import {
-    DayViewAlignment,
-    DayViewGroup,
-    RedTimeByCause,
-    axisDays,
-    groupTimelines,
-    redTimeByCause,
-} from '../lib/pullRequestDayView'
+import { DayViewAlignment, DayViewGroup, RedTimeByCause, axisDays, groupTimelines } from '../lib/pullRequestDayView'
 import { engineeringAnalyticsFiltersLogic } from './engineeringAnalyticsFiltersLogic'
 
 export interface PullRequestTimelinesLogicProps {
@@ -108,13 +101,8 @@ export const pullRequestTimelinesLogic = kea<pullRequestTimelinesLogicType>([
         timelinesFailed: [false, { loadTimelines: () => false, loadTimelinesFailure: () => true }],
     }),
 
-    listeners(({ actions, props }) => ({
-        // A single pull request is shown whatever its age, so only list scopes follow the window.
-        [engineeringAnalyticsFiltersLogic.actionTypes.setDateRange]: () => {
-            if (props.scope.kind !== 'pull_request') {
-                actions.loadTimelines()
-            }
-        },
+    listeners(({ actions }) => ({
+        [engineeringAnalyticsFiltersLogic.actionTypes.setDateRange]: () => actions.loadTimelines(),
     })),
 
     selectors({
@@ -129,9 +117,17 @@ export const pullRequestTimelinesLogic = kea<pullRequestTimelinesLogicType>([
         ],
         redTime: [
             (s) => [s.timelines],
-            (timelines: PullRequestTimelinesApi | null): RedTimeByCause => redTimeByCause(timelines?.items ?? []),
+            (timelines: PullRequestTimelinesApi | null): RedTimeByCause => {
+                const secondsPerMergedPr = (timelines?.red_seconds_per_merged_pr ?? []).map(
+                    ({ kind, seconds_per_merged_pr }) => ({ kind, seconds: seconds_per_merged_pr })
+                )
+                return {
+                    mergedCount: timelines?.merged_pr_count ?? 0,
+                    secondsPerMergedPr,
+                    totalSecondsPerMergedPr: secondsPerMergedPr.reduce((sum, entry) => sum + entry.seconds, 0),
+                }
+            },
         ],
-        // A source can hold several repos, so the listed pull requests may span repos.
         repoSlugs: [
             (s) => [s.timelines],
             (timelines: PullRequestTimelinesApi | null): string[] =>

@@ -15,7 +15,7 @@ cross the boundary through sibling facade submodules (``sandbox``, ``warm``,
 their data results.
 """
 
-from datetime import datetime
+from datetime import date, datetime
 from enum import StrEnum
 from typing import Literal
 from uuid import UUID
@@ -56,6 +56,18 @@ class TaskDTO:
 
 
 @dataclass(frozen=True)
+class StreamNotificationDelivery:
+    """Where a server-originated stream notification landed.
+
+    ``live`` reached the run's Redis stream, so connected threads show the frame now. ``persisted``
+    reached the run's S3 log, so a thread loaded after the stream expires replays it too.
+    """
+
+    live: bool
+    persisted: bool
+
+
+@dataclass(frozen=True)
 class SignalImplementationRunDTO:
     """Identity of a signals-origin ("self-driving") implementation run that produced a PR.
 
@@ -84,6 +96,14 @@ class WizardCloudRunDTO:
     run_id: UUID
     status: str
     started_at: datetime | None = None
+
+
+@dataclass(frozen=True)
+class TaskRunCost:
+    """Provider costs in integer USD cents, or None while a source is unavailable or incomplete."""
+
+    token_cost: int | None
+    compute_cost: int | None
 
 
 @dataclass(frozen=True)
@@ -117,6 +137,15 @@ class TaskRunDTO:
     created_by_id: int | None = None
     created_by_distinct_id: str | None = None
     pr_url: str | None = None
+
+
+@dataclass(frozen=True)
+class InProgressGithubRunsDTO:
+    """In-progress runs that block disconnecting a team GitHub integration."""
+
+    count: int
+    oldest_task_id: UUID | None = None
+    oldest_task_title: str | None = None
 
 
 @dataclass(frozen=True)
@@ -389,6 +418,7 @@ class TaskLatestRunSummaryDTO:
     mode: Literal["interactive", "background"]
     pr_url: str | None = None
     pr_state: str | None = None
+    task_summary: str | None = None
 
 
 @dataclass(frozen=True)
@@ -590,12 +620,15 @@ class TaskRunDetailDTO:
     log_url: str | None
     error_message: str | None
     output: dict | None
+    task_summary: str | None
     state: dict
     artifacts: list = Field(default_factory=list)
+    task_tags: list[str] = Field(default_factory=list)
     created_at: datetime | None = None
     updated_at: datetime | None = None
     completed_at: datetime | None = None
     preview_available: bool = False
+    scheduled_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -658,6 +691,76 @@ class TaskRunSandboxConnectionDTO:
     sandbox_token_param: str = "_modal_connect_token"
 
 
+SPACE_SETUP_SCOPES = (
+    "task:write",
+    "canvas:write",
+    "hog_flow:write",
+    # workflows-schedule-create and workflows-test-run require these beside hog_flow:write.
+    "person:read",
+    "group:read",
+    "integration:read",
+    # The MCP server reads the caller from `/api/users/@me/` and refuses the whole session without it.
+    "user:read",
+    "query:read",
+    "action:read",
+    "data_catalog:read",
+    "insight:read",
+    "dashboard:read",
+    "feature_flag:read",
+    "experiment:read",
+    "error_tracking:read",
+    "session_recording:read",
+    "event_definition:read",
+    "property_definition:read",
+    "project:read",
+    "organization:read",
+    "survey:read",
+)
+
+
+class SpaceSetupInProgressError(Exception):
+    pass
+
+
+@dataclass(frozen=True)
+class SpaceGoalRequest:
+    """The metric a goal space is set up to move."""
+
+    statement: str
+    period: Literal["day", "week", "month"] = "week"
+    direction: Literal["at_least", "at_most"] = "at_least"
+    target: str | None = None
+    deadline: date | None = None
+    insight_short_id: str | None = None
+
+
+@dataclass(frozen=True)
+class SpaceFeatureRequest:
+    """The feature a feature space is set up around."""
+
+    name: str
+    description: str = ""
+    flag_key: str | None = None
+
+
+@dataclass(frozen=True)
+class SpaceSetupRequest:
+    """What the space setup task should set the space up for. Exactly one of ``goal`` and
+    ``feature`` is set, matching ``kind``."""
+
+    kind: Literal["goal", "feature"]
+    goal: SpaceGoalRequest | None = None
+    feature: SpaceFeatureRequest | None = None
+    repository: str | None = None
+
+
+@dataclass(frozen=True)
+class SpaceSetupStartedDTO:
+    """The setup task that now owns the channel's context generation marker."""
+
+    task_id: UUID
+
+
 @dataclass(frozen=True)
 class CreatedTaskDTO:
     """Result of creating-and-running a task.
@@ -670,6 +773,20 @@ class CreatedTaskDTO:
     task_id: UUID
     team_id: int
     latest_run: TaskRunDTO | None = None
+
+
+@dataclass(frozen=True)
+class WorkflowLastRunDTO:
+    """The newest task a workflow created, as its last run.
+
+    ``status`` is the task's newest run status, or ``not_started`` when the task has no run yet.
+    ``ran_at`` is when that run started, or when the task was made if it has no run.
+    """
+
+    hog_flow_id: UUID
+    task_id: UUID
+    status: str
+    ran_at: datetime
 
 
 @dataclass(frozen=True)

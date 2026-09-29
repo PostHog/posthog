@@ -12,10 +12,12 @@ GAINSIGHT_PX_HOSTS: dict[str, str] = {
     "us2": "https://api-us2.aptrinsic.com/v1",
 }
 
-# Scroll endpoints (users/accounts) cap `pageSize` at 1000; the page-number endpoints cap it lower
-# (articles/kcbot allow up to 500). We keep the request size healthy but under each documented cap.
+# The `pageSize` cap differs per endpoint and a request above an endpoint's cap is rejected with a
+# 400, so every endpoint carries its own size. Scroll endpoints (users/accounts) allow up to 1000,
+# engagement/articles/kcbot allow up to 500, and feature/segment allow only 200.
 SCROLL_PAGE_SIZE = 1000
 PAGE_NUMBER_PAGE_SIZE = 500
+FEATURE_SEGMENT_PAGE_SIZE = 200
 
 PaginationMode = Literal["scroll", "page"]
 
@@ -78,14 +80,14 @@ GAINSIGHT_PX_ENDPOINTS: dict[str, GainsightPxEndpointConfig] = {
         path="/feature",
         data_key="features",
         pagination="page",
-        page_size=PAGE_NUMBER_PAGE_SIZE,
+        page_size=FEATURE_SEGMENT_PAGE_SIZE,
     ),
     "segments": GainsightPxEndpointConfig(
         name="segments",
         path="/segment",
         data_key="segments",
         pagination="page",
-        page_size=PAGE_NUMBER_PAGE_SIZE,
+        page_size=FEATURE_SEGMENT_PAGE_SIZE,
     ),
     "engagements": GainsightPxEndpointConfig(
         name="engagements",

@@ -1,6 +1,7 @@
 import type { ApiClient, GroupType } from '@/api/client'
 import type { Schemas } from '@/api/generated'
 import { hasScope } from '@/lib/api'
+import { classifyAuthMethod } from '@/lib/auth-method'
 import type { ScopedCache } from '@/lib/cache/ScopedCache'
 import {
     ErrorCode,
@@ -9,13 +10,15 @@ import {
     PostHogApiError,
     wrapError,
 } from '@/lib/errors'
-import { buildActiveEnvironmentContextPrompt } from '@/lib/instructions'
 import { getPostHogClient } from '@/lib/posthog'
 import { sanitizeHeaderValue } from '@/lib/utils'
 import type { ApiUser } from '@/schema/api'
 import type { CachedOrg, CachedProject, CachedUser, State } from '@/tools/types'
 
 const CACHE_TTL_MS = 10 * 60 * 1000 // 10 minutes
+// A personal API key keeps its value when its scopes change, and the cache is keyed by token, so
+// its scopes are read again after this delay. Reconnecting the client does not help: same token.
+export const API_KEY_CACHE_TTL_MS = 2 * 60 * 1000 // 2 minutes
 const GATEWAY_TOOLS_CACHE_TTL_MS = 2 * 60 * 1000 // 2 minutes
 
 // Entitlement-related fields shared by both org shapes we read from — the
@@ -60,6 +63,7 @@ export class StateManager {
                 scopes: scopes ?? [],
                 scoped_teams: scoped_teams ?? [],
                 scoped_organizations: scoped_organizations ?? [],
+                is_impersonated: false,
             }
         }
 
@@ -95,18 +99,39 @@ export class StateManager {
             scopes: scope ? scope.split(' ') : [],
             scoped_teams: scoped_teams ?? [],
             scoped_organizations: scoped_organizations ?? [],
+            is_impersonated: introspectionResult.data.is_impersonated === true,
         }
     }
 
     async getApiKey(): Promise<NonNullable<State['apiKey']>> {
-        let _apiKey = await this._cache.get('apiKey')
+        // An OAuth token gets a new value, and so a new cache entry, whenever its scopes change.
+        const refreshable = classifyAuthMethod(this._api.config.apiToken) !== 'oauth'
+        const [cached, fetchedAt] = await Promise.all([
+            this._cache.get('apiKey'),
+            refreshable ? this._cache.get('apiKeyFetchedAt') : undefined,
+        ])
 
-        if (!_apiKey) {
-            _apiKey = await this._fetchApiKey()
-            await this._cache.set('apiKey', _apiKey)
+        if (cached && (!refreshable || !this.isCacheStale(fetchedAt, API_KEY_CACHE_TTL_MS))) {
+            return cached
         }
 
-        return _apiKey
+        try {
+            const apiKey = await this._fetchApiKey()
+            await Promise.all([
+                this._cache.set('apiKey', apiKey),
+                refreshable ? this._cache.set('apiKeyFetchedAt', Date.now()) : undefined,
+            ])
+            return apiKey
+        } catch (error) {
+            if (!cached) {
+                throw error
+            }
+            // A failed refresh must not end a live session. Every API call is authorized again
+            // server-side, so the last known scopes cannot grant access the key does not hold.
+            this._reportException(error, 'api_key_refresh_failed')
+            await this._cache.set('apiKeyFetchedAt', Date.now()).catch(() => {})
+            return cached
+        }
     }
 
     async getDistinctId(): Promise<NonNullable<State['distinctId']>> {
@@ -351,8 +376,7 @@ export class StateManager {
             return undefined
         }
 
-        // Use the non-throwing resolver: callers like `getEnvironmentPrompt` and
-        // consent checks treat "no org" as "skip", not as a hard error.
+        // Non-throwing: consent checks treat "no org" as "skip", not as an error.
         const orgId = await this._resolveOrganizationId()
         if (!orgId) {
             return undefined
@@ -438,23 +462,6 @@ export class StateManager {
             fetchedAtKey: `gatewayToolsFetchedAt:${projectId}` as const,
             fetcher: () => this._api.getGatewayTools(projectId),
             ttlMs: GATEWAY_TOOLS_CACHE_TTL_MS,
-        })
-    }
-
-    async getEnvironmentPrompt(opts?: { includeProductContext?: boolean }): Promise<string | undefined> {
-        const includeProductContext = opts?.includeProductContext !== false
-        const [user, org, project] = await Promise.all([
-            this.getCachedOrFetchUser().catch(() => undefined),
-            this.getCachedOrFetchOrg().catch(() => undefined),
-            this.getCachedOrFetchProject().catch(() => undefined),
-        ])
-        const integrationKinds =
-            includeProductContext && project
-                ? await this.getOrFetchIntegrationKinds(String(project.id)).catch(() => undefined)
-                : undefined
-        return buildActiveEnvironmentContextPrompt(user, org, project, this._api.publicBaseUrl, {
-            integrationKinds,
-            includeProductContext,
         })
     }
 

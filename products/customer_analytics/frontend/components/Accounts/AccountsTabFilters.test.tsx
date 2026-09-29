@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { BindLogic, Provider } from 'kea'
 
 import { userLogic } from 'scenes/userLogic'
@@ -8,7 +8,7 @@ import { userLogic } from 'scenes/userLogic'
 import { useMocks } from '~/mocks/jest'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { initKeaTests } from '~/test/init'
-import type { UserType } from '~/types'
+import { PropertyFilterType, PropertyOperator, type UserType } from '~/types'
 
 import type { ColumnConfigurationApi } from 'products/product_analytics/frontend/generated/api.schemas'
 
@@ -19,13 +19,15 @@ import { AccountsTabFilters } from './AccountsTabFilters'
 describe('AccountsTabFilters', () => {
     let logic: ReturnType<typeof accountsLogic.build>
     let savedViews: ColumnConfigurationApi[]
+    let tagsRequest: jest.Mock
 
     beforeEach(() => {
         savedViews = []
+        tagsRequest = jest.fn(() => [200, ['enterprise']])
         useMocks({
             get: {
                 '/api/organizations/:organization_id/members/': () => [200, { results: [] }],
-                '/api/projects/:team_id/tags': () => [200, []],
+                '/api/projects/:team_id/tags': tagsRequest,
                 '/api/projects/:team_id/column_configurations': () => [
                     200,
                     { count: savedViews.length, results: savedViews },
@@ -99,6 +101,16 @@ describe('AccountsTabFilters', () => {
         expect(screen.getByDisplayValue('Shared accounts')).toBeInTheDocument()
     })
 
+    it('loads existing tags when the tag filter opens', async () => {
+        renderFilters()
+
+        fireEvent.click(screen.getByText('All tags'))
+        await waitFor(() => expect(tagsRequest).toHaveBeenCalled())
+        fireEvent.focus(screen.getByPlaceholderText('Select or type tags...'))
+
+        expect(await screen.findByText('enterprise')).toBeInTheDocument()
+    })
+
     it('renders the "My accounts" checkbox', () => {
         renderFilters()
 
@@ -138,5 +150,45 @@ describe('AccountsTabFilters', () => {
         fireEvent.click(screen.getByText('Assigned to anyone'))
 
         expect(logic.values.assignmentStatus).toBe('assigned')
+    })
+    it('keeps OR branches when collapsed and returns to the empty trigger after removing every group', async () => {
+        const first = [
+            {
+                type: PropertyFilterType.Account as const,
+                key: 'name',
+                operator: PropertyOperator.Exact,
+                value: ['Acme'],
+            },
+        ]
+        const second = [
+            {
+                type: PropertyFilterType.Account as const,
+                key: 'name',
+                operator: PropertyOperator.Exact,
+                value: ['Globex'],
+            },
+        ]
+        logic.actions.setAccountFilters(first)
+        logic.actions.setAccountFilterGroups([second])
+        renderFilters()
+
+        expect(screen.queryByText('Add OR group')).not.toBeInTheDocument()
+        expect(screen.getByText('Filters').closest('button')).toHaveAttribute('aria-expanded', 'false')
+        fireEvent.click(screen.getByText('Filters'))
+        expect(screen.getByText('Filters').closest('button')).toHaveAttribute('aria-expanded', 'true')
+        expect(screen.queryByText('Match all conditions')).not.toBeInTheDocument()
+        expect(await screen.findByText('Add OR group')).toBeInTheDocument()
+        fireEvent.click(screen.getByText('Filters'))
+        expect(logic.values.accountFilters).toEqual(first)
+        expect(logic.values.accountFilterGroups).toEqual([second])
+
+        fireEvent.click(screen.getByText('Filters'))
+        fireEvent.click(await screen.findByLabelText('Remove group A'))
+        expect(logic.values.accountFilters).toEqual(second)
+        expect(logic.values.accountFilterGroups).toEqual([])
+        fireEvent.click(screen.getByLabelText('Remove group A'))
+        expect(await screen.findByText('Filter')).toBeInTheDocument()
+        expect(screen.queryByText('Filters')).not.toBeInTheDocument()
+        expect(logic.values.accountFilters).toEqual([])
     })
 })

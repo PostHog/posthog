@@ -66,7 +66,7 @@ describe('taskAgentDefaultsLogic', () => {
                 canResetMyPreference: false,
                 myDraftDirty: false,
             })
-        expect(posted).toEqual([{ runtime_adapter: null, model: null, reasoning_effort: null }])
+        expect(posted).toEqual([{ runtime: null, runtime_adapter: null, model: null, reasoning_effort: null }])
     })
 
     // Nothing stored and nothing picked means there's nothing to fall back to — the button has to say so
@@ -83,6 +83,33 @@ describe('taskAgentDefaultsLogic', () => {
         // An unsaved pick is resettable too: reset discards it as well as anything stored.
         logic.actions.setMyDraft({ model: 'claude-opus-5' })
         await expectLogic(logic).toMatchValues({ canResetMyPreference: true, myDraftDirty: true })
+    })
+
+    it('does not seed the editor from a Pi default, but still offers to clear it', async () => {
+        useConfigMocks({ runtime: 'pi', model: 'gpt-5.6-terra', reasoning_effort: 'off' })
+        mount()
+
+        await expectLogic(logic)
+            .toDispatchActions(['loadMyConfigSuccess'])
+            .toMatchValues({
+                myDraft: { model: null, reasoning_effort: null },
+                myDraftDirty: false,
+                canResetMyPreference: true,
+            })
+    })
+
+    it('moves a Pi default onto the ACP harness when an ACP model is picked', async () => {
+        useConfigMocks({ runtime: 'pi', model: 'gpt-5.6-terra', reasoning_effort: 'off' })
+        mount()
+        await expectLogic(logic).toDispatchActions(['loadMyConfigSuccess'])
+
+        logic.actions.setMyDraft({ model: 'claude-opus-5', reasoning_effort: null })
+        logic.actions.submitMyDraft()
+
+        await expectLogic(logic).toDispatchActions(['saveMyPreferencesSuccess'])
+        expect(posted).toEqual([
+            { runtime: 'acp', runtime_adapter: 'claude', model: 'claude-opus-5', reasoning_effort: null },
+        ])
     })
 
     // Saving the project default refetches the personal config; that load result used to

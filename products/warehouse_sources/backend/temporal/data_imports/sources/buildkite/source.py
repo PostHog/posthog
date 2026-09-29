@@ -73,6 +73,7 @@ Make sure to grant the following read scopes:
 - `read_pipelines`
 - `read_builds`
 - `read_agents`
+- `read_clusters`
 - `read_teams`
 - `read_suites`
 """,

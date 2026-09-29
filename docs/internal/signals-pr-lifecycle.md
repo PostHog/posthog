@@ -8,6 +8,118 @@ The shared PR-linking service applies this rule to task outputs and agent attach
 An existing attachment retry does not reopen a report, and importing legacy assignments preserves its status.
 Suppressed reports remain suppressed when another PR is attached.
 
+A report that is `part_of` another report is a step in a plan, and the plan completes from its steps.
+When every live step of a plan is closed, the plan takes their verdict: resolved if at least one step resolved, suppressed if they all were.
+A plan with any step still open is left alone, and a deleted step counts neither way.
+Reopening a step does not reopen a completed plan.
+Deleting a step also checks the plan again.
+A plan that becomes ready checks its own steps, in case they closed while the plan was still in research.
+The check locks each plan before it reads and updates its state.
+It continues through an already closed plan to check that plan's parent.
+An archived step never undoes a resolved plan.
+The roll-up runs on the step's own status change, so a merged PR, a manual resolve, a bulk state change, and an MCP state write all reach it.
+A `part_of` link written on a step that already closed runs the check as well, because that write changes no status.
+It continues up a plan of plans, and skips a plan that is waiting on a replacement.
+It also skips a plan that carries its own open, draft, or unknown PR, because that plan's own work decides its status.
+
+## Proposed impact measurement
+
+The organization authoring flag lets research propose up to six active `impact_measurement_plan` artefacts for measurable outcomes. Each bounded query, goal, aggregation grain, and decision rule lives in an artefact, not in the report's observation metrics. Authoring rejects query filters and conversion goals whose shape the report access policy cannot check, including HogQL property filters. It also omits an observation metric when its query has an unsupported filter; research keeps that evidence in report prose when no readable structured query exists. A readable observation remains without a plan when only the eligibility query is unsupported. Individual resource grants, token scopes, and property restrictions still apply when someone reads a report. A minimum-data rule also needs an eligibility query for qualifying opportunities. A later research pass reviews the current plans against new evidence. It preserves unchanged plans, appends an unapproved version for a material revision, or appends a retired version when the outcome is no longer relevant or measurable. A plan changed by a person during research takes precedence over that pass. Earlier versions remain for review. The report's "Keep an eye on this for me" action activates current proposals when the display flag is on. Activation appends a new version and does not schedule a check or change the report state. The approval action currently accepts an authenticated person; the artefact schema does not require a person as its approver.
+
+## Repository selection
+
+The shared repository selection prompt asks the agent to check the sources in the supplied context before choosing a repository.
+For information from a private repository or another explicitly private source, it prefers a relevant private candidate and returns no repository if none is suitable or its visibility cannot be confirmed.
+Each candidate carries a private, public, or unknown label from the cached GitHub repository list, so the agent does not query GitHub for visibility.
+This is prompt guidance, not an enforced access control, and it does not validate repositories selected outside the agent.
+
+## Reviewer notifications
+
+Research suggests reviewers from relevant commit authors and recent code activity. It also checks the finding's relevant paths against `owners.yaml` and the connected repository's CODEOWNERS. When they disagree, the `owners.yaml` owner comes first and a routable CODEOWNERS owner follows. A human edit to the report's reviewer list stays in place on later research runs. Missing ownership files or paths leave the existing author-based suggestions unchanged. Scout-authored reports use their own reviewer selection guidance.
+
+When a project member adds a reviewer, the report shows "Added by" and that member's name as the reason above the reviewer. The name comes from the authenticated author of the artefact that added the reviewer, not from the editable reason. If the author is unavailable, the report shows the generic "Added by teammate" badge instead.
+
+Slack notifications for a ready report include only reviewers who have access to the report's project when delivery starts.
+The same access rule applies when a reviewer is added later.
+If no suggested reviewer has access, the ready report still goes to the configured team channel without reviewer mentions.
+
+## Report links
+
+Only scouts and the signals pipeline create and manage typed, directed report links.
+Scouts attach them through the `links` list on `scout-edit-report`.
+Public callers can read `report_link` artefacts, but cannot create, edit, or delete them through the artefact API.
+Typed links cannot yet be removed through a supported operation.
+[Issue #102776](https://github.com/PostHog/posthog/issues/102776) tracks the unlink API and MCP tool.
+The Implement button overrides an automatic start check; it does not remove a link or change plan membership.
+Links must name a different live report in the same project and cannot form a cycle among links of the same kind.
+
+Research reads a report's outgoing `follow_up_of`, `depends_on`, and `part_of` links and starts from the linked reports' findings and pull requests.
+A linked report must have an explicit safe verdict in its latest safety judgment.
+Research uses the latest finding for each signal and removes repeated links.
+It loads at most ten distinct relationships it can use and limits the rendered context to 12,000 characters.
+All linked fields are escaped and marked as untrusted evidence.
+A follow-up can refer to a manual fix or a regression; it must not invent a missing pull request.
+
+Three link gates hold back automatic implementation, and each one records why on the report:
+
+- A report that duplicates another one does not start its own work when any report on that duplicate chain is resolved or already carries a pull request.
+- A report that depends on another one does not start until that dependency carries a pull request.
+- A report that other reports are `part_of` never starts its own work, because its steps do the work.
+
+Link readers use the writer database so a new link takes effect without replica delay.
+The implementation path checks the gates again under the report lock before it creates a task.
+The gates apply to automatic implementation only.
+Pressing Implement in the inbox starts a run whatever the links say.
+Nothing re-evaluates a held-back report when its dependency's pull request opens, so it starts on the report's next pipeline evaluation or by hand.
+
+## Recurrence after a fixed verdict
+
+A report dismissed as `already_fixed`, `fixed_outside_posthog`, or `pr_merged` can create a new report when the issue returns.
+The pipeline records the new report's parent with a typed `recurrence_of` report link.
+A report created because a follow-up check failed on a resolved report also gets a typed `follow_up_of` link to that report, carrying the verdict as the link's reason.
+Generic `related_to` links do not control signal assignment.
+Later signals follow the recurrence chain, even if an older parent is restored.
+Matching selects the current successor before the specificity check, so the check uses its signals and title.
+Traversal passes through deleted intermediate reports without assigning signals to them.
+A successor dismissed for a preference reason keeps absorbing signals, including signals that match an older parent.
+Repeated fixed feedback does not create another successor.
+A new dismissal without feedback clears the fixed claim from an earlier dismissal cycle.
+Automatic suppression after an unmerged PR closes also records an empty dismissal.
+The state API rejects fixed reasons with `potential`; use `suppressed` or `resolved` for a fixed claim.
+
+This change does not recover historical signals automatically.
+Older dismissal records cannot reliably identify the active dismissal cycle.
+Historical recovery needs a verified transition history before it can create new reports.
+Research context excludes parent reports whose latest safety judgment rejects their content.
+New reports do not copy the title or summary from these unsafe parents.
+Legacy `related_to` links supply context only for resolved parents. Fixed-dismissed parents require a typed recurrence link.
+
+The state API also accepts resolution from `failed`.
+The web inbox offers Resolve for failed reports.
+The Needs decision section includes failed reports, even without an actionability judgment.
+Its `needs_decision` API view also includes actionable ready or pending-input reports without an implementation PR.
+Triage warns before a verdict closes an open implementation PR.
+New failed reports consume a daily inbox slot when they first become visible.
+Existing failed reports without a visibility timestamp remain historical backlog; they do not consume the rollout day's slots.
+The desktop eligibility change must ship separately after this backend transition is deployed.
+A suppressed report can resolve if its prior status was `ready`, `pending_input`, `failed`, or `resolved`.
+
+## Scout revisions
+
+Scout edits increment the content revision count only when the title or summary changes. Notes, evidence, routing updates, and unchanged text do not spend a revision. The edit response always includes the report's running revision total.
+
+The revision and corroboration counters are nullable, with no database or model default. Reads treat `NULL` as zero, so existing reports and reports created by older workers need no backfill. The migration adds nullable columns without rewriting rows or validating a `NOT NULL` constraint. PostgreSQL still needs a brief exclusive table lock to add the columns.
+
+A scout can request a replacement when its rewrite changes the fix. The server binds that decision to verified automated predecessor PRs and the exact research pass and content revision. It starts at most one replacement per version, within the scout revision cap, and stops automatic closure if another edit changes the report while the replacement runs. Free-form scout notes always remain individual activity entries. Only notes explicitly marked `corroboration_only` count towards the four-confirmation cap; later confirmations increase the collapsed count shown by both the web and desktop inboxes.
+
+Autostart binds task content to the report title, summary, research pass, and scout revision captured before external lookups. It checks that snapshot under the report lock before stamping a version as implemented, and retries from current content if the report changed.
+
+Supersession verifies predecessors only for a real rewrite within the revision cap. Missing or stale verification rejects the edit before commit so the same request can be retried. GitHub calls happen outside the report lock.
+
+An accepted scout replacement decision commits a protected `implementation_dispatch` artefact with the edit. A Celery worker resumes repository preparation, retains the editing scout's owner exclusion, and rechecks the exact decision before creating a task. Technical failures retry with exponential backoff from one minute to fifteen minutes. A five-minute sweep recovers lost queue messages and expired worker leases in bounded pages. The dispatch state records pending, processing, retrying, blocked, started, or canceled work; it is available through the existing artefact API. A policy block waits for a new edit or research trigger, rather than starting automatically when a setting or quota changes.
+
+Only the first four content revisions can request a scout replacement, including revisions that did not request one. An over-cap request preserves the rewrite and records the revision-limit reason without claiming that the old fix is still correct. Reports under active research cannot accept a supersede claim. The current revision count is read inside the edit transaction, so a failed read cannot report a failed edit after committing a note or evidence.
+
 ## Verification plans
 
 After research completes, actionable reports can include a `Verification plan` note for the implementation agent.

@@ -53,10 +53,21 @@ _SSH_GATEWAY_UNREACHABLE_MESSAGE = (
     "allowed through its firewall."
 )
 
+# Shared with the Postgres source, which speaks the same libpq wordings: a DNS failure and a
+# connection the network refused or dropped both used to end on a message with no next step.
+_DNS_RESOLUTION_VALIDATION_ERROR = (
+    "Could not resolve the database host. Check that the host is spelled correctly and reachable "
+    "from the public internet."
+)
+_HOST_UNREACHABLE_VALIDATION_ERROR = (
+    "Could not connect to the database on the host and port given. Check the host and port are "
+    "correct, and that PostHog's IP addresses are allowed through your firewall."
+)
+
 RedshiftErrors = {
     "password authentication failed for user": "Invalid user or password",
-    "could not translate host name": "Could not connect to the host",
-    "Is the server running on that host and accepting TCP/IP connections": "Could not connect to the host on the port given",
+    "could not translate host name": _DNS_RESOLUTION_VALIDATION_ERROR,
+    "Is the server running on that host and accepting TCP/IP connections": _HOST_UNREACHABLE_VALIDATION_ERROR,
     'database "': "Database does not exist",
     "timeout expired": "Connection timed out. Check that your database is reachable from the public internet and that PostHog's egress IP addresses are allowed through your firewall (see the docs). For a database that can't be exposed publicly, use the SSH tunnel option.",
     "SSL connection has been closed unexpectedly": "SSL connection error. Please check your SSL settings.",

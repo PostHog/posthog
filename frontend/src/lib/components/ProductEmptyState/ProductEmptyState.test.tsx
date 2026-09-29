@@ -1,6 +1,7 @@
 import { cleanup, render, screen } from '@testing-library/react'
 import { expectLogic } from 'kea-test-utils'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -10,8 +11,12 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, AccessControlResourceType, AppContext } from '~/types'
 
+import { errorTrackingEmptyState } from 'products/error_tracking/frontend/emptyState/errorTrackingEmptyState'
+
 import { ProductEmptyState } from './ProductEmptyState'
 import type { ProductEmptyStateConfig } from './types'
+
+const Hedgehog = pngHoggie({ src: 'hedgehog.png', aspectRatio: 1 })
 
 const config: ProductEmptyStateConfig = {
     productKey: ProductKey.EXPERIMENTS,
@@ -160,5 +165,72 @@ describe('ProductEmptyState', () => {
         expect(!!screen.queryByText('Override hint')).toBe(applied)
         expect(!!screen.queryByText('Base hint')).toBe(!applied)
         expect(screen.getByText('Headline')).toBeTruthy()
+    })
+
+    it.each([
+        [false, true, false],
+        [true, true, true],
+        [true, false, false],
+    ])(
+        'in error tracking waiting mode with new wizard flag on=%s and cloud=%s renders the command: %s',
+        async (flagOn, cloud, expected) => {
+            useMocks({ get: { '/_preflight/': { cloud } } })
+            preflightLogic.actions.loadPreflight()
+            await expectLogic(preflightLogic).toDispatchActions(['loadPreflightSuccess'])
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags(
+                [],
+                flagOn ? { [FEATURE_FLAGS.ERROR_TRACKING_NEW_WIZARD]: true } : {}
+            )
+
+            render(<ProductEmptyState config={errorTrackingEmptyState.config} mode="waiting-for-data" />)
+
+            if (expected) {
+                expect(await screen.findByLabelText(/Copy command/)).toBeTruthy()
+                expect(screen.getByText('Waiting for the first exception')).toBeTruthy()
+                expect(screen.getByText(/Check your SDK integration/)).toBeTruthy()
+            } else {
+                expect(screen.queryByLabelText(/Copy command/)).toBeNull()
+                if (flagOn) {
+                    expect(screen.getByText('Waiting for the first exception')).toBeTruthy()
+                    expect(screen.getByText(/Check that your app is configured to capture exceptions/)).toBeTruthy()
+                    expect(screen.queryByText(/Run Wizard/)).toBeNull()
+                } else {
+                    expect(screen.getByText("You're set up. Waiting for the first exception")).toBeTruthy()
+                }
+            }
+        }
+    )
+
+    it('offers manual setup without Wizard guidance on self-hosted instances', async () => {
+        useMocks({ get: { '/_preflight/': { cloud: false } } })
+        preflightLogic.actions.loadPreflight()
+        await expectLogic(preflightLogic).toDispatchActions(['loadPreflightSuccess'])
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.ERROR_TRACKING_NEW_WIZARD]: true })
+
+        render(<ProductEmptyState config={errorTrackingEmptyState.config} mode="needs-setup" />)
+
+        expect(screen.queryByLabelText(/Copy command/)).toBeNull()
+        expect(screen.queryByText(/Run Wizard/)).toBeNull()
+        expect(screen.getByText(/Check your SDK integration/)).toBeTruthy()
+        expect(screen.getByText('Set up Error tracking')).toBeTruthy()
+    })
+
+    // `beside` renders a pair and a container query hides one of them at any width. A lazy
+    // image with no layout box has nothing to intersect, so the browser can leave it unfetched
+    // until a resize reveals it. The Storybook image gate skips hidden images.
+    it.each([
+        ['above' as const, ['lazy']],
+        ['beside' as const, ['eager', 'eager']],
+    ])('renders a %s hedgehog loading as %s', (hedgehogPlacement, expected) => {
+        const { container } = render(
+            <ProductEmptyState config={{ ...config, hedgehog: Hedgehog, hedgehogPlacement }} mode="needs-setup" />
+        )
+
+        const loading = Array.from(container.querySelectorAll('img[src="hedgehog.png"]')).map((image) =>
+            image.getAttribute('loading')
+        )
+        expect(loading).toEqual(expected)
     })
 })

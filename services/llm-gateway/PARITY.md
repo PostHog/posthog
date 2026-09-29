@@ -48,11 +48,13 @@ Existing Django callers should use `build_openai_client`, `build_async_openai_cl
 
 For PostHog Desktop, the Python gateway maps Django credential rejections to generic access denials. Transport, server, and malformed-response failures remain retryable service errors.
 
-Flag-gated open-weight models added to the Python gateway under the freeze stay there for the same reason.
-`zai-org/glm-5.3-flash` is Baseten-exclusive, gated by the `posthog-code-glm-53-flash-model` flag, and reachable only by the `posthog_code` and `review_hog` products.
-Its callers are PostHog Desktop and PostHog Code, so the model depends on the OAuth application allowlists, the request-selected project validated against OAuth scope and live organization membership, the billing policy, and the per-model access flags named in the first row above.
+Open-weight models added to the Python gateway under the freeze stay there for the same reason.
+`zai-org/glm-5.3-flash` is Baseten-exclusive and reachable only by the `posthog_code` and `review_hog` products.
+Its callers are PostHog Desktop and PostHog Code, so the model depends on the OAuth application allowlists, the request-selected project validated against OAuth scope and live organization membership, and the billing policy.
+No open-weight model is behind a per-model access flag now; the mechanism stays for the next rollout.
 The Go catalog serves GLM 5.2 only, and Baseten on Go still depends on the provider deployment check below.
 `gpt-6-astra` is also Python-only because the Go catalog does not serve it, while Desktop, Code, and cloud agents require the Python product policy above.
+`claude-opus-5-5`, `gpt-6-sol` and `gpt-6-luna` stay Python-only for the same reason: the Go catalog does not serve them.
 
 ### 🔎 Verify before switching
 
@@ -83,6 +85,7 @@ These are compatibility checks, not automatic blockers:
 | Routing and failure behavior | Operator-managed provider plans, health-aware ordering, circuit breakers, hosted-provider failover, and strict provider pinning.                                                                                                                                                | Caller opt-in Bedrock fallback and provider-specific Python routing.                                                                                                                                                                                                                                                                                        |
 | Event metadata               | One `X-PostHog-Properties` JSON object plus dedicated product, user, obo, distinct ID, trace ID, and provider headers.                                                                                                                                                          | `X-POSTHOG-PROPERTY-*` and `X-POSTHOG-FLAG-*` headers.                                                                                                                                                                                                                                                                                                      |
 | Session attribution          | `X-PostHog-Session-Id` is recorded as the gateway-owned `$ai_session_id`.                                                                                                                                                                                                       | The per-key property header can also emit `$ai_session_id`.                                                                                                                                                                                                                                                                                                 |
+| Request validation           | Not verified for a bare-string or unknown-type content part in a Chat Completions user message.                                                                                                                                                                                 | The Chat Completions route answers 400 `invalid_request_error` before choosing a provider when a user message carries a content part outside litellm's allowed types. PostHog Code and Desktop send these through the Python gateway, and litellm otherwise raises an error with no status code that the handler reports as 500.                            |
 
 ## Migration checklist
 

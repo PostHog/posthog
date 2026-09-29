@@ -1,11 +1,13 @@
 import { LogicWrapper, MakeLogicType, actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { FlagEvaluationsModeEnumApi } from '~/generated/core/api.schemas'
 import { Noun, groupsModel } from '~/models/groupsModel'
 import { DateRange } from '~/queries/schema/schema-general'
-import { FeatureFlagType } from '~/types'
+import { DateMappingOption, FeatureFlagType, TeamPublicType, TeamType } from '~/types'
 
 import { featureFlagLogic } from './featureFlagLogic'
 import {
@@ -15,7 +17,13 @@ import {
     buildEnrichedUsageCharts,
     buildFlagCalledTotalVolumeChart,
     buildFlagCalledUniqueCallersChart,
+    buildFlagEvaluationsTotalVolumeChart,
+    buildFlagEvaluationsUniqueCallersChart,
+    clampToFlagEvaluationsRetention,
+    flagEvaluationsDateOptions,
 } from './featureFlagUsageQueries'
+
+const EVENTS_MODE = FlagEvaluationsModeEnumApi.Number0
 
 // The Usage tab only renders for persisted flags, so unlike featureFlagLogic this
 // logic never mounts for 'new'/'link' ids.
@@ -27,10 +35,14 @@ export interface FeatureFlagUsageLogicProps {
 export interface featureFlagUsageLogicValues {
     featureFlag: FeatureFlagType // featureFlagLogic
     aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun // groupsModel
+    currentTeam: TeamPublicType | TeamType | null // teamLogic
     aggregationGroupTypeIndex: number | null | undefined
+    dateOptions: DateMappingOption[] | undefined
     dateRange: DateRange
     flagKey: string
     hasEnrichedAnalytics: boolean | undefined
+    readsFlagEvaluationsTable: boolean
+    selectedDateRange: DateRange
     usageCharts: FlagUsageChart[]
 }
 
@@ -52,11 +64,15 @@ export interface featureFlagUsageLogicMeta {
         flagKey: (featureFlag: FeatureFlagType) => string
         aggregationGroupTypeIndex: (featureFlag: FeatureFlagType) => number | null | undefined
         hasEnrichedAnalytics: (featureFlag: FeatureFlagType) => boolean | undefined
+        readsFlagEvaluationsTable: (currentTeam: TeamPublicType | TeamType | null) => boolean
+        dateRange: (selectedDateRange: DateRange, readsFlagEvaluationsTable: boolean) => DateRange
+        dateOptions: (readsFlagEvaluationsTable: boolean) => DateMappingOption[] | undefined
         usageCharts: (
             flagKey: string,
             aggregationGroupTypeIndex: number | null | undefined,
             hasEnrichedAnalytics: boolean | undefined,
             dateRange: DateRange,
+            readsFlagEvaluationsTable: boolean,
             aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun // groupsModel
         ) => FlagUsageChart[]
     }
@@ -74,13 +90,20 @@ export const featureFlagUsageLogic: LogicWrapper<featureFlagUsageLogicType> = ke
     key(({ id }) => id),
     path((key) => ['scenes', 'feature-flags', 'featureFlagUsageLogic', key]),
     connect((props: FeatureFlagUsageLogicProps) => ({
-        values: [featureFlagLogic(props), ['featureFlag'], groupsModel, ['aggregationLabel']],
+        values: [
+            featureFlagLogic(props),
+            ['featureFlag'],
+            groupsModel,
+            ['aggregationLabel'],
+            teamLogic,
+            ['currentTeam'],
+        ],
     })),
     actions({
         setDates: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
     }),
     reducers({
-        dateRange: [
+        selectedDateRange: [
             DEFAULT_USAGE_DATE_RANGE,
             {
                 setDates: (_, { dateFrom, dateTo }) => ({ date_from: dateFrom, date_to: dateTo }),
@@ -100,13 +123,41 @@ export const featureFlagUsageLogic: LogicWrapper<featureFlagUsageLogicType> = ke
             (s) => [s.featureFlag],
             (featureFlag: FeatureFlagType): boolean | undefined => featureFlag.has_enriched_analytics,
         ],
+        // The backend adds flag_evaluations to the HogQL catalog whenever the organization's stored mode is
+        // above Events. This field is above Events only when the stored mode is, so a query here never hits
+        // a missing table.
+        readsFlagEvaluationsTable: [
+            (s) => [s.currentTeam],
+            (currentTeam: TeamPublicType | TeamType | null): boolean =>
+                (currentTeam?.flag_evaluations_mode ?? EVENTS_MODE) !== EVENTS_MODE,
+        ],
+        // flag_evaluations holds 90 days, so a longer range would show fewer rows than the events
+        // table. The clamp covers the date picker, a shared link, and a range typed into the URL.
+        dateRange: [
+            (s) => [s.selectedDateRange, s.readsFlagEvaluationsTable],
+            (selectedDateRange: DateRange, readsFlagEvaluationsTable: boolean): DateRange =>
+                readsFlagEvaluationsTable ? clampToFlagEvaluationsRetention(selectedDateRange) : selectedDateRange,
+        ],
+        dateOptions: [
+            (s) => [s.readsFlagEvaluationsTable],
+            (readsFlagEvaluationsTable: boolean): DateMappingOption[] | undefined =>
+                readsFlagEvaluationsTable ? flagEvaluationsDateOptions() : undefined,
+        ],
         usageCharts: [
-            (s) => [s.flagKey, s.aggregationGroupTypeIndex, s.hasEnrichedAnalytics, s.dateRange, s.aggregationLabel],
+            (s) => [
+                s.flagKey,
+                s.aggregationGroupTypeIndex,
+                s.hasEnrichedAnalytics,
+                s.dateRange,
+                s.readsFlagEvaluationsTable,
+                s.aggregationLabel,
+            ],
             (
                 flagKey: string,
                 aggregationGroupTypeIndex: number | null | undefined,
                 hasEnrichedAnalytics: boolean | undefined,
                 dateRange: DateRange,
+                readsFlagEvaluationsTable: boolean,
                 aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
             ): FlagUsageChart[] => {
                 const options: FlagUsageQueryOptions = {
@@ -115,7 +166,11 @@ export const featureFlagUsageLogic: LogicWrapper<featureFlagUsageLogicType> = ke
                     callerNoun: aggregationLabel(aggregationGroupTypeIndex, true),
                     dateRange,
                 }
-                const charts = [buildFlagCalledTotalVolumeChart(options), buildFlagCalledUniqueCallersChart(options)]
+                // The enriched-analytics charts stay on the events table either way: $feature_view
+                // and $feature_interaction are not flag evaluations, so that table does not hold them.
+                const charts: FlagUsageChart[] = readsFlagEvaluationsTable
+                    ? [buildFlagEvaluationsTotalVolumeChart(options), buildFlagEvaluationsUniqueCallersChart(options)]
+                    : [buildFlagCalledTotalVolumeChart(options), buildFlagCalledUniqueCallersChart(options)]
                 if (hasEnrichedAnalytics) {
                     charts.push(...buildEnrichedUsageCharts(options))
                 }

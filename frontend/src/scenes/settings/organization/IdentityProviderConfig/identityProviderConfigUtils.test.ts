@@ -13,6 +13,8 @@ const makeConfig = (overrides: Partial<IdentityProviderConfigApi> = {}): Identit
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
     has_saml: false,
+    has_oidc: false,
+    has_oidc_client_secret: false,
     saml_relay_state: 'relay-state',
     has_scim: false,
     scim_base_url: 'https://example.com/scim/v2/config-id',
@@ -22,6 +24,20 @@ const makeConfig = (overrides: Partial<IdentityProviderConfigApi> = {}): Identit
 })
 
 describe('identityProviderConfigUtils', () => {
+    it('does not use legacy configurations for OIDC', () => {
+        expect(
+            getIdentityProviderConfigsForScope([makeConfig({ config_scope: null })], ConfigScopeEnumApi.Oidc)
+        ).toEqual([])
+    })
+
+    it.each([
+        [{}, 'not_configured'],
+        [{ oidc_issuer_url: 'https://idp.example.com' }, 'partially_configured'],
+        [{ has_oidc_client_secret: true }, 'partially_configured'],
+        [{ has_oidc: true }, 'configured'],
+    ] as const)('reports the OIDC configuration status for %j', (config, status) => {
+        expect(getIdentityProviderConfigStatus(makeConfig(config), ConfigScopeEnumApi.Oidc)).toBe(status)
+    })
     it('returns every config for a feature while keeping legacy unscoped fallback behavior', () => {
         const firstSamlConfig = makeConfig({ id: 'saml-1', config_scope: ConfigScopeEnumApi.Saml })
         const secondSamlConfig = makeConfig({ id: 'saml-2', config_scope: ConfigScopeEnumApi.Saml })

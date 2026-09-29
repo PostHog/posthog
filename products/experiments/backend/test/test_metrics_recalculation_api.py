@@ -1,7 +1,10 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest import mock
+
+from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
@@ -77,7 +80,6 @@ class TestMetricsRecalculationAPI(APIBaseTest):
         assert resp.status_code == status.HTTP_201_CREATED, resp.content
         body = resp.json()
         assert body["status"] == "pending"
-        assert body["trigger"] == "manual"
         assert ExperimentMetricsRecalculation.objects.filter(experiment=exp).count() == 1
         assert mock_run.called
 
@@ -87,7 +89,6 @@ class TestMetricsRecalculationAPI(APIBaseTest):
         exp = self._launched_experiment()
         resp = self.client.post(self._post_url(exp.id), format="json", headers={"X-PostHog-Client": "mcp"})
         assert resp.status_code == status.HTTP_201_CREATED, resp.content
-        assert resp.json()["trigger"] == ExperimentMetricsRecalculation.Trigger.AGENT_MCP
         assert (
             ExperimentMetricsRecalculation.objects.get(experiment=exp).trigger
             == ExperimentMetricsRecalculation.Trigger.AGENT_MCP
@@ -99,7 +100,27 @@ class TestMetricsRecalculationAPI(APIBaseTest):
         exp = self._launched_experiment()
         resp = self.client.post(self._post_url(exp.id), {"trigger": "manual"}, format="json")
         assert resp.status_code == status.HTTP_201_CREATED, resp.content
-        assert resp.json()["trigger"] == ExperimentMetricsRecalculation.Trigger.MANUAL
+        assert (
+            ExperimentMetricsRecalculation.objects.get(experiment=exp).trigger
+            == ExperimentMetricsRecalculation.Trigger.MANUAL
+        )
+
+    @mock.patch("products.experiments.backend.presentation.views.sync_connect")
+    @mock.patch("products.experiments.backend.presentation.views.asyncio.run")
+    def test_each_endpoint_returns_only_its_own_fields(self, mock_run, mock_connect):
+        exp = self._launched_experiment()
+        created = self.client.post(self._post_url(exp.id), {"trigger": "manual"}, format="json").json()
+        assert "is_existing" in created
+        assert {"results", "rows_read", "active_run", "result_source", "trigger"}.isdisjoint(created)
+
+        by_id = self.client.get(self._by_id_url(exp.id, created["id"])).json()
+        assert "results" in by_id
+        assert {"is_existing", "active_run", "result_source", "trigger"}.isdisjoint(by_id)
+
+        latest = self.client.get(self._latest_url(exp.id)).json()
+        assert "results" in latest
+        assert latest["active_run"] == {"id": created["id"], "status": "pending"}
+        assert {"is_existing", "trigger"}.isdisjoint(latest)
 
     @mock.patch("products.experiments.backend.presentation.views.sync_connect")
     @mock.patch("products.experiments.backend.presentation.views.asyncio.run")
@@ -281,25 +302,29 @@ class TestMetricsRecalculationAPI(APIBaseTest):
             result={"ok": True},
         )
 
+    @time_machine.travel("2026-09-01T12:00:00Z", tick=False)
     def test_get_latest_returns_timeseries_fallback_on_cold_start(self):
         # No real recalc row, but a completed timeseries point exists → 200 with source=timeseries_fallback.
         exp = self._launched_experiment(flag_key="ts-fallback")
-        self._store_timeseries_point(exp, "m1", datetime(2026, 2, 2, tzinfo=UTC))
+        self._store_timeseries_point(exp, "m1", timezone.now() - timedelta(hours=1))
 
         resp = self.client.get(self._latest_url(exp.id))
         assert resp.status_code == status.HTTP_200_OK, resp.content
         body = resp.json()
         assert body["result_source"] == "timeseries_fallback"
+        # The latest response type declares metric_retries; the fallback has no run, so it reports none.
+        assert body["metric_retries"] == {}
         assert body["status"] == "completed"
         assert len(body["results"]) == 1
         assert body["results"][0]["result"] == {"ok": True}
 
+    @time_machine.travel("2026-09-01T12:00:00Z", tick=False)
     def test_get_latest_prefers_timeseries_fallback_over_first_active_run(self):
         # Reload during the first-ever run: the pending run has no results yet, so returning it would blank
         # out the timeseries data on screen. The fallback keeps the results visible while active_run rides
         # along so the client still polls the executing run.
         exp = self._launched_experiment(flag_key="ts-fallback-active")
-        self._store_timeseries_point(exp, "m1", datetime(2026, 2, 2, tzinfo=UTC))
+        self._store_timeseries_point(exp, "m1", timezone.now() - timedelta(hours=1))
         active = ExperimentMetricsRecalculation.objects.create(team=self.team, experiment=exp, status="pending")
 
         resp = self.client.get(self._latest_url(exp.id))
@@ -314,11 +339,12 @@ class TestMetricsRecalculationAPI(APIBaseTest):
         resp = self.client.get(self._latest_url(exp.id))
         assert resp.status_code == status.HTTP_404_NOT_FOUND
 
+    @time_machine.travel("2026-09-01T12:00:00Z", tick=False)
     @mock.patch("products.experiments.backend.presentation.views.sync_connect")
     def test_get_latest_fallback_does_not_start_a_workflow(self, mock_connect):
         # GET stays a pure read: the fallback path must never connect to Temporal.
         exp = self._launched_experiment(flag_key="ts-pure-read")
-        self._store_timeseries_point(exp, "m1", datetime(2026, 2, 2, tzinfo=UTC))
+        self._store_timeseries_point(exp, "m1", timezone.now() - timedelta(hours=1))
 
         resp = self.client.get(self._latest_url(exp.id))
         assert resp.status_code == status.HTTP_200_OK

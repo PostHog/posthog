@@ -23,6 +23,7 @@ from posthog.hogql.constants import (
     get_default_hogql_global_settings,
     get_default_limit_for_context,
 )
+from posthog.hogql.cost.fingerprint import fingerprint_query
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.direct_sql_table import DirectSQLTable
 from posthog.hogql.database.schema.duckdb_table_functions import (
@@ -67,7 +68,7 @@ from posthog.hogql.warehouse_warnings import record_warnings
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
-from posthog.clickhouse.query_tagging import get_query_tags, tag_queries
+from posthog.clickhouse.query_tagging import get_query_tag_value, get_query_tags, tag_queries
 from posthog.dataclasses import frozen
 from posthog.direct_query_cancellation import build_direct_query_cancellation_token
 from posthog.errors import CHQueryErrorS3Error, CHQueryErrorS3FileChangedDuringRead, ExposedCHQueryError
@@ -121,6 +122,7 @@ class HogQLQueryExecutor:
     clickhouse_prepared_ast: Optional[ast.AST] = None
     clickhouse_context: Optional[HogQLContext] = None
     clickhouse_sql: Optional[str] = None
+    clickhouse_settings: Optional[HogQLGlobalSettings] = None
     direct_context: Optional[HogQLContext] = None
     direct_sql: Optional[str] = None
     direct_source_id: Optional[str] = None
@@ -357,6 +359,7 @@ class HogQLQueryExecutor:
             LimitContext.COHORT_CALCULATION,
             LimitContext.NOTEBOOK_MATERIALIZE,
             LimitContext.QUERY_ASYNC,
+            LimitContext.SQL_ALERT,
             LimitContext.SAVED_QUERY,
             LimitContext.RETENTION,
             LimitContext.POSTHOG_AI,
@@ -574,6 +577,13 @@ class HogQLQueryExecutor:
         self.used_data_warehouse_sources = sources
         return sources
 
+    def _plan_fingerprint(self) -> str | None:
+        # The tag is advisory. A query that compiles must never fail because fingerprinting it did.
+        try:
+            return fingerprint_query(self.select_query)
+        except Exception:
+            return None
+
     @tracer.start_as_current_span("HogQLQueryExecutor._execute_direct_sql_query")
     def _execute_direct_sql_query(self, adapter: DirectSQLAdapter | None = None) -> None:
         assert self.direct_sql is not None
@@ -627,11 +637,13 @@ class HogQLQueryExecutor:
     @tracer.start_as_current_span("HogQLQueryExecutor._generate_clickhouse_sql")
     def _generate_clickhouse_sql(self, *, include_settings: bool = True):
         settings = get_default_hogql_global_settings(self.team.pk, self.settings)
+        self.clickhouse_settings = settings
         if self.limit_context in (
             LimitContext.EXPORT,
             LimitContext.COHORT_CALCULATION,
             LimitContext.NOTEBOOK_MATERIALIZE,
             LimitContext.QUERY_ASYNC,
+            LimitContext.SQL_ALERT,
             LimitContext.SAVED_QUERY,
             LimitContext.RETENTION,
             LimitContext.POSTHOG_AI,
@@ -694,6 +706,7 @@ class HogQLQueryExecutor:
                 raise
 
     def _prepare_execution(self, *, embedded_select: bool = False) -> _PreparedExecution:
+        self.context.referenced_saved_query_ids.clear()
         self._parse_query()
 
         if embedded_select:
@@ -778,6 +791,8 @@ class HogQLQueryExecutor:
         with self.timings.measure("clickhouse_execute"):
             with self.timings.measure("extract_hogql_features"):
                 hogql_features = extract_hogql_features(self.select_query)
+            with self.timings.measure("plan_fingerprint"):
+                plan_fingerprint = self._plan_fingerprint()
             self._detect_warehouse_sources()
             tag_queries(
                 team_id=self.team.pk,
@@ -785,6 +800,8 @@ class HogQLQueryExecutor:
                 has_joins="JOIN" in self.clickhouse_sql,
                 has_json_operations="JSONExtract" in self.clickhouse_sql or "JSONHas" in self.clickhouse_sql,
                 hogql_features=hogql_features,
+                saved_query_ids=sorted(self.context.referenced_saved_query_ids) or None,
+                plan_fingerprint=plan_fingerprint,
                 timings=timings_dict,
                 modifiers=(
                     {k: v for k, v in self.modifiers.model_dump().items() if v is not None} if self.modifiers else {}
@@ -833,6 +850,8 @@ class HogQLQueryExecutor:
                         tree=self.clickhouse_prepared_ast,
                         context=clickhouse_context,
                         rows_read=query_stats.last_rows_read(),
+                        lookup=get_query_tag_value("lookup"),
+                        settings=self.clickhouse_settings,
                     )
 
         if self.debug and self.error is None:

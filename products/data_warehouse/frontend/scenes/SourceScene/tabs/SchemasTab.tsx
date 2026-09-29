@@ -49,6 +49,7 @@ import {
 } from 'products/data_warehouse/frontend/shared/components/SourceEditorAction'
 import { sourceManagementLogic } from 'products/data_warehouse/frontend/shared/logics/sourceManagementLogic'
 import {
+    IncrementalSyncBlockedMessageMap,
     SYNC_FREQUENCY_ORDER,
     StatusTagSetting,
     SyncFrequencyLabelMap,
@@ -453,12 +454,20 @@ function ManagedSchemaTable({
                 {
                     title: 'Sync method',
                     key: 'sync_type',
-                    render: (_, schema) =>
-                        schema.sync_type ? (
-                            <LemonTag type="primary">{SyncTypeLabelMap[schema.sync_type]}</LemonTag>
-                        ) : (
-                            <span className="text-muted">Not set up</span>
-                        ),
+                    render: (_, schema) => {
+                        if (!schema.sync_type) {
+                            return <span className="text-muted">Not set up</span>
+                        }
+                        const blockedReason = schema.incremental_sync_blocked
+                        if (!blockedReason) {
+                            return <LemonTag type="primary">{SyncTypeLabelMap[schema.sync_type]}</LemonTag>
+                        }
+                        return (
+                            <Tooltip title={IncrementalSyncBlockedMessageMap[blockedReason]} interactive>
+                                <LemonTag type="warning">{SyncTypeLabelMap[schema.sync_type]}</LemonTag>
+                            </Tooltip>
+                        )
+                    },
                 },
                 {
                     title: 'Frequency',
@@ -549,9 +558,12 @@ function ManagedSchemaTable({
                                 <LemonSwitch
                                     checked={schema.should_sync}
                                     onChange={(active) => {
-                                        if (active && !schema.sync_type) {
+                                        if (active && (!schema.sync_type || schema.incremental_sync_blocked)) {
                                             // No sync method saved yet — send the user to set one up
-                                            // before the schema can be enabled.
+                                            // before the schema can be enabled. A schema whose sync
+                                            // method a run proved unusable goes to the same place,
+                                            // because the sync settings hold every resolution and
+                                            // re-enabling here would only repeat the failure.
                                             router.actions.push(
                                                 urls.dataWarehouseSourceSchema(
                                                     prefixedSourceId,

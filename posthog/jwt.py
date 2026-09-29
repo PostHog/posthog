@@ -24,12 +24,15 @@ class PosthogJwtAudience(Enum):
     WORKFLOWS_RESCHEDULE_PARKED = "posthog:workflows:reschedule_parked"
     WORKFLOWS_CANCEL_INVOCATIONS = "posthog:workflows:cancel_invocations"
     WORKFLOWS_CANCEL_BATCH = "posthog:workflows:cancel_batch"
+    WORKFLOWS_STEP_RESUME = "posthog:workflows:step_resume"
     INTEGRATION_SERVICE = "posthog:integration_service"
     TASKS_CREATE = "posthog:tasks:create"
     CUSTOMER_TASKS_CREATE = "posthog:customer-tasks:create"
     WORKFLOW_SCOUT_RUN = "posthog:workflows:scout_run"
     CONVERSATIONS_TICKETS = "posthog:conversations:tickets"
     CUSTOMER_ANALYTICS_ACCOUNTS = "posthog:customer_analytics:accounts"
+    SECURITY_HUB_RULES = "posthog:security_hub:rules"
+    SECURITY_HUB_INTERNAL = "posthog:security_hub:internal"
 
 
 def signing_key_fingerprint(key: str) -> str:

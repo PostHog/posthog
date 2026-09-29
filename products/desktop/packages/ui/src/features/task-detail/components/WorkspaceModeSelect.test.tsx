@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { WorkspaceModeSelect } from "./WorkspaceModeSelect";
@@ -48,7 +48,7 @@ vi.mock("./CloudGithubSetupDialog", () => ({
         Complete GitHub connection
       </button>
       <button type="button" onClick={onClose}>
-        Cancel
+        Not now
       </button>
     </div>
   ),
@@ -76,8 +76,12 @@ describe("WorkspaceModeSelect", () => {
     await user.click(trigger);
 
     expect(await screen.findByText("Run location")).toBeInTheDocument();
-    expect(screen.getByText("Run in a cloud sandbox")).toBeInTheDocument();
-    expect(screen.getByText("Connect GitHub")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Runs on PostHog servers. Your local files do not change.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Requires GitHub")).toBeInTheDocument();
 
     await user.click(screen.getByText("Cloud"));
 
@@ -100,7 +104,7 @@ describe("WorkspaceModeSelect", () => {
     const trigger = screen.getByRole("button", { name: "Workspace mode" });
     await user.click(trigger);
     await user.click(await screen.findByText("Cloud"));
-    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    await user.click(screen.getByRole("button", { name: "Not now" }));
 
     expect(onChange).not.toHaveBeenCalled();
     expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
@@ -145,7 +149,9 @@ describe("WorkspaceModeSelect", () => {
     await user.click(screen.getByRole("button", { name: "Workspace mode" }));
 
     expect(
-      await screen.findByText("Run in a cloud sandbox"),
+      await screen.findByText(
+        "Runs on PostHog servers. Your local files do not change.",
+      ),
     ).toBeInTheDocument();
     expect(screen.queryByText("Connect GitHub")).not.toBeInTheDocument();
 
@@ -169,9 +175,32 @@ describe("WorkspaceModeSelect", () => {
     await user.click(screen.getByRole("button", { name: "Workspace mode" }));
 
     expect(
-      await screen.findByText("Run in a cloud sandbox"),
+      await screen.findByText(
+        "Runs on PostHog servers. Your local files do not change.",
+      ),
     ).toBeInTheDocument();
     expect(screen.queryByText("Connect GitHub")).not.toBeInTheDocument();
+  });
+
+  it("marks only the active run location", async () => {
+    const user = userEvent.setup();
+    render(
+      <WorkspaceModeSelect
+        value="worktree"
+        onChange={vi.fn()}
+        overrideModes={["local", "worktree", "cloud"]}
+        hasGithubIntegration
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Workspace mode" }));
+
+    const menu = await screen.findByRole("menu");
+    const rowFor = (label: string): Element | null =>
+      within(menu).getByText(label).closest('[role="menuitem"]');
+    expect(rowFor("Worktree")).toHaveAttribute("aria-current", "true");
+    expect(rowFor("Local")).not.toHaveAttribute("aria-current");
+    expect(rowFor("Cloud")).not.toHaveAttribute("aria-current");
   });
 
   it("keeps the standard Cloud trigger label", () => {

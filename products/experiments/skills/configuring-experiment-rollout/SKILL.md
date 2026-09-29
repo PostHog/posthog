@@ -76,8 +76,7 @@ Both controls live inside `feature_flag.filters`:
         ]
       },
       "groups": [{ "properties": [], "rollout_percentage": 100 }]
-    },
-    "ensure_experience_continuity": false
+    }
   }
 }
 ```
@@ -164,16 +163,54 @@ See `configuring-experiment-analytics` for how to set the multivariate handling.
 as part of the same operation (creation or update) — do not leave the user with an uneven split
 under default handling without an explicit, informed decision.
 
-## Persist flag across authentication steps
+## Bucketing and persistence across login
 
-This option (`ensure_experience_continuity` on the feature flag) is only relevant when:
+By default a person's variant follows their distinct ID. When the same person sees the flag before and after they are identified (usually at login), their distinct ID changes, and so can their variant.
+Choose before you create the flag or the experiment; never change bucketing or persistence on a live flag.
 
-- The feature flag is shown to **both** logged-out AND logged-in users
-- You need the same variant assignment before and after login
+The share of anonymous visitors on a page does not settle this. It gives the mix on the page, not whether the same individuals cross identification there, and those are different questions: an even mix can be two populations that never meet, and an almost fully identified page can still route every one of those people through an anonymous first pageview.
+So present the three options with what each one needs, and let the user choose:
 
-This is not compatible with all setups. Learn more: https://posthog.com/docs/feature-flags/creating-feature-flags#persisting-feature-flags-across-authentication-steps
+- **User-id bucketing** (the default): leave `ensure_experience_continuity` out, so the team's persistence default applies, except in the two cases below.
+- **Device-id bucketing** (recipe below): needs a device ID on every flag call, because a call without one gets no variant. A server SDK must forward the browser's device ID, and local evaluation works when it does. The web SDK sends the device ID on flag requests from posthog-js 1.307.1; check the version, because an older one puts a device ID on events but not on flag requests. The flag service takes a device ID from any SDK that sends one, so check the device-ID shares rather than the platform. Those shares count events and not the flag request, so a near-0 share leaves this option unchecked rather than ruled out.
+- **Persistence** (`ensure_experience_continuity: true`): cannot work where an SDK evaluates the flag locally, because a local evaluation never consults the override store. It also needs person profiles for anonymous users, no bootstrapping, and `$anon_distinct_id` on server flag calls. Learn more: https://posthog.com/docs/feature-flags/creating-feature-flags#persisting-feature-flags-across-authentication-steps
 
-Only mention this to the user if their use case involves pre/post-authentication experiences.
+When `ensure_experience_continuity` is omitted, `experiment-create` applies the team's persistence default. The device-id recipe needs no such step: `create-feature-flag` leaves persistence off unless you set it, and `experiment-create` rejects a `feature_flag` object for a flag that already exists. Device-id bucketing and persistence can't be combined, and the API refuses the pair.
+
+Two cases need the field set rather than omitted:
+
+- Moving a flag `experiment-create` already made onto device-id bucketing. That flag carries the team's persistence default, so pass `ensure_experience_continuity: false` in the same call, or the refusal above blocks the change.
+- The team's persistence default is on and an SDK evaluates the flag locally. The flag then inherits a persistence setting that cannot work there. Tell the user, and set the field to `false` only if they ask, because the team chose that default.
+
+### Device-id bucketing recipe
+
+`experiment-create` cannot set bucketing, so create the flag first, then link it:
+
+1. Call `create-feature-flag` with the experiment's key, `bucketing_identifier: "device_id"`, and `active: false` so no one gets a variant before launch (a new flag is active by default):
+
+   ```json
+   {
+     "key": "kebab-case-key",
+     "name": "Experiment name",
+     "active": false,
+     "bucketing_identifier": "device_id",
+     "filters": {
+       "groups": [{ "properties": [], "rollout_percentage": 100 }],
+       "multivariate": {
+         "variants": [
+           { "key": "control", "rollout_percentage": 50 },
+           { "key": "test", "rollout_percentage": 50 }
+         ]
+       }
+     }
+   }
+   ```
+
+   `filters.groups` is required: a flag without a group is rejected.
+
+2. Call `experiment-create` with that `feature_flag_key` and no `feature_flag` object. The experiment links the flag as it is, and launching the experiment turns the flag on.
+
+`experiment-setup-context` reports the facts these rules need (the page's share of unidentified visitors, and per SDK the device-ID and local-evaluation shares). `creating-experiments` (`references/setup-decisions.md`) applies them.
 
 ## Resolving experiments
 

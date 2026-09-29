@@ -1,3 +1,5 @@
+import type { SignalReportPullRequestApi } from 'products/signals/frontend/generated/api.schemas'
+
 import type { SignalReport } from '../types'
 
 type ReportWithPullRequests = Pick<
@@ -10,6 +12,8 @@ export type ReportPullRequest = {
     url: string
     state: 'unknown' | 'draft' | 'open' | 'closed' | 'merged'
     merged: boolean
+    review_decision: SignalReportPullRequestApi['review_decision']
+    merged_at: SignalReportPullRequestApi['merged_at']
 }
 
 export function reportPullRequests(report: ReportWithPullRequests | null | undefined): readonly ReportPullRequest[] {
@@ -23,6 +27,8 @@ export function reportPullRequests(report: ReportWithPullRequests | null | undef
                   url: report.implementation_pr_url,
                   state: report.implementation_pr_state ?? (report.implementation_pr_merged ? 'merged' : 'unknown'),
                   merged: report.implementation_pr_merged ?? false,
+                  review_decision: null,
+                  merged_at: null,
               },
           ]
         : []
@@ -33,7 +39,7 @@ export function primaryReportPullRequest(report: ReportWithPullRequests | null |
     return (
         [...reportPullRequests(report)].sort(
             (a, b) => rank(a) - rank(b) || a.url.toLowerCase().localeCompare(b.url.toLowerCase())
-        )[0] ?? { id: null, url: '', state: 'unknown', merged: false }
+        )[0] ?? { id: null, url: '', state: 'unknown', merged: false, review_decision: null, merged_at: null }
     )
 }
 

@@ -2,31 +2,43 @@ import os
 import json
 import uuid
 import datetime
+from types import SimpleNamespace
 from typing import Any, cast
 from urllib.parse import parse_qs, urlencode, urlparse
 
 import pytest
 import time_machine
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.conf import settings
 from django.core import mail
+from django.core.cache import cache
 from django.core.exceptions import ValidationError
+from django.http import HttpResponse
 from django.shortcuts import redirect
-from django.test import override_settings
+from django.test import RequestFactory, override_settings
 from django.utils import timezone
 
+import jwt
+import responses
+from cryptography.hazmat.primitives.asymmetric import rsa
 from parameterized import parameterized
+from requests import Response
 from rest_framework import status
-from social_core.exceptions import AuthConnectionError, AuthFailed, AuthMissingParameter
+from social_core.exceptions import AuthConnectionError, AuthFailed, AuthMissingParameter, AuthTokenError
 from social_django.models import UserSocialAuth
+from social_django.utils import load_strategy
 
+from posthog.api.authentication import social_identity_matches_session
+from posthog.api.oidc import MultitenantOIDCAuth
 from posthog.constants import AvailableFeature
+from posthog.helpers.sso import GITHUB_EMAIL_LOOKUP_ERROR, UNVERIFIED_SOCIAL_EMAIL_ERROR
 from posthog.models import OrganizationMembership, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.models.linked_identity_provider_config import LinkedIdentityProviderConfig
 from posthog.models.organization_domain import OrganizationDomain
+from posthog.session.activity import session_public_id
 
 from ee.api.authentication import CustomGoogleOAuth2, MultitenantSAMLAuth
 from ee.api.test.base import APILicensedTest
@@ -54,6 +66,376 @@ GITHUB_MOCK_SETTINGS = {
 CURRENT_FOLDER = os.path.dirname(__file__)
 
 
+class TestOIDCAuthentication(APILicensedTest):
+    def setUp(self):
+        super().setUp()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.OIDC, "name": "OIDC"},
+            {"key": AvailableFeature.SSO_ENFORCEMENT, "name": "SSO enforcement"},
+        ]
+        self.organization.save()
+        self.domain = OrganizationDomain.objects.create(
+            organization=self.organization, domain="example.com", verified_at=timezone.now()
+        )
+        self.config = IdentityProviderConfig.objects.create(
+            organization=self.organization,
+            config_scope="oidc",
+            domain_scope="all",
+            oidc_issuer_url="https://idp.example.com",
+            oidc_client_id="example-client",
+            oidc_credentials={"client_secret": "example-secret"},
+        )
+        request = RequestFactory().get("/login/oidc/", {"email": "member@example.com"})
+        request.session = self.client.session
+        request.session["oidc_config_id"] = str(self.config.id)
+        request.session["oidc_email"] = "member@example.com"
+        request.session["oidc_organization_id"] = self.organization.id
+        self.backend = MultitenantOIDCAuth(load_strategy(request), "https://app.example.com/complete/oidc/")
+
+    @parameterized.expand([("malformed", b"not-json"), ("non_object", b"[]")])
+    def test_oidc_rejects_invalid_discovery_json(self, _name, content):
+        response = Response()
+        response.status_code = 200
+        response._content = content
+        with patch.object(self.backend, "request", return_value=response):
+            with self.assertRaises(AuthFailed):
+                self.backend.get_json("https://idp.example.com/.well-known/openid-configuration")
+
+    @parameterized.expand([("missing_keys", {}), ("non_list_keys", {"keys": {}}), ("non_object_key", {"keys": [None]})])
+    def test_oidc_rejects_invalid_jwks_document(self, _name, document):
+        response = Response()
+        response.status_code = 200
+        response._content = json.dumps(document).encode()
+        with (
+            patch.object(self.backend, "jwks_uri", return_value="https://idp.example.com/keys"),
+            patch.object(self.backend, "request", return_value=response),
+        ):
+            with self.assertRaises(AuthFailed):
+                self.backend.get_remote_jwks_keys()
+
+    def test_oidc_rejects_malformed_id_token_header(self):
+        with self.assertRaises(AuthTokenError):
+            self.backend.find_valid_key("not-a-jwt")
+
+    @parameterized.expand(
+        [
+            ("valid", None),
+            ("issuer", {"iss": "https://other.example.com"}),
+            ("audience", {"aud": "other-client"}),
+            ("expired", {"exp": 1}),
+            ("nonce", {"nonce": "wrong-nonce"}),
+            ("authorized_party", {"azp": "other-client"}),
+            ("multiple_audiences", {"aud": ["example-client", "other-client"]}),
+        ]
+    )
+    def test_oidc_validates_signed_id_token(self, _name, overrides):
+        private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        public_key = {**json.loads(jwt.algorithms.RSAAlgorithm.to_jwk(private_key.public_key())), "kid": "example-key"}
+        discovery = {
+            "issuer": self.config.oidc_issuer_url,
+            "authorization_endpoint": "https://idp.example.com/authorize",
+            "token_endpoint": "https://idp.example.com/token",
+            "jwks_uri": "https://idp.example.com/keys",
+        }
+        with patch.object(self.backend, "get_json", return_value=discovery):
+            nonce = parse_qs(urlparse(self.backend.auth_url()).query)["nonce"][0]
+        claims = {
+            "iss": self.config.oidc_issuer_url,
+            "aud": "example-client",
+            "sub": "example-user",
+            "iat": int(timezone.now().timestamp()),
+            "exp": int(timezone.now().timestamp()) + 60,
+            "nonce": nonce,
+            **(overrides or {}),
+        }
+        token = jwt.encode(claims, private_key, algorithm="RS256", headers={"kid": "example-key"})
+        with patch.object(self.backend, "get_jwks_keys", return_value=[public_key]):
+            if overrides:
+                with self.assertRaises(AuthTokenError):
+                    self.backend.validate_and_return_id_token(token, "example-access-token")
+            else:
+                self.assertEqual(self.backend.validate_and_return_id_token(token, "example-access-token"), claims)
+                with self.assertRaises(AuthTokenError):
+                    self.backend.validate_and_return_id_token(token, "example-access-token")
+
+    def _complete_oidc_login(
+        self, email: str, *, sub: str = "example-user", name: str = "Example User"
+    ) -> HttpResponse:
+        private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        public_key = {**json.loads(jwt.algorithms.RSAAlgorithm.to_jwk(private_key.public_key())), "kid": "example-key"}
+        token_response: dict[str, Any] = {}
+
+        def oidc_response(url, method="GET", *args, **kwargs):
+            response = Response()
+            response.status_code = 200
+            data: dict[str, Any]
+            if url.endswith("/.well-known/openid-configuration"):
+                data = {
+                    "issuer": self.config.oidc_issuer_url,
+                    "authorization_endpoint": "https://idp.example.com/authorize",
+                    "token_endpoint": "https://idp.example.com/token",
+                    "userinfo_endpoint": "https://idp.example.com/userinfo",
+                    "jwks_uri": "https://idp.example.com/keys",
+                }
+            elif url.endswith("/keys"):
+                data = {"keys": [public_key]}
+            elif url.endswith("/userinfo"):
+                self.assertEqual(method, "GET")
+                self.assertEqual(kwargs["headers"], {"Authorization": "Bearer example-access-token"})
+                data = {
+                    "sub": sub,
+                    "email": email,
+                    "email_verified": True,
+                    "name": name,
+                }
+            else:
+                self.assertEqual(url, "https://idp.example.com/token")
+                self.assertEqual(method, "POST")
+                self.assertIn("code_verifier", kwargs["data"])
+                data = token_response
+            response._content = json.dumps(data).encode()
+            return response
+
+        with patch.object(MultitenantOIDCAuth, "request", side_effect=oidc_response):
+            response = self.client.get("/login/oidc/", {"email": email})
+            self.assertEqual(response.status_code, 302)
+            params = parse_qs(urlparse(response["Location"]).query)
+            claims = {
+                "iss": self.config.oidc_issuer_url,
+                "aud": "example-client",
+                "sub": sub,
+                "name": name,
+                "iat": int(timezone.now().timestamp()),
+                "exp": int(timezone.now().timestamp()) + 60,
+                "nonce": params["nonce"][0],
+            }
+            token_response.update(
+                {
+                    "access_token": "example-access-token",
+                    "token_type": "Bearer",
+                    "id_token": jwt.encode(claims, private_key, algorithm="RS256", headers={"kid": "example-key"}),
+                }
+            )
+            return self.client.get("/complete/oidc/", {"state": params["state"][0], "code": "example-code"})
+
+    def test_oidc_login_completes_without_storing_tokens(self):
+        self.user.email = "member@example.com"
+        self.user.save()
+        self.client.logout()
+
+        response = self._complete_oidc_login("member@example.com")
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(self.client.session["_auth_user_id"], str(self.user.pk))
+        self.assertEqual(response.cookies["ph_last_login_method"].value, "oidc")
+        social_auth = UserSocialAuth.objects.get(user=self.user, provider="oidc")
+        self.assertEqual(social_auth.uid, f"{self.config.oidc_issuer_url}:example-user")
+        self.assertEqual(social_auth.extra_data, {})
+
+    def test_oidc_jit_provisioning_creates_user_on_verified_domain(self):
+        self.domain.jit_provisioning_enabled = True
+        self.domain.save()
+        self.client.logout()
+        user_count = User.objects.count()
+
+        response = self._complete_oidc_login("newmember@example.com", sub="new-user", name="New Member")
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(User.objects.count(), user_count + 1)
+        user = cast(User, User.objects.get(email="newmember@example.com"))
+        self.assertEqual(user.first_name, "New Member")
+        self.assertEqual(user.organization, self.organization)
+        self.assertEqual(user.team, self.team)
+        self.assertEqual(
+            cast(OrganizationMembership, user.organization_memberships.get()).level,
+            OrganizationMembership.Level.MEMBER,
+        )
+        self.assertEqual(self.client.session["_auth_user_id"], str(user.pk))
+        social_auth = UserSocialAuth.objects.get(user=user, provider="oidc")
+        self.assertEqual(social_auth.uid, f"{self.config.oidc_issuer_url}:new-user")
+
+    def test_oidc_jit_provisioning_disabled_does_not_provision_user(self):
+        self.assertFalse(self.domain.jit_provisioning_enabled)
+        self.client.logout()
+        user_count = User.objects.count()
+
+        response = self._complete_oidc_login("newmember@example.com", sub="new-user", name="New Member")
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(User.objects.count(), user_count)
+        self.assertFalse(User.objects.filter(email="newmember@example.com").exists())
+        self.assertNotIn("_auth_user_id", self.client.session)
+
+    def test_oidc_redirect_uses_pkce_and_tenant_client(self):
+        with patch.object(
+            self.backend,
+            "get_json",
+            return_value={
+                "issuer": self.config.oidc_issuer_url,
+                "authorization_endpoint": "https://idp.example.com/authorize",
+                "token_endpoint": "https://idp.example.com/token",
+                "jwks_uri": "https://idp.example.com/keys",
+            },
+        ):
+            params = parse_qs(urlparse(self.backend.auth_url()).query)
+        self.assertEqual(params["client_id"], ["example-client"])
+        self.assertEqual(params["code_challenge_method"], ["S256"])
+        self.assertEqual(params["scope"], ["openid profile email"])
+        self.assertTrue(params["state"])
+        self.assertTrue(params["nonce"])
+
+    def test_oidc_rejects_another_domain(self):
+        self.backend.id_token = cast(Any, {"sub": "example-user"})
+        with patch(
+            "posthog.api.oidc.OpenIdConnectAuth.user_data",
+            return_value={
+                "sub": "example-user",
+                "email": "member@other.example",
+                "email_verified": True,
+            },
+        ):
+            with self.assertRaises(AuthFailed):
+                self.backend.user_data("example-access-token")
+
+    @parameterized.expand([("missing", None), ("false", False), ("string", "true")])
+    def test_oidc_requires_verified_email_from_userinfo(self, _name, email_verified):
+        self.backend.id_token = cast(Any, {"sub": "example-user"})
+        userinfo: dict[str, Any] = {"sub": "example-user", "email": "member@example.com"}
+        if email_verified is not None:
+            userinfo["email_verified"] = email_verified
+        with patch("posthog.api.oidc.OpenIdConnectAuth.user_data", return_value=userinfo):
+            with self.assertRaises(AuthFailed):
+                self.backend.user_data("example-access-token")
+
+    def test_oidc_accepts_verified_email_from_userinfo(self):
+        self.backend.id_token = cast(Any, {"sub": "example-user"})
+        userinfo = {
+            "sub": "example-user",
+            "email": "member@example.com",
+            "email_verified": True,
+        }
+        with patch("posthog.api.oidc.OpenIdConnectAuth.user_data", return_value=userinfo):
+            response = self.backend.user_data("example-access-token")
+        self.assertEqual(self.backend.get_user_id({}, response), f"{self.config.oidc_issuer_url}:example-user")
+        self.assertEqual(self.backend.extra_data(None, "uid", response, {}), {})
+
+    def test_oidc_get_user_id_normalizes_issuer_url(self):
+        self.backend.identity_provider_config = self.config
+        self.config.oidc_issuer_url = "https://idp.example.com/"
+
+        self.assertEqual(self.backend.get_user_id({}, {"sub": "example-user"}), "https://idp.example.com:example-user")
+
+    def test_oidc_get_user_id_rejects_identifiers_longer_than_255_characters(self):
+        self.backend.identity_provider_config = self.config
+        issuer = self.config.oidc_issuer_url.rstrip("/")
+        subject = "s" * (256 - len(f"{issuer}:"))
+
+        with self.assertRaises(AuthFailed):
+            self.backend.get_user_id({}, {"sub": subject})
+
+    def test_oidc_rejects_userinfo_for_another_subject(self):
+        self.backend.id_token = cast(Any, {"sub": "example-user"})
+        userinfo = {
+            "sub": "other-user",
+            "email": "member@example.com",
+            "email_verified": True,
+        }
+        with patch("posthog.api.oidc.OpenIdConnectAuth.user_data", return_value=userinfo):
+            with self.assertRaises(AuthFailed):
+                self.backend.user_data("example-access-token")
+
+    def test_oidc_rejects_removed_entitlement(self):
+        self.organization.available_product_features = []
+        self.organization.save()
+        with self.assertRaises(AuthFailed):
+            self.backend.get_key_and_secret()
+
+    def test_oidc_rejects_unverified_domain(self):
+        self.domain.verified_at = None
+        self.domain.save()
+        with self.assertRaises(AuthFailed):
+            self.backend.auth_url()
+
+    def test_oidc_rejects_overlapping_configurations(self):
+        self.config.pk = uuid.uuid4()
+        self.config.saml_relay_state = str(uuid.uuid4())
+        self.config.scim_slug = str(uuid.uuid4())
+        self.config.save()
+        with self.assertRaises(AuthFailed):
+            self.backend.auth_url()
+
+    @parameterized.expand(
+        [
+            ("mismatch", "https://idp.example.com", "https://other.example.com", False),
+            ("configured_trailing_slash", "https://idp.example.com/", "https://idp.example.com", True),
+            ("discovered_trailing_slash", "https://idp.example.com", "https://idp.example.com/", True),
+        ]
+    )
+    def test_oidc_checks_discovery_issuer(self, _name, configured_issuer, discovered_issuer, accepted):
+        self.config.oidc_issuer_url = configured_issuer
+        self.config.save()
+
+        with patch.object(
+            self.backend,
+            "get_json",
+            return_value={
+                "issuer": discovered_issuer,
+                "authorization_endpoint": "https://idp.example.com/authorize",
+                "token_endpoint": "https://idp.example.com/token",
+                "jwks_uri": "https://idp.example.com/keys",
+            },
+        ):
+            if accepted:
+                self.assertEqual(self.backend.oidc_config()["issuer"], discovered_issuer)
+            else:
+                with self.assertRaises(AuthFailed):
+                    self.backend.oidc_config()
+
+    def test_oidc_does_not_share_discovery_between_tenants(self):
+        other_backend = MultitenantOIDCAuth(self.backend.strategy, self.backend.redirect_uri)
+        other_config = MagicMock(oidc_issuer_url="https://other.example.com")
+        other_backend.identity_provider_config = other_config
+        for backend, issuer in [
+            (self.backend, self.config.oidc_issuer_url),
+            (other_backend, other_config.oidc_issuer_url),
+        ]:
+            with patch.object(
+                backend,
+                "get_json",
+                return_value={
+                    "issuer": issuer,
+                    "authorization_endpoint": f"{issuer}/authorize",
+                    "token_endpoint": f"{issuer}/token",
+                    "jwks_uri": f"{issuer}/keys",
+                },
+            ) as get_json:
+                self.assertEqual(backend.oidc_config()["issuer"], issuer)
+                get_json.assert_called_once_with(f"{issuer}/.well-known/openid-configuration")
+
+    def test_oidc_enforcement_checks_entitlement(self):
+        self.domain.sso_enforcement = "oidc"
+        self.domain.save()
+        self.assertEqual(OrganizationDomain.objects.get_sso_enforcement_for_email_address("member@example.com"), "oidc")
+        self.organization.available_product_features = [{"key": AvailableFeature.SSO_ENFORCEMENT}]
+        self.organization.save()
+        self.assertIsNone(OrganizationDomain.objects.get_sso_enforcement_for_email_address("member@example.com"))
+
+    def test_oidc_precheck_requires_configured_and_licensed_provider(self):
+        self.domain.sso_enforcement = "oidc"
+        self.domain.save()
+
+        response = self.client.post("/api/login/precheck", {"email": "member@example.com"})
+        self.assertEqual(response.json()["sso_enforcement"], "oidc")
+        self.assertTrue(response.json()["oidc_available"])
+
+        self.config.oidc_credentials = {}
+        self.config.save()
+
+        response = self.client.post("/api/login/precheck", {"email": "member@example.com"})
+        self.assertIsNone(response.json()["sso_enforcement"])
+        self.assertFalse(response.json().get("oidc_available", False))
+
+
 class TestEELoginPrecheckAPI(APILicensedTest):
     CONFIG_AUTO_LOGIN = False
 
@@ -74,6 +456,7 @@ class TestEELoginPrecheckAPI(APILicensedTest):
             {
                 "sso_enforcement": "google-oauth2",
                 "saml_available": False,
+                "oidc_available": False,
                 "webauthn_credentials": [],
                 "password_login_available": True,
                 "social_providers": [],
@@ -98,6 +481,7 @@ class TestEELoginPrecheckAPI(APILicensedTest):
             {
                 "sso_enforcement": None,
                 "saml_available": False,
+                "oidc_available": False,
                 "webauthn_credentials": [],
                 "password_login_available": True,
                 "social_providers": [],
@@ -121,6 +505,7 @@ class TestEELoginPrecheckAPI(APILicensedTest):
             {
                 "sso_enforcement": "github",
                 "saml_available": False,
+                "oidc_available": False,
                 "webauthn_credentials": [],
                 "password_login_available": True,
                 "social_providers": [],
@@ -145,6 +530,7 @@ class TestEELoginPrecheckAPI(APILicensedTest):
             {
                 "sso_enforcement": None,
                 "saml_available": False,
+                "oidc_available": False,
                 "webauthn_credentials": [],
                 "password_login_available": True,
                 "social_providers": [],
@@ -307,6 +693,19 @@ class TestEEAuthenticationAPI(APILicensedTest):
             second_key = self.client.session.session_key
             self.assertNotEqual(first_key, second_key)
 
+    def test_sso_login_is_throttled_per_ip(self):
+        cache.delete("throttle_sso_login_192.0.2.1")
+        self.addCleanup(cache.delete, "throttle_sso_login_192.0.2.1")
+
+        for _ in range(10):
+            response = self.client.get("/login/unknown-provider/", HTTP_X_FORWARDED_FOR="192.0.2.1")
+            self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+
+        response = self.client.get("/login/unknown-provider/", HTTP_X_FORWARDED_FOR="192.0.2.1")
+
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        self.assertEqual(response["Retry-After"], "60")
+
     @patch("social_core.backends.base.BaseAuth.request")
     def test_google_login_returns_to_saved_insight(self, mock_request):
         UserSocialAuth.objects.create(user=self.user, provider="google-oauth2", uid="google-sub-123")
@@ -359,6 +758,45 @@ class TestEEAuthenticationAPI(APILicensedTest):
         self.assertIn("accounts.google.com", response.headers["Location"])
         self.assertEqual(self.client.session.session_key, session_key_before)
 
+    @patch("posthog.api.authentication.auth", return_value=redirect("/"))
+    def test_connect_from_oidc_flushes_the_authenticated_session(self, _mock_auth):
+        response = self.client.get("/login/oidc/?connect_from=posthog_code")
+
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        self.assertNotIn("_auth_user_id", self.client.session)
+
+    @parameterized.expand([("oidc",), ("github",)])
+    def test_authenticated_session_cannot_attach_a_different_social_identity(self, backend_name):
+        request = RequestFactory().get("/complete/oidc/")
+        request.session = self.client.session
+        request.user = self.user
+        strategy = load_strategy(request)
+
+        with self.assertRaises(AuthFailed):
+            social_identity_matches_session(
+                strategy,
+                backend=SimpleNamespace(name=backend_name),
+                details={"email": "someone-else@example.com"},
+                user=None,
+            )
+
+    def test_github_account_link_allows_a_different_identity_email(self):
+        session = self.client.session
+        session["next"] = "/account-connected/github-login?provider=github&connect_from=posthog_code"
+        session.save()
+
+        request = RequestFactory().get("/complete/github/")
+        request.session = session
+        request.user = self.user
+        strategy = load_strategy(request)
+
+        social_identity_matches_session(
+            strategy,
+            backend=SimpleNamespace(name="github"),
+            details={"email": "github@example.com"},
+            user=self.user,
+        )
+
     @parameterized.expand(
         [
             ("plain_path", "/settings/user", "/settings/user?error_code=improperly_configured_sso"),
@@ -393,10 +831,48 @@ class TestEEAuthenticationAPI(APILicensedTest):
         self.assertRedirects(response, expected_location, fetch_redirect_response=False)
         self.assertTrue(self.client.session.get("_auth_user_id"))
 
-    def _begin_google_reauth(self) -> str:
-        response = self.client.get(f"/login/google-oauth2/?reauth=true&next=/settings/user&email={self.user.email}")
+    def _begin_google_reauth(self, next_url: str = "/settings/user") -> str:
+        query = urlencode({"reauth": "true", "next": next_url, "email": self.user.email})
+        response = self.client.get(f"/login/google-oauth2/?{query}")
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
         return self.client.session["google-oauth2_state"]
+
+    @parameterized.expand(
+        [
+            ("same_identity", "google-sub-123", None),
+            ("different_identity", "unassociated-sub", "reauth_user_mismatch"),
+        ]
+    )
+    @patch("social_core.backends.base.BaseAuth.request")
+    def test_popup_sso_reauth_reports_the_outcome_to_the_opener(self, _name, sub, expected_error_code, mock_request):
+        UserSocialAuth.objects.create(user=self.user, provider="google-oauth2", uid="google-sub-123")
+
+        with self.settings(**GOOGLE_MOCK_SETTINGS):
+            state = self._begin_google_reauth(next_url="/reauth/complete?attempt=a1")
+            mock_request.return_value.json.return_value = {
+                "access_token": "123",
+                "email": self.user.email if expected_error_code is None else "someone-else@posthog.com",
+                "sub": sub,
+            }
+            response = self.client.get(f"/complete/google-oauth2/?code=2&state={state}")
+
+        expected_location = "/reauth/complete?attempt=a1" + (
+            f"&error_code={expected_error_code}" if expected_error_code else ""
+        )
+        self.assertRedirects(response, expected_location, fetch_redirect_response=False)
+
+        page = self.client.get(expected_location)
+        self.assertEqual(page.status_code, status.HTTP_200_OK)
+        self.assertContains(page, "posthog-sso-reauth")
+        result = {"channel": "posthog-sso-reauth", "attempt": "a1", "error_code": expected_error_code}
+        self.assertContains(
+            page, f'<script id="sso-reauth-result" type="application/json">{json.dumps(result)}</script>'
+        )
+
+    def test_popup_completion_page_does_not_run_an_injected_error_code(self):
+        response = self.client.get("/reauth/complete", {"error_code": "</script><script>alert(1)</script>"})
+
+        self.assertNotContains(response, "<script>alert(1)</script>")
 
     @patch("social_core.backends.base.BaseAuth.request")
     def test_sso_reauth_refreshes_the_sensitive_action_window(self, mock_request):
@@ -425,6 +901,11 @@ class TestEEAuthenticationAPI(APILicensedTest):
         login_context = cast(dict, login_activity.detail)["context"]
         self.assertEqual(login_context["reauth"], True)
         self.assertEqual(login_context["login_method"], "Google OAuth")
+        # The row has to name the session the rotation created, not the one it retired.
+        self.assertEqual(login_activity.credential_type, "session")
+        self.assertEqual(
+            login_activity.credential_id, str(session_public_id(cast(str, self.client.session.session_key)))
+        )
 
         # Opening the sensitive-action window has to retire the session id that existed before it,
         # so a cookie copied earlier can't ride the window the victim just opened.
@@ -484,6 +965,164 @@ class TestEEAuthenticationAPI(APILicensedTest):
         self.assertEqual(self.client.session[settings.SESSION_LAST_REAUTH_AT_KEY], last_reauth_at_before)
         # The stranger's identity must not have been linked to the signed-in account
         self.assertFalse(UserSocialAuth.objects.filter(user=self.user).exists())
+
+    def _complete_github_login(
+        self,
+        github_id: int,
+        emails: list[dict[str, Any]],
+        emails_status: int = 200,
+        profile_email: str | None = None,
+        login_query: str = "",
+    ) -> HttpResponse:
+        with (
+            self.settings(**GITHUB_MOCK_SETTINGS),
+            responses.RequestsMock(assert_all_requests_are_fired=False) as mock_github,
+        ):
+            mock_github.add(responses.POST, "https://github.com/login/oauth/access_token", json={"access_token": "gh"})
+            mock_github.add(
+                responses.GET,
+                "https://api.github.com/user",
+                json={"id": github_id, "login": "octo", "name": "Octo Cat", "email": profile_email},
+            )
+            mock_github.add(responses.GET, "https://api.github.com/user/emails", json=emails, status=emails_status)
+            self.client.get(f"/login/github/?{login_query}")
+            state = self.client.session["github_state"]
+            response = self.client.get(f"/complete/github/?code=2&state={state}")
+        return response
+
+    def _complete_google_login(self, email: str, email_verified: bool | None, login_query: str = "") -> HttpResponse:
+        with (
+            self.settings(**GOOGLE_MOCK_SETTINGS),
+            patch("social_core.backends.base.BaseAuth.request") as mock_request,
+        ):
+            self.client.get(f"/login/google-oauth2/?{login_query}")
+            state = self.client.session["google-oauth2_state"]
+            userinfo: dict[str, Any] = {"access_token": "123", "email": email, "sub": "google-sub-new"}
+            if email_verified is not None:
+                userinfo["email_verified"] = email_verified
+            mock_request.return_value.json.return_value = userinfo
+            return self.client.get(f"/complete/google-oauth2/?code=2&state={state}")
+
+    @parameterized.expand(
+        [
+            ("github_unverified_primary", "github", False),
+            ("google_unverified", "google-oauth2", False),
+            ("github_verified_primary", "github", True),
+            ("google_verified", "google-oauth2", True),
+        ]
+    )
+    def test_social_login_links_an_existing_account_only_by_a_provider_verified_email(
+        self, _name: str, provider: str, provider_verified: bool
+    ) -> None:
+        self.client.logout()
+        self.user.is_email_verified = False
+        self.user.save(update_fields=["is_email_verified"])
+
+        if provider == "github":
+            response = self._complete_github_login(
+                github_id=4242,
+                emails=[{"email": self.user.email, "primary": True, "verified": provider_verified}],
+            )
+        else:
+            response = self._complete_google_login(email=self.user.email, email_verified=provider_verified)
+
+        self.user.refresh_from_db()
+        is_linked = UserSocialAuth.objects.filter(user=self.user, provider=provider).exists()
+        if provider_verified:
+            self.assertEqual(self.client.session.get("_auth_user_id"), str(self.user.pk))
+            self.assertTrue(is_linked)
+        else:
+            self.assertTrue(response["Location"].startswith("/login?error_code=social_login_failure"))
+            self.assertNotIn("_auth_user_id", self.client.session)
+            self.assertFalse(is_linked)
+            self.assertTrue(self.user.check_password(cast(str, self.CONFIG_PASSWORD)))
+            self.assertFalse(self.user.is_email_verified)
+
+    @parameterized.expand(
+        [
+            ("github_unverified", "github", False, False, 200, UNVERIFIED_SOCIAL_EMAIL_ERROR),
+            ("github_public_email_lookup_fails", "github", False, True, 502, GITHUB_EMAIL_LOOKUP_ERROR),
+            ("google_unverified", "google-oauth2", False, False, 200, UNVERIFIED_SOCIAL_EMAIL_ERROR),
+            ("google_claim_missing", "google-oauth2", None, False, 200, UNVERIFIED_SOCIAL_EMAIL_ERROR),
+        ]
+    )
+    def test_social_signup_refuses_an_email_the_provider_has_not_verified(
+        self,
+        _name: str,
+        provider: str,
+        email_verified: bool | None,
+        has_public_email: bool,
+        emails_status: int,
+        expected_error: str,
+    ) -> None:
+        self.client.logout()
+        email = "new-person@example.com"
+
+        if provider == "github":
+            response = self._complete_github_login(
+                github_id=5151,
+                emails=[{"email": email, "primary": True, "verified": email_verified}],
+                emails_status=emails_status,
+                profile_email=email if has_public_email else None,
+            )
+        else:
+            response = self._complete_google_login(email=email, email_verified=email_verified)
+
+        location = urlparse(response["Location"])
+        self.assertEqual(location.path, "/login")
+        self.assertEqual(parse_qs(location.query)["error_detail"], [expected_error])
+        self.assertNotIn("_auth_user_id", self.client.session)
+        self.assertFalse(User.objects.filter(email=email).exists())
+        self.assertFalse(UserSocialAuth.objects.filter(provider=provider).exists())
+
+    @parameterized.expand(
+        [
+            ("github", "github", "/settings/user"),
+            ("github_account_connect_next", "github", "/account-connected/github-login?provider=github"),
+            ("google", "google-oauth2", "/settings/user"),
+        ]
+    )
+    def test_sso_reauth_with_an_unlinked_unverified_identity_grants_nothing(
+        self, _name: str, provider: str, next_url: str
+    ) -> None:
+        last_reauth_at_before = self.client.session[settings.SESSION_LAST_REAUTH_AT_KEY]
+        login_query = urlencode({"reauth": "true", "next": next_url, "email": self.user.email})
+
+        if provider == "github":
+            response = self._complete_github_login(
+                github_id=6161,
+                emails=[{"email": self.user.email, "primary": True, "verified": False}],
+                login_query=login_query,
+            )
+        else:
+            response = self._complete_google_login(email=self.user.email, email_verified=False, login_query=login_query)
+
+        self.assertIn("error_code=social_login_failure", response["Location"])
+        self.assertEqual(self.client.session[settings.SESSION_LAST_REAUTH_AT_KEY], last_reauth_at_before)
+        self.assertFalse(UserSocialAuth.objects.filter(user=self.user, provider=provider).exists())
+
+    def test_account_connect_path_does_not_skip_verification_when_signed_out(self) -> None:
+        self.client.logout()
+        session = self.client.session
+        session["next"] = "/account-connected/github-login?provider=github"
+        session.save()
+
+        self._complete_github_login(
+            github_id=7171, emails=[{"email": self.user.email, "primary": True, "verified": False}]
+        )
+
+        self.assertNotIn("_auth_user_id", self.client.session)
+        self.assertFalse(UserSocialAuth.objects.filter(user=self.user, provider="github").exists())
+
+    def test_already_linked_github_identity_logs_in_without_a_verified_email(self) -> None:
+        self.client.logout()
+        UserSocialAuth.objects.create(user=self.user, provider="github", uid="4242")
+
+        self._complete_github_login(
+            github_id=4242, emails=[{"email": "unverified@example.com", "primary": True, "verified": False}]
+        )
+
+        self.assertEqual(self.client.session.get("_auth_user_id"), str(self.user.pk))
 
     def test_existing_session_remains_valid_when_sso_enforced(self):
         """Test that existing password-authenticated sessions remain valid after SSO is enforced"""
@@ -620,6 +1259,7 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
             {
                 "sso_enforcement": None,
                 "saml_available": True,
+                "oidc_available": False,
                 "webauthn_credentials": [],
                 "password_login_available": True,
                 "social_providers": [],
@@ -1144,6 +1784,11 @@ YotAcSbU3p5bzd11wpyebYHB"""
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
     def test_saml_can_be_enforced(self):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.SAML, "name": AvailableFeature.SAML},
+            {"key": AvailableFeature.SSO_ENFORCEMENT, "name": AvailableFeature.SSO_ENFORCEMENT},
+        ]
+        self.organization.save()
         User.objects.create_and_join(
             organization=self.organization,
             email="engineering@posthog.com",
@@ -1184,6 +1829,25 @@ YotAcSbU3p5bzd11wpyebYHB"""
             {
                 "sso_enforcement": "saml",
                 "saml_available": True,
+                "oidc_available": False,
+                "webauthn_credentials": [],
+                "password_login_available": True,
+                "social_providers": [],
+            },
+        )
+
+        config = self.organization_domain.saml_identity_provider_configs.first()
+        assert config is not None
+        config.saml_x509_cert = ""
+        config.save()
+
+        response = self.client.post("/api/login/precheck", {"email": "engineering@posthog.com"})
+        self.assertEqual(
+            response.json(),
+            {
+                "sso_enforcement": None,
+                "saml_available": False,
+                "oidc_available": False,
                 "webauthn_credentials": [],
                 "password_login_available": True,
                 "social_providers": [],
@@ -1206,6 +1870,7 @@ YotAcSbU3p5bzd11wpyebYHB"""
             {
                 "sso_enforcement": None,
                 "saml_available": False,
+                "oidc_available": False,
                 "webauthn_credentials": [],
                 "password_login_available": True,
                 "social_providers": [],
@@ -1377,7 +2042,7 @@ class TestCustomGoogleOAuth2(APILicensedTest):
         # Create user with email as uid (legacy format)
         social_auth = UserSocialAuth.objects.create(provider="google-oauth2", uid="test@posthog.com", user=self.user)
 
-        response = {"email": "test@posthog.com", "sub": self.sub}
+        response = {"email": "test@posthog.com", "email_verified": True, "sub": self.sub}
 
         uid = self.google_oauth.get_user_id(self.details, response)
 
@@ -1385,6 +2050,21 @@ class TestCustomGoogleOAuth2(APILicensedTest):
         # Verify the uid was updated
         social_auth.refresh_from_db()
         self.assertEqual(social_auth.uid, self.sub)
+
+    @parameterized.expand([("unverified", False), ("claim_missing", None)])
+    def test_get_user_id_does_not_migrate_legacy_uid_for_an_unverified_email(
+        self, _name: str, email_verified: bool | None
+    ) -> None:
+        social_auth = UserSocialAuth.objects.create(provider="google-oauth2", uid="test@posthog.com", user=self.user)
+        response: dict[str, Any] = {"email": "test@posthog.com", "sub": self.sub}
+        if email_verified is not None:
+            response["email_verified"] = email_verified
+
+        with self.assertRaises(AuthFailed):
+            self.google_oauth.get_user_id(self.details, response)
+
+        social_auth.refresh_from_db()
+        self.assertEqual(social_auth.uid, "test@posthog.com")
 
     def test_get_user_id_new_user_uses_sub(self):
         """Test that a new user gets sub as uid."""
@@ -1426,12 +2106,21 @@ class TestSSOEnforcement(APILicensedTest):
         from ee.api.authentication import social_auth_allowed
 
         # Create domain with SAML enforcement
-        OrganizationDomain.objects.create(
+        domain = OrganizationDomain.objects.create(
             domain="testdomain.com",
             organization=self.organization,
             verified_at=timezone.now(),
             sso_enforcement="saml",
         )
+        config = IdentityProviderConfig.objects.create(
+            organization=self.organization,
+            config_scope="saml",
+            domain_scope="all",
+            saml_entity_id="https://idp.example.com",
+            saml_acs_url="https://idp.example.com/saml",
+            saml_x509_cert="test-certificate",
+        )
+        LinkedIdentityProviderConfig.objects.create(organization_domain=domain, identity_provider_config=config)
 
         # Test that Google OAuth2 is blocked
         with self.assertRaises(AuthFailed) as context:

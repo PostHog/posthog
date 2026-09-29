@@ -15,10 +15,13 @@ import { urls } from 'scenes/urls'
 import { QueryTile } from 'scenes/web-analytics/common'
 import { PagePerformance } from 'scenes/web-analytics/PagePerformance'
 import { PagePerformanceFilters } from 'scenes/web-analytics/PagePerformanceFilters'
+import { pagePerformanceLogic } from 'scenes/web-analytics/pagePerformanceLogic'
 import { AttributionTab } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/AttributionTab/AttributionTab'
 import { RetentionTab } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/RetentionTab/RetentionTab'
 import { UtmAuditTab } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/UtmAuditTab/UtmAuditTab'
 import { WebQuery } from 'scenes/web-analytics/tiles/WebAnalyticsTile'
+import { webAnalyticsFilterLogic } from 'scenes/web-analytics/webAnalyticsFilterLogic'
+import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -304,10 +307,14 @@ const MarketingAnalyticsContent = (): JSX.Element => {
                       key: MarketingAnalyticsTab.PAGE_VISIBILITY,
                       label: 'Page visibility',
                       content: (
-                          <>
-                              <PagePerformanceFilters tabs={<></>} />
-                              <PagePerformance />
-                          </>
+                          <BindLogic logic={webAnalyticsLogic} props={{ context: 'page-visibility' }}>
+                              <BindLogic logic={webAnalyticsFilterLogic} props={{ context: 'page-visibility' }}>
+                                  <BindLogic logic={pagePerformanceLogic} props={{ context: 'page-visibility' }}>
+                                      <PagePerformanceFilters tabs={<></>} />
+                                      <PagePerformance />
+                                  </BindLogic>
+                              </BindLogic>
+                          </BindLogic>
                       ),
                   },
               ]

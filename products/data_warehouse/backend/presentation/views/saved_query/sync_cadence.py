@@ -91,13 +91,11 @@ class SyncFrequencyBoundsSerializer(serializers.Serializer):
         choices=[
             ("tiered", "tiered"),
             ("managed_viewset", "managed_viewset"),
-            ("legacy", "legacy"),
             ("no_node", "no_node"),
         ],
         help_text="What governs this view's cadence. 'tiered' is the only mode where `options` is "
         "meaningful and `sync_frequency` is writable per view. 'managed_viewset' means PostHog owns "
-        "the view, 'legacy' means the v1 backend, where any cadence is accepted and no bounds apply, "
-        "and 'no_node' means the view has no data modeling node to store a cadence on.",
+        "the view, and 'no_node' means the view has no data modeling node to store a cadence on.",
     )
     options = SyncFrequencyOptionSerializer(
         many=True,
@@ -291,7 +289,7 @@ class SyncFrequencyField(serializers.ChoiceField):
 
     Reads resolve the cadence via `resolve_sync_frequency` (node target first, then the model's
     `sync_frequency_interval`); writes are validated against the choices and consumed by the
-    serializer's `update()`. Declaring it as a real (non read-only) field is what lets the
+    serializer's `create()` and `update()`. Declaring it as a real (non read-only) field is what lets the
     cadence flow into the generated PATCH body and MCP tool schema.
     """
 
@@ -303,7 +301,7 @@ class SyncFrequencyField(serializers.ChoiceField):
 
     def to_internal_value(self, data: Any) -> str:
         # Clamp deprecated sub-15min cadences up to the floor before validating against choices.
-        if data in DEPRECATED_FAST_SYNC_FREQUENCIES:
+        if isinstance(data, str) and data in DEPRECATED_FAST_SYNC_FREQUENCIES:
             data = "15min"
         return super().to_internal_value(data)
 

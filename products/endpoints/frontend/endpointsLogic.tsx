@@ -1,5 +1,5 @@
 import { MakeLogicType, actions, afterMount, connect, kea, path, reducers, selectors } from 'kea'
-import { loaders } from 'kea-loaders'
+import { lazyLoaders } from 'kea-loaders'
 import { urlToAction } from 'kea-router'
 
 import api from 'lib/api'
@@ -82,7 +82,7 @@ export const endpointsLogic = kea<endpointsLogicType>([
         setFilters: (filters: Partial<EndpointsFilters>) => ({ filters }),
         setActiveTab: (activeTab: EndpointsTab) => ({ activeTab }),
     }),
-    loaders(() => ({
+    lazyLoaders(() => ({
         allEndpoints: [
             [] as EndpointType[],
             {
@@ -131,7 +131,6 @@ export const endpointsLogic = kea<endpointsLogicType>([
         ],
     }),
     afterMount(({ actions }) => {
-        actions.loadEndpoints()
         actions.addProductIntent({
             product_type: ProductKey.ENDPOINTS,
             intent_context: ProductIntentContext.ENDPOINTS_VIEWED,

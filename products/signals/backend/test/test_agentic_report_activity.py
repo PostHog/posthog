@@ -1,12 +1,15 @@
 import json
 import random
 import asyncio
-from datetime import UTC, datetime
+from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
+from uuid import UUID
 
 import pytest
 from unittest.mock import AsyncMock, Mock, patch
 
 from django.db import OperationalError
+from django.utils import timezone
 
 import pytest_asyncio
 from asgiref.sync import sync_to_async
@@ -20,7 +23,21 @@ from posthog.models.user_integration import UserIntegration
 from posthog.sync import database_sync_to_async
 from posthog.temporal.oauth import grants_scratchpad_write
 
-from products.signals.backend.artefact_schemas import DISMISSAL_REASON_WRONG_REPO, Dismissal, NoteArtefact
+from products.signals.backend.artefact_schemas import (
+    DISMISSAL_REASON_WRONG_REPO,
+    Dismissal,
+    ImpactMeasurementPlan,
+    ImplementationAssessment,
+    ImplementationTarget,
+    NoteArtefact,
+    RelatedTo,
+    ReportLink,
+)
+from products.signals.backend.enums import ReportLinkKind
+from products.signals.backend.impact_measurement_plans import (
+    latest_measurement_plans,
+    persist_authored_measurement_plans,
+)
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact, SignalScoutNote
 from products.signals.backend.repo_corrections import SCOUT_REPOSITORY_REASON
 from products.signals.backend.report_charts import ReportChart
@@ -40,14 +57,18 @@ from products.signals.backend.report_generation.research import (
     run_multi_turn_research,
 )
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
-from products.signals.backend.report_metrics import ReportMetric
+from products.signals.backend.report_metrics import REPORT_METRIC_GOAL_FIELDS, ReportMetric
+from products.signals.backend.supersession import ImplementationResearchContext
 from products.signals.backend.temporal.agentic.report import (
     RESEARCH_MCP_SCOPES,
     RunAgenticReportInput,
+    _load_linked_report_context,
     _load_previous_research,
+    _load_resolved_report_context,
     _parse_artefact_content,
     _parse_stored_charts,
     _parse_stored_metrics,
+    _resolve_report_metrics_payload,
     run_agentic_report_activity,
 )
 from products.signals.backend.temporal.agentic.select_repository import (
@@ -193,23 +214,63 @@ _EXISTING_CHART = {
 _EXISTING_METRIC = _metric("existing-affected-users").model_dump(mode="json")
 
 
+def test_automatic_metric_goal_requires_authoring_flag():
+    metric = _metric().model_copy(
+        update={"goal_value": 2, "goal_direction": "at_most", "decision_window_days": 7, "minimum_data_points": 30}
+    )
+
+    blocked = _resolve_report_metrics_payload([metric], True, report_id="report-1", team_id=2)
+    allowed = _resolve_report_metrics_payload(
+        [metric], True, expected_impact_authoring_enabled=True, report_id="report-1", team_id=2
+    )
+
+    assert blocked is not None and allowed is not None
+    assert all(blocked[0][field_name] is None for field_name in REPORT_METRIC_GOAL_FIELDS)
+    assert allowed[0]["goal_value"] == 2
+
+
+def test_disabled_authoring_preserves_existing_goal_only_for_the_same_measure():
+    previous = _metric().model_copy(update={"goal_value": 5, "goal_direction": "at_most", "decision_window_days": 7})
+    changed_goal = previous.model_copy(update={"goal_value": 0, "decision_window_days": 1})
+    changed_query = json.loads(json.dumps(changed_goal.query))
+    changed_query["source"]["series"][0]["event"] = "$pageview"
+    changed_measure = changed_goal.model_copy(update={"query": changed_query})
+
+    retained = _resolve_report_metrics_payload(
+        [changed_goal], True, previous_metrics=[previous], report_id="report-1", team_id=2
+    )
+    removed = _resolve_report_metrics_payload(
+        [changed_measure], True, previous_metrics=[previous], report_id="report-1", team_id=2
+    )
+
+    assert retained is not None and removed is not None
+    assert retained[0]["goal_value"] == 5
+    assert retained[0]["decision_window_days"] == 7
+    assert removed[0]["goal_value"] is None
+
+
 async def _run_activity_with_output(
-    monkeypatch, ateam, report, output, *, charts_enabled=True, metrics_enabled=True, repo_selection_as_of=None
+    monkeypatch,
+    ateam,
+    report,
+    output,
+    *,
+    metrics_enabled=True,
+    repo_selection_as_of=None,
+    research_kwargs=None,
 ):
     monkeypatch.setattr(
         "products.signals.backend.temporal.agentic.report.resolve_user_id_for_team",
         lambda team_id: 1,
     )
     monkeypatch.setattr(
-        "products.signals.backend.temporal.agentic.report._team_report_charts_enabled",
-        lambda team_id: charts_enabled,
-    )
-    monkeypatch.setattr(
-        "products.signals.backend.temporal.agentic.report._team_report_metrics_enabled",
+        "products.signals.backend.temporal.agentic.report.team_report_metrics_enabled",
         lambda team_id: metrics_enabled,
     )
 
     async def fake_run_multi_turn_research(*args, **kwargs):
+        if research_kwargs is not None:
+            research_kwargs.update(kwargs)
         return output
 
     monkeypatch.setattr(
@@ -250,6 +311,237 @@ def _build_signals() -> list[SignalData]:
             timestamp=now,
         ),
     ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("parent_status", "dismissal_reason", "expected"),
+    [
+        (SignalReport.Status.RESOLVED, None, True),
+        (SignalReport.Status.SUPPRESSED, "already_fixed", True),
+        # Archived because nobody wants to see it, not because it was fixed: there is no prior fix
+        # to reason about, so the research agent is told nothing.
+        (SignalReport.Status.SUPPRESSED, "wontfix_intentional", False),
+    ],
+)
+@pytest.mark.parametrize("typed_link", [False, True])
+@pytest.mark.parametrize("safety_verdicts", [[], [False], [True], [False, True], [True, False], ["invalid"]])
+async def test_recurrence_context_comes_from_a_parent_closed_as_fixed(
+    ateam, parent_status, dismissal_reason, expected, typed_link, safety_verdicts
+):
+    parent = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam, status=parent_status, title="stale chunk TypeError", summary="Imports fail after a deploy."
+    )
+    if dismissal_reason is not None:
+        await database_sync_to_async(SignalReportArtefact.append_dismissal)(
+            team_id=ateam.id,
+            report_id=str(parent.id),
+            content=Dismissal(reason=dismissal_reason),
+            attribution=ArtefactAttribution.system(),
+        )
+    fork = await database_sync_to_async(SignalReport.objects.create)(team=ateam, title="fork", summary="fork")
+    for verdict in safety_verdicts:
+        await database_sync_to_async(SignalReportArtefact.objects.create)(
+            team=ateam,
+            report=parent,
+            type=SignalReportArtefact.ArtefactType.SAFETY_JUDGMENT,
+            content="invalid" if verdict == "invalid" else json.dumps({"choice": verdict}),
+        )
+    await database_sync_to_async(SignalReportArtefact.add_log)(
+        team_id=ateam.id,
+        report_id=str(fork.id),
+        content=(
+            ReportLink(kind=ReportLinkKind.RECURRENCE_OF, report_id=str(parent.id))
+            if typed_link
+            else RelatedTo(report_id=str(parent.id))
+        ),
+        attribution=ArtefactAttribution.system(),
+    )
+
+    context = await _load_resolved_report_context(ateam.id, str(fork.id))
+
+    safe = not safety_verdicts or safety_verdicts[-1] is True
+    valid_link = typed_link or parent_status == SignalReport.Status.RESOLVED
+    assert context == (
+        ("stale chunk TypeError", "Imports fail after a deploy.") if expected and safe and valid_link else (None, None)
+    )
+    assert await _load_previous_research(ateam.id, str(fork.id)) is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("kind", "expected"),
+    [
+        (ReportLinkKind.FOLLOW_UP_OF, True),
+        (ReportLinkKind.DEPENDS_ON, True),
+        (ReportLinkKind.PART_OF, True),
+        # A duplicate never reaches research, and a recurrence has its own richer read.
+        (ReportLinkKind.DUPLICATE_OF, False),
+        (ReportLinkKind.RECURRENCE_OF, False),
+    ],
+)
+async def test_linked_report_context_carries_the_linked_reports_findings(ateam, kind, expected):
+    linked = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam, title="step index column", summary="The column is missing."
+    )
+    await database_sync_to_async(SignalReportArtefact.objects.create)(
+        team=ateam, report=linked, type="safety_judgment", content=json.dumps({"choice": True})
+    )
+    await database_sync_to_async(SignalReportArtefact.append_finding)(
+        team_id=ateam.id,
+        report_id=str(linked.id),
+        content=SignalFinding(
+            signal_id="sig-1",
+            relevant_code_paths=["obsolete.py"],
+            relevant_commit_hashes={},
+            data_queried="",
+            verified=True,
+        ),
+        attribution=ArtefactAttribution.system(),
+    )
+    await database_sync_to_async(SignalReportArtefact.append_finding)(
+        team_id=ateam.id,
+        report_id=str(linked.id),
+        content=SignalFinding(
+            signal_id="sig-1",
+            relevant_code_paths=["products/funnels/logic.py", "products/funnels/queries.py"],
+            relevant_commit_hashes={"abc1234": "Added the column."},
+            data_queried="execute-sql over events",
+            verified=True,
+        ),
+        attribution=ArtefactAttribution.system(),
+    )
+    report = await database_sync_to_async(SignalReport.objects.create)(team=ateam, title="r", summary="s")
+    await database_sync_to_async(SignalReportArtefact.add_log)(
+        team_id=ateam.id,
+        report_id=str(report.id),
+        content=ReportLink(kind=kind, report_id=str(linked.id), reason="only web was covered"),
+        attribution=ArtefactAttribution.system(),
+    )
+
+    await database_sync_to_async(SignalReportArtefact.add_log)(
+        team_id=ateam.id,
+        report_id=str(report.id),
+        content=ReportLink(kind=kind, report_id=str(linked.id), reason="repeated link"),
+        attribution=ArtefactAttribution.system(),
+    )
+
+    context = await _load_linked_report_context(ateam.id, str(report.id))
+
+    if not expected:
+        assert context == []
+        return
+    assert [(entry.kind, entry.report_id, entry.title) for entry in context] == [
+        (kind, str(linked.id), "step index column")
+    ]
+    assert context[0].reason == "only web was covered"
+    assert context[0].code_paths == ["products/funnels/logic.py", "products/funnels/queries.py"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_linked_report_context_cap_counts_only_usable_reports(ateam):
+    report = await database_sync_to_async(SignalReport.objects.create)(team=ateam, title="r", summary="s")
+
+    async def _link(target: SignalReport) -> None:
+        await database_sync_to_async(SignalReportArtefact.add_log)(
+            team_id=ateam.id,
+            report_id=str(report.id),
+            content=ReportLink(kind=ReportLinkKind.DEPENDS_ON, report_id=str(target.id)),
+            attribution=ArtefactAttribution.system(),
+        )
+
+    for index in range(10):
+        unjudged = await database_sync_to_async(SignalReport.objects.create)(
+            team=ateam, title=f"unjudged-{index}", summary="No verdict."
+        )
+        await _link(unjudged)
+    usable = await database_sync_to_async(SignalReport.objects.create)(team=ateam, title="usable", summary="s")
+    await database_sync_to_async(SignalReportArtefact.objects.create)(
+        team=ateam, report=usable, type="safety_judgment", content=json.dumps({"choice": True})
+    )
+    await _link(usable)
+
+    context = await _load_linked_report_context(ateam.id, str(report.id))
+
+    assert [entry.report_id for entry in context] == [str(usable.id)]
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize("verdicts", [[], [False], [True, False], [False, True], ["invalid"], [{}], ["true"]])
+async def test_linked_report_context_requires_an_explicit_safe_verdict(ateam, verdicts):
+    linked = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam, title="unsafe", summary="Do not repeat this."
+    )
+    for index, verdict in enumerate(verdicts):
+        await database_sync_to_async(SignalReportArtefact.objects.create)(
+            team=ateam,
+            report=linked,
+            type=SignalReportArtefact.ArtefactType.SAFETY_JUDGMENT,
+            content="invalid" if verdict == "invalid" else json.dumps({"choice": verdict}),
+            created_at=timezone.now() + timedelta(seconds=index),
+        )
+    report = await database_sync_to_async(SignalReport.objects.create)(team=ateam, title="r", summary="s")
+    await database_sync_to_async(SignalReportArtefact.add_log)(
+        team_id=ateam.id,
+        report_id=str(report.id),
+        content=ReportLink(kind=ReportLinkKind.FOLLOW_UP_OF, report_id=str(linked.id)),
+        attribution=ArtefactAttribution.system(),
+    )
+
+    context = await _load_linked_report_context(ateam.id, str(report.id))
+    assert bool(context) == bool(verdicts and verdicts[-1] is True)
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("edit_type", "edited_after_verdict", "expected"),
+    [
+        (SignalReportArtefact.ArtefactType.TITLE_CHANGE, True, False),
+        (SignalReportArtefact.ArtefactType.SUMMARY_CHANGE, True, False),
+        (SignalReportArtefact.ArtefactType.SUMMARY_CHANGE, False, True),
+    ],
+)
+async def test_a_linked_report_edited_after_its_verdict_is_not_read_into_a_prompt(
+    ateam, edit_type, edited_after_verdict, expected
+):
+    # The report PATCH path replaces a title or summary without re-running the safety judge, so a
+    # `choice: true` verdict can vouch for prose nobody reviewed. Without this the edited text goes
+    # straight into the research sandbox prompt under the old approval.
+    linked = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam, title="edited", summary="Prose the judge never saw."
+    )
+    judged_at = timezone.now()
+
+    def _stamp(artefact_type: str, content: dict, created_at) -> None:
+        # `created_at` is auto_now_add, so it ignores whatever `create()` is handed; the update is
+        # what actually orders these two rows, and this test is entirely about their order.
+        artefact = SignalReportArtefact.objects.create(
+            team=ateam, report=linked, type=artefact_type, content=json.dumps(content)
+        )
+        SignalReportArtefact.objects.filter(id=artefact.id).update(created_at=created_at)
+
+    await database_sync_to_async(_stamp)(SignalReportArtefact.ArtefactType.SAFETY_JUDGMENT, {"choice": True}, judged_at)
+    await database_sync_to_async(_stamp)(
+        edit_type,
+        {"new_title": "edited"} if "title" in edit_type else {"new_summary": "edited"},
+        judged_at + timedelta(seconds=30 if edited_after_verdict else -30),
+    )
+    report = await database_sync_to_async(SignalReport.objects.create)(team=ateam, title="r", summary="s")
+    await database_sync_to_async(SignalReportArtefact.add_log)(
+        team_id=ateam.id,
+        report_id=str(report.id),
+        content=ReportLink(kind=ReportLinkKind.FOLLOW_UP_OF, report_id=str(linked.id)),
+        attribution=ArtefactAttribution.system(),
+    )
+
+    context = await _load_linked_report_context(ateam.id, str(report.id))
+
+    assert bool(context) is expected
 
 
 @pytest.mark.asyncio
@@ -732,15 +1024,15 @@ async def test_run_agentic_report_activity_hands_fleet_steering_to_the_research_
             )
         )
 
-    assert "the checkout flow is frozen" in captured["steering_section"]
+    assert "scout-notes-list" in captured["steering_section"]
     steering_events = [
         call.kwargs
         for call in mock_capture.call_args_list
         if call.kwargs["event"] == "signals_research_steering_attached"
     ]
     assert len(steering_events) == 1
-    assert steering_events[0]["properties"]["notes_attached"] == 1
-    assert steering_events[0]["properties"]["dismissal_notes_attached"] == 0
+    assert steering_events[0]["properties"]["notes_attached"] == 0
+    assert steering_events[0]["properties"]["nudge_rendered"] is True
     # The memory protocol is rendered from the same posture the sandbox token is minted with, so a
     # posture that stopped granting the scratchpad would silently drop the write half instead of
     # telling the run to remember with a tool the MCP server has stripped.
@@ -808,23 +1100,19 @@ async def test_run_agentic_report_activity_keeps_quiet_when_reviewers_are_retain
 @pytest.mark.asyncio
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "name,charts_enabled,output_factory,expected",
+    "name,output_factory,expected",
     [
-        # Opted-in + a valid chart → the JSON set to store.
-        ("enabled_non_empty", True, _build_research_output_with_chart, [{"chart_id": "signups-drop"}]),
-        # Not opted in → None (leave the column alone), even though the mocked run returned a chart.
-        ("disabled", False, _build_research_output_with_chart, None),
-        # Opted-in but the run authored no charts (optional field omitted / dropped) → None, never a
-        # wipe of whatever the report already showed.
-        ("enabled_empty", True, _build_research_output, None),
-        # Opted-in but the set busts the whole-set caps (duplicate id) → [] to clear, so a stale set
-        # can't sit under the new summary.
-        ("enabled_cap_bust", True, _build_research_output_with_duplicate_chart_ids, []),
+        # A valid chart → the JSON set to store.
+        ("non_empty", _build_research_output_with_chart, [{"chart_id": "signups-drop"}]),
+        # The run authored no charts (optional field omitted / dropped) → None, never a wipe of
+        # whatever the report already showed.
+        ("empty", _build_research_output, None),
+        # The set busts the whole-set caps (duplicate id) → [] to clear, so a stale set can't sit
+        # under the new summary.
+        ("cap_bust", _build_research_output_with_duplicate_chart_ids, []),
     ],
 )
-async def test_run_agentic_report_activity_resolves_charts_payload(
-    monkeypatch, ateam, name, charts_enabled, output_factory, expected
-):
+async def test_run_agentic_report_activity_resolves_charts_payload(monkeypatch, ateam, name, output_factory, expected):
     # The activity resolves the charts payload but does not write it — the transition activity does,
     # atomically with the title/summary (see test_mark_report_ready_activity_applies_charts). So we
     # assert the resolved payload on the returned output rather than the report row.
@@ -832,9 +1120,7 @@ async def test_run_agentic_report_activity_resolves_charts_payload(
         team=ateam, status=SignalReport.Status.IN_PROGRESS, signal_count=2, total_weight=1.3
     )
 
-    result = await _run_activity_with_output(
-        monkeypatch, ateam, report, output_factory(), charts_enabled=charts_enabled
-    )
+    result = await _run_activity_with_output(monkeypatch, ateam, report, output_factory())
 
     if expected is None:
         assert result.charts is None
@@ -856,8 +1142,13 @@ async def test_run_agentic_report_activity_resolves_charts_payload(
     ],
 )
 async def test_run_agentic_report_activity_resolves_metrics_payload(
-    monkeypatch, ateam, name, metrics_enabled, output_factory, expected
-):
+    monkeypatch: pytest.MonkeyPatch,
+    ateam: Team,
+    name: str,
+    metrics_enabled: bool,
+    output_factory: Callable[[], ReportResearchOutput],
+    expected: list[str] | None,
+) -> None:
     report = await database_sync_to_async(SignalReport.objects.create)(
         team=ateam, status=SignalReport.Status.IN_PROGRESS, signal_count=2, total_weight=1.3
     )
@@ -867,7 +1158,6 @@ async def test_run_agentic_report_activity_resolves_metrics_payload(
         ateam,
         report,
         output_factory(),
-        charts_enabled=True,
         metrics_enabled=metrics_enabled,
     )
 
@@ -875,6 +1165,48 @@ async def test_run_agentic_report_activity_resolves_metrics_payload(
         assert result.metrics is None
     else:
         assert [metric["metric_id"] for metric in result.metrics or []] == expected
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_run_agentic_report_activity_supplies_existing_plans_to_reresearch(monkeypatch, ateam):
+    report = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam, status=SignalReport.Status.IN_PROGRESS, signal_count=2, total_weight=1.3
+    )
+    plan = ImpactMeasurementPlan(
+        metric_id="affected-users",
+        title="Affected users",
+        kind="affected_users",
+        query=_metric().query,
+        value_format="count",
+        unit="users",
+        goal_value=0,
+        goal_direction="at_most",
+        decision_window_days=7,
+        activated=True,
+    )
+    row = await database_sync_to_async(SignalReportArtefact.add_log)(
+        team_id=ateam.id,
+        report_id=str(report.id),
+        content=plan,
+        attribution=ArtefactAttribution.system(),
+    )
+    monkeypatch.setattr(
+        "products.signals.backend.temporal.agentic.report._load_previous_research",
+        AsyncMock(return_value=_build_research_output()),
+    )
+    monkeypatch.setattr(
+        "products.signals.backend.temporal.agentic.report.team_expected_impact_authoring_enabled",
+        lambda team_id: True,
+    )
+    research_kwargs: dict[str, object] = {}
+
+    result = await _run_activity_with_output(
+        monkeypatch, ateam, report, _build_research_output(), research_kwargs=research_kwargs
+    )
+
+    assert research_kwargs["previous_measurement_plans"] == {"affected-users": (str(row.id), plan)}
+    assert result.previous_measurement_plan_ids == {"affected-users": str(row.id)}
 
 
 @pytest.mark.asyncio
@@ -962,6 +1294,45 @@ async def test_mark_report_ready_activity_applies_metrics(ateam, name, metrics, 
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
+async def test_mark_report_ready_activity_revises_existing_measurement_plan(ateam):
+    report = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam,
+        status=SignalReport.Status.IN_PROGRESS,
+        signal_count=2,
+        total_weight=1.3,
+    )
+    original_metric = (
+        _metric()
+        .model_copy(update={"goal_value": 0, "goal_direction": "at_most", "decision_window_days": 7})
+        .model_dump(mode="json")
+    )
+    await database_sync_to_async(persist_authored_measurement_plans)(
+        report, [original_metric], ArtefactAttribution.system()
+    )
+    previous_row, _ = await database_sync_to_async(lambda: latest_measurement_plans(report)["affected-users"])()
+    revised_metric = {**original_metric, "goal_value": 7}
+
+    await mark_report_ready_activity(
+        MarkReportReadyInput(
+            team_id=ateam.id,
+            report_id=str(report.id),
+            title="Updated title",
+            summary="Updated expected impact",
+            processed_signal_count=2,
+            metrics=[revised_metric],
+            revise_measurement_plan_metric_ids=["affected-users"],
+            previous_measurement_plan_ids={"affected-users": str(previous_row.id)},
+        )
+    )
+
+    updated_row, revised = await database_sync_to_async(lambda: latest_measurement_plans(report)["affected-users"])()
+    assert updated_row.id != previous_row.id
+    assert revised.goal_value == 7
+    assert revised.activated is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
 async def test_mark_report_pending_input_activity_applies_metrics_with_draft_prose(ateam):
     report = await database_sync_to_async(SignalReport.objects.create)(
         team=ateam,
@@ -988,6 +1359,57 @@ async def test_mark_report_pending_input_activity_applies_metrics_with_draft_pro
     assert stored.title == "Draft title"
     assert stored.summary == "Draft summary"
     assert [metric["metric_id"] for metric in stored.metrics] == ["pending-affected-users"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize("pending_input", [False, True])
+async def test_report_transition_saves_goals_as_plans_and_keeps_observations_goal_free(
+    ateam: Team, pending_input: bool
+) -> None:
+    report = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam,
+        status=SignalReport.Status.IN_PROGRESS,
+        signal_count=2,
+        total_weight=1.3,
+    )
+    metric = (
+        _metric("measured-outcome")
+        .model_copy(update={"goal_value": 0, "goal_direction": "at_most", "decision_window_days": 7})
+        .model_dump(mode="json")
+    )
+    if pending_input:
+        await mark_report_pending_input_activity(
+            MarkReportPendingInput(
+                team_id=ateam.id,
+                report_id=str(report.id),
+                title="Draft title",
+                summary="Draft summary",
+                reason="Needs input",
+                metrics=[metric],
+            )
+        )
+    else:
+        await mark_report_ready_activity(
+            MarkReportReadyInput(
+                team_id=ateam.id,
+                report_id=str(report.id),
+                title="Title",
+                summary="Summary",
+                processed_signal_count=2,
+                metrics=[metric],
+            )
+        )
+
+    def stored_outcome() -> tuple[list[dict[str, object]], ImpactMeasurementPlan]:
+        updated_report = SignalReport.objects.get(id=report.id)
+        return updated_report.metrics, latest_measurement_plans(updated_report)["measured-outcome"][1]
+
+    observations, plan = await database_sync_to_async(stored_outcome)()
+    assert observations[0]["metric_id"] == plan.metric_id
+    assert not any(field in observations[0] for field in REPORT_METRIC_GOAL_FIELDS)
+    assert plan.goal_value == 0
+    assert plan.activated is False
 
 
 @pytest.mark.asyncio
@@ -1152,6 +1574,176 @@ async def test_run_multi_turn_research_ends_session_when_followup_fails():
 
     session.end.assert_awaited_once()
     assert session.end.await_args.kwargs["status"] == "failed"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "supersede_outcome",
+    [
+        RuntimeError("custom_prompt - poll_for_turn: timed out after 1800s"),
+        ImplementationAssessment(
+            obsolete_pr_urls=["https://github.com/example/repo/pull/1"], reason="the root cause moved"
+        ),
+    ],
+)
+async def test_run_multi_turn_research_survives_a_failed_supersede_turn(supersede_outcome):
+    """The supersede turn is asked last, after every finding, judgment, title and summary is in
+    hand, and the decision is optional downstream. A raise there used to end the session as failed
+    and discard a research run whose activity budget is four hours."""
+    signals = _build_signals()
+    previous = ReportResearchOutput(
+        title="Old title",
+        summary="Old summary",
+        new_artefacts=[
+            SignalFinding(signal_id="sig-1", relevant_code_paths=[], data_queried="", verified=True),
+            ActionabilityAssessment(
+                explanation="Clear fix in the affected module.",
+                actionability=ActionabilityChoice.IMMEDIATELY_ACTIONABLE,
+                already_addressed=False,
+            ),
+            PriorityAssessment(explanation="Affects many sessions.", priority=Priority.P2),
+        ],
+    )
+    presentation = ReportPresentationOutput(title="New title", summary="New summary")
+    by_label = {
+        "signal_2_of_2": SignalFinding(signal_id="sig-2", relevant_code_paths=[], data_queried="", verified=True),
+        "actionability": ActionabilityUpdate(previous_assessment_correct=True),
+        "priority": PriorityUpdate(previous_assessment_correct=True),
+        "presentation": presentation,
+        "fix_verification": FixVerificationOutput(current_state="Confirm the issue.", outcome="Confirm the fix."),
+        "supersede": supersede_outcome,
+    }
+
+    async def fake_send_followup(message, model, *, label=""):
+        outcome = by_label[label]
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
+
+    session = Mock()
+    session.send_followup = AsyncMock(side_effect=fake_send_followup)
+    session.end = AsyncMock()
+    session.task = Mock(id="task-1")
+    first_finding = SignalFinding(signal_id="sig-1", relevant_code_paths=[], data_queried="", verified=True)
+
+    with patch(
+        "products.tasks.backend.facade.agents.MultiTurnSession.start",
+        AsyncMock(return_value=(session, first_finding)),
+    ):
+        result = await run_multi_turn_research(
+            signals,
+            Mock(),
+            previous_report_research=previous,
+            implementation_context=ImplementationResearchContext(
+                candidates=(
+                    ImplementationTarget(
+                        task_id=UUID(int=1),
+                        run_id=UUID(int=2),
+                        pr_url="https://github.com/example/repo/pull/1",
+                        head_sha="abc",
+                        automation_artefact_id=UUID(int=3),
+                    ),
+                ),
+                run_count=2,
+                started_at=datetime(2026, 1, 1, tzinfo=UTC),
+            ),
+        )
+
+    assert (result.title, result.summary) == ("New title", "New summary")
+    assert result.verification_note == by_label["fix_verification"].to_note()
+    session.end.assert_awaited_once()
+    assert "status" not in session.end.await_args.kwargs
+    decided = result.effective_implementation_decision()
+    if isinstance(supersede_outcome, Exception):
+        assert decided is None
+    else:
+        assert decided is not None
+        assert decided.reason == supersede_outcome.reason
+        assert [target.pr_url for target in decided.targets] == supersede_outcome.obsolete_pr_urls
+        assert decided.research_run_count == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("actionability", "expects_supersede_turn"),
+    [
+        (ActionabilityChoice.IMMEDIATELY_ACTIONABLE, True),
+        (ActionabilityChoice.REQUIRES_HUMAN_INPUT, False),
+        (ActionabilityChoice.NOT_ACTIONABLE, False),
+    ],
+)
+async def test_run_multi_turn_research_only_asks_about_the_pr_when_actionable(actionability, expects_supersede_turn):
+    """Auto-start is the decision's only consumer and it takes immediately-actionable reports only,
+    so asking on the other two outcomes buys a sandbox turn nothing can read."""
+    signals = _build_signals()
+    previous = ReportResearchOutput(
+        title="Old title",
+        summary="Old summary",
+        new_artefacts=[
+            SignalFinding(signal_id="sig-1", relevant_code_paths=[], data_queried="", verified=True),
+            ActionabilityAssessment(
+                explanation="Clear fix in the affected module.",
+                actionability=ActionabilityChoice.IMMEDIATELY_ACTIONABLE,
+                already_addressed=False,
+            ),
+            PriorityAssessment(explanation="Affects many sessions.", priority=Priority.P2),
+        ],
+    )
+    by_label = {
+        "signal_2_of_2": SignalFinding(signal_id="sig-2", relevant_code_paths=[], data_queried="", verified=True),
+        "actionability": ActionabilityUpdate(
+            previous_assessment_correct=False,
+            assessment=ActionabilityAssessment(
+                explanation="The evidence changed what this needs.",
+                actionability=actionability,
+                already_addressed=False,
+            ),
+        ),
+        "priority": PriorityUpdate(previous_assessment_correct=True),
+        "presentation": ReportPresentationOutput(title="New title", summary="New summary"),
+        "fix_verification": FixVerificationOutput(current_state="Confirm the issue.", outcome="Confirm the fix."),
+        "supersede": ImplementationAssessment(
+            obsolete_pr_urls=["https://github.com/example/repo/pull/1"], reason="the root cause moved"
+        ),
+    }
+    asked_labels: list[str] = []
+
+    async def fake_send_followup(message, model, *, label=""):
+        asked_labels.append(label)
+        return by_label[label]
+
+    session = Mock()
+    session.send_followup = AsyncMock(side_effect=fake_send_followup)
+    session.end = AsyncMock()
+    session.task = Mock(id="task-1")
+    first_finding = SignalFinding(signal_id="sig-1", relevant_code_paths=[], data_queried="", verified=True)
+
+    with patch(
+        "products.tasks.backend.facade.agents.MultiTurnSession.start",
+        AsyncMock(return_value=(session, first_finding)),
+    ):
+        result = await run_multi_turn_research(
+            signals,
+            Mock(),
+            previous_report_research=previous,
+            implementation_context=ImplementationResearchContext(
+                candidates=(
+                    ImplementationTarget(
+                        task_id=UUID(int=1),
+                        run_id=UUID(int=2),
+                        pr_url="https://github.com/example/repo/pull/1",
+                        head_sha="abc",
+                        automation_artefact_id=UUID(int=3),
+                    ),
+                ),
+                run_count=2,
+                started_at=datetime(2026, 1, 1, tzinfo=UTC),
+            ),
+        )
+
+    assert ("supersede" in asked_labels) is expects_supersede_turn
+    assert (result.effective_implementation_decision() is not None) is expects_supersede_turn
+    assert (result.verification_note is not None) is (actionability != ActionabilityChoice.NOT_ACTIONABLE)
 
 
 def test_parse_artefact_content_parses_valid_content():

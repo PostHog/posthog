@@ -23,6 +23,10 @@ export { getThinkingMessageFromResponse, getRandomThinkingMessage, THINKING_MESS
 // --- Composer model/effort helpers (pure — no component imports) ---
 export { resolveEffortForModel, DEFAULT_COMPOSER_MODEL, DEFAULT_COMPOSER_EFFORT } from '../utils/composerModels'
 export { modelCatalogueLogic } from '../logics/modelCatalogueLogic'
+// The server-resolved default model/effort for this user in this project (their own preference over
+// the project default). A host that launches a run on the user's behalf reads it to tell whether a
+// stored default will apply, because a model sent with the run overrides one.
+export { taskRunDefaultsLogic } from '../logics/taskRunDefaultsLogic'
 
 export { tasksLogic } from '../logics/tasksLogic'
 
@@ -38,6 +42,11 @@ export { attachedContextItemKey } from '../types/contextTypes'
 export { welcomeOverrideLogic } from '../logics/welcomeOverrideLogic'
 export { useWelcomeOverride } from '../hooks/useWelcomeOverride'
 export type { UseWelcomeOverrideOptions } from '../hooks/useWelcomeOverride'
+// Contextual composer overrides (suggestions, repo picker), the sibling of the welcome headline override above.
+export { composerOverrideLogic } from '../logics/composerOverrideLogic'
+export type { ComposerOverride } from '../logics/composerOverrideLogic'
+export { useComposerOverride } from '../hooks/useComposerOverride'
+export type { UseComposerOverrideOptions } from '../hooks/useComposerOverride'
 // The standing "act via tool calls" instruction the sidebar surfaces attach while the user watches a
 // run — the prompt-side half of `useMcpToolApplyBack` (hidden from chips, deduped once per task).
 export { AGENT_TOOL_APPLY_BACK_CONTEXT_ITEM, wrapWithPosthogContext } from '../utils/posthogContextBlock'
@@ -57,6 +66,7 @@ export type { ToolStreamSubscription } from '../logics/toolStreamEventsLogic'
 export { useToolStreamListener } from '../hooks/useToolStream'
 export type { UseToolStreamListenerOptions } from '../hooks/useToolStream'
 export { resolveToolCall } from '../utils/toolResolver'
+export { getToolOutputRecord } from '../utils/getToolOutputRecord'
 
 // --- Foreground stream registry + MCP tool apply-back (headless) ---
 // `foregroundStreamLogic` marks the single stream rendered in the side panel the user is watching; a

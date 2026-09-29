@@ -15,6 +15,7 @@ from products.conversations.backend.temporal.coordinator import (
     CoordinatorInput,
     EligibleTicket,
     SupportReplyCoordinatorWorkflow,
+    _child_workflow_id,
     _collect_eligible,
     _is_master_flag_enabled,
     support_collect_eligible_tickets_activity,
@@ -368,6 +369,128 @@ class TestCollectEligibleStatus:
         assert [t.ticket_id for t in result] == ([str(ticket.id)] if expected_collected else [])
 
 
+class TestChildWorkflowId:
+    def test_round_zero_keeps_legacy_id(self):
+        assert _child_workflow_id("abc") == "support-reply-abc"
+        assert _child_workflow_id("abc", 0) == "support-reply-abc"
+
+    def test_later_rounds_are_suffixed(self):
+        assert _child_workflow_id("abc", 1) == "support-reply-abc-r1"
+
+
+class TestCollectEligibleAwaitingClarification:
+    def _team_and_ticket(self, *, status: str = "pending", awaiting: bool = True):
+        from posthog.models import Organization, Team
+
+        from products.conversations.backend.models.ticket import Ticket as TicketModel
+
+        org = Organization.objects.create(name="Org")
+        team = Team.objects.create(
+            organization=org, name="Team", conversations_settings={"ai_suggestions_enabled": True}
+        )
+        ticket = TicketModel.objects.create_with_number(
+            team=team,
+            widget_session_id=f"aabbccdd-0000-0000-0000-{uuid.uuid4().hex[:12]}",
+            distinct_id="u1",
+            channel_source="widget",
+            status=status,
+        )
+        triage = {"status": "awaiting_clarification", "clarification_rounds": 1} if awaiting else {}
+        settled_at = timezone.now() - timedelta(minutes=3)
+        TicketModel.objects.filter(id=ticket.id).update(
+            status=status,
+            ai_triage=triage,
+            created_at=settled_at,
+            last_message_at=settled_at,
+        )
+        ticket.refresh_from_db()
+        return team, ticket
+
+    def _comment(self, team, ticket, *, author_type: str, minutes_ago: int):
+        from posthog.models.comment import Comment
+
+        created = timezone.now() - timedelta(minutes=minutes_ago)
+        comment = Comment.objects.create(
+            team=team,
+            scope="conversations_ticket",
+            item_id=str(ticket.id),
+            content=author_type,
+            item_context={"author_type": author_type, "is_private": False, "persist_as": "clarification"},
+        )
+        Comment.objects.filter(id=comment.id).update(created_at=created)
+        from products.conversations.backend.models.ticket import Ticket as TicketModel
+
+        TicketModel.objects.filter(id=ticket.id).update(last_message_at=max(ticket.last_message_at or created, created))
+        ticket.refresh_from_db()
+        return comment
+
+    @parameterized.expand(
+        [
+            (
+                "pending_awaiting_with_settled_customer_reply",
+                True,
+                [("customer", 10), ("AI", 5), ("customer", 3)],
+                True,
+                1,
+            ),
+            ("pending_without_awaiting", False, [("customer", 3)], False, None),
+            ("unanswered_question", True, [("customer", 10), ("AI", 3)], False, None),
+            (
+                "human_reply_after_question",
+                True,
+                [("customer", 10), ("AI", 5), ("team", 4), ("customer", 3)],
+                False,
+                None,
+            ),
+            (
+                "fresh_customer_reply_still_settling",
+                True,
+                [("customer", 10), ("AI", 5), ("customer", 0)],
+                False,
+                None,
+            ),
+        ]
+    )
+    @pytest.mark.django_db
+    @patch(f"{COORD_MODULE}._is_master_flag_enabled", return_value=True)
+    def test_pending_eligibility(
+        self,
+        _name,
+        awaiting,
+        comments,
+        expected_eligible,
+        expected_round,
+        mock_master_flag,
+    ):
+        team, ticket = self._team_and_ticket(awaiting=awaiting)
+        for author_type, minutes_ago in comments:
+            self._comment(team, ticket, author_type=author_type, minutes_ago=minutes_ago)
+
+        result = _collect_eligible()
+        if expected_eligible:
+            assert [t.ticket_id for t in result] == [str(ticket.id)]
+            assert result[0].clarification_round == expected_round
+        else:
+            assert result == []
+
+    @pytest.mark.django_db
+    @patch(f"{COORD_MODULE}._is_master_flag_enabled", return_value=True)
+    def test_second_clarification_round_is_not_eligible(self, mock_master_flag):
+        team, ticket = self._team_and_ticket()
+        from products.conversations.backend.models.ticket import Ticket as TicketModel
+
+        TicketModel.objects.filter(id=ticket.id).update(
+            ai_triage={"status": "awaiting_clarification", "clarification_rounds": 2}
+        )
+        ticket.refresh_from_db()
+        self._comment(team, ticket, author_type="customer", minutes_ago=10)
+        self._comment(team, ticket, author_type="AI", minutes_ago=5)
+        self._comment(team, ticket, author_type="customer", minutes_ago=3)
+
+        result = _collect_eligible()
+        assert result == []
+
+
 class TestCoordinatorWorkflow:
     @pytest.mark.asyncio
     @patch(f"{COORD_MODULE}._collect_eligible")
@@ -454,3 +577,31 @@ class TestCoordinatorWorkflow:
         assert result.eligible_count == 2
         assert result.started_count == 1
         assert result.skipped_count == 1
+
+    @pytest.mark.asyncio
+    @patch(f"{COORD_MODULE}._collect_eligible")
+    async def test_followup_uses_suffixed_child_id(self, mock_collect):
+        from temporalio.testing import WorkflowEnvironment
+        from temporalio.worker import Worker
+
+        mock_collect.return_value = [EligibleTicket(team_id=1, ticket_id="t1", clarification_round=1)]
+
+        async with await WorkflowEnvironment.start_time_skipping() as env:
+            async with Worker(
+                env.client,
+                task_queue="test-queue",
+                workflows=[SupportReplyCoordinatorWorkflow, _StubChildWorkflow],
+                activities=[support_collect_eligible_tickets_activity],
+            ):
+                result = await env.client.execute_workflow(
+                    SupportReplyCoordinatorWorkflow.run,
+                    CoordinatorInput(),
+                    id="test-coordinator-followup-id",
+                    task_queue="test-queue",
+                )
+                followup = env.client.get_workflow_handle("support-reply-t1-r1")
+                desc = await followup.describe()
+                assert desc.id == "support-reply-t1-r1"
+
+        assert result.started_count == 1
+        assert result.skipped_count == 0

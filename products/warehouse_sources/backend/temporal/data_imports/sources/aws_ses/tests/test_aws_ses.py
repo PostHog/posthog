@@ -474,6 +474,74 @@ class TestGetRows:
 
         assert [row["identity_name"] for batch in batches for row in batch] == ["kept.example.com"]
 
+    @pytest.mark.parametrize("pool_name", ["ses-shared-pool", "ses-default-dedicated-pool"])
+    def test_an_item_aws_refuses_to_describe_is_reported_from_the_list_response_alone(self, pool_name: str) -> None:
+        batches, _, _ = self._run(
+            [
+                {"DedicatedIpPools": [pool_name, "marketing-pool"]},
+                AwsSesError("BadRequestException", "shared or default pool", "dedicated_ip_pools", "/path"),
+                {"DedicatedIpPool": {"PoolName": "marketing-pool", "ScalingMode": "MANAGED"}},
+            ],
+            endpoint="dedicated_ip_pools",
+        )
+
+        assert batches == [
+            [
+                {"pool_name": pool_name},
+                {
+                    "pool_name": "marketing-pool",
+                    "dedicated_ip_pool_pool_name": "marketing-pool",
+                    "dedicated_ip_pool_scaling_mode": "MANAGED",
+                },
+            ]
+        ]
+
+    @pytest.mark.parametrize("pool_name", ["ses-shared-pool", "ses-default-dedicated-pool"])
+    def test_reserved_pool_details_are_kept_when_aws_returns_them(self, pool_name: str) -> None:
+        batches, _, _ = self._run(
+            [
+                {"DedicatedIpPools": [pool_name]},
+                {"DedicatedIpPool": {"PoolName": pool_name, "ScalingMode": "STANDARD"}},
+            ],
+            endpoint="dedicated_ip_pools",
+        )
+
+        assert batches == [
+            [
+                {
+                    "pool_name": pool_name,
+                    "dedicated_ip_pool_pool_name": pool_name,
+                    "dedicated_ip_pool_scaling_mode": "STANDARD",
+                }
+            ]
+        ]
+
+    @pytest.mark.parametrize(
+        "endpoint,page,code",
+        [
+            ("dedicated_ip_pools", {"DedicatedIpPools": ["marketing-pool"]}, "TooManyRequestsException"),
+            ("dedicated_ip_pools", {"DedicatedIpPools": ["marketing-pool"]}, "BadRequestException"),
+            ("dedicated_ip_pools", {"DedicatedIpPools": ["ses-shared-pool-custom"]}, "BadRequestException"),
+            ("dedicated_ip_pools", {"DedicatedIpPools": ["ses-shared-pool"]}, "AccessDeniedException"),
+            ("dedicated_ip_pools", {"DedicatedIpPools": ["ses-default-dedicated-pool"]}, "TooManyRequestsException"),
+            ("dedicated_ip_pools", {"DedicatedIpPools": ["ses-shared-pool"]}, "HTTP 503"),
+            ("configuration_sets", {"ConfigurationSets": ["ses-shared-pool"]}, "BadRequestException"),
+            ("contact_lists", {"ContactLists": [{"ContactListName": "ses-shared-pool"}]}, "BadRequestException"),
+            (
+                "custom_verification_email_templates",
+                {"CustomVerificationEmailTemplates": [{"TemplateName": "ses-shared-pool"}]},
+                "BadRequestException",
+            ),
+            ("email_identities", {"EmailIdentities": [{"IdentityName": "example.com"}]}, "BadRequestException"),
+            ("email_templates", {"TemplatesMetadata": [{"TemplateName": "ses-shared-pool"}]}, "BadRequestException"),
+        ],
+    )
+    def test_a_detail_failure_the_table_cannot_absorb_still_fails_the_job(
+        self, endpoint: str, page: dict[str, Any], code: str
+    ) -> None:
+        with pytest.raises(AwsSesError, match=code):
+            self._run([page, AwsSesError(code, "rejected", endpoint, "/path")], endpoint=endpoint)
+
     def test_an_empty_page_yields_no_batch_but_still_completes_the_walk(self) -> None:
         batches, _, manager = self._run([suppression_page([])])
 
@@ -775,3 +843,51 @@ class TestEndpointPermissions:
             reasons = probe_endpoint_permissions("key", "secret", None, "us-east-1", ["multi_region_endpoints"])
 
         assert reasons == {"multi_region_endpoints": aws_ses._BAD_REQUEST_EXPLANATION}
+
+    @pytest.mark.parametrize(
+        "pool_name,code,status_code,expected_reason",
+        [
+            ("ses-shared-pool", "BadRequestException", 400, None),
+            ("ses-default-dedicated-pool", "BadRequestException", 400, None),
+            ("marketing-pool", "BadRequestException", 400, aws_ses._BAD_REQUEST_EXPLANATION),
+            ("ses-shared-pool-custom", "BadRequestException", 400, aws_ses._BAD_REQUEST_EXPLANATION),
+            (
+                "ses-shared-pool",
+                "AccessDeniedException",
+                403,
+                "The connected IAM user or role is not allowed to read this table",
+            ),
+        ],
+    )
+    def test_pool_discovery_and_validation_only_allow_known_detail_rejections(
+        self, requests_mock: Any, pool_name: str, code: str, status_code: int, expected_reason: Optional[str]
+    ) -> None:
+        pool_url = "https://email.us-east-1.amazonaws.com/v2/email/dedicated-ip-pools"
+        requests_mock.get(pool_url, json={"DedicatedIpPools": [pool_name]})
+        requests_mock.get(
+            f"{pool_url}/{pool_name}", status_code=status_code, headers={"x-amzn-ErrorType": code}, json={}
+        )
+
+        assert probe_endpoint_permissions("key", "secret", None, "us-east-1", ["dedicated_ip_pools"]) == {
+            "dedicated_ip_pools": expected_reason
+        }
+        assert validate_credentials("key", "secret", None, "us-east-1", schema_name="dedicated_ip_pools") == (
+            expected_reason is None,
+            expected_reason,
+        )
+
+    def test_a_rejected_pool_list_still_blocks_discovery_and_validation(self, requests_mock: Any) -> None:
+        requests_mock.get(
+            "https://email.us-east-1.amazonaws.com/v2/email/dedicated-ip-pools",
+            status_code=400,
+            headers={"x-amzn-ErrorType": "BadRequestException"},
+            json={},
+        )
+
+        assert probe_endpoint_permissions("key", "secret", None, "us-east-1", ["dedicated_ip_pools"]) == {
+            "dedicated_ip_pools": aws_ses._BAD_REQUEST_EXPLANATION
+        }
+        assert validate_credentials("key", "secret", None, "us-east-1", schema_name="dedicated_ip_pools") == (
+            False,
+            aws_ses._BAD_REQUEST_EXPLANATION,
+        )

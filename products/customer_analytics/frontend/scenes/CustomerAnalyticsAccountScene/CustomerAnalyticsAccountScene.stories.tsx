@@ -9,20 +9,48 @@ import { mswDecorator } from '~/mocks/browser'
 import type { CustomPropertyValueWriteApi, AccountRelationshipWriteApi } from '../../generated/api.schemas'
 
 const ACCOUNT_ID = '11111111-2222-4333-8444-555555555555'
+const EXTERNAL_ACCOUNT_ID = 'spaces %2F slash / ? # + Unicode 漢字'
 const ACCOUNT_RETRIEVE_ENDPOINT = 'api/projects/:team_id/accounts/:account_id/'
+const ACCOUNT_BY_EXTERNAL_ID_ENDPOINT = 'api/projects/:team_id/accounts/by_external_id/'
 const ACCOUNT_NOTEBOOKS_ENDPOINT = 'api/projects/:team_id/accounts/:account_id/notebooks/'
 const ACCOUNT_PRESENCE_ENDPOINT = 'api/projects/:team_id/accounts/:account_id/presence/'
 const ACCOUNT_ICON_ENDPOINT = 'api/projects/:team_id/accounts/icon/'
 const VALUES_ENDPOINT = 'api/projects/:team_id/accounts/:account_id/custom_property_values/'
 const ASSIGNMENTS_ENDPOINT = 'api/projects/:team_id/accounts/:account_id/relationships/'
 const ACCOUNT_SIDEBAR_CONFIG_ENDPOINT = 'api/projects/:team_id/user_customer_analytics_config/@me/'
+const ACCOUNT_VIEWS_ENDPOINT = 'api/projects/:team_id/account_views/'
+const ACCOUNT_VIEW_ID = '77777777-8888-4999-8aaa-bbbbbbbbbbbb'
 const CUSTOM_PROPERTY_DEFINITIONS_ENDPOINT = 'api/projects/:team_id/custom_property_definitions/'
 const RELATIONSHIP_DEFINITIONS_ENDPOINT = 'api/projects/:team_id/account_relationship_definitions/'
+
+const accountView = {
+    id: ACCOUNT_VIEW_ID,
+    name: 'Account workspace',
+    visibility: 'private',
+    content: {
+        type: 'doc',
+        content: [
+            {
+                type: 'ph-markdown-notebook',
+                attrs: {
+                    nodeId: 'markdown-notebook-v2',
+                    markdown: '<Notes nodeId="notes" />\n\n<Relationships nodeId="relationships" />',
+                },
+            },
+        ],
+    },
+    text_content: 'Notes\nRelationships',
+    version: 1,
+    created_by: 1,
+    last_modified_by: 1,
+    created_at: '2026-05-10T10:00:00Z',
+    updated_at: '2026-05-20T14:30:00Z',
+}
 
 const account = {
     id: ACCOUNT_ID,
     name: 'Example Labs',
-    external_id: 'example_labs_42',
+    external_id: EXTERNAL_ACCOUNT_ID,
     properties: {
         website_domain: 'example.com',
         email_domains: ['example.com'],
@@ -75,8 +103,9 @@ const meta: Meta = {
             FEATURE_FLAGS.CUSTOMER_ANALYTICS,
             FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP,
             FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNT_SCENE,
+            FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNT_VIEWS,
         ],
-        pageUrl: urls.customerAnalyticsAccount(ACCOUNT_ID),
+        pageUrl: urls.customerAnalyticsAccount(ACCOUNT_ID, `view:${ACCOUNT_VIEW_ID}`),
         testOptions: {
             waitForSelector: [
                 '[data-attr="customer-analytics-account-scene"]',
@@ -90,6 +119,10 @@ const meta: Meta = {
         mswDecorator({
             get: {
                 [ACCOUNT_RETRIEVE_ENDPOINT]: account,
+                [ACCOUNT_BY_EXTERNAL_ID_ENDPOINT]: ({ request }) =>
+                    new URL(request.url).searchParams.get('external_id') === EXTERNAL_ACCOUNT_ID
+                        ? account
+                        : [400, null],
                 [ACCOUNT_NOTEBOOKS_ENDPOINT]: notebooks,
                 [ACCOUNT_ICON_ENDPOINT]: () =>
                     new Response(
@@ -97,6 +130,7 @@ const meta: Meta = {
                         { headers: { 'Content-Type': 'image/svg+xml' } }
                     ),
                 [ACCOUNT_SIDEBAR_CONFIG_ENDPOINT]: { pinned_properties: [] },
+                [ACCOUNT_VIEWS_ENDPOINT]: [accountView],
                 [VALUES_ENDPOINT]: [],
                 [ASSIGNMENTS_ENDPOINT]: [],
                 [CUSTOM_PROPERTY_DEFINITIONS_ENDPOINT]: {
@@ -154,6 +188,17 @@ type Story = StoryObj<{}>
 
 export const Default: Story = {
     render: () => <App />,
+}
+
+export const ExternalId: Story = {
+    render: () => <App />,
+    parameters: {
+        pageUrl: urls.customerAnalyticsAccountByExternalId(EXTERNAL_ACCOUNT_ID, 'usage'),
+        testOptions: {
+            waitForSelector: ['[data-attr="customer-analytics-account-scene"]', '.ProfileBubbles'],
+            viewport: { width: 1280, height: 900 },
+        },
+    },
 }
 
 export const Narrow: Story = {

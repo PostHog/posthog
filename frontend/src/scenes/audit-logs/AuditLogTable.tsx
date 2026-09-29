@@ -1,7 +1,9 @@
 import { useState } from 'react'
 
-import { LemonTag, LemonTabs, Tooltip } from '@posthog/lemon-ui'
+import { IconInfo } from '@posthog/icons'
+import { LemonTabs, LemonTag } from '@posthog/lemon-ui'
 
+import { ActivityClientTag } from 'lib/components/ActivityLog/ActivityClientTag'
 import { AGENT_INTENT_TOOLTIP } from 'lib/components/ActivityLog/AgentAttribution'
 import { HumanizedActivityLogItem, humanizeActivity, humanizeScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { parseAgentAttribution } from 'lib/components/ActivityLog/parseAgentAttribution'
@@ -11,7 +13,10 @@ import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { Link } from 'lib/lemon-ui/Link'
 import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { urls } from 'scenes/urls'
+
+import { sandboxChange } from './sandboxChange'
 
 export interface AuditLogTableProps {
     logItems: HumanizedActivityLogItem[]
@@ -19,6 +24,10 @@ export interface AuditLogTableProps {
     /** When provided, renders a Project column resolving each row's team_id via this map. */
     teamsById?: Record<number, string>
 }
+
+const SANDBOX_IP_TOOLTIP = 'This change used a token that PostHog issued for a sandbox task.'
+const SANDBOX_TAG_TOOLTIP =
+    'This change used a token that PostHog issued for a sandbox task. PostHog records this, so it is not self-reported.'
 
 const baseColumns: LemonTableColumns<HumanizedActivityLogItem> = [
     {
@@ -51,10 +60,11 @@ const baseColumns: LemonTableColumns<HumanizedActivityLogItem> = [
                     type={logItem.isSystem ? 'system' : 'person'}
                     size="md"
                 />
-                {logItem.unprocessed?.client === 'mcp' && (
-                    <Tooltip title="This action was performed via the MCP (Model Context Protocol) integration">
-                        <LemonTag type="muted" size="small">
-                            mcp
+                {logItem.unprocessed?.client && <ActivityClientTag client={logItem.unprocessed.client} />}
+                {sandboxChange(logItem)?.needsSandboxTag && (
+                    <Tooltip title={SANDBOX_TAG_TOOLTIP}>
+                        <LemonTag size="small" type="muted">
+                            via sandbox
                         </LemonTag>
                     </Tooltip>
                 )}
@@ -87,12 +97,23 @@ const baseColumns: LemonTableColumns<HumanizedActivityLogItem> = [
     {
         title: 'IP address',
         key: 'ip_address',
-        render: (_, logItem) =>
-            logItem.unprocessed?.ip_address ? (
-                <span className="font-mono text-xs">{logItem.unprocessed.ip_address}</span>
+        render: (_, logItem) => {
+            const ipAddress = logItem.unprocessed?.ip_address
+            if (sandboxChange(logItem)) {
+                return (
+                    <Tooltip title={ipAddress ? `${SANDBOX_IP_TOOLTIP} Request IP: ${ipAddress}` : SANDBOX_IP_TOOLTIP}>
+                        <span className="inline-flex items-center gap-1 text-muted">
+                            — <IconInfo />
+                        </span>
+                    </Tooltip>
+                )
+            }
+            return ipAddress ? (
+                <span className="font-mono text-xs">{ipAddress}</span>
             ) : (
                 <span className="text-muted">—</span>
-            ),
+            )
+        },
         width: '10%',
     },
 ]
@@ -210,7 +231,7 @@ function ExpandedRowContent({ logItem }: { logItem: HumanizedActivityLogItem }):
                             <div className="text-[13px] text-default">{agent.intent}</div>
                         </div>
                     )}
-                    {agent && (
+                    {agent?.taskId && (
                         <div>
                             <div className="text-[11px] font-medium text-muted-alt uppercase tracking-wider mb-1">
                                 Agent task

@@ -25,7 +25,7 @@ Before coding, read:
 Every new source **must** inherit from one (or a combination) of these:
 
 - **`SimpleSource[Config]`** — default for straightforward pull-based APIs where each run fully iterates the endpoint.
-- **`ResumableSource[Config, ResumableData]`** — **preferred for any new API-backed source whose underlying API supports resumption** (cursor/link-header pagination, time windows, offset tokens, or any other deterministic way to pick back up where we left off). If the API gives us a next-page token, a `Link` header, or a stable time filter, use `ResumableSource`. This lets Temporal resume after heartbeat timeouts without restarting from scratch. The manager persists state to Redis (24h TTL).
+- **`ResumableSource[Config, ResumableData]`** — **preferred for any new API-backed source whose underlying API supports resumption** (cursor/link-header pagination, time windows, offset tokens, or any other deterministic way to pick back up where we left off). If the API gives us a next-page token, a `Link` header, or a stable time filter, use `ResumableSource`. This lets Temporal resume after heartbeat timeouts without restarting from scratch. `save_state` stages the cursor in memory; the pipeline commits it to Redis (24h TTL) right after it writes the rows yielded so far.
 - **`WebhookSource[Config]`** — only when the source can push events to us (e.g. Stripe webhook endpoints). Typically combined with `ResumableSource` so the initial backfill is resumable and subsequent deltas come via webhook.
 
 Combine by multiple inheritance when both apply, e.g.:
@@ -405,15 +405,16 @@ url = resume.next_url if resume else initial_url
 
 while True:
     data = fetch_page(url)
-    # yield batch
     next_url = data.get("links", {}).get("next")
+    if next_url:
+        manager.save_state(MyResumeConfig(next_url=next_url))  # stage before the yield it covers
+    # yield batch
     if not next_url:
         break
-    manager.save_state(MyResumeConfig(next_url=next_url))
     url = next_url  # advance before the next fetch, otherwise we loop on the same page
 ```
 
-Save state **after** yielding each batch, not before — so if we crash we re-yield the last batch (merge dedupes on primary key) rather than skipping it.
+Save state **before** yielding the batch it covers. `save_state` only stages the cursor; the pipeline commits it to Redis once that batch is written, so a crash resumes exactly after the last written batch. A source that saves after yielding still works, but a crash re-yields its last batch (merge dedupes on primary key, append does not). A source with nothing yielded yet, such as one persisting an export job id before polling it, stages inside `with manager.committing():`, which commits when the block ends.
 
 ### Webhook source pattern
 
@@ -642,9 +643,9 @@ Requirements and behavior:
 
 - **The parent must be a selectable schema of the same source** — it has to produce its own Delta table.
 - **Soft dependency — the child falls back to the parent API.** Declare the parents by overriding `get_required_parent_schemas` on the source (wire it to `required_parents_from_endpoint_configs(ENDPOINTS, schema_name)`; add explicit entries for custom-iterator endpoints). That override is the only declaration: nothing surfaces the relationship through the API, so don't add a schema-payload field for it while the feature is unvalidated.
-  Nothing in the API constrains the selection either: a child can be enabled without its parent, and a parent can be disabled or deleted while children sync. `_warehouse_parent_reuse_available` in `import_data_activity_sync` decides per run — a parent that is missing, disabled, not yet initially synced, or on any sync type other than merge or full refresh sends that run down the legacy parent-API path, so enabling the flag can never break a schema that syncs today. A parent that is merely mid-sync does not force the fallback, because `resolve_parent_table_ref` pins the read to the parent's last completed snapshot via Delta time travel.
+  Nothing in the API constrains the selection either: a child can be enabled without its parent, and a parent can be disabled or deleted while children sync. `_warehouse_parent_reuse_available` in `import_data_activity_sync` decides per run — a parent that is missing, disabled, not yet initially synced, or on any sync type other than merge or full refresh sends that run down the legacy parent-API path, so opting a child in can never break a schema that syncs today. A parent that is merely mid-sync does not force the fallback, because `resolve_parent_table_ref` pins the read to the parent's last completed snapshot via Delta time travel.
   Never enable a parent as a side effect of enabling a child: parent syncs count toward the customer's billed rows.
-- **Feature-flagged.** The whole path is gated by the `warehouse-fanout-parent-reuse` flag (`is_fanout_warehouse_reuse_enabled`); with the flag off, opted-in endpoints silently keep the legacy parent-API path, so rollback is a flag flip.
+- **Small parents stay on the API.** A parent under `MIN_WAREHOUSE_PARENT_ROWS` (1,000 rows) is not worth opening: the Delta read has a fixed cost of a few seconds, more than paging a small listing, and that cohort measured slower when converted. The gate reads the parent table's `row_count`, so it applies per run without configuration. There is no feature flag any more; rollback is a revert.
 - **Strictly streaming — never materialize the parent table.** The reader scans one projected batch at a time with column projection pushed down to the parquet read. Do not add `to_table`, global sorts, or seen-set dedupe to it — parents can be arbitrarily large, and the whole pipeline exists to avoid full-dataset memory. If a caller's semantics depend on parent order (the API returned sorted rows), rework them into per-row filters over the unordered stream (see Sentry's `issue_tag_values` cutoff handling) instead of sorting.
 - **The usable sync types are an allow-list, not a deny-list.** Only merge and full refresh hold one row per key; append accumulates a row per sync and CDC keeps change history, so streaming either would fan the child out once per duplicate, and dedupe would need unbounded state. A new sync type has to opt in deliberately in `_parent_unusable_reason`.
 - **Values carry Delta physical types, not the API's JSON types.** A timestamp comes back as a datetime rather than an ISO string, a nested object as a dict. Because the API fallback engages per run, projecting such a field through `include_from_parent` makes the child's column type flip between runs and trips the merge's type-drift guards. Only project fields whose physical type matches what the API returned (an id string is safe), or normalize in the caller.
@@ -879,7 +880,7 @@ After changing source fields, re-run `pnpm run generate:source-configs` and `hog
 - `sort_mode="asc"` declared on an API that returns newest-first: the watermark checkpoints to ≈now after the first batch and mid-sync shutdowns lose data ordering guarantees.
 - Endless retries for bad credentials: missing `get_non_retryable_errors`.
 - Source won't connect despite a valid token: `validate_credentials(schema_name=None)` probes every resource's scope instead of just the token, so one missing scope — often on a table the user won't sync — blocks the whole source. Probe only the token at create; report per-table scope via `get_endpoint_permissions`.
-- Resumable state never saved: forgot to call `save_state` after yielding a batch; or saved before yield and a crash causes data loss.
+- Resumable state never saved: forgot to call `save_state`; or called `commit()` on a cursor that covers rows the pipeline has not written yet, which skips them on resume.
 - Webhook rows not landing: schema `is_webhook=False`, or `initial_sync_complete=False`.
 - Dependent resource path `KeyError`: pre-format static path placeholders (see Fan-out).
 - Silent truncation risk: page caps hit without logs/metrics.

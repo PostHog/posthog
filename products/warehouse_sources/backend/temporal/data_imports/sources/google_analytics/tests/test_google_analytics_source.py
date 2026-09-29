@@ -194,7 +194,7 @@ def _http_error(status_code: int) -> requests.HTTPError:
         (401, "rejected the credentials"),
         (403, "rejected the credentials"),
         (404, "was not found"),
-        (500, "Failed to read Google Analytics property metadata"),
+        (500, "couldn't reach Google Analytics"),
     ],
 )
 def test_validate_credentials_maps_http_errors(status_code, expected_substring):
@@ -234,14 +234,36 @@ def test_validate_credentials_maps_token_refresh_error():
 
 
 def test_validate_credentials_handles_session_failure():
+    # The credential-load exception can carry an OAuth token or an HTML error body, so the
+    # setup form gets a reconnect prompt and none of the raw text.
     with mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics.source.google_analytics_session",
-        side_effect=Exception("no integration"),
+        side_effect=Exception("token ya29.SECRET rejected"),
     ):
         ok, message = GoogleAnalyticsSource().validate_credentials(_config(), team_id=1)
 
     assert ok is False
-    assert "Could not load Google Analytics credentials" in (message or "")
+    assert "Reconnect your Google account" in (message or "")
+    assert "ya29.SECRET" not in (message or "")
+
+
+def test_validate_credentials_hides_unexpected_metadata_failure_detail():
+    # An unexpected metadata failure used to reach the setup form as `str(e)`, which for a
+    # requests error is the full URL and response body.
+    with (
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics.source.google_analytics_session"
+        ),
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics.source.get_property_metadata",
+            side_effect=Exception("https://analyticsdata.googleapis.com/v1beta/properties/1?key=SECRET"),
+        ),
+    ):
+        ok, message = GoogleAnalyticsSource().validate_credentials(_config(), team_id=1)
+
+    assert ok is False
+    assert "couldn't reach Google Analytics" in (message or "")
+    assert "googleapis.com" not in (message or "")
 
 
 def test_validate_credentials_handles_missing_integration():
@@ -282,6 +304,22 @@ def test_non_retryable_errors_matches_revoked_refresh_token():
     observed_error = str(RefreshError("invalid_grant: Bad Request", {"error": "invalid_grant"}))
     non_retryable_errors = GoogleAnalyticsSource().get_non_retryable_errors()
     assert error_message_matches(observed_error, non_retryable_errors)
+
+
+@pytest.mark.parametrize(
+    "error_msg",
+    [
+        "400 Client Error: Bad Request for url: https://analyticsdata.googleapis.com/v1beta/properties/123456789:runReport",
+        "401 Client Error: Unauthorized for url: https://analyticsdata.googleapis.com/v1beta/properties/123456789:runReport",
+        "403 Client Error: Forbidden for url: https://analyticsdata.googleapis.com/v1beta/properties/123456789:runReport",
+    ],
+)
+def test_non_retryable_errors_cover_runreport_client_errors(error_msg):
+    # `_run_report` raises `response.raise_for_status()` verbatim for any runReport response
+    # that isn't quota exhaustion or a 5xx (e.g. GA4 rejecting an invalid custom report
+    # dimension/metric name with 400), so retrying replays the identical request forever.
+    non_retryable_errors = GoogleAnalyticsSource().get_non_retryable_errors()
+    assert error_message_matches(error_msg, non_retryable_errors)
 
 
 def test_retryable_errors_cover_exhausted_quota_retries():

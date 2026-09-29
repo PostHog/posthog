@@ -13,7 +13,7 @@ from django.http import HttpRequest
 from django.utils import timezone
 
 from posthog.ingress.contracts import ProviderSpec, WebhookConsumer, WebhookDelivery
-from posthog.ingress.providers import WebhookProvider
+from posthog.ingress.providers import WebhookProvider, require_known_app
 from posthog.ingress.verify.schemes import HmacSha256, SignatureScheme
 from posthog.models.instance_setting import get_instance_setting
 
@@ -72,12 +72,10 @@ class GitHubProvider(WebhookProvider):
     provider = "github"
 
     def __init__(self, app: str) -> None:
-        secret_getter = _SECRET_GETTERS.get(app)
-        if secret_getter is None:
-            raise ValueError(f"Unknown GitHub app {app!r}, expected one of {sorted(_SECRET_GETTERS)}")
+        require_known_app(self.provider, app, SPECS)
         self.app = app
         self._scheme = HmacSha256(
-            secret_getter=secret_getter,
+            secret_getter=_SECRET_GETTERS[app],
             signature_header="X-Hub-Signature-256",
             prefix="sha256=",
         )
@@ -85,7 +83,7 @@ class GitHubProvider(WebhookProvider):
     def scheme(self) -> SignatureScheme:
         return self._scheme
 
-    def deliveries(self, request: HttpRequest, payload: Any) -> Sequence[WebhookDelivery]:
+    def deliveries(self, request: HttpRequest, payload: Any, facts: Mapping[str, Any]) -> Sequence[WebhookDelivery]:
         if not isinstance(payload, Mapping):
             return ()
         return (

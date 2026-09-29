@@ -153,6 +153,60 @@ class TestContextLayerAPI(APIBaseTest):
         assert "&#91;&#91;unfinished notes." in page["content"]
         assert "Some wiki-link brackets in this imported context were encoded" in page["content"]
 
+    @parameterized.expand(
+        [
+            ("lint clean", "summary: Tracks weekly activation.", "    name: Activation", True),
+            ("invalid goal", "summary: Tracks weekly activation.", "    period: yearly", False),
+            ("escaping wikilink", "summary: See [[../secrets]]", "    name: Activation", False),
+            ("unclosed wikilink", "summary: See [[unfinished", "    name: Activation", False),
+            ("spaced summary key", "summary : Tracks weekly activation.", "    name: Activation", False),
+        ]
+    )
+    def test_enable_lifts_legacy_context_frontmatter_only_when_lint_clean(
+        self, _flag: MagicMock, _name: str, summary_line: str, goal_line: str, lifted: bool
+    ) -> None:
+        imported = (
+            f"---\n{summary_line}\nstatus: active\nteam_id: 999\n"
+            "channel_id: 00000000-0000-0000-0000-000000000000\nsources: space-setup\nautonomy: propose\n"
+            f"goals:\n  - id: primary\n{goal_line}\n---\n# Goal: Activation\n\nBody text."
+        )
+        with team_scope(self.team.id):
+            channel = tasks_facade.resolve_channel(self.team.id, self.user.id, name="goal-space", star=False)
+            assert channel is not None
+            tasks_facade.publish_channel_instructions(
+                channel.id, self.team.id, self.user.id, content=imported, base_version=0
+            )
+
+        self._enable()
+
+        page = self.client.get(
+            f"{self.base_url}/pages/", {"path": f"projects/{self.team.id}/spaces/goal-space.md"}
+        ).json()
+        frontmatter, body = page["content"].removeprefix("---\n").split("\n---\n", 1)
+        identity = [f"team_id: {self.team.id}", f"channel_id: {channel.id}"]
+        if lifted:
+            assert frontmatter.splitlines() == [
+                *identity,
+                "summary: Tracks weekly activation.",
+                "status: active",
+                "sources: space-setup",
+                "autonomy: propose",
+                "goals:",
+                "  - id: primary",
+                goal_line,
+            ]
+            assert "\n---\n" not in body
+            assert "# Goal: Activation\n\nBody text." in body
+        else:
+            assert frontmatter.splitlines() == [
+                *identity,
+                "summary: Context imported from goal-space.",
+                "status: active",
+                "sources: channel-instructions-import",
+            ]
+            assert "sources: space-setup\nautonomy: propose" in body
+            assert "# Goal: Activation\n\nBody text." in body
+
     def test_enable_scaffolds_space_page_without_legacy_context(self, _flag) -> None:
         with team_scope(self.team.id):
             channel = tasks_facade.resolve_channel(self.team.id, self.user.id, name="empty-space", star=False)
@@ -737,6 +791,27 @@ class TestContextLayerAPI(APIBaseTest):
         )
         assert read.status_code == 200, read.content
 
+        content = read.json()["content"]
+        params = {"path": f"projects/{self.team.id}/spaces/growth.md", "limit": "23"}
+        chunks: list[str] = []
+        while True:
+            response = self.client.get(f"{self.agent_url}/pages/", params, HTTP_AUTHORIZATION=f"Bearer {token}")
+            assert response.status_code == 200, response.content
+            page = response.json()
+            chunks.append(page["content"])
+            assert len(page["content"]) <= 23
+            if page["next_offset"] is None:
+                assert page["complete"] is True
+                break
+            params.update(offset=page["next_offset"], head_sha=page["head_sha"])
+        assert "".join(chunks) == content
+        stale = self.client.get(
+            f"{self.agent_url}/pages/",
+            {**params, "head_sha": "0" * 40},
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        assert stale.status_code == 409, stale.content
+
         updated = self.client.put(
             f"{self.agent_url}/pages/",
             {
@@ -807,7 +882,7 @@ class TestContextLayerAPI(APIBaseTest):
         task = apps.get_model("tasks", "Task").objects.create(
             team=self.team, created_by=self.user, title="Wiki maintenance", internal=True
         )
-        apps.get_model("tasks", "TaskRun").objects.create(
+        run = apps.get_model("tasks", "TaskRun").objects.create(
             task=task,
             team=self.team,
             status="in_progress",
@@ -832,6 +907,7 @@ class TestContextLayerAPI(APIBaseTest):
 
         with patch.object(views, "RUN_COMMITS_PER_DAY_CAP", 1):
             assert land("areas/first.md").status_code == 200
+            assert dreams.list_dream_runs(self.organization.id).dreams[0].task_run_id == str(run.id)
             capped = land("areas/second.md")
         assert capped.status_code == 429
 
@@ -1110,6 +1186,62 @@ class TestContextLayerAPI(APIBaseTest):
 
     def test_dreams_404_before_enablement(self, _flag) -> None:
         assert self.client.get(f"{self.base_url}/dreams/").status_code == 404
+
+    @parameterized.expand(["completed", "failed", "cancelled"])
+    @override_settings(SITE_URL="https://example.com")
+    def test_dreams_shows_a_finished_run_without_a_published_update(self, _flag: MagicMock, status: str) -> None:
+        self._enable()
+        task = apps.get_model("tasks", "Task").objects.create(
+            team=self.team, created_by=self.user, title="Wiki maintenance", internal=True
+        )
+        latest = apps.get_model("tasks", "TaskRun").objects.create(
+            task=task,
+            team=self.team,
+            status=status,
+            environment="cloud",
+            state={"ai_stage": dreams.DREAM_AI_STAGE},
+        )
+        branch = "dream/2026-08-18"
+        views.facade.land_dream_branch(
+            self.organization.id,
+            self._bundle_with_edit("areas/dreamt.md", _page("Dreamt"), branch),
+            branch=branch,
+            task_run_id=uuid4(),
+        )
+        active = apps.get_model("tasks", "TaskRun").objects.create(
+            task=task,
+            team=self.team,
+            status="in_progress",
+            environment="cloud",
+            state={"ai_stage": dreams.DREAM_AI_STAGE},
+        )
+
+        for _ in range(2):
+            response = self.client.get(f"{self.base_url}/dreams/")
+            assert response.status_code == 200, response.content
+            assert response.json()["unpublished_run"] == {
+                "task_url": f"https://example.com/project/{self.team.id}/tasks/{task.id}",
+                "run_status": status,
+                "started_at": latest.created_at.isoformat().replace("+00:00", "Z"),
+            }
+            assert response.json()["active_run"] == {
+                "run_status": "in_progress",
+                "started_at": active.created_at.isoformat().replace("+00:00", "Z"),
+            }
+
+        branch = "dream/2026-08-19"
+        views.facade.land_dream_branch(
+            self.organization.id,
+            self._bundle_with_edit("areas/published.md", _page("Published"), branch),
+            branch=branch,
+            summary="Recorded a context update.",
+            task_run_id=latest.id,
+        )
+        for _ in range(2):
+            assert self.client.get(f"{self.base_url}/dreams/").json()["unpublished_run"] is None
+        assert (
+            self.client.get(f"{self.base_url}/dreams/").json()["dreams"][0]["summary"] == "Recorded a context update."
+        )
 
     def test_dream_returns_the_runs_per_file_patches(self, _flag) -> None:
         self._enable()

@@ -15,9 +15,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.azure_devo
     _UNREACHABLE_MESSAGE,
     AZURE_DEVOPS_VERSION_7_2,
     AZURE_DEVOPS_VERSION_LEGACY,
+    CLASSIFICATION_NODE_DEPTH,
     TEST_RUN_WINDOW,
     AzureDevOpsAuthError,
     AzureDevOpsResumeConfig,
+    _flatten_classification_nodes,
     _flatten_revision,
     _format_datetime,
     _last_updated_windows,
@@ -613,6 +615,257 @@ class TestFanOutEndpoints:
         assert urlparse(mock_session.return_value.get.call_args_list[2].args[0]).path == (
             "/myorg/_apis/projects/proj-guid/teams/team-1/members"
         )
+
+
+class TestPipelineEndpoints:
+    PROJECTS = {"value": [{"id": "proj-guid", "name": "Alpha"}]}
+
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.azure_devops.make_tracked_session"
+    )
+    def test_pipelines_paginate_via_header_token_and_carry_the_project(self, mock_session):
+        mock_session.return_value.get.side_effect = [
+            _response(self.PROJECTS),
+            _response({"value": [{"id": 3, "name": "deploy"}]}, continuation_header="tok1"),
+            _response({"value": [{"id": 4, "name": "release"}]}),
+        ]
+
+        batches = list(
+            get_rows("myorg", "pat", "pipelines", mock.MagicMock(), _make_manager(), AZURE_DEVOPS_VERSION_7_2)
+        )
+
+        # project_id is half the composite primary key, so it must be present.
+        assert [(row["id"], row["project_id"]) for batch in batches for row in batch] == [
+            (3, "proj-guid"),
+            (4, "proj-guid"),
+        ]
+        first, second = (call.args[0] for call in mock_session.return_value.get.call_args_list[1:])
+        assert urlparse(first).path == "/myorg/proj-guid/_apis/pipelines"
+        assert parse_qs(urlparse(second).query)["continuationToken"] == ["tok1"]
+
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.azure_devops.make_tracked_session"
+    )
+    def test_pipeline_runs_fan_out_per_pipeline_and_carry_it(self, mock_session):
+        mock_session.return_value.get.side_effect = [
+            _response(self.PROJECTS),
+            _response({"value": [{"id": 3, "name": "deploy"}]}),
+            _response({"value": [{"id": 91, "state": "completed", "createdDate": "2024-01-02T03:04:05Z"}]}),
+        ]
+
+        batches = list(
+            get_rows("myorg", "pat", "pipeline_runs", mock.MagicMock(), _make_manager(), AZURE_DEVOPS_VERSION_7_2)
+        )
+
+        row = batches[0][0]
+        assert (row["id"], row["project_id"], row["pipeline_id"], row["pipeline_name"]) == (
+            91,
+            "proj-guid",
+            3,
+            "deploy",
+        )
+        assert urlparse(mock_session.return_value.get.call_args_list[2].args[0]).path == (
+            "/myorg/proj-guid/_apis/pipelines/3/runs"
+        )
+
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.azure_devops.make_tracked_session"
+    )
+    def test_pipeline_runs_follow_a_continuation_token_without_asking_for_a_page_size(self, mock_session):
+        # The listing documents no paging parameters. Reading one response would cap the table
+        # at whatever the vendor returns in it, and sending $top could shorten that response.
+        mock_session.return_value.get.side_effect = [
+            _response(self.PROJECTS),
+            _response({"value": [{"id": 3, "name": "deploy"}]}),
+            _response({"value": [{"id": 91}]}, continuation_header="tok1"),
+            _response({"value": [{"id": 92}]}),
+        ]
+
+        batches = list(
+            get_rows("myorg", "pat", "pipeline_runs", mock.MagicMock(), _make_manager(), AZURE_DEVOPS_VERSION_7_2)
+        )
+
+        assert [row["id"] for batch in batches for row in batch] == [91, 92]
+        first, second = (
+            parse_qs(urlparse(call.args[0]).query) for call in mock_session.return_value.get.call_args_list[2:]
+        )
+        assert "$top" not in first
+        assert second["continuationToken"] == ["tok1"]
+
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.azure_devops.make_tracked_session"
+    )
+    def test_pipeline_runs_skip_a_pipeline_without_an_id(self, mock_session):
+        # Requesting one anyway would build a path with a literal {pipelineId} placeholder.
+        mock_session.return_value.get.side_effect = [
+            _response(self.PROJECTS),
+            _response({"value": [{"name": "deploy"}]}),
+        ]
+
+        batches = list(
+            get_rows("myorg", "pat", "pipeline_runs", mock.MagicMock(), _make_manager(), AZURE_DEVOPS_VERSION_7_2)
+        )
+
+        assert batches == []
+        assert len(mock_session.return_value.get.call_args_list) == 2
+
+
+class TestWorkItemLookupEndpoints:
+    PROJECTS = {"value": [{"id": "proj-guid", "name": "Alpha"}]}
+    TYPES = {"value": [{"name": "User Story", "referenceName": "Microsoft.VSTS.WorkItemTypes.UserStory"}]}
+
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.azure_devops.make_tracked_session"
+    )
+    def test_work_item_types_carry_the_project_reference(self, mock_session):
+        mock_session.return_value.get.side_effect = [_response(self.PROJECTS), _response(self.TYPES)]
+
+        batches = list(
+            get_rows("myorg", "pat", "work_item_types", mock.MagicMock(), _make_manager(), AZURE_DEVOPS_VERSION_7_2)
+        )
+
+        row = batches[0][0]
+        # project_id is half the composite primary key, so it must be present.
+        assert (row["referenceName"], row["project_id"], row["project_name"]) == (
+            "Microsoft.VSTS.WorkItemTypes.UserStory",
+            "proj-guid",
+            "Alpha",
+        )
+        assert urlparse(mock_session.return_value.get.call_args_list[1].args[0]).path == (
+            "/myorg/proj-guid/_apis/wit/workitemtypes"
+        )
+
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.azure_devops.make_tracked_session"
+    )
+    def test_work_item_type_states_fan_out_over_types_and_encode_the_type_name(self, mock_session):
+        mock_session.return_value.get.side_effect = [
+            _response(self.PROJECTS),
+            _response(self.TYPES),
+            _response({"value": [{"name": "Active", "color": "007acc", "category": "InProgress"}]}),
+        ]
+
+        batches = list(
+            get_rows(
+                "myorg", "pat", "work_item_type_states", mock.MagicMock(), _make_manager(), AZURE_DEVOPS_VERSION_7_2
+            )
+        )
+
+        row = batches[0][0]
+        # A state row carries only name/colour/category, so the rest of the primary key
+        # has to be injected from the parent type.
+        assert (row["name"], row["category"], row["project_id"], row["work_item_type"]) == (
+            "Active",
+            "InProgress",
+            "proj-guid",
+            "User Story",
+        )
+        assert row["work_item_type_reference_name"] == "Microsoft.VSTS.WorkItemTypes.UserStory"
+        # Type names contain spaces, which must be percent-encoded into the path.
+        assert urlparse(mock_session.return_value.get.call_args_list[2].args[0]).path == (
+            "/myorg/proj-guid/_apis/wit/workitemtypes/User%20Story/states"
+        )
+
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.azure_devops.make_tracked_session"
+    )
+    def test_classification_nodes_request_the_full_tree_depth(self, mock_session):
+        mock_session.return_value.get.side_effect = [_response(self.PROJECTS), _response({"value": []})]
+
+        list(
+            get_rows(
+                "myorg",
+                "pat",
+                "work_item_classification_nodes",
+                mock.MagicMock(),
+                _make_manager(),
+                AZURE_DEVOPS_VERSION_7_2,
+            )
+        )
+
+        parsed = urlparse(mock_session.return_value.get.call_args_list[1].args[0])
+        assert parsed.path == "/myorg/proj-guid/_apis/wit/classificationnodes"
+        # Without $depth the API answers with the two roots and no children at all.
+        assert parse_qs(parsed.query)["$depth"] == [str(CLASSIFICATION_NODE_DEPTH)]
+
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.azure_devops.make_tracked_session"
+    )
+    def test_work_iterations_fan_out_over_teams(self, mock_session):
+        mock_session.return_value.get.side_effect = [
+            _response(self.PROJECTS),
+            _response({"value": [{"id": "team-1", "name": "QA"}]}),
+            _response({"value": [{"id": "iter-guid", "name": "Sprint 1", "path": "Alpha\\Sprint 1"}]}),
+            _response({"value": []}),
+        ]
+
+        batches = list(
+            get_rows("myorg", "pat", "work_iterations", mock.MagicMock(), _make_manager(), AZURE_DEVOPS_VERSION_7_2)
+        )
+
+        row = batches[0][0]
+        # team_id is half the composite primary key: teams share one project iteration tree,
+        # so the same iteration id comes back for every team subscribed to it.
+        assert (row["id"], row["team_id"], row["team_name"], row["project_id"]) == (
+            "iter-guid",
+            "team-1",
+            "QA",
+            "proj-guid",
+        )
+        assert urlparse(mock_session.return_value.get.call_args_list[2].args[0]).path == (
+            "/myorg/proj-guid/team-1/_apis/work/teamsettings/iterations"
+        )
+
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.azure_devops.make_tracked_session"
+    )
+    def test_pull_request_work_items_carry_their_parent_identifiers(self, mock_session):
+        mock_session.return_value.get.side_effect = [
+            _response(self.PROJECTS),
+            _response({"value": [{"pullRequestId": 22, "repository": {"id": "repo-1"}}]}),
+            _response({"value": [{"id": "314", "url": "https://dev.azure.com/myorg/_apis/wit/workItems/314"}]}),
+            _response({"value": []}),
+        ]
+
+        batches = list(
+            get_rows(
+                "myorg", "pat", "pull_request_work_items", mock.MagicMock(), _make_manager(), AZURE_DEVOPS_VERSION_7_2
+            )
+        )
+
+        row = batches[0][0]
+        # The link row is only an id and a URL, so both parent identifiers must be injected.
+        assert (row["id"], row["repository_id"], row["pull_request_id"]) == ("314", "repo-1", 22)
+        assert urlparse(mock_session.return_value.get.call_args_list[2].args[0]).path == (
+            "/myorg/Alpha/_apis/git/repositories/repo-1/pullRequests/22/workitems"
+        )
+
+
+class TestFlattenClassificationNodes:
+    PROJECT = {"id": "proj-guid", "name": "Alpha"}
+
+    def test_flattens_the_tree_and_drops_the_nested_children(self):
+        root = {
+            "id": 1,
+            "name": "Alpha",
+            "structureType": "area",
+            "hasChildren": True,
+            "children": [{"id": 2, "name": "Web", "structureType": "area", "hasChildren": False}],
+        }
+
+        rows = _flatten_classification_nodes(root, self.PROJECT, mock.MagicMock())
+
+        assert sorted((row["id"], row["parent_id"]) for row in rows) == [(1, None), (2, 1)]
+        # Keeping `children` would repeat every descendant inside each of its ancestors.
+        assert all("children" not in row for row in rows)
+        assert {row["project_id"] for row in rows} == {"proj-guid"}
+
+    def test_warns_when_the_tree_is_cut_off_at_the_requested_depth(self):
+        logger = mock.MagicMock()
+
+        _flatten_classification_nodes({"id": 1, "hasChildren": True}, self.PROJECT, logger)
+
+        logger.warning.assert_called_once()
 
 
 class TestLastUpdatedWindows:

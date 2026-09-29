@@ -49,9 +49,14 @@ class TestFreshdeskSource:
         [
             ("tickets", True),
             ("contacts", True),
+            # Narrowed through the tickets parent it fans out from, not its own filter.
+            ("conversations", True),
             ("companies", False),
             ("agents", False),
             ("satisfaction_ratings", False),
+            ("contact_fields", False),
+            ("canned_responses", False),
+            ("solution_articles", False),
         ],
     )
     def test_schema_incremental_support(self, name: str, supports_incremental: bool) -> None:
