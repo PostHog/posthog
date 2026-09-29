@@ -147,20 +147,20 @@ That lane paused each such table's schedule while it streamed, held a snapshotti
 Capture converts that state before every read (`cdc/legacy_conversion.py`), so nothing needs doing by hand:
 
 - **A source still marked legacy** has every CDC table's buffer emptied, since it holds only copies of changes the legacy lane already delivered.
+  Each table is stamped `cdc_legacy_converted_at`, because it is current as of the conversion: without the stamp, its first sync would find no run that ever listed the buffer, take the buffer for expired, and re-snapshot the table (see "Buffer expiry — no partial recovery").
   Each syncing table's schedule is rebuilt unpaused, because it is now the table's consumer.
+  A table set slower than its source's fastest table is sped up to it (`cdc_legacy_table_frequency_raised`), because that is how often the legacy lane delivered its changes.
   The source is then marked `cdc_ingest_mode: buffered`, last, so a failure repeats the whole conversion on the next run.
   Legacy batches still in the load queue land first, because the consumer stands down while any are in flight.
   Until then, a scheduled run of one of its tables, such as one a sync frequency change unpaused, no-ops the tick (`cdc_buffered_waiting_for_legacy_conversion`), because reading those copies would load them a second time.
-- **A table with deferred runs** snapshots again in the buffer.
-  Nothing merges deferred runs anymore, so its schedule is paused and its running sync cancelled.
-  A cancel only asks the workflow to stop, and the loader can still apply batches the sync queued, so the reset waits for a later capture run while either is in progress (`cdc_legacy_snapshot_restart_waiting`).
-  Capture leaves the table out until then, because the new snapshot reads the table after the reset.
-  Then the table is reset, its buffer emptied, and its schedule rebuilt to start the new snapshot straight away.
-  A failed or skipped rebuild keeps `cdc_schedule_resume_pending` on the table, and the next capture run retries it, so the snapshot starts once a deliberate hold below lifts.
+- **A table with deferred runs** snapshots again in the buffer, through the same pending reset a resync hands to capture (`cdc_legacy_deferred_runs_handed_to_reset`).
+  Nothing merges deferred runs anymore, so the reset pauses the table's schedule and cancels its running sync, and waits while either can still hand over (`cdc_reset_waits_for_running_sync`).
+  Then it resets the table, drops the deferred runs, empties its buffer, and starts the new snapshot.
+  Capture gives the table no buffered snapshot of its own before that, because the old sync could hand over into it without the deferred changes.
 - **A job row a legacy capture run left Running** is failed once it is 30 minutes old and has no batches in the queue.
 
-A rebuilt schedule is skipped where the pause is deliberate: the schema's status is `Paused`, an admin-triggered run holds it, the schema is halted and waits for Repair CDC, or it has no sync frequency.
-Every step logs (`cdc_legacy_source_converted`, `cdc_legacy_snapshot_restarted_in_buffer`, `cdc_stranded_capture_jobs_closed`); once none of them appears across the fleet, the module can go.
+A rebuilt schedule is skipped where the pause is deliberate: the schema's status is `Paused`, an admin-triggered run holds it, the schema is halted and waits for Repair CDC, a pending reset holds it, or it has no sync frequency.
+Every step logs (`cdc_legacy_source_converted`, `cdc_legacy_deferred_runs_handed_to_reset`, `cdc_stranded_capture_jobs_closed`); once none of them appears across the fleet, the module can go.
 
 A source whose slot is gone does not capture at all, so it converts only after Repair CDC, which already resets every table and marks the source buffered.
 

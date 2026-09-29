@@ -520,11 +520,11 @@ class CDCExtractActivity:
                 # No lane writes this table mode, so the buffer could never deliver its changes.
                 self._schema_log(schema).warning("cdc_table_mode_not_captured", cdc_table_mode=schema.cdc_table_mode)
                 continue
-            if (schema.sync_type_config or {}).get("cdc_deferred_runs"):
-                # Conversion restarts this snapshot once the old sync stops, and the new one re-reads the table.
-                # Starting it in the buffer now would let the old sync hand over without its deferred changes.
-                continue
-            if snapshot_can_start_in_buffer(schema):
+            # A table with deferred runs gets no buffered snapshot here: its old sync could still hand over
+            # into that buffer without its deferred changes. The reset the conversion staged restarts the
+            # snapshot instead, and holds the table out of capture until the old sync stops. Once that
+            # reset has run, which can be before this read, the table's changes belong in the buffer.
+            if snapshot_can_start_in_buffer(schema) and not (schema.sync_type_config or {}).get("cdc_deferred_runs"):
                 self._start_snapshot_in_buffer(schema)
             self._buffered_table_names.add(schema.name)
         self.log.info("cdc_buffered_ingress_active", buffered=sorted(self._buffered_table_names))
