@@ -1,5 +1,5 @@
 import { makeSpan } from './__mocks__/span'
-import { buildAiEventSpans, TraceAiEvent } from './aiEventSpans'
+import { buildAiEventSpans, traceBounds, TraceAiEvent } from './aiEventSpans'
 import type { Span } from './types'
 
 const TRACE_ID = '4BF92F3577B34DA6A3CE929D0E0E4736'
@@ -49,7 +49,7 @@ const TOOL = span({
 })
 const SPANS = [ROOT, TURN, TOOL]
 
-describe('buildAiEventSpans', () => {
+describe('aiEventSpans', () => {
     // A wrong end or a wrong parent puts the row in the wrong place on the waterfall.
     it('runs the row a latency from its start and parents it to the narrowest containing span', () => {
         const [result] = buildAiEventSpans([aiEvent({ uuid: 'e1', started_at: '2026-06-02T08:00:03.000Z' })], SPANS)
@@ -143,5 +143,22 @@ describe('buildAiEventSpans', () => {
 
         expect(second[0].parent_span_id).toBe('TURN')
         expect(buildAiEventSpans([aiEvent({ uuid: 'e3', started_at: '2026-06-02T08:00:03.000Z' })], [])).toEqual([])
+    })
+
+    // The drawer renders these bounds, and dayjs(NaN).toISOString() throws.
+    it.each([
+        ['no spans', [], { traceStart: null, traceEnd: null }],
+        [
+            'a span with a bad timestamp',
+            [ROOT, span({ span_id: 'BAD', timestamp: 'not a date', duration_nano: 1e9 })],
+            { traceStart: '2026-06-02T08:00:00.000Z', traceEnd: '2026-06-02T08:01:00.000Z' },
+        ],
+        [
+            'only spans with bad timestamps',
+            [span({ span_id: 'BAD', timestamp: 'not a date', duration_nano: 1e9 })],
+            { traceStart: null, traceEnd: null },
+        ],
+    ])('bounds the trace with %s', (_, spans, expected) => {
+        expect(traceBounds(spans)).toEqual(expected)
     })
 })

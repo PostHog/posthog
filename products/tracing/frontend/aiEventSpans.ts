@@ -32,15 +32,19 @@ function spanInterval(span: Span): Interval {
 
 /** The earliest start and latest end of the loaded spans, in ISO 8601, or nulls with no spans. */
 export function traceBounds(spans: Span[]): { traceStart: string | null; traceEnd: string | null } {
-    if (spans.length === 0) {
-        return { traceStart: null, traceEnd: null }
-    }
     let startMs = Number.POSITIVE_INFINITY
     let endMs = Number.NEGATIVE_INFINITY
     for (const span of spans) {
         const interval = spanInterval(span)
+        // dayjs(NaN).toISOString() throws, and this runs during render
+        if (!Number.isFinite(interval.startMs) || !Number.isFinite(interval.endMs)) {
+            continue
+        }
         startMs = Math.min(startMs, interval.startMs)
         endMs = Math.max(endMs, interval.endMs)
+    }
+    if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) {
+        return { traceStart: null, traceEnd: null }
     }
     return { traceStart: dayjs(startMs).toISOString(), traceEnd: dayjs(endMs).toISOString() }
 }
