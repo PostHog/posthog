@@ -128,6 +128,27 @@ const SOURCES = {
     ],
 }
 
+// `loadAppMetricsTimeSeries` reads each row as [labels, breakdown, values], so the destination
+// chart needs the raw HogQL shape rather than the parsed one.
+const DAYS = ['2026-09-22', '2026-09-23', '2026-09-24', '2026-09-25', '2026-09-26', '2026-09-27', '2026-09-28']
+
+const ROWS_QUERY = {
+    results: [
+        [DAYS, 'dest-1', [120000, 98000, 141000, 132000, 87000, 155000, 149000]],
+        [DAYS, 'dest-2', [41000, 38000, 52000, 47000, 12000, 61000, 58000]],
+        // A schema-keyed row. `rows_for` emits one per run and it must not become a series.
+        [DAYS, '019df4a8-f218-0000-3c14-14195257f2fb', [161000, 136000, 193000, 179000, 99000, 216000, 207000]],
+    ],
+}
+
+const DESTINATIONS = {
+    count: 2,
+    results: [
+        { id: 'dest-1', name: 'PostHog warehouse', type: 'PostHogWarehouse' },
+        { id: 'dest-2', name: 'Analytics Postgres', type: 'Postgres' },
+    ],
+}
+
 function mocks(health: Record<string, unknown>, runs: Record<string, unknown>): ReturnType<typeof mswDecorator> {
     return mswDecorator({
         get: {
@@ -137,7 +158,10 @@ function mocks(health: Record<string, unknown>, runs: Record<string, unknown>): 
             '/api/projects/:team_id/data_warehouse/completed_activity': runs,
             '/api/projects/:team_id/external_data_sources': SOURCES,
             '/api/projects/:team_id/external_data_sources/wizard': {},
-            '/api/projects/:team_id/external_data_destinations': { count: 0, results: [] },
+            '/api/projects/:team_id/external_data_destinations': DESTINATIONS,
+        },
+        post: {
+            '/api/projects/:team_id/query/:query_kind/': ROWS_QUERY,
         },
     })
 }

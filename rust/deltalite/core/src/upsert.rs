@@ -255,6 +255,11 @@ pub struct UpsertStats {
     /// (initial refresh, conflict-retry refreshes, post-commit refresh). Set by
     /// [`crate::handle::TableHandle::upsert`]; 0 when the core `upsert` runs directly.
     pub open_ms: u64,
+    /// Wall-clock ms of the full snapshot load that opened the handle. Reported on the
+    /// first upsert through a [`crate::handle::TableHandle`] and 0 on every later one,
+    /// so summing it over a handle's upserts gives the open cost exactly once; 0 when
+    /// the core `upsert` runs directly.
+    pub initial_open_ms: u64,
     /// Wall-clock ms spent importing the caller's source data into Arrow batches. Set
     /// by the language binding that owns the import; 0 when unset.
     pub ingest_ms: u64,
