@@ -528,6 +528,10 @@ class TaskRunDetailSerializer(DataclassSerializer):
         allow_null=True,
         help_text="Latest summary for this task, including a summary inherited from an earlier run.",
     )
+    task_tags = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Latest slug tags for this task, including tags inherited from an earlier run.",
+    )
 
     class Meta:
         dataclass = TaskRunDetailDTO
@@ -546,6 +550,7 @@ class TaskRunDetailSerializer(DataclassSerializer):
             "error_message",
             "output",
             "task_summary",
+            "task_tags",
             "state",
             "artifacts",
             "created_at",
@@ -953,6 +958,8 @@ class TaskWriteSerializer(serializers.Serializer):
             tasks_facade.TaskOriginProduct.TASK_ANALYSIS,
             # Maps to the mintable `slack_app` gateway product. Only the Slack app's server flows set it.
             tasks_facade.TaskOriginProduct.SLACK,
+            # Internal business-knowledge sandbox runs. Only that product's sandbox endpoint sets it.
+            tasks_facade.TaskOriginProduct.BUSINESS_KNOWLEDGE,
         }
         if value in reserved_origins:
             raise serializers.ValidationError(f"origin_product '{value}' is reserved for server-created tasks")
@@ -1200,6 +1207,21 @@ class TaskRunSetSummaryRequestSerializer(serializers.Serializer):
         allow_blank=False,
         trim_whitespace=True,
         help_text="Complete running summary that replaces the prior summary.",
+    )
+    tags = serializers.ListField(
+        child=serializers.RegexField(
+            # Python's `$` also matches before a final newline; `(?!\n)` rejects it, as JavaScript does.
+            regex=r"^[a-z0-9]+(?:-[a-z0-9]+)*$(?!\n)",
+            max_length=tasks_facade.TASK_RUN_TAG_MAX_CHARS,
+            trim_whitespace=False,
+            help_text="A lowercase kebab-case slug, for example `feature-flags` or `bug-fix`.",
+        ),
+        required=False,
+        max_length=tasks_facade.TASK_RUN_TAGS_MAX_COUNT,
+        help_text=(
+            "Complete set of slug tags that replaces the prior tags. The agent chooses the tags. "
+            "Omit the field to keep the current tags. Send an empty list to remove them."
+        ),
     )
 
 

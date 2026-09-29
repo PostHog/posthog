@@ -12,8 +12,9 @@ from django.conf import settings
 
 from posthog.ph_client import ScopedCapture, ph_scoped_capture
 
-from products.signals.backend.artefact_schemas import RankingScore
+from products.signals.backend.artefact_schemas import RankingModelResult, RankingScore
 from products.signals.backend.models import SignalActorKind, SignalReport, SignalReportArtefact
+from products.signals.backend.ranking.model_contract import classification_thresholds, readable_head_names
 
 REPORT_SCORED_EVENT = "inbox_ranking_report_scored"
 DISTINCT_ID = "inbox_ranking_scoring"
@@ -68,6 +69,27 @@ def persist_scores(
                         if score.embedding_inserted_at
                         else None,
                         **{f"p_{head}": probability for head, probability in result.scores.items()},
+                        **classification_properties(result),
                     },
                 )
     return len(kept)
+
+
+def classification_properties(result: RankingModelResult) -> dict[str, object]:
+    """The served threshold and the flag it gives, per head, read from the result's copied metadata.
+
+    A serving copy is immutable per model key, so its metadata holds the threshold that scored the
+    report. A head without a saved threshold gets neither property: a model trained before
+    thresholds existed has none, and no other value may stand in for it. A tie is a positive, as in
+    the dag's grade.
+    """
+    thresholds = classification_thresholds(result.metadata)
+    return {
+        "readable_heads": sorted(readable_head_names(result.metadata)),
+        **{f"threshold_{head}": threshold for head, threshold in thresholds.items()},
+        **{
+            f"predicted_{head}": probability >= thresholds[head]
+            for head, probability in result.scores.items()
+            if head in thresholds
+        },
+    }

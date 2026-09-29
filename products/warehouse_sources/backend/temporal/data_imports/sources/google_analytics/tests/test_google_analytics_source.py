@@ -306,6 +306,22 @@ def test_non_retryable_errors_matches_revoked_refresh_token():
     assert error_message_matches(observed_error, non_retryable_errors)
 
 
+@pytest.mark.parametrize(
+    "error_msg",
+    [
+        "400 Client Error: Bad Request for url: https://analyticsdata.googleapis.com/v1beta/properties/123456789:runReport",
+        "401 Client Error: Unauthorized for url: https://analyticsdata.googleapis.com/v1beta/properties/123456789:runReport",
+        "403 Client Error: Forbidden for url: https://analyticsdata.googleapis.com/v1beta/properties/123456789:runReport",
+    ],
+)
+def test_non_retryable_errors_cover_runreport_client_errors(error_msg):
+    # `_run_report` raises `response.raise_for_status()` verbatim for any runReport response
+    # that isn't quota exhaustion or a 5xx (e.g. GA4 rejecting an invalid custom report
+    # dimension/metric name with 400), so retrying replays the identical request forever.
+    non_retryable_errors = GoogleAnalyticsSource().get_non_retryable_errors()
+    assert error_message_matches(error_msg, non_retryable_errors)
+
+
 def test_retryable_errors_cover_exhausted_quota_retries():
     error_msg = "Data API quota for property '123456789' still exhausted after 5 retries (retryable)"
     patterns = GoogleAnalyticsSource().get_retryable_errors()
