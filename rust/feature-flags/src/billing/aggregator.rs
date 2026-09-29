@@ -328,6 +328,7 @@ struct Inner {
     /// instead of an `inc()` call that allocates label strings every time.
     record_count_decide: AtomicU64,
     record_count_flag_definitions: AtomicU64,
+    record_count_flag_definitions_not_modified: AtomicU64,
     shutdown_signal: Notify,
     usage_reporter: Option<Arc<UsageReporter>>,
 }
@@ -348,8 +349,19 @@ impl Inner {
             last_successful_flush_epoch_ms: AtomicU64::new(0),
             record_count_decide: AtomicU64::new(0),
             record_count_flag_definitions: AtomicU64::new(0),
+            record_count_flag_definitions_not_modified: AtomicU64::new(0),
             shutdown_signal: Notify::new(),
         })
+    }
+
+    fn record_counter(&self, request_type: FlagRequestType) -> &AtomicU64 {
+        match request_type {
+            FlagRequestType::Decide => &self.record_count_decide,
+            FlagRequestType::FlagDefinitions => &self.record_count_flag_definitions,
+            FlagRequestType::FlagDefinitionsNotModified => {
+                &self.record_count_flag_definitions_not_modified
+            }
+        }
     }
 
     /// Sum any remaining entries in `pending` plus any drained-but-uncredited
@@ -434,11 +446,9 @@ impl BillingAggregator {
         // Bump the per-request-type atomic counter; the flusher emits the
         // `FLAGS_BILLING_RECORDS` metric in batches at flush time so the
         // hot path doesn't pay the per-call label clone in `inc()`.
-        match request_type {
-            FlagRequestType::Decide => &self.inner.record_count_decide,
-            FlagRequestType::FlagDefinitions => &self.inner.record_count_flag_definitions,
-        }
-        .fetch_add(1, Ordering::Relaxed);
+        self.inner
+            .record_counter(request_type)
+            .fetch_add(1, Ordering::Relaxed);
 
         let key = AggregationKey {
             team_id,
@@ -764,23 +774,21 @@ async fn flush_once(inner: &Arc<Inner>, policy: FlushPolicy) {
     // FLAGS_BILLING_RECORDS. Doing this here instead of in `record()`
     // keeps the hot path free of the per-call `apply_label_filter`
     // allocation that `inc()` triggers.
-    let decide_records = inner.record_count_decide.swap(0, Ordering::Relaxed);
-    if decide_records > 0 {
-        inc(
-            FLAGS_BILLING_RECORDS,
-            &record_labels_for(FlagRequestType::Decide),
-            decide_records,
-        );
-    }
-    let flag_def_records = inner
-        .record_count_flag_definitions
-        .swap(0, Ordering::Relaxed);
-    if flag_def_records > 0 {
-        inc(
-            FLAGS_BILLING_RECORDS,
-            &record_labels_for(FlagRequestType::FlagDefinitions),
-            flag_def_records,
-        );
+    for request_type in [
+        FlagRequestType::Decide,
+        FlagRequestType::FlagDefinitions,
+        FlagRequestType::FlagDefinitionsNotModified,
+    ] {
+        let records = inner
+            .record_counter(request_type)
+            .swap(0, Ordering::Relaxed);
+        if records > 0 {
+            inc(
+                FLAGS_BILLING_RECORDS,
+                &record_labels_for(request_type),
+                records,
+            );
+        }
     }
 
     // Swap pending and zero `pending_total` under the same lock so a
@@ -1495,6 +1503,7 @@ mod tests {
             Some(Library::PosthogJs),
         );
         agg.record(7, FlagRequestType::Decide, None);
+        agg.record(9, FlagRequestType::FlagDefinitionsNotModified, None);
 
         let bucket = current_bucket();
         flush_once(&agg.inner, FlushPolicy::BailOnError).await;
@@ -1504,10 +1513,13 @@ mod tests {
         let expected_sdk_42_def =
             format!("posthog:local_evaluation_requests:sdk:42:posthog-js:{bucket}");
         let expected_team_7_decide = format!("posthog:decide_requests:7:{bucket}");
-        assert_eq!(calls.len(), 3);
+        let expected_team_9_not_modified =
+            format!("posthog:local_evaluation_not_modified_requests:9:{bucket}");
+        assert_eq!(calls.len(), 4);
         assert!(calls.contains(&(expected_team_42_def, 1)));
         assert!(calls.contains(&(expected_sdk_42_def, 1)));
         assert!(calls.contains(&(expected_team_7_decide, 1)));
+        assert!(calls.contains(&(expected_team_9_not_modified, 1)));
 
         // Belt-and-braces: the aggregator must never write `:shadow`-suffixed
         // keys. A regression here would mean we're writing into the

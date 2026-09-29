@@ -320,6 +320,31 @@ class TestMakeRequestErrorHandling:
             f"HTTP {status_code} error message '{error_msg}' does not match any non-retryable pattern"
         )
 
+    @pytest.mark.parametrize("status_code", [429, 500, 502, 503, 504])
+    def test_transient_errors_are_retryable(self, status_code):
+        # These are the statuses the shared tracked transport already retries in-process; once
+        # that budget is exhausted the error must stay retryable (and out of the non-retryable
+        # set) so a self-recovering blip isn't reported as an unclassified error.
+        error_class = "Client Error" if status_code == 429 else "Server Error"
+        mock_response = mock.MagicMock()
+        mock_response.status_code = status_code
+        mock_response.raise_for_status.side_effect = requests.HTTPError(
+            f"{status_code} {error_class}: for url: https://api.pinterest.com/v5/test",
+            response=mock_response,
+        )
+
+        mock_session = mock.MagicMock()
+        mock_session.get.return_value = mock_response
+
+        source = PinterestAdsSource()
+
+        with pytest.raises(requests.HTTPError) as exc_info:
+            _make_request(mock_session, "https://api.pinterest.com/v5/test")
+
+        error_msg = str(exc_info.value)
+        assert any(pattern in error_msg for pattern in source.get_retryable_errors())
+        assert not any(pattern in error_msg for pattern in source.get_non_retryable_errors())
+
     @pytest.mark.parametrize("status_code", [200, 201])
     def test_success_returns_json(self, status_code):
         mock_response = mock.MagicMock()
