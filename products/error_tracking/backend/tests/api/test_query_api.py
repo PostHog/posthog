@@ -1,8 +1,10 @@
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any, cast
+from zoneinfo import ZoneInfo
 
+import pytest
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 from unittest.mock import patch
@@ -29,6 +31,7 @@ from products.error_tracking.backend.facade.query_utils import (
     build_sparkline,
     dedupe_repeated_stacktraces,
     normalize_stacktrace,
+    resolve_date_range,
 )
 from products.error_tracking.backend.hogql_queries.error_tracking_query_runner import ErrorTrackingQueryRunner
 from products.error_tracking.backend.models import (
@@ -119,6 +122,72 @@ def test_dedupe_repeated_stacktraces_references_the_first_copy_of_the_stack() ->
     assert stacks[0][2] == {"same_as_event": "event-1", "same_as_exception": 0}
     assert stacks[1][0] == {"same_as_event": "event-1", "same_as_exception": 1}
     assert stacks[2][0]["frames"][0]["line"] == 44
+
+
+LOS_ANGELES = ZoneInfo("America/Los_Angeles")
+RESOLVE_NOW = datetime(2026, 4, 24, 12, 0, tzinfo=ZoneInfo("UTC"))
+
+
+@parameterized.expand(
+    [
+        (
+            "date_only_day",
+            {"date_from": "2026-04-20", "date_to": "2026-04-20"},
+            "2026-04-20T00:00:00-07:00",
+            "2026-04-20T23:59:59.999999-07:00",
+        ),
+        (
+            "naive_iso_uses_team_timezone",
+            {"date_from": "2026-04-20T03:00:00", "date_to": "2026-04-20T05:00:00"},
+            "2026-04-20T03:00:00-07:00",
+            "2026-04-20T05:00:00-07:00",
+        ),
+        (
+            "offset_iso_is_exact",
+            {"date_from": "2026-04-20T10:00:00Z", "date_to": "2026-04-20T12:00:00Z"},
+            "2026-04-20T03:00:00-07:00",
+            "2026-04-20T05:00:00-07:00",
+        ),
+        (
+            "relative_date_to_counts_back",
+            {"date_from": "-30d", "date_to": "-1d"},
+            "2026-03-25T00:00:00-07:00",
+            "2026-04-23T05:00:00-07:00",
+        ),
+        (
+            "missing_date_from_anchors_to_date_to",
+            {"date_to": "2026-01-10"},
+            "2026-01-03T23:59:59.999999-08:00",
+            "2026-01-10T23:59:59.999999-08:00",
+        ),
+        ("default_is_last_7_days", None, "2026-04-17T00:00:00-07:00", "2026-04-24T05:00:00-07:00"),
+        (
+            "repeated_dst_hour_compares_instants",
+            {"date_from": "2026-11-01T01:30:00-07:00", "date_to": "2026-11-01T01:15:00-08:00"},
+            "2026-11-01T01:30:00-07:00",
+            "2026-11-01T01:15:00-08:00",
+        ),
+    ]
+)
+def test_resolve_date_range(_name: str, raw: object, expected_from: str, expected_to: str) -> None:
+    resolved = resolve_date_range(raw, LOS_ANGELES, now=RESOLVE_NOW)
+
+    assert (resolved.date_from.isoformat(), resolved.date_to.isoformat()) == (expected_from, expected_to)
+
+
+@parameterized.expand(
+    [
+        ("inverted", {"date_from": "2026-04-21", "date_to": "2026-04-20"}),
+        ("all_as_date_to", {"date_from": "-7d", "date_to": "all"}),
+        ("unreadable_date_from", {"date_from": "banana"}),
+        ("unreadable_date_to", {"date_from": "-7d", "date_to": "last week"}),
+        ("oversized_relative_date_from", {"date_from": "-99999999d"}),
+        ("date_to_at_calendar_limit", {"date_to": "9999-12-31"}),
+    ]
+)
+def test_resolve_date_range_rejects_invalid_range(_name: str, raw: object) -> None:
+    with pytest.raises(ValueError):
+        resolve_date_range(raw, LOS_ANGELES, now=RESOLVE_NOW)
 
 
 class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
@@ -557,6 +626,44 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         assert response.json()["id"] == self.issue_id
         assert "top_in_app_frame" not in response.json()
 
+    @parameterized.expand(
+        [
+            ("date_only_day", {"date_from": "2026-04-24", "date_to": "2026-04-24"}),
+            ("naive_iso_window", {"date_from": "2026-04-24T03:00:00", "date_to": "2026-04-24T05:00:00"}),
+            ("historical_relative_start", {"date_from": "-30d", "date_to": "2026-04-24"}),
+        ]
+    )
+    @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
+    def test_issue_detail_counts_events_in_team_timezone_date_range(
+        self, _name: str, date_range: dict[str, str]
+    ) -> None:
+        self.team.timezone = "America/Los_Angeles"
+        self.team.save()
+        self.create_issue()
+        self.create_exception_event()
+        flush_persons_and_events()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/query/issue",
+            data={"issueId": self.issue_id, "dateRange": date_range},
+            format="json",
+        )
+
+        assert response.status_code == 200
+        assert response.json()["impact"]["occurrences"] == 1
+        assert response.json()["dateRange"]["timezone"] == "America/Los_Angeles"
+
+    def test_issue_detail_rejects_inverted_date_range(self) -> None:
+        self.create_issue()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/query/issue",
+            data={"issueId": self.issue_id, "dateRange": {"date_from": "2026-04-24", "date_to": "2026-04-23"}},
+            format="json",
+        )
+
+        assert response.status_code == 400
+
     @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
     def test_issue_detail_distinguishes_missing_issue_from_empty_date_range(self) -> None:
         self.create_issue(severity=ErrorTrackingIssue.Severity.HIGH)
@@ -576,7 +683,12 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         )
 
         assert empty_range_response.status_code == 200
-        assert empty_range_response.json()["impact"] == {}
+        assert empty_range_response.json()["impact"] == {"occurrences": 0, "users": 0, "sessions": 0}
+        assert empty_range_response.json()["dateRange"] == {
+            "date_from": "2026-04-23T00:00:00+00:00",
+            "date_to": "2026-04-23T01:00:00+00:00",
+            "timezone": "UTC",
+        }
         assert empty_range_response.json()["severity"] == "high"
         assert missing_response.status_code == 404
 

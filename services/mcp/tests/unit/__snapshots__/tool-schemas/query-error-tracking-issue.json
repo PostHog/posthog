@@ -2,7 +2,7 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "dateRange": {
-            "description": "Date range for issue impact and latest-event metadata. Defaults to the last 7 days.",
+            "description": "Date range for issue impact and latest-event metadata. Defaults to the last 7 days. Without date_from, the range starts 7 days before date_to. A relative date_to counts back from now. A date-only date_to includes that whole day. Dates without an offset use the project timezone.",
             "properties": {
                 "date_from": {
                     "description": "Start of the date range as an ISO timestamp or relative date such as -7d. Defaults to -7d.",

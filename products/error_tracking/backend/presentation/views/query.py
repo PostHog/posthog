@@ -45,6 +45,7 @@ from products.error_tracking.backend.facade.query_utils import (
     map_event_row,
     normalize_volume_resolution,
     pick_fields,
+    resolve_date_range,
 )
 from products.error_tracking.backend.presentation.views.query_serializers import (
     ErrorTrackingIssueDetailSerializer,
@@ -123,7 +124,14 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     def issue(self, request: ValidatedRequest, **kwargs: object) -> Response:
         params = dict(request.validated_data)
         issue_id = str(params["issueId"])
-        date_range = build_date_range(params.get("dateRange"))
+        try:
+            resolved_range = resolve_date_range(params.get("dateRange"), self.team.timezone_info)
+        except ValueError as error:
+            raise ValidationError({"dateRange": str(error)}) from error
+        date_from = resolved_range.date_from.isoformat()
+        date_to = resolved_range.date_to.isoformat()
+        date_range: dict[str, object] = {"date_from": date_from, "date_to": date_to}
+        effective_date_range = {**date_range, "timezone": self.team.timezone}
         include_sparkline = cast(bool, params.get("includeSparkline", False))
         volume_resolution = cast(int, params.get("volumeResolution", 0))
         if include_sparkline and volume_resolution <= 0:
@@ -158,7 +166,8 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                     "severity": issue_basics.severity,
                 }
             )
-            payload["impact"] = {}
+            payload["dateRange"] = effective_date_range
+            payload["impact"] = {"occurrences": 0, "users": 0, "sessions": 0}
             if include_sparkline:
                 payload["sparkline"] = []
             return Response(payload)
@@ -171,8 +180,8 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 select=CONTEXT_EVENT_SELECTS,
                 where=build_issue_where(issue_id),
                 filterTestAccounts=cast(bool, params.get("filterTestAccounts", True)),
-                after=date_range.get("date_from"),
-                before=date_range.get("date_to"),
+                after=date_from,
+                before=date_to,
                 orderBy=["timestamp DESC"],
                 limit=1,
                 tags={"productKey": "error_tracking"},
@@ -207,6 +216,7 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 **pick_fields(issue, ISSUE_FIELDS),
                 "top_in_app_frame": build_top_in_app_frame(issue, event_properties),
                 "latest_release": extract_latest_release(event_properties),
+                "dateRange": effective_date_range,
                 "impact": build_impact(issue),
                 "sparkline": build_sparkline(issue) if include_sparkline else None,
             }

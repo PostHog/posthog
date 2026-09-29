@@ -7,9 +7,14 @@ Defaults are intentionally useful: last 7 days, test accounts filtered out, aggr
 # Parameters
 
 - `issueId`: required Error tracking issue UUID.
-- `dateRange`: time range for impact counts and latest-event metadata. Defaults to last 7 days.
+- `dateRange`: time range for impact counts and latest-event metadata. Defaults to last 7 days. Without `date_from`, the range starts 7 days before `date_to`. A relative `date_to` such as `-1d` counts back from now. A date-only `date_to` such as `2026-01-31` includes that whole day. Dates without an offset use the project timezone.
 - `includeSparkline`: set true only if a trend/sparkline helps answer the user. When true, `volumeResolution` defaults to 12 if not provided.
 - `volumeResolution`: number of volume buckets when sparkline data is needed.
+
+# Response
+
+- `dateRange` echoes the resolved `date_from`, `date_to`, and `timezone` that the impact counts use.
+- `impact` holds `occurrences`, `users`, and `sessions` for that range. Counts of 0 mean the issue has no matching events in the range.
 
 # Next steps
 

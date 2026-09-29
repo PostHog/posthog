@@ -1124,7 +1124,7 @@ export interface ErrorTrackingDateRangeApi {
 export interface ErrorTrackingIssueQueryRequestApi {
     /** Error tracking issue ID. */
     issueId: string
-    /** Date range for issue impact and latest-event metadata. Defaults to the last 7 days. */
+    /** Date range for issue impact and latest-event metadata. Defaults to the last 7 days. Without date_from, the range starts 7 days before date_to. A relative date_to counts back from now. A date-only date_to includes that whole day. Dates without an offset use the project timezone. */
     dateRange?: ErrorTrackingDateRangeApi
     /** When true, exclude internal/test account data from results. Defaults to true. */
     filterTestAccounts?: boolean
@@ -1199,6 +1199,15 @@ export interface ErrorTrackingLatestReleaseApi {
     repo_name?: string
 }
 
+export interface ErrorTrackingEffectiveDateRangeApi {
+    /** Inclusive start of the range the impact counts use. */
+    date_from: string
+    /** Inclusive end of the range the impact counts use. */
+    date_to: string
+    /** Project timezone used for dates without an offset. */
+    timezone: string
+}
+
 export interface ErrorTrackingImpactApi {
     /** Exception occurrence count. */
     occurrences?: number
@@ -1258,7 +1267,9 @@ export interface ErrorTrackingIssueDetailApi {
     top_in_app_frame?: ErrorTrackingTopFrameApi
     /** Latest release metadata. */
     latest_release?: ErrorTrackingLatestReleaseApi
-    /** Compact impact counts. */
+    /** Resolved date range and timezone that the impact counts use. */
+    dateRange?: ErrorTrackingEffectiveDateRangeApi
+    /** Impact counts for dateRange. Counts are 0 when the issue has no events in the range. */
     impact?: ErrorTrackingImpactApi
     /** Optional compact occurrence sparkline. */
     sparkline?: number[]
