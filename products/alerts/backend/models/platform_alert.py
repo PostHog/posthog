@@ -50,6 +50,18 @@ class PlatformAlertConfiguration(TeamScopedRootMixin, UUIDTModel):
     threshold_count = models.PositiveIntegerField()
     threshold_operator = models.CharField(max_length=16)
 
+    class ConditionType(models.TextChoices):
+        THRESHOLD = "threshold", "Threshold"
+        HOG = "hog", "Hog"
+
+    # A Hog condition is compiled when the configuration is written, so a check never parses
+    # source and a program that cannot run is refused before it is stored.
+    condition_type = models.CharField(
+        max_length=16, choices=ConditionType.choices, default=ConditionType.THRESHOLD, db_default="threshold"
+    )
+    condition_source = models.TextField(null=True, blank=True)
+    condition_bytecode = models.JSONField(null=True, blank=True)
+
     window_minutes = models.PositiveIntegerField()
     check_interval_minutes = models.PositiveIntegerField()
     evaluation_periods = models.PositiveIntegerField(default=1, db_default=1)

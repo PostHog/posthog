@@ -29,6 +29,13 @@ from posthog.dataclasses import frozen
 from posthog.errors import ExposedCHQueryError, QueryErrorCategory, classify_query_error
 from posthog.models import Team
 
+from products.alerts.backend.facade.conditions import (
+    CONDITION_BATCH_BUDGET,
+    ConditionBudget,
+    ConditionVerdict,
+    build_condition_contexts,
+    evaluate_condition_windows,
+)
 from products.alerts.backend.facade.contracts import (
     MAX_GROUPS_PER_CONFIGURATION,
     AlertDeliveryPreview,
@@ -57,10 +64,12 @@ from products.alerts.backend.facade.platform_alerts import due_checks
 from products.alerts.backend.facade.platform_metrics import (
     increment_checks,
     increment_checks_skipped,
+    increment_condition_failures,
     increment_deliveries_deferred,
     increment_notifications_muted,
     increment_state_transition,
     record_batch_duration,
+    record_condition_duration,
     record_scheduler_lag,
     safe_record,
 )
@@ -204,6 +213,10 @@ def _values_newest_first(
     position: a bucket the query did not return is unknown, not the next older bucket and not zero."""
     by_instant = {_bucket_instant(point.time): point.value for point in series.points}
     return tuple(by_instant.get((window_end - window * (index + 1)).timestamp()) for index in range(evaluation_periods))
+
+
+def _window_ends_newest_first(window_end: datetime, evaluation_periods: int, window: timedelta) -> tuple[str, ...]:
+    return tuple((window_end - window * index).isoformat() for index in range(evaluation_periods))
 
 
 def _breached(value: float | None, threshold_count: int, threshold_operator: str) -> bool | None:
@@ -445,6 +458,29 @@ def _select_series(series: Sequence[MetricSeries], source: MetricsAlertSource) -
     return sorted(matching, key=lambda s: grouping_key_for(s.labels))
 
 
+def _condition_failed(
+    check: PlatformAlertCheckInput,
+    group: PlatformAlertGroupState,
+    verdict: ConditionVerdict,
+    *,
+    now: datetime,
+    muted: bool,
+) -> AlertCheckOutcome:
+    """A Hog condition that reached no answer. It fails this alert's check and nothing else."""
+    safe_record(increment_condition_failures, SourceKind.METRICS.value, verdict.failure_reason)
+    skip = SkipReason.CONDITION_BUDGET if verdict.failure_reason == "budget" else SkipReason.CONDITION_FAILED
+    return _verdict(
+        check,
+        group,
+        CheckInput(
+            threshold_breached=False, error_message=verdict.error, is_transient_error=verdict.transient, muted=muted
+        ),
+        (),
+        now=now,
+        skip=skip,
+    )
+
+
 def _evaluate_group(
     check: PlatformAlertCheckInput,
     group: PlatformAlertGroupState,
@@ -452,7 +488,27 @@ def _evaluate_group(
     *,
     now: datetime,
     muted: bool,
+    budget: ConditionBudget,
+    labels: dict[str, str],
+    window_ends: tuple[str, ...],
 ) -> AlertCheckOutcome:
+    if check.condition_type == "hog" and check.condition_bytecode is not None:
+        contexts = build_condition_contexts(
+            values,
+            evaluation_periods=check.evaluation_periods,
+            labels=labels,
+            threshold={"count": check.threshold_count, "operator": check.threshold_operator},
+            window_ends=window_ends,
+        )
+        verdict = evaluate_condition_windows(check.condition_bytecode, contexts, budget)
+        safe_record(record_condition_duration, SourceKind.METRICS.value, verdict.duration_ms)
+        if verdict.flags is None:
+            return _condition_failed(check, group, verdict, now=now, muted=muted)
+        decided, *earlier = verdict.flags
+        return _verdict(
+            check, group, CheckInput(threshold_breached=decided, muted=muted), tuple(earlier), now=now, skip=None
+        )
+
     flags = tuple(_breached(value, check.threshold_count, check.threshold_operator) for value in values)
     current, *prior = flags
     if current is None:
@@ -499,6 +555,7 @@ def _evaluate_groups(
     *,
     now: datetime,
     muted: bool,
+    budget: ConditionBudget,
     window_end: datetime,
 ) -> list[_GroupDecision]:
     """One decision per label set the query returned, plus one per label set the platform
@@ -530,7 +587,18 @@ def _evaluate_groups(
             one, check.evaluation_periods, window_end=window_end, window=timedelta(minutes=check.window_minutes)
         )
         group = _group_of(check, key)
-        outcome = _evaluate_group(check, group, values, now=now, muted=muted)
+        outcome = _evaluate_group(
+            check,
+            group,
+            values,
+            now=now,
+            muted=muted,
+            budget=budget,
+            labels=dict(one.labels),
+            window_ends=_window_ends_newest_first(
+                window_end, check.evaluation_periods, timedelta(minutes=check.window_minutes)
+            ),
+        )
         decisions.append(_GroupDecision(group=group, labels=dict(one.labels), value=values[0], outcome=outcome))
     if overflow:
         # Visible on the root group. Silently stopping at the cap would read as "nothing is wrong"
@@ -598,7 +666,13 @@ def _evaluate_check(
     now: datetime,
     query_seconds: int,
     muted: bool,
-) -> Decision:
+    budget: ConditionBudget,
+) -> Decision | None:
+    """None when the batch's condition budget is spent before this check starts: no outcome, so
+    the check keeps its due time, the same way an unqueried check does."""
+    if check.condition_type == "hog" and budget.take() is None:
+        safe_record(increment_checks_skipped, SourceKind.METRICS.value, SkipReason.CONDITION_BUDGET.value)
+        return None
     # The last complete bucket at or before the due time, so a due time or a checkpoint inside a bucket
     # never evaluates a partial window.
     date_to = _align_to_interval(
@@ -618,7 +692,7 @@ def _evaluate_check(
                 timeout_overflow_mode="throw",
             ),
         )
-        decisions = _evaluate_groups(check, series, source, now=now, muted=muted, window_end=date_to)
+        decisions = _evaluate_groups(check, series, source, now=now, muted=muted, budget=budget, window_end=date_to)
     except Exception as error:
         logger.exception("Failed to evaluate a metrics alert", check_id=str(check.id), error=str(error))
         # A failed query fails the whole evaluation, so the root group carries it.
@@ -709,6 +783,7 @@ def evaluate_metrics_batch(team_id: int, slot: str, cutoff: datetime) -> SourceB
         checkpoint = None
 
     deadline = started_at + BATCH_QUERY_BUDGET_SECONDS
+    budget = ConditionBudget(total=CONDITION_BATCH_BUDGET)
     unqueried = 0
     for check in triage.evaluable:
         query_seconds = min(MAX_QUERY_SECONDS, int(deadline - time.monotonic()))
@@ -716,16 +791,19 @@ def evaluate_metrics_batch(team_id: int, slot: str, cutoff: datetime) -> SourceB
             # No outcome, deliberately: a check that was never asked keeps its due time.
             unqueried += 1
             continue
-        decided.append(
-            _evaluate_check(
-                team,
-                check,
-                checkpoint,
-                now=cutoff,
-                query_seconds=query_seconds,
-                muted=check.id in triage.muted_ids,
-            )
+        decision = _evaluate_check(
+            team,
+            check,
+            checkpoint,
+            now=cutoff,
+            query_seconds=query_seconds,
+            muted=check.id in triage.muted_ids,
+            budget=budget,
         )
+        if decision is None:
+            unqueried += 1
+            continue
+        decided.append(decision)
 
     if unqueried:
         logger.warning(

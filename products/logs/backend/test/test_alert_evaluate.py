@@ -12,12 +12,18 @@ from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.models.scoping import team_scope
 
+from products.alerts.backend.facade.conditions import compile_condition_bytecode
 from products.alerts.backend.facade.contracts import SourceBatchEvaluation, SourceKind
 from products.alerts.backend.facade.platform_alerts import due_checks, record_outcomes
 from products.alerts.backend.facade.temporal import SOURCE_EVALUATION_TIMEOUT
 from products.alerts.backend.models import PlatformAlert, PlatformAlertConfiguration
 from products.logs.backend.alert_check_query import BatchedBucketedResult, BucketedCount
-from products.logs.backend.alert_source_cycle import BATCH_QUERY_BUDGET_SECONDS, MAX_QUERY_SECONDS, evaluate_logs_batch
+from products.logs.backend.alert_source_cycle import (
+    BATCH_QUERY_BUDGET_SECONDS,
+    CONDITION_BATCH_BUDGET,
+    MAX_QUERY_SECONDS,
+    evaluate_logs_batch,
+)
 from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
 from products.logs.backend.temporal.alert_evaluate import (
     EVALUATE_SCHEDULE_TO_CLOSE,
@@ -29,7 +35,7 @@ _MODULE = "products.logs.backend.alert_source_cycle"
 _LOGS_OWNED_FIELDS = ("state", "consecutive_failures", "next_check_at", "last_notified_at", "snooze_until")
 
 
-class TestLogsAlertEvaluation(APIBaseTest):
+class LogsAlertEvaluationTestCase(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.cutoff = datetime(2026, 9, 16, 10, tzinfo=UTC)
@@ -76,6 +82,8 @@ class TestLogsAlertEvaluation(APIBaseTest):
         """
         record_outcomes(self.team.id, evaluation.outcomes, self.cutoff)
 
+
+class TestLogsAlertEvaluation(LogsAlertEvaluationTestCase):
     def test_a_breaching_configuration_fires_and_records_its_own_state(self) -> None:
         configuration = self._configuration()
 
@@ -249,6 +257,31 @@ class TestLogsAlertEvaluation(APIBaseTest):
         ]
 
 
+class TestLogsHogConditions(LogsAlertEvaluationTestCase):
+    def test_a_hog_condition_decides_the_breach_instead_of_the_threshold(self) -> None:
+        # The count of 500 is above the threshold of 10, and the condition still says no.
+        configuration = self._configuration(
+            condition_type="hog", condition_bytecode=compile_condition_bytecode("return value > 1000")
+        )
+
+        evaluation, _ = self._run(configuration)
+
+        assert evaluation.previews == ()
+        assert evaluation.outcomes[0].new_state == "not_firing"
+
+    def test_a_failing_hog_condition_records_a_failed_outcome_and_leaves_other_alerts_untouched(self) -> None:
+        looping = self._configuration(
+            condition_type="hog", condition_bytecode=compile_condition_bytecode("while (true) {}")
+        )
+        healthy = self._configuration()
+
+        evaluation, _ = self._run(looping, healthy)
+
+        by_id = {o.configuration_id: o for o in evaluation.outcomes}
+        assert by_id[looping.id].consecutive_failures == 1
+        assert by_id[healthy.id].new_state == "firing"
+
+
 class TestEvaluationTimeoutLadder(SimpleTestCase):
     """Constants only, so this takes no database."""
 
@@ -265,3 +298,7 @@ class TestEvaluationTimeoutLadder(SimpleTestCase):
         assert (EVALUATE_SCHEDULE_TO_CLOSE - EVALUATE_START_TO_CLOSE).total_seconds() >= BATCH_QUERY_BUDGET_SECONDS / 2
         # The platform's own timeout holds both activities and still leaves room for the deliveries.
         assert SOURCE_EVALUATION_TIMEOUT > EVALUATION_BUDGET
+        assert (
+            CONDITION_BATCH_BUDGET.total_seconds() + BATCH_QUERY_BUDGET_SECONDS
+            < EVALUATE_START_TO_CLOSE.total_seconds()
+        )

@@ -10,6 +10,7 @@ from datetime import datetime
 from django.db import transaction
 from django.db.models import Exists, OuterRef, Q
 
+from products.alerts.backend.facade.conditions import AlertConditionValidationError, compile_alert_condition
 from products.alerts.backend.facade.contracts import (
     PlatformAlertCheckInput,
     PlatformAlertGroupState,
@@ -145,6 +146,8 @@ def _check(c: PlatformAlertConfiguration, alerts: dict[str, PlatformAlert]) -> P
         last_notified_at=root.last_notified_at if root else None,
         snooze_until=root.snooze_until if root else None,
         groups=tuple(_group_state(alert) for key, alert in sorted(alerts.items())),
+        condition_type=c.condition_type,
+        condition_bytecode=c.condition_bytecode,
     )
 
 
@@ -232,6 +235,16 @@ def upsert_configuration(upsert: PlatformAlertUpsert) -> bool:
 
     Keyed on the row it came from, so a second run updates rather than duplicates.
     """
+    if upsert.condition_type not in PlatformAlertConfiguration.ConditionType.values:
+        raise AlertConditionValidationError(
+            f"Unsupported condition type {upsert.condition_type!r}", field="condition_type"
+        )
+    # Compiled before the transaction: a program that cannot run is refused and nothing is written.
+    bytecode = (
+        compile_alert_condition(upsert.condition_source or "")
+        if upsert.condition_type == PlatformAlertConfiguration.ConditionType.HOG
+        else None
+    )
     with transaction.atomic():
         configuration, created = PlatformAlertConfiguration.objects.unscoped().update_or_create(
             legacy_configuration_id=upsert.legacy_configuration_id,
@@ -250,6 +263,9 @@ def upsert_configuration(upsert: PlatformAlertUpsert) -> bool:
                 "cooldown_minutes": upsert.cooldown_minutes,
                 "schedule_restriction": upsert.schedule_restriction,
                 "next_check_at": upsert.next_check_at,
+                "condition_type": upsert.condition_type,
+                "condition_source": upsert.condition_source,
+                "condition_bytecode": bytecode,
             },
         )
         alert = _alerts_for_write(upsert.team_id, [configuration])[str(configuration.id)][""]

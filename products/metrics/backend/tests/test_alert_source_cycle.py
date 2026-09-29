@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 from posthog.models.scoping import team_scope
 
+from products.alerts.backend.facade.conditions import compile_condition_bytecode
 from products.alerts.backend.facade.contracts import (
     MAX_GROUPS_PER_CONFIGURATION,
     SourceBatchEvaluation,
@@ -32,7 +33,7 @@ def _series(values_newest_first: list[float | None], *, end: datetime, step: tim
     return MetricSeries(labels=labels or {}, points=tuple(points), metric_name="m1", clause="a")
 
 
-class TestMetricsAlertEvaluation(APIBaseTest):
+class MetricsAlertEvaluationTestCase(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.cutoff = datetime(2026, 9, 29, 10, tzinfo=UTC)
@@ -85,6 +86,8 @@ class TestMetricsAlertEvaluation(APIBaseTest):
         with team_scope(self.team.id):
             return PlatformAlert.objects.get(configuration=configuration, grouping_key="")
 
+
+class TestMetricsAlertEvaluation(MetricsAlertEvaluationTestCase):
     def test_a_breaching_series_fires_and_records_its_own_state(self) -> None:
         configuration = self._configuration()
 
@@ -447,3 +450,53 @@ class TestMetricsAlertEvaluation(APIBaseTest):
 
         with team_scope(self.team.id):
             assert AlertConfiguration.objects.filter(team=self.team).count() == 0
+
+
+class TestMetricsHogConditions(MetricsAlertEvaluationTestCase):
+    def _hog(self, source: str, **overrides) -> PlatformAlertConfiguration:
+        return self._configuration(
+            condition_type="hog", condition_bytecode=compile_condition_bytecode(source), **overrides
+        )
+
+    def test_a_hog_condition_decides_the_breach_instead_of_the_threshold(self) -> None:
+        # 500 is above the threshold of 10, and the condition still says no.
+        configuration = self._hog("return value > 1000")
+
+        evaluation, _ = self._run(configuration)
+
+        assert evaluation.previews == ()
+        assert evaluation.outcomes[0].new_state == "not_firing"
+
+    def test_a_hog_condition_sees_every_evaluated_window(self) -> None:
+        configuration = self._hog("return values[1] > values[2] and window.count == 3", evaluation_periods=3)
+
+        evaluation, _ = self._run(
+            configuration, series=[_series([30.0, 20.0, 10.0], end=self.due_at, step=timedelta(minutes=5))]
+        )
+
+        assert [t.notification for p in evaluation.previews for t in p.transitions] == ["fire"]
+
+    def test_a_failing_hog_condition_records_a_failed_outcome_and_leaves_other_alerts_untouched(self) -> None:
+        looping = self._hog("while (true) {}")
+        healthy = self._configuration()
+
+        evaluation, _ = self._run(looping, healthy)
+
+        by_id = {o.configuration_id: o for o in evaluation.outcomes}
+        assert by_id[looping.id].consecutive_failures == 1
+        assert by_id[healthy.id].new_state == "firing"
+        announced = {p.alert_id: [t.notification for t in p.transitions] for p in evaluation.previews}
+        assert announced == {str(looping.id): ["error"], str(healthy.id): ["fire"]}
+
+    def test_an_exhausted_condition_budget_keeps_the_alert_due(self) -> None:
+        first = self._hog("return true")
+        second = self._hog("return true")
+
+        with patch(f"{_MODULE}.CONDITION_BATCH_BUDGET", timedelta(microseconds=1)):
+            evaluation, _ = self._run(first, second)
+        self._record(evaluation)
+
+        assert [o.configuration_id for o in evaluation.outcomes] == [first.id]
+        with team_scope(self.team.id):
+            second.refresh_from_db()
+        assert second.next_check_at == self.due_at

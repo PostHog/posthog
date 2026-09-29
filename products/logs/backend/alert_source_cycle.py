@@ -25,6 +25,13 @@ import structlog
 from posthog.dataclasses import frozen
 from posthog.models import Team
 
+from products.alerts.backend.facade.conditions import (
+    CONDITION_BATCH_BUDGET,
+    ConditionBudget,
+    ConditionVerdict,
+    build_condition_contexts,
+    evaluate_condition_windows,
+)
 from products.alerts.backend.facade.contracts import (
     AlertDeliveryPreview,
     GroupTransition,
@@ -51,10 +58,12 @@ from products.alerts.backend.facade.platform_alerts import due_checks
 from products.alerts.backend.facade.platform_metrics import (
     increment_checks,
     increment_checks_skipped,
+    increment_condition_failures,
     increment_deliveries_deferred,
     increment_notifications_muted,
     increment_state_transition,
     record_batch_duration,
+    record_condition_duration,
     record_scheduler_lag,
     safe_record,
 )
@@ -257,9 +266,57 @@ def _delivery(check: PlatformAlertCheckInput, outcome: AlertCheckOutcome, *, win
     )
 
 
-def _evaluate_one(
-    check: PlatformAlertCheckInput, buckets: list[BucketedCount], *, now: datetime, muted: bool
+def _condition_failed(
+    check: PlatformAlertCheckInput, verdict: ConditionVerdict, *, now: datetime, muted: bool
 ) -> AlertCheckOutcome:
+    """A Hog condition that reached no answer. It fails this alert's check and nothing else."""
+    safe_record(increment_condition_failures, SourceKind.LOGS.value, verdict.failure_reason)
+    skip = SkipReason.CONDITION_BUDGET if verdict.failure_reason == "budget" else SkipReason.CONDITION_FAILED
+    return _verdict(
+        check,
+        CheckInput(
+            threshold_breached=False, error_message=verdict.error, is_transient_error=verdict.transient, muted=muted
+        ),
+        (),
+        now=now,
+        skip=skip,
+    )
+
+
+def _evaluate_condition(
+    check: PlatformAlertCheckInput, buckets: list[BucketedCount], *, now: datetime, muted: bool, budget: ConditionBudget
+) -> AlertCheckOutcome:
+    assert check.condition_bytecode is not None
+    newest_first = list(reversed(buckets))
+    # A window the query did not return had no matching logs, which is a count of zero here, the
+    # same reading `_derive_breaches` gives the threshold path.
+    counts: list[float | None] = [float(bucket.count) for bucket in newest_first]
+    counts.extend([0.0] * max(0, check.evaluation_periods - len(counts)))
+    contexts = build_condition_contexts(
+        counts,
+        evaluation_periods=check.evaluation_periods,
+        labels={},
+        threshold={"count": check.threshold_count, "operator": check.threshold_operator},
+        window_ends=tuple(bucket.timestamp.isoformat() for bucket in newest_first),
+    )
+    verdict = evaluate_condition_windows(check.condition_bytecode, contexts, budget)
+    safe_record(record_condition_duration, SourceKind.LOGS.value, verdict.duration_ms)
+    if verdict.flags is None:
+        return _condition_failed(check, verdict, now=now, muted=muted)
+    current, *prior = verdict.flags
+    return _verdict(check, CheckInput(threshold_breached=current, muted=muted), tuple(prior), now=now, skip=None)
+
+
+def _evaluate_one(
+    check: PlatformAlertCheckInput,
+    buckets: list[BucketedCount],
+    *,
+    now: datetime,
+    muted: bool,
+    budget: ConditionBudget,
+) -> AlertCheckOutcome:
+    if check.condition_type == "hog" and check.condition_bytecode is not None:
+        return _evaluate_condition(check, buckets, now=now, muted=muted, budget=budget)
     current_breached, *prior_windows_breached = _derive_breaches(
         buckets, check.threshold_count, check.threshold_operator, check.evaluation_periods
     ) or (False,)
@@ -316,6 +373,7 @@ def _evaluate_cohort(
     now: datetime,
     query_seconds: int,
     muted_ids: frozenset[UUID],
+    budget: ConditionBudget,
 ) -> list[Decision]:
     window_minutes, evaluation_periods, cadence_minutes, projection_eligible, date_to = key
     lookback = rolling_check_lookback_minutes(window_minutes, cadence_minutes, evaluation_periods)
@@ -349,8 +407,13 @@ def _evaluate_cohort(
     decided: list[Decision] = []
     for check in checks:
         muted = check.id in muted_ids
+        if check.condition_type == "hog" and budget.take() is None:
+            # No outcome, deliberately: the batch's condition budget is spent, so this check keeps
+            # its due time the way an unqueried check does.
+            safe_record(increment_checks_skipped, SourceKind.LOGS.value, SkipReason.CONDITION_BUDGET.value)
+            continue
         try:
-            outcome = _evaluate_one(check, result.per_alert.get(str(check.id), []), now=now, muted=muted)
+            outcome = _evaluate_one(check, result.per_alert.get(str(check.id), []), now=now, muted=muted, budget=budget)
         except Exception as error:
             logger.exception("Failed to evaluate a logs alert", check_id=str(check.id), error=str(error))
             outcome = _failed(check, error, now=now, muted=muted)
@@ -466,6 +529,7 @@ def evaluate_logs_batch(team_id: int, slot: str, cutoff: datetime) -> SourceBatc
         )
 
     deadline = started_at + BATCH_QUERY_BUDGET_SECONDS
+    budget = ConditionBudget(total=CONDITION_BATCH_BUDGET)
     unqueried = 0
     # Capped the way the production cohort query requires: one batched query carries one countIf
     # column per alert, so an uncapped cohort is an unbounded query.
@@ -483,7 +547,13 @@ def evaluate_logs_batch(team_id: int, slot: str, cutoff: datetime) -> SourceBatc
             continue
         decided.extend(
             _evaluate_cohort(
-                team, chunk, cohort_key, now=cutoff, query_seconds=query_seconds, muted_ids=triage.muted_ids
+                team,
+                chunk,
+                cohort_key,
+                now=cutoff,
+                query_seconds=query_seconds,
+                muted_ids=triage.muted_ids,
+                budget=budget,
             )
         )
 

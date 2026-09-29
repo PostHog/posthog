@@ -1,11 +1,13 @@
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
+import pytest
 import time_machine
 from posthog.test.base import APIBaseTest
 
 from posthog.models.scoping import team_scope
 
+from products.alerts.backend.facade.conditions import AlertConditionValidationError
 from products.alerts.backend.facade.contracts import (
     PlatformAlertOutcome,
     PlatformAlertUpsert,
@@ -233,3 +235,62 @@ class TestGroupedPlatformAlerts(APIBaseTest):
         assert key != grouping_key_for({"url": "y" * 400, "service_name": "api"})
         record_outcomes(self.team.id, [self._group_outcome(key)], self.cutoff)
         assert self._states() == {key: "firing"}
+
+
+class TestHogConditionConfigurations(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.cutoff = datetime(2026, 9, 29, 10, tzinfo=UTC)
+        self.slot = (self.cutoff - timedelta(minutes=1)).isoformat()
+
+    def _copy(self, source: str | None, condition_type: str = "hog") -> None:
+        upsert_configuration(
+            PlatformAlertUpsert(
+                legacy_configuration_id=uuid4(),
+                team_id=self.team.id,
+                name="custom",
+                enabled=True,
+                source_kind=SourceKind.METRICS,
+                source_config={},
+                threshold_count=1,
+                threshold_operator="above",
+                window_minutes=5,
+                check_interval_minutes=5,
+                evaluation_periods=1,
+                datapoints_to_alarm=1,
+                cooldown_minutes=0,
+                schedule_restriction=None,
+                next_check_at=self.cutoff - timedelta(minutes=1),
+                snooze_until=None,
+                condition_type=condition_type,
+                condition_source=source,
+            )
+        )
+
+    def test_upsert_compiles_a_hog_condition_and_the_check_carries_the_bytecode(self) -> None:
+        self._copy("return value > threshold.count * 2")
+
+        (check,) = due_checks(self.team.id, SourceKind.METRICS.value, self.slot, self.cutoff)
+
+        assert check.condition_type == "hog"
+        assert isinstance(check.condition_bytecode, list) and check.condition_bytecode
+
+    def test_upsert_rejects_a_hog_condition_that_cannot_run(self) -> None:
+        with pytest.raises(AlertConditionValidationError):
+            self._copy("return (")
+
+        assert due_checks(self.team.id, SourceKind.METRICS.value, self.slot, self.cutoff) == ()
+
+    def test_upsert_rejects_an_unknown_condition_type(self) -> None:
+        with pytest.raises(AlertConditionValidationError):
+            self._copy("return true", condition_type="python")
+
+        assert due_checks(self.team.id, SourceKind.METRICS.value, self.slot, self.cutoff) == ()
+
+    def test_a_threshold_configuration_carries_no_bytecode(self) -> None:
+        self._copy(None, condition_type="threshold")
+
+        (check,) = due_checks(self.team.id, SourceKind.METRICS.value, self.slot, self.cutoff)
+
+        assert check.condition_type == "threshold"
+        assert check.condition_bytecode is None

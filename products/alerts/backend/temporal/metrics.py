@@ -17,6 +17,7 @@ logger = get_write_only_logger(__name__)
 ALERTS_PLATFORM_LATENCY_HISTOGRAM_METRICS = (
     "alerts_platform_batch_duration_ms",
     "alerts_platform_scheduler_lag_ms",
+    "alerts_platform_condition_duration_ms",
 )
 
 ALERTS_PLATFORM_LATENCY_HISTOGRAM_BUCKETS = [
@@ -120,3 +121,20 @@ def record_scheduler_lag(source: str, lag_ms: int) -> None:
         description="Delay between a check's due time and the evaluation that took it",
         unit="ms",
     ).record(dt.timedelta(milliseconds=lag_ms))
+
+
+def record_condition_duration(source: str, duration_ms: float) -> None:
+    """Wall time of one Hog condition verdict, every evaluated window included. Rising p99 with
+    flat CPU is GIL contention on the worker."""
+    get_metric_meter({"source": source}).create_histogram_timedelta(
+        name="alerts_platform_condition_duration_ms",
+        description="Wall time for one Hog condition verdict, every evaluated window included",
+        unit="ms",
+    ).record(dt.timedelta(milliseconds=duration_ms))
+
+
+def increment_condition_failures(source: str, reason: str) -> None:
+    get_metric_meter({"source": source, "reason": reason}).create_counter(
+        "alerts_platform_condition_failures_total",
+        "Hog condition runs that reached no answer, by reason",
+    ).add(1)
