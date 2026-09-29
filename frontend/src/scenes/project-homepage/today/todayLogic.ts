@@ -15,7 +15,7 @@ import { TeamType, UserType } from '~/types'
 import { SignalReport } from 'products/signals/frontend/inbox/types'
 
 import type { TeamPublicType } from '../../../types'
-import { parseSampleParam, sampleTopReports } from './todaySampleReports'
+import { SAMPLE_BRIEFING, parseSampleParam, sampleTopReports } from './todaySampleReports'
 import { TodayBriefingSegment, briefingForReports } from './todaySignalReports'
 
 export const TOP_REPORT_COUNT = 5
@@ -162,7 +162,7 @@ export interface todayLogicMeta {
         reportId: (location: { hash: string; pathname: string; search: string }) => string | null
         reports: (topReports: TodayReports | null) => SignalReport[]
         moreReportCount: (topReports: TodayReports | null) => number
-        briefing: (reports: SignalReport[]) => TodayBriefingSegment[][]
+        briefing: (reports: SignalReport[], useSampleData: boolean) => TodayBriefingSegment[][]
         hour: (now: number) => number
         greeting: (hour: number, user: UserType | null) => string
         reportSummary: (hour: number, reports: SignalReport[]) => string
@@ -239,8 +239,9 @@ export const todayLogic = kea<todayLogicType>([
                 topReports ? Math.max(topReports.count - topReports.results.length, 0) : 0,
         ],
         briefing: [
-            (s) => [s.reports],
-            (reports: SignalReport[]): TodayBriefingSegment[][] => briefingForReports(reports),
+            (s) => [s.reports, s.useSampleData],
+            (reports: SignalReport[], useSampleData: boolean): TodayBriefingSegment[][] =>
+                useSampleData ? SAMPLE_BRIEFING : briefingForReports(reports),
         ],
         hour: [(s) => [s.now], (now: number): number => new Date(now).getHours()],
         greeting: [

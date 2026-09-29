@@ -8,6 +8,7 @@ import { urls } from 'scenes/urls'
 import { SignalCard } from 'products/signals/frontend/inbox/SignalCard'
 
 import { todayReportLogic } from './todayReportLogic'
+import { isSampleReportId } from './todaySampleReports'
 
 const SHOWN_SIGNAL_COUNT = 3
 
@@ -43,7 +44,7 @@ export function TodayReportEvidence({ reportId }: { reportId: string }): JSX.Ele
                     {signals.slice(0, SHOWN_SIGNAL_COUNT).map((signal) => (
                         <SignalCard key={signal.signal_id} signal={signal} />
                     ))}
-                    {signals.length > SHOWN_SIGNAL_COUNT && (
+                    {signals.length > SHOWN_SIGNAL_COUNT && !isSampleReportId(reportId) && (
                         <Link to={inboxUrl} className="text-sm" data-attr="today-evidence-inbox">
                             {`See all ${signals.length} signals in the Inbox`}
                         </Link>

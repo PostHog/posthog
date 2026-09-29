@@ -29,19 +29,21 @@ function TodayMetaLine(): JSX.Element {
 function BriefingSegment({ segment }: { segment: TodayBriefingSegment }): JSX.Element {
     const { hoveredReportId, reports } = useValues(todayLogic)
     const { reportOpened, setHoveredReportId } = useActions(todayLogic)
-    const report = reports.find((candidate) => candidate.id === segment.reportId)
-    if (!report) {
+    const { reportId } = segment
+    if (!reportId) {
         return <span>{segment.text}</span>
     }
+    // A briefing can link a report outside the top five, which has no row to open it from.
+    const report = reports.find((candidate) => candidate.id === reportId)
     const link = (
         <Link
-            to={urls.todayReport(report.id)}
+            to={urls.todayReport(reportId)}
             subtle
             className="TodayReportLink"
-            data-active={hoveredReportId === report.id}
+            data-active={hoveredReportId === reportId}
             data-attr="today-briefing-report"
-            onClick={() => reportOpened(report, 'briefing')}
-            onMouseEnter={() => setHoveredReportId(report.id)}
+            onClick={() => report && reportOpened(report, 'briefing')}
+            onMouseEnter={() => setHoveredReportId(reportId)}
             onMouseLeave={() => setHoveredReportId(null)}
         >
             {segment.text}

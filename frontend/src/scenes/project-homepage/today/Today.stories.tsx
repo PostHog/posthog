@@ -149,7 +149,7 @@ export const HomeWithSampleReports: Story = {
 }
 
 export const SampleReportPage: Story = {
-    parameters: { pageUrl: `${urls.todayReport('sample-signup-validation')}?sample=1` },
+    parameters: { pageUrl: `${urls.todayReport('sample-pr')}?sample=1` },
 }
 
 export const HomeWithNoReports: Story = {
