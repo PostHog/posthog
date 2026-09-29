@@ -135,6 +135,11 @@ def test_no_false_positive(files: list[str]) -> None:
             id="authentication-scene-tree",
         ),
         pytest.param(
+            ["products/growth/backend/temporal/signup_enrichment/trigger.py"],
+            "auth",
+            id="signup-enrichment-trigger-runs-in-signup-request",
+        ),
+        pytest.param(
             ["posthog/api/login.py"],
             "auth",
             id="login-endpoint",

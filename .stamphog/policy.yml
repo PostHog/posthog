@@ -5,7 +5,7 @@ version: 1
 deny:
     auth:
         description: 'Authentication and authorization surfaces.'
-        rationale: "Only file paths hard-deny; titles surface as scrutiny flags. Past participles (authenticated/authorized) live in titles-only because as path patterns they hard-deny the wrong things (web analytics' authorized_urls.py is domain config, not the auth system). session/token/permission are path-only with tighter compounds because they match too broadly in titles and non-auth paths (SessionAnalysisWarning, tokenizer, permission helpers). The growth signup_enrichment workflows are exempt: signup there names the event that starts company enrichment, and the directory holds no signup or auth flow."
+        rationale: "Only file paths hard-deny; titles surface as scrutiny flags. Past participles (authenticated/authorized) live in titles-only because as path patterns they hard-deny the wrong things (web analytics' authorized_urls.py is domain config, not the auth system). session/token/permission are path-only with tighter compounds because they match too broadly in titles and non-auth paths (SessionAnalysisWarning, tokenizer, permission helpers). The growth signup_enrichment workflows are exempt file by file: signup there names the event that starts company enrichment, and the workflows hold no auth logic. trigger.py stays denied because it runs inside the signup request, and a new file stays denied until it is listed."
         match:
             any:
                 - 'auth'
@@ -35,7 +35,13 @@ deny:
                 - 'permission'
         exempt_path_prefixes:
             - 'products/warehouse_sources/backend/temporal/data_imports/sources/'
-            - 'products/growth/backend/temporal/signup_enrichment/'
+            - 'products/growth/backend/temporal/signup_enrichment/__init__.py'
+            - 'products/growth/backend/temporal/signup_enrichment/harmonic_status_poll.py'
+            - 'products/growth/backend/temporal/signup_enrichment/reenrichment.py'
+            - 'products/growth/backend/temporal/signup_enrichment/rescore.py'
+            - 'products/growth/backend/temporal/signup_enrichment/schedule.py'
+            - 'products/growth/backend/temporal/signup_enrichment/workflow.py'
+            - 'products/growth/backend/temporal/signup_enrichment/tests/'
     crypto_secrets:
         description: 'Cryptography, secrets, and key material.'
         rationale: 'key/secret/cert/signing are too broad for titles (key matches keyboard, hotkey, localStorage key), so they are path-only with compound patterns.'
