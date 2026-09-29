@@ -29,7 +29,9 @@ function trailingDots(match: string): string {
 }
 
 const TOKEN = new RegExp(
-  TOKEN_RULES.map((rule) => tokenSource(rule, "+")).join("|"),
+  TOKEN_RULES.map((rule) => rule.shape?.source ?? tokenSource(rule, "+")).join(
+    "|",
+  ),
   "g",
 );
 
