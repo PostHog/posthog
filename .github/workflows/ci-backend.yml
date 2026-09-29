@@ -448,9 +448,8 @@ jobs:
                         - 'products/ruff.toml'
                         - '.github/scripts/**'
                         # The SDK major-version guard (test_sdk_dependency_majors.py) reads
-                        # these manifests. The uv locks are listed because a floor-only spec
-                        # can move only through its lock; the other locks cannot cross a
-                        # major without their manifest changing too.
+                        # these manifests and lockfiles. The lockfiles are listed because a
+                        # floor-only or `*` spec can move to a new major through its lock alone.
                         - 'services/llm-gateway/pyproject.toml'
                         - 'services/llm-gateway/uv.lock'
                         - 'uv.lock'
@@ -458,6 +457,8 @@ jobs:
                         - 'tools/infra-scripts/clitools/requirements.txt'
                         - 'tools/infra-scripts/clitools/constraints.txt'
                         - 'pnpm-workspace.yaml'
+                        - 'pnpm-lock.yaml'
+                        - 'products/desktop/pnpm-lock.yaml'
                         - 'nodejs/package.json'
                         - 'services/mcp/package.json'
                         - 'tools/hedgebox-dummy/package.json'
