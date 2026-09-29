@@ -86,6 +86,7 @@ export function PromptViewDetails(): JSX.Element {
         isShowingResolvedPreview,
         resolvedPreview,
         resolvedPreviewLoading,
+        referencedBy,
     } = useValues(llmPromptLogic)
     const { toggleMarkdownRendering, setCompareVersion, toggleResolvedPreview } = useActions(llmPromptLogic)
     const markdownContainerRef = useRef<HTMLDivElement>(null)
@@ -187,6 +188,19 @@ export function PromptViewDetails(): JSX.Element {
             )}
 
             {!isShowingResolvedPreview && <PromptReferenceTags text={promptText} />}
+
+            {referencedBy.length > 0 && (
+                <div className="flex flex-wrap items-center gap-1" data-attr="llma-prompt-used-by">
+                    <span className="text-xs text-secondary">Used by:</span>
+                    {[...new Set(referencedBy.map((reference) => reference.name))].map((name) => (
+                        <Link key={name} to={urls.aiObservabilityPrompt(name)}>
+                            <LemonTag type="completion" size="small">
+                                {name}
+                            </LemonTag>
+                        </Link>
+                    ))}
+                </div>
+            )}
 
             {variables.length > 0 && (
                 <div className="flex flex-wrap items-center gap-1">

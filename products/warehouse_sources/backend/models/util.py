@@ -12,8 +12,10 @@ from posthog.hogql.database.models import (
     DateDatabaseField,
     DateTimeDatabaseField,
     DecimalDatabaseField,
+    FloatArrayDatabaseField,
     FloatDatabaseField,
     IntegerDatabaseField,
+    MapStringDatabaseField,
     StringArrayDatabaseField,
     StringDatabaseField,
     StringJSONDatabaseField,
@@ -254,6 +256,8 @@ STR_TO_HOGQL_MAPPING: dict[str, DatabaseFieldFactory] = {
     "IntegerDatabaseField": IntegerDatabaseField,
     "DecimalDatabaseField": DecimalDatabaseField,
     "FloatDatabaseField": FloatDatabaseField,
+    "FloatArrayDatabaseField": FloatArrayDatabaseField,
+    "MapStringDatabaseField": MapStringDatabaseField,
     "StringArrayDatabaseField": StringArrayDatabaseField,
     "StringDatabaseField": StringDatabaseField,
     "StringJSONDatabaseField": StringJSONDatabaseField,
@@ -778,10 +782,14 @@ _POSTHOG_OWNED_BUCKET_SETTING_NAMES = (
     "DATAWAREHOUSE_BUCKET",
     "DICTIONARY_STAGING_S3_BUCKET",
     "IDENTITY_MATCHING_S3_BUCKET",
+    # Another region's app object store, so it holds that region's team data. Deny it even without a known node-role path.
+    "INBOX_RANKING_SERVING_MIRROR_BUCKET",
     "NOTEBOOKS_FRAME_STORE_S3_BUCKET",
     "OBJECT_STORAGE_BUCKET",
     "OBJECT_STORAGE_EXTERNAL_WEB_ANALYTICS_BUCKET",
     "QUERY_LOG_ARCHIVE_EXPORT_S3_BUCKET",
+    # Holds decrypted recordings from many teams and may share a bucket the node role reads, so it is denied.
+    "REPLAY_VISION_BENCHMARK_BUCKET",
     "SESSION_RECORDING_V2_S3_BUCKET",
 )
 

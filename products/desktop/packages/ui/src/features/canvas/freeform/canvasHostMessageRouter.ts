@@ -145,6 +145,7 @@ export function createCanvasHostMessageRouter(
           // Do not report a failure while a later approval can still run the call.
           const result =
             message.method === "agentRequest" ||
+            message.method === "actionInvoke" ||
             message.method === "connectorCall"
               ? await call
               : await Promise.race([

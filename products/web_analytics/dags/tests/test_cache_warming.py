@@ -262,7 +262,7 @@ class TestBuildReplayRunner(BaseTest):
             # buckets the shape's real queries can never consume, held only to
             # the lazy demand floor instead of the raw one.
             ("uuid_join_mode", {"modifiers": {"sessionsV2JoinMode": "uuid"}}, ["-7d"], "-7d"),
-            ("only_over_cap_demand", {"dateRange": {"date_from": "-180d"}}, ["-180d"], "-180d"),
+            ("only_over_cap_demand", {"dateRange": {"date_from": "-400d"}}, ["-400d"], "-400d"),
         ]
     )
     def test_ineligible_shape_is_not_canonicalized_into_eligibility(

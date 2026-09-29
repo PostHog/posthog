@@ -1,5 +1,18 @@
 version: 1
 owners: []
+# Team slugs below are GitHub teams in this organization.
+github_org: PostHog
+# Automation that a team can redirect or silence under `notifications:`.
+producers: [stamphog, visual_review]
+# services/mcp generate-tools reads every YAML file in a product's mcp/ directory.
+reserved_dirs: ['products/**/mcp/**']
+# A product manifest already lists its owners, so it counts as an ownership file.
+alias_files: [product.yaml]
+# frontend/ runs the Jest suites of the product frontends, so their JUnit paths start from there.
+codeowners:
+    jest_root: frontend
+    jest_root_tests: 'products/**/frontend/**'
+    jest_root_packages: products
 # Slack channel per team, declared once for the whole repo (root-only registry).
 # A team only needs an entry where the derived '#<slug>' is wrong or missing; the
 # other 22 slugs in use derive correctly and are deliberately absent.
@@ -121,12 +134,23 @@ rules:
     - match: '/services/llm-gateway/'
       owners: team-agent-infrastructure
     - match:
+          - '/packages/owners-yaml/'
           - '/tools/hogli-commands/'
           - '/tools/hogli/'
-          - '/tools/owners/'
           - '/tools/phrocs/'
       owners: team-devex
     - match: '/products/stamphog/packages/pr-approval-agent/'
       owners: team-devex
     - match: '/tools/query-performance-ai/'
       owners: team-analytics-platform
+    # A new product, provider, domain, or top-level package shapes the monorepo layout.
+    # The rule names who owns that decision and claims none of the files inside.
+    - match:
+          - '/products/*'
+          - '/posthog/ingress/*'
+          - '/posthog/egress/*'
+          - '/tools/*'
+          - '/services/*'
+          - '/packages/*'
+          - '/cli/*'
+      additions: team-devex

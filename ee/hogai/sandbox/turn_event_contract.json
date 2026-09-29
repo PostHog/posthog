@@ -11,7 +11,8 @@
             "turn_complete": true,
             "idle_resume": false,
             "pi_error": false,
-            "session_update": false
+            "session_update": false,
+            "successful": false
         }
     },
     {
@@ -29,7 +30,8 @@
             "turn_complete": true,
             "idle_resume": false,
             "pi_error": false,
-            "session_update": false
+            "session_update": false,
+            "successful": true
         }
     },
     {
@@ -47,7 +49,8 @@
             "turn_complete": true,
             "idle_resume": true,
             "pi_error": false,
-            "session_update": false
+            "session_update": false,
+            "successful": false
         }
     },
     {
@@ -65,7 +68,8 @@
             "turn_complete": true,
             "idle_resume": false,
             "pi_error": false,
-            "session_update": false
+            "session_update": false,
+            "successful": false
         }
     },
     {
@@ -81,7 +85,8 @@
             "turn_complete": true,
             "idle_resume": false,
             "pi_error": false,
-            "session_update": false
+            "session_update": false,
+            "successful": false
         }
     },
     {
@@ -97,7 +102,8 @@
             "turn_complete": true,
             "idle_resume": false,
             "pi_error": false,
-            "session_update": false
+            "session_update": false,
+            "successful": false
         }
     },
     {
@@ -115,7 +121,8 @@
             "turn_complete": true,
             "idle_resume": false,
             "pi_error": false,
-            "session_update": false
+            "session_update": false,
+            "successful": false
         }
     },
     {
@@ -132,7 +139,8 @@
             "turn_complete": true,
             "idle_resume": false,
             "pi_error": false,
-            "session_update": false
+            "session_update": false,
+            "successful": true
         }
     },
     {
@@ -149,7 +157,8 @@
             "turn_complete": false,
             "idle_resume": false,
             "pi_error": false,
-            "session_update": false
+            "session_update": false,
+            "successful": false
         }
     },
     {
@@ -166,7 +175,8 @@
             "turn_complete": false,
             "idle_resume": false,
             "pi_error": false,
-            "session_update": false
+            "session_update": false,
+            "successful": false
         }
     },
     {
@@ -181,7 +191,8 @@
             "turn_complete": true,
             "idle_resume": false,
             "pi_error": false,
-            "session_update": false
+            "session_update": false,
+            "successful": false
         }
     },
     {
@@ -197,7 +208,8 @@
             "turn_complete": true,
             "idle_resume": false,
             "pi_error": false,
-            "session_update": false
+            "session_update": false,
+            "successful": true
         }
     },
     {
@@ -213,7 +225,8 @@
             "turn_complete": true,
             "idle_resume": false,
             "pi_error": true,
-            "session_update": false
+            "session_update": false,
+            "successful": false
         }
     },
     {
@@ -229,7 +242,8 @@
             "turn_complete": false,
             "idle_resume": false,
             "pi_error": false,
-            "session_update": false
+            "session_update": false,
+            "successful": false
         }
     },
     {
@@ -241,7 +255,8 @@
             "turn_complete": false,
             "idle_resume": false,
             "pi_error": false,
-            "session_update": false
+            "session_update": false,
+            "successful": false
         }
     },
     {
@@ -254,7 +269,8 @@
             "turn_complete": false,
             "idle_resume": false,
             "pi_error": false,
-            "session_update": false
+            "session_update": false,
+            "successful": false
         }
     },
     {
@@ -272,7 +288,8 @@
             "turn_complete": false,
             "idle_resume": false,
             "pi_error": false,
-            "session_update": true
+            "session_update": true,
+            "successful": false
         }
     },
     {
@@ -290,7 +307,8 @@
             "turn_complete": false,
             "idle_resume": false,
             "pi_error": false,
-            "session_update": false
+            "session_update": false,
+            "successful": false
         }
     },
     {
@@ -302,7 +320,8 @@
             "turn_complete": false,
             "idle_resume": false,
             "pi_error": false,
-            "session_update": false
+            "session_update": false,
+            "successful": false
         }
     },
     {
@@ -315,7 +334,8 @@
             "turn_complete": false,
             "idle_resume": false,
             "pi_error": false,
-            "session_update": false
+            "session_update": false,
+            "successful": false
         }
     },
     {
@@ -328,7 +348,8 @@
             "turn_complete": false,
             "idle_resume": false,
             "pi_error": false,
-            "session_update": false
+            "session_update": false,
+            "successful": false
         }
     },
     {
@@ -341,7 +362,8 @@
             "turn_complete": false,
             "idle_resume": false,
             "pi_error": false,
-            "session_update": false
+            "session_update": false,
+            "successful": false
         }
     },
     {
@@ -351,7 +373,8 @@
             "turn_complete": false,
             "idle_resume": false,
             "pi_error": false,
-            "session_update": false
+            "session_update": false,
+            "successful": false
         }
     }
 ]

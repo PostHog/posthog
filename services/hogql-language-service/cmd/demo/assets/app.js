@@ -17,6 +17,31 @@ const examples = [
         note: 'Probe CTE completion. Missing projected suggestions are a service limitation.',
     },
     {
+        name: 'CTE join and boolean filters',
+        query: `WITH counts AS (
+    SELECT
+        toDate(timestamp) AS day,
+        count() AS event_count
+    FROM events
+    GROUP BY day
+), rules AS (
+    SELECT
+        active_day,
+        display_name
+    FROM demo_rules
+    WHERE is_enabled = TRUE
+        AND is_archived = FALSE
+)
+SELECT
+    counts.§day,
+    counts.event_count,
+    rules.display_name
+FROM counts
+LEFT JOIN rules ON counts.day = rules.active_day
+ORDER BY counts.day`,
+        note: 'Complete after counts. or rules. to inspect projected fields. Validate TRUE and FALSE boolean filters.',
+    },
+    {
         name: 'Subquery completion',
         query: 'SELECT nested.§\nFROM (SELECT person_id, count() AS event_count FROM events GROUP BY person_id) AS nested',
         note: 'Probe derived fields. The demo shows exactly what the service supports.',

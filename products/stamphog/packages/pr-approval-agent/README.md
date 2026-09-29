@@ -282,7 +282,7 @@ Those files are still readable as untrusted _content_ under the anti-injection n
 The diff scratch file is created with `mkstemp` under an unpredictable name, so a tracked symlink in the tree cannot redirect the write.
 
 The base commit of a stacked PR is its parent branch tip, which the checkout does not necessarily carry.
-`github.ensure_commits` fetches it for `review_pr.py`, and `review_local.py` expects the caller to have fetched it during the clone.
+`github.ensure_commits` fetches it for `review_pr.py`. The hosted server instead passes the merge base in the context, and `review_local.py` diffs `merge_base..head` against the shallow checkout.
 
 ## Tiers
 
@@ -349,6 +349,9 @@ A retry against the now-classified head commit reviews it properly.
 Ownership context for the LLM, not a hard gate.
 The sources are declared in `policy.yml` under `ownership:` and read from the checked-out tree: a `hogli-resolver` source that resolves ownership through the shared hogli resolver over the distributed `owners.yaml` / `product.yaml` files.
 A file's owning teams are the union across all sources.
+A repo that vendors this directory does not need to vendor the resolver as well: add a pinned `owners-yaml` from PyPI to the script dependencies of `review_pr.py`.
+Pin the version, because a new release can change how paths resolve.
+In this monorepo and in the review sandbox, the engine uses the resolver that ships beside it, so the two always match.
 Cross-team typo, test and comment fixes are fine, as are small well-tested behavioral fixes (T1a/T1b) with no outstanding reviewer concerns.
 API contract, data model, and larger behavioral changes get escalated.
 

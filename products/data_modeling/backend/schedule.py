@@ -112,8 +112,8 @@ def get_v2_saved_query_ids(
     in several DAGs and one v1-scheduled placement does not make a v1 schedule safe to mint.
 
     `team_id` extends that to saved queries with no node, answering from the team's DAGs instead.
-    A node can be absent because `sync_saved_query_to_dag` deletes it when dependency resolution
-    raises, and reading "no node" as "not on v2" mints a v1 per-query schedule beside the team's
+    A node can be absent because `sync_saved_query_to_dag` rolls its creation back when dependency
+    resolution raises, and reading "no node" as "not on v2" mints a v1 per-query schedule beside the team's
     live tier, which then materializes the query twice on every cycle. Only a caller that is about
     to create a v1 schedule needs this, so it stays opt-in: it answers about the team rather than
     about a placement, and such a caller must still check for a node before scheduling. Pass the

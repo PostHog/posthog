@@ -56,7 +56,7 @@ permissions:
 
 jobs:
     poll:
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 3
         # Forks don't get secret access on pull_request, so the capture would
         # no-op anyway — skip the run entirely to avoid noise.

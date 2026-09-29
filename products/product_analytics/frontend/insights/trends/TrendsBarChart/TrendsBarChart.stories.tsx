@@ -92,14 +92,17 @@ export default meta
 
 let uniqueNode = 0
 
-function Stage({ children }: { children: React.ReactNode }): JSX.Element {
+function Stage({ children, width = 720 }: { children: React.ReactNode; width?: number }): JSX.Element {
     return (
         // eslint-disable-next-line react/forbid-dom-props
-        <div style={{ height: 360, width: 720, display: 'flex', flexDirection: 'column' }}>{children}</div>
+        <div style={{ height: 360, width, display: 'flex', flexDirection: 'column' }}>{children}</div>
     )
 }
 
-function renderTrendsBarChart(insightFixture: any): JSX.Element {
+function renderTrendsBarChart(
+    insightFixture: any,
+    { embedded = false, width = 720 }: { embedded?: boolean; width?: number } = {}
+): JSX.Element {
     const [dashboardItemId] = useState(() => `TrendsBarChartStory.${uniqueNode++}` as InsightShortId)
     const cachedInsight = { ...insightFixture, short_id: dashboardItemId }
 
@@ -114,8 +117,8 @@ function renderTrendsBarChart(insightFixture: any): JSX.Element {
     return (
         <BindLogic logic={insightLogic} props={insightProps}>
             <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
-                <Stage>
-                    <TrendsBarChart />
+                <Stage width={width}>
+                    <TrendsBarChart embedded={embedded} />
                 </Stage>
             </BindLogic>
         </BindLogic>

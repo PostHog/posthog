@@ -8,12 +8,20 @@ export function panelTabShortcut(macPlatform: boolean): string {
   ).join(",");
 }
 
+/** App-wide shortcuts that must also fire while focus is in a text field. */
+export const GLOBAL_HOTKEY_OPTIONS = {
+  enableOnFormTags: true,
+  enableOnContentEditable: true,
+  preventDefault: true,
+} as const;
+
 export const SHORTCUTS = {
   COMMAND_MENU: "mod+k",
   NEW_TASK: "mod+n",
   NEW_TAB: "mod+t",
   SETTINGS: "mod+,",
   SHORTCUTS_SHEET: "mod+/",
+  SEND_FEEDBACK: "mod+shift+f",
   GO_BACK: "mod+[",
   GO_FORWARD: "mod+]",
   // Arrow variants must stay outside form fields/editors, where mod+left/right
@@ -42,6 +50,11 @@ export const SHORTCUTS = {
   TOGGLE_FOCUS: "mod+r",
   PASTE_AS_FILE: "mod+shift+v",
   INBOX: "mod+i",
+  COMMAND_CENTER: "mod+shift+c",
+  // Off macOS, mod is ctrl and ctrl+alt+up/down already belongs to the OS
+  // (workspace switching, screen rotation), so shift takes the mod slot.
+  RAIL_PREV: isMac ? "ctrl+alt+mod+up" : "ctrl+alt+shift+up",
+  RAIL_NEXT: isMac ? "ctrl+alt+mod+down" : "ctrl+alt+shift+down",
   SPACE_UP: "mod+up",
   SPACE_DOWN: "mod+down",
   FIND_IN_CONVERSATION: "mod+f",
@@ -112,6 +125,12 @@ export const KEYBOARD_SHORTCUTS: KeyboardShortcut[] = [
     category: "general",
   },
   {
+    id: "send-feedback",
+    keys: SHORTCUTS.SEND_FEEDBACK,
+    description: "Send feedback",
+    category: "general",
+  },
+  {
     id: "zoom-in",
     keys: SHORTCUTS.ZOOM_IN,
     description: "Zoom in",
@@ -141,6 +160,27 @@ export const KEYBOARD_SHORTCUTS: KeyboardShortcut[] = [
     keys: SHORTCUTS.INBOX,
     description: "Open Self-driving",
     category: "navigation",
+  },
+  {
+    id: "command-center",
+    keys: SHORTCUTS.COMMAND_CENTER,
+    description: "Open Command Center",
+    category: "navigation",
+  },
+  {
+    id: "rail-prev",
+    keys: SHORTCUTS.RAIL_PREV,
+    description: "Previous rail destination",
+    category: "navigation",
+    // The nav rail that owns these only exists in the channels layout.
+    availability: "channels-layout",
+  },
+  {
+    id: "rail-next",
+    keys: SHORTCUTS.RAIL_NEXT,
+    description: "Next rail destination",
+    category: "navigation",
+    availability: "channels-layout",
   },
   {
     id: "switch-task",

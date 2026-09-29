@@ -18,6 +18,7 @@ from products.data_quality.backend.facade.enums import (
     SubjectType,
     SuiteRunTrigger,
 )
+from products.data_quality.backend.logic.posthog_tables import by_name
 from products.data_quality.backend.models import DataQualityCheck, DataQualityCheckRun, DataQualitySuiteRun
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
@@ -96,6 +97,37 @@ class TestDataQualityModels(BaseTest):
         assert check.subject_uuid == metric.id
         with self.assertRaises(IntegrityError), transaction.atomic():
             self._create_check(subject_type="metric", saved_query_id=None, metric_id=metric.id)
+
+    def test_a_posthog_table_is_named_and_exclusive_with_every_subject_key(self) -> None:
+        bindings: list[dict] = [
+            {"posthog_table": "events"},
+            {"subject_type": SubjectType.POSTHOG_TABLE, "saved_query_id": None},
+            {"subject_type": SubjectType.POSTHOG_TABLE, "posthog_table": "events"},
+            {"subject_type": SubjectType.POSTHOG_TABLE, "posthog_table": "events", "table_id": uuid4()},
+        ]
+        for binding in bindings:
+            with self.subTest(binding=binding), self.assertRaises(IntegrityError), transaction.atomic():
+                self._create_check(**binding)
+
+        check = self._create_check(
+            subject_type=SubjectType.POSTHOG_TABLE, saved_query_id=None, posthog_table="events", subject_name="events"
+        )
+        events = by_name("events")
+        assert events is not None
+        assert check.subject_uuid == events.id
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            self._create_check(
+                subject_type=SubjectType.POSTHOG_TABLE,
+                saved_query_id=None,
+                posthog_table="events",
+                subject_name="events",
+            )
+        self._create_check(
+            subject_type=SubjectType.POSTHOG_TABLE,
+            saved_query_id=None,
+            posthog_table="persons",
+            subject_name="persons",
+        )
 
     def test_moving_a_check_to_another_metric_keeps_its_audit_entry(self) -> None:
         # A subject FK enters the diff as a Metric instance, which the activity encoder cannot

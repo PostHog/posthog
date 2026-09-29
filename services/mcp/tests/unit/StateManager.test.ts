@@ -82,20 +82,106 @@ describe('StateManager', () => {
     })
 
     describe('getApiKey', () => {
-        function oauthApi(clientName: string | null): ApiClient {
+        const cacheOnlyApi = { config: { apiToken: 'phx_test' } } as unknown as ApiClient
+
+        function oauthApi(clientName: string | null, impersonated?: boolean): ApiClient {
             return {
-                config: { apiToken: 'phx_test' },
+                config: { apiToken: 'pha_test' },
                 apiKeys: () => ({
                     current: async () => ({ success: false, error: { message: 'not a personal key' } }),
                 }),
                 oauth: () => ({
                     introspect: async () => ({
                         success: true,
-                        data: { active: true, scope: 'insight:read', client_name: clientName },
+                        data: {
+                            active: true,
+                            scope: 'insight:read',
+                            client_name: clientName,
+                            is_impersonated: impersonated,
+                        },
                     }),
                 }),
             } as unknown as ApiClient
         }
+
+        it.each([true, false, undefined])(
+            'fetches token metadata and caches impersonation=%s',
+            async (impersonated) => {
+                stateManager = new StateManager(cache, oauthApi(null, impersonated))
+
+                const result = await stateManager.getApiKey()
+
+                expect(result.is_impersonated).toBe(impersonated === true)
+                expect(await new StateManager(cache, cacheOnlyApi).getApiKey()).toEqual(result)
+
+                const otherTokenCache = new MemoryCache<State>('other-token')
+                await otherTokenCache.clear()
+                const otherToken = new StateManager(otherTokenCache, oauthApi(null, false))
+                expect((await otherToken.getApiKey()).is_impersonated).toBe(false)
+                expect((await stateManager.getApiKey()).is_impersonated).toBe(impersonated === true)
+            }
+        )
+
+        it('caches personal API keys as not impersonated', async () => {
+            const api = {
+                config: { apiToken: 'phx_test' },
+                apiKeys: () => ({ current: async () => ({ success: true, data: mockApiKey }) }),
+            } as unknown as ApiClient
+
+            const result = await new StateManager(cache, api).getApiKey()
+
+            expect(result).toEqual({ ...mockApiKey, is_impersonated: false })
+            expect(await new StateManager(cache, cacheOnlyApi).getApiKey()).toEqual(result)
+        })
+
+        it.each([
+            { apiToken: 'phx_test', expectedScopes: ['user:read', 'cdp:read'] },
+            { apiToken: 'unrecognized-token', expectedScopes: ['user:read', 'cdp:read'] },
+            { apiToken: 'pha_test', expectedScopes: mockApiKey.scopes },
+        ])(
+            're-reads expired scopes only for a token that keeps its value ($apiToken)',
+            async ({ apiToken, expectedScopes }) => {
+                vi.useFakeTimers()
+                try {
+                    const current = vi
+                        .fn()
+                        .mockResolvedValueOnce({ success: true, data: mockApiKey })
+                        .mockResolvedValue({
+                            success: true,
+                            data: { ...mockApiKey, scopes: ['user:read', 'cdp:read'] },
+                        })
+                    const api = { config: { apiToken }, apiKeys: () => ({ current }) } as unknown as ApiClient
+
+                    expect((await new StateManager(cache, api).getApiKey()).scopes).toEqual(mockApiKey.scopes)
+
+                    vi.advanceTimersByTime(60 * 1000)
+                    expect((await new StateManager(cache, api).getApiKey()).scopes).toEqual(mockApiKey.scopes)
+
+                    vi.advanceTimersByTime(2 * 60 * 1000)
+                    expect((await new StateManager(cache, api).getApiKey()).scopes).toEqual(expectedScopes)
+                } finally {
+                    vi.useRealTimers()
+                }
+            }
+        )
+
+        it('keeps the cached scopes when a refresh fails', async () => {
+            vi.useFakeTimers()
+            try {
+                const current = vi
+                    .fn()
+                    .mockResolvedValueOnce({ success: true, data: mockApiKey })
+                    .mockRejectedValue(new Error('API unreachable'))
+                const api = { config: { apiToken: 'phx_test' }, apiKeys: () => ({ current }) } as unknown as ApiClient
+
+                await new StateManager(cache, api).getApiKey()
+                vi.advanceTimersByTime(3 * 60 * 1000)
+
+                expect((await new StateManager(cache, api).getApiKey()).scopes).toEqual(mockApiKey.scopes)
+            } finally {
+                vi.useRealTimers()
+            }
+        })
 
         it.each([
             { label: 'an OAuth app name', clientName: 'Claude', expected: 'Claude' },
@@ -458,8 +544,7 @@ describe('StateManager', () => {
 
     describe('getCachedOrFetchOrg', () => {
         it('returns undefined when no org can be resolved (does not throw)', async () => {
-            // Preserves the best-effort contract used by getEnvironmentPrompt and
-            // consent checks: if no org is in scope, the call is a no-op.
+            // Consent checks rely on this best-effort contract.
             vi.spyOn(stateManager, 'getApiKey').mockResolvedValue({
                 scopes: ['organization:read'],
                 scoped_organizations: [],
@@ -874,7 +959,7 @@ describe('StateManager', () => {
         it('returns undefined without calling the API when the key lacks integration:read', async () => {
             await cache.set('apiKey', { scopes: ['project:read'], scoped_organizations: [], scoped_teams: [] })
             const request = vi.fn()
-            ;(stateManager as any)._api = { request }
+            ;(stateManager as any)._api = { config: { apiToken: 'phx_test' }, request }
 
             const result = await stateManager.getOrFetchIntegrationKinds(projectId)
 
@@ -887,7 +972,7 @@ describe('StateManager', () => {
             const request = vi.fn().mockResolvedValue({
                 results: [{ kind: 'slack' }, { kind: 'github' }, { kind: 'github' }],
             })
-            ;(stateManager as any)._api = { request }
+            ;(stateManager as any)._api = { config: { apiToken: 'phx_test' }, request }
 
             const result = await stateManager.getOrFetchIntegrationKinds(projectId)
 

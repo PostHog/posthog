@@ -113,8 +113,10 @@ if [ "$RUN_POSTGRES" = "1" ]; then
     
     while [ $MIGRATE_ATTEMPT -le $MIGRATE_MAX_RETRIES ]; do
         echo "[migrate] Django migration attempt $MIGRATE_ATTEMPT/$MIGRATE_MAX_RETRIES"
-        
-        if $MIGRATE_CMD; then
+
+        # Product databases (products/db_routing.yaml) lose lock races the same way, so they
+        # share the retry. A retry re-runs the main migrate too, which is a no-op by then.
+        if $MIGRATE_CMD && python manage.py migrate_product_databases; then
             MIGRATE_SUCCESS=true
             break
         fi
@@ -146,18 +148,7 @@ if [ "$RUN_POSTGRES" = "1" ]; then
         [ -n "$CLICKHOUSE_STATUS" ] && rm -f $CLICKHOUSE_STATUS
         exit 1
     fi
-    
-fi
 
-# Product database migrations via Django.
-# When product routes are configured, run each routed app's migrations against
-# its target writer database alias.
-if run_scope "postgres"; then
-    python manage.py migrate_product_databases
-    if [ $? -ne 0 ]; then
-        echo "Error in migrate_product_databases, exiting."
-        exit 1
-    fi
 fi
 
 # Persons migrations via Django management command (connects to PERSONS_DB_WRITER_URL).

@@ -24,7 +24,6 @@ from posthog.hogql.restricted_properties import restricted_property_keys_for_tab
 from posthog.hogql.type_system import normalized_runtime_type, parse_sql_runtime_type
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 
-from posthog.clickhouse.events_json import EVENTS_PROPERTIES_JSON_SUBCOLUMNS, PERSON_PROPERTIES_JSON_SUBCOLUMNS
 from posthog.clickhouse.materialized_column_types import MATERIALIZATION_VALID_TABLES, MaterializedColumn
 from posthog.dataclasses import frozen
 
@@ -134,8 +133,14 @@ class PropertyFinder(TraversingVisitor):
 class ToTimeZoneParts:
     bare_field: ast.Expr
     timezone: str
-    constant: ast.Expr
+    other_side: ast.Expr
     swapped: bool
+
+
+@frozen
+class ComparisonOperands:
+    left: ast.Expr
+    right: ast.Expr
 
 
 class PropertySwapper(CloningVisitor):
@@ -145,6 +150,10 @@ class PropertySwapper(CloningVisitor):
         ast.CompareOperationOp.Lt,
         ast.CompareOperationOp.LtEq,
     }
+    _RANGE_FUNCTIONS: set[str] = {"greater", "greaterOrEquals", "less", "lessOrEquals"}
+
+    # A comparison under these calls still filters the rows of the enclosing WHERE, so pruning still applies to it.
+    _BOOLEAN_CONNECTIVES: set[str] = {"and", "or", "not"}
 
     # ClickHouse string-parsing conversions (toFloat64OrZero, toInt64OrZero,
     # toFloat64OrDefault, toInt64OrDefault) require a String first argument and raise
@@ -188,7 +197,10 @@ class PropertySwapper(CloningVisitor):
         # The CloningVisitor.visit_select_query visits fields in a fixed order.
         # We replicate that here, wrapping only where/prewhere with our flag.
         saved_where_depth = self._inside_where_depth
+        saved_call_depth = self._inside_call_depth
         self._inside_where_depth = 0  # each SelectQuery gets its own scope
+        # A call around the subquery, as in countIf(x IN (SELECT ...)), does not wrap the subquery's own WHERE.
+        self._inside_call_depth = 0
 
         # Visit everything except where/prewhere normally (depth=0, no stripping)
         ctes = {key: self.visit(expr) for key, expr in node.ctes.items()} if node.ctes else None
@@ -209,6 +221,7 @@ class PropertySwapper(CloningVisitor):
         interpolate = [self.visit(expr) for expr in node.interpolate] if node.interpolate is not None else None
 
         self._inside_where_depth = saved_where_depth  # restore parent scope
+        self._inside_call_depth = saved_call_depth
 
         return ast.SelectQuery(
             start=None if self.clear_locations else node.start,
@@ -245,18 +258,26 @@ class PropertySwapper(CloningVisitor):
         if rewritten is not None:
             return rewritten
 
+        can_move_timezone = node.name in self._RANGE_FUNCTIONS and len(node.args) == 2 and self._can_move_timezone()
+
         # Track whether the immediate enclosing call parses its argument as a
         # string. Re-evaluated per call, so nested non-parsing calls (e.g.
         # toFloatOrZero(toString(prop))) correctly reset the flag.
         saved_suppress = self._suppress_numeric_conversion
         self._suppress_numeric_conversion = node.name in self._STRING_INPUT_CONVERSIONS
 
-        self._inside_call_depth += 1
+        call_depth_step = 0 if node.name in self._BOOLEAN_CONNECTIVES else 1
+        self._inside_call_depth += call_depth_step
         try:
             result = super().visit_call(node)
         finally:
-            self._inside_call_depth -= 1
+            self._inside_call_depth -= call_depth_step
             self._suppress_numeric_conversion = saved_suppress
+
+        if can_move_timezone and isinstance(result, ast.Call):
+            moved = self._move_timezone_to_other_side(result.args[0], result.args[1])
+            if moved is not None:
+                result.args = [moved.left, moved.right]
 
         return self._maybe_extract_exception_string_array(result)
 
@@ -348,6 +369,17 @@ class PropertySwapper(CloningVisitor):
 
         table_name = table_type.resolve_database_table(self.context).to_printed_hogql()
         if table_name not in MATERIALIZATION_VALID_TABLES:
+            return None
+
+        # On native events, property resolution rebuilds this virtual map for every JSONExtract* function.
+        if (
+            self.context.uses_new_events_schema()
+            and table_name == "events"
+            and database_field.name == "properties"
+            and len(node.args) > 1
+            and isinstance(node.args[1], ast.Constant)
+            and node.args[1].value == "$feature_flags"
+        ):
             return None
 
         if (
@@ -465,17 +497,11 @@ class PropertySwapper(CloningVisitor):
             chain=[*field_arg.chain, first_key],
             type=ast.PropertyType(chain=[first_key], field_type=field_type),
         )
-        subcolumns = (
-            EVENTS_PROPERTIES_JSON_SUBCOLUMNS if field_type.name == "properties" else PERSON_PROPERTIES_JSON_SUBCOLUMNS
+        property_document: ast.Expr = ast.Call(
+            name="toJSONString",
+            args=[property_field],
+            type=ast.StringType(nullable=True),
         )
-        declared_type = subcolumns.get(first_key)
-        property_document: ast.Expr = property_field
-        if len(property_path) == 1 or declared_type not in ("String", "Nullable(String)"):
-            property_document = ast.Call(
-                name="toJSONString",
-                args=[property_field],
-                type=ast.StringType(nullable=True),
-            )
         property_document = ast.Call(
             name="ifNull",
             args=[
@@ -527,18 +553,21 @@ class PropertySwapper(CloningVisitor):
     def visit_compare_operation(self, node: ast.CompareOperation):
         result = super().visit_compare_operation(node)
 
-        if (
-            not self.setTimeZones
-            or result.op not in self._RANGE_OPS
-            or self._inside_call_depth > 0
-            or self._inside_where_depth == 0
-        ):
+        if result.op not in self._RANGE_OPS or not self._can_move_timezone():
             return result
 
-        return self._move_timezone_from_field_to_constant(result) or result
+        moved = self._move_timezone_to_other_side(result.left, result.right)
+        if moved is None:
+            return result
+        return ast.CompareOperation(left=moved.left, right=moved.right, op=result.op)
 
-    def _move_timezone_from_field_to_constant(self, node: ast.CompareOperation) -> ast.CompareOperation | None:
-        """Move toTimeZone() from the field side to the constant side of a range comparison.
+    def _can_move_timezone(self) -> bool:
+        """Only WHERE and PREWHERE gain from pruning. A comparison inside a call other than and(), or() or not()
+        does not filter the rows of the scan, as in if(timestamp >= ..., 1, 0), so it keeps its toTimeZone()."""
+        return self.setTimeZones and self._inside_where_depth > 0 and self._inside_call_depth == 0
+
+    def _move_timezone_to_other_side(self, left: ast.Expr, right: ast.Expr) -> ComparisonOperands | None:
+        """Move toTimeZone() from the field side to the other side of a range comparison.
 
         ClickHouse DateTime values are epoch seconds internally, and toTimeZone()
         only changes display metadata — not the underlying value. So for range
@@ -552,37 +581,37 @@ class PropertySwapper(CloningVisitor):
 
         This lets the query planner use the partition key (toYYYYMM(timestamp))
         and primary key (toDate(timestamp)) for pruning, which it can't do when
-        the field is wrapped in a function call. The timezone on the constant
+        the field is wrapped in a function call. It also skips evaluating toTimeZone()
+        per granule in the timestamp skip index. The timezone on the other side
         ensures ClickHouse interprets it in the correct timezone.
 
-        We only do this for top-level range comparisons (not inside function
-        calls like if(), coalesce()) via the _inside_call_depth guard.
+        Returns the new operands, or None if neither side is toTimeZone(field, tz).
         """
-        parts = self._extract_toTimeZone_parts(node)
+        parts = self._extract_toTimeZone_parts(left, right)
         if parts is None:
             return None
 
-        tz_constant = self._ensure_constant_has_timezone(parts.constant, parts.timezone)
+        anchored = self._anchor_to_timezone(parts.other_side, parts.timezone)
 
         if parts.swapped:
-            return ast.CompareOperation(left=tz_constant, right=parts.bare_field, op=node.op)
-        else:
-            return ast.CompareOperation(left=parts.bare_field, right=tz_constant, op=node.op)
+            return ComparisonOperands(left=anchored, right=parts.bare_field)
+        return ComparisonOperands(left=parts.bare_field, right=anchored)
 
     @staticmethod
-    def _extract_toTimeZone_parts(node: ast.CompareOperation) -> ToTimeZoneParts | None:
-        """Extract the bare field, timezone, constant and side from a comparison
+    def _extract_toTimeZone_parts(left: ast.Expr, right: ast.Expr) -> ToTimeZoneParts | None:
+        """Extract the bare field, timezone, other side and side from a comparison
         where one side is toTimeZone(field, tz).
 
         Returns None if the pattern doesn't match.
         swapped=True means the toTimeZone was on the right side.
         """
         for left_is_tz in (True, False):
-            tz_side = node.left if left_is_tz else node.right
-            const_side = node.right if left_is_tz else node.left
+            tz_side = left if left_is_tz else right
+            other_side = right if left_is_tz else left
 
             inner = tz_side
-            if isinstance(inner, ast.Alias):
+            # A subquery cloned and resolved again, as in the sessions id pushdown, nests one Alias per resolution.
+            while isinstance(inner, ast.Alias):
                 inner = inner.expr
             if isinstance(inner, ast.Call) and inner.name == "toTimeZone" and len(inner.args) == 2:
                 tz_arg = inner.args[1]
@@ -590,41 +619,31 @@ class PropertySwapper(CloningVisitor):
                     return ToTimeZoneParts(
                         bare_field=inner.args[0],
                         timezone=tz_arg.value,
-                        constant=const_side,
+                        other_side=other_side,
                         swapped=not left_is_tz,
                     )
 
         return None
 
     @staticmethod
-    def _ensure_constant_has_timezone(expr: ast.Expr, tz: str) -> ast.Expr:
-        """Wrap a constant expression with toDateTime64(..., 6, tz) if it doesn't
-        already carry timezone information.
-
-        Constants that are already wrapped in toDateTime64/toDateTime with a tz
-        argument are left unchanged. Bare string/datetime constants get wrapped.
-        """
+    def _anchor_to_timezone(expr: ast.Expr, tz: str) -> ast.Expr:
         inner = expr
         if isinstance(inner, ast.Alias):
             inner = inner.expr
 
-        # Already has timezone: toDateTime64('...', 6, 'tz') or toDateTime('...', 'tz')
         if isinstance(inner, ast.Call):
-            if inner.name == "toDateTime64" and len(inner.args) == 3:
-                return expr
-            if inner.name == "toDateTime" and len(inner.args) == 2:
+            if inner.name in ("toDateTime", "toDateTime64"):
                 return expr
             # Recurse into wrapper functions like assumeNotNull(toDateTime(...))
             if inner.name in ("assumeNotNull",) and len(inner.args) == 1:
-                wrapped_arg = PropertySwapper._ensure_constant_has_timezone(inner.args[0], tz)
+                wrapped_arg = PropertySwapper._anchor_to_timezone(inner.args[0], tz)
                 if wrapped_arg is not inner.args[0]:
-                    new_call = ast.Call(name=inner.name, args=[wrapped_arg])
-                    if isinstance(expr, ast.Alias):
-                        return ast.Alias(alias=expr.alias, expr=new_call)
-                    return new_call
+                    new_call = ast.Call(
+                        name=inner.name, args=[wrapped_arg], type=PropertySwapper._datetime_call_type(inner.name, False)
+                    )
+                    return PropertySwapper._replace_keeping_alias(expr, new_call)
                 return expr
 
-        # Bare constant — wrap with toDateTime64 carrying the timezone.
         # Skip if the value is already a timezone-aware datetime: the printer
         # converts it to the team timezone and emits toDateTime64('...', 6, tz)
         # regardless of the constant's original tzinfo (see escape_sql.py:249).
@@ -635,17 +654,34 @@ class PropertySwapper(CloningVisitor):
             if (zoned := parse_zoned_datetime_string(inner.value)) is not None:
                 inner.value = zoned
                 return expr
-            new_call = ast.Call(
-                name="toDateTime64",
-                args=[inner, ast.Constant(value=6), ast.Constant(value=tz)],
-            )
-            if isinstance(expr, ast.Alias):
-                return ast.Alias(alias=expr.alias, expr=new_call)
-            return new_call
 
-        # For anything else (arithmetic, other calls), leave as-is.
-        # These typically already produce timezone-aware values.
-        return expr
+        precision = 6 if isinstance(inner, ast.Constant) else 9
+        new_call = ast.Call(
+            name="toDateTime64",
+            args=[inner, ast.Constant(value=precision), ast.Constant(value=tz)],
+            type=PropertySwapper._datetime_call_type("toDateTime64", PropertySwapper._is_nullable_bound(inner)),
+        )
+        return PropertySwapper._replace_keeping_alias(expr, new_call)
+
+    @staticmethod
+    def _replace_keeping_alias(expr: ast.Expr, replacement: ast.Expr) -> ast.Expr:
+        if isinstance(expr, ast.Alias):
+            return ast.Alias(alias=expr.alias, expr=replacement, hidden=expr.hidden)
+        return replacement
+
+    @staticmethod
+    def _datetime_call_type(name: str, nullable: bool) -> ast.CallType:
+        return ast.CallType(name=name, arg_types=[], return_type=ast.DateTimeType(nullable=nullable))
+
+    @staticmethod
+    def _is_nullable_bound(expr: ast.Expr) -> bool:
+        if isinstance(expr, ast.Constant):
+            return expr.value is None
+        if isinstance(expr.type, ast.CallType):
+            return expr.type.return_type.nullable
+        if isinstance(expr.type, ast.ConstantType):
+            return expr.type.nullable
+        return True
 
     def visit_field(self, node: ast.Field):
         if isinstance(node.type, ast.FieldType):

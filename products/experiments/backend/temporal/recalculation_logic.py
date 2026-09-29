@@ -29,6 +29,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.scoping import team_scope
 from posthog.sync import database_sync_to_async_pool
+from posthog.temporal.common.errors import NonReportableApplicationError
 
 from products.experiments.backend.hogql_queries.base_query_utils import experiment_window_end
 from products.experiments.backend.hogql_queries.error_handling import (
@@ -38,12 +39,12 @@ from products.experiments.backend.hogql_queries.error_handling import (
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method, sanitize_non_finite
+from products.experiments.backend.metric_resolution import build_metric, find_metric_dict, is_scheduled_metric
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentMetricResult,
     ExperimentMetricsRecalculation,
 )
-from products.experiments.backend.temporal.metric_resolution import build_metric, find_metric_dict, is_scheduled_metric
 from products.experiments.backend.temporal.models import (
     CONCURRENCY_LIMIT_RETRY_DELAY_SECONDS,
     MAX_METRIC_ATTEMPTS,
@@ -962,5 +963,10 @@ def _calculate_experiment_metric_for_recalculation_sync(
                     trigger=state.trigger,
                 )
             if is_permanent:
+                if error_type == "validation_error":
+                    # The activity interceptor captures any ApplicationError that escapes, which
+                    # would undo the capture skip above. The non-reportable variant keeps the
+                    # stored failure out of error tracking.
+                    raise NonReportableApplicationError(message, type=error_type, non_retryable=True) from e
                 raise ApplicationError(message, type=error_type, non_retryable=True) from e
             raise

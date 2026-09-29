@@ -226,6 +226,11 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
                 name="dwsavedquery_team_live_matvw",
                 condition=~models.Q(deleted=True),
             ),
+            models.Index(
+                fields=["team_id", "-created_at"],
+                name="dwsavedquery_team_live_created",
+                condition=~models.Q(deleted=True),
+            ),
         ]
 
     @property

@@ -25,7 +25,7 @@ import {
 import { boundPersistedMcpResult } from "@posthog/shared";
 import type { McpServerConfig, McpSettings } from "./config";
 import { McpError } from "./errors";
-import { renderMcpToolCall } from "./render";
+import { renderMcpToolCall, stripTerminalSequences } from "./render";
 import { convertJsonSchemaToTypebox } from "./schema";
 import { hashServerConfig, type McpToolCache } from "./tool-cache";
 
@@ -110,6 +110,7 @@ export function convertMcpContent(items: unknown[]): BridgedContent[] {
 
 export interface McpToolDefinition {
   name: string;
+  title?: string;
   description?: string;
   inputSchema: Record<string, unknown>;
   annotations?: {
@@ -173,6 +174,7 @@ export interface ToolCollision {
 export interface ToolMeta {
   serverName: string;
   mcpName: string;
+  title?: string;
   description: string;
 }
 
@@ -214,6 +216,14 @@ export function truncateBridgedContent(
   });
 }
 
+/** Server-provided titles come from `tools/list`, so they are untrusted text. */
+function resolveToolTitle(tool: McpToolDefinition): string {
+  const raw = tool.title ?? tool.annotations?.title;
+  if (raw === undefined) return tool.name;
+  const cleaned = stripTerminalSequences(raw);
+  return cleaned.length > 0 ? cleaned : tool.name;
+}
+
 export interface McpResultMeta {
   structuredContent?: Record<string, unknown>;
   _meta?: Record<string, unknown>;
@@ -224,6 +234,7 @@ export interface McpCallDetails {
     mcp: {
       server: string;
       tool: string;
+      title?: string;
       result?: McpResultMeta;
     };
   };
@@ -233,6 +244,7 @@ export function mcpCallDetails(
   server: string,
   tool: string,
   result: McpResultMeta,
+  title?: string,
 ): McpCallDetails["posthog"] {
   const hasResult =
     result.structuredContent !== undefined || result._meta !== undefined;
@@ -240,6 +252,7 @@ export function mcpCallDetails(
     mcp: {
       server,
       tool,
+      ...(title ? { title } : {}),
       ...(hasResult
         ? {
             result: {
@@ -490,6 +503,9 @@ export class ToolBridge {
       this.toolMeta.set(piName, {
         serverName,
         mcpName: tool.name,
+        ...(tool.title || tool.annotations?.title
+          ? { title: resolveToolTitle(tool) }
+          : {}),
         description,
       });
       const isDirect =
@@ -525,6 +541,9 @@ export class ToolBridge {
         tools: tools.map((tool) => ({
           name: buildToolName(this.settings.toolPrefix, serverName, tool.name),
           mcpName: tool.name,
+          ...(tool.title || tool.annotations?.title
+            ? { title: resolveToolTitle(tool) }
+            : {}),
           description: buildDescription(tool),
         })),
       };
@@ -586,12 +605,17 @@ export class ToolBridge {
 
     this.pi.registerTool({
       name: piName,
-      label: tool.annotations?.title ?? tool.name,
+      label: resolveToolTitle(tool),
       description,
       parameters: convertJsonSchemaToTypebox(tool.inputSchema),
 
       renderCall(args, theme, context) {
-        return renderMcpToolCall(piName, args, theme, context.expanded);
+        return renderMcpToolCall(
+          `${serverName} - ${resolveToolTitle(tool)}`,
+          args,
+          theme,
+          context.expanded,
+        );
       },
 
       async execute(_toolCallId, params, signal) {
@@ -607,10 +631,17 @@ export class ToolBridge {
         return {
           content,
           details: {
-            posthog: mcpCallDetails(serverName, tool.name, {
-              structuredContent,
-              _meta,
-            }),
+            posthog: mcpCallDetails(
+              serverName,
+              tool.name,
+              {
+                structuredContent,
+                _meta,
+              },
+              (tool.title ?? tool.annotations?.title)
+                ? resolveToolTitle(tool)
+                : undefined,
+            ),
           },
         };
       },
