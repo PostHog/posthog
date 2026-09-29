@@ -34,6 +34,7 @@ from products.customer_analytics.backend.facade.contracts import (
     CustomerTaskAssigneeInvalid,
     CustomerTaskInvalidTransition,
 )
+from products.customer_analytics.backend.facade.enums import CustomerTaskAgentOutcome
 from products.customer_analytics.backend.models import Account, CustomerTask, CustomerTaskActivity
 from products.customer_analytics.backend.models.customer_task import CustomerTaskActivityType, CustomerTaskStatus
 
@@ -586,6 +587,106 @@ def restore_customer_task(
             task.save(update_fields=["archived_at", "updated_at"])
             _record_activity(task=task, activity_type=CustomerTaskActivityType.RESTORED, actor=actor, changes=[])
         return task
+
+
+def _agent_report_recorded(task: CustomerTask, idempotency_key: str) -> bool:
+    return (
+        CustomerTaskActivity.objects.for_team(task.team_id)
+        .filter(
+            task=task,
+            activity_type=CustomerTaskActivityType.AGENT_REPORT,
+            changes__contains=[{"field": "agent_report", "after": {"idempotency_key": idempotency_key}}],
+        )
+        .exists()
+    )
+
+
+def _hand_back_assignee(team: Team, task: CustomerTask) -> User | None:
+    # The person who assigned PostHog may have left the project since. The task then goes back
+    # to nobody rather than failing the report.
+    assigned_by_id = (task.properties.get("agent") or {}).get("assigned_by_id")
+    if not isinstance(assigned_by_id, int):
+        return None
+    try:
+        return _validate_assignee(team=team, account=task.account, assignee_id=assigned_by_id)
+    except (CustomerTaskAssigneeInvalid, CustomerTaskAssigneeCannotViewAccount):
+        return None
+
+
+def report_agent_result(
+    *,
+    team: Team,
+    task: CustomerTask,
+    workflow_id: UUID,
+    idempotency_key: str,
+    input: contracts.ReportCustomerTaskInput,
+) -> None:
+    """Record what the agent did and settle the task. The caller holds the task row lock.
+
+    The report is kept even when a person took the task back while the agent worked, because
+    the work was done. Only a task PostHog still owns changes status or assignee.
+    """
+    if task.archived_at is not None:
+        raise CustomerTaskArchived()
+    if _agent_report_recorded(task, idempotency_key):
+        return
+    changes: list[dict[str, object | None]] = [
+        {
+            "field": "agent_report",
+            "before": None,
+            "after": {
+                "outcome": input.outcome,
+                "report": input.report,
+                "task_id": input.task_id,
+                "task_run_id": input.task_run_id,
+                "workflow_id": str(workflow_id),
+                "idempotency_key": idempotency_key,
+            },
+        }
+    ]
+    if task.assigned_to_agent:
+        before_status = task.status
+        assignee: User | None = None
+        task.properties = {
+            **task.properties,
+            "agent": {
+                **(task.properties.get("agent") or {}),
+                "outcome": input.outcome,
+                "reported_at": _timestamp(timezone.now()),
+            },
+        }
+        if input.outcome == CustomerTaskAgentOutcome.COMPLETED:
+            if CustomerTaskStatus.COMPLETED.value in _ALLOWED_TRANSITIONS.get(task.status, frozenset()):
+                task.status = CustomerTaskStatus.COMPLETED.value
+                task.completed_at = timezone.now()
+                task.completed_by = None
+        else:
+            assignee = _hand_back_assignee(team, task)
+            task.assigned_to = assignee
+            task.assigned_to_agent = False
+        task.save()
+        _set_customer_task_assignee_access(
+            task=task, organization_id=team.organization_id, before_assignee=None, after_assignee=assignee, actor=None
+        )
+        changes.extend(
+            _changes(
+                before_account=task.account,
+                after_account=task.account,
+                before_name=task.name,
+                after_name=task.name,
+                before_description=task.description,
+                after_description=task.description,
+                before_status=before_status,
+                after_status=task.status,
+                before_assignee=None,
+                after_assignee=task.assigned_to,
+                before_agent=True,
+                after_agent=task.assigned_to_agent,
+                before_due_at=task.due_at,
+                after_due_at=task.due_at,
+            )
+        )
+    _record_activity(task=task, activity_type=CustomerTaskActivityType.AGENT_REPORT, actor=None, changes=changes)
 
 
 def _list_visible_historical_account_ids(

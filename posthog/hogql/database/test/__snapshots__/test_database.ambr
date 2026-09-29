@@ -7765,6 +7765,16 @@
                   "table": null,
                   "type": "integer"
               },
+              "assigned_to_agent": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "assigned_to_agent",
+                  "id": null,
+                  "name": "assigned_to_agent",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "boolean"
+              },
               "due_at": {
                   "chain": null,
                   "fields": null,
@@ -19890,6 +19900,16 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "integer"
+              },
+              "assigned_to_agent": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "assigned_to_agent",
+                  "id": null,
+                  "name": "assigned_to_agent",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "boolean"
               },
               "due_at": {
                   "chain": null,
