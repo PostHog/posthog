@@ -2474,10 +2474,10 @@ class _AppObjectStore:
         self.fail_on = fail_on
         self.written: list[str] = []
 
-    def head_object(self, bucket: str, file_key: str):
+    def head_object(self, bucket: str, file_key: str) -> dict[str, int] | None:
         return {"ContentLength": len(self.objects[file_key])} if file_key in self.objects else None
 
-    def write(self, bucket: str, key: str, content, extras: dict | None) -> None:
+    def write(self, bucket: str, key: str, content: str | bytes, extras: dict[str, str] | None) -> None:
         if self.fail_on is not None and self.fail_on in key:
             raise RuntimeError("object store write failed")
         self.objects[key] = content if isinstance(content, bytes) else content.encode()
@@ -2501,7 +2501,10 @@ def _serving_dataset_s3(prefix: str, partition_key: str):
 
 
 def _run_serving_manifest(
-    monkeypatch, store: _AppObjectStore, dataset_objects=None, mirror: _AppObjectStore | None = None
+    monkeypatch: pytest.MonkeyPatch,
+    store: _AppObjectStore,
+    dataset_objects: dict[str, bytes] | None = None,
+    mirror: _AppObjectStore | None = None,
 ) -> _FakeClient:
     partition_key = "2026-08-19"
     prefix = settings.INBOX_RANKING_DATASET_S3_PREFIX
@@ -2533,7 +2536,9 @@ def _manifest_event(capture: _FakeClient) -> dict[str, Any]:
 
 
 @pytest.mark.parametrize("mirrored", [False, True])
-def test_publishing_copies_every_model_the_manifest_names_and_writes_the_manifest_last(monkeypatch, mirrored):
+def test_publishing_copies_every_model_the_manifest_names_and_writes_the_manifest_last(
+    monkeypatch: pytest.MonkeyPatch, mirrored: bool
+) -> None:
     # The EU sweep reads the mirror, so it needs the same files, in the same order, as the primary.
     prefix = settings.INBOX_RANKING_DATASET_S3_PREFIX
     store = _AppObjectStore()
@@ -2553,7 +2558,7 @@ def test_publishing_copies_every_model_the_manifest_names_and_writes_the_manifes
     assert _manifest_event(capture).get("mirror_published") is (True if mirrored else None)
 
 
-def test_a_failed_mirror_leaves_the_primary_publish_intact(monkeypatch):
+def test_a_failed_mirror_leaves_the_primary_publish_intact(monkeypatch: pytest.MonkeyPatch) -> None:
     prefix = settings.INBOX_RANKING_DATASET_S3_PREFIX
     store = _AppObjectStore()
     mirror = _AppObjectStore(fail_on="open.ubj")
