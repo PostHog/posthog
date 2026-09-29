@@ -26,7 +26,8 @@ const saved = {
     description: 'Old description',
     favorited: false,
     tags: ['old'],
-    dashboards: [1],
+    // A session-authenticated PATCH response omits the deprecated `dashboards` field.
+    dashboard_tiles: [{ id: 11, dashboard_id: 1, deleted: false }],
 }
 
 describe('insight-update persistence check', () => {
@@ -48,10 +49,16 @@ describe('insight-update persistence check', () => {
     it('reports the requested fields that the saved insight does not hold', async () => {
         const request = vi.fn().mockResolvedValue(saved)
 
-        const params = tool.schema.parse({ id: 7, name: 'New name', tags: ['new'], description: 'Old description' })
+        const params = tool.schema.parse({
+            id: 7,
+            name: 'New name',
+            tags: ['new'],
+            description: 'Old description',
+            dashboards: [1, 2],
+        })
 
         await expect(tool.handler(createMockContext(request), params)).rejects.toThrow(
-            /does not hold the requested value for: name, tags\./
+            /does not hold the requested value for: name, tags, dashboards\./
         )
     })
 
@@ -61,7 +68,11 @@ describe('insight-update persistence check', () => {
             name: 'New name',
             favorited: true,
             tags: ['growth', 'q3'],
-            dashboards: [2, 1],
+            dashboard_tiles: [
+                { id: 12, dashboard_id: 2, deleted: false },
+                { id: 11, dashboard_id: 1, deleted: false },
+                { id: 13, dashboard_id: 3, deleted: true },
+            ],
         })
 
         const params = tool.schema.parse({
@@ -78,6 +89,12 @@ describe('insight-update persistence check', () => {
             expect.objectContaining({
                 method: 'PATCH',
                 path: '/api/projects/42/insights/7/',
+                body: {
+                    name: '  New name ',
+                    favorited: true,
+                    tags: ['Q3', ' growth', 'q3'],
+                    dashboards: [1, 2],
+                },
             })
         )
     })

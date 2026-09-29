@@ -31,7 +31,15 @@ type UpdateParams = {
 const normalizeText = (value: unknown): string => (typeof value === 'string' ? value.trim() : '')
 const normalizeTags = (tags: unknown[]): string[] =>
     [...new Set(tags.map((tag) => normalizeText(tag).toLowerCase()))].sort()
-const sortedIds = (ids: number[]): number[] => [...ids].sort((a, b) => a - b)
+const sortedIds = (ids: number[]): number[] => [...new Set(ids)].sort((a, b) => a - b)
+
+// The API can omit the deprecated `dashboards` field, but it always returns `dashboard_tiles`.
+function savedDashboardIds(saved: Schemas.Insight): number[] | undefined {
+    if (Array.isArray(saved.dashboard_tiles)) {
+        return saved.dashboard_tiles.filter((tile) => !tile.deleted).map((tile) => tile.dashboard_id)
+    }
+    return Array.isArray(saved.dashboards) ? saved.dashboards : undefined
+}
 
 /** Names the requested fields that the saved insight does not hold. `query` is not
  *  compared, because the API normalizes the query it stores. */
@@ -53,11 +61,11 @@ function unpersistedInsightFields(params: UpdateParams, saved: Schemas.Insight):
     ) {
         mismatched.push('tags')
     }
-    // API-token callers can stop receiving `dashboards`, so compare it only when the response has it.
+    const dashboardIds = savedDashboardIds(saved)
     if (
         params.dashboards !== undefined &&
-        Array.isArray(saved.dashboards) &&
-        JSON.stringify(sortedIds(params.dashboards)) !== JSON.stringify(sortedIds(saved.dashboards))
+        dashboardIds !== undefined &&
+        JSON.stringify(sortedIds(params.dashboards)) !== JSON.stringify(sortedIds(dashboardIds))
     ) {
         mismatched.push('dashboards')
     }
