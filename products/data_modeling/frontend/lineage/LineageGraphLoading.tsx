@@ -88,7 +88,11 @@ export function LineageGraphLoading({
             direction,
         })
     )
-    const displayedLayout = layout ?? initialLineageGraphLayout(graph.nodes, graph.edges, variant, direction)
+    const initialLayout = useMemo(
+        () => initialLineageGraphLayout(graph.nodes, graph.edges, variant, direction),
+        [graph, variant, direction]
+    )
+    const displayedLayout = layout ?? initialLayout
     const loadingFitViewOptions = useMemo(
         () => ({
             ...fitViewOptions,
