@@ -36,7 +36,7 @@ from structlog import get_logger
 from posthog.redis import get_client
 from posthog.web_memory_sampler import current_rss_mb
 
-from products.warehouse_sources.backend.temporal.data_imports.batch_phase import report_batch_phase
+from products.warehouse_sources_queue.backend.core.batch_phase import report_batch_phase
 
 LOGGER = get_logger(__name__)
 
