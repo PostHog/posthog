@@ -1,5 +1,4 @@
 import json
-import asyncio
 import datetime as dt
 from random import randint
 from uuid import uuid4
@@ -40,7 +39,10 @@ from products.batch_exports.backend.temporal.destinations.http_batch_export impo
     insert_into_http_activity,
 )
 from products.batch_exports.backend.temporal.filters import compose_filters_clause
-from products.batch_exports.backend.tests.temporal.utils.workflow import mocked_start_batch_export_run
+from products.batch_exports.backend.tests.temporal.utils.workflow import (
+    NeverFinishingActivity,
+    mocked_start_batch_export_run,
+)
 
 pytestmark = [
     pytest.mark.asyncio,
@@ -820,14 +822,7 @@ async def test_http_export_workflow_handles_cancellation(ateam, http_batch_expor
         **http_batch_export.destination.config,
     )
 
-    activity_started = asyncio.Event()
-
-    @activity.defn(name="insert_into_http_activity")
-    async def never_finish_activity(_: HttpInsertInputs) -> str:
-        activity_started.set()
-        while True:
-            activity.heartbeat()
-            await asyncio.sleep(1)
+    never_finish = NeverFinishingActivity("insert_into_http_activity")
 
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
         async with Worker(
@@ -836,7 +831,7 @@ async def test_http_export_workflow_handles_cancellation(ateam, http_batch_expor
             workflows=[HttpBatchExportWorkflow],
             activities=[
                 mocked_start_batch_export_run,
-                never_finish_activity,
+                never_finish.defn,
                 finish_batch_export_run,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
@@ -848,7 +843,7 @@ async def test_http_export_workflow_handles_cancellation(ateam, http_batch_expor
                 task_queue=settings.TEMPORAL_TASK_QUEUE,
                 retry_policy=RetryPolicy(maximum_attempts=1),
             )
-            await asyncio.wait_for(activity_started.wait(), timeout=30)
+            await never_finish.wait_until_started()
             await handle.cancel()
 
             with pytest.raises(WorkflowFailureError):

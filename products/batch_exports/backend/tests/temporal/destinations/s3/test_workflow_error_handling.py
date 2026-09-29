@@ -1,6 +1,5 @@
 import uuid
 import typing as t
-import asyncio
 import datetime as dt
 import contextlib
 
@@ -34,7 +33,10 @@ from products.batch_exports.backend.temporal.pipeline.internal_stage import (
     insert_into_internal_stage_activity,
 )
 from products.batch_exports.backend.tests.temporal.destinations.s3.utils import assert_clickhouse_records_in_s3
-from products.batch_exports.backend.tests.temporal.utils.workflow import mocked_start_batch_export_run
+from products.batch_exports.backend.tests.temporal.utils.workflow import (
+    NeverFinishingActivity,
+    mocked_start_batch_export_run,
+)
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 
@@ -192,14 +194,7 @@ async def test_s3_export_workflow_handles_cancellation(ateam, s3_compatible_batc
     async def insert_into_internal_stage_activity_mocked(_: BatchExportInsertIntoInternalStageInputs):
         return InternalStageResult(stage_folder="test-stage-folder", records_total=None)
 
-    activity_started = asyncio.Event()
-
-    @activity.defn(name="insert_into_s3_activity_from_stage")
-    async def never_finish_activity_from_stage(_):
-        activity_started.set()
-        while True:
-            activity.heartbeat()
-            await asyncio.sleep(1)
+    never_finish = NeverFinishingActivity("insert_into_s3_activity_from_stage")
 
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
         async with Worker(
@@ -209,7 +204,7 @@ async def test_s3_export_workflow_handles_cancellation(ateam, s3_compatible_batc
             activities=[
                 mocked_start_batch_export_run,
                 insert_into_internal_stage_activity_mocked,
-                never_finish_activity_from_stage,
+                never_finish.defn,
                 finish_batch_export_run,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
@@ -221,7 +216,7 @@ async def test_s3_export_workflow_handles_cancellation(ateam, s3_compatible_batc
                 task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
                 retry_policy=RetryPolicy(maximum_attempts=1),
             )
-            await asyncio.wait_for(activity_started.wait(), timeout=30)
+            await never_finish.wait_until_started()
             await handle.cancel()
 
             with pytest.raises(WorkflowFailureError):

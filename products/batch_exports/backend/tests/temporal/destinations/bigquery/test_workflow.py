@@ -1,7 +1,6 @@
 """Test module covering the workflow used for batch exporting to BigQuery."""
 
 import uuid
-import asyncio
 import datetime as dt
 
 import pytest
@@ -10,7 +9,6 @@ import unittest.mock
 from django.conf import settings
 
 import pytest_asyncio
-from temporalio import activity
 from temporalio.client import WorkflowFailureError
 from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
@@ -27,7 +25,6 @@ from products.batch_exports.backend.service import (
 from products.batch_exports.backend.temporal.batch_exports import finish_batch_export_run, start_batch_export_run
 from products.batch_exports.backend.temporal.destinations.bigquery_batch_export import (
     BigQueryBatchExportWorkflow,
-    BigQueryInsertInputs,
     insert_into_bigquery_activity_from_stage,
 )
 from products.batch_exports.backend.temporal.pipeline.internal_stage import insert_into_internal_stage_activity
@@ -37,7 +34,10 @@ from products.batch_exports.backend.tests.temporal.destinations.bigquery.utils i
     TEST_TIME,
     assert_clickhouse_records_in_bigquery,
 )
-from products.batch_exports.backend.tests.temporal.utils.workflow import mocked_start_batch_export_run
+from products.batch_exports.backend.tests.temporal.utils.workflow import (
+    NeverFinishingActivity,
+    mocked_start_batch_export_run,
+)
 
 pytestmark = [
     SKIP_IF_MISSING_GOOGLE_APPLICATION_CREDENTIALS,
@@ -483,11 +483,7 @@ async def test_bigquery_export_workflow_handles_cancellation(
         **bigquery_batch_export.destination.config,
     )
 
-    @activity.defn(name="insert_into_bigquery_activity_from_stage")
-    async def never_finish_activity(_: BigQueryInsertInputs) -> str:
-        while True:
-            activity.heartbeat()
-            await asyncio.sleep(1)
+    never_finish = NeverFinishingActivity("insert_into_bigquery_activity_from_stage")
 
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
         async with Worker(
@@ -496,7 +492,7 @@ async def test_bigquery_export_workflow_handles_cancellation(
             workflows=[BigQueryBatchExportWorkflow],
             activities=[
                 mocked_start_batch_export_run,
-                never_finish_activity,
+                never_finish.defn,
                 insert_into_internal_stage_activity,
                 finish_batch_export_run,
             ],
@@ -510,7 +506,7 @@ async def test_bigquery_export_workflow_handles_cancellation(
                 retry_policy=RetryPolicy(maximum_attempts=1),
             )
 
-            await asyncio.sleep(5)
+            await never_finish.wait_until_started()
             await handle.cancel()
 
             with pytest.raises(WorkflowFailureError):
