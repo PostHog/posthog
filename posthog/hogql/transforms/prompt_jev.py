@@ -207,10 +207,17 @@ class _LocalFinder(PromptJevFinder):
 class _AliasReferences(TraversingVisitor):
     def __init__(self, aliases: set[str]) -> None:
         self.aliases = aliases
+        self.in_scope = False
 
     def visit_field(self, node: ast.Field) -> None:
         if node.chain and node.chain[0] in self.aliases:
             raise QueryError("Read __preview_promptJev result aliases from an outer query.")
+
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        # HogQL resolves a field only against its own SELECT, so fields in nested SELECTs cannot read these aliases.
+        if not self.in_scope:
+            self.in_scope = True
+            super().visit_select_query(node)
 
 
 class _CTEReferences(TraversingVisitor):

@@ -208,6 +208,10 @@ class TestPromptJevQuery(ClickhouseTestMixin, APIBaseTest):
                 "WITH a AS (SELECT __preview_promptJev('refund', 'Refund?') AS p), b AS (SELECT p FROM a) SELECT p FROM b",
                 [(0.9,)],
             ),
+            (
+                "SELECT label FROM (SELECT __preview_promptJev(body, 'Refund?') AS label FROM (SELECT label AS body FROM (SELECT 'refund' AS label)))",
+                [(0.9,)],
+            ),
             ("SELECT __preview_promptJev(NULL, 'Refund?') AS p", [(None,)]),
             ("SELECT __preview_promptJev('hello', 'Refund?') AS p LIMIT 0", []),
         ]
