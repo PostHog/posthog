@@ -1,5 +1,7 @@
 import Constants from "expo-constants";
 import { useRouter } from "expo-router";
+import * as Updates from "expo-updates";
+import { useState } from "react";
 import {
   Pressable,
   ScrollView,
@@ -81,6 +83,20 @@ export default function SettingsSheet() {
         </View>
       </View>
 
+      <Text style={styles.section}>About</Text>
+      <View style={styles.card}>
+        <View style={styles.row}>
+          <Text style={styles.rowLabel}>Version</Text>
+          <Text style={styles.rowValue}>
+            {Constants.expoConfig?.version}
+            {Constants.expoConfig?.ios?.buildNumber
+              ? ` (${Constants.expoConfig.ios.buildNumber})`
+              : ""}
+          </Text>
+        </View>
+        {Updates.isEnabled ? <UpdateRow /> : null}
+      </View>
+
       <Pressable
         onPress={async () => {
           router.back();
@@ -91,12 +107,6 @@ export default function SettingsSheet() {
       >
         <Text style={styles.logoutText}>Log out</Text>
       </Pressable>
-      <Text style={styles.version}>
-        Version {Constants.expoConfig?.version}
-        {Constants.expoConfig?.ios?.buildNumber
-          ? ` (${Constants.expoConfig.ios.buildNumber})`
-          : ""}
-      </Text>
     </ScrollView>
   );
 }
@@ -147,6 +157,56 @@ function ModeOption({
 
 const THUMB_W = 96;
 const THUMB_H = 64;
+
+type UpdateState = "idle" | "checking" | "latest" | "ready" | "failed";
+
+const UPDATE_STATUS: Record<UpdateState, string> = {
+  idle: "",
+  checking: "Checking…",
+  latest: "Up to date",
+  ready: "Restart",
+  failed: "Try again",
+};
+
+function UpdateRow() {
+  const [state, setState] = useState<UpdateState>("idle");
+  const onPress = async (): Promise<void> => {
+    if (state === "ready") {
+      await Updates.reloadAsync();
+      return;
+    }
+    setState("checking");
+    try {
+      const result = await Updates.checkForUpdateAsync();
+      if (!result.isAvailable) {
+        setState("latest");
+        return;
+      }
+      await Updates.fetchUpdateAsync();
+      setState("ready");
+    } catch {
+      setState("failed");
+    }
+  };
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={state === "checking"}
+      style={({ pressed }) => [
+        styles.row,
+        styles.rowDivided,
+        pressed && { opacity: 0.5 },
+      ]}
+    >
+      <Text style={styles.rowLabel}>
+        {state === "ready" ? "Update ready" : "Check for updates"}
+      </Text>
+      <Text style={[styles.rowValue, state === "ready" && styles.rowAccent]}>
+        {UPDATE_STATUS[state]}
+      </Text>
+    </Pressable>
+  );
+}
 
 const styles = StyleSheet.create({
   modes: {
@@ -283,11 +343,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: colors.danger,
   },
-  version: {
-    marginTop: 16,
-    textAlign: "center",
-    fontFamily: fonts.sans,
-    fontSize: 13,
-    color: colors.inkMute,
-  },
+  rowValue: { fontFamily: fonts.sans, fontSize: 16, color: colors.inkMute },
+  rowAccent: { fontFamily: fonts.sansMedium, color: colors.accent },
 });
