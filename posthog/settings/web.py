@@ -618,7 +618,7 @@ SPECTACULAR_SETTINGS = {
             # replay_vision alert destinations: the create body and the alert's listed destinations share this set.
             "VisionAlertDestinationTypeEnum": ["slack", "webhook"],
             # The API-only pin kind uses StrEnum; name its component without a Django Choices class.
-            "AccountPropertyPinKindEnum": "products.customer_analytics.backend.facade.enums.get_account_property_pin_kind_choices",
+            "AccountPropertyPinKindEnum": "products.customer_analytics.backend.facade.enums.ACCOUNT_PROPERTY_PIN_KIND_CHOICES",
             # visual_review facade enums are framework-free StrEnums, so no Choices class derives a name.
             "ShiftBandKindEnum": ["inserted", "deleted"],
             "ExperimentStatusEnum": ["draft", "running", "paused", "exposure_frozen", "stopped"],

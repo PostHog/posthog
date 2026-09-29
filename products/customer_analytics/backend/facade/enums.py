@@ -8,11 +8,10 @@ class AccountPropertyPinKind(StrEnum):
     RELATIONSHIP = "relationship"
 
 
-def get_account_property_pin_kind_choices() -> list[tuple[str, str]]:
-    return [
-        (AccountPropertyPinKind.CUSTOM_PROPERTY.value, "Custom property"),
-        (AccountPropertyPinKind.RELATIONSHIP.value, "Relationship"),
-    ]
+ACCOUNT_PROPERTY_PIN_KIND_CHOICES: tuple[tuple[str, str], ...] = (
+    (AccountPropertyPinKind.CUSTOM_PROPERTY.value, "Custom property"),
+    (AccountPropertyPinKind.RELATIONSHIP.value, "Relationship"),
+)
 
 
 class TaskDigestCadence(models.TextChoices):
@@ -58,5 +57,5 @@ __all__ = [
     "OwnershipRoleDiagnostic",
     "OwnershipRoleState",
     "TaskDigestCadence",
-    "get_account_property_pin_kind_choices",
+    "ACCOUNT_PROPERTY_PIN_KIND_CHOICES",
 ]

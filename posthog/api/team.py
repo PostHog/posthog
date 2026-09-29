@@ -128,7 +128,7 @@ from products.customer_analytics.backend.facade.account_property_pins import (
     validate_pinned_account_properties,
 )
 from products.customer_analytics.backend.facade.contracts import PinnedAccountProperty
-from products.customer_analytics.backend.facade.enums import get_account_property_pin_kind_choices
+from products.customer_analytics.backend.facade.enums import ACCOUNT_PROPERTY_PIN_KIND_CHOICES
 from products.customer_analytics.backend.facade.team_extension import TeamCustomerAnalyticsConfig
 from products.feature_flags.backend.models.evaluation_context import EvaluationContext, normalize_context_name
 from products.feature_flags.backend.models.team_feature_flag_policy_config import TeamFeatureFlagPolicyConfig
@@ -1067,7 +1067,7 @@ class TeamFeatureFlagPolicyConfigSerializer(serializers.ModelSerializer, UserAcc
 
 class TeamCustomerAnalyticsPinnedAccountPropertySerializer(serializers.Serializer):
     kind = serializers.ChoiceField(
-        choices=get_account_property_pin_kind_choices(),
+        choices=ACCOUNT_PROPERTY_PIN_KIND_CHOICES,
         help_text="Definition type for this default pinned account property.",
     )
     id = serializers.UUIDField(help_text="Project-scoped custom property or relationship definition UUID.")
