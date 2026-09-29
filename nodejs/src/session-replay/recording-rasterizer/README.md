@@ -27,13 +27,14 @@ giving ~30% faster frame capture than the hardcoded PNG in puppeteer-capture.
 ```text
 recording-rasterizer/
 ├── index.ts              ← thin entry point, delegates to temporal/worker.ts
+├── rasterize-file.ts     ← offline render of a JSONL file (bin/rasterize-recording-file)
 ├── config.ts             ← environment variable configuration
 ├── errors.ts             ← RasterizationError class
 ├── logger.ts             ← pino logger factory
 ├── metrics.ts            ← Prometheus metrics
 ├── types.ts              ← input/output contracts
 ├── utils.ts              ← timing utilities
-├── storage.ts            ← S3 upload
+├── storage.ts            ← S3 upload and download
 ├── postprocess.ts        ← map inactivity periods to video timestamps
 │
 ├── temporal/             ← Temporal integration
@@ -48,6 +49,7 @@ recording-rasterizer/
 │   ├── capture.ts            ← frame capture loop with abort/timeout handling
 │   ├── request-interceptor.ts ← request interception + stylesheet proxying
 │   ├── block-proxy.ts        ← recording block fetcher (recording-api)
+│   ├── file-block-source.ts  ← serves one JSONL file or allowlisted S3 object (source_s3_uri)
 │   └── config.ts             ← input validation + capture config builder
 │
 └── __tests__/            ← all tests

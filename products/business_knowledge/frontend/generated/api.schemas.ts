@@ -116,6 +116,140 @@ export interface GapTopicActionResultApi {
     readonly updated: number
 }
 
+export interface PlaygroundChatListApi {
+    /** Playground chat id. */
+    id: string
+    /** First question, truncated. Empty until someone asks. */
+    title: string
+    /** When this chat was created. */
+    created_at: string
+    /** When this chat was last asked in. */
+    updated_at: string
+    /** True while an answer in this chat is still running. Another question in this chat returns 409 until it finishes. */
+    has_open_turn: boolean
+}
+
+/**
+ * * `running` - Running
+ * * `completed` - Completed
+ * * `failed` - Failed
+ * * `cancelled` - Cancelled
+ */
+export type SandboxPollStatusEnumApi = (typeof SandboxPollStatusEnumApi)[keyof typeof SandboxPollStatusEnumApi]
+
+export const SandboxPollStatusEnumApi = {
+    Running: 'running',
+    Completed: 'completed',
+    Failed: 'failed',
+    Cancelled: 'cancelled',
+} as const
+
+export interface SandboxSourceApi {
+    /** Source reference the reply relies on. */
+    ref: string
+    /** Short excerpt that supports the reply. */
+    excerpt: string
+}
+
+/**
+ * * `business-knowledge-documents-search` - Search
+ * * `business-knowledge-document-window-retrieve` - Window
+ */
+export type SandboxToolNameEnumApi = (typeof SandboxToolNameEnumApi)[keyof typeof SandboxToolNameEnumApi]
+
+export const SandboxToolNameEnumApi = {
+    BusinessKnowledgeDocumentsSearch: 'business-knowledge-documents-search',
+    BusinessKnowledgeDocumentWindowRetrieve: 'business-knowledge-document-window-retrieve',
+} as const
+
+export interface SandboxSearchApi {
+    /** Business knowledge tool the agent called.
+     *
+     * * `business-knowledge-documents-search` - Search
+     * * `business-knowledge-document-window-retrieve` - Window */
+    tool: SandboxToolNameEnumApi
+    /** Tool input the agent sent. */
+    input: string
+}
+
+export interface SandboxRunApi {
+    /** Sandbox task id. */
+    task_id: string
+    /** Latest run id for this task. */
+    run_id: string
+    /** running while the agent works. completed carries reply and sources. failed and cancelled carry error.
+     *
+     * * `running` - Running
+     * * `completed` - Completed
+     * * `failed` - Failed
+     * * `cancelled` - Cancelled */
+    status: SandboxPollStatusEnumApi
+    /**
+     * Answer text when status is completed. Null otherwise.
+     * @nullable
+     */
+    reply: string | null
+    /** Sources cited in a completed answer. Empty when the run has not completed. */
+    sources: SandboxSourceApi[]
+    /** Business knowledge search and window calls observed in the run log. */
+    searches: SandboxSearchApi[]
+    /**
+     * Why the run did not produce an answer. Null while running and on a completed answer.
+     * @nullable
+     */
+    error: string | null
+    /** True when the run log contains an exact docs-search call. That tool is not granted to this sandbox. */
+    docs_search_called: boolean
+}
+
+export interface PlaygroundTurnApi {
+    /** Turn id. */
+    id: string
+    /** Question that started this turn's sandbox run. */
+    question: string
+    /** Sandbox task id for this turn. */
+    task_id: string
+    /** Order of this turn in the chat, starting at 0. */
+    position: number
+    /** Current sandbox run for this turn. Null when the run cannot be loaded. */
+    run: SandboxRunApi | null
+    /**
+     * Why this turn could not be loaded. Null when run is present.
+     * @nullable
+     */
+    error: string | null
+}
+
+export interface PlaygroundChatApi {
+    /** Playground chat id. */
+    id: string
+    /** First question, truncated. Empty until someone asks. */
+    title: string
+    /** When this chat was created. */
+    created_at: string
+    /** When this chat was last asked in. */
+    updated_at: string
+    /** True while an answer in this chat is still running. Another question in this chat returns 409 until it finishes. */
+    has_open_turn: boolean
+    /** Questions in this chat, oldest first. Each turn's answer comes from its sandbox run. */
+    turns: PlaygroundTurnApi[]
+}
+
+export interface SandboxQuestionApi {
+    /**
+     * Question to answer from this project's business knowledge. Blank questions are rejected. Maximum 4000 characters.
+     * @maxLength 4000
+     */
+    question: string
+}
+
+export interface SandboxRunStartedApi {
+    /** Sandbox task id. Poll this id until the run finishes. */
+    task_id: string
+    /** Run id for this question. */
+    run_id: string
+}
+
 export interface BusinessKnowledgeSettingsApi {
     /** When true, PostHog learns reusable knowledge from public human replies on resolved support tickets. Requires Support to be enabled for this environment. */
     learn_from_support_enabled: boolean

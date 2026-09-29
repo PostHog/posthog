@@ -132,6 +132,15 @@ class TaskRunDTO:
 
 
 @dataclass(frozen=True)
+class InProgressGithubRunsDTO:
+    """In-progress runs that block disconnecting a team GitHub integration."""
+
+    count: int
+    oldest_task_id: UUID | None = None
+    oldest_task_title: str | None = None
+
+
+@dataclass(frozen=True)
 class WizardPrReadyEmailContextDTO:
     """Everything ``send_wizard_pr_ready_email`` needs to read off a task run's PR-ready state."""
 
@@ -606,6 +615,7 @@ class TaskRunDetailDTO:
     task_summary: str | None
     state: dict
     artifacts: list = Field(default_factory=list)
+    task_tags: list[str] = Field(default_factory=list)
     created_at: datetime | None = None
     updated_at: datetime | None = None
     completed_at: datetime | None = None
@@ -681,7 +691,10 @@ SPACE_SETUP_SCOPES = (
     "person:read",
     "group:read",
     "integration:read",
+    # The MCP server reads the caller from `/api/users/@me/` and refuses the whole session without it.
+    "user:read",
     "query:read",
+    "action:read",
     "data_catalog:read",
     "insight:read",
     "dashboard:read",
@@ -752,6 +765,20 @@ class CreatedTaskDTO:
     task_id: UUID
     team_id: int
     latest_run: TaskRunDTO | None = None
+
+
+@dataclass(frozen=True)
+class WorkflowLastRunDTO:
+    """The newest task a workflow created, as its last run.
+
+    ``status`` is the task's newest run status, or ``not_started`` when the task has no run yet.
+    ``ran_at`` is when that run started, or when the task was made if it has no run.
+    """
+
+    hog_flow_id: UUID
+    task_id: UUID
+    status: str
+    ran_at: datetime
 
 
 @dataclass(frozen=True)

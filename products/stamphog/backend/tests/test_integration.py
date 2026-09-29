@@ -2489,19 +2489,19 @@ def test_mint_pins_allowed_models_when_configured(team, stamphog_chain: Stamphog
     # A configured model list rides the mint request so a leaked token can call nothing else.
     _repo_config(team.id)
     event = _register_review(stamphog_chain, 118, "sha118a")
-    minted = {"token": "phe_run", "allowed_models": ["anthropic/claude-sonnet-5", "anthropic/claude-haiku-4-5"]}
+    minted = {"token": "phe_run", "allowed_models": ["anthropic/claude-sonnet-5-5", "anthropic/claude-haiku-4-5"]}
     mint = MagicMock(return_value=_mint_response(201, minted))
 
     with (
         override_settings(
-            **_GO_GATEWAY_SETTINGS, STAMPHOG_REVIEWER_TOKEN_ALLOWED_MODELS=["claude-sonnet-5", "claude-haiku-4-5", ""]
+            **_GO_GATEWAY_SETTINGS, STAMPHOG_REVIEWER_TOKEN_ALLOWED_MODELS=["claude-sonnet-5-5", "claude-haiku-4-5", ""]
         ),
         patch.object(activities.requests, "post", mint),
     ):
         stamphog_chain.post_webhook(event, delivery_id=str(uuid.uuid4()))
 
     # Empty entries (a trailing comma in the env value) never reach the gateway, which would 400.
-    assert mint.call_args_list[0].kwargs["json"]["allowed_models"] == ["claude-sonnet-5", "claude-haiku-4-5"]
+    assert mint.call_args_list[0].kwargs["json"]["allowed_models"] == ["claude-sonnet-5-5", "claude-haiku-4-5"]
     env = stamphog_chain.sandbox_class.created_configs[0].environment_variables
     assert env["AI_GATEWAY_API_KEY"] == "phe_run"
 
@@ -2537,7 +2537,7 @@ def test_mint_fails_closed_when_the_gateway_ignores_the_model_pin(team, stamphog
     error_before = activities.AI_GATEWAY_TOKEN_MINTS.labels(result="error")._value.get()
 
     with (
-        override_settings(**_GO_GATEWAY_SETTINGS, STAMPHOG_REVIEWER_TOKEN_ALLOWED_MODELS=["claude-sonnet-5"]),
+        override_settings(**_GO_GATEWAY_SETTINGS, STAMPHOG_REVIEWER_TOKEN_ALLOWED_MODELS=["claude-sonnet-5-5"]),
         patch.object(activities.requests, "post", mint),
     ):
         stamphog_chain.post_webhook(event, delivery_id=str(uuid.uuid4()))
