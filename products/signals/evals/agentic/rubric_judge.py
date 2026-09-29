@@ -493,12 +493,16 @@ class PrivateRubricClient:
             started_at=datetime.now(UTC).isoformat(),
         )
         try:
+            # The local gateway's LiteLLM catalog needs an explicit GPT-6 reasoning parameter override.
             raw_response = await self._client.chat.completions.with_raw_response.create(
                 model=self.model,
                 messages=messages,
                 reasoning_effort=self.reasoning_effort,
                 max_completion_tokens=self.max_output_tokens,
                 response_format={"type": "json_object"},
+                extra_body={"allowed_openai_params": ["reasoning_effort"]}
+                if self.model.removeprefix("openai/").startswith("gpt-6-")
+                else None,
             )
             response = response.model_copy(update={"request_id": raw_response.headers.get("x-request-id")})
             completion = raw_response.parse()

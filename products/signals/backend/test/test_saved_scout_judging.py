@@ -4,6 +4,7 @@ import copy
 import json
 import subprocess
 from collections.abc import Mapping
+from pathlib import Path
 from types import SimpleNamespace
 
 from unittest.mock import AsyncMock, patch
@@ -72,6 +73,7 @@ class TestSavedScoutJudgment(SimpleTestCase):
             check=True,
             capture_output=True,
             text=True,
+            cwd=Path(__file__).resolve().parents[4],
         )
 
     async def test_judges_all_enabled_criteria_once_with_complete_evidence_and_separate_scores(self) -> None:
@@ -339,8 +341,18 @@ class TestPrivateRubricClient(SimpleTestCase):
                 PrivateRubricClient()
             build_client.assert_not_called()
 
-    @parameterized.expand(["success", "gateway_error", "truncated"])
-    async def test_plain_sdk_retains_usage_and_errors_without_claiming_dollar_cost(self, outcome: str) -> None:
+    @parameterized.expand(
+        [
+            ("success", "gpt-6-sol", ["reasoning_effort"]),
+            ("success", "openai/gpt-6-sol", ["reasoning_effort"]),
+            ("success", "claude-sonnet-4-6", None),
+            ("gateway_error", "gpt-6-sol", ["reasoning_effort"]),
+            ("truncated", "gpt-6-sol", ["reasoning_effort"]),
+        ]
+    )
+    async def test_plain_sdk_retains_usage_and_errors_without_claiming_dollar_cost(
+        self, outcome: str, model: str, allowed_openai_params: list[str] | None
+    ) -> None:
         requests: list[Mapping[str, object]] = []
 
         def respond(request: httpx.Request) -> httpx.Response:
@@ -373,7 +385,7 @@ class TestPrivateRubricClient(SimpleTestCase):
         http_client = httpx.AsyncClient(transport=httpx.MockTransport(respond))
         sdk = AsyncOpenAI(api_key="invented-token", base_url="http://localhost/signals/v1", http_client=http_client)
         with patch("posthog.llm.gateway_client.build_async_openai_client", return_value=sdk):
-            async with PrivateRubricClient(max_output_tokens=123) as client:
+            async with PrivateRubricClient(model=model, max_output_tokens=123) as client:
                 if outcome == "success":
                     self.assertEqual(await client.ask("Return synthetic rubric JSON"), '{"suggestions":[]}')
                 else:
@@ -382,9 +394,11 @@ class TestPrivateRubricClient(SimpleTestCase):
 
         self.assertTrue(http_client.is_closed)
         self.assertEqual(len(requests), 1)
-        self.assertEqual(requests[0]["model"], "gpt-6-sol")
+        self.assertEqual(requests[0]["model"], model)
         self.assertEqual(requests[0]["reasoning_effort"], "high")
         self.assertEqual(requests[0]["max_completion_tokens"], 123)
+        self.assertEqual(requests[0].get("allowed_openai_params"), allowed_openai_params)
+        self.assertNotIn("drop_params", requests[0])
         self.assertEqual(len(client.calls), 1)
         response = client.calls[0]
         self.assertIsNone(response.cost_usd)
