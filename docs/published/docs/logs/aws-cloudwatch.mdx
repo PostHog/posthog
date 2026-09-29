@@ -4,9 +4,9 @@ sidebar: Docs
 showTitle: true
 ---
 
-CloudWatch holds the logs that AWS writes for you: Lambda, RDS, ECS, API Gateway, VPC flow logs, and anything your own code sends to a log group. PostHog accepts them through an [Amazon Data Firehose](https://docs.aws.amazon.com/firehose/latest/dev/what-is-this-service.html) HTTP endpoint, so you don't have to run a forwarder.
+PostHog accepts CloudWatch logs through an [Amazon Data Firehose](https://docs.aws.amazon.com/firehose/latest/dev/what-is-this-service.html) HTTP endpoint, so you don't have to run a forwarder. That covers Lambda, RDS, ECS, API Gateway, VPC flow logs, and anything your own code sends to a log group.
 
-A CloudWatch subscription filter copies each log group into a Firehose stream, and the stream posts batches to PostHog. Everything runs in your AWS account, so you control which log groups are included and can stop the stream at any time.
+A CloudWatch subscription filter copies each log group into a Firehose stream, and the stream posts batches to PostHog. Everything runs in your AWS account.
 
 ## Before you start
 
@@ -63,15 +63,14 @@ Parameters:
     Type: String
     Default: ''
     Description: >-
-      CloudWatch subscription filter pattern. Empty forwards every log line in the group, which is what
-      most groups want. Set a pattern such as ERROR to forward only matching lines and lower the volume
-      you are billed for in Firehose.
+      CloudWatch subscription filter pattern. Empty forwards every log line in the group. Set a pattern
+      such as ERROR to forward only matching lines and lower the volume Firehose bills you for.
   BufferSizeMB:
     Type: Number
     Default: 1
     MinValue: 1
     MaxValue: 4
-    Description: Firehose buffer size in MB. 1 keeps each delivery inside PostHog's request size limit once the records are encoded; PostHog rejects deliveries above 8 MB.
+    Description: Firehose buffer size in MB. PostHog rejects a delivery above 8 MB, and Firehose base64-encodes each record on the way out, so 1 leaves room for that.
   BufferIntervalSeconds:
     Type: Number
     Default: 60
@@ -230,7 +229,7 @@ Outputs:
 
 ## Set it up in the console
 
-If you'd rather click through it:
+To set it up by hand:
 
 1. Open **Amazon Data Firehose > Create Firehose stream**. Set the source to **Direct PUT** and the destination to **HTTP Endpoint**.
 2. Set the endpoint URL from the table above, and paste your project API key into **Access key**. Use the settings below.
@@ -240,13 +239,13 @@ Repeat step 3 for each log group you want to send.
 
 ### Stream settings
 
-| Setting          | Value            | Why                                                                                   |
-| ---------------- | ---------------- | ------------------------------------------------------------------------------------- |
-| Buffer size      | 1 MB             | Keeps each delivery inside PostHog's 8 MB request limit once the records are encoded. |
-| Buffer interval  | 60 seconds       | Logs arrive within about a minute.                                                    |
-| Content encoding | GZIP             | Cuts the bytes on the wire.                                                           |
-| Retry duration   | 300 seconds      | Rides out a short interruption before falling back to the bucket.                     |
-| S3 backup        | Failed data only | Keeps a copy of what PostHog could not accept.                                        |
+| Setting          | Value            | Why                                                                 |
+| ---------------- | ---------------- | ------------------------------------------------------------------- |
+| Buffer size      | 1 MB             | Stays under PostHog's 8 MB limit once Firehose encodes the records. |
+| Buffer interval  | 60 seconds       | Logs arrive within about a minute.                                  |
+| Content encoding | GZIP             | Fewer bytes on the wire.                                            |
+| Retry duration   | 300 seconds      | Retries for five minutes before writing to the backup bucket.       |
+| S3 backup        | Failed data only | Keeps a copy of what PostHog could not accept.                      |
 
 ## What your logs look like
 
@@ -262,15 +261,15 @@ These attributes are set on every log:
 | `aws.log.group.name`  | The log group                           |
 | `aws.log.stream.name` | The log stream                          |
 
-**Service name** is taken from the log group, so logs group the way you'd expect in the Logs view. `/aws/lambda/checkout-api` becomes `checkout-api`, `/aws/rds/instance/orders-db/postgresql` becomes `orders-db`, and VPC flow logs become `vpc-flow-logs`. A log group that doesn't follow an AWS naming convention keeps its full name. To set the service name yourself, add a `service.name` common attribute to the Firehose stream.
+**Service name** comes from the log group. `/aws/lambda/checkout-api` becomes `checkout-api`, `/aws/rds/instance/orders-db/postgresql` becomes `orders-db`, and `/aws/vpc/flowlogs` becomes `vpc-flow-logs`. A log group outside the AWS naming conventions keeps its full name, so `my-app-logs` stays `my-app-logs`. To set the name yourself, add a `service.name` common attribute to the Firehose stream.
 
-**Severity** comes from a `level`, `severity`, `log.level` or `config.log_level` key when the message is JSON, or from a leading `ERROR`, `WARN`, `INFO`, `DEBUG`, `TRACE` or `FATAL` token in a plain-text line. Common spellings such as `warning`, `err` and `critical` are recognized. A line with no level is stored as `info`.
+**Severity** comes from a `level`, `severity`, `log.level` or `config.log_level` key when the message is JSON. In a plain-text line PostHog reads the first three words for a level such as `ERROR`, `WARN` or `DEBUG`, so `ERROR payment declined` and `2026-09-16T10:00:00Z INFO started` both resolve. Common spellings such as `warning`, `err` and `critical` are recognized. Anything else is stored as `info`, so `plain line with error later in it` stays `info`.
 
 Logs appear in the [Logs view](https://app.posthog.com/logs) within a couple of minutes, depending on your buffer settings. Filter by `service.name`, severity, or any of the attributes above.
 
 ## Limits and failures
 
-- A single delivery can't exceed 8 MB. With a 1 MB buffer you stay well under it. PostHog rejects a larger delivery, and Firehose writes it to the backup bucket instead of retrying.
+- PostHog rejects a delivery above 8 MB, and Firehose writes it to the backup bucket instead of retrying. A 1 MB buffer stays well under.
 - Delivery is at-least-once. If PostHog fails part way through a batch, Firehose resends the whole batch and some lines can appear twice.
 - A record that PostHog can't decode is skipped, and the rest of the batch is still accepted.
 
