@@ -1,11 +1,11 @@
 import Constants from "expo-constants";
-import * as Device from "expo-device";
 import * as Notifications from "expo-notifications";
 import { useRouter } from "expo-router";
 import { useEffect } from "react";
-import { Platform } from "react-native";
+import { AppState, Platform } from "react-native";
+import { create } from "zustand";
 import { authedFetch, getBaseUrl } from "@/lib/api";
-import { useAuth } from "@/lib/auth";
+import { sessionIdentity, useAuth } from "@/lib/auth";
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -28,38 +28,87 @@ function pathFromNotification(
   return null;
 }
 
-// Expo issues push tokens only on a physical device with an EAS project id.
-async function fetchPushToken(): Promise<string | null> {
-  if (!Device.isDevice) return null;
-  const projectId = Constants.expoConfig?.extra?.eas?.projectId;
-  if (!projectId) return null;
+type PushStatus =
+  | "checking"
+  | "ready"
+  | "permissionDenied"
+  | "unavailable"
+  | "failed";
+
+export const usePushStatus = create<{ status: PushStatus }>(() => ({
+  status: "checking",
+}));
+
+async function fetchPushToken(): Promise<{
+  token: string | null;
+  status?: PushStatus;
+}> {
+  const projectId =
+    Constants.easConfig?.projectId ??
+    Constants.expoConfig?.extra?.eas?.projectId;
+  if (Platform.OS === "web" || !projectId) {
+    return { token: null, status: "unavailable" };
+  }
   const { status } = await Notifications.getPermissionsAsync();
   const granted =
     status === "granted" ||
     (await Notifications.requestPermissionsAsync()).status === "granted";
-  if (!granted) return null;
-  return (await Notifications.getExpoPushTokenAsync({ projectId })).data;
+  if (!granted) {
+    return { token: null, status: "permissionDenied" };
+  }
+  return {
+    token: (await Notifications.getExpoPushTokenAsync({ projectId })).data,
+  };
 }
 
 let registeredToken: string | null = null;
+let pendingRegistration: { identity: string; promise: Promise<void> } | null =
+  null;
 
-async function registerPushToken(): Promise<void> {
-  const token = await fetchPushToken().catch(() => null);
-  if (!token || token === registeredToken) return;
-  const response = await authedFetch(
-    `${getBaseUrl()}/api/users/@me/push_tokens/`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token, platform: Platform.OS }),
-    },
-  );
-  if (response.ok) registeredToken = token;
+export function registerPushToken(): Promise<void> {
+  if (!useAuth.getState().session) return Promise.resolve();
+  const identity = sessionIdentity();
+  if (pendingRegistration?.identity === identity)
+    return pendingRegistration.promise;
+  usePushStatus.setState({ status: "checking" });
+  const promise = (async () => {
+    try {
+      const { token, status } = await fetchPushToken();
+      if (sessionIdentity() !== identity) return;
+      if (!token) {
+        usePushStatus.setState({ status: status ?? "failed" });
+        return;
+      }
+      const response = await authedFetch(
+        `${getBaseUrl()}/api/users/@me/push_tokens/`,
+        {
+          method: "POST",
+          body: JSON.stringify({ token, platform: Platform.OS }),
+        },
+      );
+      if (sessionIdentity() !== identity) return;
+      if (!response.ok) {
+        usePushStatus.setState({ status: "failed" });
+        return;
+      }
+      registeredToken = token;
+      usePushStatus.setState({ status: "ready" });
+    } catch {
+      if (sessionIdentity() === identity)
+        usePushStatus.setState({ status: "failed" });
+    }
+  })().finally(() => {
+    if (pendingRegistration?.promise === promise) pendingRegistration = null;
+  });
+  pendingRegistration = { identity, promise };
+  return promise;
 }
 
 export async function unregisterPushToken(): Promise<void> {
+  await pendingRegistration?.promise;
   const token = registeredToken;
   registeredToken = null;
+  usePushStatus.setState({ status: "checking" });
   if (!token) return;
   await authedFetch(`${getBaseUrl()}/api/users/@me/push_tokens/unregister/`, {
     method: "POST",
@@ -74,7 +123,12 @@ export function usePushNotifications(): void {
   const router = useRouter();
 
   useEffect(() => {
-    if (session) registerPushToken().catch(() => {});
+    if (!session) return;
+    void registerPushToken();
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state === "active") void registerPushToken();
+    });
+    return () => subscription.remove();
   }, [session]);
 
   useEffect(() => {
