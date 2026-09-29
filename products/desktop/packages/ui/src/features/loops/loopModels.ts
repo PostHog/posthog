@@ -63,6 +63,7 @@ const FALLBACK_MODEL_IDS: Record<
     "claude-opus-5",
     "claude-opus-5-5",
     "claude-sonnet-5",
+    "claude-sonnet-5-5",
     "claude-fable-5",
     "claude-fable-5-1",
     "zai-org/glm-5.3",

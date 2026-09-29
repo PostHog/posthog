@@ -244,6 +244,19 @@ describe("fallbackModelConfigs", () => {
     );
   });
 
+  it.each(["claude-opus-5-5", "claude-sonnet-5-5"])(
+    "never offers disabled thinking for %s",
+    (id) => {
+      const config = fallbackModelConfigs("us").find((m) => m.id === id);
+      expect(config?.contextWindow).toBe(1000000);
+      expect(config?.thinkingLevelMap).toEqual({
+        off: null,
+        xhigh: "xhigh",
+        max: "max",
+      });
+    },
+  );
+
   it("produces a non-empty, region-scoped model list", () => {
     const configs = fallbackModelConfigs("us");
     expect(configs.length).toBeGreaterThan(0);
