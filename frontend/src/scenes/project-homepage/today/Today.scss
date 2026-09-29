@@ -69,6 +69,12 @@
 
 .Today__page {
     animation: Today__page-in 0.18s ease-out both;
+
+    // Snapshot runs cut animations to zero length, and headless Chromium can then paint the first
+    // keyframe, which would leave every page blank.
+    .storybook-test-runner & {
+        animation: none;
+    }
 }
 
 // Zero-specificity resets, so component classes below and shared buttons keep their own styles.

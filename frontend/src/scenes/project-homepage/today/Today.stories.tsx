@@ -101,10 +101,22 @@ const REPORTS = [
     }),
 ]
 
+// Today keeps sample mode, the open pane and the sidebar width in local storage, which outlives a story.
+// Clearing it makes each story start clean, so only the sample stories show sample reports.
+function clearTodayStorage(Story: () => JSX.Element): JSX.Element {
+    for (const key of Object.keys(window.localStorage)) {
+        if (/today/i.test(key)) {
+            window.localStorage.removeItem(key)
+        }
+    }
+    return <Story />
+}
+
 const meta: Meta = {
     component: App,
     title: 'Scenes-App/Project Homepage/Today',
     decorators: [
+        clearTodayStorage,
         mswDecorator({
             get: {
                 '/api/projects/:team_id/signals/reports/': { results: REPORTS, count: 7 },
@@ -124,7 +136,11 @@ const meta: Meta = {
                 '/api/projects/:team_id/task_channels/': SPACES,
                 '/api/projects/:team_id/tasks/': EMPTY_PAGINATED_RESPONSE,
                 '/api/environments/:team_id/conversations/': { results: CONVERSATIONS, next: null },
-                '/api/environments/:team_id/file_system/': { results: LIBRARY, count: LIBRARY.length },
+                '/api/environments/:team_id/file_system/': ({ request }) => {
+                    const type = new URL(request.url).searchParams.get('type')
+                    const results = type ? LIBRARY.filter((entry) => entry.type === type) : LIBRARY
+                    return [200, { results, count: results.length }]
+                },
                 '/api/environments/:team_id/file_system/unfiled/': { results: [], count: 0 },
             },
         }),
@@ -135,7 +151,8 @@ const meta: Meta = {
         mockDate: '2026-09-28 18:30:00',
         pageUrl: urls.projectHomepage(),
         featureFlags: [FEATURE_FLAGS.TODAY_RAIL_NAV],
-        testOptions: { waitForLoadersToDisappear: true },
+        // The rail and its sidebar panes are the point of these stories, so the snapshot keeps the navigation.
+        testOptions: { waitForLoadersToDisappear: true, includeNavigationInSnapshot: true },
     },
 }
 export default meta
