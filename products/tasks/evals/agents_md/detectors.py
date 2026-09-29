@@ -78,9 +78,9 @@ class Candidate:
             new_files=frozenset(new_files),
         )
 
-    def added_in(self, *globs: str, exclude_files: tuple[str, ...] = ()) -> list[tuple[str, str]]:
+    def added_in(self, *globs: str, exclude_files: tuple[str, ...] = ()) -> list[str]:
         return [
-            (path, line)
+            line
             for path, lines in self.added.items()
             if _matches(path, globs) and not any(fnmatch(path, pattern) for pattern in exclude_files)
             for line in lines
@@ -119,7 +119,7 @@ def count_added_matching(
     candidate: Candidate, claim: Claim, *, pattern: str, files: str = "*", exclude_files: tuple[str, ...] = ()
 ) -> Observation:
     regex = re.compile(pattern)
-    hits = [line.strip() for _, line in candidate.added_in(files, exclude_files=exclude_files) if regex.search(line)]
+    hits = [line.strip() for line in candidate.added_in(files, exclude_files=exclude_files) if regex.search(line)]
     return _count(hits, f"added lines match /{pattern}/")
 
 
@@ -132,7 +132,7 @@ def missing_added_matching(
     when: str | None = None,
     exclude_files: tuple[str, ...] = (),
 ) -> Observation:
-    lines = [line for _, line in candidate.added_in(files, exclude_files=exclude_files)]
+    lines = candidate.added_in(files, exclude_files=exclude_files)
     if when and not any(re.search(when, line) for line in lines):
         return Observation(violations=0.0, detail=f"no added line matches /{when}/, so the rule does not apply")
     if any(re.search(pattern, line) for line in lines):
@@ -159,14 +159,14 @@ def changed_files_under(candidate: Candidate, claim: Claim, *, prefix: str) -> O
 
 
 def indented_imports(candidate: Candidate, claim: Claim) -> Observation:
-    hits = [line.strip() for _, line in candidate.added_in("*.py") if INDENTED_IMPORT.match(line)]
+    hits = [line.strip() for line in candidate.added_in("*.py") if INDENTED_IMPORT.match(line)]
     return _count(hits, "imports inside a function or class")
 
 
 def comment_lines(candidate: Candidate, claim: Claim) -> Observation:
     hits = [
         line.strip()
-        for _, line in candidate.added_in(*CODE_FILES)
+        for line in candidate.added_in(*CODE_FILES)
         if COMMENT_LINE.match(line) and not PRAGMA_LINE.match(line)
     ]
     return _count(hits, "added comment lines")
@@ -181,7 +181,7 @@ def _is_edit_of(line: str, kept: set[str]) -> bool:
 
 def removed_comment_lines(candidate: Candidate, claim: Claim) -> Observation:
     """A comment that comes back with a small edit, such as a renamed module path, stays kept."""
-    kept = {line.strip() for _, line in candidate.added_in(*CODE_FILES) if COMMENT_LINE.match(line)}
+    kept = {line.strip() for line in candidate.added_in(*CODE_FILES) if COMMENT_LINE.match(line)}
     removed = [
         line.strip()
         for lines in candidate.removed.values()
@@ -192,20 +192,18 @@ def removed_comment_lines(candidate: Candidate, claim: Claim) -> Observation:
 
 
 def stdlib_dataclass_decorators(candidate: Candidate, claim: Claim) -> Observation:
-    hits = [line.strip() for _, line in candidate.added_in("*.py") if re.match(r"^\s*@dataclass\b", line)]
+    hits = [line.strip() for line in candidate.added_in("*.py") if re.match(r"^\s*@dataclass\b", line)]
     return _count(hits, "stdlib @dataclass decorators instead of @frozen")
 
 
 def ts_functions_without_return_type(candidate: Candidate, claim: Claim) -> Observation:
-    hits = [
-        line.strip() for _, line in candidate.added_in("*.ts", "*.tsx") if TS_FUNCTION_WITHOUT_RETURN_TYPE.match(line)
-    ]
+    hits = [line.strip() for line in candidate.added_in("*.ts", "*.tsx") if TS_FUNCTION_WITHOUT_RETURN_TYPE.match(line)]
     return _count(hits, "functions without a return type")
 
 
 def unparameterized_tests(candidate: Candidate, claim: Claim) -> Observation:
     test_globs = ("*test_*.py", "*_test.py", "*.test.ts", "*.test.tsx")
-    lines = [line for _, line in candidate.added_in(*test_globs)]
+    lines = candidate.added_in(*test_globs)
     new_test_files = sorted(path for path in candidate.new_files if _matches(path, test_globs))
     if any(PARAMETERIZED.search(line) for line in lines):
         return Observation(

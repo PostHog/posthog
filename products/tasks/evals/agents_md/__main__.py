@@ -11,6 +11,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from statistics import mean
 
+from posthog.dataclasses import frozen
+
 from products.tasks.evals.golden_prs.agents import DEFAULT_MODELS, Runtime, agent_failure, agent_usage, run_agent
 from products.tasks.evals.golden_prs.scoring import changed_files
 from products.tasks.evals.golden_prs.workspace import candidate_diff
@@ -69,6 +71,20 @@ class JobResult:
     hooks_disabled: bool = False
 
 
+@frozen
+class Evaluation:
+    result: JobResult
+    diff: str
+    agent_log: str
+
+
+@frozen
+class ModelJob:
+    runtime: Runtime
+    model: str
+    job: Job
+
+
 def evaluate(
     job: Job,
     agents_md: str,
@@ -79,7 +95,7 @@ def evaluate(
     repo: Path,
     ref: str,
     candidate_agents_md: str | None = None,
-) -> tuple[JobResult, str, str]:
+) -> Evaluation:
     prompt = build_prompt(job.claim)
     started_at = datetime.now(UTC).isoformat(timespec="seconds")
     variant = agents_md_for(agents_md, job.claim, job.arm, candidate_agents_md)
@@ -122,7 +138,7 @@ def evaluate(
         task_assessment_detail=assessment.reasoning,
         hooks_disabled=runtime == "claude",
     )
-    return result, candidate.diff, run.stdout + run.stderr
+    return Evaluation(result=result, diff=candidate.diff, agent_log=run.stdout + run.stderr)
 
 
 def write_result(results_dir: Path, name: str, result: JobResult, candidate: str, agent_log: str) -> None:
@@ -295,9 +311,9 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
 
 def jobs_for(
     claims: list[Claim], models: tuple[tuple[Runtime, str], ...], arms: list[Arm] | None, repeats: int
-) -> list[tuple[Runtime, str, Job]]:
+) -> list[ModelJob]:
     return [
-        (runtime, agent_model, Job(claim=claim, arm=arm, repeat=repeat))
+        ModelJob(runtime=runtime, model=agent_model, job=Job(claim=claim, arm=arm, repeat=repeat))
         for repeat in range(1, repeats + 1)
         for claim in claims
         for runtime, agent_model in models
@@ -312,8 +328,8 @@ def run_claims(args: argparse.Namespace, selected: list[Claim]) -> int:
     models = DEFAULT_MODEL_MATRIX if args.matrix else ((args.runtime, model),)
     jobs = jobs_for(selected, models, args.arm, args.repeats)
     if args.dry_run:
-        for runtime, agent_model, job in jobs:
-            print(f"{runtime} {agent_model} {job.name}")
+        for item in jobs:
+            print(f"{item.runtime} {item.model} {item.job.name}")
         return 0
     ref = resolve_ref(args.repo, args.ref)
     agents_md = agents_md_at(args.repo, ref)
@@ -326,16 +342,15 @@ def run_claims(args: argparse.Namespace, selected: list[Claim]) -> int:
         (results_dir / "candidate-agents.md").write_text(candidate_agents_md)
     print(f"{len(jobs)} runs at {ref[:12]}, {args.workers} at a time", flush=True)
 
-    def run_job(item: tuple[Runtime, str, Job]) -> bool:
-        runtime, agent_model, job = item
-        name = f"{runtime}-{agent_model}/{job.name}"
+    def run_job(item: ModelJob) -> bool:
+        name = f"{item.runtime}-{item.model}/{item.job.name}"
         print(f"{name}: running", flush=True)
         try:
-            result, candidate, agent_log = evaluate(
-                job,
+            evaluation = evaluate(
+                item.job,
                 agents_md,
-                runtime,
-                agent_model,
+                item.runtime,
+                item.model,
                 args.judge_model,
                 args.case_timeout,
                 args.repo,
@@ -345,7 +360,14 @@ def run_claims(args: argparse.Namespace, selected: list[Claim]) -> int:
         except Exception:
             print(f"{name}: crashed\n{traceback.format_exc()}", flush=True)
             return False
-        write_result(results_dir / f"{runtime}-{agent_model}", job.name, result, candidate, agent_log)
+        result = evaluation.result
+        write_result(
+            results_dir / f"{item.runtime}-{item.model}",
+            item.job.name,
+            result,
+            evaluation.diff,
+            evaluation.agent_log,
+        )
         outcome = "n/a" if result.violations is None else f"{result.violations:.0f}"
         print(f"{name}: violations {outcome}" + (f" ({result.failure})" if result.failure else ""), flush=True)
         return result.exit_code == 0 and not result.timed_out and result.failure is None

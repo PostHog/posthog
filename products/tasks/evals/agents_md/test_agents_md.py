@@ -59,7 +59,7 @@ def candidate(diff: str, workdir: Path = Path("/nonexistent")) -> Candidate:
 
 def test_every_review_rule_in_agents_md_has_a_claim_with_known_detectors():
     claims = load_claims()
-    assert {c.line for c in claims} == {line for _, line in review_bullets(AGENTS_MD_PATH.read_text())}
+    assert {c.line for c in claims} == {bullet.line for bullet in review_bullets(AGENTS_MD_PATH.read_text())}
     assert len({c.id for c in claims}) == len(claims)
     for c in claims:
         if c.testable:
@@ -192,7 +192,7 @@ def test_failed_or_setup_changed_trials_are_not_scored(path: str, exit_code: int
         patch("products.tasks.evals.agents_md.__main__.detect") as score,
         patch("products.tasks.evals.agents_md.__main__.assess_task") as assess,
     ):
-        result, saved_diff, _ = evaluate(
+        evaluation = evaluate(
             Job(claim=claim(), arm="with", repeat=1),
             "instructions",
             "claude",
@@ -202,10 +202,11 @@ def test_failed_or_setup_changed_trials_are_not_scored(path: str, exit_code: int
             Path("/nonexistent"),
             "ref",
         )
+    result = evaluation.result
     assert result.failure
     assert result.violations is None
     assert result.task_assessment == "unmeasured"
-    assert saved_diff == diff
+    assert evaluation.diff == diff
     score.assert_not_called()
     assess.assert_not_called()
 

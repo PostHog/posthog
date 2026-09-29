@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
+from posthog.dataclasses import frozen
+
 REPO_ROOT = Path(__file__).resolve().parents[4]
 AGENTS_MD_PATH = REPO_ROOT / "AGENTS.md"
 CLAIMS_PATH = Path(__file__).with_name("claims.json")
@@ -37,16 +39,22 @@ class Claim:
         return self.task is not None
 
 
-def review_bullets(agents_md: str) -> list[tuple[str, str]]:
+@frozen
+class ReviewBullet:
+    section: str
+    line: str
+
+
+def review_bullets(agents_md: str) -> list[ReviewBullet]:
     """Every `[review]` bullet with the heading above it."""
     section = ""
-    bullets: list[tuple[str, str]] = []
+    bullets: list[ReviewBullet] = []
     for line in agents_md.splitlines():
         heading = HEADING.match(line)
         if heading:
             section = heading.group("title")
         elif REVIEW_BULLET.match(line):
-            bullets.append((section, line))
+            bullets.append(ReviewBullet(section=section, line=line))
     return bullets
 
 
@@ -65,15 +73,15 @@ def load_claims(agents_md: str | None = None, claims_path: Path = CLAIMS_PATH) -
     claims = [
         Claim(
             id=entry["id"],
-            section=section,
-            line=line,
+            section=bullet.section,
+            line=bullet.line,
             task=entry.get("task"),
             detectors=tuple(entry.get("detectors", ())),
             untestable=entry.get("untestable"),
             no_change_is_compliant=entry.get("no_change_is_compliant", False),
         )
-        for section, line in review_bullets(text)
-        for entry in _entries_for(line, entries)
+        for bullet in review_bullets(text)
+        for entry in _entries_for(bullet.line, entries)
     ]
     unused = {entry["id"] for entry in entries} - {claim.id for claim in claims}
     if unused:
