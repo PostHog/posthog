@@ -2,7 +2,7 @@ import { Button, ContextMenu, Host, RNHostView } from "@expo/ui/swift-ui";
 import { formatRelativeAge } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import { useRouter } from "expo-router";
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -12,6 +12,13 @@ import {
   Text,
   View,
 } from "react-native";
+import Animated, {
+  Easing,
+  useAnimatedStyle,
+  useSharedValue,
+  withRepeat,
+  withTiming,
+} from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { DrawerEdgeShadow } from "@/components/DrawerEdgeShadow";
 import { FadeScrim } from "@/components/FadeScrim";
@@ -35,6 +42,32 @@ function activityAt(task: Task): string {
 function taskTitle(task: Task): string {
   return (
     task.title || task.description_preview || task.description || "Untitled"
+  );
+}
+
+const SKELETON_WIDTHS = ["72%", "54%", "86%", "62%", "78%"] as const;
+
+function TaskSkeletons() {
+  const opacity = useSharedValue(1);
+  useEffect(() => {
+    opacity.value = withRepeat(
+      withTiming(0.4, { duration: 800, easing: Easing.inOut(Easing.ease) }),
+      -1,
+      true,
+    );
+  }, [opacity]);
+  const pulse = useAnimatedStyle(() => ({ opacity: opacity.value }));
+  return (
+    <Animated.View style={pulse}>
+      {SKELETON_WIDTHS.map((width) => (
+        <View key={width} style={styles.taskRow}>
+          <View style={styles.taskBody}>
+            <View style={[styles.skeletonTitle, { width }]} />
+            <View style={styles.skeletonAge} />
+          </View>
+        </View>
+      ))}
+    </Animated.View>
   );
 }
 
@@ -125,9 +158,7 @@ export function DrawerContent({ closeDrawer }: { closeDrawer: () => void }) {
         </Pressable>
         <View style={styles.group}>
           <Text style={styles.groupTitle}>Recent tasks</Text>
-          {tasks.isLoading && sorted.length === 0 ? (
-            <Text style={styles.empty}>Loading</Text>
-          ) : null}
+          {tasks.isLoading && sorted.length === 0 ? <TaskSkeletons /> : null}
           {sorted.map((task) => (
             <Host key={task.id} matchContents={{ vertical: true }}>
               <ContextMenu>
@@ -270,12 +301,19 @@ const styles = StyleSheet.create({
     lineHeight: 23,
     color: colors.ink,
   },
-  taskAge: { fontFamily: fonts.sans, fontSize: 12, color: colors.inkSoft },
-  empty: {
-    fontFamily: fonts.sans,
-    fontSize: 14,
-    color: colors.inkMute,
-    paddingVertical: 6,
+  taskAge: { fontFamily: fonts.sans, fontSize: 14, color: colors.inkSoft },
+  skeletonTitle: {
+    height: 17,
+    marginVertical: 3,
+    borderRadius: 6,
+    backgroundColor: colors.fill,
+  },
+  skeletonAge: {
+    width: 56,
+    height: 14,
+    marginVertical: 2,
+    borderRadius: 5,
+    backgroundColor: colors.fill,
   },
   footer: {
     position: "absolute",
