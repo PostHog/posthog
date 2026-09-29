@@ -21,8 +21,8 @@ describe('<FlagsSecureApiKeys />', () => {
     it('directs teams without a legacy key to project secret API keys', () => {
         teamLogic.actions.loadCurrentTeamSuccess({
             ...MOCK_DEFAULT_TEAM,
-            secret_api_token: null,
-            secret_api_token_backup: null,
+            secret_api_token: undefined,
+            secret_api_token_backup: undefined,
         })
 
         render(<FlagsSecureApiKeys />)
