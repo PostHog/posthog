@@ -18,6 +18,7 @@ import type {
     HogFlowBatchJobApi,
     HogFlowBatchJobCancelResponseApi,
     HogFlowInvocationApi,
+    HogFlowOptimizationApi,
     HogFlowPublishRequestApi,
     HogFlowPublishResponseApi,
     HogFlowRevisionApi,
@@ -742,6 +743,51 @@ export const hogFlowsMetricsTotalsRetrieve = async (
     return apiMutator<AppMetricsTotalsResponseApi>(getHogFlowsMetricsTotalsRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getHogFlowsOptimizationRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/hog_flows/${id}/optimization/`
+}
+
+/**
+ * Whether PostHog may look at this workflow and suggest changes to it.
+ *
+ * Turning it off stops a producer reading the workflow. Suggestions already made are left
+ * alone: someone still has them to resolve.
+ */
+export const hogFlowsOptimizationRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<HogFlowOptimizationApi> => {
+    return apiMutator<HogFlowOptimizationApi>(getHogFlowsOptimizationRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getHogFlowsOptimizationCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/hog_flows/${id}/optimization/`
+}
+
+/**
+ * Whether PostHog may look at this workflow and suggest changes to it.
+ *
+ * Turning it off stops a producer reading the workflow. Suggestions already made are left
+ * alone: someone still has them to resolve.
+ */
+export const hogFlowsOptimizationCreate = async (
+    projectId: string,
+    id: string,
+    hogFlowOptimizationApi: HogFlowOptimizationApi,
+    options?: RequestInit
+): Promise<HogFlowOptimizationApi> => {
+    return apiMutator<HogFlowOptimizationApi>(getHogFlowsOptimizationCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(hogFlowOptimizationApi),
     })
 }
 

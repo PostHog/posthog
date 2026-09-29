@@ -3,10 +3,10 @@ from typing import Any
 from django.db import models
 
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
-from posthog.models.utils import UUIDTModel
+from posthog.models.utils import UUIDModel
 
 
-class WorkflowProposal(TeamScopedRootMixin, UUIDTModel):
+class WorkflowProposal(TeamScopedRootMixin, UUIDModel):
     """A change to a workflow that an agent proposes and a human resolves.
 
     Approving one stages its content into the workflow's `draft` — the same move as restoring a

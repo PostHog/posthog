@@ -8,11 +8,14 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import {
     hogFlowsProposalsApproveCreate,
+    hogFlowsOptimizationCreate,
+    hogFlowsOptimizationRetrieve,
     hogFlowsProposalsList,
     hogFlowsProposalsOutcomeRetrieve,
     hogFlowsProposalsRejectCreate,
 } from '../../generated/api'
 import type {
+    HogFlowOptimizationApi,
     PaginatedWorkflowProposalListApi,
     WorkflowProposalApi,
     WorkflowProposalOutcomeApi,
@@ -40,6 +43,10 @@ export interface workflowProposalsLogicValues {
     approveDisabledReason: string | undefined
     lastSeenDraftStamp: string | null
     lastSeenVersion: number | null
+    optimization: HogFlowOptimizationApi | null
+    optimizationEnabled: boolean
+    optimizationLoading: boolean
+    optimizationUnreadable: boolean
     outcomes: Record<string, WorkflowProposalOutcomeApi>
     pendingProposals: WorkflowProposalApi[]
     proposalsResponse: PaginatedWorkflowProposalListApi | null
@@ -78,6 +85,21 @@ export interface workflowProposalsLogicActions {
         appliedResponse: PaginatedWorkflowProposalListApi
         payload?: any
     }
+    loadOptimization: () => any
+    loadOptimizationFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadOptimizationSuccess: (
+        optimization: HogFlowOptimizationApi | null,
+        payload?: any
+    ) => {
+        optimization: HogFlowOptimizationApi | null
+        payload?: any
+    }
     loadOutcome: (proposalId: string) => {
         proposalId: string
     }
@@ -109,6 +131,30 @@ export interface workflowProposalsLogicActions {
         draftStamp: string | null
         version: number | null
     }
+    setOptimizationEnabled: (enabled: boolean) => {
+        enabled: boolean
+    }
+    setOptimizationEnabledFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    setOptimizationEnabledSuccess: (
+        optimization: HogFlowOptimizationApi,
+        payload?: {
+            enabled: boolean
+        }
+    ) => {
+        optimization: HogFlowOptimizationApi
+        payload?: {
+            enabled: boolean
+        }
+    }
+    setOptimizationUnreadable: (unreadable: boolean) => {
+        unreadable: boolean
+    }
     setOutcome: (
         proposalId: string,
         outcome: WorkflowProposalOutcomeApi
@@ -130,6 +176,7 @@ export interface workflowProposalsLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         appliedProposals: (appliedResponse: PaginatedWorkflowProposalListApi | null) => WorkflowProposalApi[]
+        optimizationEnabled: (optimization: HogFlowOptimizationApi | null) => boolean
         pendingProposals: (proposalsResponse: PaginatedWorkflowProposalListApi | null) => WorkflowProposalApi[]
         approveDisabledReason: (hasUnsavedChanges: boolean, showDraftActions: boolean) => string | undefined
     }
@@ -169,6 +216,8 @@ export const workflowProposalsLogic = kea<workflowProposalsLogicType>([
         }),
         loadOutcome: (proposalId: string) => ({ proposalId }),
         setLastSeen: (version: number | null, draftStamp: string | null) => ({ version, draftStamp }),
+        setOptimizationUnreadable: (unreadable: boolean) => ({ unreadable }),
+        setOptimizationEnabled: (enabled: boolean) => ({ enabled }),
         setOutcome: (proposalId: string, outcome: WorkflowProposalOutcomeApi) => ({ proposalId, outcome }),
     }),
     reducers({
@@ -198,6 +247,15 @@ export const workflowProposalsLogic = kea<workflowProposalsLogicType>([
                 setResolvingId: (_, { action }) => action,
             },
         ],
+        // A failed read must not read as "off".
+        optimizationUnreadable: [
+            false,
+            {
+                setOptimizationUnreadable: (_, { unreadable }) => unreadable,
+                loadOptimizationSuccess: () => false,
+                setOptimizationEnabledSuccess: () => false,
+            },
+        ],
         lastSeenVersion: [
             null as number | null,
             {
@@ -222,7 +280,7 @@ export const workflowProposalsLogic = kea<workflowProposalsLogicType>([
             },
         ],
     }),
-    loaders(({ props, values }) => ({
+    loaders(({ actions, props, values }) => ({
         appliedResponse: [
             null as PaginatedWorkflowProposalListApi | null,
             {
@@ -239,6 +297,26 @@ export const workflowProposalsLogic = kea<workflowProposalsLogicType>([
                         }
                         throw error
                     }
+                },
+            },
+        ],
+        optimization: [
+            null as HogFlowOptimizationApi | null,
+            {
+                loadOptimization: async () => {
+                    try {
+                        return await hogFlowsOptimizationRetrieve(String(values.currentTeamIdStrict), props.id)
+                    } catch (error) {
+                        // 404 is the flag being off, which the panel already reads as "nothing here".
+                        if (error instanceof ApiError && error.status === 404) {
+                            return null
+                        }
+                        actions.setOptimizationUnreadable(true)
+                        throw error
+                    }
+                },
+                setOptimizationEnabled: async ({ enabled }) => {
+                    return await hogFlowsOptimizationCreate(String(values.currentTeamIdStrict), props.id, { enabled })
                 },
             },
         ],
@@ -265,6 +343,10 @@ export const workflowProposalsLogic = kea<workflowProposalsLogicType>([
         appliedProposals: [
             (s) => [s.appliedResponse],
             (response: PaginatedWorkflowProposalListApi | null): WorkflowProposalApi[] => response?.results ?? [],
+        ],
+        optimizationEnabled: [
+            (s) => [s.optimization],
+            (optimization: HogFlowOptimizationApi | null): boolean => !!optimization?.enabled,
         ],
         pendingProposals: [
             (s) => [s.proposalsResponse],
@@ -427,5 +509,6 @@ export const workflowProposalsLogic = kea<workflowProposalsLogicType>([
         actions.setLastSeen(values.originalWorkflow?.version ?? null, values.originalWorkflow?.draft_updated_at ?? null)
         actions.loadProposals()
         actions.loadApplied()
+        actions.loadOptimization()
     }),
 ])
