@@ -385,7 +385,14 @@ export const offlineExperimentLogic: LogicWrapper<offlineExperimentLogicType> = 
                 },
             },
         ],
-        viewport: [{ scrollLeft: 0, width: 1000 }, { setViewport: (_, viewport) => viewport }],
+        viewport: [
+            { scrollLeft: 0, width: 1000 },
+            {
+                setViewport: (_, viewport) => viewport,
+                // Clearing the summaries removes the score columns, so the browser resets the table scroll to 0.
+                loadOfflineSummaries: (state) => ({ ...state, scrollLeft: 0 }),
+            },
+        ],
         inspector: [
             null as { itemId: string; resultId?: string; scorerVersionId?: string } | null,
             {

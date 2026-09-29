@@ -63,6 +63,10 @@ describe('offlineExperimentLogic', () => {
         expect(
             readCells.mock.calls.some(([, , query]) => query.scorer_version_ids.includes(summaries[100].scorer.id))
         ).toBe(true)
+
+        logic.actions.refresh()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.cellBatches[0]?.state).toBe('loaded')
     })
 
     it('does not replace cells for a new item page with a late response from the previous page', async () => {
