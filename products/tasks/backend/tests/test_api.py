@@ -13798,8 +13798,6 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         ]
     )
     def test_command_on_ended_run_without_sandbox_is_final(self, _name, run_status):
-        # A terminal run's sandbox is cleaned up and never comes back, so the missing-sandbox
-        # answer must be final — not the retryable 503 a still-starting run gets.
         task = self.create_task()
         run = TaskRun.objects.create(task=task, team=self.team, status=run_status, state={})
 
