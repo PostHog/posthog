@@ -187,6 +187,7 @@ class TestValidateCredentials:
             ("Pull API is not enabled\nfor this account", "AppsFlyer said: Pull API is not enabled for this account"),
             ("token secret-token is not allowed", "AppsFlyer said: token [redacted] is not allowed"),
             ("<html><body>Forbidden</body></html>", None),
+            ("Forbidden: <!DOCTYPE html><html><body>Denied</body></html>", None),
             ("", None),
         ],
     )

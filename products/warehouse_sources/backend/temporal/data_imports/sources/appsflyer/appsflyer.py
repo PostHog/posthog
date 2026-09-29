@@ -54,6 +54,7 @@ CHUNK_SIZE = 5000
 REPORT_CHUNK_BYTES = 1 << 16
 # Keep AppsFlyer's rejection reason short enough to read in a setup error.
 MAX_REJECTION_REASON_CHARS = 300
+_HTML_MARKUP = re.compile(r"<\s*(!doctype|html|head|body)\b", re.IGNORECASE)
 
 
 @frozen
@@ -125,7 +126,7 @@ def _validate_app_id(app_id: str) -> str:
 def _rejection_reason(response: requests.Response, api_token: str) -> str | None:
     """Return AppsFlyer's own reason for a rejected request, or None when the body has no plain text."""
     reason = " ".join(response.text.split())
-    if not reason or reason.startswith("<"):
+    if not reason or reason.startswith("<") or _HTML_MARKUP.search(reason):
         return None
     return reason.replace(api_token, "[redacted]")[:MAX_REJECTION_REASON_CHARS]
 
