@@ -36,6 +36,8 @@ import type {
   CommitArtefact,
   CommitDiffResponse,
   DismissalArtefact,
+  ImpactMeasurementPlanArtefact,
+  ImpactMeasurementPlanContent,
   LineReferenceArtefact,
   NoteArtefact,
   OrganizationMemberBasic,
@@ -1359,7 +1361,8 @@ type AnyArtefact =
   | LineReferenceArtefact
   | CommitArtefact
   | TaskRunArtefact
-  | NoteArtefact;
+  | NoteArtefact
+  | ImpactMeasurementPlanArtefact;
 
 // Reasons valid on a dismissal artefact. Resolve reasons are included because the
 // backend stores resolve feedback on the same artefact type (a resolve writes a
@@ -1701,6 +1704,63 @@ function normalizeNoteArtefact(
   };
 }
 
+const REPORT_METRIC_VALUE_FORMATS = new Set<string>([
+  "number",
+  "count",
+  "percentage",
+  "percentage_scaled",
+  "duration",
+  "currency",
+]);
+
+function optionalFiniteNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function normalizeImpactMeasurementPlanArtefact(
+  value: Record<string, unknown>,
+): ImpactMeasurementPlanArtefact | null {
+  const id = optionalString(value.id);
+  if (!id) return null;
+  const c = isObjectRecord(value.content) ? value.content : null;
+  if (!c) return null;
+  const metric_id = optionalString(c.metric_id);
+  const title = optionalString(c.title);
+  if (!metric_id || !title) return null;
+
+  const valueFormat = optionalString(c.value_format);
+  return {
+    id,
+    type: "impact_measurement_plan",
+    ...artefactBase(value),
+    content: {
+      metric_id,
+      title,
+      kind: optionalString(c.kind) ?? undefined,
+      query: isObjectRecord(c.query) ? c.query : undefined,
+      value_format:
+        valueFormat && REPORT_METRIC_VALUE_FORMATS.has(valueFormat)
+          ? (valueFormat as ImpactMeasurementPlanContent["value_format"])
+          : undefined,
+      unit: optionalString(c.unit),
+      goal_value: optionalFiniteNumber(c.goal_value),
+      goal_direction:
+        c.goal_direction === "at_most" || c.goal_direction === "at_least"
+          ? c.goal_direction
+          : null,
+      goal_grain:
+        c.goal_grain === "per_interval" ? "per_interval" : "whole_window",
+      decision_window_days: optionalFiniteNumber(c.decision_window_days),
+      minimum_data_points: optionalFiniteNumber(c.minimum_data_points),
+      eligibility_query: isObjectRecord(c.eligibility_query)
+        ? c.eligibility_query
+        : undefined,
+      activated: c.activated === true,
+      retired: c.retired === true,
+    },
+  };
+}
+
 /** Best human-readable one-liner from arbitrary artefact content. */
 function contentPreview(content: unknown): string {
   if (typeof content === "string") return content;
@@ -1797,6 +1857,12 @@ function normalizeSignalReportArtefact(value: unknown): AnyArtefact | null {
   }
   if (dispatchType === "task_run") {
     return normalizeTaskRunArtefact(value) ?? normalizeFallbackArtefact(value);
+  }
+  if (dispatchType === "impact_measurement_plan") {
+    return (
+      normalizeImpactMeasurementPlanArtefact(value) ??
+      normalizeFallbackArtefact(value)
+    );
   }
   if (dispatchType === "note") {
     return normalizeNoteArtefact(value) ?? normalizeFallbackArtefact(value);

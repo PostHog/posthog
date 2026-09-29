@@ -24,6 +24,7 @@ describe("selectUsefulReportActivity", () => {
       artefact("task_run"),
       artefact("safety_judgment"),
       artefact("signal_finding"),
+      artefact("impact_measurement_plan"),
       artefact("commit"),
       artefact("note"),
     ]);

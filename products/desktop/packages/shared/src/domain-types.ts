@@ -1020,6 +1020,51 @@ export interface NoteContent {
   author?: string | null;
 }
 
+export type ImpactMeasurementGoalDirection = "at_most" | "at_least";
+
+/** Whether the goal compares with the whole query window or with each chart bucket. */
+export type ImpactMeasurementGoalGrain = "whole_window" | "per_interval";
+
+export type ReportMetricValueFormat =
+  | "number"
+  | "count"
+  | "percentage"
+  | "percentage_scaled"
+  | "duration"
+  | "currency";
+
+/**
+ * Artefact with `type: "impact_measurement_plan"` — one version of a proposed
+ * impact measurement, keyed by `metric_id`. A revision appends a new version.
+ */
+export interface ImpactMeasurementPlanArtefact
+  extends SignalReportArtefactBase {
+  type: "impact_measurement_plan";
+  content: ImpactMeasurementPlanContent;
+}
+
+/**
+ * Mirrors backend `ImpactMeasurementPlan`. The backend redacts everything but
+ * `metric_id`, `title`, `activated`, and `retired` when the viewer can't read
+ * the query, so every other field is optional here.
+ */
+export interface ImpactMeasurementPlanContent {
+  metric_id: string;
+  title: string;
+  kind?: string;
+  query?: unknown;
+  value_format?: ReportMetricValueFormat;
+  unit?: string | null;
+  goal_value?: number | null;
+  goal_direction?: ImpactMeasurementGoalDirection | null;
+  goal_grain?: ImpactMeasurementGoalGrain;
+  decision_window_days?: number | null;
+  minimum_data_points?: number | null;
+  eligibility_query?: unknown;
+  activated: boolean;
+  retired: boolean;
+}
+
 /** Response from the `commit` artefact diff endpoint — the commit rendered against its parent. */
 export interface CommitDiffResponse {
   /** Unified diff (patch) text introduced by the commit. */
@@ -1123,7 +1168,8 @@ export type AnySignalReportArtefact =
   | LineReferenceArtefact
   | CommitArtefact
   | TaskRunArtefact
-  | NoteArtefact;
+  | NoteArtefact
+  | ImpactMeasurementPlanArtefact;
 
 export interface SignalReportArtefactsResponse {
   results: AnySignalReportArtefact[];

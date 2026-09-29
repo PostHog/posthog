@@ -29,6 +29,7 @@
   "SAVED_SEARCHES_RAIL_FLAG": "posthog-desktop-saved-searches-rail",
   "SELF_DRIVING_SETUP_TASK_FLAG": "posthog-code-self-driving-setup-task",
   "SETTINGS_BACKUP_FLAG": "posthog-desktop-settings-backup",
+  "SIGNALS_EXPECTED_IMPACT_DISPLAY_FLAG": "signals-expected-impact",
   "SIGNALS_PR_REFUNDS_FLAG": "signals-pr-refunds",
   "SPACE_SETUP_FLAG": "code-space-setup",
   "SPOKEN_NARRATION_FLAG": "posthog-code-spoken-narration",

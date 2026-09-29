@@ -2,6 +2,7 @@ import type { AnySignalReportArtefact } from "@posthog/shared/types";
 
 const ROUTINE_PIPELINE_ARTEFACTS = new Set([
   "actionability_judgment",
+  "impact_measurement_plan",
   "priority_judgment",
   "repo_selection",
   "safety_judgment",
