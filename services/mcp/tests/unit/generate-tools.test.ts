@@ -1366,6 +1366,35 @@ describe('system_prompt_hint flows into tool definitions', () => {
     })
 })
 
+describe('per-tool category in tool definitions', () => {
+    it.each([
+        { toolCategory: undefined, expected: 'AI observability' },
+        { toolCategory: 'Experiments', expected: 'Experiments' },
+    ])('uses $expected when the tool category is $toolCategory', ({ toolCategory, expected }) => {
+        const toolConfig: EnabledToolConfig = {
+            operation: 'llm_prompts_list',
+            enabled: true,
+            scopes: ['llm_prompt:read'],
+            annotations: { readOnly: true, destructive: false, idempotent: true },
+            ...(toolCategory ? { category: toolCategory } : {}),
+        }
+        const resolved: ResolvedOperation = {
+            method: 'GET',
+            path: '/api/environments/{project_id}/llm_prompts/',
+            operation: { operationId: 'llm_prompts_list', description: 'List prompts' },
+        }
+        const definitions = generateDefinitionsJson([
+            {
+                config: { category: 'AI observability', feature: 'llm_analytics', url_prefix: '/ai-observability', tools: {} },
+                enabledTools: [['llma-prompt-list', toolConfig, resolved]],
+                enabledWrappers: [],
+                yamlDir: '/tmp',
+            },
+        ]) as Record<string, { category?: string; feature?: string }>
+        expect(definitions['llma-prompt-list']).toMatchObject({ category: expected, feature: 'llm_analytics' })
+    })
+})
+
 describe('generateQueryWrapperFile with use_optimized_output', () => {
     const minimalQuerySchema = {
         definitions: {

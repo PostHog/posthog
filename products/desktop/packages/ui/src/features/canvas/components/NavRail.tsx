@@ -27,10 +27,13 @@ import { useSpacesTabs } from "@posthog/ui/features/browser-tabs/useSpacesTabs";
 import { ActivityHoverCard } from "@posthog/ui/features/canvas/components/ActivityHoverCard";
 import { ChannelsFab } from "@posthog/ui/features/canvas/components/ChannelsFab";
 import {
+  isRailDestinationActive,
   pickRailDestination,
   type RailCounts,
   type RailDestination,
+  type RailState,
   showWorkColumn,
+  stepRailDestination,
   visibleRailDestinations,
   visibleWorkRailDestinations,
 } from "@posthog/ui/features/canvas/components/railDestinations";
@@ -50,6 +53,7 @@ import {
 } from "@posthog/ui/features/canvas/stores/workActivityStore";
 import {
   formatHotkey,
+  GLOBAL_HOTKEY_OPTIONS,
   SHORTCUTS,
 } from "@posthog/ui/features/command/keyboard-shortcuts";
 import { useCommandCenterActiveCount } from "@posthog/ui/features/command-center/useCommandCenterActiveCount";
@@ -73,6 +77,7 @@ import {
   type ReactNode,
   useState,
 } from "react";
+import { useHotkeys } from "react-hotkeys-hook";
 
 const ICON_BADGE_CLASS =
   "-top-1 -right-1 absolute h-3.5 min-w-3.5 w-auto px-1 font-semibold text-[9px] ring-2 ring-chrome";
@@ -176,12 +181,12 @@ function ActivityHoverPopover({ trigger }: { trigger: ReactElement }) {
 
 function MoreNavItem({
   destinations,
-  railPane,
+  isDestinationActive,
   counts,
   onPick,
 }: {
   destinations: readonly RailDestination[];
-  railPane: NavRailPane;
+  isDestinationActive: (pane: NavRailPane) => boolean;
   counts: RailCounts;
   onPick: (
     destination: RailDestination,
@@ -189,7 +194,7 @@ function MoreNavItem({
 }) {
   const { iconSize } = useNavRailMetrics();
   const [open, setOpen] = useState(false);
-  const isActive = destinations.some(({ pane }) => pane === railPane);
+  const isActive = destinations.some(({ pane }) => isDestinationActive(pane));
   const hasCount = destinations.some(({ count }) => (count?.(counts) ?? 0) > 0);
 
   return (
@@ -214,27 +219,27 @@ function MoreNavItem({
         className="w-52 gap-0.5 p-1"
       >
         {destinations.map((destination) => {
-          const { pane, label, Icon, count, countTone } = destination;
+          const { pane, label, Icon, count, countTone, shortcut } = destination;
           const pick = onPick(destination);
+          const selected = isDestinationActive(pane);
           return (
             <Button
               key={pane}
               variant="default"
               size="sm"
-              data-selected={railPane === pane || undefined}
+              data-selected={selected || undefined}
               className="w-full justify-start data-selected:bg-fill-selected"
               onClick={(event) => {
                 setOpen(false);
                 pick(event);
               }}
             >
-              <Icon size={16} weight={railPane === pane ? "fill" : "regular"} />
+              <Icon size={16} weight={selected ? "fill" : "regular"} />
               {label}
-              <CountBadge
-                count={count?.(counts) ?? 0}
-                tone={countTone}
-                className="ml-auto"
-              />
+              <span className="ml-auto flex items-center gap-1">
+                <CountBadge count={count?.(counts) ?? 0} tone={countTone} />
+                {shortcut && <Kbd>{shortcut}</Kbd>}
+              </span>
             </Button>
           );
         })}
@@ -329,43 +334,69 @@ function NavRailImpl() {
   // So the create button files into the space you are in, like the shortcut.
   const currentChannelId = useCurrentChannelStore((s) => s.currentChannelId);
 
+  const go = (destination: RailDestination): void => {
+    if (workLayout) {
+      if (destination.pane === "activity") {
+        if (!workActivityOpen) showWorkColumn();
+        toggleWorkActivity();
+        return;
+      }
+      closeWorkActivity();
+      if (destination.pane === "spaces" && railPaneFoldsIntoWork(railPane)) {
+        showWorkColumn();
+        return;
+      }
+    }
+    pickRailDestination(destination, railPane);
+  };
+
+  const trackPick = (
+    destination: RailDestination,
+    source: "click" | "shortcut",
+  ): void => {
+    track(ANALYTICS_EVENTS.SIDEBAR_NAV_ITEM_CLICKED, {
+      item: destination.analyticsId,
+      in_more: destination.placement === "more",
+      layout: "channels",
+      source,
+    });
+  };
+
   const pick =
     (destination: RailDestination) =>
     (event: MouseEvent<HTMLElement>): void => {
-      track(ANALYTICS_EVENTS.SIDEBAR_NAV_ITEM_CLICKED, {
-        item: destination.analyticsId,
-        in_more: destination.placement === "more",
-        layout: "channels",
-      });
+      trackPick(destination, "click");
       if (tabsEnabled && (event.metaKey || event.ctrlKey)) {
         event.preventDefault();
         openBrowserTab(destination.href);
         return;
       }
-      if (workLayout) {
-        if (destination.pane === "activity") {
-          if (!workActivityOpen) showWorkColumn();
-          toggleWorkActivity();
-          return;
-        }
-        closeWorkActivity();
-        if (destination.pane === "spaces" && railPaneFoldsIntoWork(railPane)) {
-          showWorkColumn();
-          return;
-        }
-      }
-      pickRailDestination(destination, railPane);
+      go(destination);
     };
+
+  const railState: RailState = { railPane, workLayout, workActivityOpen };
+  const isDestinationActive = (pane: NavRailPane): boolean =>
+    isRailDestinationActive(pane, railState);
+
+  const step = (direction: 1 | -1): void => {
+    // Visual order, so the keys walk the rail the way the eye reads it, More
+    // included.
+    const destination = stepRailDestination(
+      [...topDestinations, ...moreDestinations, ...bottomDestinations],
+      railState,
+      direction,
+    );
+    if (!destination) return;
+    trackPick(destination, "shortcut");
+    go(destination);
+  };
+  // No deps: the hook calls the newest callback, so `step` never goes stale.
+  useHotkeys(SHORTCUTS.RAIL_PREV, () => step(-1), GLOBAL_HOTKEY_OPTIONS);
+  useHotkeys(SHORTCUTS.RAIL_NEXT, () => step(1), GLOBAL_HOTKEY_OPTIONS);
 
   const renderDestination = (destination: RailDestination): ReactNode => {
     const { pane, label, Icon, count, countTone } = destination;
-    const isActive = workLayout
-      ? pane === "activity"
-        ? workActivityOpen
-        : pane === "spaces"
-          ? !workActivityOpen && railPaneFoldsIntoWork(railPane)
-          : !workActivityOpen && railPane === pane
-      : railPane === pane;
+    const isActive = isDestinationActive(pane);
     const destinationCount = count?.(counts) ?? 0;
     const usesNotificationDot = pane === "activity" || pane === "inbox";
     let badge: ReactNode;
@@ -427,7 +458,7 @@ function NavRailImpl() {
         {moreDestinations.length > 0 && (
           <MoreNavItem
             destinations={moreDestinations}
-            railPane={railPane}
+            isDestinationActive={isDestinationActive}
             counts={counts}
             onPick={pick}
           />

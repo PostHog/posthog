@@ -31,7 +31,14 @@ import type {
     EvaluationBackfillConditionApi,
     EvaluationBackfillStatusEnumApi,
 } from '../../generated/api.schemas'
-import { backfillCoveredCount, backfillRangeDateFormat, backfillSamplingLabel } from '../backfillConditions'
+import {
+    backfillCoveredCount,
+    backfillLateArrivalCount,
+    backfillLiveCoveredCount,
+    backfillRangeDateFormat,
+    backfillSamplingLabel,
+    backfillTotalCount,
+} from '../backfillConditions'
 import { evaluationBackfillsLogic } from '../evaluationBackfillsLogic'
 import { EvaluationTriggers } from './EvaluationTriggers'
 
@@ -57,7 +64,8 @@ function backfillLeftBehindLabel(backfill: EvaluationBackfillApi): string | null
     if (!backfill.remaining_count) {
         return null
     }
-    return `${pluralize(backfill.remaining_count, backfill.target)} weren't evaluated. Start another backfill over this range to retry them.`
+    const one = backfill.remaining_count === 1
+    return `${pluralize(backfill.remaining_count, backfill.target)} ${one ? "wasn't" : "weren't"} evaluated. Start another backfill over this range to retry ${one ? 'it' : 'them'}.`
 }
 
 function backfillUnitPlural(backfill: EvaluationBackfillApi): string {
@@ -122,9 +130,11 @@ export function EvaluationBackfillsTab({
         expandBackfill,
         collapseBackfill,
         loadBackfills,
+        startClicked,
     } = useActions(logic)
 
     const confirmStart = (): void => {
+        startClicked()
         LemonDialog.open({
             title: 'Start this backfill?',
             description: estimate ? (
@@ -263,6 +273,7 @@ export function EvaluationBackfillsTab({
                 // walk never saw it.
                 const measured = backfill.status === 'completed' && backfill.remaining_count !== null
                 const covered = backfillCoveredCount(backfill)
+                const total = backfillTotalCount(backfill)
                 return (
                     <Tooltip
                         title={
@@ -273,7 +284,7 @@ export function EvaluationBackfillsTab({
                     >
                         <div className="min-w-24">
                             <span className="whitespace-nowrap" translate="no">
-                                {covered.toLocaleString('en-US')} / {backfill.total_count.toLocaleString('en-US')}
+                                {covered.toLocaleString('en-US')} / {total.toLocaleString('en-US')}
                             </span>
                             {backfill.dispatched_count > 0 && (
                                 <span className="text-muted whitespace-nowrap">
@@ -283,7 +294,7 @@ export function EvaluationBackfillsTab({
                             )}
                             <LemonProgress
                                 className="mt-1"
-                                percent={backfill.total_count > 0 ? (covered / backfill.total_count) * 100 : 0}
+                                percent={total > 0 ? (covered / total) * 100 : 0}
                                 strokeColor={backfill.status === 'running' ? undefined : 'var(--border)'}
                             />
                         </div>
@@ -444,6 +455,8 @@ export function EvaluationBackfillsTab({
                     onRowCollapse: (backfill) => collapseBackfill(backfill.id),
                     expandedRowRender: (backfill) => {
                         const leftBehind = backfillLeftBehindLabel(backfill)
+                        const lateArrivals = backfillLateArrivalCount(backfill)
+                        const liveCovered = backfillLiveCoveredCount(backfill)
                         return (
                             <div className="flex items-center justify-between gap-4 px-2 py-3">
                                 <div className="flex flex-col gap-2 min-w-0">
@@ -476,10 +489,30 @@ export function EvaluationBackfillsTab({
                                         <span>
                                             {backfill.dispatched_count.toLocaleString('en-US')} started,{' '}
                                             {backfill.skipped_count.toLocaleString('en-US')} skipped, out of{' '}
-                                            {pluralize(backfill.total_count, backfill.target)}
-                                            {backfill.rerun_existing ? ' in range' : ' that had no result'}
+                                            {pluralize(
+                                                backfill.rerun_existing
+                                                    ? backfillTotalCount(backfill)
+                                                    : backfill.total_count,
+                                                backfill.target
+                                            )}
+                                            {backfill.rerun_existing
+                                                ? ' in range'
+                                                : " that hadn't been evaluated when the backfill began"}
                                         </span>
                                     </div>
+                                    {lateArrivals > 0 && (
+                                        <div className="text-muted">
+                                            {pluralize(lateArrivals, backfill.target)} arrived in this range after the
+                                            backfill started, so it covered more than the first count found.
+                                        </div>
+                                    )}
+                                    {liveCovered > 0 && (
+                                        <div className="text-muted">
+                                            {pluralize(liveCovered, backfill.target)}{' '}
+                                            {liveCovered === 1 ? 'was' : 'were'} evaluated automatically before the
+                                            backfill reached {liveCovered === 1 ? 'it' : 'them'}.
+                                        </div>
+                                    )}
                                     {leftBehind && <div className="text-warning">{leftBehind}</div>}
                                 </div>
                                 <LemonButton

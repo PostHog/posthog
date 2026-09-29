@@ -5,7 +5,7 @@ import { fetch } from '~/common/utils/request'
 import { config } from '~/session-replay/recording-rasterizer/config'
 import { type Logger, createLogger } from '~/session-replay/recording-rasterizer/logger'
 
-import { BLOCK_REQUEST_PREFIX, BlockProxy } from './block-proxy'
+import { BLOCK_REQUEST_PREFIX, BlockSource } from './block-proxy'
 import { CapturePage } from './capture-page'
 
 const PROXY_TIMEOUT_MS = 10_000
@@ -17,7 +17,7 @@ const NONCE_PLACEHOLDER = '__CSP_NONCE__'
 
 /**
  * Centralizes all Puppeteer request interception: serves the player HTML,
- * forwards block requests to {@link BlockProxy}, proxies sub-frame
+ * forwards block requests to {@link BlockSource}, proxies sub-frame
  * stylesheets, and aborts sub-frame media to prevent beginFrame deadlocks.
  *
  * {@link waitForSettled} gates beginFrame until proxied stylesheets resolve.
@@ -29,7 +29,7 @@ export class RequestInterceptor {
 
     constructor(
         private capturePage: CapturePage,
-        private blockProxy: BlockProxy,
+        private blockProxy: BlockSource,
         private log: Logger = createLogger(),
         private enablePlayerCsp: boolean = config.enablePlayerCsp
     ) {

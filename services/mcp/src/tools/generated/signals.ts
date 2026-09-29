@@ -354,6 +354,7 @@ const inboxReportsList = (): ToolBase<
                 count_only: params.count_only,
                 has_implementation_pr: params.has_implementation_pr,
                 include_all_statuses: params.include_all_statuses,
+                include_source_metadata: params.include_source_metadata,
                 limit: params.limit,
                 offset: params.offset,
                 ordering: params.ordering,
@@ -1106,6 +1107,9 @@ const scoutEmitReport = (): ToolBase<ReturnType<typeof ScoutEmitReportSchema>, S
         if (params.suggested_prompts !== undefined) {
             body['suggested_prompts'] = params.suggested_prompts
         }
+        if (params.links !== undefined) {
+            body['links'] = params.links
+        }
         if (params.idempotency_key !== undefined) {
             body['idempotency_key'] = params.idempotency_key
         }
@@ -1307,6 +1311,7 @@ const scoutNotesList = (): ToolBase<
                 include_general: params.include_general,
                 limit: params.limit,
                 skill_name: params.skill_name,
+                text: params.text,
             },
         })
         return withInformationalResponse(
@@ -1453,11 +1458,8 @@ const scoutReportCheckCreate = (): ToolBase<
 })
 
 const ScoutReportCheckListSchema = () => {
-    const SignalsScoutReportChecksListParams = orvalSchemas.SignalsScoutReportChecksListParams()
-    const SignalsScoutReportChecksListQueryParams = orvalSchemas.SignalsScoutReportChecksListQueryParams()
-    return SignalsScoutReportChecksListParams.omit({ project_id: true }).extend(
-        SignalsScoutReportChecksListQueryParams.shape
-    )
+    const SignalsScoutReportCheckListQueryParams = orvalSchemas.SignalsScoutReportCheckListQueryParams()
+    return SignalsScoutReportCheckListQueryParams
 }
 
 const scoutReportCheckList = (): ToolBase<
@@ -1470,7 +1472,7 @@ const scoutReportCheckList = (): ToolBase<
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.ScoutCheckSummary[]>({
             method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/runs/${encodeURIComponent(String(params.run_id))}/report-checks/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/runs/report-checks/`,
             query: {
                 report_id: params.report_id,
             },
@@ -1480,11 +1482,8 @@ const scoutReportCheckList = (): ToolBase<
 })
 
 const ScoutReportChecksListSchema = () => {
-    const SignalsScoutReportChecksListParams = orvalSchemas.SignalsScoutReportChecksListParams()
-    const SignalsScoutReportChecksListQueryParams = orvalSchemas.SignalsScoutReportChecksListQueryParams()
-    return SignalsScoutReportChecksListParams.omit({ project_id: true }).extend(
-        SignalsScoutReportChecksListQueryParams.shape
-    )
+    const SignalsScoutReportCheckListQueryParams = orvalSchemas.SignalsScoutReportCheckListQueryParams()
+    return SignalsScoutReportCheckListQueryParams
 }
 
 const scoutReportChecksList = (): ToolBase<
@@ -1497,7 +1496,7 @@ const scoutReportChecksList = (): ToolBase<
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.ScoutCheckSummary[]>({
             method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/runs/${encodeURIComponent(String(params.run_id))}/report-checks/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/runs/report-checks/`,
             query: {
                 report_id: params.report_id,
             },
@@ -2053,6 +2052,9 @@ const signalsScoutEmitReport = (): ToolBase<
         }
         if (params.suggested_prompts !== undefined) {
             body['suggested_prompts'] = params.suggested_prompts
+        }
+        if (params.links !== undefined) {
+            body['links'] = params.links
         }
         if (params.idempotency_key !== undefined) {
             body['idempotency_key'] = params.idempotency_key

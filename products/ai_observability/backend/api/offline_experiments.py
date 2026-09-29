@@ -1,30 +1,31 @@
 from dataclasses import asdict
-from typing import TYPE_CHECKING, TypedDict, cast
+from typing import TYPE_CHECKING, cast
 from uuid import UUID
 
 from drf_spectacular.utils import OpenApiParameter
 from prometheus_client import Counter
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import ErrorDetail, NotFound, ValidationError
+from rest_framework.exceptions import NotFound
 from rest_framework.request import Request
 from rest_framework.response import Response
-from rest_framework.settings import api_settings
+from rest_framework.throttling import BaseThrottle
 
 from posthog.api.mixins import TypedRequest, validated_request
 from posthog.api.monitoring import monitor
-from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.auth import ProjectSecretAPIKeyAuthentication
-from posthog.permissions import AccessControlPermission, PostHogFeatureFlagPermission, is_service_auth
+from posthog.permissions import is_service_auth
 
 from products.ai_observability.backend.api.metrics import llma_track_latency
+from products.ai_observability.backend.api.offline_evaluation_base import OfflineEvaluationViewSet
 from products.ai_observability.backend.api.offline_experiment_access import (
     OfflineEvaluationIngestionBurstThrottle,
     OfflineEvaluationIngestionSustainedThrottle,
     OfflineEvaluationIngestionTeamBurstThrottle,
     OfflineEvaluationIngestionTeamSustainedThrottle,
 )
+from products.ai_observability.backend.api.offline_experiment_errors import OfflineEvaluationErrorSerializer
 from products.ai_observability.backend.api.offline_experiment_parser import OfflineEvaluationJSONParser
+from products.ai_observability.backend.api.offline_experiment_reads import OfflineExperimentReadViewSet
 from products.ai_observability.backend.api.offline_experiment_serializers import (
     ExperimentSubmissionSerializer,
     UploadSubmissionSerializer,
@@ -35,7 +36,6 @@ from products.ai_observability.backend.offline_evaluation_service import (
     OfflineEvaluationConflict,
     OfflineEvaluationIngestionService,
     OfflineEvaluationNotFound,
-    OfflineEvaluationValidationError,
     OfflineExperimentService,
 )
 from products.ai_observability.backend.offline_evaluation_types import ExperimentSubmission, UploadSubmission
@@ -82,66 +82,11 @@ class UploadReceiptSerializer(serializers.Serializer):
     results = ResultReceiptSerializer(many=True, help_text="Acknowledgments in the submitted result order.")
 
 
-class OfflineEvaluationValidationErrorSerializer(serializers.Serializer):
-    code = serializers.CharField(help_text="Stable validation error code.")
-    detail = serializers.CharField(help_text="Explanation of the invalid value.")
-    attr = serializers.CharField(
-        allow_null=True, help_text="Invalid field path, with dot-separated fields and zero-based batch indexes."
-    )
-
-
-class OfflineEvaluationErrorSerializer(serializers.Serializer):
-    type = serializers.CharField(required=False, help_text="Error category for standard API errors.")
-    code = serializers.CharField(help_text="Stable error code.")
-    detail = serializers.CharField(help_text="Explanation of the rejected request.")
-    attr = serializers.CharField(
-        required=False, allow_null=True, help_text="Invalid field, including batch entry index."
-    )
-    expected_item_count = serializers.IntegerField(required=False, allow_null=True, help_text="Declared item count.")
-    expected_result_count = serializers.IntegerField(
-        required=False, allow_null=True, help_text="Declared result count."
-    )
-    accepted_item_count = serializers.IntegerField(required=False, help_text="Accepted items at failed completion.")
-    accepted_result_count = serializers.IntegerField(required=False, help_text="Accepted results at failed completion.")
-
-    def get_fields(self) -> dict[str, serializers.Field]:
-        fields = super().get_fields()
-        fields["errors"] = OfflineEvaluationValidationErrorSerializer(
-            many=True, required=False, help_text="All validation errors found in the request."
-        )
-        return fields
-
-
 class EmptyOfflineExperimentSerializer(serializers.Serializer):
     def validate(self, attrs: dict[str, object]) -> dict[str, object]:
         if self.initial_data:
             raise serializers.ValidationError("This operation does not accept fields.")
         return attrs
-
-
-class ValidationErrorEntry(TypedDict):
-    code: str
-    detail: str
-    attr: str | None
-
-
-def _validation_errors(detail: object, path: tuple[str, ...] = ()) -> list[ValidationErrorEntry]:
-    if isinstance(detail, dict):
-        errors: list[ValidationErrorEntry] = []
-        for field, value in cast(dict[str | int, object], detail).items():
-            field_path = path if field in (api_settings.NON_FIELD_ERRORS_KEY, "__all__") else (*path, str(field))
-            errors.extend(_validation_errors(value, field_path))
-        return errors
-    if isinstance(detail, list):
-        errors = []
-        for index, value in enumerate(cast(list[object], detail)):
-            item_path = (*path, str(index)) if isinstance(value, dict | list) else path
-            errors.extend(_validation_errors(value, item_path))
-        return errors
-    code = (detail.code or "invalid") if isinstance(detail, ErrorDetail) else "invalid"
-    return [
-        {"code": "invalid_input" if code == "invalid" else code, "detail": str(detail), "attr": ".".join(path) or None}
-    ]
 
 
 def _experiment_response(receipt: ExperimentReceipt, *, status: int = 200) -> Response:
@@ -168,29 +113,36 @@ ERROR_RESPONSES = dict.fromkeys((400, 401, 403, 404, 409, 413, 429), OfflineEval
 EXPERIMENT_ID_PARAMETER = OpenApiParameter("id", UUID, OpenApiParameter.PATH, description="Experiment UUID.")
 
 
-class OfflineExperimentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
-    scope_object = "evaluation"
-    required_scopes = ["offline_evaluation_ingestion:write"]
+class OfflineExperimentViewSet(OfflineExperimentReadViewSet):
     scope_object_write_actions = ["create", "upload", "complete", "fail"]
-    requires_resource_level_access = True
-    authentication_classes = [ProjectSecretAPIKeyAuthentication]
     psak_allowed_actions = ["create", "upload", "complete", "fail"]
-    permission_classes = [AccessControlPermission, PostHogFeatureFlagPermission]
-    posthog_feature_flag = "ai-observability-offline-evaluations"
     parser_classes = [OfflineEvaluationJSONParser]
-    throttle_classes = [
+    ingestion_throttle_classes = [
         OfflineEvaluationIngestionBurstThrottle,
         OfflineEvaluationIngestionSustainedThrottle,
         OfflineEvaluationIngestionTeamBurstThrottle,
         OfflineEvaluationIngestionTeamSustainedThrottle,
     ]
     serializer_class = ExperimentSubmissionSerializer
-    http_method_names = ["post", "head", "options"]
+    http_method_names = ["get", "post", "head", "options"]
+
+    def dangerously_get_required_scopes(self, request: Request, view: viewsets.ViewSetMixin) -> list[str] | None:
+        if self.action in self.scope_object_write_actions:
+            return ["offline_evaluation_ingestion:write"]
+        return super().dangerously_get_required_scopes(request, view)
+
+    def get_throttles(self) -> list[BaseThrottle]:
+        if self.action in self.scope_object_write_actions:
+            return [throttle() for throttle in self.ingestion_throttle_classes]
+        return super().get_throttles()
 
     def _reference_access_control(self) -> "UserAccessControl | None":
         return None if is_service_auth(self.request) else self.user_access_control
 
     def handle_exception(self, exc: Exception) -> Response:
+        action_name = getattr(self, "action", None)
+        if action_name in self.scope_object_read_actions or action_name == "metadata":
+            return super().handle_exception(exc)
         if isinstance(exc, OfflineEvaluationConflict):
             OFFLINE_UPLOAD_ERRORS.labels(outcome="conflict").inc()
             return Response(
@@ -204,15 +156,9 @@ class OfflineExperimentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 ).data,
                 status=409,
             )
-        if isinstance(exc, OfflineEvaluationValidationError):
-            exc = ValidationError(exc.errors)
-        elif isinstance(exc, OfflineEvaluationNotFound):
+        if isinstance(exc, OfflineEvaluationNotFound):
             exc = NotFound("Experiment not found.")
-        response = super().handle_exception(exc)
-        if isinstance(exc, ValidationError):
-            errors = _validation_errors(exc.detail)
-            if errors:
-                response.data.update(errors[0], errors=errors)
+        response = OfflineEvaluationViewSet.handle_exception(self, exc)
         OFFLINE_UPLOAD_ERRORS.labels(outcome="rejected" if response.status_code < 500 else "server_error").inc()
         return response
 
