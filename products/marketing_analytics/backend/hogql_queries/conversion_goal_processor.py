@@ -603,6 +603,9 @@ class ConversionGoalProcessor:
         Other `$virt_` properties map to columns on the events table and precompute fine.
         """
         keys = {getattr(self.goal, "math_property", None)}
+        currency = getattr(self.goal, "math_property_revenue_currency", None)
+        if currency is not None:
+            keys.add(currency.property)
         keys.update(getattr(prop, "key", None) for prop in self.goal.properties or [])
         return not keys.isdisjoint(REVENUE_ANALYTICS_VIRTUAL_PROPERTIES)
 

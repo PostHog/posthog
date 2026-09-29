@@ -179,6 +179,14 @@ class TestConversionGoalProcessorRefactor(BaseTest):
         [
             ("revenue_math_property", {"math_property": "$virt_revenue"}, False),
             (
+                "revenue_currency_property",
+                {
+                    "math_property": "amount",
+                    "math_property_revenue_currency": RevenueCurrencyPropertyConfig(property="$virt_mrr"),
+                },
+                False,
+            ),
+            (
                 "revenue_property_filter",
                 {"properties": [EventPropertyFilter(key="$virt_mrr", operator=PropertyOperator.GT, value=0)]},
                 False,
