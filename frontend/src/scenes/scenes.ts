@@ -140,7 +140,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         activityScope: ActivityScope.HOG_FUNCTION,
     },
     [Scene.DeadLetterQueue]: { instanceLevel: true },
-    [Scene.ExperimentsStaffTools]: { instanceLevel: true, name: 'Experiments staff tools' },
     [Scene.Destinations]: {
         projectBased: true,
         name: 'Destinations',
@@ -804,7 +803,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.cohorts()]: [Scene.Cohorts, 'cohorts'],
     [urls.experiments()]: [Scene.Experiments, 'experiments'],
     // Must come before the parameterized /experiments/:id route
-    [urls.experimentsStaffTools()]: [Scene.ExperimentsStaffTools, 'experimentsStaffTools'],
+    [urls.experimentsStaffTools()]: ['ExperimentsStaffTools' as Scene, 'experimentsStaffTools'],
     [urls.experimentsSharedMetrics()]: [Scene.ExperimentsSharedMetrics, 'experimentsSharedMetrics'],
     [urls.experimentsSharedMetric(':id')]: [Scene.ExperimentsSharedMetric, 'experimentsSharedMetric'],
     [urls.experimentsSharedMetric(':id', ':action')]: [Scene.ExperimentsSharedMetric, 'experimentsSharedMetric'],

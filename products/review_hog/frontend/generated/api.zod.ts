@@ -98,6 +98,12 @@ export const ReviewHogSettingsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             "After a review of the user's pull requests is published, run the resolution stage: triage the PR's unresolved review threads, implement the worth-and-safe fixes on the PR branch, and reply on every thread. On by default; turning it off makes reviews stop at publishing."
         ),
+    celebrate_clean_reviews: zod
+        .boolean()
+        .optional()
+        .describe(
+            "Show a fun image in the review comment when a review of this user's pull requests finds nothing to raise. On by default; turning it off makes clean reviews end with the text summary only."
+        ),
     review_authored_prs: zod
         .boolean()
         .optional()
