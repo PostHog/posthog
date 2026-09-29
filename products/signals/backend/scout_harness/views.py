@@ -95,6 +95,7 @@ from products.signals.backend.scout_harness.run_gates import (
 from products.signals.backend.scout_harness.scout_costs import SCOUT_COST_WINDOW_DAYS, scout_costs
 from products.signals.backend.scout_harness.scout_naming import SLUG_ALLOCATION_ATTEMPTS, allocate_scout_slug
 from products.signals.backend.scout_harness.serializers import (
+    IGNORED_EDIT_FIELDS_KEY,
     REPOSITORIES_REACHABILITY_CHECKED_CONTEXT_KEY,
     CancelReportCheckRequestSerializer,
     CreateReportCheckRequestSerializer,
@@ -205,6 +206,7 @@ from products.signals.backend.scout_harness.tools.report import (
     ReportMetricComparisonInput,
     ReportMetricInput,
     ReviewerInput,
+    capture_edit_fields_ignored,
     edit_report_sync,
     emit_report_sync,
 )
@@ -1307,6 +1309,20 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def edit_report(self, request: Request, **kwargs) -> Response:
         run = self._resolve_in_progress_run(kwargs, required_tool="edit_report")
         data = request.validated_data
+        if ignored_fields := data[IGNORED_EDIT_FIELDS_KEY]:
+            # The response names these fields, but a caller that never reads them leaves a running
+            # deploy skew looking like a clean edit. Record it here, before the edit runs, so one the
+            # judge or the service rejects and one that restates what the report already holds both
+            # still count — neither writes an edited event. The names only, never the values a scout
+            # sent with them.
+            logger.warning(
+                "signals_scout: edit_report ignored fields this backend does not declare",
+                team_id=run.team_id,
+                run_id=str(run.id),
+                skill_name=run.skill_name,
+                ignored_fields=ignored_fields,
+            )
+            capture_edit_fields_ignored(team=run.team, run=run, ignored_fields=ignored_fields)
         try:
             result = edit_report_sync(
                 # Canonical team, as in `emit_report` above — avoids a child-env `_assert_team_owns_run` trip.
@@ -1325,9 +1341,14 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 links=_to_report_links(data.get("links")),
                 supersedes_implementation=bool(data.get("supersedes_implementation")),
                 corroboration_only=bool(data.get("corroboration_only")),
+                ignored_fields=ignored_fields,
             )
         except InvalidScoutReportError as exc:
-            raise exceptions.ValidationError({"detail": str(exc)})
+            # An edit can carry a declared field and still have nothing to apply, and the ignored
+            # names are the likeliest reason. Without them the caller reads a generic refusal and
+            # cannot tell a skew from its own mistake.
+            detail = f"{exc} (ignored unknown fields: {', '.join(ignored_fields)})" if ignored_fields else str(exc)
+            raise exceptions.ValidationError({"detail": detail})
         return Response(
             EditReportResponseSerializer(
                 {
@@ -1346,6 +1367,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     "content_revision_count": result.content_revision_count,
                     "supersedes_implementation": result.supersedes_implementation,
                     "corroboration_collapsed": result.corroboration_collapsed,
+                    "ignored_fields": ignored_fields,
                 }
             ).data,
             status=status.HTTP_200_OK,
