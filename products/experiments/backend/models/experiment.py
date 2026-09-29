@@ -302,7 +302,9 @@ class Experiment(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMixi
             )
             if isinstance(variant_notes, dict)
             else 0,
-            "variants_with_screenshots_count": sum(1 for media_ids in variant_screenshots.values() if media_ids)
+            "variants_with_screenshots_count": sum(
+                1 for media_ids in variant_screenshots.values() if isinstance(media_ids, list) and media_ids
+            )
             if isinstance(variant_screenshots, dict)
             else 0,
             "created_at": self.created_at,

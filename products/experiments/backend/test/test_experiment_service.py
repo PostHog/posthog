@@ -2287,12 +2287,12 @@ class TestExperimentService(APIBaseTest):
         experiment.parameters = {
             **(experiment.parameters or {}),
             "variant_notes": {"control": "Current 3-step checkout", "test": "   "},
-            "variant_screenshot_media_ids": {"control": [], "test": ["media-1", "media-2"]},
+            "variant_screenshot_media_ids": {"control": [], "test": ["media-1", "media-2"], "test-2": "media-3"},
         }
 
         metadata = experiment.get_analytics_metadata()
 
-        # Blank notes and empty screenshot lists don't count
+        # Blank notes, empty screenshot lists, and screenshot values that aren't lists don't count
         assert metadata["variants_with_notes_count"] == 1
         assert metadata["variants_with_screenshots_count"] == 1
 
