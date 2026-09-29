@@ -10,6 +10,7 @@ import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { urls } from 'scenes/urls'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
+import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
 import { Query } from '~/queries/Query/Query'
 import {
     AnyResponseType,
@@ -32,8 +33,11 @@ export function WebVitals(props: {
     context: QueryContext
     attachTo?: LogicWrapper | BuiltLogic
 }): JSX.Element | null {
-    const { onData, loadPriority, dataNodeCollectionId } = props.context.insightProps ?? {}
-    const [key] = useState(() => `WebVitals.${uniqueNode++}`)
+    const { insightProps } = props.context
+    const { onData, loadPriority, dataNodeCollectionId } = insightProps ?? {}
+    const [key] = useState(() =>
+        insightProps?.dashboardItemId ? insightVizDataNodeKey(insightProps) : `WebVitals.${uniqueNode++}`
+    )
 
     const logic = dataNodeLogic({
         query: props.query,
