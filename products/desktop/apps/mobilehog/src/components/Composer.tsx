@@ -145,7 +145,7 @@ export function Composer({
   );
 }
 
-const CONTROL = 40;
+const CONTROL = 36;
 
 const styles = StyleSheet.create({
   shell: {
@@ -182,7 +182,7 @@ const styles = StyleSheet.create({
   },
   // Only the repository gives way when the row runs out of room.
   pillWide: { flexShrink: 1, maxWidth: 130 },
-  pillText: { fontFamily: fonts.sansMedium, fontSize: 15, color: colors.ink },
+  pillText: { fontFamily: fonts.sansMedium, fontSize: 14, color: colors.ink },
   pillMuted: { color: colors.inkMute },
   send: {
     width: CONTROL,
