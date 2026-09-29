@@ -395,6 +395,7 @@ class MetricQueryRunner:
         interval: str | None = None,
         quantile: float | None = None,
         metric_type: str | None = None,
+        query_settings: HogQLGlobalSettings | None = None,
     ) -> None:
         if aggregation not in _ALLOWED_AGGREGATIONS:
             raise ValueError(f"Unsupported aggregation: {aggregation!r}")
@@ -428,6 +429,13 @@ class MetricQueryRunner:
         self.group_by = tuple(group_by)
         self.quantile = quantile
         self.metric_type = metric_type
+        # An alert check passes its own execution cap so ClickHouse ends an overrunning query
+        # before the caller's activity times out.
+        self._query_settings = (
+            _QUERY_SETTINGS.model_copy(update=query_settings.model_dump(exclude_unset=True))
+            if query_settings is not None
+            else _QUERY_SETTINGS
+        )
 
     def run(self) -> list[dict[str, Any]]:
         """Bucketed rows: `{"time", "value", "labels", "series_fingerprints"}`.
@@ -447,7 +455,7 @@ class MetricQueryRunner:
             query=query,
             team=self.team,
             workload=Workload.LOGS,  # metrics share the logs ClickHouse workload pool for now
-            settings=_QUERY_SETTINGS,
+            settings=self._query_settings,
         )
         self._raise_on_truncation(response.results)
 
@@ -473,7 +481,7 @@ class MetricQueryRunner:
             query=query,
             team=self.team,
             workload=Workload.LOGS,
-            settings=_QUERY_SETTINGS,
+            settings=self._query_settings,
         )
         self._raise_on_truncation(response.results)
 

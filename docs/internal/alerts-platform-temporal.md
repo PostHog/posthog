@@ -255,6 +255,33 @@ resolves the same windows and derives the same evaluation keys as the attempt it
 The due predicate is applied a second time here, because discovery ran earlier in the tick and a configuration
 can have been disabled or broken since.
 
+## Metrics source evaluation
+
+`metrics-alert-evaluate` evaluates one batch key of `source_kind="metrics"` configurations, the second source
+bound in `products/alerts/backend/temporal/sources.py`. The evaluation is a plain function in
+`products/metrics/backend/alert_source_cycle.py`, wired by `products/metrics/backend/temporal/alert_evaluate.py`
+with the same activity split, timeouts and delivery-preview children as the logs source.
+
+The `source_config` is a `MetricsAlertSource`: the clauses of a `MetricQueryRequest` plus an optional formula and
+the clause whose series is evaluated. The window rules differ from logs below the query:
+
+- `window_minutes` must be one of the metrics runner's intervals (1, 5, 15, 60, 360 or 1440). The interval is
+  explicit, never auto-picked, so a retry reads the same buckets and derives the same `evaluation_key`. Any other
+  window is a BROKEN configuration.
+- The window end is the due time clamped to the ingestion checkpoint read from `posthog.metrics_kafka_metrics`
+  (`products/metrics/backend/alert_checkpoint.py`), with the same five-minute staleness cap the logs source uses.
+- The query reads `evaluation_periods` contiguous windows, so prior breach flags come from the same query and no
+  history row is needed.
+- Each configuration is one query per clause through `run_metric_query`, with `max_execution_time` set to the
+  seconds left under `BATCH_QUERY_BUDGET_SECONDS` and `timeout_overflow_mode=throw`. There is no cross-alert cohort:
+  metrics queries are per clause, so the module does not pretend to batch.
+- A missing current value is inconclusive: the alert keeps its state and its failure count and announces nothing.
+- A result with more than one series (a `group_by`) is a failed check that counts toward BROKEN until grouped
+  alerts land.
+
+Nothing creates a metrics platform configuration yet except `upsert_configuration`, so a production tick finds
+no metrics demand until one is written by hand.
+
 ### Every check produces an outcome
 
 A check the source cannot evaluate still records what it decided, and the two cases decide differently.

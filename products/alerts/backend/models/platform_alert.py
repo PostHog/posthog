@@ -14,6 +14,13 @@ from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import UUIDTModel
 
 
+# nosemgrep: tuple-return-prefer-dataclass -- Django's `choices` contract is (value, label) pairs.
+def platform_alert_source_kind_choices() -> list[tuple[str, str]]:
+    # Callable so the next source kind adds no migration: the registry grows as products adopt the platform.
+    return [(kind.value, str(kind.label)) for kind in PlatformAlertConfiguration.SourceKind]
+
+
+# nosemgrep: prefer-uuid7-django-pk -- the table already keys on UUIDT; changing the PK default is its own migration.
 class PlatformAlertConfiguration(TeamScopedRootMixin, UUIDTModel):
     """What to evaluate, how often, and against what bound.
 
@@ -23,6 +30,7 @@ class PlatformAlertConfiguration(TeamScopedRootMixin, UUIDTModel):
 
     class SourceKind(models.TextChoices):
         LOGS = "logs", "Logs"
+        METRICS = "metrics", "Metrics"
 
     # No database constraint: creating one takes a lock on `posthog_team` that queues behind
     # live writes. Django still cascades in Python, which is the only path that deletes a team.
@@ -36,7 +44,7 @@ class PlatformAlertConfiguration(TeamScopedRootMixin, UUIDTModel):
     name = models.CharField(max_length=255)
     enabled = models.BooleanField(default=True, db_default=True)
 
-    source_kind = models.CharField(max_length=32, choices=SourceKind.choices)
+    source_kind = models.CharField(max_length=32, choices=platform_alert_source_kind_choices)
     source_config = models.JSONField(default=dict)
 
     threshold_count = models.PositiveIntegerField()

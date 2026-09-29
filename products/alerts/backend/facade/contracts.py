@@ -19,6 +19,7 @@ from posthog.dataclasses import frozen
 class SourceKind(StrEnum):
     LOGS = "logs"
     INSIGHT = "insight"
+    METRICS = "metrics"
 
 
 @frozen

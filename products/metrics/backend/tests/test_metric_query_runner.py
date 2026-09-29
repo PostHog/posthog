@@ -1,4 +1,5 @@
 import datetime as dt
+from types import SimpleNamespace
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -12,6 +13,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.hogql import ast
+from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
@@ -24,6 +26,7 @@ from products.metrics.backend.facade.enums import AttributeScope, FilterOp, Metr
 from products.metrics.backend.formula import evaluate, parse_formula
 from products.metrics.backend.metric_query_runner import (
     _INTERVAL_LADDER,
+    _QUERY_SETTINGS,
     MetricQueryRunner,
     _active_since_expr,
     _align_to_interval,
@@ -1837,3 +1840,25 @@ class TestNonFiniteAggregates(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         values = [p["value"] for p in response.json()["results"][0]["points"]]
         assert values == [None]
+
+
+class TestQuerySettingsPassthrough(APIBaseTest):
+    def test_query_settings_reach_execute_hogql_query(self):
+        anchor = timezone.now().replace(microsecond=0)
+        custom = HogQLGlobalSettings(max_execution_time=7, timeout_overflow_mode="throw")
+        with patch(
+            "products.metrics.backend.metric_query_runner.execute_hogql_query",
+            return_value=SimpleNamespace(results=[]),
+        ) as execute:
+            MetricQueryRunner(
+                team=self.team,
+                metric_name="m1",
+                aggregation="sum",
+                date_from=anchor - dt.timedelta(hours=1),
+                date_to=anchor,
+                query_settings=custom,
+            ).run()
+        merged = execute.call_args.kwargs["settings"]
+        assert merged.max_execution_time == 7
+        assert merged.timeout_overflow_mode == "throw"
+        assert merged.max_bytes_to_read == _QUERY_SETTINGS.max_bytes_to_read
