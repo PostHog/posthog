@@ -33,6 +33,7 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
     ComputeTableStatisticsInputs,
     ComputeTableStatisticsWorkflow,
     _aggregate_add_action_stats,
+    _parse_log_value,
     compute_table_statistics_activity,
     compute_table_statistics_sync,
 )
@@ -130,6 +131,19 @@ class TestAggregateAddActionStats:
         _, stats = _aggregate_add_action_stats(add_actions, {"v": "X"})
         assert stats["v"].min_value == expected_min
         assert stats["v"].max_value == expected_max
+
+
+class TestParseLogValue:
+    def test_decimal_using_its_full_precision_is_not_mistaken_for_unparseable(self) -> None:
+        # Regression: quantize() used the default decimal context (28 significant digits), which is
+        # narrower than Delta allows (up to 38). A high-precision decimal(38,32) value legitimately
+        # using all 38 digits blew that context and raised _UnparseableValue even though the value
+        # fits its column's type fine.
+        value = Decimal("123456.12345678901234567890123456789012")
+        assert _parse_log_value("decimal(38,32)", value) == value
+
+    def test_decimal_rounds_to_the_columns_scale(self) -> None:
+        assert _parse_log_value("decimal(10,2)", Decimal("1.505")) == Decimal("1.50")
 
 
 @pytest.mark.django_db
