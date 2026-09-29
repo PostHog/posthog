@@ -13,6 +13,8 @@ import {
     EVALUATION_NUMERIC_GRADED_HOGQL,
     EVALUATION_NUMERIC_MEAN_HOGQL,
     numericEvaluationPassedHogQL,
+    categoricalEvaluationPassedHogQL,
+    EVALUATION_CATEGORICAL_GRADED_HOGQL,
     EVALUATION_RESULT_TRUE_HOGQL,
     EVALUATION_RUNS_QUERY_LIMIT,
 } from './evaluations/constants'
@@ -1133,6 +1135,9 @@ type RawEvaluationRunRow = [
     score?: number | string | null,
     score_min?: number | string | null,
     score_max?: number | string | null,
+    categories?: string[] | string | null,
+    start_time?: string | null,
+    backfill_id?: string | null,
     probability?: number | string | null,
 ]
 
@@ -1144,7 +1149,7 @@ export function normalizeEvaluationType(value: unknown): EvaluationType | undefi
 }
 
 export function normalizeEvaluationOutputType(value: unknown): EvaluationOutputType | undefined {
-    if (value === 'boolean' || value === 'sentiment' || value === 'numeric') {
+    if (value === 'boolean' || value === 'sentiment' || value === 'numeric' || value === 'categorical') {
         return value
     }
     return undefined
@@ -1180,6 +1185,7 @@ export interface NormalizedEvaluationResultProperties {
     rawResultType?: unknown
     rawSentimentLabel?: unknown
     rawSentimentScore?: unknown
+    rawCategories?: unknown
     rawScore?: unknown
     rawScoreMin?: unknown
     rawScoreMax?: unknown
@@ -1193,6 +1199,7 @@ export function normalizeEvaluationResultProperties({
     rawSentimentLabel,
     rawSentimentScore,
     rawScore,
+    rawCategories,
     rawScoreMin,
     rawScoreMax,
 }: NormalizedEvaluationResultProperties): Pick<
@@ -1203,6 +1210,7 @@ export function normalizeEvaluationResultProperties({
     | 'sentiment_label'
     | 'sentiment_score'
     | 'applicable'
+    | 'categories'
     | 'score'
     | 'score_min'
     | 'score_max'
@@ -1214,9 +1222,22 @@ export function normalizeEvaluationResultProperties({
         normalizeEvaluationOutputType(rawResultType) ??
         (evaluationType === 'sentiment' || sentimentLabel ? 'sentiment' : 'boolean')
 
+    if (resultType === 'categorical') {
+        if (rawCategories == null && isExplicitEvaluationPass(rawApplicable)) {
+            rawCategories = []
+        } else if (typeof rawCategories === 'string') {
+            try {
+                rawCategories = JSON.parse(rawCategories)
+            } catch {
+                rawCategories = null
+            }
+        }
+    }
+
     const result =
         resultType === 'sentiment' ||
         resultType === 'numeric' ||
+        resultType === 'categorical' ||
         isExplicitEvaluationNotApplicable(rawApplicable) ||
         rawResult === null ||
         rawResult === undefined
@@ -1229,6 +1250,16 @@ export function normalizeEvaluationResultProperties({
         result,
         sentiment_label: sentimentLabel,
         sentiment_score: normalizeOptionalNumber(rawSentimentScore),
+        ...(resultType === 'categorical'
+            ? {
+                  categories:
+                      !isExplicitEvaluationNotApplicable(rawApplicable) &&
+                      Array.isArray(rawCategories) &&
+                      rawCategories.every((value) => typeof value === 'string')
+                          ? rawCategories
+                          : null,
+              }
+            : {}),
         ...(resultType === 'numeric'
             ? {
                   score:
@@ -1255,6 +1286,7 @@ export function mapEvaluationRunRow(row: RawEvaluationRunRow): EvaluationRun {
         rawScore: row[15],
         rawScoreMin: row[16],
         rawScoreMax: row[17],
+        rawCategories: row[18],
     })
 
     return {
@@ -1268,7 +1300,9 @@ export function mapEvaluationRunRow(row: RawEvaluationRunRow): EvaluationRun {
         ...normalizedResult,
         skipped: isExplicitEvaluationPass(row[14]),
         reasoning: row[7] ?? '',
-        probability: normalizeOptionalNumber(row[18]),
+        probability: normalizeOptionalNumber(row[21]),
+        start_time: row[19] || null,
+        backfill_id: row[20] || null,
         status: 'completed' as const,
     }
 }
@@ -1317,6 +1351,9 @@ export async function queryEvaluationRuns(params: {
             properties.$ai_evaluation_numeric_result as score,
             properties.$ai_evaluation_numeric_result_min as score_min,
             properties.$ai_evaluation_numeric_result_max as score_max,
+            properties.$ai_evaluation_categorical_result as categories,
+            properties.$ai_evaluation_start_time as start_time,
+            properties.$ai_evaluation_backfill_id as backfill_id,
             properties.$ai_evaluation_probability as probability
         FROM events
         WHERE
@@ -1348,6 +1385,8 @@ export interface EvaluationRunsStats {
     scoreCount?: number
     scoreMean?: number | null
     numericPassCount?: number
+    categoricalCount?: number
+    categoricalPassCount?: number
 }
 
 // Counts every matching run server-side. queryEvaluationRuns caps its fetch at
@@ -1379,7 +1418,9 @@ export async function queryEvaluationRunsStats(params: {
             countIf(${hogql.raw(EVALUATION_RESULT_TRUE_HOGQL)} AND ${hogql.raw(EVALUATION_BOOLEAN_GRADED_HOGQL)}) as true_count,
             countIf(${hogql.raw(EVALUATION_NUMERIC_GRADED_HOGQL)}) as score_count,
             ${hogql.raw(EVALUATION_NUMERIC_MEAN_HOGQL)} as score_mean,
-            countIf(${hogql.raw(evaluation?.output_type === 'numeric' ? numericEvaluationPassedHogQL(evaluation) : 'false')} AND ${hogql.raw(EVALUATION_NUMERIC_GRADED_HOGQL)}) as numeric_pass_count
+            countIf(${hogql.raw(evaluation?.output_type === 'numeric' ? numericEvaluationPassedHogQL(evaluation) : 'false')} AND ${hogql.raw(EVALUATION_NUMERIC_GRADED_HOGQL)}) as numeric_pass_count,
+            countIf(${hogql.raw(EVALUATION_CATEGORICAL_GRADED_HOGQL)}) as categorical_count,
+            countIf(${hogql.raw(evaluation?.output_type === 'categorical' ? categoricalEvaluationPassedHogQL(evaluation) : 'false')} AND ${hogql.raw(EVALUATION_CATEGORICAL_GRADED_HOGQL)}) as categorical_pass_count
         FROM events
         WHERE
             event = '$ai_evaluation'
@@ -1410,5 +1451,7 @@ export async function queryEvaluationRunsStats(params: {
         scoreCount: Number(row[3]) || 0,
         scoreMean: Number(row[3]) > 0 ? normalizeOptionalNumber(row[4]) : null,
         numericPassCount: Number(row[5]) || 0,
+        categoricalCount: Number(row[6]) || 0,
+        categoricalPassCount: Number(row[7]) || 0,
     }
 }

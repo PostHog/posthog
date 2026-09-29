@@ -26,6 +26,7 @@ export const LLM_PROVIDER_LABELS: Record<LLMProvider, string> = {
     minimax: 'MiniMax',
     zeabur: 'Zeabur AI Hub',
     system_one: 'System One',
+    openai_compatible: 'OpenAI-compatible',
 }
 
 const LLM_PROVIDERS = new Set<string>(Object.keys(LLM_PROVIDER_LABELS))
@@ -89,6 +90,9 @@ export function normalizeLLMProvider(provider: string | undefined): LLMProvider 
     if (normalized === 'zeabur ai hub' || normalized === 'zeabur-ai-hub') {
         return 'zeabur'
     }
+    if (normalized === 'openai-compatible' || normalized === 'openai compatible') {
+        return 'openai_compatible'
+    }
 
     return normalized in LLM_PROVIDER_LABELS ? (normalized as LLMProvider) : null
 }
@@ -104,6 +108,7 @@ export interface LLMProviderKey extends Partial<
     api_key_masked: string
     azure_endpoint_display: string | null
     api_version_display: string | null
+    base_url_display: string | null
     created_at: string
     created_by: {
         id: number
@@ -164,6 +169,7 @@ export interface CreateLLMProviderKeyPayload extends Pick<LLMProviderKeyApi, 'ba
     set_as_active?: boolean
     azure_endpoint?: string
     api_version?: string
+    base_url?: string
 }
 
 export interface UpdateLLMProviderKeyPayload extends Pick<LLMProviderKeyApi, 'base_url' | 'system_one_model'> {
@@ -171,6 +177,7 @@ export interface UpdateLLMProviderKeyPayload extends Pick<LLMProviderKeyApi, 'ba
     api_key?: string
     azure_endpoint?: string
     api_version?: string
+    base_url?: string
 }
 
 export interface KeyValidationResult {
@@ -327,16 +334,19 @@ export interface llmProviderKeysLogicActions {
         provider,
         azure_endpoint,
         api_version,
+        base_url,
     }: {
         api_version?: string
         apiKey: string
         azure_endpoint?: string
+        base_url?: string
         provider: LLMProvider
     }) => {
         apiKey: string
         provider: LLMProvider
         azure_endpoint?: string
         api_version?: string
+        base_url?: string
     }
     preValidateKeyFailure: (
         error: string,
@@ -352,6 +362,7 @@ export interface llmProviderKeysLogicActions {
             provider: LLMProvider
             azure_endpoint?: string
             api_version?: string
+            base_url?: string
         }
     ) => {
         preValidationResult: KeyValidationResult
@@ -360,6 +371,7 @@ export interface llmProviderKeysLogicActions {
             provider: LLMProvider
             azure_endpoint?: string
             api_version?: string
+            base_url?: string
         }
     }
     setEditingKey: (key: LLMProviderKey | null) => {
@@ -535,11 +547,13 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
                     provider,
                     azure_endpoint,
                     api_version,
+                    base_url,
                 }: {
                     apiKey: string
                     provider: LLMProvider
                     azure_endpoint?: string
                     api_version?: string
+                    base_url?: string
                 }): Promise<KeyValidationResult> => {
                     const teamId = teamLogic.values.currentTeamId
                     if (!teamId) {
@@ -552,6 +566,9 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
                         }
                         if (api_version) {
                             body.api_version = api_version
+                        }
+                        if (base_url) {
+                            body.base_url = base_url
                         }
                         // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. llmAnalyticsProviderKeyValidationsCreate() from 'products/ai_observability/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                         const response = await api.create(

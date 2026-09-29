@@ -3,7 +3,7 @@ import { NodeKind } from '~/queries/schema/schema-general'
 import { ChartDisplayType, CompareLabelType } from '~/types'
 import type { TrendResult } from '~/types'
 
-import { deriveChartPreview } from './chartPreviewData'
+import { PREVIEW_SERIES_LIMIT, deriveChartPreview } from './chartPreviewData'
 import type { ChartPreviewData } from './chartPreviewData'
 
 function series(overrides: Partial<TrendResult> & { math?: string }): TrendResult {
@@ -102,6 +102,60 @@ describe('deriveChartPreview', () => {
             ['Chrome', 10],
             ['Safari', 10],
         ])
+    })
+
+    it.each([
+        ['caps', ChartDisplayType.ActionsLineGraph, PREVIEW_SERIES_LIMIT],
+        ['caps', ChartDisplayType.ActionsTable, PREVIEW_SERIES_LIMIT],
+        ['keeps every slice of', ChartDisplayType.ActionsPie, PREVIEW_SERIES_LIMIT + 5],
+    ])('%s the series of a large breakdown for %s', (_, display, expected) => {
+        const source = query(ChartDisplayType.ActionsLineGraph, {
+            breakdownFilter: { breakdown: '$browser', breakdown_type: 'event' },
+        })
+        const rows = Array.from({ length: PREVIEW_SERIES_LIMIT + 5 }, (_, index) =>
+            series({ breakdown_value: `browser ${index}` })
+        )
+
+        const shown = results(deriveChartPreview(display, source, response(rows)))
+        expect(shown.map((row) => row.breakdown_value)).toEqual(
+            rows.slice(0, expected).map((row) => row.breakdown_value)
+        )
+    })
+
+    it('keeps the previous-period row of every series a comparison preview shows', () => {
+        const source = query(ChartDisplayType.ActionsLineGraph, {
+            breakdownFilter: { breakdown: '$browser', breakdown_type: 'event' },
+            compareFilter: { compare: true },
+        })
+        const browsers = Array.from({ length: PREVIEW_SERIES_LIMIT + 5 }, (_, index) => `browser ${index}`)
+        const rows = [
+            ...browsers.map((browser) => series({ breakdown_value: browser, compare_label: CompareLabelType.Current })),
+            ...browsers.map((browser) =>
+                series({ breakdown_value: browser, compare_label: CompareLabelType.Previous })
+            ),
+        ]
+
+        const shown = results(deriveChartPreview(ChartDisplayType.ActionsLineGraph, source, response(rows)))
+        expect(shown.filter((row) => row.compare_label === CompareLabelType.Previous)).toHaveLength(
+            PREVIEW_SERIES_LIMIT
+        )
+        expect(new Set(shown.map((row) => row.breakdown_value))).toEqual(
+            new Set(browsers.slice(0, PREVIEW_SERIES_LIMIT))
+        )
+    })
+
+    it('caps formulas that share breakdown values as separate series', () => {
+        const source = query(ChartDisplayType.ActionsLineGraph, {
+            breakdownFilter: { breakdown: '$browser', breakdown_type: 'event' },
+        })
+        const browsers = Array.from({ length: PREVIEW_SERIES_LIMIT - 2 }, (_, index) => `browser ${index}`)
+        const rows = [0, 1].flatMap((order) =>
+            browsers.map((browser) => series({ action: null, order, breakdown_value: browser } as Partial<TrendResult>))
+        )
+
+        expect(results(deriveChartPreview(ChartDisplayType.ActionsLineGraph, source, response(rows)))).toHaveLength(
+            PREVIEW_SERIES_LIMIT
+        )
     })
 
     it.each([ChartDisplayType.WorldMap, ChartDisplayType.CalendarHeatmap, ChartDisplayType.BoxPlot])(

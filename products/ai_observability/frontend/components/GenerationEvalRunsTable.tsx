@@ -2,7 +2,6 @@ import { BuiltLogic, useValues } from 'kea'
 
 import { LemonTable, Link } from '@posthog/lemon-ui'
 
-import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { urls } from 'scenes/urls'
 
@@ -12,6 +11,7 @@ import type { generationEvaluationRunsLogicType } from '../generationEvaluationR
 import { EvaluationExplanation } from './EvaluationExplanation'
 import { EvaluationResultTag, compareEvaluationResults } from './EvaluationResultTag'
 import { EvaluationRunTargetCell } from './EvaluationRunTargetCell'
+import { EvaluationRunTimestampCell } from './EvaluationRunTimestampCell'
 
 export function GenerationEvalRunsTable({
     generationRunsLogic,
@@ -25,7 +25,7 @@ export function GenerationEvalRunsTable({
         {
             title: 'Timestamp',
             key: 'timestamp',
-            render: (_, run) => <TZLabel time={run.timestamp} />,
+            render: (_, run) => <EvaluationRunTimestampCell run={run} />,
             sorter: (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
         },
         {
@@ -48,6 +48,9 @@ export function GenerationEvalRunsTable({
             render: (_, run) => (
                 <EvaluationResultTag
                     run={run}
+                    categoryOptions={
+                        evaluations?.find((evaluation) => evaluation.id === run.evaluation_id)?.output_config.options
+                    }
                     passingRule={
                         evaluations?.find((evaluation) => evaluation.id === run.evaluation_id)?.output_config
                             .passing_rule

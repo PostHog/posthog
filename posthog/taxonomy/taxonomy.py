@@ -131,7 +131,7 @@ SESSION_PROPERTIES_ALSO_INCLUDED_IN_EVENTS = {
     *SESSION_INITIAL_PROPERTIES_ADAPTED_FROM_EVENTS,
 }
 
-# IF UPDATING THIS, ALSO RUN `pnpm run taxonomy:build` to update core-filter-definitions-by-group.json
+# IF UPDATING THIS, ALSO RUN `hogli build:projections` to update core-filter-definitions-by-group.json
 CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
     "events": {
         # in front end this key is the empty string
@@ -2551,6 +2551,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The probability of a true verdict for a boolean evaluation.",
             "examples": [0.9],
             "type": "Numeric",
+        },
+        "$ai_evaluation_categorical_result": {
+            "label": "AI evaluation categorical result",
+            "description": "The category keys returned by an online evaluation. An empty list is an applicable result with no matching categories.",
+            "examples": ['["resolved"]', '["fast", "reliable"]', "[]"],
         },
         "$ai_evaluation_numeric_result": {
             "label": "AI evaluation numeric result",

@@ -23,6 +23,7 @@ class LLMProvider(models.TextChoices):
     MINIMAX = "minimax", "MiniMax"
     ZEABUR = "zeabur", "Zeabur AI Hub"
     SYSTEM_ONE = "system_one", "System One"
+    OPENAI_COMPATIBLE = "openai_compatible", "OpenAI-compatible"
 
 
 def llm_provider_choices() -> list[tuple[str, str | Promise]]:
@@ -76,6 +77,8 @@ class LLMProviderKey(UUIDTModel):
                 "azure_endpoint": self.encrypted_config.get("azure_endpoint", ""),
                 "api_version": self.encrypted_config.get("api_version", ""),
             }
+        if self.provider == LLMProvider.OPENAI_COMPATIBLE:
+            return {"base_url": self.encrypted_config.get("base_url", "")}
         return {}
 
 

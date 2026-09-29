@@ -47,6 +47,12 @@ from products.ai_observability.backend.llm.errors import (
     QuotaExceededError,
     RateLimitError,
     StructuredOutputParseError,
+    UnsupportedModelError,
+)
+from products.ai_observability.backend.models.evaluation_configs import (
+    CategoricalOutputConfig,
+    NumericOutputConfig,
+    NumericScoreOutOfBounds,
 )
 from products.ai_observability.backend.llm.system_one import (
     SystemOneClient,
@@ -56,7 +62,6 @@ from products.ai_observability.backend.llm.system_one import (
     system_one_evaluations_enabled,
 )
 from products.ai_observability.backend.llm.types import CompletionResponse
-from products.ai_observability.backend.models.evaluation_configs import NumericOutputConfig, NumericScoreOutOfBounds
 from products.ai_observability.backend.text_repr.formatters import add_line_numbers, reduce_by_uniform_sampling
 
 logger = structlog.get_logger(__name__)
@@ -148,6 +153,16 @@ class NumericWithNAEvalResult(BaseModel):
         return self.score is not None
 
 
+class CategoricalEvalResult(BaseModel):
+    reasoning: str
+    categories: list[str]
+
+
+class CategoricalWithNAEvalResult(BaseModel):
+    reasoning: str
+    categories: list[str] | None
+
+
 @frozen
 class OutputTypeConfig:
     """Configuration for each evaluation output type"""
@@ -157,6 +172,8 @@ class OutputTypeConfig:
         | type[BooleanWithNAEvalResult]
         | type[NumericEvalResult]
         | type[NumericWithNAEvalResult]
+        | type[CategoricalEvalResult]
+        | type[CategoricalWithNAEvalResult]
     )
     instructions: str
 
@@ -168,6 +185,21 @@ def get_output_type_config(
     output_config: dict[str, Any] | None = None,
 ) -> OutputTypeConfig:
     """Get the output type configuration based on whether N/A is allowed."""
+    if output_type == "categorical":
+        config = CategoricalOutputConfig.model_validate(output_config or {})
+        options = json.dumps([option.model_dump() for option in config.options])
+        count = (
+            "exactly one category key" if config.selection_mode == "single" else "zero or more distinct category keys"
+        )
+        instructions = f"Provide a brief reasoning (1 sentence) and categories containing {count} from these options: {options}. Return keys, not display labels."
+        if allows_na:
+            instructions += " Return categories=null when the criteria does not apply."
+        if config.selection_mode == "multiple":
+            instructions += " An empty list means no categories apply."
+        return OutputTypeConfig(
+            response_format=CategoricalWithNAEvalResult if allows_na else CategoricalEvalResult,
+            instructions=instructions,
+        )
     if output_type == "numeric":
         numeric_config = NumericOutputConfig.model_validate(output_config or {})
         instructions = "Provide a brief reasoning (1 sentence) and a finite numeric score."
@@ -281,7 +313,7 @@ def _build_context_window_skip_result(
 
 
 def _build_output_limit_skip_result(
-    allows_na: bool, *, is_byok: bool, key_id: str | None, provider: str, model: str
+    allows_na: bool, *, is_byok: bool, key_id: str | None, provider: str, model: str, output_type: str = "boolean"
 ) -> EvaluationActivityResult:
     """Per-item skip for a judge reply that hit the model's output limit.
 
@@ -289,23 +321,13 @@ def _build_output_limit_skip_result(
     and the call was billed. The provider reports no usage counts on this path, because the
     failure reaches us as an exception.
     """
-    result: EvaluationActivityResult = {
-        "result_type": "boolean",
-        "verdict": None if allows_na else False,
-        "reasoning": "Evaluation model hit its output limit before it finished; evaluation skipped.",
-        "input_tokens": 0,
-        "output_tokens": 0,
-        "total_tokens": 0,
-        "is_byok": is_byok,
-        "key_id": key_id,
-        "allows_na": allows_na,
-        "model": model,
-        "provider": provider,
-        "skipped": True,
-        "skip_reason": "output_limit_exceeded",
-    }
-    if allows_na:
-        result["applicable"] = False
+    result = build_skipped_evaluation_result(
+        output_type=output_type,
+        allows_na=allows_na,
+        reasoning="Evaluation model hit its output limit before it finished; evaluation skipped.",
+        skip_reason="output_limit_exceeded",
+    )
+    result.update({"is_byok": is_byok, "key_id": key_id, "model": model, "provider": provider})
     return result
 
 
@@ -372,9 +394,9 @@ def _execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> EvaluationActi
         raise ApplicationError("Missing prompt in evaluation_config", non_retryable=True)
 
     output_type = evaluation["output_type"]
-    if output_type not in ("boolean", "numeric"):
+    if output_type not in ("boolean", "numeric", "categorical"):
         raise ApplicationError(
-            f"Unsupported output type: {output_type}. Supported types: 'boolean', 'numeric'.",
+            f"Unsupported output type: {output_type}. Supported types: 'boolean', 'numeric', 'categorical'.",
             non_retryable=True,
         )
 
@@ -642,6 +664,18 @@ def call_llm_judge(
             {"error_type": "model_not_found", "provider": provider, "model": model},
             non_retryable=True,
         )
+    except UnsupportedModelError:
+        increment_user_errors("model_not_supported", provider=provider)
+        return terminal_user_error_result(
+            spec=require_user_error_spec("model_not_supported", is_byok=is_byok),
+            message=f"Model '{model}' does not support chat completions. Choose a chat model.",
+            allows_na=allows_na,
+            output_type=output_type,
+            provider=provider,
+            model=model,
+            key_id=key_id,
+            is_byok=is_byok,
+        )
     except StructuredOutputParseError as e:
         # Skip rather than raise: non-conforming model output is not a PostHog defect, and raising
         # files a new error tracking issue on each deploy, because the fingerprint follows the stack.
@@ -680,7 +714,7 @@ def call_llm_judge(
             error=str(e),
         )
         return _build_output_limit_skip_result(
-            allows_na, is_byok=is_byok, key_id=key_id, provider=provider, model=model
+            allows_na, is_byok=is_byok, key_id=key_id, provider=provider, model=model, output_type=output_type
         )
 
     except ProviderConnectionError as e:
@@ -728,7 +762,13 @@ def call_llm_judge(
         )
 
     assert isinstance(
-        parsed_result, BooleanEvalResult | BooleanWithNAEvalResult | NumericEvalResult | NumericWithNAEvalResult
+        parsed_result,
+        BooleanEvalResult
+        | BooleanWithNAEvalResult
+        | NumericEvalResult
+        | NumericWithNAEvalResult
+        | CategoricalEvalResult
+        | CategoricalWithNAEvalResult,
     )
 
     usage = response.usage
@@ -754,6 +794,28 @@ def call_llm_judge(
         "model": model,
         "provider": provider,
     }
+
+    if isinstance(parsed_result, CategoricalEvalResult | CategoricalWithNAEvalResult):
+        result_dict["result_type"] = "categorical"
+        if parsed_result.categories is not None:
+            try:
+                result_dict["categories"] = CategoricalOutputConfig.model_validate(output_config).validate_result(
+                    parsed_result.categories
+                )
+            except ValueError as error:
+                increment_errors("parse_error", provider=provider)
+                result_dict.update(
+                    build_skipped_evaluation_result(
+                        output_type="categorical",
+                        allows_na=allows_na,
+                        reasoning=f"The judge returned invalid categories: {error}. This run was skipped.",
+                        skip_reason="parse_error",
+                    )
+                )
+                return result_dict
+        if allows_na:
+            result_dict["applicable"] = parsed_result.categories is not None
+        return result_dict
 
     if isinstance(parsed_result, NumericEvalResult | NumericWithNAEvalResult):
         result_dict["result_type"] = "numeric"

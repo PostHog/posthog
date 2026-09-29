@@ -185,7 +185,7 @@ Each rule is tagged with what catches a violation.
 ### API schemas and generated types
 
 - **API views declare request/response schemas.** `[review]` Prefer `@validated_request` from `posthog.api.mixins`, or `@extend_schema` from drf-spectacular. A plain `ViewSet` method that validates manually needs `@extend_schema(request=YourSerializer)`; without it drf-spectacular cannot discover the request body and generated code gets an empty schema. Serializer fields need `help_text`. These flow into both frontend types and MCP tool schemas.
-- **Django serializers are the source of truth for frontend API types.** `[lint: build:openapi CI gate, prefer-codegen-api]` `hogli build:openapi` generates TypeScript via drf-spectacular and Orval into `frontend/src/generated/core/` and `products/{product}/frontend/generated/`. Never hand-edit `api.schemas.ts`, `api.ts` or `api.zod.ts` — change the serializer and regenerate. [Type system guide](docs/published/handbook/engineering/type-system.md) has the full pipeline.
+- **Django serializers are the source of truth for frontend API types.** `[lint: build:openapi CI gate, prefer-codegen-api, test_generated_files_are_registered.py]` `hogli build:openapi` generates TypeScript via drf-spectacular and Orval into `frontend/src/generated/core/` and `products/{product}/frontend/generated/`. Never hand-edit `api.schemas.ts`, `api.ts` or `api.zod.ts` — change the serializer and regenerate. A value list the frontend needs comes from a typed serializer field, not from a side script; other checked-in projections are entries in `tools/hogli-commands/hogli_commands/projections.py`. [Type system guide](docs/published/handbook/engineering/type-system.md) has the full pipeline.
 - MCP tools and MCP UI apps are generated from the same OpenAPI spec. `[review]` See [implementing MCP tools](docs/published/handbook/engineering/ai/implementing-mcp-tools.md) covers the YAML config and codegen. MCP UI apps live in `products/*/mcp/tools.yaml` under `ui_apps` — see [services/mcp/CONTRIBUTING.md](services/mcp/CONTRIBUTING.md) or `/implementing-mcp-ui-apps`.
 
 ### Async, storage and outbound calls
@@ -254,6 +254,15 @@ For any text a person reads (UI labels, tooltips, empty/error states, notificati
 - Plain language, no jargon. Use the labels users see, not internal names (`surveyPopupDelaySeconds` becomes "Delay the survey popup").
 - Be direct and friendly: short sentences, consistent tone across surfaces.
 - Errors and empty states guide, don't dead-end: say what happened and the next action.
+
+## Feature usage tracking
+
+- **Every feature is tracked end to end.** A user's path through a feature, from entry to outcome, emits events that show whether people start it, finish it, and where they drop off.
+- **Features adjacent to your work get tracking too.** A feature is adjacent when it shares a scene or a user flow with your change. When an adjacent feature has no tracking, add it in the same change.
+- **Check usage of tracked adjacent features.** Run a subagent that queries each tracked adjacent feature's usage over the last 6 months.
+  - Fewer than 100 interactions a week counts as low usage. Zero events in 6 months is the extreme case of low usage.
+  - Before you act on low usage, confirm the tracking fires: trigger the feature locally and check that the events arrive. Missing events can mean broken tracking, not an unused feature.
+  - Post each low-usage feature and its usage numbers in the platform UX Slack channel (Channel ID: `C08499A7REU`). The decision to keep or remove the feature is made there. Do not remove a feature before that decision.
 
 ## Agent automation
 

@@ -2,6 +2,7 @@ import os
 import json
 import uuid
 import threading
+from contextlib import nullcontext
 from pathlib import Path
 
 import pytest
@@ -40,17 +41,22 @@ from products.stamphog.backend.tasks.tasks import process_inbox_pr_review
 from products.stamphog.backend.temporal import activities
 from products.stamphog.backend.temporal.activities import (
     MarkReviewFailedInput,
+    ReviewSandboxInput,
     StamphogReviewInput,
+    destroy_review_sandbox,
     dismiss_stale_approvals,
     fetch_review_context,
     list_in_flight_reviewer_bots,
     mark_review_failed,
     post_verdict,
     run_review_in_sandbox,
+    start_review_sandbox,
 )
 from products.stamphog.backend.temporal.constants import (
+    NETWORK_RESTRICTED_AGENT_ENV,
     SANDBOX_RETRY_POLICY,
     STAMPHOG_SANDBOX_CONTEXT_PATH,
+    STAMPHOG_SANDBOX_GATEWAY_TOKEN_PATH,
     STAMPHOG_SANDBOX_REPO_DIR,
     SandboxPhaseError,
 )
@@ -222,13 +228,32 @@ def test_signed_webhook_drives_review_and_posts_approval(team, stamphog_chain: S
     ]
     recorder.author_history["src"] = [commit("c-author", author)]
 
-    status = stamphog_chain.post_webhook(_opened_event(101, author, head_sha), delivery_id=str(uuid.uuid4()))
+    capture_fn = MagicMock()
+    with patch.object(activities, "ph_background_capture", return_value=capture_fn):
+        status = stamphog_chain.post_webhook(_opened_event(101, author, head_sha), delivery_id=str(uuid.uuid4()))
     assert status == 202
 
     pr = PullRequest.objects.for_team(team.id).get(repo_config=repo_config, pr_number=101)
     run = ReviewRun.objects.for_team(team.id).filter(pull_request=pr).latest("created_at")
     assert run.status == ReviewRunStatus.COMPLETED
     assert run.verdict == ReviewVerdict.APPROVED
+
+    (timings_call,) = [c for c in capture_fn.call_args_list if c.kwargs["event"] == "stamphog_review_timings"]
+    timings = timings_call.kwargs["properties"]
+    assert timings["stamphog_review_run_id"] == str(run.id)
+    assert timings["stamphog_final_verdict"] == "approved"
+    assert timings["stamphog_pregate_outcome"] == "skipped:file_list_incomplete"
+    assert timings["stamphog_familiarity_status"] == "ok"
+    assert timings["stamphog_bot_wait_polls"] == 1
+    assert {
+        "stamphog_timing_total_ms",
+        "stamphog_timing_context_total_ms",
+        "stamphog_timing_context_history_ms",
+        "stamphog_timing_clone_ms",
+        "stamphog_timing_ship_engine_ms",
+        "stamphog_timing_reviewer_ms",
+        "stamphog_timing_post_verdict_ms",
+    } <= set(timings)
 
     # The sandbox gets familiarity from GitHub facts, and only the blame ranges of changed lines ride
     # along. It therefore needs no history, and the prefetch walks none.
@@ -266,40 +291,94 @@ def _api_file(filename: str) -> dict:
     return {"filename": filename, "status": "modified", "additions": 8, "deletions": 1, "patch": "@@ -1 +1 @@"}
 
 
+def _big_api_file(filename: str, additions: int) -> dict:
+    return {**_api_file(filename), "additions": additions, "deletions": 0}
+
+
+_LIFTING_FOLDER_FILE = "---\nstamphog:\n  size_gate:\n    max_lines: 1000\n---\nTall PRs are normal here.\n"
+
+
 @pytest.mark.parametrize(
-    "files, summary, engine_breaks, expect_fast_path, expect_in_body",
+    "files, summary, engine_breaks, folder_read_fails, expect_pregate_outcome, expect_in_body",
     [
         pytest.param(
-            [_api_file("terraform/main.tf")], FAST_REFUSAL_SUMMARY, False, True, FAST_REFUSAL_SUMMARY, id="deny"
+            [_api_file("terraform/main.tf")],
+            FAST_REFUSAL_SUMMARY,
+            False,
+            False,
+            "final:REFUSED",
+            FAST_REFUSAL_SUMMARY,
+            id="deny",
         ),
         pytest.param(
             [_api_file("terraform/main.tf")],
             None,
             False,
-            True,
+            False,
+            "final:REFUSED",
             "deny-list: matches: infra_cicd",
             id="deny-summary-failed",
         ),
         # A broken pre-check must cost only the shortcut, never the review.
-        pytest.param([_api_file("terraform/main.tf")], None, True, False, None, id="engine-breaks"),
-        # No Migration risk check has reported, so the full review can end WAIT rather than REFUSED.
+        pytest.param([_api_file("terraform/main.tf")], None, True, False, "error", None, id="engine-breaks"),
+        # No Migration risk check has reported, and nothing else could change the answer in the sandbox.
         pytest.param(
-            [_api_file("posthog/migrations/0999_add_col.py")], None, False, False, None, id="pending-migration"
+            [_api_file("posthog/migrations/0999_add_col.py")],
+            None,
+            False,
+            False,
+            "final:WAIT",
+            "Migration risk",
+            id="pending-migration",
         ),
-        pytest.param(_pr_files(), None, False, False, None, id="clean"),
+        pytest.param(
+            [_big_api_file("lib/big.py", 900)], None, False, False, "final:REFUSED", "too large", id="size-folders-read"
+        ),
+        pytest.param(
+            [_big_api_file("lib/big.py", 900)],
+            None,
+            False,
+            True,
+            "not_final:size_folder_override",
+            None,
+            id="size-folders-unknown",
+        ),
+        # sym/AGENT_APPROVALS.md is a symlink out of the repo, which the sandbox would follow, so the
+        # folder files are unknown and the size band stays with the sandbox.
+        pytest.param(
+            [_big_api_file("sym/big.py", 900)],
+            None,
+            False,
+            False,
+            "not_final:size_folder_override",
+            None,
+            id="size-with-a-symlinked-folder-file",
+        ),
+        # The PR head's src/AGENT_APPROVALS.md lifts the ceiling, so the sandbox review must decide.
+        pytest.param(
+            [_big_api_file("src/deep/big.py", 900)],
+            None,
+            False,
+            False,
+            "not_final:no_failing_gate",
+            None,
+            id="size-lifted-by-a-folder-file",
+        ),
+        pytest.param(_pr_files(), None, False, False, "not_final:no_failing_gate", None, id="clean"),
     ],
 )
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
-def test_a_final_gate_deny_is_refused_without_a_sandbox(
+def test_a_final_gate_verdict_is_posted_without_a_sandbox_review(
     team,
     stamphog_chain: StamphogChain,
     files: list[dict],
     summary: str | None,
     engine_breaks: bool,
-    expect_fast_path: bool,
+    folder_read_fails: bool,
+    expect_pregate_outcome: str,
     expect_in_body: str | None,
 ) -> None:
-    # The engine's own pre-check runs in a real child process here: a deny the full review would
+    # The engine's own pre-check runs in a real child process here: a verdict the full review would
     # also reach skips the bot wait and the sandbox, and anything else still gets the full review.
     repo_config = _repo_config(team.id)
     author, head_sha = "devex-dev", "sha-pregate"
@@ -308,24 +387,33 @@ def test_a_final_gate_deny_is_refused_without_a_sandbox(
         REPO, 101, pr_object, files, commit_messages=("feat: infra\n\nGenerated-By: PostHog Code\nTask-Id: t-1",)
     )
 
+    stamphog_chain.recorder.repo_files[(REPO, "src/AGENT_APPROVALS.md")] = _LIFTING_FOLDER_FILE
+    stamphog_chain.recorder.repo_symlinks[(REPO, "sym/AGENT_APPROVALS.md")] = "../../shared/policy.md"
+
     engine_failure = EnginePregateError("the engine pre-check exited with code 1") if engine_breaks else None
     with (
         patch("products.stamphog.backend.temporal.activities.summarize_refusal", return_value=summary),
         patch.object(activities, "run_engine_pregate", side_effect=engine_failure, wraps=activities.run_engine_pregate),
+        patch.object(activities, "fetch_folder_policy_files", return_value=None)
+        if folder_read_fails
+        else nullcontext(),
     ):
         assert stamphog_chain.post_webhook(_opened_event(101, author, head_sha), delivery_id=str(uuid.uuid4())) == 202
 
     pull_request = PullRequest.objects.for_team(team.id).get(repo_config=repo_config, pr_number=101)
     run = ReviewRun.objects.for_team(team.id).filter(pull_request=pull_request).latest("created_at")
-    if not expect_fast_path:
-        assert stamphog_chain.sandbox_class.created_configs != []
+    assert run.output["pregate_outcome"] == expect_pregate_outcome
+    if expect_in_body is None:
+        assert any("review_local.py" in command for command in stamphog_chain.sandbox_class.executed_commands)
         assert "fast_path" not in run.output
         return
 
-    assert stamphog_chain.sandbox_class.created_configs == []
+    _assert_no_review_ran(stamphog_chain)
     assert run.status == ReviewRunStatus.GATED
     assert run.output["fast_path"] is True
+    # The pre-check and the sandbox start each time their own steps, and neither write drops the other.
     assert "pregate" in run.output["timings_ms"]
+    assert {"sandbox_create", "fetch_head"} <= set(run.output["sandbox_start_timings_ms"])
     # The fast path has no checkout, so the commit trailers come from the server's messages alone.
     assert json.loads(run.output["reviewer_raw"])["provenance"]["task_ids"] == ["t-1"]
     refusals = [w for w in stamphog_chain.recorder.github_writes if w["kind"] == "comment_review"]
@@ -427,8 +515,10 @@ def test_a_second_attempt_never_provisions_a_second_sandbox(team, stamphog_chain
     assert len(stamphog_chain.sandbox_class.created_configs) == 1
 
     # Clearing the scripted failure is what makes this prove the stamp: a second attempt would
-    # otherwise provision successfully and run the reviewer again.
+    # otherwise provision successfully and run the reviewer again. A real retry comes before the
+    # workflow marks the run failed, so the run is still reviewing when it starts.
     stamphog_chain.sandbox_class.create_error = None
+    ReviewRun.objects.for_team(team.id).filter(id=run.id).update(status=ReviewRunStatus.REVIEWING)
     with pytest.raises(SandboxPhaseError):
         _run_activity(run_review_in_sandbox, StamphogReviewInput(review_run_id=str(run.id), team_id=team.id))
     assert len(stamphog_chain.sandbox_class.created_configs) == 1
@@ -720,6 +810,13 @@ def _mint_response(
     return response
 
 
+def _assert_no_review_ran(stamphog_chain: StamphogChain) -> None:
+    # The sandbox starts beside the context fetch, so it can exist. The reviewer must not have run,
+    # and the workflow must have torn the unused sandbox down.
+    assert not any("review_local.py" in command for command in stamphog_chain.sandbox_class.executed_commands)
+    assert stamphog_chain.sandbox_class.destroy_returned
+
+
 def _register_review(stamphog_chain: StamphogChain, number: int, head_sha: str) -> dict:
     recorder = stamphog_chain.recorder
     recorder.register_pr(REPO, number, _pr_object(number, "devex-dev", head_sha), _pr_files())
@@ -749,7 +846,10 @@ def test_sandbox_gets_a_scoped_gateway_token_when_the_go_gateway_is_configured(
     config = stamphog_chain.sandbox_class.created_configs[0]
     env = config.environment_variables
     assert env["AI_GATEWAY_URL"] == "https://ai-gateway.test/v1"
-    assert env["AI_GATEWAY_API_KEY"] == "phe_run"
+    # The phe_ is minted after the sandbox exists. It arrives as a file the reviewer command reads,
+    # so it is in no creation env and no command line.
+    assert (STAMPHOG_SANDBOX_GATEWAY_TOKEN_PATH, b"phe_run") in stamphog_chain.sandbox_writes
+    assert not any("phe_run" in command for command in stamphog_chain.sandbox_class.executed_commands)
     # Nothing long-lived crosses into the sandbox: not the worker's phs_, not an Anthropic key, and
     # no key outside the documented set (a widened passthrough goes red here).
     assert "phs_stamphog_mint" not in env.values()
@@ -757,11 +857,12 @@ def test_sandbox_gets_a_scoped_gateway_token_when_the_go_gateway_is_configured(
     assert set(env) <= {
         "STAMPHOG_REPO_DIR",
         "AI_GATEWAY_URL",
-        "AI_GATEWAY_API_KEY",
         "POSTHOG_API_KEY",
         "POSTHOG_HOST",
         "STAMPHOG_EXTRA_PROPERTIES",
+        *NETWORK_RESTRICTED_AGENT_ENV,
     }
+    assert all(env[name] == "1" for name in NETWORK_RESTRICTED_AGENT_ENV)
     assert not OAuthAccessToken.objects.filter(user_id=user.id).exists()
 
     mint_call, revoke_call = mint.call_args_list
@@ -805,7 +906,7 @@ def test_hosted_review_fails_closed_when_the_scoped_token_mint_fails(team, stamp
     assert "gateway" in (run.error or "").lower()
     assert "HTTP 503" in (run.error or "")
     assert mint.call_count == activities._MINT_ATTEMPTS
-    assert not stamphog_chain.sandbox_class.created_configs
+    _assert_no_review_ran(stamphog_chain)
     assert not (run.error or "").startswith("SandboxPhaseError")
 
 
@@ -834,7 +935,7 @@ def test_scoped_token_mint_waits_out_a_rate_limit_and_obeys_retry_after(team, st
 
     run = ReviewRun.objects.for_team(team.id).latest("created_at")
     assert run.status == ReviewRunStatus.COMPLETED
-    assert stamphog_chain.sandbox_class.created_configs[0].environment_variables["AI_GATEWAY_API_KEY"] == "phe_run"
+    assert (STAMPHOG_SANDBOX_GATEWAY_TOKEN_PATH, b"phe_run") in stamphog_chain.sandbox_writes
     # The header wins the first wait; the second grows on its own, jittered but bounded.
     assert sleeps[0] == 7.0
     assert 2.0 <= sleeps[1] <= 2.5
@@ -857,7 +958,7 @@ def test_scoped_token_mint_does_not_retry_a_credential_rejection(team, stamphog_
     assert "HTTP 403" in (run.error or "")
     assert "only a standard credential" in (run.error or "")
     assert mint.call_count == 1
-    assert not stamphog_chain.sandbox_class.created_configs
+    _assert_no_review_ran(stamphog_chain)
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
@@ -1792,9 +1893,9 @@ def test_superseded_refusal_does_not_hand_off_to_reviewhog(team, stamphog_chain:
     # the run is REVIEWING at load.
     original_post_review = activities._post_non_approval_review
 
-    def _supersede_then_post(client, repo, posting_run, pr, team_id, body) -> None:
+    def _supersede_then_post(client, repo, posting_run, pr, body) -> None:
         ReviewRun.objects.for_team(team.id).filter(id=run.id).update(status=ReviewRunStatus.SUPERSEDED)
-        original_post_review(client, repo, posting_run, pr, team_id, body)
+        original_post_review(client, repo, posting_run, pr, body)
 
     with patch.object(activities, "_post_non_approval_review", side_effect=_supersede_then_post):
         result = _run_activity(post_verdict, StamphogReviewInput(review_run_id=str(run.id), team_id=team.id))
@@ -2405,21 +2506,20 @@ def test_mint_pins_allowed_models_when_configured(team, stamphog_chain: Stamphog
     # A configured model list rides the mint request so a leaked token can call nothing else.
     _repo_config(team.id)
     event = _register_review(stamphog_chain, 118, "sha118a")
-    minted = {"token": "phe_run", "allowed_models": ["anthropic/claude-sonnet-5", "anthropic/claude-haiku-4-5"]}
+    minted = {"token": "phe_run", "allowed_models": ["anthropic/claude-sonnet-5-5", "anthropic/claude-haiku-4-5"]}
     mint = MagicMock(return_value=_mint_response(201, minted))
 
     with (
         override_settings(
-            **_GO_GATEWAY_SETTINGS, STAMPHOG_REVIEWER_TOKEN_ALLOWED_MODELS=["claude-sonnet-5", "claude-haiku-4-5", ""]
+            **_GO_GATEWAY_SETTINGS, STAMPHOG_REVIEWER_TOKEN_ALLOWED_MODELS=["claude-sonnet-5-5", "claude-haiku-4-5", ""]
         ),
         patch.object(activities.requests, "post", mint),
     ):
         stamphog_chain.post_webhook(event, delivery_id=str(uuid.uuid4()))
 
     # Empty entries (a trailing comma in the env value) never reach the gateway, which would 400.
-    assert mint.call_args_list[0].kwargs["json"]["allowed_models"] == ["claude-sonnet-5", "claude-haiku-4-5"]
-    env = stamphog_chain.sandbox_class.created_configs[0].environment_variables
-    assert env["AI_GATEWAY_API_KEY"] == "phe_run"
+    assert mint.call_args_list[0].kwargs["json"]["allowed_models"] == ["claude-sonnet-5-5", "claude-haiku-4-5"]
+    assert (STAMPHOG_SANDBOX_GATEWAY_TOKEN_PATH, b"phe_run") in stamphog_chain.sandbox_writes
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
@@ -2437,8 +2537,7 @@ def test_mint_omits_allowed_models_by_default(team, stamphog_chain: StamphogChai
 
     assert "allowed_models" not in mint.call_args_list[0].kwargs["json"]
     # No pin was asked for, so a missing echo is not a dropped pin and the review runs.
-    env = stamphog_chain.sandbox_class.created_configs[0].environment_variables
-    assert env["AI_GATEWAY_API_KEY"] == "phe_run"
+    assert (STAMPHOG_SANDBOX_GATEWAY_TOKEN_PATH, b"phe_run") in stamphog_chain.sandbox_writes
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
@@ -2453,7 +2552,7 @@ def test_mint_fails_closed_when_the_gateway_ignores_the_model_pin(team, stamphog
     error_before = activities.AI_GATEWAY_TOKEN_MINTS.labels(result="error")._value.get()
 
     with (
-        override_settings(**_GO_GATEWAY_SETTINGS, STAMPHOG_REVIEWER_TOKEN_ALLOWED_MODELS=["claude-sonnet-5"]),
+        override_settings(**_GO_GATEWAY_SETTINGS, STAMPHOG_REVIEWER_TOKEN_ALLOWED_MODELS=["claude-sonnet-5-5"]),
         patch.object(activities.requests, "post", mint),
     ):
         stamphog_chain.post_webhook(event, delivery_id=str(uuid.uuid4()))
@@ -2461,7 +2560,7 @@ def test_mint_fails_closed_when_the_gateway_ignores_the_model_pin(team, stamphog
     run = ReviewRun.objects.for_team(team.id).latest("created_at")
     assert run.status == ReviewRunStatus.FAILED
     assert "model pin" in (run.error or "")
-    assert stamphog_chain.sandbox_class.created_configs == []
+    _assert_no_review_ran(stamphog_chain)
     _, revoke_call = mint.call_args_list
     assert revoke_call.args == ("https://ai-gateway.test/v1/tokens/revoke",)
     assert revoke_call.kwargs["json"] == {"token": "phe_run"}
@@ -2493,8 +2592,7 @@ def test_mint_retries_a_network_error_and_records_the_outcome(team, stamphog_cha
     ):
         stamphog_chain.post_webhook(event, delivery_id=str(uuid.uuid4()))
 
-    env = stamphog_chain.sandbox_class.created_configs[0].environment_variables
-    assert env["AI_GATEWAY_API_KEY"] == "phe_run"
+    assert (STAMPHOG_SANDBOX_GATEWAY_TOKEN_PATH, b"phe_run") in stamphog_chain.sandbox_writes
     assert [call.args[0] for call in mint.call_args_list] == [
         "https://ai-gateway.test/v1/tokens",
         "https://ai-gateway.test/v1/tokens",
@@ -2514,12 +2612,12 @@ def test_product_tag_matches_the_engine_blob() -> None:
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_scoped_token_is_revoked_when_the_sandbox_phase_fails(team, stamphog_chain: StamphogChain) -> None:
-    # The revoke exists for the runs that end badly: a sandbox that cannot be provisioned still had
-    # a live token minted for it, and the token dies with the attempt.
+    # The revoke exists for the runs that end badly: a review whose sandbox phase fails still had a
+    # live token minted for it, and the token dies with the attempt.
     _repo_config(team.id)
     event = _register_review(stamphog_chain, 123, "sha123a")
     broken_sandbox = fakes.make_fake_sandbox_class(fakes.approved_engine_output())
-    broken_sandbox.create_error = RuntimeError("modal is down")
+    broken_sandbox.reviewer_exit_code = 1
     mint = MagicMock(side_effect=[_mint_response(201, {"token": "phe_run"}), _mint_response(200, {"revoked": True})])
 
     with (
@@ -2581,3 +2679,95 @@ def test_a_key_with_the_legacy_url_fails_before_the_mint(team, stamphog_chain: S
     assert "legacy stamphog route" in (run.error or "")
     mint.assert_not_called()
     assert not stamphog_chain.sandbox_class.created_configs
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_overlapping_activities_keep_each_others_output_keys(team, stamphog_chain: StamphogChain) -> None:
+    # The sandbox activity runs beside the context fetch, the pre-check and the bot polls. A write
+    # from a copy loaded before another activity's write must not drop that activity's keys, such as
+    # the sandbox claim that stops a retry from paying for a second sandbox.
+    repo_config = _repo_config(team.id)
+    pull_request = PullRequest.objects.for_team(team.id).create(
+        team_id=team.id, repo_config=repo_config, pr_number=130, author_login="devex-dev"
+    )
+    run = ReviewRun.objects.for_team(team.id).create(
+        team_id=team.id, pull_request=pull_request, head_sha="sha130", status=ReviewRunStatus.REVIEWING
+    )
+    stale_copy = ReviewRun.objects.for_team(team.id).get(id=run.id)
+
+    activities._merge_run_output(run, {"sandbox_started_at": "2026-09-25T10:00:00+00:00"})
+    activities._merge_run_output(stale_copy, {"pr_reactions": []})
+
+    stored = ReviewRun.objects.for_team(team.id).get(id=run.id).output
+    assert stored == {"sandbox_started_at": "2026-09-25T10:00:00+00:00", "pr_reactions": []}
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_post_verdict_keeps_output_keys_written_while_it_runs(team, stamphog_chain: StamphogChain) -> None:
+    # A fast verdict posts while the sandbox start can still be writing sandbox_id. The teardown reads
+    # that id, so a post_verdict save from its earlier copy would leak the sandbox.
+    _repo_config(team.id)
+    event = _register_review(stamphog_chain, 131, "sha131a")
+    record_write = stamphog_chain.recorder._record_write
+
+    def record_and_race(kind: str, repo: str, number: int, body: dict | None) -> fakes.FakeResponse:
+        if kind == "approve_review":
+            run = ReviewRun.objects.for_team(team.id).latest("created_at")
+            activities._merge_run_output(run, {"sandbox_id": "sb-late"})
+        return record_write(kind, repo, number, body)
+
+    with patch.object(stamphog_chain.recorder, "_record_write", side_effect=record_and_race):
+        stamphog_chain.post_webhook(event, delivery_id=str(uuid.uuid4()))
+
+    run = ReviewRun.objects.for_team(team.id).latest("created_at")
+    assert run.status == ReviewRunStatus.COMPLETED
+    assert run.output["sandbox_id"] == "sb-late"
+    assert run.output["timings_captured"] is True
+
+
+@pytest.mark.parametrize(
+    "status", [ReviewRunStatus.GATED, ReviewRunStatus.FAILED, ReviewRunStatus.COMPLETED, ReviewRunStatus.SUPERSEDED]
+)
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_a_late_sandbox_start_leaves_a_finished_run_alone(
+    team, stamphog_chain: StamphogChain, status: ReviewRunStatus
+) -> None:
+    # The start runs beside the pre-check, so a queued start can begin after a fast verdict or a
+    # failure is saved. Flipping that run back to REVIEWING would leave it non-terminal for good.
+    repo_config = _repo_config(team.id)
+    pull_request = PullRequest.objects.for_team(team.id).create(
+        team_id=team.id, repo_config=repo_config, pr_number=132, author_login="devex-dev"
+    )
+    run = ReviewRun.objects.for_team(team.id).create(
+        team_id=team.id, pull_request=pull_request, head_sha="sha132", status=status
+    )
+
+    result = _run_activity(start_review_sandbox, StamphogReviewInput(review_run_id=str(run.id), team_id=team.id))
+
+    assert result == {"skipped": "terminal"}
+    assert ReviewRun.objects.for_team(team.id).get(id=run.id).status == status
+    assert not stamphog_chain.sandbox_class.created_configs
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_a_sandbox_created_after_its_teardown_tears_itself_down(team, stamphog_chain: StamphogChain) -> None:
+    # A start that outlives its activity timeout, or a cancelled workflow, can finish the create after
+    # the workflow's teardown found no sandbox id. The late sandbox must not run until its TTL.
+    repo_config = _repo_config(team.id)
+    pull_request = PullRequest.objects.for_team(team.id).create(
+        team_id=team.id, repo_config=repo_config, pr_number=133, author_login="devex-dev"
+    )
+    run = ReviewRun.objects.for_team(team.id).create(
+        team_id=team.id, pull_request=pull_request, head_sha="sha133", status=ReviewRunStatus.REVIEWING
+    )
+    inp = ReviewSandboxInput(review_run_id=str(run.id), team_id=team.id, sandbox_id="")
+
+    assert _run_activity(destroy_review_sandbox, inp) == {"destroyed": False}
+    with (
+        patch.object(activities, "_destroy_sandbox_in_background", lambda sandbox, run_id: sandbox.destroy()),
+        pytest.raises(SandboxPhaseError),
+    ):
+        _run_activity(start_review_sandbox, StamphogReviewInput(review_run_id=str(run.id), team_id=team.id))
+
+    assert len(stamphog_chain.sandbox_class.created_configs) == 1
+    assert stamphog_chain.sandbox_class.destroy_returned
