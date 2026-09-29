@@ -567,7 +567,7 @@ class TestScoutReportAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert not SignalReport.objects.filter(team=self.team, title=payload["title"]).exists()
-        judge.assert_not_awaited()
+        judge.assert_not_called()
         autostart.assert_not_awaited()
 
     def test_a_links_only_edit_counts_as_an_edit(self) -> None:
