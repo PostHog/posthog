@@ -10,7 +10,24 @@ from rest_framework.exceptions import (
     ValidationError,
 )
 
-from posthog.exceptions import exception_handler
+from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryTimeOut, QueryRanConcurrently, exception_handler
+
+
+class TestQueryRetryAfter(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("capacity", ClickHouseAtCapacity(), 503, "30"),
+            ("timeout", ClickHouseQueryTimeOut(), 504, None),
+            ("single_flight_follower", QueryRanConcurrently(), 503, None),
+        ]
+    )
+    def test_retry_after_is_only_advertised_for_capacity(
+        self, _name: str, exception: APIException, expected_status: int, expected_retry_after: str | None
+    ) -> None:
+        response = exception_handler(exception, {"request": RequestFactory().post("/api/projects/1/query/")})
+        assert response is not None
+        self.assertEqual(response.status_code, expected_status)
+        self.assertEqual(response.get("Retry-After"), expected_retry_after)
 
 
 @override_settings(SITE_URL="https://us.posthog.com")

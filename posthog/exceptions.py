@@ -84,6 +84,7 @@ class DatabaseSchemaUnavailable(APIException):
 
 class ClickHouseAtCapacity(APIException):
     status_code = 503
+    wait = 30
     default_detail = (
         "Queries are a little too busy right now. We're working to free up resources. Please try again later."
     )
