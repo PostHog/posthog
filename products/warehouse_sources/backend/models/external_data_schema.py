@@ -97,6 +97,9 @@ def incremental_sync_blocked_reason(latest_error: str | None) -> str | None:
 # how long a rewrite nobody is advancing can pause a table's imports.
 REPARTITION_HOLD_MAX_AGE = timedelta(hours=48)
 
+# The job whose loaded batches last moved `incremental_field_last_value` (see `advance_incremental_field_last_value`).
+WATERMARK_JOB_KEY = "incremental_field_last_value_job_id"
+
 SCHEDULED_FULL_REFRESH_SYNC_TYPES = frozenset(
     {ExternalDataSchemaSyncType.INCREMENTAL, ExternalDataSchemaSyncType.APPEND, ExternalDataSchemaSyncType.XMIN}
 )
@@ -1044,8 +1047,8 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         self.sync_type_config = update_sync_type_config_keys(self.id, self.team_id, mutate=mutate)
         return found
 
-    def advance_incremental_field_last_value(self, last_value: Any) -> bool:
-        """Move the watermark forward to `last_value` for rows that are already loaded. Returns whether it moved.
+    def advance_incremental_field_last_value(self, last_value: Any, *, job_id: str) -> bool:
+        """Move the watermark forward to `last_value` for rows `job_id` loaded. Returns whether it moved.
 
         Writes only a value past the current watermark, so a batch that loads late never moves it back.
         """
@@ -1060,10 +1063,24 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
             nonlocal advanced
             if _moves_watermark_forward(config, serialized):
                 config["incremental_field_last_value"] = serialized
+                config[WATERMARK_JOB_KEY] = job_id
                 advanced = True
 
         self.sync_type_config = update_sync_type_config_keys(self.id, self.team_id, mutate=mutate)
         return advanced
+
+    def job_loaded_through(self, job_id: str, value: Any) -> bool:
+        """Whether loads of `job_id` moved the watermark to `value` or past it.
+
+        Only the job's own loads count. A watermark from an earlier job says nothing about this job's
+        table: a reset or a table rebuild reads again below it.
+        """
+        config = self.sync_type_config or {}
+        current = config.get("incremental_field_last_value")
+        if current is None or value is None or config.get(WATERMARK_JOB_KEY) != job_id:
+            return False
+        comparison = _compare_incremental_values(current, value, config.get("incremental_field_type"))
+        return comparison is not None and comparison >= 0
 
     def serialize_incremental_value(self, value: Any) -> Any:
         incremental_field_type = self.sync_type_config.get("incremental_field_type")
@@ -1123,6 +1140,7 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
             # survives the reset it timestamps.
             "column_type_widened",
             "incremental_field_last_value",
+            WATERMARK_JOB_KEY,
             "incremental_field_earliest_value",
             "incremental_staged",
             "incremental_staged_pending",

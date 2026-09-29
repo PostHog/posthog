@@ -1545,17 +1545,11 @@ class TestStateDualWrite:
 
         settled = BatchQueue.settle_earlier_attempts(sync_conn, job_id="job-ap", current_run_uuid="run-a2")
 
-        assert settled == EarlierAttempts(unsettled_batches=1, loaded_rows=150, loaded_last_value=2_000)
+        assert settled == EarlierAttempts(loaded_rows=150, loaded_last_value=2_000)
         assert (await _batch_state(conn, unloaded))[0] == "failed"
         assert (await _batch_state(conn, executing))[0] == "executing"
         assert (await _batch_state(conn, current))[0] == "pending"
         assert (await _batch_state(conn, other_job))[0] == "pending"
-
-        await BatchQueue.update_status(conn, batch_id=executing, job_state="succeeded", attempt=1)
-
-        settled = BatchQueue.settle_earlier_attempts(sync_conn, job_id="job-ap", current_run_uuid="run-a2")
-
-        assert settled == EarlierAttempts(unsettled_batches=0, loaded_rows=250, loaded_last_value=3_000)
 
     @pytest.mark.asyncio
     async def test_a_fenced_run_never_loads_a_batch_queued_after_the_fence(self, conn, sync_conn):
@@ -1572,10 +1566,16 @@ class TestStateDualWrite:
         assert BatchQueue.fence_runs(sync_conn, **fence) == 2
         assert BatchQueue.fence_runs(sync_conn, **fence) == 0
 
-        await _insert_batch(conn, run_uuid="run-a1", job_id="job-ap", sync_type="append")
+        straggler = await _insert_batch(conn, run_uuid="run-a1", job_id="job-ap", sync_type="append")
         current = await _insert_batch(conn, run_uuid="run-a3", job_id="job-ap", sync_type="append")
 
         assert [str(batch.id) for batch in await _claim(conn)] == [current]
+        # The orphan drain retires the straggler, and the job the newer attempt runs must not fail for it.
+        assert [ref.run_uuid for ref in await BatchQueue.get_runs_with_orphaned_batches(conn, limit=10)] == ["run-a1"]
+        assert (
+            await BatchQueue.fail_run(conn, run_uuid="run-a1", team_id=1, schema_id="schema-1", reason="orphaned") == 1
+        )
+        assert (await _batch_state(conn, straggler))[0] == "failed"
         assert await BatchQueue.get_failed_runs(conn, grace_seconds=0, lookback_seconds=3600, limit=10) == []
 
     @pytest.mark.asyncio

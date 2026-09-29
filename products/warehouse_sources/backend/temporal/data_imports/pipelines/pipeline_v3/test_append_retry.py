@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 
 import pyarrow as pa
 
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_schema import WATERMARK_JOB_KEY, ExternalDataSchema
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.append_retry import (
     settle_append_retry,
     split_trailing_cursor_ties,
@@ -25,7 +25,7 @@ def _schema(*, sync_type: str = "append") -> ExternalDataSchema:
     return ExternalDataSchema(name="events", sync_type=sync_type, sync_type_config=config)
 
 
-def _settle(schema: ExternalDataSchema, sleep: MagicMock | None = None, **overrides: Any) -> int | None:
+def _settle(schema: ExternalDataSchema, **overrides: Any) -> int | None:
     kwargs: dict[str, Any] = {
         "team_id": 1,
         "source_id": "source-1",
@@ -34,12 +34,20 @@ def _settle(schema: ExternalDataSchema, sleep: MagicMock | None = None, **overri
         "attempt": 3,
         "rows_ordered_by_cursor": True,
         "connect": MagicMock(),
-        "sleep": sleep or MagicMock(),
-        "poll_seconds": 1,
-        "timeout_seconds": 3,
         **overrides,
     }
     return settle_append_retry(schema, **kwargs)
+
+
+def _stored_watermark(schema: ExternalDataSchema, last_value: int, job_id: str) -> Any:
+    def refresh(**_: Any) -> None:
+        schema.sync_type_config = {
+            **schema.sync_type_config,
+            "incremental_field_last_value": last_value,
+            WATERMARK_JOB_KEY: job_id,
+        }
+
+    return patch.object(schema, "refresh_from_db", side_effect=refresh)
 
 
 class TestSplitTrailingCursorTies:
@@ -49,10 +57,12 @@ class TestSplitTrailingCursorTies:
             ([1, 2, 2], [1], [2, 2]),
             ([1, 2, 3], [1, 2], [3]),
             ([4, 4, 4], [], [4, 4, 4]),
+            ([1, 2, None], [1], [2, None]),
+            ([None, None], [None, None], []),
         ],
     )
     def test_holds_back_every_row_that_shares_the_highest_cursor(
-        self, ids: list[int], kept: list[int], held: list[int]
+        self, ids: list[int | None], kept: list[int | None], held: list[int | None]
     ) -> None:
         table = pa.table({"id": pa.array(ids, pa.int64()), "value": pa.array(range(len(ids)), pa.int64())})
 
@@ -64,27 +74,40 @@ class TestSplitTrailingCursorTies:
 
 
 class TestSettleAppendRetry:
-    def test_fences_earlier_attempts_waits_for_loads_then_reloads_the_watermark(self) -> None:
+    def test_fences_earlier_attempts_then_resumes_after_the_rows_this_job_loaded(self) -> None:
         schema = _schema()
-        sleep = MagicMock()
         with (
             patch(f"{_QUEUE}.fence_runs") as fence,
             patch(
                 f"{_QUEUE}.settle_earlier_attempts",
-                side_effect=[
-                    EarlierAttempts(unsettled_batches=1, loaded_rows=150, loaded_last_value=2_000),
-                    EarlierAttempts(unsettled_batches=0, loaded_rows=250, loaded_last_value=3_000),
-                ],
+                return_value=EarlierAttempts(loaded_rows=250, loaded_last_value=3_000),
             ) as settle,
-            patch.object(schema, "refresh_from_db") as refresh,
+            _stored_watermark(schema, 3_000, "job-1"),
         ):
-            loaded_rows = _settle(schema, sleep=sleep)
+            assert _settle(schema) == 250
 
-        assert loaded_rows == 250
         assert fence.call_args.kwargs["run_uuids"] == ["wfrun-1-a1", "wfrun-1-a2"]
         assert settle.call_args.kwargs == {"job_id": "job-1", "current_run_uuid": "wfrun-1-a3"}
-        sleep.assert_called_once_with(1)
-        refresh.assert_called_once_with(fields=["sync_type_config"])
+
+    @pytest.mark.parametrize(
+        "loaded,stored_value,stored_job",
+        [
+            (EarlierAttempts(loaded_rows=0, loaded_last_value=None), 500, "job-0"),
+            (EarlierAttempts(loaded_rows=90, loaded_last_value=None), 500, "job-0"),
+            (EarlierAttempts(loaded_rows=90, loaded_last_value=3_000), 3_000, "job-0"),
+            (EarlierAttempts(loaded_rows=90, loaded_last_value=3_000), 2_000, "job-1"),
+        ],
+    )
+    def test_reads_as_before_unless_this_job_committed_the_loaded_cursor(
+        self, loaded: EarlierAttempts, stored_value: int, stored_job: str
+    ) -> None:
+        schema = _schema()
+        with (
+            patch(f"{_QUEUE}.fence_runs"),
+            patch(f"{_QUEUE}.settle_earlier_attempts", return_value=loaded),
+            _stored_watermark(schema, stored_value, stored_job),
+        ):
+            assert _settle(schema) is None
 
     @pytest.mark.parametrize(
         "overrides,sync_type",
@@ -103,26 +126,3 @@ class TestSettleAppendRetry:
 
         fence.assert_not_called()
         settle.assert_not_called()
-
-    @pytest.mark.parametrize(
-        "settled,expected",
-        [
-            (EarlierAttempts(unsettled_batches=0, loaded_rows=0, loaded_last_value=None), 0),
-            (EarlierAttempts(unsettled_batches=0, loaded_rows=90, loaded_last_value=None), None),
-        ],
-    )
-    def test_reads_again_rows_loaded_without_a_cursor(self, settled: EarlierAttempts, expected: int | None) -> None:
-        schema = _schema()
-        with (
-            patch(f"{_QUEUE}.fence_runs"),
-            patch(f"{_QUEUE}.settle_earlier_attempts", return_value=settled),
-            patch.object(schema, "refresh_from_db"),
-        ):
-            assert _settle(schema) == expected
-
-    def test_gives_up_when_a_batch_stays_loading(self) -> None:
-        schema = _schema()
-        still_loading = EarlierAttempts(unsettled_batches=1, loaded_rows=150, loaded_last_value=2_000)
-        with patch(f"{_QUEUE}.fence_runs"), patch(f"{_QUEUE}.settle_earlier_attempts", return_value=still_loading):
-            with pytest.raises(TimeoutError):
-                _settle(schema)

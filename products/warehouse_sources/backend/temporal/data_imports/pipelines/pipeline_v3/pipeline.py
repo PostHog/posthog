@@ -99,8 +99,6 @@ if TYPE_CHECKING:
     )
 
 PARQUET_COMPRESSION: ParquetCompression = "zstd"
-# Rows sharing one cursor value held back in memory before they are staged anyway (see `_process_batch`).
-MAX_HELD_TIE_BYTES = 512 * 1024 * 1024
 
 
 def should_coalesce_tables(*, resume_manager: ResumableSourceManager[Any] | None, is_webhook: bool) -> bool:
@@ -498,7 +496,8 @@ class PipelineV3(Generic[ResumableData]):
 
                     if activity.in_activity():
                         get_rows_extracted_metric(team_id_str, schema_id_str, source_type).add(py_table.num_rows)
-                        get_batches_produced_metric(team_id_str, schema_id_str).add(1)
+                        if staged:
+                            get_batches_produced_metric(team_id_str, schema_id_str).add(1)
 
                     if staged:
                         chunk_index += 1
@@ -528,17 +527,19 @@ class PipelineV3(Generic[ResumableData]):
                         py_table = self._batcher.get_table()
                         row_count += py_table.num_rows
 
-                        if await self._process_batch(
+                        staged = await self._process_batch(
                             pa_table=py_table,
                             batch_index=chunk_index,
                             row_count=row_count,
-                        ):
+                        )
+                        if staged:
                             chunk_index += 1
                         wrote_chunk = True
 
                         if activity.in_activity():
                             get_rows_extracted_metric(team_id_str, schema_id_str, source_type).add(py_table.num_rows)
-                            get_batches_produced_metric(team_id_str, schema_id_str).add(1)
+                            if staged:
+                                get_batches_produced_metric(team_id_str, schema_id_str).add(1)
 
                         cleanup_memory(pa_memory_pool, py_table)
                         py_table = None
@@ -635,7 +636,8 @@ class PipelineV3(Generic[ResumableData]):
             if hold_back_ties:
                 assert self._schema.incremental_field is not None
                 split = split_trailing_cursor_ties(pa_table, self._schema.incremental_field)
-                if split.held.nbytes <= MAX_HELD_TIE_BYTES:
+                # Held rows never grow past one chunk, the memory a source already agreed to per batch.
+                if split.held.nbytes <= self._batcher.chunk_size_bytes:
                     pa_table, self._held_ties = split.kept, split.held
                     if pa_table.num_rows == 0:
                         return False

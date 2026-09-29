@@ -30,6 +30,7 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     MISSING_PRIMARY_KEYS_RAW_ERROR,
     REPARTITION_HOLD_MAX_AGE,
     STAGED_CURSOR_PENDING_LIMIT,
+    WATERMARK_JOB_KEY,
     ExternalDataSchema,
     apply_incremental_lookback,
     complete_schema_run,
@@ -1371,8 +1372,9 @@ class TestStagedIncrementalCursor:
     ) -> None:
         schema = self._make_schema(incremental_field_type=field_type, incremental_field_last_value=current)
         with self._staged_in_memory(schema) as write:
-            assert schema.advance_incremental_field_last_value(candidate) is advances
+            assert schema.advance_incremental_field_last_value(candidate, job_id="job-1") is advances
         assert schema.sync_type_config["incremental_field_last_value"] == (candidate if advances else current)
+        assert (schema.sync_type_config.get(WATERMARK_JOB_KEY) == "job-1") is advances
         assert write.called is advances
 
     def test_advance_from_a_stale_copy_keeps_the_newer_stored_watermark(self) -> None:
@@ -1389,8 +1391,29 @@ class TestStagedIncrementalCursor:
             "products.warehouse_sources.backend.models.external_data_schema.update_sync_type_config_keys",
             side_effect=apply,
         ):
-            assert schema.advance_incremental_field_last_value(3_000) is False
+            assert schema.advance_incremental_field_last_value(3_000, job_id="job-1") is False
         assert stored["incremental_field_last_value"] == 5_000
+
+    @pytest.mark.parametrize(
+        "stored_job,value,expected",
+        [
+            ("job-1", 2_000, True),
+            ("job-1", 3_000, True),
+            ("job-1", 3_001, False),
+            ("job-0", 2_000, False),
+            (None, 2_000, False),
+            ("job-1", None, False),
+        ],
+    )
+    def test_job_loaded_through_counts_only_the_jobs_own_watermark(
+        self, stored_job: str | None, value: int | None, expected: bool
+    ) -> None:
+        schema = self._make_schema(
+            incremental_field_type=IncrementalFieldType.Integer, incremental_field_last_value=3_000
+        )
+        if stored_job is not None:
+            schema.sync_type_config[WATERMARK_JOB_KEY] = stored_job
+        assert schema.job_loaded_through("job-1", value) is expected
 
     def test_stage_does_not_park_a_cursor_that_holds_no_value(self) -> None:
         schema = self._make_schema(incremental_staged={"run_uuid": "run-1"})

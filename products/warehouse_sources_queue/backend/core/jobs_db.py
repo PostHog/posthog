@@ -622,9 +622,8 @@ def _stale_executing_sql(scope_sql: str = "") -> str:
 
 @dataclass(frozen=True, slots=True)
 class EarlierAttempts:
-    """What the earlier attempts of a job left in the queue once their unloaded batches are superseded."""
+    """What the earlier attempts of a job loaded, once their unloaded batches are superseded."""
 
-    unsettled_batches: int
     loaded_rows: int
     # Cursor of the newest loaded batch. None when nothing loaded or that batch row carries no cursor.
     loaded_last_value: Any
@@ -1408,14 +1407,33 @@ class BatchQueue:
         schema_id: str,
         reason: str,
     ) -> int:
-        """Mark every pending batch in a run as failed. Returns the count of batches failed."""
+        """Mark every pending batch in a run as failed. Returns the count of batches failed.
+
+        A run a newer attempt fenced (see `fence_runs`) can still get batches queued by its stale
+        attempt. Those are marked superseded, so the reconcile sweep does not fail the job the newer
+        attempt is running.
+        """
+        fence = await conn.execute(
+            f"""
+            SELECT 1 FROM {BATCH_TABLE}
+            WHERE run_uuid = %(run_uuid)s
+                AND batch_index = %(fence_index)s
+                AND latest_state = 'failed'
+                AND created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+            LIMIT 1
+            """,
+            {"run_uuid": run_uuid, "fence_index": RUN_FENCE_BATCH_INDEX},
+        )
+        error_response: dict[str, Any] = {"error": reason}
+        if await fence.fetchone() is not None:
+            error_response["superseded"] = True
         cursor = await conn.execute(
             FAIL_RUN_SCOPED_SQL,
             {
                 "run_uuid": run_uuid,
                 "team_id": team_id,
                 "schema_id": schema_id,
-                "error_response": json.dumps({"error": reason}),
+                "error_response": json.dumps(error_response),
             },
         )
         return cursor.rowcount or 0
@@ -1467,6 +1485,7 @@ class BatchQueue:
         current_run_uuid: str,
         progress_stale_seconds: int = TAKEOVER_STALE_THRESHOLD_SECONDS,
         spare_runs_with_progress: bool = True,
+        spare_executing_batches: bool = False,
     ) -> int:
         """Mark non-terminal batches from *stalled* older runs of the same job as superseded.
 
@@ -1497,7 +1516,11 @@ class BatchQueue:
         already been thrown away. A non-resume ``append`` run drops it too: it reads again from
         the stored cursor, so every spared batch that loads is appended twice. Incremental and
         CDC keep the sparing rule, because their partially merged work survives into the new run.
+
+        ``spare_executing_batches=True`` leaves a batch the loader is writing alone, since the write
+        cannot be stopped.
         """
+        executing_guard = "AND (s.job_state IS NULL OR s.job_state != 'executing')" if spare_executing_batches else ""
         progress_guard = (
             f"""AND NOT EXISTS (
                     SELECT 1
@@ -1513,6 +1536,7 @@ class BatchQueue:
         cursor = conn.execute(
             _bulk_fail_dual_write_sql(
                 f"""b.job_id = %(job_id)s AND b.run_uuid != %(current_run_uuid)s
+                {executing_guard}
                 {progress_guard}"""
             ),
             {
@@ -1540,7 +1564,8 @@ class BatchQueue:
 
         A timed-out attempt can still be running and queue batches after its retry has taken over.
         Each run gets one superseded marker row, and the claim gate never claims a batch of a run
-        with a failed row. The reconcile sweep skips superseded rows, so the job does not fail.
+        with a failed row. The reconcile sweep skips superseded rows, and `fail_run` supersedes the
+        batches such an attempt queues later, so the job does not fail.
         Returns how many runs were fenced; a run fenced before is skipped.
         """
         fenced = 0
@@ -1596,25 +1621,21 @@ class BatchQueue:
     ) -> EarlierAttempts:
         """Supersede every unloaded batch of the job's earlier attempts and report what they loaded.
 
-        A batch the loader is writing cannot be stopped, so it is left alone and counted as
-        unsettled, as is one that went back to the queue after this supersede. The caller waits
-        and calls again until nothing is unsettled.
+        A batch the loader is writing cannot be stopped, so it is left alone. Its rows can land after
+        the caller reads the watermark, and the loader drops them from the newer attempt's batches
+        (see `_drop_rows_the_job_loaded` in `load/processor.py`).
 
         Loaded batches form a prefix of each attempt, because the loader writes a run's batches in
         order, and a later attempt starts after the earlier ones. So the newest loaded batch holds
         the highest cursor. A final-only marker repeats its run's last batch, so rows are counted
         once per batch index.
         """
-        conn.execute(
-            _bulk_fail_dual_write_sql(
-                """b.job_id = %(job_id)s AND b.run_uuid != %(current_run_uuid)s
-                AND (s.job_state IS NULL OR s.job_state != 'executing')"""
-            ),
-            {
-                "job_id": job_id,
-                "current_run_uuid": current_run_uuid,
-                "error_response": json.dumps({"error": "superseded by newer attempt", "superseded": True}),
-            },
+        BatchQueue.supersede_other_runs(
+            conn,
+            job_id=job_id,
+            current_run_uuid=current_run_uuid,
+            spare_runs_with_progress=False,
+            spare_executing_batches=True,
         )
         earlier_batches = f"""
             FROM {BATCH_TABLE} b
@@ -1624,10 +1645,6 @@ class BatchQueue:
                 AND b.batch_index != {RUN_FENCE_BATCH_INDEX}
         """
         parameters = {"job_id": job_id, "current_run_uuid": current_run_uuid}
-        unsettled = conn.execute(
-            f"SELECT count(*) {earlier_batches} AND b.latest_state NOT IN ('succeeded', 'failed')",
-            parameters,
-        ).fetchone()
         loaded = conn.execute(
             f"""
             SELECT COALESCE(sum(row_count), 0)
@@ -1650,7 +1667,6 @@ class BatchQueue:
             parameters,
         ).fetchone()
         return EarlierAttempts(
-            unsettled_batches=unsettled[0] if unsettled else 0,
             loaded_rows=int(loaded[0]) if loaded else 0,
             loaded_last_value=newest_loaded[0] if newest_loaded else None,
         )

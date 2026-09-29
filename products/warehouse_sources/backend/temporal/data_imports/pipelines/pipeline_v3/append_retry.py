@@ -1,4 +1,3 @@
-import time
 from collections.abc import Callable
 from typing import Any, cast
 
@@ -14,10 +13,6 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     connect_with_retry,
 )
 from products.warehouse_sources_queue.backend.core.jobs_db import BatchQueue
-
-SETTLE_POLL_SECONDS = 5.0
-# Longer than the queue's recovery sweep takes to release a batch whose loader died mid-write.
-SETTLE_TIMEOUT_SECONDS = 20 * 60.0
 
 
 def attempt_run_uuid(workflow_run_id: str, attempt: int) -> str:
@@ -35,15 +30,16 @@ def split_trailing_cursor_ties(table: pa.Table, cursor_column: str) -> CursorTie
     """Split off the rows that share the table's highest cursor value.
 
     The source returns rows sorted by the cursor, so these rows are the table's tail, and the next
-    table can hold more rows with the same value.
+    table can hold more rows with the same value. `kept` is a slice of `table`. `held` is a copy, so it
+    does not keep the whole table in memory while it waits for the next one.
     """
     cursor = table[cursor_column]
     highest = cast(pa.Scalar, pc.max(cursor))
-    at_highest = cast(pa.ChunkedArray, pc.equal(cursor, highest))
-    at_highest = cast(pa.ChunkedArray, pc.fill_null(at_highest, pa.scalar(False)))
-    return CursorTieSplit(
-        kept=table.filter(cast(pa.ChunkedArray, pc.invert(at_highest))), held=table.filter(at_highest)
-    )
+    if not highest.is_valid:
+        return CursorTieSplit(kept=table, held=table.slice(table.num_rows))
+    first_at_highest = cast(pa.Int64Scalar, pc.index(cursor, highest)).as_py()
+    held = table.take(pa.array(range(first_at_highest, table.num_rows), pa.int64()))
+    return CursorTieSplit(kept=table.slice(0, first_at_highest), held=held)
 
 
 def _connect_to_queue() -> psycopg.Connection[Any]:
@@ -60,19 +56,15 @@ def settle_append_retry(
     attempt: int,
     rows_ordered_by_cursor: bool,
     connect: Callable[[], psycopg.Connection[Any]] = _connect_to_queue,
-    sleep: Callable[[float], None] = time.sleep,
-    poll_seconds: float = SETTLE_POLL_SECONDS,
-    timeout_seconds: float = SETTLE_TIMEOUT_SECONDS,
 ) -> int | None:
     """Make a retried append attempt continue after exactly the rows its earlier attempts loaded.
 
-    The loader commits each loaded batch's cursor as the watermark (see `_commit_loaded_cursor`), so the
-    watermark covers every loaded row once no earlier batch can still load. This fences the earlier
-    attempts, supersedes their unloaded batches, waits for any batch still being written, and then
-    reloads the watermark.
+    The loader commits each loaded batch's cursor as the watermark (see `_commit_loaded_cursor`). This
+    fences the earlier attempts, supersedes their unloaded batches, and reloads the watermark. A batch
+    the loader is still writing can land after that, and the loader drops its rows from this attempt.
 
-    Returns the rows the earlier attempts loaded, or None when the run reads from the stored cursor as
-    before. Only a source that returns rows sorted by the cursor can resume: its batches never split a
+    Returns the rows the earlier attempts loaded, or None when the run reads as it would without
+    them. Only a source that returns rows sorted by the cursor can resume: its batches never split a
     cursor value (see `PipelineV3._process_batch`), so resuming strictly after one skips and repeats
     nothing.
     """
@@ -99,20 +91,11 @@ def settle_append_retry(
             resource_name=schema.name,
             sync_type="append",
         )
-        for _ in range(max(1, int(timeout_seconds / poll_seconds))):
-            earlier = BatchQueue.settle_earlier_attempts(conn, job_id=job_id, current_run_uuid=current_run_uuid)
-            if earlier.unsettled_batches == 0:
-                break
-            sleep(poll_seconds)
-        else:
-            raise TimeoutError(
-                f"Earlier attempts of job {job_id} still have unsettled batches after {timeout_seconds}s"
-            )
-
-    if earlier.loaded_rows > 0 and earlier.loaded_last_value is None:
-        # Batches queued without a cursor, by a build from before cursors were recorded, so the loader
-        # never committed one and the retry reads their rows again.
-        return None
+        earlier = BatchQueue.settle_earlier_attempts(conn, job_id=job_id, current_run_uuid=current_run_uuid)
 
     schema.refresh_from_db(fields=["sync_type_config"])
+    # Nothing loaded, or a loader that did not commit the loaded cursor (a build from before this, or a
+    # cursor it cannot compare): the retry reads as it would have, so a reset still reads everything.
+    if not schema.job_loaded_through(job_id, earlier.loaded_last_value):
+        return None
     return earlier.loaded_rows

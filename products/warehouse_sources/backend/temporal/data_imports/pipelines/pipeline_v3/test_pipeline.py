@@ -13,7 +13,10 @@ from asgiref.sync import async_to_sync
 from posthog.temporal.common.shutdown import WorkerShuttingDownError
 
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import (
+    DEFAULT_CHUNK_SIZE_BYTES,
+    Batcher,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.lanes import (
     LanedPipelineV3,
     _LaneWriter,
@@ -86,7 +89,7 @@ def _make_pipeline() -> PipelineV3:
         stage_chunk=AsyncMock(),
         cdp_producer=MagicMock(should_run=AsyncMock(return_value=False)),
     )
-    pipeline._batcher = MagicMock()
+    pipeline._batcher = MagicMock(chunk_size_bytes=DEFAULT_CHUNK_SIZE_BYTES)
     pipeline._load_id = 1
     pipeline._s3_batch_writer = MagicMock()
     pipeline._pg_producer = MagicMock(sync_type="full_refresh")
@@ -283,6 +286,7 @@ class TestCursorOrderedBatches:
 
     async def test_an_oversized_tie_is_staged_under_the_last_complete_cursor(self) -> None:
         pipeline = _make_pipeline()
+        pipeline._batcher = MagicMock(chunk_size_bytes=40)
         pipeline._rows_ordered_by_cursor = True
         pipeline._schema = ExternalDataSchema(
             sync_type="append",
@@ -298,7 +302,6 @@ class TestCursorOrderedBatches:
         with (
             patch(f"{_PIPELINE}.update_incremental_field_values", side_effect=running_max),
             patch(f"{_PIPELINE}.update_row_tracking_after_batch", new_callable=AsyncMock),
-            patch(f"{_PIPELINE}.MAX_HELD_TIE_BYTES", 40),
         ):
             for ids in [[1, 2], [2, 2, 2, 2, 2, 2], [2, 3]]:
                 table = pa.table({"id": pa.array(ids, pa.int64())})
