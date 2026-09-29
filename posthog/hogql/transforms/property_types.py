@@ -643,9 +643,7 @@ class PropertySwapper(CloningVisitor):
                     new_call = ast.Call(
                         name=inner.name, args=[wrapped_arg], type=PropertySwapper._datetime_call_type(inner.name, False)
                     )
-                    if isinstance(expr, ast.Alias):
-                        return ast.Alias(alias=expr.alias, expr=new_call, hidden=expr.hidden)
-                    return new_call
+                    return PropertySwapper._replace_keeping_alias(expr, new_call)
                 return expr
 
         # Skip if the value is already a timezone-aware datetime: the printer
@@ -667,9 +665,13 @@ class PropertySwapper(CloningVisitor):
             args=[inner, ast.Constant(value=precision), ast.Constant(value=tz)],
             type=PropertySwapper._datetime_call_type("toDateTime64", PropertySwapper._is_nullable_bound(inner)),
         )
+        return PropertySwapper._replace_keeping_alias(expr, new_call)
+
+    @staticmethod
+    def _replace_keeping_alias(expr: ast.Expr, replacement: ast.Expr) -> ast.Expr:
         if isinstance(expr, ast.Alias):
-            return ast.Alias(alias=expr.alias, expr=new_call, hidden=expr.hidden)
-        return new_call
+            return ast.Alias(alias=expr.alias, expr=replacement, hidden=expr.hidden)
+        return replacement
 
     @staticmethod
     def _datetime_call_type(name: str, nullable: bool) -> ast.CallType:
