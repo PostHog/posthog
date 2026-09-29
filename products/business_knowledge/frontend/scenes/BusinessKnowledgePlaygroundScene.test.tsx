@@ -135,7 +135,7 @@ describe('BusinessKnowledgePlaygroundScene', () => {
         jest.mocked(useActions).mockReturnValue({ loadMoreChats })
         render(<BusinessKnowledgePlaygroundScene />)
 
-        fireEvent.click(screen.getByRole('button', { name: 'Load more chats' }))
+        fireEvent.click(screen.getByText('Load more chats'))
         expect(
             document.querySelector('[data-attr="business-knowledge-playground-load-more-chats"]')
         ).toBeInTheDocument()
@@ -155,7 +155,22 @@ describe('BusinessKnowledgePlaygroundScene', () => {
 
         expect(screen.getByRole('alert')).toHaveTextContent("Couldn't load chats. Try again.")
         expect(screen.queryByText('No chats yet')).not.toBeInTheDocument()
-        fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+        fireEvent.click(screen.getByText('Retry'))
+        expect(loadChats).toHaveBeenCalledTimes(1)
+    })
+
+    it('shows a non-blocking retry when a populated chat list fails to refresh', () => {
+        const loadChats = jest.fn()
+        jest.mocked(useValues).mockReturnValue({
+            ...playgroundValues,
+            chatsError: "Couldn't load chats. Try again.",
+        })
+        jest.mocked(useActions).mockReturnValue({ loadChats })
+        render(<BusinessKnowledgePlaygroundScene />)
+
+        expect(screen.getByRole('alert')).toHaveTextContent("Couldn't load chats. Try again.")
+        expect(document.querySelector('[data-attr="business-knowledge-playground-open-chat"]')).toBeInTheDocument()
+        fireEvent.click(screen.getByText('Retry'))
         expect(loadChats).toHaveBeenCalledTimes(1)
     })
 })

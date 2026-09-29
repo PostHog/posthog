@@ -344,6 +344,13 @@ describe('businessKnowledgePlaygroundLogic', () => {
 
         silenceKeaLoadersErrors()
         mockedList.mockRejectedValueOnce(new Error('network error'))
+        logic.actions.loadChats()
+        await expectLogic(logic).toDispatchActions(['loadChatsFailure'])
+        expect(logic.values.nextChatsOffset).toBe(101)
+        expect(logic.values.chats).toHaveLength(101)
+        expect(logic.values.chatsError).toContain("Couldn't load chats")
+
+        mockedList.mockRejectedValueOnce(new Error('network error'))
         logic.actions.loadMoreChats()
         await expectLogic(logic).toDispatchActions(['loadMoreChatsFailure'])
         expect(logic.values.moreChatsError).toContain("Couldn't load older chats")

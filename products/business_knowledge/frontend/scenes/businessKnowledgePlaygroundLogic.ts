@@ -234,10 +234,7 @@ export const businessKnowledgePlaygroundLogic = kea<businessKnowledgePlaygroundL
                     errorDetail(errorObject ?? error, "Couldn't load chats. Try again."),
             },
         ],
-        nextChatsOffset: [
-            null as number | null,
-            { loadChats: () => null, setNextChatsOffset: (_, { offset }) => offset },
-        ],
+        nextChatsOffset: [null as number | null, { setNextChatsOffset: (_, { offset }) => offset }],
         loadingMoreChats: [
             false,
             { loadMoreChats: () => true, loadMoreChatsSuccess: () => false, loadMoreChatsFailure: () => false },
