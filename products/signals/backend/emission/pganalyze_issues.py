@@ -140,10 +140,14 @@ def _build_extra(record: dict[str, Any], references: list[dict[str, Any]]) -> di
 def _fetch_issues_by_id(
     team: Team, config: SignalSourceTableConfig, context: dict[str, Any], issue_ids: list[str]
 ) -> list[dict[str, Any]]:
+    # The warehouse merges on `id` only inside one weekly `synced_at` partition. An issue that stays
+    # open across a week boundary thus has one row per week, and only the latest row is current.
     query = f"""
         SELECT {", ".join(config.fields)}
         FROM {escape_table_name(context["table_name"])}
         WHERE id IN {{issue_ids}}
+        ORDER BY parseDateTimeBestEffort(synced_at) DESC
+        LIMIT 1 BY id
         LIMIT {len(issue_ids)}
     """
     parsed = parse_select(

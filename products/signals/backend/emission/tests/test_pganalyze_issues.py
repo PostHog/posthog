@@ -132,6 +132,12 @@ class FakeIssuesTable:
         if isinstance(query.where, ast.CompareOperation) and isinstance(query.where.right, ast.Tuple):
             wanted = {expr.value for expr in query.where.right.exprs}
             rows = [row for row in rows if row["id"] in wanted]
+        if query.limit_by is not None:
+            # Models `ORDER BY synced_at DESC LIMIT 1 BY id`.
+            latest: dict[str, dict] = {}
+            for row in sorted(rows, key=lambda row: row["synced_at"], reverse=True):
+                latest.setdefault(row["id"], row)
+            rows = list(latest.values())
         limit = query.limit.value if query.limit is not None else len(rows)
         return SimpleNamespace(columns=columns, results=[[row[c] for c in columns] for row in rows[:limit]])
 
@@ -140,13 +146,16 @@ class FakeIssuesTable:
 class TestPgAnalyzeIssueRecordFetcher(BaseTest):
     context = {"table_name": "pganalyze.issues", "last_synced_at": "2026-04-20T06:00:00+00:00"}
 
-    def _sync(self, table: FakeIssuesTable, max_records: int = 200) -> list[str]:
+    def _fetch(self, table: FakeIssuesTable, max_records: int = 200) -> list[dict]:
         config = PGANALYZE_ISSUES_CONFIG.model_copy(update={"max_records": max_records})
         with (
             patch("products.signals.backend.emission.fetchers.data_warehouse.execute_hogql_query", table.execute),
             patch("products.signals.backend.emission.pganalyze_issues.execute_hogql_query", table.execute),
         ):
-            return [row["id"] for row in pganalyze_issue_record_fetcher(self.team, config, self.context)]
+            return pganalyze_issue_record_fetcher(self.team, config, self.context)
+
+    def _sync(self, table: FakeIssuesTable, max_records: int = 200) -> list[str]:
+        return [row["id"] for row in self._fetch(table, max_records)]
 
     def test_open_issue_emits_once_across_syncs(self):
         table = FakeIssuesTable(["issue_1", "issue_2"])
@@ -159,6 +168,17 @@ class TestPgAnalyzeIssueRecordFetcher(BaseTest):
         self._sync(FakeIssuesTable(["issue_1", "issue_2"]))
 
         assert self._sync(FakeIssuesTable(["issue_1", "issue_2", "issue_3"])) == ["issue_3"]
+
+    def test_issue_open_across_week_partitions_emits_latest_row_once(self):
+        table = FakeIssuesTable(["issue_1", "issue_2"])
+        table.rows.insert(
+            0, {**table.rows[0], "description": "Stale description", "synced_at": "2026-04-13T12:00:00+00:00"}
+        )
+
+        rows = self._fetch(table)
+
+        assert sorted(row["id"] for row in rows) == ["issue_1", "issue_2"]
+        assert all(row["description"] == MOCK_PGANALYZE_ISSUE_RECORD["description"] for row in rows)
 
     def test_backlog_larger_than_max_records_drains_over_syncs(self):
         table = FakeIssuesTable([f"issue_{i}" for i in range(5)])
