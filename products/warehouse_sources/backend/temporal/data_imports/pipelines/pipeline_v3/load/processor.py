@@ -711,9 +711,7 @@ def _trigger_post_import_workflow(export_signal: ExportSignalMessage) -> None:
 
 def _promote_staged_cursor(export_signal: ExportSignalMessage) -> None:
     # Runs inside the completion transaction; failures roll it back so the batch retries.
-    schema = ExternalDataSchema.objects.select_related("source").get(
-        id=export_signal.schema_id, team_id=export_signal.team_id
-    )
+    schema = ExternalDataSchema.objects.get(id=export_signal.schema_id, team_id=export_signal.team_id)
 
     def merge_source_cursors(current: Any, candidate: Any) -> dict[str, Any]:
         source = SourceRegistry.get_source(ExternalDataSourceType(schema.source.source_type))
