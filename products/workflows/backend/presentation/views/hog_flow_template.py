@@ -349,7 +349,12 @@ class HogFlowTemplateViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.Gen
             detail=Detail(name=template.name, type="standard"),
         )
         try:
-            updated = update_template(template_id=template.id, team_id=self.team_id, fields=serializer.validated_data)
+            updated = update_template(
+                template_id=template.id,
+                team_id=self.team_id,
+                organization_id=self.organization.id,
+                fields=serializer.validated_data,
+            )
         except WorkflowTemplateNotFound:
             raise NotFound()
         return Response(self.get_serializer(updated).data)
@@ -373,7 +378,7 @@ class HogFlowTemplateViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.Gen
             detail=Detail(name=template.name, type="standard"),
         )
 
-        delete_template(template_id=template.id)
+        delete_template(template_id=template.id, team_id=self.team_id, organization_id=self.organization.id)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 

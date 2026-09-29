@@ -89,10 +89,12 @@ def create_template(*, team_id: int, created_by_id: int, fields: Mapping[str, An
     return _to_template(template)
 
 
-def update_template(*, template_id: UUID, team_id: int, fields: Mapping[str, Any]) -> WorkflowTemplate:
+def update_template(
+    *, template_id: UUID, team_id: int, organization_id: UUID, fields: Mapping[str, Any]
+) -> WorkflowTemplate:
     """Apply the changed fields. The editing team becomes the owner, so an organization template
     edited from another project moves to that project."""
-    template = HogFlowTemplate.objects.select_related("created_by").filter(id=template_id).first()
+    template = _visible_templates(team_id, organization_id).filter(id=template_id).first()
     if template is None:
         raise WorkflowTemplateNotFound()
     for key, value in fields.items():
@@ -103,8 +105,8 @@ def update_template(*, template_id: UUID, team_id: int, fields: Mapping[str, Any
     return _to_template(template)
 
 
-def delete_template(*, template_id: UUID) -> None:
-    HogFlowTemplate.objects.filter(id=template_id).delete()
+def delete_template(*, template_id: UUID, team_id: int, organization_id: UUID) -> None:
+    _visible_templates(team_id, organization_id).filter(id=template_id).delete()
 
 
 def list_global_templates() -> list[dict[str, Any]]:
