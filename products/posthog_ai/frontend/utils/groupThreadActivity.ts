@@ -1,4 +1,5 @@
 import type { ThreadItem, ToolInvocation } from '../types/streamTypes'
+import { hasAnswerCharts } from './answerSegments'
 import { resolveToolCall } from './toolResolver'
 
 export interface ThreadActivityGroup {
@@ -36,38 +37,50 @@ export function groupConsecutiveTools(
     return groups
 }
 
+export interface ThreadActivityOptions {
+    /** Calls that always render outside a group. */
+    standaloneToolIds: ReadonlySet<string>
+    /** Result calls such as charts. Only the last one of each settled turn renders outside a group. */
+    resultToolIds: ReadonlySet<string>
+    isTailTurnOpen: boolean
+    /** A turn whose answer embeds chart blocks folds every result call, because the answer shows the results. */
+    answerCharts: boolean
+}
+
 // A crashed turn has no `turn_separator`, so the next human message also settles it. The open tail turn
 // picks nothing yet, so the visible chart does not move while more calls stream in.
 function lastResultOfEachTurn(
     items: ThreadItem[],
-    resultToolIds: ReadonlySet<string>,
-    isTailTurnOpen: boolean
+    { resultToolIds, isTailTurnOpen, answerCharts }: ThreadActivityOptions
 ): Set<string> {
     const lastResults = new Set<string>()
     let candidate: string | undefined
+    let answeredWithCharts = false
+    const settle = (): void => {
+        if (candidate && !answeredWithCharts) {
+            lastResults.add(candidate)
+        }
+        candidate = undefined
+        answeredWithCharts = false
+    }
     for (const item of items) {
         if (item.type === 'human_message' || item.type === 'turn_separator') {
-            if (candidate) {
-                lastResults.add(candidate)
-            }
-            candidate = undefined
+            settle()
         } else if (item.type === 'tool_invocation' && item.toolCallId && resultToolIds.has(item.toolCallId)) {
             candidate = item.toolCallId
+        } else if (answerCharts && item.type === 'assistant_message' && hasAnswerCharts(item.text)) {
+            answeredWithCharts = true
         }
     }
-    if (candidate && !isTailTurnOpen) {
-        lastResults.add(candidate)
+    if (!isTailTurnOpen) {
+        settle()
     }
     return lastResults
 }
 
-export function groupThreadActivity(
-    items: ThreadItem[],
-    standaloneToolIds: ReadonlySet<string>,
-    resultToolIds: ReadonlySet<string>,
-    isTailTurnOpen: boolean
-): ThreadDisplayItem[] {
-    const lastResults = lastResultOfEachTurn(items, resultToolIds, isTailTurnOpen)
+export function groupThreadActivity(items: ThreadItem[], options: ThreadActivityOptions): ThreadDisplayItem[] {
+    const { standaloneToolIds } = options
+    const lastResults = lastResultOfEachTurn(items, options)
     const result: ThreadDisplayItem[] = []
     let group: ThreadActivityGroup | undefined
     for (const item of items) {

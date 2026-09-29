@@ -362,6 +362,49 @@ function heldSuffixStart(text: string, spans: Span[], searchFrom: number): numbe
     return null
 }
 
+/** A complete `display="block"` chart tag, with its position in the source text. */
+export type AgentChartBlock =
+    | { kind: 'insight'; shortId: string; start: number; end: number }
+    | { kind: 'hogql'; query: string; title?: string; caption?: string; start: number; end: number }
+
+/**
+ * Find the chart block tags in `text`: saved insights and HogQL queries with `display="block"`.
+ * A surface that renders these as charts slices the text around them and passes the rest to
+ * `rewriteAgentObjectTags`. Tags inside code spans and tags still streaming in are not returned.
+ */
+export function findAgentChartBlocks(text: string): AgentChartBlock[] {
+    if (!text.includes('<')) {
+        return []
+    }
+    const blocks: AgentChartBlock[] = []
+    for (const tag of scanTags(text, scanCode(text))) {
+        if (tag.attrs['display'] !== 'block') {
+            continue
+        }
+        const kind = OBJECT_KIND_ALIASES[tag.name] ?? tag.name
+        if (kind === 'insight') {
+            const shortId = (tag.attrs['id'] || '').trim()
+            if (RE_BARE_ID.test(shortId)) {
+                blocks.push({ kind, shortId, start: tag.start, end: tag.end })
+            }
+        } else if (kind === 'hogql') {
+            // A body written by the desktop composer is XML-escaped, so `&lt;` is a `<` in the SQL.
+            const query = unescapeXml(tag.body).trim()
+            if (query) {
+                blocks.push({
+                    kind,
+                    query,
+                    title: tag.attrs['title'] || undefined,
+                    caption: tag.attrs['caption'] || undefined,
+                    start: tag.start,
+                    end: tag.end,
+                })
+            }
+        }
+    }
+    return blocks
+}
+
 /**
  * Replace agent object tags in `text` with markdown links into the project.
  *

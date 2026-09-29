@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { type ReactNode, memo, useCallback, useEffect, useMemo, useState } from 'react'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { inStorybookTestRunner } from 'lib/utils/dom'
 
 import { isTerminalRunStatus, runStreamLogic } from '../logics/runStreamLogic'
@@ -109,6 +110,7 @@ export function ThreadView({
         logBootstrapLoading,
         pendingPermissionRequest,
     } = useValues(runStreamLogic)
+    const answerCharts = useFeatureFlag('PHAI_ANSWER_BLOCKS')
     const turnCancelled = currentRunStatus === 'cancelled'
     // A replayed error from an earlier run in the chain is not this run's ending while a newer run is
     // still going, so it keeps the softer title.
@@ -125,8 +127,13 @@ export function ThreadView({
                 resultToolIds.add(id)
             }
         }
-        return groupThreadActivity(threadItems, standaloneToolIds, resultToolIds, isThinking)
-    }, [threadItems, toolInvocations, isThinking])
+        return groupThreadActivity(threadItems, {
+            standaloneToolIds,
+            resultToolIds,
+            isTailTurnOpen: isThinking,
+            answerCharts,
+        })
+    }, [threadItems, toolInvocations, isThinking, answerCharts])
     // The last human message anchors the thread. Reopening a saved conversation lands on it — the last
     // meaningful turn, response below — when at least a viewport of content follows it (otherwise the
     // bottom); a fresh send (a new key) pins the thread to the bottom to follow the streaming response.
@@ -239,11 +246,13 @@ export function ThreadView({
                         turnComplete={turnComplete}
                         turnCancelled={turnCancelled}
                         runEnded={runEnded}
+                        answerCharts={answerCharts}
                     />
                 </VirtualizedThread.Row>
             )
         },
         [
+            answerCharts,
             displayItems.length,
             isThinking,
             toolInvocations,

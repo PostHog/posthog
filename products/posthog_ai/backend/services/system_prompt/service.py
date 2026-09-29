@@ -17,11 +17,17 @@ from typing import Literal
 
 from typing_extensions import TypedDict
 
+from posthog.ph_client import feature_enabled_or_false
+
 from products.posthog_ai.backend.helpers import BaseSandboxService
 from products.posthog_ai.backend.services.system_prompt.prompt import (
+    ANSWER_CHARTS_PROMPT,
     POSTHOG_AI_SYSTEM_PROMPT,
     governed_metrics_catalog_prompt,
 )
+
+# pinned: feature flag key shared with the frontend `FEATURE_FLAGS.PHAI_ANSWER_BLOCKS`
+ANSWER_CHARTS_FLAG = "phai-answer-blocks"
 
 
 class ClaudeCodeSystemPrompt(TypedDict):
@@ -47,4 +53,13 @@ class PromptService(BaseSandboxService):
         after Claude Code's own system prompt rather than replacing it.
         """
         prompt = POSTHOG_AI_SYSTEM_PROMPT + governed_metrics_catalog_prompt()
+        if self._answer_charts_enabled():
+            prompt += ANSWER_CHARTS_PROMPT
         return {"type": "preset", "preset": "claude_code", "append": prompt}
+
+    def _answer_charts_enabled(self) -> bool:
+        return feature_enabled_or_false(
+            ANSWER_CHARTS_FLAG,
+            str(self.user.distinct_id),
+            groups={"organization": str(self.team.organization_id)},
+        )

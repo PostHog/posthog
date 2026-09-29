@@ -7,11 +7,13 @@ import { TaskExecutionStatus as ExecutionStatus } from '~/queries/schema/schema-
 import type { ToolCallMessage } from 'products/posthog_ai/frontend/types/toolTypes'
 
 import { runStreamLogic } from '../logics/runStreamLogic'
+import { AnswerMessage } from '../messages/AnswerMessage'
 import { DebugMessage } from '../messages/DebugMessage'
 import { MarkdownMessage } from '../messages/MarkdownMessage'
 import { MessageTemplate } from '../messages/MessageTemplate'
 import { ReasoningAnswer } from '../messages/ReasoningAnswer'
 import type { ProgressStep, ThreadItem } from '../types/streamTypes'
+import { hasAnswerCharts } from '../utils/answerSegments'
 import { resolveToolCall } from '../utils/toolResolver'
 import { Activity } from './ActivityPrimitives'
 import { RunErrorRow } from './RunErrorRow'
@@ -104,6 +106,8 @@ export interface ThreadRowProps {
     turnCancelled: boolean
     /** The current run reached a terminal status; only then is the last error the run's ending. */
     runEnded?: boolean
+    /** Render chart block tags in assistant answers as charts, not as links. */
+    answerCharts?: boolean
 }
 
 /**
@@ -118,6 +122,7 @@ export const ThreadRow = memo(function ThreadRow({
     turnComplete,
     turnCancelled,
     runEnded = true,
+    answerCharts = false,
 }: ThreadRowProps): JSX.Element | null {
     if (item.type === 'human_message') {
         return (
@@ -128,6 +133,9 @@ export const ThreadRow = memo(function ThreadRow({
         )
     }
     if (item.type === 'assistant_message') {
+        if (answerCharts && hasAnswerCharts(item.text)) {
+            return <AnswerMessage content={item.text ?? ''} id={item.id} />
+        }
         return (
             <MessageTemplate type="ai" wrapperClassName="max-w-4/5">
                 <MarkdownMessage content={item.text ?? ''} id={item.id} />

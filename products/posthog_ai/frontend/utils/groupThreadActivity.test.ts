@@ -1,5 +1,10 @@
 import type { ThreadItem, ToolInvocation } from '../types/streamTypes'
-import { activityWindow, groupConsecutiveTools, groupThreadActivity } from './groupThreadActivity'
+import {
+    type ThreadActivityOptions,
+    activityWindow,
+    groupConsecutiveTools,
+    groupThreadActivity,
+} from './groupThreadActivity'
 
 describe('thread activity grouping', () => {
     const tool = (id: string, startedAt = 1000): ThreadItem => ({
@@ -8,6 +13,13 @@ describe('thread activity grouping', () => {
         toolCallId: id,
         startedAt,
         endedAt: startedAt + 100,
+    })
+    const options = (overrides: Partial<ThreadActivityOptions> = {}): ThreadActivityOptions => ({
+        standaloneToolIds: new Set(),
+        resultToolIds: new Set(),
+        isTailTurnOpen: false,
+        answerCharts: false,
+        ...overrides,
     })
 
     it('keeps messages, artifacts, failures and turn boundaries in order, without duplicating calls', () => {
@@ -23,7 +35,7 @@ describe('thread activity grouping', () => {
             { id: 'end', type: 'turn_separator', startedAt: 1700 },
             tool('next', 3000),
         ]
-        const result = groupThreadActivity(items, new Set(['chart']), new Set(), false)
+        const result = groupThreadActivity(items, options({ standaloneToolIds: new Set(['chart']) }))
         expect(result.map((item) => item.id)).toEqual([
             'human',
             'activity-search',
@@ -37,44 +49,61 @@ describe('thread activity grouping', () => {
         expect(result.flatMap((item) => (item.type === 'activity_group' ? item.items : [item]))).toEqual(items)
         expect(result[1]).toMatchObject({ startedAt: 1000, endedAt: 1300 })
         expect(
-            groupThreadActivity([...items, tool('last', 3200)], new Set(['chart']), new Set(), false).at(-1)?.id
+            groupThreadActivity([...items, tool('last', 3200)], options({ standaloneToolIds: new Set(['chart']) })).at(
+                -1
+            )?.id
         ).toBe('activity-next')
     })
 
     const human = (id: string): ThreadItem => ({ id, type: 'human_message', text: 'Show me charts' })
     const separator = (id: string): ThreadItem => ({ id, type: 'turn_separator' })
+    const answer = (id: string, withChart: boolean): ThreadItem => ({
+        id,
+        type: 'assistant_message',
+        text: withChart ? 'Here it is:\n<insight id="aB3xY" display="block"/>' : 'Here it is.',
+    })
 
     it.each([
         {
             name: 'a completed turn keeps only its last chart outside the group',
             items: [human('ask'), tool('chart-1'), tool('read'), tool('chart-2'), separator('end')],
-            isTailTurnOpen: false,
+            overrides: {},
             expected: ['ask', 'activity-chart-1', 'chart-2', 'end'],
         },
         {
             name: 'an open turn keeps every chart in the group until it completes',
             items: [human('ask'), tool('chart-1'), tool('chart-2')],
-            isTailTurnOpen: true,
+            overrides: { isTailTurnOpen: true },
             expected: ['ask', 'activity-chart-1'],
         },
         {
             name: 'a turn that crashed before its separator settles at the next human message',
             items: [human('ask'), tool('chart-1'), tool('chart-2'), human('retry'), tool('chart-3')],
-            isTailTurnOpen: true,
+            overrides: { isTailTurnOpen: true },
             expected: ['ask', 'activity-chart-1', 'chart-2', 'retry', 'activity-chart-3'],
         },
-    ])('$name', ({ items, isTailTurnOpen, expected }) => {
-        const charts = new Set(['chart-1', 'chart-2', 'chart-3'])
-        const result = groupThreadActivity(items, new Set(), charts, isTailTurnOpen)
+        {
+            name: 'a turn whose answer embeds charts folds every chart call',
+            items: [human('ask'), tool('chart-1'), tool('chart-2'), answer('charted', true), separator('end')],
+            overrides: { answerCharts: true },
+            expected: ['ask', 'activity-chart-1', 'charted', 'end'],
+        },
+        {
+            name: 'a turn whose answer has no chart blocks still shows its last chart',
+            items: [human('ask'), tool('chart-1'), tool('chart-2'), answer('plain', false), separator('end')],
+            overrides: { answerCharts: true },
+            expected: ['ask', 'activity-chart-1', 'chart-2', 'plain', 'end'],
+        },
+    ])('$name', ({ items, overrides, expected }) => {
+        const resultToolIds = new Set(['chart-1', 'chart-2', 'chart-3'])
+        const result = groupThreadActivity(items, options({ resultToolIds, ...overrides }))
         expect(result.map((item) => item.id)).toEqual(expected)
     })
 
     it('does not invent a duration when part of the group has no recorded start', () => {
         const result = groupThreadActivity(
             [tool('timed'), { id: 'imported', type: 'tool_invocation', toolCallId: 'imported' }],
-            new Set(),
-            new Set(),
-            false
+            options()
         )
         expect(result[0].startedAt).toBeUndefined()
     })
