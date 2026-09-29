@@ -207,6 +207,28 @@ class TestWorkflowEmailCapture(BaseTest):
         "products.conversations.backend.services.workflow_email_ingestion.posthoganalytics.feature_enabled",
         return_value=True,
     )
+    def test_account_history_does_not_require_support_product(self, _flag) -> None:
+        self.team.conversations_enabled = None
+        self.team.save(update_fields=["conversations_enabled"])
+        token = CONVERSATIONS_WORKFLOW_EMAILS_PURPOSE.mint(
+            {"team_id": self.team.id, "source_id": self.payload["source_id"]}
+        )
+        eligible = self.client.post(
+            f"{self.url}/eligible",
+            {key: self.payload[key] for key in ("source_id", "email_integration_id", "sender", "to", "cc")},
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        captured = self.post_capture()
+
+        assert eligible.json() == {"eligible": True}
+        assert captured.json() == {"status": "created"}
+        assert EmailThreadMessage.objects.for_team(self.team.id).filter(source_type="workflow").count() == 1
+
+    @patch(
+        "products.conversations.backend.services.workflow_email_ingestion.posthoganalytics.feature_enabled",
+        return_value=True,
+    )
     def test_internal_cc_does_not_link_an_unrelated_account(self, _flag) -> None:
         User.objects.create_and_join(self.organization, "coworker@example.org", None)
         Account.objects.for_team(self.team.id).create(

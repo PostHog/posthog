@@ -130,7 +130,7 @@ class InternalWorkflowEmailEligibilityView(APIView):
             return Response({"error": "Service token does not grant access to this email"}, status=403)
 
         team = Team.objects.get(id=claims["team_id"])
-        if not team.conversations_enabled or not is_workflow_email_capture_enabled(team):
+        if not is_workflow_email_capture_enabled(team):
             return Response({"eligible": False})
         if not get_verified_workflow_sender(
             team_id=team.id, integration_id=payload["email_integration_id"], sender_email=payload["sender"]["email"]
@@ -162,7 +162,7 @@ class InternalWorkflowEmailView(APIView):
             return Response({"error": "Service token does not grant access to this email"}, status=403)
 
         team = Team.objects.get(id=claims["team_id"])
-        if not team.conversations_enabled or not is_workflow_email_capture_enabled(team):
+        if not is_workflow_email_capture_enabled(team):
             return Response({"status": "skipped_disabled"})
         sender = EmailAddress(**payload["sender"])
         if not get_verified_workflow_sender(
