@@ -153,7 +153,7 @@ export function AutoresearchNewScene(): JSX.Element {
                 resourceType={{ type: 'experiment' }}
             />
 
-            <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-6 items-start">
+            <div className="grid grid-cols-1 @min-[48rem]/main-content:grid-cols-[1fr_360px] gap-6 items-start">
                 <Form
                     logic={autoresearchNewLogic}
                     formKey="newPipeline"
@@ -250,7 +250,7 @@ export function AutoresearchNewScene(): JSX.Element {
                         <LemonField
                             name="inference_population"
                             label="Prediction population"
-                            info="Who the model scores daily. Often a different group from training, e.g. train on signed-up users with history, predict on brand new users. Leave empty to score all identified users."
+                            info="Who the model scores on a schedule. Often a different group from training, e.g. train on signed-up users with history, predict on brand new users. Leave empty to use the training population."
                         >
                             {({ value, onChange }) => (
                                 <PropertyFilters

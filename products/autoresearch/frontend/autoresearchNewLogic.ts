@@ -209,7 +209,9 @@ export const autoresearchNewLogic = kea<autoresearchNewLogicType>([
                 horizon_days:
                     !formValues.horizon_days || formValues.horizon_days < 1
                         ? 'Prediction horizon must be at least 1 day'
-                        : undefined,
+                        : formValues.horizon_days > 365
+                          ? 'Prediction horizon must be 365 days or fewer'
+                          : undefined,
                 training_lookback_days:
                     !formValues.training_lookback_days || formValues.training_lookback_days < 7
                         ? 'Training lookback must be at least 7 days'
