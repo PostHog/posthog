@@ -76,7 +76,7 @@ async def _send_system_one(
     read = timeout[1] if isinstance(timeout, tuple) else timeout
     hostname = urlsplit(url).hostname or ""
     connector = aiohttp.TCPConnector(resolver=PinnedResolver(hostname, pinned_ip) if pinned_ip else None)
-    # boffin: Bound headers and body together so a slow endpoint cannot hold a worker indefinitely.
+    # Bound headers and body together so a slow endpoint cannot hold a worker indefinitely.
     client_timeout = aiohttp.ClientTimeout(total=total, connect=connect, sock_read=read, ceil_threshold=total + 1)
     try:
         # nosemgrep: aiohttp-missing-trust-env — a proxy would resolve the customer host outside its validated DNS pin.
@@ -155,7 +155,7 @@ def system_one(
 
     url = f"{base_url}/systemone"
     body = build_system_one_body(state=state, questions=questions, model=model)
-    # boffin: Instance TypeSafe calls may rely on environment proxies; customer endpoints use the pinned path.
+    # Instance TypeSafe calls may rely on environment proxies; customer endpoints use the pinned path.
     if api_key is None:
         response = typesafe_request(
             "POST",
