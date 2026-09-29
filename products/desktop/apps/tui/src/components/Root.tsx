@@ -1,22 +1,19 @@
-import type { EventEmitter } from "node:events";
 import { PostHogAPIClient } from "@posthog/api-client/posthog-client";
 import { Box, useWindowSize } from "ink";
 import { type ReactElement, useMemo, useState } from "react";
 import type { TuiAuth } from "../auth";
 import { createCloudRuns } from "../cloud";
-import type { Click } from "../mouse";
+import type { MouseEvents } from "../mouse";
 import { WorkList } from "../work";
 import { App } from "./App";
 import { SignIn } from "./SignIn";
 
-type Clicks = EventEmitter<{ click: [Click] }>;
-
 function Workbench({
   auth,
-  clicks,
+  mouse,
 }: {
   auth: TuiAuth;
-  clicks?: Clicks;
+  mouse?: MouseEvents;
 }): ReactElement {
   const { work, runs } = useMemo(() => {
     const api = new PostHogAPIClient(
@@ -26,15 +23,15 @@ function Workbench({
     );
     return { work: new WorkList(api), runs: createCloudRuns(auth, api) };
   }, [auth]);
-  return <App work={work} runs={runs} clicks={clicks} />;
+  return <App work={work} runs={runs} mouse={mouse} />;
 }
 
 export function Root({
   initialAuth,
-  clicks,
+  mouse,
 }: {
   initialAuth: TuiAuth | null;
-  clicks?: Clicks;
+  mouse?: MouseEvents;
 }): ReactElement {
   const { rows } = useWindowSize();
   const [auth, setAuth] = useState(initialAuth);
@@ -42,7 +39,7 @@ export function Root({
   return (
     <Box height={rows} flexDirection="column">
       {auth ? (
-        <Workbench auth={auth} clicks={clicks} />
+        <Workbench auth={auth} mouse={mouse} />
       ) : (
         <SignIn onSignedIn={setAuth} />
       )}

@@ -1,39 +1,10 @@
 import type { Task } from "@posthog/shared";
-import { Box, Text } from "ink";
-import { type ReactElement, useEffect, useMemo, useState } from "react";
+import { Box, Text, useBoxMetrics } from "ink";
+import { type ReactElement, useEffect, useMemo, useRef, useState } from "react";
+import type { ChatView } from "../chatView";
 import { type CloudRuns, emptyRunView, type RunView } from "../runs";
-import { type TranscriptLine, transcriptFrom } from "../transcript";
+import { transcriptFrom } from "../transcript";
 import { Spinner } from "./Spinner";
-
-const TOOL_COLORS: Record<string, string> = {
-  completed: "green",
-  failed: "red",
-  in_progress: "yellow",
-};
-
-function Line({ line }: { line: TranscriptLine }): ReactElement {
-  switch (line.kind) {
-    case "user":
-      return <Text bold>› {line.text}</Text>;
-    case "assistant":
-      return <Text>{line.text}</Text>;
-    case "tool":
-      return (
-        <Text dimColor wrap="truncate-end">
-          <Text color={TOOL_COLORS[line.status] ?? "gray"}>●</Text> {line.title}
-        </Text>
-      );
-    case "notice":
-      return (
-        <Text
-          color={line.tone === "error" ? "red" : undefined}
-          dimColor={line.tone === "info"}
-        >
-          {line.text}
-        </Text>
-      );
-  }
-}
 
 function useRunView(runs: CloudRuns, task: Task | undefined): RunView {
   const taskId = task?.id;
@@ -53,13 +24,17 @@ export function Pane({
   title,
   task,
   runs,
+  chat,
   focused,
 }: {
   title: string;
   task: Task | undefined;
   runs: CloudRuns;
+  chat: ChatView;
   focused: boolean;
 }): ReactElement {
+  const body = useRef(null);
+  const { width, height } = useBoxMetrics(body);
   const view = useRunView(runs, task);
   const lines = useMemo(
     () =>
@@ -72,19 +47,28 @@ export function Pane({
         : [],
     [task, view.entries],
   );
+  useEffect(() => chat.setTranscript(lines), [chat, lines]);
   const run = task?.latest_run;
 
-  let body: ReactElement;
-  if (!task) body = <Text dimColor>Open a task from Work.</Text>;
-  else if (!run) body = <Text dimColor>This task has no runs yet.</Text>;
+  let content: ReactElement;
+  if (!task) content = <Text dimColor>Open a task from Work.</Text>;
+  else if (!run) content = <Text dimColor>This task has no runs yet.</Text>;
   else if (run.environment === "local")
-    body = <Text dimColor>Local runs can't be opened here yet.</Text>;
-  else if (!view.loaded && !view.error) body = <Spinner label="Loading chat" />;
+    content = <Text dimColor>Local runs can't be opened here yet.</Text>;
+  else if (!view.loaded && !view.error)
+    content = <Spinner label="Loading chat" />;
   else {
-    body = (
+    // pi renders at the pane's measured size; each line is already styled and fitted to the width.
+    content = (
       <>
-        {lines.map((line) => (
-          <Line key={line.id} line={line} />
+        {(width > 0
+          ? chat.render(width, height - (view.error ? 1 : 0))
+          : []
+        ).map((line, index) => (
+          // biome-ignore lint/suspicious/noArrayIndexKey: rows are positions on screen
+          <Text key={index} wrap="truncate-end">
+            {line}
+          </Text>
         ))}
         {view.error && <Text color="red">{view.error}</Text>}
       </>
@@ -97,12 +81,13 @@ export function Pane({
         {title}
       </Text>
       <Box
+        ref={body}
         flexGrow={1}
         flexDirection="column"
         justifyContent="flex-end"
         overflow="hidden"
       >
-        {body}
+        {content}
       </Box>
     </Box>
   );

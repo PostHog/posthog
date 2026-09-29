@@ -8,12 +8,23 @@ describe("extractMouse", () => {
       "a\x1b[<0;12;3Mb",
       "ab",
       [{ column: 12, row: 3 }],
+      [],
     ],
-    ["a release", "\x1b[<0;12;3m", "", []],
-    ["wheel and right clicks", "\x1b[<64;5;5M\x1b[<2;5;5M", "", []],
-    ["keys only", "hello\x1b[A", "hello\x1b[A", []],
-  ])("strips %s", (_, text, keys, clicks) => {
-    expect(extractMouse(text)).toEqual({ keys, clicks });
+    ["a release", "\x1b[<0;12;3m", "", [], []],
+    ["a right click", "\x1b[<2;5;5M", "", [], []],
+    [
+      "wheel up then down",
+      "\x1b[<64;5;6M\x1b[<65;5;6M",
+      "",
+      [],
+      [
+        { column: 5, row: 6, delta: -1 },
+        { column: 5, row: 6, delta: 1 },
+      ],
+    ],
+    ["keys only", "hello\x1b[A", "hello\x1b[A", [], []],
+  ])("strips %s", (_, text, keys, clicks, wheels) => {
+    expect(extractMouse(text)).toEqual({ keys, clicks, wheels });
   });
 });
 

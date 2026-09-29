@@ -6,6 +6,11 @@ export interface Click {
   row: number;
 }
 
+export interface Wheel extends Click {
+  // -1 scrolls towards older lines, 1 towards newer.
+  delta: -1 | 1;
+}
+
 // Screen cells, 1-based and inclusive.
 export interface Box {
   left: number;
@@ -20,19 +25,28 @@ const MOUSE_REPORT = new RegExp(
   "g",
 );
 const LEFT_BUTTON = 0;
+const WHEEL_UP = 64;
+const WHEEL_DOWN = 65;
 // Reports presses and releases, in SGR form so columns past 223 still parse.
 const ENABLE = "\x1b[?1000h\x1b[?1006h";
 const DISABLE = "\x1b[?1000l\x1b[?1006l";
 
-export function extractMouse(text: string): { keys: string; clicks: Click[] } {
+export function extractMouse(text: string): {
+  keys: string;
+  clicks: Click[];
+  wheels: Wheel[];
+} {
   const clicks: Click[] = [];
+  const wheels: Wheel[] = [];
   const keys = text.replace(MOUSE_REPORT, (_, button, column, row, kind) => {
-    if (kind === "M" && Number(button) === LEFT_BUTTON) {
-      clicks.push({ column: Number(column), row: Number(row) });
-    }
+    const at = { column: Number(column), row: Number(row) };
+    if (kind !== "M") return "";
+    if (Number(button) === LEFT_BUTTON) clicks.push(at);
+    else if (Number(button) === WHEEL_UP) wheels.push({ ...at, delta: -1 });
+    else if (Number(button) === WHEEL_DOWN) wheels.push({ ...at, delta: 1 });
     return "";
   });
-  return { keys, clicks };
+  return { keys, clicks, wheels };
 }
 
 export function hitTest<T>(
@@ -52,9 +66,11 @@ export function hitTest<T>(
   return null;
 }
 
+export type MouseEvents = EventEmitter<{ click: [Click]; wheel: [Wheel] }>;
+
 // Sits between the terminal and Ink, so mouse reports never reach Ink as keystrokes.
 export class MouseInput {
-  readonly clicks = new EventEmitter<{ click: [Click] }>();
+  readonly events: MouseEvents = new EventEmitter();
   readonly stdin: NodeJS.ReadStream;
   private readonly onData: (data: Buffer) => void;
 
@@ -77,8 +93,9 @@ export class MouseInput {
       return stream;
     };
     this.onData = (data) => {
-      const { keys, clicks } = extractMouse(data.toString("utf8"));
-      for (const click of clicks) this.clicks.emit("click", click);
+      const { keys, clicks, wheels } = extractMouse(data.toString("utf8"));
+      for (const click of clicks) this.events.emit("click", click);
+      for (const wheel of wheels) this.events.emit("wheel", wheel);
       if (keys) stream.write(keys);
     };
     source.on("data", this.onData);

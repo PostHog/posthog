@@ -1,7 +1,7 @@
-import type { EventEmitter } from "node:events";
 import type { Task } from "@posthog/shared";
 import { Box, type DOMElement, measureElement, useApp, useInput } from "ink";
 import { type ReactElement, useEffect, useMemo, useRef, useState } from "react";
+import { ChatView } from "../chatView";
 import {
   activeWorkspace,
   closeFocused,
@@ -16,7 +16,13 @@ import {
   saveLayout,
   splitFocused,
 } from "../layout";
-import { type Click, hitTest, type Box as ScreenBox } from "../mouse";
+import {
+  type Click,
+  hitTest,
+  type MouseEvents,
+  type Box as ScreenBox,
+  type Wheel,
+} from "../mouse";
 import type { CloudRuns } from "../runs";
 import { DoublePress, shortcutFor } from "../shortcuts";
 import {
@@ -56,11 +62,11 @@ function dividerProps(divider: "left" | "top" | null) {
 export function App({
   work,
   runs,
-  clicks,
+  mouse,
 }: {
   work: WorkList;
   runs: CloudRuns;
-  clicks?: EventEmitter<{ click: [Click] }>;
+  mouse?: MouseEvents;
 }): ReactElement {
   const { exit } = useApp();
   const [layout, setLayout] = useState<LayoutState>(loadLayout);
@@ -78,6 +84,21 @@ export function App({
   const closeGuard = useRef(new DoublePress(CLOSE_CONFIRM_MS));
   const sidebarBox = useRef<DOMElement | null>(null);
   const paneBoxes = useRef(new Map<string, DOMElement>());
+  const chats = useRef(new Map<string, ChatView>());
+  // Scrolling happens inside ChatView, so a tick tells React to repaint.
+  const [, repaint] = useState(0);
+  const chatFor = (paneId: string): ChatView => {
+    let chat = chats.current.get(paneId);
+    if (!chat) {
+      chat = new ChatView();
+      chats.current.set(paneId, chat);
+    }
+    return chat;
+  };
+  const scrollPane = (paneId: string, lines: number): void => {
+    chatFor(paneId).scrollBy(lines);
+    repaint((tick) => tick + 1);
+  };
 
   useEffect(() => saveLayout(layout), [layout]);
 
@@ -180,7 +201,11 @@ export function App({
       setLayout((current) => cycleFocus(current, key.shift ? -1 : 1));
       return;
     }
-    if (!sidebarFocused) return;
+    if (!sidebarFocused) {
+      if (key.pageUp) scrollPane(workspace.focusedPaneId, -10);
+      if (key.pageDown) scrollPane(workspace.focusedPaneId, 10);
+      return;
+    }
     if (key.escape) {
       setLayout((current) => focusPane(current, workspace.focusedPaneId));
     } else if (key.downArrow || input === "j") {
@@ -216,17 +241,27 @@ export function App({
     const hit = hitTest(click, panes);
     if (hit) setLayout((current) => focusPane(current, hit[0]));
   };
-  const onClickRef = useRef(onClick);
-  onClickRef.current = onClick;
+  const onWheel = (wheel: Wheel): void => {
+    const panes = [...paneBoxes.current].map(
+      ([paneId, element]) => [paneId, boxOf(element)] as [string, ScreenBox],
+    );
+    const hit = hitTest(wheel, panes);
+    if (hit) scrollPane(hit[0], wheel.delta * 3);
+  };
+  const handlers = useRef({ onClick, onWheel });
+  handlers.current = { onClick, onWheel };
 
   useEffect(() => {
-    if (!clicks) return;
-    const listener = (click: Click): void => onClickRef.current(click);
-    clicks.on("click", listener);
+    if (!mouse) return;
+    const click = (at: Click): void => handlers.current.onClick(at);
+    const wheel = (at: Wheel): void => handlers.current.onWheel(at);
+    mouse.on("click", click);
+    mouse.on("wheel", wheel);
     return () => {
-      clicks.off("click", listener);
+      mouse.off("click", click);
+      mouse.off("wheel", wheel);
     };
-  }, [clicks]);
+  }, [mouse]);
 
   const titleOf = (taskId: string | null): string => {
     if (taskId === null) return "New chat";
@@ -252,6 +287,7 @@ export function App({
           title={titleOf(node.taskId)}
           task={taskOf(node.taskId)}
           runs={runs}
+          chat={chatFor(node.id)}
           focused={!sidebarFocused && node.id === workspace.focusedPaneId}
         />
       </Box>

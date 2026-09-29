@@ -1,11 +1,14 @@
+import { initTheme } from "@earendil-works/pi-coding-agent";
 import { render } from "ink";
 import { TuiAuth } from "./auth";
 import { Root } from "./components/Root";
 import { MouseInput } from "./mouse";
+import { detectTheme } from "./theme";
 
+initTheme(await detectTheme());
 const mouse = new MouseInput();
 const root = (Component: typeof Root) => (
-  <Component initialAuth={TuiAuth.load()} clicks={mouse.clicks} />
+  <Component initialAuth={TuiAuth.load()} mouse={mouse.events} />
 );
 const instance = render(root(Root), {
   stdin: mouse.stdin,

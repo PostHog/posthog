@@ -14,9 +14,15 @@
   },
   "dependencies": {
     "@earendil-works/pi-ai": "catalog:",
+    "@earendil-works/pi-coding-agent": "catalog:",
+    "@earendil-works/pi-tui": "catalog:",
     "@posthog/api-client": "workspace:*",
+    "@posthog/core": "workspace:*",
+    "@posthog/di": "workspace:*",
     "@posthog/harness": "workspace:*",
+    "@posthog/platform": "workspace:*",
     "@posthog/shared": "workspace:*",
+    "@posthog/ui": "workspace:*",
     "ink": "^7.1.1",
     "react": "catalog:",
     "vite": "^7.0.0"
