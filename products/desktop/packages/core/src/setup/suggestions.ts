@@ -10,9 +10,17 @@ export interface StaleFlagPayload {
 // it without depending on a host package.
 const CALL_LOOKBACK_DAYS = 30;
 
+// The flag key and the reference paths are read out of repository source, and
+// they reach an agent prompt below. A value that contains a line break would
+// start a new block in that prompt and read as an instruction rather than as
+// data, so collapse every interpolated value onto one line.
+function oneLine(value: string): string {
+  return value.replace(/[\r\n\u2028\u2029]+/g, " ").trim();
+}
+
 function formatReferences(flag: StaleFlagPayload): string {
   const shown = flag.references
-    .map((r) => `- ${r.file}:${r.line} (${r.method})`)
+    .map((r) => `- ${oneLine(r.file)}:${r.line} (${oneLine(r.method)})`)
     .join("\n");
   const hidden = Math.max(0, flag.referenceCount - flag.references.length);
   return hidden > 0 ? `${shown}\n…and ${hidden} more.` : shown;
@@ -21,7 +29,7 @@ function formatReferences(flag: StaleFlagPayload): string {
 function buildAssessmentPrompt(flag: StaleFlagPayload): string {
   const plural = flag.referenceCount === 1 ? "" : "s";
   return [
-    `/cleaning-up-stale-feature-flags Assess the feature flag "${flag.flagKey}" for cleanup.`,
+    `/cleaning-up-stale-feature-flags Assess the feature flag "${oneLine(flag.flagKey)}" for cleanup.`,
     "",
     `Evidence so far: PostHog recorded no calls to this key in the last ${CALL_LOOKBACK_DAYS} days, and a scan of this repository found ${flag.referenceCount} reference${plural}. That is not proof the flag is unused. Local evaluation and disabled event capture both hide real calls, and this scan covers one repository.`,
     "",
@@ -41,8 +49,8 @@ function buildAssessmentPrompt(flag: StaleFlagPayload): string {
 }
 
 // Null when the scan has no references to hand over. The cleanup skill scopes
-// its checks to the references it is given, so a suggestion without them cannot
-// hold to the assessment contract.
+// its checks to the references it is given, so a suggestion without them has
+// nothing for the skill to check.
 export function buildStaleFlagSuggestion(
   flag: StaleFlagPayload,
 ): DiscoveredTask | null {
@@ -55,8 +63,8 @@ export function buildStaleFlagSuggestion(
     id: `posthog-stale-flag-${flag.flagKey}`,
     source: "enricher",
     category: "stale_feature_flag",
-    title: `Check if flag "${flag.flagKey}" can be cleaned up`,
-    description: `PostHog recorded no calls to \`${flag.flagKey}\` in the last ${CALL_LOOKBACK_DAYS} days, and this repo references it in ${flag.referenceCount} place${plural}. That is not proof the flag is unused: local evaluation and disabled event capture both hide real calls.`,
+    title: `Check if flag "${oneLine(flag.flagKey)}" can be cleaned up`,
+    description: `PostHog recorded no calls to \`${oneLine(flag.flagKey)}\` in the last ${CALL_LOOKBACK_DAYS} days, and this repo references it in ${flag.referenceCount} place${plural}. That is not proof the flag is unused: local evaluation and disabled event capture both hide real calls.`,
     impact:
       "Dead flag branches make the code harder to change and hide what is live in production. This scan cannot tell a dead flag from one that is still evaluated, so the code stays untouched until the flag's definition in PostHog says which behavior to keep.",
     recommendation: `Click "Implement as new task". The agent reads the flag's current definition in PostHog, confirms its evaluation scope covers these references, and checks for blockers such as experiments, surveys, dependent flags, and scheduled changes. It edits code only when those checks pass, and it does not change the flag in PostHog. Repository references found:\n${formatReferences(flag)}`,
