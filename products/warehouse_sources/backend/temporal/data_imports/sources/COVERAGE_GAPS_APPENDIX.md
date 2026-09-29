@@ -3449,14 +3449,14 @@ Note: Diffed against Front's published OpenAPI 3.0 spec (128 GET operations). Th
 
 ## Fulcrum — gaps
 
-Today (13): `audio`, `changesets`, `choice_lists`, `classification_sets`, `forms`, `memberships`, `photos`, `projects`, `records`, `roles`, `signatures`, `videos`, `webhooks`
+Today (17): `audio`, `audit_logs`, `changesets`, `choice_lists`, `classification_sets`, `form_history`, `forms`, `groups`, `memberships`, `photos`, `projects`, `records`, `records_history`, `roles`, `signatures`, `videos`, `webhooks`
 
 Diffed against: <https://docs.fulcrumapp.com/reference/records-intro>
 
-- [ ] `records/history (records-get-all-history)` — full version history of every record — the only way to analyze edits, corrections and field-level change over time (high)
-- [ ] `groups (+ group resources)` — lookup that resolves the group ID carried on the memberships and projects already synced (high)
-- [ ] `audit_logs` — account-wide activity trail: who did what to which form, record or membership (medium)
-- [ ] `forms/{id}/history` — form schema versions, needed to interpret older records collected under a prior form definition (medium)
+- [x] `records/history (records-get-all-history)` — full version history of every record — the only way to analyze edits, corrections and field-level change over time (high)
+- [x] `groups (+ group resources)` — lookup that resolves the group ID carried on the memberships and projects already synced (high). Synced with `associations=true`, which returns each group's member, layer, project and form ids on the group row; the per-resource `groups/{id}/{resource}` endpoint only re-lists rows the `memberships`, `projects` and `forms` tables already hold.
+- [x] `audit_logs` — account-wide activity trail: who did what to which form, record or membership (medium)
+- [x] `forms/{id}/history` — form schema versions, needed to interpret older records collected under a prior form definition (medium)
 - [ ] `sketches` — the one media type not synced alongside photos, audio, video and signatures — leaves media coverage inconsistent (low)
 - [ ] `attachments` — arbitrary file attachments linked to records, with metadata for completeness checks (low)
 - [ ] `layers` — reference data layers that records join against for spatial context (low)
