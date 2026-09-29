@@ -720,8 +720,9 @@ class RecordCheckResultRequestSerializer(serializers.Serializer):
             "Required with `inconclusive`, and refused with any other outcome. `awaiting_data`: the data can "
             "still arrive (a rollout lag, a soak not complete, too few samples so far), so the check looks again "
             "later. `unmeasurable`: the data the check needs is not captured. `needs_manual_verification`: only "
-            "a person or another environment can verify it. `no_fix_to_measure`: no merged fix or deploy time "
-            "defines a window after the fix. Every reason except `awaiting_data` ends the check."
+            "a person or another environment can verify it. `no_fix_to_measure`: nothing was changed to fix the "
+            "claim, so no window after a fix exists. A report resolved without a pull request still has a window "
+            "that starts when it resolved. Every reason except `awaiting_data` ends the check."
         ),
     )
     explanation = serializers.CharField(

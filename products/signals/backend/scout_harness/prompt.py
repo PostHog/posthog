@@ -1220,7 +1220,9 @@ actually established:
   `reason`: `awaiting_data` when the data can still arrive (a rollout lag, a soak not complete, too
   few samples so far), and the check looks again later. `unmeasurable` when the data the check
   needs is not captured. `needs_manual_verification` when only a person or another environment can
-  verify it. `no_fix_to_measure` when no merged fix or deploy time defines a window after the fix.
+  verify it. `no_fix_to_measure` only when nothing was changed to fix the claim, so no window after a
+  fix exists. A report resolved without a pull request still has one: it starts when the report
+  resolved.
 - `errored` only when a tool, a query, or a model call failed and stopped you. An unsettled
   question is `inconclusive`, not `errored`.
 

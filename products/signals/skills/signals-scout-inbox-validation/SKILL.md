@@ -143,7 +143,7 @@ The dispatch section at the top of this file says when you are in this mode. Run
 | Surface has no fresh traffic at all (quiet ≠ fixed — check a denominator)     | Inconclusive       | `inconclusive`, reason `awaiting_data`, naming the missing denominator               |
 | The data the check needs is not captured anywhere you can query               | Unmeasurable       | `inconclusive`, reason `unmeasurable`, naming what is missing                        |
 | Only a person, a device, or another environment can verify the claim          | Manual             | `inconclusive`, reason `needs_manual_verification`, naming who or what can verify it |
-| No merged fix or deploy time gives a window after the fix                     | No fix             | `inconclusive`, reason `no_fix_to_measure`                                           |
+| Nothing was changed to fix the claim, so no window after a fix exists         | No fix             | `inconclusive`, reason `no_fix_to_measure`                                           |
 | A tool, a query, or a model call failed and stopped the probe                 | Errored            | `errored`, naming the failure                                                        |
 | Baseline too small to measure (a handful of occurrences ever)                 | Held (weak)        | `passed`, saying the basis is weak                                                   |
 
