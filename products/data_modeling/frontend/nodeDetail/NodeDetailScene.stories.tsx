@@ -57,6 +57,51 @@ const savedQuery = {
     ],
 }
 
+const upstreamNodes = [
+    'raw_orders',
+    'raw_customers',
+    'raw_regions',
+    'raw_channels',
+    'raw_refunds',
+    'stg_orders',
+    'stg_customers',
+    'stg_regions',
+    'stg_channels',
+    'stg_refunds',
+    'dim_region',
+    'dim_channel',
+].map((name, index) => ({
+    ...node,
+    id: `upstream-${index}`,
+    name,
+    type: index < 5 ? 'table' : 'matview',
+    saved_query_id: undefined,
+    upstream_count: 0,
+    downstream_count: 1,
+}))
+const downstreamNode = {
+    ...node,
+    id: 'downstream',
+    name: 'exec_revenue_dashboard',
+    type: 'endpoint',
+    saved_query_id: undefined,
+    upstream_count: 1,
+    downstream_count: 0,
+}
+const lineage = {
+    nodes: [...upstreamNodes, node, downstreamNode],
+    edges: [
+        ...upstreamNodes.map((upstream) => ({
+            id: `edge-${upstream.id}`,
+            source_id: upstream.id,
+            target_id: node.id,
+            dag: node.dag,
+        })),
+        { id: 'edge-downstream', source_id: node.id, target_id: downstreamNode.id, dag: node.dag },
+    ],
+    currentNodeId: node.id,
+}
+
 const meta: Meta<typeof NodeDetailScene> = {
     title: 'Products/Data modeling/Node detail scene',
     component: NodeDetailScene,
@@ -75,6 +120,7 @@ const meta: Meta<typeof NodeDetailScene> = {
         msw: {
             mocks: {
                 get: {
+                    '/api/environments/:team_id/data_modeling_nodes/lineage/': () => [200, lineage],
                     '/api/environments/:team_id/data_modeling_nodes/:id/': () => [200, node],
                     '/api/environments/:team_id/warehouse_saved_queries/:id/': () => [200, savedQuery],
                 },
@@ -89,6 +135,9 @@ export default meta
 
 type Story = StoryObj<typeof NodeDetailScene>
 export const View: Story = {}
+export const Lineage: Story = {
+    parameters: { pageUrl: urls.nodeDetail(node.id, 'lineage') },
+}
 export const NarrowView: Story = {
     decorators: [
         (Story) => (

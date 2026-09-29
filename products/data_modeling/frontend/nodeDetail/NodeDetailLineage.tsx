@@ -15,6 +15,9 @@ import { LineageGraph } from '../lineage/LineageGraph'
 import { lineageNodeUrl } from '../lineage/lineageNodeUrl'
 import { nodeDetailSceneLogic } from './nodeDetailSceneLogic'
 
+// Without a cap, a two-node graph scales up to fill the panel and the cards look oversized
+const LINEAGE_FIT_VIEW_OPTIONS = { maxZoom: 1 }
+
 export function NodeDetailLineage({ id }: { id: string }): JSX.Element {
     const {
         lineageGraph,
@@ -48,7 +51,7 @@ export function NodeDetailLineage({ id }: { id: string }): JSX.Element {
 
     if (lineageGraphLoading) {
         return (
-            <div className="flex flex-1 min-h-[400px] max-h-[70vh] items-center justify-center border rounded bg-bg-light">
+            <div className="flex h-[calc(100vh-20rem)] min-h-[400px] items-center justify-center border rounded bg-bg-light">
                 <Spinner />
             </div>
         )
@@ -81,13 +84,14 @@ export function NodeDetailLineage({ id }: { id: string }): JSX.Element {
 
     return (
         <>
-            <div className="flex-1 min-h-[400px] max-h-[70vh] w-full border rounded bg-bg-light">
+            <div className="h-[calc(100vh-20rem)] min-h-[400px] w-full border rounded bg-bg-light overflow-hidden">
                 <LineageGraph
                     nodes={nodes}
                     edges={lineageGraph?.edges ?? []}
                     currentNodeId={lineageGraph?.currentNodeId}
                     variant="full"
                     interactive
+                    fitViewOptions={LINEAGE_FIT_VIEW_OPTIONS}
                     showControls
                     showMinimap
                     onNodeClick={openNode}
