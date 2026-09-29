@@ -1,7 +1,7 @@
 ---
 paths:
   - 'products/tasks/backend/model_catalog.py'
-  - 'products/tasks/scripts/build_model_catalog.py'
+  - 'products/tasks/scripts/model_catalog_projection.py'
   - 'products/tasks/frontend/modelCatalog.generated.ts'
   - 'products/desktop/packages/shared/src/model-catalog.generated.ts'
 ---
@@ -9,11 +9,11 @@ paths:
 `products/tasks/backend/model_catalog.py` is the single definition of a task run's triple: runtime adapter, model, and reasoning effort.
 The web composer and the desktop app each read a checked-in TypeScript projection of it, and the backend validates runs against the module itself.
 
-After changing the catalog, run `hogli build:task-model-catalog` and commit both regenerated files.
+After changing the catalog, run `hogli build:projections` and commit both regenerated files.
 The command needs no dev stack and takes well under a second, so run it rather than reasoning about whether the output moved.
 
 Never hand-edit `products/tasks/frontend/modelCatalog.generated.ts` or `products/desktop/packages/shared/src/model-catalog.generated.ts`.
-A test re-renders both and compares them byte for byte, so an edit that the generator would not produce fails CI rather than shipping.
+`hogli build:projections --check` re-renders both and compares them byte for byte in CI, so an edit that the renderer would not produce fails CI rather than shipping.
 
 Adding a model means one row in `MODELS`. Two things do not follow from that row and are worth checking:
 

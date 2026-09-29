@@ -189,12 +189,24 @@ def get_multiple_variant_handling_from_experiment(
     return MultipleVariantHandling.EXCLUDE
 
 
+def resolve_filter_test_accounts(exposure_criteria: Union[ExperimentExposureCriteria, dict, None]) -> bool:
+    """The filterTestAccounts a query must apply when the stored criteria don't carry one.
+
+    Creation stamps DEFAULT_FILTER_TEST_ACCOUNTS, so absent criteria mean an experiment written
+    before that defaulting existed, not an opt-out. The main results query has always read absence
+    as the default, so every other surface must too, or it describes a different population than
+    the results table.
+    """
+    criteria = normalize_to_exposure_criteria(exposure_criteria)
+    if criteria is None or criteria.filterTestAccounts is None:
+        return DEFAULT_FILTER_TEST_ACCOUNTS
+    return criteria.filterTestAccounts
+
+
 def get_test_accounts_filter(
     team: Team, exposure_criteria: Union[ExperimentExposureCriteria, dict, None] = None
 ) -> list[ast.Expr]:
-    criteria = normalize_to_exposure_criteria(exposure_criteria)
-
-    filter_test_accounts = criteria.filterTestAccounts if criteria else False
+    filter_test_accounts = resolve_filter_test_accounts(exposure_criteria)
 
     if filter_test_accounts and isinstance(team.test_account_filters, list) and len(team.test_account_filters) > 0:
         return [property_to_expr(property, team) for property in team.test_account_filters]

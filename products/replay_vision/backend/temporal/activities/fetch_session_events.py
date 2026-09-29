@@ -94,7 +94,7 @@ async def fetch_session_events_activity(inputs: FetchSessionEventsInputs) -> Non
     if await redis_client.exists(redis_key):
         return
 
-    payload = await sync_to_async(_fetch_payload)(inputs.team_id, inputs.session_id)
+    payload = await sync_to_async(fetch_session_payload)(inputs.team_id, inputs.session_id)
     if payload is None:
         raise IneligibleSessionError(
             "No events to analyze",
@@ -194,7 +194,7 @@ def _group_type_labels(team: Team) -> dict[int, str]:
         return {}
 
 
-def _fetch_payload(team_id: int, session_id: str) -> ScannerLlmInputs | None:
+def fetch_session_payload(team_id: int, session_id: str) -> ScannerLlmInputs | None:
     # select_related saves the extra round trip when fetch_product_context reads team.project.
     team = Team.objects.select_related("project").get(pk=team_id)
     events_obj = SessionReplayEvents()

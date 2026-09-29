@@ -225,6 +225,7 @@ function RunSurfaceThread({
                     run={feedbackRun}
                     traceId={trailer.traceId}
                     turnText={trailer.turnText}
+                    timestamp={trailer.timestamp}
                 />
             ) : null,
         [feedbackSessionId, feedbackRun]
