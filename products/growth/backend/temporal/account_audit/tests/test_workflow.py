@@ -376,7 +376,7 @@ class TestStartAccountAuditActivity(SimpleTestCase):
                 "reason": "testing",
                 "skill_name": "custom-audit",
                 "$insert_id": "account-audit-finished-00000000-0000-0000-0000-000000000001",
-                "token_cost": token_cost,
+                "token_cost_cents": token_cost,
             }
 
             run.state["audit_notebook_short_id"] = "different-notebook"

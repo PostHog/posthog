@@ -217,7 +217,7 @@ def finish_account_audit_activity(input: AccountAuditFinishInput) -> str:
                 "notebook_url": notebook_url,
                 "reason": input.reason,
                 "skill_name": input.skill_name,
-                "token_cost": cost.token_cost,
+                "token_cost_cents": cost.token_cost,
                 "$insert_id": f"account-audit-finished-{input.task_run_id}",
             },
             groups=groups(team.organization, team),
