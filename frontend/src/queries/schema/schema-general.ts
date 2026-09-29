@@ -8971,6 +8971,8 @@ export interface SidebarConfiguration {
     items?: SidebarItemsConfiguration
     /** Row density of the sidebar. */
     density?: SidebarDensity
+    /** True once the user saved or dismissed the setup that moves their custom products to starred products in the simple sidebar. */
+    starred_products_setup_completed?: boolean
     [key: string]: unknown
 }
 
