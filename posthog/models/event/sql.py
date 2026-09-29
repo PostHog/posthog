@@ -20,6 +20,7 @@ from posthog.clickhouse.events_json import (
     KAFKA_EVENTS_NATIVE_JSON_TABLE,
     PERSON_PROPERTIES_JSON_MAX_DYNAMIC_PATHS,
     PERSON_PROPERTIES_JSON_SUBCOLUMNS,
+    TEMPORARY_PROPERTIES_JSON_TYPE,
     UNPARSEABLE_PROPERTIES_KEY,
     WRITABLE_EVENTS_JSON_TABLE,
 )
@@ -243,7 +244,7 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
     uuid UUID,
     event String,
     properties {properties_json_type},
-    temporary_properties JSON(max_dynamic_paths = 32){temporary_properties_storage},
+    temporary_properties {temporary_properties_json_type}{temporary_properties_storage},
     timestamp DateTime64(6, 'UTC'){gcd_codec},
     team_id Int64,
     distinct_id String,
@@ -293,6 +294,7 @@ SETTINGS index_granularity = 8192, object_serialization_version = 'v3', object_s
         engine=EVENTS_JSON_DATA_TABLE_ENGINE(),
         properties_json_type=EVENTS_PROPERTIES_JSON_TYPE(),
         person_properties_json_type=PERSON_PROPERTIES_JSON_TYPE(),
+        temporary_properties_json_type=TEMPORARY_PROPERTIES_JSON_TYPE,
         temporary_properties_storage=" TTL toDateTime(inserted_at) + INTERVAL 60 DAY",
         gcd_codec=" CODEC(GCD, Default)",
         t64_codec=" CODEC(T64, Default)",
@@ -309,6 +311,7 @@ def WRITABLE_EVENTS_JSON_TABLE_SQL(on_cluster: bool = False) -> str:
         engine=Distributed(data_table=EVENTS_JSON_DATA_TABLE, sharding_key="sipHash64(distinct_id)"),
         properties_json_type=EVENTS_PROPERTIES_JSON_TYPE(),
         person_properties_json_type=PERSON_PROPERTIES_JSON_TYPE(),
+        temporary_properties_json_type=TEMPORARY_PROPERTIES_JSON_TYPE,
         temporary_properties_storage="",
         gcd_codec="",
         t64_codec="",
@@ -325,6 +328,7 @@ def DISTRIBUTED_EVENTS_JSON_TABLE_SQL(on_cluster: bool = False) -> str:
         engine=Distributed(data_table=EVENTS_JSON_DATA_TABLE, sharding_key="sipHash64(distinct_id)"),
         properties_json_type=EVENTS_PROPERTIES_JSON_TYPE(),
         person_properties_json_type=PERSON_PROPERTIES_JSON_TYPE(),
+        temporary_properties_json_type=TEMPORARY_PROPERTIES_JSON_TYPE,
         temporary_properties_storage="",
         gcd_codec="",
         t64_codec="",
@@ -489,6 +493,13 @@ def _clean_properties(column: str, cleaner: str, json_type: str) -> str:
     return f"ifNull(accurateCastOrNull({cleaned}, {escaped_type}), CAST({fallback}, {escaped_type}))"
 
 
+def _cast_temporary_properties(cleaned: str) -> str:
+    # A materialized view converts a String into a JSON column at write time, outside its SELECT, where
+    # the SELECT's SETTINGS do not apply. The explicit cast keeps date inference off for this column too.
+    escaped_type = escape_clickhouse_string(TEMPORARY_PROPERTIES_JSON_TYPE)
+    return f"ifNull(accurateCastOrNull({cleaned}, {escaped_type}), CAST('{{}}', {escaped_type}))"
+
+
 def EVENTS_JSON_TABLE_MV_SQL(
     mv_name="events_json_table_mv",
     kafka_table=KAFKA_EVENTS_NATIVE_JSON_TABLE,
@@ -511,7 +522,7 @@ SELECT
 uuid,
 event,
 {properties_expr} AS properties,
-JSONCleanPostHogTemporaryProperties(if(isValidJSON(source.properties) AND startsWith(trimLeft(source.properties), '{{'), source.properties, '{{}}')) AS temporary_properties,
+{temporary_properties_expr} AS temporary_properties,
 now64() AS inserted_at,
 timestamp,
 team_id,
@@ -554,6 +565,10 @@ SETTINGS {insert_settings}
         on_cluster_clause=f"ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'" if on_cluster else "",
         database=settings.CLICKHOUSE_DATABASE,
         insert_settings=EVENTS_JSON_INSERT_SETTINGS,
+        temporary_properties_expr=_cast_temporary_properties(
+            "JSONCleanPostHogTemporaryProperties(if(isValidJSON(source.properties) "
+            "AND startsWith(trimLeft(source.properties), '{'), source.properties, '{}'))"
+        ),
         properties_expr=_clean_properties(
             "source.properties", "JSONCleanPostHogEventProperties", EVENTS_PROPERTIES_JSON_TYPE()
         ),

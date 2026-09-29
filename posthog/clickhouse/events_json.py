@@ -55,6 +55,7 @@ def is_temporary_event_property(key: str) -> bool:
 # $session_id, $window_id, and $group_N columns, and the arrays the event cleaner coerces.
 EVENTS_PROPERTIES_JSON_MAX_DYNAMIC_PATHS = 1024
 PERSON_PROPERTIES_JSON_MAX_DYNAMIC_PATHS = 256
+TEMPORARY_PROPERTIES_JSON_TYPE = "JSON(max_dynamic_paths = 32)"
 # Without these, ClickHouse infers Date/DateTime from date-like strings on some inserts and String on others.
 EVENTS_JSON_INSERT_SETTINGS = "input_format_try_infer_dates = 0, input_format_try_infer_datetimes = 0"
 
