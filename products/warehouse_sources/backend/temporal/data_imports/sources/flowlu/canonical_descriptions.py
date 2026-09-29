@@ -2,12 +2,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
     CanonicalDescriptions,
 )
 
-# Descriptions sourced from the Flowlu REST API docs (https://developers.flowlu.com).
+# Descriptions sourced from the Flowlu REST API spec (https://www.flowlu.com/api/json/openapien.json);
+# developers.flowlu.com is the API host, not a docs site.
 # Partial coverage is fine — uncovered columns fall back to LLM enrichment.
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     "accounts": {
         "description": "A CRM account in Flowlu — an organization or contact you do business with.",
-        "docs_url": "https://developers.flowlu.com",
+        "docs_url": "https://www.flowlu.com/api/json/openapien.json",
         "columns": {
             "id": "The unique ID of the account.",
             "name": "The account's display name.",
@@ -16,7 +17,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     },
     "leads": {
         "description": "A CRM opportunity (Flowlu's API keeps the legacy 'lead' entity name) tracked through a sales pipeline.",
-        "docs_url": "https://developers.flowlu.com",
+        "docs_url": "https://www.flowlu.com/api/json/openapien.json",
         "columns": {
             "id": "The unique ID of the opportunity.",
             "name": "The opportunity's name.",
@@ -24,7 +25,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     },
     "pipelines": {
         "description": "A CRM sales pipeline that opportunities move through.",
-        "docs_url": "https://developers.flowlu.com",
+        "docs_url": "https://www.flowlu.com/api/json/openapien.json",
         "columns": {
             "id": "The unique ID of the pipeline.",
             "name": "The pipeline's name.",
@@ -32,7 +33,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     },
     "pipeline_stages": {
         "description": "A stage of a CRM sales pipeline, resolving the stage an opportunity sits in.",
-        "docs_url": "https://developers.flowlu.com",
+        "docs_url": "https://www.flowlu.com/api/json/openapien.json",
         "columns": {
             "id": "The unique ID of the stage.",
             "name": "The stage's name.",
@@ -48,7 +49,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     },
     "tasks": {
         "description": "A task in Flowlu's task management module.",
-        "docs_url": "https://developers.flowlu.com",
+        "docs_url": "https://www.flowlu.com/api/json/openapien.json",
         "columns": {
             "id": "The unique ID of the task.",
             "name": "The task's title.",
@@ -56,7 +57,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     },
     "projects": {
         "description": "A project in Flowlu's project management module.",
-        "docs_url": "https://developers.flowlu.com",
+        "docs_url": "https://www.flowlu.com/api/json/openapien.json",
         "columns": {
             "id": "The unique ID of the project.",
             "name": "The project's name.",
@@ -64,7 +65,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     },
     "project_stages": {
         "description": "A stage of a project workflow, resolving the stage a project sits in.",
-        "docs_url": "https://developers.flowlu.com",
+        "docs_url": "https://www.flowlu.com/api/json/openapien.json",
         "columns": {
             "id": "The unique ID of the stage.",
             "name": "The stage's name.",
@@ -78,14 +79,14 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     },
     "invoices": {
         "description": "An invoice issued to a customer in Flowlu's finance module.",
-        "docs_url": "https://developers.flowlu.com",
+        "docs_url": "https://www.flowlu.com/api/json/openapien.json",
         "columns": {
             "id": "The unique ID of the invoice.",
         },
     },
     "invoice_items": {
         "description": "A line item on an invoice, giving revenue per product or service rather than per invoice total.",
-        "docs_url": "https://developers.flowlu.com",
+        "docs_url": "https://www.flowlu.com/api/json/openapien.json",
         "columns": {
             "id": "The unique ID of the line item.",
             "invoice_id": "The ID of the invoice this line item belongs to.",
@@ -110,28 +111,28 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     },
     "estimates": {
         "description": "An estimate (quote) prepared for a customer in Flowlu's finance module.",
-        "docs_url": "https://developers.flowlu.com",
+        "docs_url": "https://www.flowlu.com/api/json/openapien.json",
         "columns": {
             "id": "The unique ID of the estimate.",
         },
     },
     "customer_payments": {
         "description": "A payment received from a customer, typically applied against an invoice.",
-        "docs_url": "https://developers.flowlu.com",
+        "docs_url": "https://www.flowlu.com/api/json/openapien.json",
         "columns": {
             "id": "The unique ID of the payment.",
         },
     },
     "transactions": {
         "description": "A money transaction (income or expense) recorded in Flowlu's finance module.",
-        "docs_url": "https://developers.flowlu.com",
+        "docs_url": "https://www.flowlu.com/api/json/openapien.json",
         "columns": {
             "id": "The unique ID of the transaction.",
         },
     },
     "agile_issues": {
         "description": "An issue (user story, task, or bug) on a Flowlu agile board.",
-        "docs_url": "https://developers.flowlu.com",
+        "docs_url": "https://www.flowlu.com/api/json/openapien.json",
         "columns": {
             "id": "The unique ID of the issue.",
             "name": "The issue's title.",
@@ -139,7 +140,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     },
     "agile_sprints": {
         "description": "A sprint within a Flowlu agile project.",
-        "docs_url": "https://developers.flowlu.com",
+        "docs_url": "https://www.flowlu.com/api/json/openapien.json",
         "columns": {
             "id": "The unique ID of the sprint.",
             "name": "The sprint's name.",
@@ -147,14 +148,14 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     },
     "timesheets": {
         "description": "A time-tracking entry logged against tasks or projects in Flowlu.",
-        "docs_url": "https://developers.flowlu.com",
+        "docs_url": "https://www.flowlu.com/api/json/openapien.json",
         "columns": {
             "id": "The unique ID of the timesheet entry.",
         },
     },
     "timelogs": {
         "description": "An individual time log entry behind a timesheet, with the hours, rates, and amounts recorded for one stretch of work.",
-        "docs_url": "https://developers.flowlu.com",
+        "docs_url": "https://www.flowlu.com/api/json/openapien.json",
         "columns": {
             "id": "The unique ID of the time log.",
             "name": "The time log's name.",
@@ -183,7 +184,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     },
     "products": {
         "description": "A product or service from Flowlu's product catalog.",
-        "docs_url": "https://developers.flowlu.com",
+        "docs_url": "https://www.flowlu.com/api/json/openapien.json",
         "columns": {
             "id": "The unique ID of the product.",
             "name": "The product's name.",
