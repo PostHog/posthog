@@ -9,7 +9,7 @@ import zstd
 from parameterized import parameterized
 
 from posthog.models.github_integration_base import GitHubIntegrationError
-from posthog.models.integration import Integration
+from posthog.models.integration import GitHubIntegration, Integration
 
 from products.error_tracking.backend.logic import create_release, update_release
 from products.error_tracking.backend.logic.repo_paths.git_lister import GitFetchTarget, GitHostNotAllowed, RepoFileList
@@ -184,6 +184,30 @@ class TestStoreReleaseFileList(BaseTest):
 
         assert outcome == expected
         assert github.mint_scoped_installation_token.call_count == int(budget_admits)
+        assert self.fetched == []
+
+    @parameterized.expand(
+        [
+            ("server_error", GitHubIntegrationError("check failed", status_code=503), "retry"),
+            ("not_covered", False, "no_integration"),
+        ]
+    )
+    def test_a_github_repository_check_retries_only_on_a_server_error(
+        self, _name: str, check_result: bool | Exception, expected: str
+    ) -> None:
+        Integration.objects.create(
+            team=self.team, kind="github", integration_id="7", sensitive_config={"access_token": "example-token"}
+        )
+        release_id = self._release("https://github.com/acme/shop.git")
+
+        with patch.object(GitHubIntegration, "installation_can_access_repository_strict", side_effect=[check_result]):
+            outcome: str
+            try:
+                outcome = store_release_file_list(self.team.id, release_id)
+            except RepoPathsRetryableError:
+                outcome = "retry"
+
+        assert outcome == expected
         assert self.fetched == []
 
 

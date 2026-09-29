@@ -146,7 +146,9 @@ def _github_source(team_id: int, slug: RepoSlug) -> _GitSource | None:
     owner, _, name = slug.path.partition("/")
     if not owner or not name or "/" in name:
         return None
-    github = GitHubIntegration.first_for_team_repository(team_id, slug.path, source=_SOURCE, priority=Priority.BATCH)
+    github = GitHubIntegration.first_for_team_repository(
+        team_id, slug.path, source=_SOURCE, priority=Priority.BATCH, strict=True
+    )
     installation_id = github.github_installation_id if github is not None else None
     if github is None or not installation_id:
         return None
