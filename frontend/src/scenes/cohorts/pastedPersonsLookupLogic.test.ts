@@ -58,6 +58,7 @@ describe('pastedPersonsLookupLogic', () => {
                         { personId: 'person-3', value: 'user-3' },
                     ],
                     unmatched: ['nobody@example.com'],
+                    alreadyInCohortCount: 1,
                     truncated: false,
                 },
             })

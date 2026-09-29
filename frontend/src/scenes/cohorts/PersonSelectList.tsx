@@ -114,6 +114,17 @@ const PersonRowComponent = ({
     )
 }
 
+function describeSelection(selectedCount: number, alreadyInCohortCount: number): string {
+    if (selectedCount > 0 && alreadyInCohortCount === 0) {
+        return ' They are selected.'
+    }
+    if (selectedCount > 0) {
+        const alreadyInCohort = alreadyInCohortCount === 1 ? '1 is already' : `${alreadyInCohortCount} are already`
+        return ` Selected ${selectedCount} of them. ${alreadyInCohort} in the cohort.`
+    }
+    return alreadyInCohortCount > 0 ? ' They are already in the cohort.' : ''
+}
+
 function PastedPersonsLookupBanner({
     lookupResult,
     onClose,
@@ -121,7 +132,7 @@ function PastedPersonsLookupBanner({
     lookupResult: PastedPersonsLookupResult
     onClose: () => void
 }): JSX.Element {
-    const { matches, unmatched, truncated } = lookupResult
+    const { matches, unmatched, alreadyInCohortCount, truncated } = lookupResult
     const shownUnmatched = unmatched.slice(0, MAX_UNMATCHED_SHOWN).join(', ')
     const hiddenUnmatchedCount = unmatched.length - MAX_UNMATCHED_SHOWN
     const found = matches.length === 1 ? 'Found 1 person' : `Found ${matches.length} people`
@@ -132,7 +143,7 @@ function PastedPersonsLookupBanner({
             className="mb-2"
         >
             <div data-attr="cohort-pasted-persons-result">
-                <div>{`${found} from your pasted list.${matches.length > 0 ? ' They are selected.' : ''}`}</div>
+                <div>{`${found} from your pasted list.${describeSelection(matches.length - alreadyInCohortCount, alreadyInCohortCount)}`}</div>
                 {unmatched.length > 0 && (
                     <div className="mt-1">
                         {`No person matches these values: ${shownUnmatched}${hiddenUnmatchedCount > 0 ? ` and ${hiddenUnmatchedCount} more` : ''}. Check them for typos, or search for these people by name.`}

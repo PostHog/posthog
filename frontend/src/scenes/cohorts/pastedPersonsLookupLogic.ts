@@ -41,6 +41,7 @@ export interface PastedPersonsMatch {
 export interface PastedPersonsLookupResult {
     matches: PastedPersonsMatch[]
     unmatched: string[]
+    alreadyInCohortCount: number
     truncated: boolean
 }
 
@@ -97,7 +98,7 @@ export const pastedPersonsLookupLogic = kea<pastedPersonsLookupLogicType>([
     actions({
         dismissLookupResult: true,
     }),
-    loaders({
+    loaders(({ props }) => ({
         lookupResult: [
             null as PastedPersonsLookupResult | null,
             {
@@ -138,11 +139,14 @@ export const pastedPersonsLookupLogic = kea<pastedPersonsLookupLogicType>([
                             matches.push({ personId, value })
                         }
                     }
-                    return { matches, unmatched, truncated: values.length > checkedValues.length }
+                    const alreadyInCohortCount = matches.filter(({ personId }) =>
+                        props.existingPersonsSet?.has(personId)
+                    ).length
+                    return { matches, unmatched, alreadyInCohortCount, truncated: values.length > checkedValues.length }
                 },
             },
         ],
-    }),
+    })),
     reducers({
         lookupResult: {
             dismissLookupResult: () => null,
@@ -150,11 +154,8 @@ export const pastedPersonsLookupLogic = kea<pastedPersonsLookupLogicType>([
     }),
     listeners(({ props }) => ({
         lookupPastedValuesSuccess: ({ lookupResult, payload }) => {
-            let alreadyInCohortCount = 0
             for (const { personId, value } of lookupResult.matches) {
-                if (props.existingPersonsSet?.has(personId)) {
-                    alreadyInCohortCount++
-                } else {
+                if (!props.existingPersonsSet?.has(personId)) {
                     props.onAddPerson(personId, value)
                 }
             }
@@ -162,7 +163,7 @@ export const pastedPersonsLookupLogic = kea<pastedPersonsLookupLogicType>([
                 source: props.dataNodeKey,
                 value_count: payload?.length ?? 0,
                 matched_count: lookupResult.matches.length,
-                already_in_cohort_count: alreadyInCohortCount,
+                already_in_cohort_count: lookupResult.alreadyInCohortCount,
                 unmatched_count: lookupResult.unmatched.length,
                 truncated: lookupResult.truncated,
             })
