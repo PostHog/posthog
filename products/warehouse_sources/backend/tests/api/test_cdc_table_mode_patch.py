@@ -367,6 +367,75 @@ def test_moving_a_table_off_cdc_drops_it_from_the_publication(
     assert schema.sync_type == new_sync_type
 
 
+def test_a_table_moved_off_cdc_during_a_handed_over_reset_syncs_again(
+    team: Team, user: User, client: HttpClient
+) -> None:
+    _, schema = _make_cdc_source_and_schema(team, cdc_table_mode="consolidated")
+    ExternalDataSchema.objects.filter(id=schema.id).update(
+        sync_type_config={**schema.sync_type_config, "cdc_reset_pending": {"trigger": True}}
+    )
+    client.force_login(user)
+    with (
+        mock.patch(_PATCH_TARGETS["is_cdc_enabled_for_team"], return_value=True),
+        mock.patch(_PATCH_TARGETS["alter_cdc_publication"]),
+        mock.patch(_PATCH_TARGETS["external_data_workflow_exists"], return_value=True),
+        mock.patch(_PATCH_TARGETS["sync_external_data_job_workflow"]),
+        mock.patch(_PATCH_TARGETS["sync_cdc_extraction_schedule"]),
+        mock.patch(_PATCH_TARGETS["trigger_external_data_workflow"]),
+        mock.patch(f"{_VIEW}.unpause_external_data_schedule") as unpause,
+    ):
+        response = client.patch(
+            f"/api/environments/{team.pk}/external_data_schemas/{schema.id}",
+            data={"sync_type": "full_refresh"},
+            content_type="application/json",
+        )
+
+    assert response.status_code == 200, response.content
+    schema.refresh_from_db()
+    assert "cdc_reset_pending" not in schema.sync_type_config
+    unpause.assert_called_once_with(str(schema.id))
+
+
+@pytest.mark.parametrize(
+    ("table_mode", "over_billing_limit", "expected_status", "resynced"),
+    [
+        ("cdc_only", False, 200, True),
+        ("cdc_only", True, 400, False),
+        ("both", False, 200, False),
+    ],
+)
+def test_moving_a_cdc_only_table_off_cdc_resyncs_it(
+    team: Team,
+    user: User,
+    client: HttpClient,
+    table_mode: str,
+    over_billing_limit: bool,
+    expected_status: int,
+    resynced: bool,
+) -> None:
+    _, schema = _make_cdc_source_and_schema(team, cdc_table_mode=table_mode)
+    client.force_login(user)
+    with (
+        mock.patch(_PATCH_TARGETS["is_cdc_enabled_for_team"], return_value=True),
+        mock.patch(_PATCH_TARGETS["alter_cdc_publication"]),
+        mock.patch(_PATCH_TARGETS["external_data_workflow_exists"], return_value=True),
+        mock.patch(_PATCH_TARGETS["sync_external_data_job_workflow"]),
+        mock.patch(_PATCH_TARGETS["sync_cdc_extraction_schedule"]),
+        mock.patch(_PATCH_TARGETS["trigger_external_data_workflow"]) as trigger,
+        mock.patch(_PATCH_TARGETS["is_any_external_data_schema_paused"], return_value=over_billing_limit),
+    ):
+        response = client.patch(
+            f"/api/environments/{team.pk}/external_data_schemas/{schema.id}",
+            data={"sync_type": "full_refresh"},
+            content_type="application/json",
+        )
+
+    assert response.status_code == expected_status, response.content
+    schema.refresh_from_db()
+    assert bool(schema.sync_type_config.get("reset_pipeline")) is resynced
+    assert trigger.called is resynced
+
+
 def test_a_table_stays_in_the_publication_when_its_move_off_cdc_is_not_saved(
     team: Team, user: User, client: HttpClient
 ) -> None:

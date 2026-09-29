@@ -31,6 +31,7 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     mark_initial_sync_complete,
     update_sync_type_config_keys,
 )
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.models.util import hogql_type_name_for_clickhouse_type
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import companion_resource_name
@@ -258,6 +259,23 @@ def _refresh_cumulative_row_count(table: DataWarehouseTable, logger: FilteringBo
         logger.warning(f"Could not refresh cumulative row count for {context}, keeping previous value", exc_info=True)
 
 
+def own_linked_table(schema: ExternalDataSchema, pipeline: ExternalDataSource) -> DataWarehouseTable | None:
+    """The schema's linked table, unless the link is its `_cdc` companion.
+
+    cdc_only links the schema to its companion table. Reusing that link after a switch to a mode that
+    writes the consolidated table would publish the consolidated data under the companion's record,
+    and the consolidated table would never get a record of its own. A pinned folder can give the
+    schema's own table the companion's name, and then the link is right.
+    """
+    table = schema.table
+    if table is None:
+        return None
+    names = resolve_table_and_folder_names(schema.name, schema.resolved_s3_folder_name)
+    table_name = build_table_name(pipeline, names.table_storage_name)
+    companion_name = build_table_name(pipeline, companion_resource_name(schema.name))
+    return None if table.name == companion_name != table_name else table
+
+
 async def validate_schema_and_update_table(
     run_id: str,
     team_id: int,
@@ -327,14 +345,7 @@ async def validate_schema_and_update_table(
             # held the Postgres transaction (and the select_for_update row lock below) open for
             # minutes, surfacing as "idle in transaction" connections that stalled vacuum and
             # exhausted the connection pool.
-            table_created: DataWarehouseTable | None = external_data_schema.table
-            # cdc_only links the schema to its `_cdc` companion table. Reusing that link after a switch
-            # to a mode that writes the consolidated table would publish the consolidated data under the
-            # companion's record, and the consolidated table would never get a record of its own. A
-            # pinned folder can give the schema's own table that same name, and then the link is right.
-            companion_table_name = build_table_name(job.pipeline, companion_resource_name(_schema_name))
-            if table_created is not None and table_created.name == companion_table_name != table_name:
-                table_created = None
+            table_created: DataWarehouseTable | None = own_linked_table(external_data_schema, job.pipeline)
 
             if table_created is None:
                 # The ServerException handler below can leave a created table unlinked, so look for

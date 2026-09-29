@@ -25,7 +25,10 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers 
     sync_engineering_analytics_views,
     sync_revenue_analytics_views,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import set_initial_sync_complete
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import (
+    own_linked_table,
+    set_initial_sync_complete,
+)
 from products.warehouse_sources.backend.temporal.data_imports.query_folder_state import QueryFolderPointerHistory
 from products.warehouse_sources.backend.temporal.data_imports.schema_flags import is_schema_flag_enabled
 from products.warehouse_sources.backend.temporal.data_imports.util import (
@@ -334,9 +337,12 @@ async def _publish_queryable_files(
 
         existing_queryable_folder = await _get_companion_queryable_folder()
     else:
-        existing_queryable_folder = await database_sync_to_async_pool(
-            lambda: schema.table.queryable_folder if schema.table else None
-        )()
+
+        def _own_queryable_folder() -> str | None:
+            table = own_linked_table(schema, job.pipeline)
+            return table.queryable_folder if table is not None else None
+
+        existing_queryable_folder = await database_sync_to_async_pool(_own_queryable_folder)()
 
     double_buffer = await database_sync_to_async_pool(is_schema_flag_enabled)(
         schema, DOUBLE_BUFFERED_QUERY_FOLDERS_FLAG

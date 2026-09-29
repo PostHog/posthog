@@ -1232,11 +1232,18 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         # force-projects a non-nullable `_ph_xmin` control column that no other sync type writes.
         # Reusing the existing Delta table fails the write — the column is missing on the way in, or
         # lingers on the way out — so force a full resync to rebuild the table from scratch.
-        if (
-            "sync_type" in data
-            and sync_type != instance.sync_type
-            and ExternalDataSchema.SyncType.XMIN in (sync_type, instance.sync_type)
-        ):
+        crosses_xmin = sync_type != instance.sync_type and ExternalDataSchema.SyncType.XMIN in (
+            sync_type,
+            instance.sync_type,
+        )
+        # cdc_only wrote the consolidated table only at its initial snapshot, so a sync type that goes on
+        # from that table would skip every change since then.
+        leaves_cdc_only = (
+            sync_type != ExternalDataSchema.SyncType.CDC
+            and instance.sync_type == ExternalDataSchema.SyncType.CDC
+            and instance.cdc_table_mode == "cdc_only"
+        )
+        if "sync_type" in data and (crosses_xmin or leaves_cdc_only):
             if is_any_external_data_schema_paused(instance.team_id):
                 raise ValidationError(
                     "Monthly sync limit reached. Please increase your billing limit before changing "
@@ -1298,10 +1305,12 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "sync_type" not in data and instance.sync_type == ExternalDataSchema.SyncType.CDC
         )
         leaving_cdc = "sync_type" in data and not is_cdc and instance.sync_type == ExternalDataSchema.SyncType.CDC
+        # A reset handed to capture paused the schedule, and capture never resumes a table that left CDC.
+        resume_paused_schedule = leaving_cdc and bool((instance.sync_type_config or {}).get(CDC_RESET_PENDING_KEY))
         publication_removal: Callable[[], None] | None = None
         if (is_cdc or leaving_cdc) and source_type_supports_cdc(source.source_type):
             publication_removal = self._handle_cdc_publication_change(
-                instance, source, should_sync, sync_type, validated_data
+                instance, source, should_sync, sync_type, leaving_cdc, validated_data
             )
 
         if trigger_refresh:
@@ -1338,7 +1347,10 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                 self._run_temporal_side_effect(cancel_running_import)
 
         if source.supports_scheduled_sync and (
-            should_sync is not None or was_sync_frequency_updated or was_sync_time_of_day_updated
+            should_sync is not None
+            or was_sync_frequency_updated
+            or was_sync_time_of_day_updated
+            or resume_paused_schedule
         ):
 
             def update_schedule() -> None:
@@ -1350,7 +1362,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                 if schedule_exists:
                     if should_sync is False:
                         pause_external_data_schedule(str(updated_instance.id))
-                    elif should_sync is True and not reset_pending:
+                    elif (should_sync is True or (resume_paused_schedule and should_sync_value)) and not reset_pending:
                         unpause_external_data_schedule(str(updated_instance.id))
                 elif should_sync_value:
                     # No schedule yet but the schema should be syncing — create (or recover) it. The
@@ -1583,6 +1595,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         source: ExternalDataSource,
         should_sync: bool | None,
         sync_type: str | None,
+        leaving_cdc: bool,
         validated_data: dict[str, Any],
     ) -> Callable[[], None] | None:
         """Add/remove the table from the CDC capture set when a schema is toggled, set to CDC, or moved off CDC.
@@ -1605,12 +1618,6 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         newly_set_to_cdc = (
             sync_type == ExternalDataSchema.SyncType.CDC and instance.sync_type != ExternalDataSchema.SyncType.CDC
         )
-        leaving_cdc = (
-            "sync_type" in validated_data
-            and sync_type != ExternalDataSchema.SyncType.CDC
-            and instance.sync_type == ExternalDataSchema.SyncType.CDC
-        )
-
         # Add table to capture set when enabling CDC or toggling sync on
         if not leaving_cdc and (newly_set_to_cdc or (should_sync is True and not instance.should_sync)):
             try:
@@ -1647,6 +1654,9 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         # keeps decoding the table's changes only to drop them, and the source keeps streaming them.
         elif leaving_cdc or (should_sync is False and instance.should_sync):
             instance.sync_type_config.pop(CDC_SNAPSHOT_LANE_KEY, None)
+            if leaving_cdc:
+                # Capture only finishes a reset for a CDC table, so one left pending would never clear.
+                instance.sync_type_config.pop(CDC_RESET_PENDING_KEY, None)
             return lambda: adapter.remove_table(source, db_schema, source_table_name)
         return None
 

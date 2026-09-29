@@ -82,6 +82,7 @@ async def _run_post_load(
     run_scheduled = AsyncMock()
     with (
         patch(f"{_LOAD_MODULE}.prepare_s3_files_for_querying", prepare_s3),
+        patch(f"{_LOAD_MODULE}.own_linked_table", lambda schema, _pipeline: schema.table),
         patch(f"{_LOAD_MODULE}.is_schema_flag_enabled", MagicMock(return_value=double_buffer_enabled)),
         patch(f"{_LOAD_MODULE}._stored_sync_type_config", MagicMock(return_value=stored_sync_type_config)),
         patch(f"{_LOAD_MODULE}.notify_revenue_analytics_that_sync_has_completed", AsyncMock()),
