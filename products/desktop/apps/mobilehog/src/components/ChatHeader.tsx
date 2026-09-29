@@ -1,20 +1,15 @@
-import { useNavigation, useRouter } from "expo-router";
+import { useNavigation } from "expo-router";
 import { StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { GlassCircleButton } from "@/components/Glass";
-import { MenuIcon, NewChatIcon } from "@/components/Icons";
+import { MenuIcon } from "@/components/Icons";
 
 interface ChatHeaderProps {
-  showNewChat?: boolean;
   inline?: boolean;
 }
 
-export function ChatHeader({
-  showNewChat = true,
-  inline = false,
-}: ChatHeaderProps) {
+export function ChatHeader({ inline = false }: ChatHeaderProps) {
   const navigation = useNavigation<{ openDrawer: () => void }>();
-  const router = useRouter();
   const insets = useSafeAreaInsets();
   return (
     <View
@@ -29,11 +24,6 @@ export function ChatHeader({
         <MenuIcon />
       </GlassCircleButton>
       <View style={{ flex: 1 }} pointerEvents="none" />
-      {showNewChat ? (
-        <GlassCircleButton onPress={() => router.replace("/(drawer)")}>
-          <NewChatIcon />
-        </GlassCircleButton>
-      ) : null}
     </View>
   );
 }

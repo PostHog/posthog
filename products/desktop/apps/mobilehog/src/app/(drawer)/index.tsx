@@ -97,7 +97,7 @@ export default function NewChatScreen() {
 
   return (
     <DrawerScene>
-      <ChatHeader showNewChat={false} />
+      <ChatHeader />
       <Animated.View style={[styles.center, hero]}>
         <Logomark />
         <Text style={styles.greeting}>

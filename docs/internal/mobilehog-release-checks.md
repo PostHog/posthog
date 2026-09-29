@@ -38,6 +38,7 @@ The drawer shows one task list across all spaces, without space names or filters
 Task lists use the server's most recent activity order and support loading older pages.
 The search button opens a separate screen with its input above the keyboard.
 Search matches task titles, descriptions, and task numbers on the server, across all of the user's spaces in the selected project.
+Before a query, Search shows up to eight recent searches, not recent tasks. Completed searches stay on this device and are scoped to the signed-in account and project.
 Local Desktop runs remain on Desktop. Archived tasks stay outside the task list.
 Pull to refresh or return to the app to update tasks.
 
@@ -49,6 +50,7 @@ The mobile app does not show space names in the drawer, search, composer, or Act
 
 Inbox lists actionable reports where the signed-in user is a suggested reviewer, highest priority first.
 Opening a report marks it read on this device. Read actions clear the new-item indicators without dismissing the reports.
+Tapping a report in the list opens its full detail directly. The Triage button opens the swipe deck separately.
 Dismiss changes the report state for the project. Activity read state is stored on the server.
 Both lists support refresh and loading older items.
 Read actions appear only when visible items are unread.
@@ -56,6 +58,7 @@ Empty lists have a centered explanation. Loading and request failures have separ
 The empty Inbox does not show report instructions or review actions.
 
 Task conversations keep the header and reply box outside the scrolling messages.
+Conversations have no new-chat shortcut; use the drawer to start another task. The reply box has no top divider.
 The + button in both composers selects up to three photos from the device library.
 The composer previews selected photos, lets the user remove them, and sends images with the task message.
 Image-only messages get a short prompt. Images total no more than 5 MB; unsupported iOS formats convert to JPEG.

@@ -25,7 +25,7 @@ export const keys = {
   repositories: ["repositories"] as const,
 };
 
-export function useTasks(search = "") {
+export function useTasks(search = "", enabled = true) {
   const session = useAuth((s) => s.session);
   const query = useInfiniteQuery({
     queryKey: [...keys.tasks, "list", session?.userId, search],
@@ -43,7 +43,7 @@ export function useTasks(search = "") {
       const next = offset + page.tasks.length;
       return page.tasks.length > 0 && next < page.count ? next : undefined;
     },
-    enabled: !!session,
+    enabled: !!session && enabled,
     refetchInterval: (query) => {
       const tasks = query.state.data?.pages.flatMap((page) => page.tasks);
       const anyLive = tasks?.some((task) => {

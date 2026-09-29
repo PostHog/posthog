@@ -211,17 +211,28 @@ export default function ActivityScreen() {
                 onPress={() => open(row)}
                 style={({ pressed }) => [
                   styles.row,
+                  row.item.isUnread && styles.rowUnread,
                   pressed && { opacity: 0.5 },
                 ]}
               >
                 {row.icon ? (
-                  <AgentGlyph icon={row.icon} />
+                  <View style={!row.item.isUnread && styles.readGlyph}>
+                    <AgentGlyph icon={row.icon} />
+                  </View>
                 ) : (
-                  <View style={styles.avatar}>
+                  <View
+                    style={[
+                      styles.avatar,
+                      !row.item.isUnread && styles.readGlyph,
+                    ]}
+                  >
                     <Text style={styles.avatarText}>{row.initials}</Text>
                   </View>
                 )}
                 <View style={styles.body}>
+                  {row.item.isUnread ? (
+                    <Text style={styles.unreadLabel}>NEW</Text>
+                  ) : null}
                   <Text
                     style={[
                       styles.rowTitle,
@@ -331,6 +342,18 @@ const styles = StyleSheet.create({
     gap: 12,
     paddingVertical: 10,
     paddingHorizontal: 4,
+  },
+  rowUnread: {
+    backgroundColor: colors.fill,
+    borderRadius: 14,
+    paddingHorizontal: 10,
+  },
+  readGlyph: { opacity: 0.5 },
+  unreadLabel: {
+    fontFamily: fonts.sansBold,
+    fontSize: 11,
+    letterSpacing: 1,
+    color: colors.accent,
   },
   glyph: {
     width: 30,
