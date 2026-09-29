@@ -1,5 +1,4 @@
 import json
-from io import BytesIO
 from ipaddress import ip_address
 from uuid import uuid4
 
@@ -191,7 +190,7 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
                 "products.ai_observability.backend.llm.system_one.get_feature_flag_or_none",
                 return_value=operation != "prevalidate",
             ),
-            patch("requests.Session.request") as request,
+            patch("posthog.egress.typesafe.client._send_system_one") as request,
         ):
             if operation == "create":
                 response = self.client.post(
@@ -262,7 +261,7 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
 
     @patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("8.8.8.8")})
     @patch("posthog.egress.limiter.backends.LimitsBackend.consume_sync", return_value=True)
-    @patch("requests.Session.request")
+    @patch("posthog.egress.typesafe.client._send_system_one")
     @patch("products.ai_observability.backend.llm.system_one.get_feature_flag_or_none", return_value=True)
     def test_custom_system_one_connection_round_trip(
         self, _flag: Mock, request: Mock, _budget: Mock, _dns: Mock
@@ -279,7 +278,7 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
         def respond(*_args: object, **_kwargs: object) -> requests.Response:
             response = requests.Response()
             response.status_code = response_status
-            response.raw = BytesIO(body)
+            response._content = body
             return response
 
         request.side_effect = respond
@@ -300,7 +299,7 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
         self.assertEqual(Client.list_models("system_one", **key.provider_extra_kwargs()), ["custom-model"])
         model_config = LLMModelConfiguration(provider="system_one", model="custom-model", provider_key=key)
         self.assertEqual(model_config.get_available_models(), ["custom-model"])
-        self.assertNotIn("Authorization", request.call_args.kwargs["headers"])
+        self.assertEqual(request.call_args.kwargs["api_key"], "")
         request.reset_mock()
         response = self.client.patch(f"{url}{key.id}/", {"base_url": "https://other.example.com/v1"})
         self.assertEqual(response.status_code, 400)
@@ -322,10 +321,10 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
         self.assertEqual(response.status_code, 200, response.data)
         key.refresh_from_db()
         self.assertEqual(key.encrypted_config["base_url"], "https://other.example.com/v1")
-        self.assertEqual(request.call_args.kwargs["headers"]["Authorization"], "Bearer fake-token")
+        self.assertEqual(request.call_args.kwargs["api_key"], "fake-token")
         response = self.client.post(f"{url}{key.id}/validate/")
         self.assertEqual(response.status_code, 200, response.data)
-        self.assertEqual(request.call_args.args[1], "https://other.example.com/v1/systemone")
+        self.assertEqual(request.call_args.kwargs["url"], "https://other.example.com/v1/systemone")
 
     @patch("products.ai_observability.backend.api.provider_keys.validate_provider_key")
     def test_can_create_provider_key_with_set_as_active(self, mock_validate):
