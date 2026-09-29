@@ -189,6 +189,22 @@ describe('LegacyPluginExecutorService', () => {
                 },
             })
         })
+
+        it('should setup the plugin again when the hog function is updated', async () => {
+            jest.spyOn(customerIoPlugin, 'setupPlugin')
+
+            await service.execute(createExampleInvocation(fn, globals))
+
+            const updatedFn = { ...fn, updated_at: '2025-01-02T00:00:00.000Z' }
+            const updatedGlobals = { ...globals, inputs: { ...globals.inputs, customerioSiteId: 'new-site-id' } }
+            await service.execute(createExampleInvocation(updatedFn, updatedGlobals))
+            await service.execute(createExampleInvocation(updatedFn, updatedGlobals))
+
+            expect(customerIoPlugin.setupPlugin).toHaveBeenCalledTimes(2)
+            expect(jest.mocked(customerIoPlugin.setupPlugin!).mock.calls[1][0].config).toMatchObject({
+                customerioSiteId: 'new-site-id',
+            })
+        })
     })
 
     describe('onEvent', () => {
