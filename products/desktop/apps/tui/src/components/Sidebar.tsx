@@ -37,17 +37,23 @@ function Row({
     case "workspace":
       return (
         <Text wrap="truncate-end">
-          {row.expanded ? "▾" : "▸"} <Text inverse={selected}>{row.label}</Text>
+          <Text bold inverse={selected}>
+            {row.label}
+          </Text>
+          {!row.expanded && <Text dimColor> ({row.size})</Text>}
         </Text>
       );
     case "task":
       return (
-        <Box paddingLeft={row.nested ? 2 : 0}>
-          <Text wrap="truncate-end">
-            <IndicatorGlyph indicator={row.indicator} />{" "}
-            <Text inverse={selected}>{row.title}</Text>
-          </Text>
-        </Box>
+        <Text wrap="truncate-end">
+          {row.nested && <Text dimColor>{row.last ? "└ " : "├ "}</Text>}
+          {(row.indicator || !row.nested) && (
+            <>
+              <IndicatorGlyph indicator={row.indicator} />{" "}
+            </>
+          )}
+          <Text inverse={selected}>{row.title}</Text>
+        </Text>
       );
     case "loading":
       return <Spinner label="Loading cloud runs" />;

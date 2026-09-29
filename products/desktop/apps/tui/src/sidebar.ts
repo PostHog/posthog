@@ -12,7 +12,13 @@ export interface WorkPage {
 
 export type SidebarRow =
   | { kind: "heading"; label: "Work" }
-  | { kind: "workspace"; workspaceId: string; label: string; expanded: boolean }
+  | {
+      kind: "workspace";
+      workspaceId: string;
+      label: string;
+      expanded: boolean;
+      size: number;
+    }
   | {
       kind: "task";
       taskId: string | null;
@@ -20,6 +26,8 @@ export type SidebarRow =
       title: string;
       indicator: Indicator | null;
       nested: boolean;
+      // The final task in its workspace group, drawn with a closing connector.
+      last?: boolean;
     }
   | { kind: "loading" }
   | { kind: "empty" }
@@ -69,6 +77,7 @@ export function sidebarRows({
     paneId: string | null,
     nested: boolean,
     savedTitle?: string,
+    last?: boolean,
   ): SidebarRow => {
     const task = taskId ? byId.get(taskId) : undefined;
     return {
@@ -83,6 +92,7 @@ export function sidebarRows({
           ? null
           : indicatorFor(task, working.has(taskId)),
       nested,
+      last,
     };
   };
 
@@ -109,11 +119,14 @@ export function sidebarRows({
       workspaceId: workspace.id,
       label: `Workspace ${index + 1}`,
       expanded,
+      size: workspacePanes.length,
     });
-    for (const pane of workspacePanes) {
+    workspacePanes.forEach((pane, paneIndex) => {
       if (pane.taskId) splitTasks.add(pane.taskId);
-      if (expanded) rows.push(taskRow(pane.taskId, pane.id, true, pane.title));
-    }
+      if (!expanded) return;
+      const last = paneIndex === workspacePanes.length - 1;
+      rows.push(taskRow(pane.taskId, pane.id, true, pane.title, last));
+    });
   });
   rows.push(...unlisted);
 
