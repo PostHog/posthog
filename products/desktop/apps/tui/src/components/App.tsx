@@ -15,6 +15,7 @@ import {
   type LayoutNode,
   type LayoutState,
   loadLayout,
+  newChat,
   type PaneNode,
   paneIds,
   panes,
@@ -99,11 +100,12 @@ export function App({
   const chatViews = useRef(new Map<string, ChatView>());
   // Scrolling happens inside ChatView, so a tick tells React to repaint.
   const [, repaint] = useState(0);
-  const chatFor = (paneId: string): ChatView => {
-    let chat = chatViews.current.get(paneId);
+  // Keyed by pane and task, so a pane that switches task starts that chat at its latest message.
+  const chatFor = (key: string): ChatView => {
+    let chat = chatViews.current.get(key);
     if (!chat) {
       chat = new ChatView();
-      chatViews.current.set(paneId, chat);
+      chatViews.current.set(key, chat);
     }
     return chat;
   };
@@ -120,7 +122,10 @@ export function App({
     return composer;
   };
   const scrollPane = (paneId: string, lines: number): void => {
-    chatFor(paneId).scrollBy(lines);
+    const pane = layout.workspaces
+      .flatMap((w) => panes(w.root))
+      .find((candidate) => candidate.id === paneId);
+    chatFor(`${paneId}:${pane?.taskId ?? null}`).scrollBy(lines);
     repaint((tick) => tick + 1);
   };
 
@@ -271,6 +276,10 @@ export function App({
   useInput((input, key) => {
     const shortcut = shortcutFor(input, key);
     if (shortcut === "close") return close();
+    if (shortcut === "newChat") {
+      setLayout(newChat);
+      return;
+    }
     if (shortcut) {
       const direction = shortcut === "splitDown" ? "column" : "row";
       setLayout((current) => splitFocused(current, direction));
@@ -381,7 +390,7 @@ export function App({
           paneTaskId={node.taskId}
           task={taskOf(node.taskId)}
           runs={runs}
-          chat={chatFor(node.id)}
+          chat={chatFor(`${node.id}:${node.taskId}`)}
           composer={composerFor(node.id)}
           focused={!sidebarFocused && node.id === workspace.focusedPaneId}
         />

@@ -97,7 +97,10 @@ export function sidebarRows({
       const [pane] = workspacePanes;
       if (pane.taskId === null) rows.push(taskRow(null, pane.id, false));
       else if (listed.has(pane.taskId)) singlePaneOf.set(pane.taskId, pane.id);
-      else unlisted.push(taskRow(pane.taskId, pane.id, false, pane.title));
+      // Shown once the list has loaded, so loading never lists tasks by saved name alone.
+      else if (work.tasks !== null) {
+        unlisted.push(taskRow(pane.taskId, pane.id, false, pane.title));
+      }
       return;
     }
     const expanded = !collapsed.has(workspace.id);

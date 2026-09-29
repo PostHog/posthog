@@ -151,11 +151,66 @@ export function openTask(
     };
   }
 
+  // Outside splits there is one main view; a task opened there replaces what it showed.
+  const main =
+    active.root.kind === "pane"
+      ? active
+      : state.workspaces.find((w) => w.root.kind === "pane");
+  if (main) {
+    const pane = main.root as PaneNode;
+    return {
+      workspaces: state.workspaces.map((w) =>
+        w.id === main.id ? { ...w, root: { ...pane, taskId, title } } : w,
+      ),
+      activeWorkspaceId: main.id,
+      focus: "pane",
+    };
+  }
   const workspace = newWorkspace(taskId, title);
   return {
     workspaces: [...state.workspaces, workspace],
     activeWorkspaceId: workspace.id,
     focus: "pane",
+  };
+}
+
+// Empties the main view (making one if only splits exist) and focuses it.
+export function newChat(state: LayoutState): LayoutState {
+  const main = state.workspaces.find((w) => w.root.kind === "pane");
+  if (!main) {
+    const workspace = newWorkspace(null);
+    return {
+      workspaces: [...state.workspaces, workspace],
+      activeWorkspaceId: workspace.id,
+      focus: "pane",
+    };
+  }
+  const pane = main.root as PaneNode;
+  return {
+    workspaces: state.workspaces.map((w) =>
+      w.id === main.id
+        ? { ...w, root: { ...pane, taskId: null, title: undefined } }
+        : w,
+    ),
+    activeWorkspaceId: main.id,
+    focus: "pane",
+  };
+}
+
+// Splits are kept; of the single-pane views, only the active one (or else the last) survives.
+function withOneMainView(state: LayoutState): LayoutState {
+  const singles = state.workspaces.filter((w) => w.root.kind === "pane");
+  const keep =
+    singles.find((w) => w.id === state.activeWorkspaceId) ?? singles.at(-1);
+  const workspaces = state.workspaces.filter(
+    (w) => w.root.kind !== "pane" || w === keep,
+  );
+  return {
+    ...state,
+    workspaces,
+    activeWorkspaceId: workspaces.some((w) => w.id === state.activeWorkspaceId)
+      ? state.activeWorkspaceId
+      : workspaces[0].id,
   };
 }
 
@@ -219,7 +274,7 @@ export function loadLayout(path: string = LAYOUT_PATH): LayoutState {
     const valid =
       state.workspaces.length > 0 &&
       state.workspaces.every((w) => paneIds(w.root).includes(w.focusedPaneId));
-    return valid ? state : initialLayout();
+    return valid ? withOneMainView(state) : initialLayout();
   } catch {
     return initialLayout();
   }

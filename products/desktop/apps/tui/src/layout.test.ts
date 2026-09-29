@@ -11,6 +11,7 @@ import {
   initialLayout,
   type LayoutState,
   loadLayout,
+  newChat,
   openTask,
   paneIds,
   saveLayout,
@@ -61,11 +62,37 @@ describe("layout", () => {
     expect(focusedTask(state)).toBe("b");
   });
 
-  it("opens a task that is not open yet in a new workspace", () => {
+  it("shows a task that is not open in the main view, replacing what it showed", () => {
     const state = openTask(openTask(initialLayout(), "a"), "b");
+    expect(state.workspaces).toHaveLength(1);
+    expect(focusedTask(state)).toBe("b");
+  });
+
+  it("opens a task from a split in one main view and leaves the split alone", () => {
+    let state = openTask(
+      splitFocused(openTask(initialLayout(), "a"), "row"),
+      "b",
+    );
+    state = openTask(state, "c");
+    state = openTask(state, "d");
+
+    expect(state.workspaces).toHaveLength(2);
+    expect(state.workspaces[0].root).toMatchObject({ kind: "split" });
+    expect(focusedTask(state)).toBe("d");
+  });
+
+  it("clears the main view for a new chat, even from inside a split", () => {
+    let state = openTask(
+      splitFocused(openTask(initialLayout(), "a"), "row"),
+      "b",
+    );
+    state = newChat(openTask(state, "c"));
+    expect(state.workspaces).toHaveLength(2);
+    expect(focusedTask(state)).toBeNull();
+
+    state = newChat(focusPane(state, paneIds(state.workspaces[0].root)[0]));
     expect(state.workspaces).toHaveLength(2);
     expect(state.activeWorkspaceId).toBe(state.workspaces[1].id);
-    expect(focusedTask(state)).toBe("b");
   });
 
   it("jumps to the workspace and pane of a task that is already open", () => {
@@ -105,12 +132,19 @@ describe("layout", () => {
     expect(root).toMatchObject({ kind: "pane", taskId: "a" });
   });
 
-  it("closing a workspace's last pane moves to another workspace, and the very last pane quits", () => {
-    const two = openTask(openTask(initialLayout(), "a"), "b");
-    const one = closeFocused(two) as LayoutState;
-    expect(one.workspaces).toHaveLength(1);
-    expect(focusedTask(one)).toBe("a");
-    expect(closeFocused(one)).toBe("quit");
+  it("closing the main view moves to a split, and closing the very last pane quits", () => {
+    let state = openTask(
+      splitFocused(openTask(initialLayout(), "a"), "row"),
+      "b",
+    );
+    state = openTask(state, "c");
+
+    state = closeFocused(state) as LayoutState;
+    expect(state.workspaces).toHaveLength(1);
+    expect(focusedTask(state)).toBe("b");
+    state = closeFocused(state) as LayoutState;
+    expect(focusedTask(state)).toBe("a");
+    expect(closeFocused(state)).toBe("quit");
   });
 
   it.each([
@@ -150,6 +184,41 @@ describe("layout", () => {
     expect(activeWorkspace(loadLayout(path)).root).toMatchObject({
       children: [{ taskId: "a", title: "Renamed" }, { taskId: null }],
     });
+  });
+
+  it("drops leftover single-pane views from a saved layout, keeping splits and one main view", () => {
+    const dir = mkdtempSync(join(tmpdir(), "tui-layout-"));
+    const path = join(dir, "layout.json");
+    const single = (id: string) => ({
+      id,
+      root: { kind: "pane", id: `p-${id}`, taskId: id },
+      focusedPaneId: `p-${id}`,
+    });
+    const split = {
+      id: "s",
+      root: {
+        kind: "split",
+        direction: "row",
+        children: [
+          { kind: "pane", id: "p-s1", taskId: "x" },
+          { kind: "pane", id: "p-s2", taskId: null },
+        ],
+      },
+      focusedPaneId: "p-s1",
+    };
+    writeFileSync(
+      path,
+      JSON.stringify({
+        workspaces: [single("a"), split, single("b"), single("c")],
+        activeWorkspaceId: "b",
+        focus: "pane",
+      }),
+    );
+
+    const state = loadLayout(path);
+
+    expect(state.workspaces.map((w) => w.id)).toEqual(["s", "b"]);
+    expect(state.activeWorkspaceId).toBe("b");
   });
 
   it("restores a saved layout and falls back to a fresh one when the file is unreadable", () => {

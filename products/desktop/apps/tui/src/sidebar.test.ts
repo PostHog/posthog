@@ -2,9 +2,11 @@ import type { Task, TaskRun } from "@posthog/shared";
 import { describe, expect, it } from "vitest";
 import {
   activeWorkspace,
+  focusPane,
   initialLayout,
   type LayoutState,
   openTask,
+  paneIds,
   splitFocused,
 } from "./layout";
 import {
@@ -83,8 +85,13 @@ describe("sidebarRows", () => {
     expect(labels(rows)).toEqual(["# Work", "Task old", "Task a"]);
   });
 
-  it("names open tasks from the saved layout while the list loads, without a status yet", () => {
-    const layout = openTask(initialLayout(), "a", "Fix the flaky test");
+  it("shows only split workspaces, named from the saved layout, while the list loads", () => {
+    let layout = splitFocused(
+      openTask(initialLayout(), "a", "Fix the flaky test"),
+      "row",
+    );
+    layout = focusPane(layout, paneIds(activeWorkspace(layout).root)[0]);
+    layout = openTask(layout, "m", "Main view task");
     const rows = sidebarRows({
       layout,
       work: page({ tasks: null }),
@@ -92,8 +99,14 @@ describe("sidebarRows", () => {
       working: new Set(),
     });
 
-    expect(labels(rows)).toEqual(["# Work", "Fix the flaky test", "[loading]"]);
-    expect(rows[1]).toMatchObject({ kind: "task", indicator: null });
+    expect(labels(rows)).toEqual([
+      "# Work",
+      "v Workspace 1",
+      "  Fix the flaky test",
+      "  New chat",
+      "[loading]",
+    ]);
+    expect(rows[2]).toMatchObject({ kind: "task", indicator: null });
   });
 
   it("hides a collapsed workspace's tasks", () => {
@@ -121,9 +134,7 @@ describe("sidebarRows", () => {
     ],
     ["failed", page({ tasks: null, error: "boom" }), ["[error]"]],
   ])("Work list when %s", (_, work, expected) => {
-    expect(rowsFor(openTask(initialLayout(), "x"), work).slice(2)).toEqual(
-      expected,
-    );
+    expect(rowsFor(initialLayout(), work).slice(2)).toEqual(expected);
   });
 });
 
