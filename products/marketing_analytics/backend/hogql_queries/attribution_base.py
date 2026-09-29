@@ -165,25 +165,35 @@ class AttributionQueryRunnerBase(MarketingSessionBreakdownQueryRunnerBase[Respon
             return self.query.allowMultipleConversionsPerVisitor
         return self.goal.math not in [BaseMathType.DAU, "dau"]
 
-    def _lookback_date_conditions(self, date_range: QueryDateRange) -> list[ast.Expr]:
-        """Pageview bounds extended back by the attribution window, so touches that predate the
-        display range can still be credited for a conversion inside it."""
+    def _event_date_conditions(self, date_range: QueryDateRange, *, lookback_seconds: int = 0) -> list[ast.Expr]:
+        start: ast.Expr = ast.Call(name="toDateTime", args=[ast.Constant(value=date_range.date_from_str)])
+        if lookback_seconds:
+            start = ast.ArithmeticOperation(
+                left=start,
+                op=ast.ArithmeticOperationOp.Sub,
+                right=ast.Call(name="toIntervalSecond", args=[ast.Constant(value=lookback_seconds)]),
+            )
+        # A cast on the event field propagates to raw sessions, where HogQL treats the timestamp as untyped.
+        # A microsecond-precision end includes the full final second without casting the indexed column.
         return [
             ast.CompareOperation(
                 left=ast.Field(chain=["events", "timestamp"]),
                 op=ast.CompareOperationOp.GtEq,
-                right=ast.ArithmeticOperation(
-                    left=ast.Call(name="toDateTime", args=[ast.Constant(value=date_range.date_from_str)]),
-                    op=ast.ArithmeticOperationOp.Sub,
-                    right=ast.Call(name="toIntervalSecond", args=[ast.Constant(value=self.attribution_window_seconds)]),
-                ),
+                right=start,
             ),
             ast.CompareOperation(
                 left=ast.Field(chain=["events", "timestamp"]),
                 op=ast.CompareOperationOp.LtEq,
-                right=ast.Call(name="toDateTime", args=[ast.Constant(value=date_range.date_to_str)]),
+                right=ast.Call(name="toDateTime", args=[ast.Constant(value=f"{date_range.date_to_str}.999999")]),
             ),
         ]
+
+    def _lookback_date_conditions(self, date_range: QueryDateRange) -> list[ast.Expr]:
+        """Pageview bounds extended back by the attribution window, so touches that predate the
+        display range can still be credited for a conversion inside it.
+        The inclusive final second matches the conversion date filters.
+        """
+        return self._event_date_conditions(date_range, lookback_seconds=self.attribution_window_seconds)
 
     def _build_converters_select(self, date_range: QueryDateRange, *, with_bounds: bool = False) -> ast.SelectQuery:
         """Persons who converted in the window.
@@ -223,12 +233,24 @@ class AttributionQueryRunnerBase(MarketingSessionBreakdownQueryRunnerBase[Respon
             where=ast.And(
                 exprs=[
                     self.conversion_condition,
-                    *self._get_where_conditions(date_range, date_field="events.timestamp"),
+                    *self._event_date_conditions(date_range),
                     *self._test_account_conditions(),
                 ]
             ),
             group_by=[ast.Field(chain=["events", "person_id"])],
         )
+
+    def _person_arrays_select(self, date_range: QueryDateRange) -> ast.SelectQuery:
+        """The credit side, served from the precompute when it can."""
+        if self.config.sessions_precomputation_enabled:
+            from .attribution_sessions_read import build_person_arrays  # noqa: PLC0415 (import cycle)
+
+            with self.timings.measure("attribution_sessions_precompute_credit"):
+                precomputed = build_person_arrays(self, date_range)
+            if precomputed is not None:
+                self._sessions_precompute_used = True
+                return precomputed
+        return self._build_person_arrays_select(date_range)
 
     def _build_person_arrays_select(self, date_range: QueryDateRange) -> ast.SelectQuery:
         """One row per converting person: its conversions, plus a deduped touchpoint set.
@@ -258,7 +280,7 @@ class AttributionQueryRunnerBase(MarketingSessionBreakdownQueryRunnerBase[Respon
                 ast.And(
                     exprs=[
                         self.conversion_condition,
-                        *self._get_where_conditions(date_range, date_field="events.timestamp"),
+                        *self._event_date_conditions(date_range),
                     ]
                 ),
             ],
@@ -346,7 +368,7 @@ class AttributionQueryRunnerBase(MarketingSessionBreakdownQueryRunnerBase[Respon
                     ast.And(
                         exprs=[
                             self.conversion_condition,
-                            *self._get_where_conditions(date_range, date_field="events.timestamp"),
+                            *self._event_date_conditions(date_range),
                         ]
                     )
                 ],
@@ -389,7 +411,7 @@ class AttributionQueryRunnerBase(MarketingSessionBreakdownQueryRunnerBase[Respon
                             ast.And(
                                 exprs=[
                                     self.conversion_condition,
-                                    *self._get_where_conditions(date_range, date_field="events.timestamp"),
+                                    *self._event_date_conditions(date_range),
                                 ]
                             ),
                             ast.And(

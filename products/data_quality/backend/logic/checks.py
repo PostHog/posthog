@@ -28,7 +28,9 @@ from posthog.temporal.common.client import sync_connect
 from ..facade.contracts import CHECK_SUITE_WORKFLOW_NAME
 from ..facade.enums import SubjectHealth, SubjectStatus, SubjectType, SuiteRunStatus, SuiteRunTrigger
 from ..models import DataQualityCheck, DataQualityCheckRun, DataQualitySuiteRun
+from . import posthog_tables
 from .compiler import related_subject_ref
+from .contracts import SubjectRef
 from .errors import (
     CheckConfigError,
     ConcurrentEditError,
@@ -40,9 +42,10 @@ from .exceptions import CheckNameConflict
 from .health import CheckStatusRow, roll_up_health
 from .registry import get_spec
 from .schedules import provision_schedule
-from .serialization import compute_fingerprint
+from .serialization import canonical_config, compute_fingerprint
 from .spec import CheckConfig
-from .subjects import resolve_subject, subject_column_type
+from .subject_schedules import SCHEDULE_TYPES
+from .subjects import posthog_table_column_is_selectable, resolve_subject, subject_column_type
 
 _UPSERTABLE_FIELDS = (
     "name",
@@ -80,6 +83,11 @@ def subject_filter(subject_type: str, subject_uuid: str | UUID) -> dict[str, Any
         return {"saved_query_id": subject_uuid}
     if subject_type == SubjectType.METRIC:
         return {"metric_id": subject_uuid}
+    if subject_type == SubjectType.POSTHOG_TABLE:
+        entry = posthog_tables.by_id(subject_uuid)
+        if entry is None:
+            raise ValueError(f"Unknown PostHog table: {subject_uuid}")
+        return {"posthog_table": entry.name}
     raise ValueError(f"Unknown check subject type: {subject_type}")
 
 
@@ -106,15 +114,35 @@ def validate_check(
         raise SubjectUnresolvableError(f"No {subject_type} with id {subject_uuid} in this project.")
     if subject.subject_type == SubjectType.METRIC and column_name:
         raise CheckConfigError("A check on a metric takes no column. Remove the column and save again.")
+    if parsed.lookback_hours is not None and not subject.time_column:
+        raise CheckConfigError(f"A {subject_type} has no time column, so it cannot take a lookback_hours window.")
+    _require_selectable_posthog_column(subject, column_name)
     spec.referenced_table_names(parsed, subject)
     # After the subject resolves, so the column type is only looked up for a check that could run.
     parsed = spec.coerce_to_column(parsed, subject_column_type(team.id, subject_type, subject_uuid, column_name))
 
     related = related_subject_ref(check_type, config)
-    if related and not resolve_subject(team.id, *related).exists:
-        raise SubjectUnresolvableError(f"The referenced {related[0]} {related[1]} does not exist.")
+    if related:
+        related_subject = resolve_subject(team.id, *related)
+        if not related_subject.exists:
+            raise SubjectUnresolvableError(f"The referenced {related[0]} {related[1]} does not exist.")
+        # Same rule as the subject's own window above, on the second subject a relationships check
+        # reads. ``build`` keeps its own guard, so this is refused at authoring time rather than on
+        # every run.
+        if getattr(parsed, "to_lookback_hours", None) is not None and not related_subject.time_column:
+            raise CheckConfigError(
+                f"The referenced {related[0]} has no time column, so it cannot take a to_lookback_hours window."
+            )
+        _require_selectable_posthog_column(related_subject, getattr(parsed, "to_column", ""))
 
     return parsed
+
+
+def _require_selectable_posthog_column(subject: SubjectRef, column_name: str) -> None:
+    if subject.subject_type != SubjectType.POSTHOG_TABLE or not column_name:
+        return
+    if not posthog_table_column_is_selectable(subject.subject_uuid, column_name):
+        raise CheckConfigError(f"{subject.name} has no column named {column_name}. Pick one of its listed columns.")
 
 
 def upsert_check(
@@ -134,7 +162,7 @@ def upsert_check(
 
     # Stored in the same canonical form the fingerprint hashes, so a created check and one edited
     # into the same definition are indistinguishable afterwards.
-    canonical = parsed.model_dump(mode="json")
+    canonical = canonical_config(parsed)
     fingerprint = compute_fingerprint(
         subject_type=subject_type,
         subject_uuid=str(subject_uuid),
@@ -166,7 +194,7 @@ def upsert_check(
                     **subject_filter(subject_type, subject_uuid),
                     **fields,
                 )
-                if check.subject_type == SubjectType.METRIC and check.metric_id:
+                if check.subject_type in SCHEDULE_TYPES:
                     transaction.on_commit(
                         partial(provision_schedule, check.team_id, subject_type, str(check.subject_uuid))
                     )
@@ -312,7 +340,7 @@ def _candidate_definition(team: Team, check: DataQualityCheck, requested: dict[s
         column_name,
         requested.get("config", check.config) or {},
     )
-    config = parsed.model_dump(mode="json")
+    config = canonical_config(parsed)
     return _CandidateDefinition(
         check_type=check_type,
         column_name=column_name,
@@ -356,6 +384,7 @@ def live_subject_checks(checks: QuerySet[DataQualityCheck]) -> QuerySet[DataQual
             Q(subject_type=SubjectType.METRIC, metric_id__isnull=False)
             | Q(subject_type=SubjectType.VIEW, saved_query_id__isnull=False)
             | Q(subject_type=SubjectType.TABLE, table_id__isnull=False)
+            | Q(subject_type=SubjectType.POSTHOG_TABLE, posthog_table__in=posthog_tables.names())
         )
         .exclude(metric__deleted=True)
         .exclude(saved_query__deleted=True)
@@ -436,6 +465,7 @@ def start_check_suite(
         saved_query_ids=subject_uuids if subject_type == SubjectType.VIEW else [],
         table_ids=subject_uuids if subject_type == SubjectType.TABLE else [],
         metric_ids=subject_uuids if subject_type == SubjectType.METRIC else [],
+        posthog_table_ids=subject_uuids if subject_type == SubjectType.POSTHOG_TABLE else [],
         check_ids=check_ids or [],
         suite_run_id=str(suite_run.id),
         created_by_id=user.id if user else None,

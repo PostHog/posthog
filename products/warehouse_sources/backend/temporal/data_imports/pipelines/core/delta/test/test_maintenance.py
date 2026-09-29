@@ -8,6 +8,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
     COMPACT_OFFSET_OVERFLOW_RETRIES,
     DeltaMaintenance,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.ops import (
+    ObjectStorePermissionDeniedError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.test.helpers import make_logger
 
 _MAINTENANCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.maintenance"
@@ -127,34 +130,15 @@ class TestCompactIfFragmented:
             mock_vacuum.assert_not_called()
 
 
-class TestCompactTable:
-    @pytest.mark.asyncio
-    async def test_does_not_refetch_table_for_the_vacuum_step(self):
-        # Regression: compact_table used to finish its own compact, then call vacuum_table(),
-        # which called get_delta_table() again instead of reusing the table already in hand.
-        # get_delta_table() is cached only opportunistically (a concurrent sync of a different
-        # table can evict this table's cache entry), so that second call could come back None
-        # and raise "Deltatable not found" right after a successful compact. Asserting a single
-        # get_delta_table() call locks in that the vacuum step reuses the resolved table instead
-        # of re-deriving it.
-        mock_delta = MagicMock()
-        mock_delta.optimize.compact = MagicMock(return_value={})
-        mock_delta.vacuum = MagicMock(return_value=[])
-        maintenance = _make_maintenance(mock_delta)
-
-        await maintenance.compact_table()
-
-        maintenance._table.get_delta_table.assert_called_once()
-        mock_delta.optimize.compact.assert_called_once()
-        mock_delta.vacuum.assert_called_once()
-
+class TestCompactConflictRetry:
     @pytest.mark.asyncio
     async def test_retries_compact_on_commit_conflict_then_succeeds(self):
-        # compact_table's optimize.compact() commits a REMOVE+ADD when rewriting fragmented files —
-        # the same commit-conflict shape as a merge (see test_ops.TestExecuteWithConflictRetry).
-        # Regression coverage for a CommitFailedError propagating straight out of compact_table on
-        # the first conflict instead of retrying with a refreshed table, like the write merges do.
+        # optimize.compact() commits a REMOVE+ADD when rewriting fragmented files — the same
+        # commit-conflict shape as a merge (see test_ops.TestExecuteWithConflictRetry). Regression
+        # coverage for a CommitFailedError propagating straight out on the first conflict instead of
+        # retrying with a refreshed table, like the write merges do.
         mock_delta = MagicMock()
+        mock_delta.file_uris = MagicMock(return_value=[f"s3://t/{i}.parquet" for i in range(3)])
         mock_delta.optimize.compact = MagicMock(
             side_effect=[
                 deltalake.exceptions.CommitFailedError(
@@ -165,8 +149,9 @@ class TestCompactTable:
         )
         mock_delta.vacuum = MagicMock(return_value=[])
 
-        await _make_maintenance(mock_delta).compact_table()
+        compacted = await _make_maintenance(mock_delta).compact_if_fragmented(partition_count=1, threshold=1)
 
+        assert compacted is True
         assert mock_delta.optimize.compact.call_count == 2
         mock_delta.update_incremental.assert_called_once()
 
@@ -189,7 +174,7 @@ class TestCompactOffsetOverflow:
         )
         mock_delta.vacuum = MagicMock(return_value=[])
 
-        await _make_maintenance(mock_delta).compact_table()
+        await _make_maintenance(mock_delta)._compact(mock_delta)
 
         assert mock_delta.optimize.compact.call_count == 2
         first_target_size = mock_delta.optimize.compact.call_args_list[0].kwargs["target_size"]
@@ -226,9 +211,9 @@ class TestVacuum:
     @pytest.mark.asyncio
     async def test_retries_on_commit_conflict_then_succeeds(self):
         # vacuum() commits a REMOVE of tombstoned files — the same commit-conflict shape as
-        # optimize.compact() (see TestCompactTable.test_retries_compact_on_commit_conflict_then_succeeds).
+        # optimize.compact() (see TestCompactConflictRetry.test_retries_compact_on_commit_conflict_then_succeeds).
         # Regression coverage for a CommitFailedError propagating straight out of _vacuum on the first
-        # conflict instead of retrying with a refreshed table, like compact_table already does.
+        # conflict instead of retrying with a refreshed table, like _compact already does.
         mock_delta = MagicMock()
         mock_delta.vacuum = MagicMock(
             side_effect=[
@@ -319,7 +304,7 @@ class TestRunMaintenance:
 
 class TestRunScheduled:
     """run_scheduled owns the vacuum-watermark lifecycle for both call sites (pre-write defensive
-    pass and CDC post-load), so watermark-key selection, persistence gating, and the never-raise
+    pass and post-load), so watermark-key selection, persistence gating, and the never-raise
     contract all live here."""
 
     def _schema(self) -> MagicMock:
@@ -436,6 +421,12 @@ class TestRunScheduled:
                 ),
                 False,
             ),
+            # A refused read/write/delete on our own bucket is a policy condition rather than a
+            # maintenance defect, and no code change fixes it, so reporting it once per sync says
+            # the same thing repeatedly. The watermark assertion below is what keeps the cadence
+            # re-attempting the vacuum instead of waiting another commit_threshold commits for a
+            # cleanup that never ran.
+            ("object_store_refusal_warned_only", ObjectStorePermissionDeniedError("denied"), False),
         ]
     )
     @pytest.mark.asyncio

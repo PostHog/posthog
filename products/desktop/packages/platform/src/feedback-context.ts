@@ -6,6 +6,7 @@ export interface FeedbackImageUpload {
 export interface FeedbackSubmissionInput {
   response: string;
   source: string;
+  feedbackType?: "bug" | "feature" | "general";
   feedbackView: string;
   feedbackTaskId?: string;
   feedbackFolderId?: string;

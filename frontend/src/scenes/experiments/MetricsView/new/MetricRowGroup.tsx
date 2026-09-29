@@ -538,6 +538,14 @@ interface MetricRowGroupProps {
     showDetailsModal: boolean
 }
 
+/**
+ * Tooltip state is per MetricRowGroup, and a tooltip can outlive the cursor on its
+ * close-grace timer. Without coordination, sweeping the cursor across groups shows
+ * several tooltips at once. The group that owns the open tooltip registers its close
+ * function here, and the next group to open a tooltip calls it first.
+ */
+let closeOpenTooltip: (() => void) | null = null
+
 export function MetricRowGroup({
     metric,
     result,
@@ -583,6 +591,7 @@ export function MetricRowGroup({
     })
     const tooltipRef = useRef<HTMLDivElement>(null)
     const tooltipCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+    const ownsOpenTooltipRef = useRef(false)
     const colors = useChartColors()
 
     const clearTooltipCloseTimer = (): void => {
@@ -593,6 +602,10 @@ export function MetricRowGroup({
     }
 
     const hideTooltipState = (): void => {
+        if (ownsOpenTooltipRef.current) {
+            ownsOpenTooltipRef.current = false
+            closeOpenTooltip = null
+        }
         setTooltipState((prev) => ({
             ...prev,
             isVisible: false,
@@ -617,6 +630,10 @@ export function MetricRowGroup({
     useEffect(() => {
         return () => {
             clearTooltipCloseTimer()
+            if (ownsOpenTooltipRef.current) {
+                ownsOpenTooltipRef.current = false
+                closeOpenTooltip = null
+            }
         }
     }, [])
 
@@ -710,6 +727,11 @@ export function MetricRowGroup({
         }
 
         clearTooltipCloseTimer()
+        if (!ownsOpenTooltipRef.current) {
+            closeOpenTooltip?.()
+        }
+        closeOpenTooltip = closeTooltipNow
+        ownsOpenTooltipRef.current = true
         const position = calculateTooltipPosition(chartCell, variantResult)
         setTooltipState({
             isVisible: true,

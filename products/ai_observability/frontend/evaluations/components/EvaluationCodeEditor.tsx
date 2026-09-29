@@ -9,8 +9,15 @@ import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { useOpenAi } from '~/scenes/max/useOpenAi'
 import { urls } from '~/scenes/urls'
 
+import { EvaluationResultTag } from '../../components/EvaluationResultTag'
 import type { TestHogResultItemApi } from '../../generated/api.schemas'
-import { evaluationIsDetector } from '../constants'
+import {
+    categoricalOutputConfigError,
+    categoricalResultPasses,
+    evaluationIsDetector,
+    numericOutputConfigError,
+    numericScorePasses,
+} from '../constants'
 import { HOG_EVAL_EXAMPLES } from '../hogEvalExamples'
 import { llmEvaluationLogic } from '../llmEvaluationLogic'
 import type { EvaluationTarget } from '../types'
@@ -198,24 +205,48 @@ export function HogTestResultsPanel(): JSX.Element | null {
 
     // Every result here belongs to `evaluation`, so its polarity applies to the whole panel.
     const trueIsFailure = !!evaluation && evaluationIsDetector(evaluation)
-    const passed = hogTestResults?.filter((r) => r.result === !trueIsFailure).length ?? 0
-    const failed = hogTestResults?.filter((r) => r.result === trueIsFailure).length ?? 0
-    const na = hogTestResults?.filter((r) => r.result === null && !r.error).length ?? 0
+    const numeric = evaluation?.output_type === 'numeric'
+    const categorical = evaluation?.output_type === 'categorical'
+    const rule = evaluation?.output_config.passing_rule
+    const passed =
+        hogTestResults?.filter((r) =>
+            categorical
+                ? categoricalResultPasses(r.categories, rule) === true
+                : numeric
+                  ? numericScorePasses(r.score, rule) === true
+                  : r.result === !trueIsFailure
+        ).length ?? 0
+    const failed =
+        hogTestResults?.filter((r) =>
+            categorical
+                ? categoricalResultPasses(r.categories, rule) === false
+                : numeric
+                  ? numericScorePasses(r.score, rule) === false
+                  : r.result === trueIsFailure
+        ).length ?? 0
+    const na =
+        hogTestResults?.filter(
+            (r) => (categorical ? r.categories == null : numeric ? r.score == null : r.result === null) && !r.error
+        ).length ?? 0
     const errors = hogTestResults?.filter((r) => r.error !== null).length ?? 0
 
     return (
         <div className="border rounded p-3 space-y-2">
             <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3 text-sm">
+                <div className="flex flex-wrap items-center gap-3 text-sm">
                     <span className="font-semibold">Test results</span>
                     {hogTestResults && (
                         <>
-                            <LemonTag type="success" icon={<IconCheck />}>
-                                {passed} passed
-                            </LemonTag>
-                            <LemonTag type="danger" icon={<IconX />}>
-                                {failed} failed
-                            </LemonTag>
+                            {(!(numeric || categorical) || rule) && (
+                                <>
+                                    <LemonTag type="success" icon={<IconCheck />}>
+                                        {passed} passed
+                                    </LemonTag>
+                                    <LemonTag type="danger" icon={<IconX />}>
+                                        {failed} failed
+                                    </LemonTag>
+                                </>
+                            )}
                             {na > 0 && (
                                 <LemonTag type="muted" icon={<IconMinus />}>
                                     {na} N/A
@@ -250,6 +281,22 @@ export function HogTestResultsPanel(): JSX.Element | null {
                                             </LemonTag>
                                         </span>
                                     </Tooltip>
+                                )
+                            }
+                            if (numeric || categorical) {
+                                return (
+                                    <EvaluationResultTag
+                                        run={{
+                                            status: 'completed',
+                                            result: null,
+                                            result_type: categorical ? 'categorical' : 'numeric',
+                                            categories: row.categories,
+                                            score: row.score,
+                                            applicable: categorical ? row.categories != null : row.score != null,
+                                        }}
+                                        passingRule={rule}
+                                        categoryOptions={evaluation?.output_config.options}
+                                    />
                                 )
                             }
                             if (row.result === null) {
@@ -323,7 +370,7 @@ export function HogTestResultsPanel(): JSX.Element | null {
 
 export function EvaluationCodeEditor(): JSX.Element {
     const { evaluation, hogTestResultsLoading } = useValues(llmEvaluationLogic)
-    const { setHogSource, testHogOnSample } = useActions(llmEvaluationLogic)
+    const { setHogSource, setAllowsNA, testHogOnSample } = useActions(llmEvaluationLogic)
     const { openAi } = useOpenAi()
 
     if (!evaluation || evaluation.evaluation_type !== 'hog') {
@@ -354,7 +401,7 @@ export function EvaluationCodeEditor(): JSX.Element {
                         quickSuggestionsDelay: 300,
                     }}
                 />
-                <div className="flex justify-between items-center text-sm text-muted">
+                <div className="flex flex-wrap gap-2 justify-between items-center text-sm text-muted">
                     <div className="flex items-center gap-2">
                         <Tooltip
                             title={
@@ -370,6 +417,13 @@ export function EvaluationCodeEditor(): JSX.Element {
                                 size="xsmall"
                                 loading={hogTestResultsLoading}
                                 disabled={!source.trim()}
+                                disabledReason={
+                                    evaluation.output_type === 'categorical'
+                                        ? categoricalOutputConfigError(evaluation.output_config)
+                                        : evaluation.output_type === 'numeric'
+                                          ? numericOutputConfigError(evaluation.output_config)
+                                          : null
+                                }
                                 onClick={() => testHogOnSample()}
                                 data-attr="llma-evaluation-test-hog"
                             >
@@ -399,9 +453,17 @@ export function EvaluationCodeEditor(): JSX.Element {
                     <div className="flex items-center gap-2">
                         <span>Expected output:</span>
                         <LemonTag type="completion">
-                            {evaluation.output_config.allows_na
-                                ? 'Boolean or null (true/false/null)'
-                                : 'Boolean (true/false)'}
+                            {evaluation.output_type === 'categorical'
+                                ? evaluation.output_config.allows_na
+                                    ? 'Category keys or null'
+                                    : 'Category keys'
+                                : evaluation.output_type === 'numeric'
+                                  ? evaluation.output_config.allows_na
+                                      ? 'Number or null'
+                                      : 'Number'
+                                  : evaluation.output_config.allows_na
+                                    ? 'Boolean or null (true/false/null)'
+                                    : 'Boolean (true/false)'}
                         </LemonTag>
                     </div>
                 </div>
@@ -420,17 +482,37 @@ export function EvaluationCodeEditor(): JSX.Element {
                     </Link>
                 </div>
                 <div className="flex flex-wrap gap-1.5 mb-3">
-                    {HOG_EVAL_EXAMPLES.map((example) => (
+                    {(evaluation.output_type === 'categorical'
+                        ? (evaluation.output_config.options ?? [])
+                              .slice(0, 2)
+                              .map(({ key, label }) => ({ label, source: `return ['${key}'];` }))
+                        : evaluation.output_type === 'numeric'
+                          ? [
+                                { label: 'Latency', source: 'return target.total_latency_seconds;' },
+                                { label: 'Cost', source: 'return target.total_cost_usd;' },
+                            ]
+                          : HOG_EVAL_EXAMPLES
+                    ).map((example) => (
                         <LemonButton
                             key={example.label}
                             type="secondary"
                             size="xsmall"
-                            onClick={() => setHogSource(example.source)}
+                            onClick={() => {
+                                if (evaluation.output_type === 'numeric') {
+                                    setAllowsNA(true)
+                                }
+                                setHogSource(example.source)
+                            }}
                         >
                             {example.label}
                         </LemonButton>
                     ))}
                 </div>
+                {evaluation.output_type === 'numeric' && (
+                    <p className="text-xs text-muted mb-3">
+                        These examples enable N/A for missing cost or latency measurements.
+                    </p>
+                )}
                 <h4 className="text-sm font-semibold mb-2">Available globals</h4>
                 <dl className="grid grid-cols-[max-content_minmax(0,1fr)] items-start gap-x-3 gap-y-2 text-sm text-muted">
                     {HOG_EVAL_COMMON_GLOBAL_DEFINITIONS.map((globalDefinition) => (
@@ -461,14 +543,25 @@ export function EvaluationCodeEditor(): JSX.Element {
                 <h4 className="text-sm font-semibold mt-3 mb-2">Tips</h4>
                 <ul className="text-sm text-muted space-y-1 list-disc list-inside">
                     <li>
-                        Return <code>true</code> ({trueIsFailure ? 'fail' : 'pass'}) or <code>false</code> (
-                        {trueIsFailure ? 'pass' : 'fail'})
-                        {evaluation.output_config.allows_na ? (
+                        {evaluation.output_type === 'categorical' ? (
+                            <span>
+                                Return configured category keys in a list. An empty list is valid for multiple
+                                selection; null means N/A when allowed.
+                            </span>
+                        ) : evaluation.output_type === 'numeric' ? (
+                            <span>Return a number within the configured bounds.</span>
+                        ) : (
                             <>
-                                {' '}
-                                or <code>null</code> (N/A)
+                                Return <code>true</code> ({trueIsFailure ? 'fail' : 'pass'}) or <code>false</code> (
+                                {trueIsFailure ? 'pass' : 'fail'})
+                                {evaluation.output_config.allows_na ? (
+                                    <>
+                                        {' '}
+                                        or <code>null</code> (N/A)
+                                    </>
+                                ) : null}
                             </>
-                        ) : null}
+                        )}
                     </li>
                     {evaluation.output_config.allows_na && (
                         <li>

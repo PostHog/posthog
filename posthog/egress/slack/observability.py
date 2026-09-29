@@ -22,6 +22,8 @@ slack_egress = EgressObservability(
 
 # Slack returns no remaining-budget headers. Its only budget signal is the Retry-After on a 429,
 # which applies to one app and one Web API method, so the resource label carries both.
+# One-off: the SDK retry handler sets it on a 429, outside the header parse `EgressMetrics` runs.
+# nosemgrep: shared-mechanisms-stay-out-of-egress-and-ingress-domains
 _retry_at_gauge = Gauge(
     "slack_api_rate_limit_reset_timestamp_seconds",
     "Slack API retry timestamp after a rate-limited response.",

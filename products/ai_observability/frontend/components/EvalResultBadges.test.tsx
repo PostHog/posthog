@@ -9,7 +9,12 @@ import { llmEvaluationsLogic } from '../evaluations/llmEvaluationsLogic'
 import { EvaluationConfig, EvaluationRun } from '../evaluations/types'
 import { generationEvaluationRunsLogic } from '../generationEvaluationRunsLogic'
 import { EvalResultBadges, getEvalBadgeProps, getEvalSummaries, scopeRunsToTarget } from './EvalResultBadges'
-import { getEvaluationResultDisplay, getEvaluationResultSortValue, isSentimentRun } from './EvaluationResultTag'
+import {
+    compareEvaluationResults,
+    getEvaluationResultDisplay,
+    getEvaluationResultSortValue,
+    isSentimentRun,
+} from './EvaluationResultTag'
 
 function makeRun(overrides: Partial<EvaluationRun> = {}): EvaluationRun {
     return {
@@ -27,6 +32,66 @@ function makeRun(overrides: Partial<EvaluationRun> = {}): EvaluationRun {
 }
 
 describe('EvalResultBadges', () => {
+    it('sorts numeric scores together without colliding with status ranks', () => {
+        const rows = [
+            makeRun({ id: 'negative', result_type: 'numeric', score: -10 }),
+            makeRun({ id: 'na', result_type: 'numeric', applicable: false }),
+            makeRun({ id: 'zero', result_type: 'numeric', score: 0 }),
+            makeRun({ id: 'skipped', skipped: true }),
+            makeRun({ id: 'positive', result_type: 'numeric', score: 2 }),
+            makeRun({ id: 'error', status: 'failed' }),
+            makeRun({ id: 'boolean', result: true }),
+        ]
+        expect(rows.sort((a, b) => compareEvaluationResults(b, a)).map((run) => run.id)).toEqual([
+            'positive',
+            'zero',
+            'negative',
+            'boolean',
+            'na',
+            'skipped',
+            'error',
+        ])
+    })
+
+    it.each([
+        [1 / 3, '0.333333'],
+        [123456789, '123456789'],
+        [-123456789, '-123456789'],
+        [0.0000000123456789, '1.23457e-8'],
+        [1234567.1234567, '1234567.123457'],
+    ])('formats score %s without dropping integer digits', (score, label) => {
+        expect(getEvaluationResultDisplay(makeRun({ result_type: 'numeric', score })).label).toBe(label)
+    })
+
+    it.each([
+        [[], true, ['resolved'], 'danger', 'No categories'],
+        [['resolved'], true, ['resolved'], 'success', 'Resolved'],
+        [['resolved', 'incorrect'], true, ['resolved'], 'danger', 'Resolved, incorrect'],
+        [[], true, [], 'success', 'No categories'],
+        [['resolved'], true, [], 'danger', 'Resolved'],
+        [[], true, null, 'none', 'No categories'],
+        [null, false, ['resolved'], 'muted', 'N/A'],
+        [null, false, [], 'muted', 'N/A'],
+    ] as const)(
+        'renders categorical results %s without confusing empty selections and N/A',
+        (categories, applicable, passingCategories, type, label) => {
+            expect(
+                getEvaluationResultDisplay(
+                    makeRun({
+                        result_type: 'categorical',
+                        result: null,
+                        categories: categories ? [...categories] : null,
+                        applicable,
+                    }),
+                    {
+                        passingRule: passingCategories ? { categories: [...passingCategories] } : null,
+                        categoryOptions: [{ key: 'resolved', label: 'Resolved' }],
+                    }
+                )
+            ).toMatchObject({ type, label })
+        }
+    )
+
     describe('getEvalSummaries', () => {
         it('returns empty array for empty input', () => {
             expect(getEvalSummaries([])).toEqual([])

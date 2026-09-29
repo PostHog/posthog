@@ -1,3 +1,4 @@
+import json
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any, NoReturn
 
@@ -78,21 +79,81 @@ def build_non_retryable_errors_redis_key(team_id: int, source_id: str, run_id: s
 NON_RETRYABLE_ERROR_RETRY_LIMIT = 3
 
 
+UNREADABLE_JOB_INPUTS_MESSAGE = (
+    "Can't read this source's saved connection settings. Reconnect the source to fix the sync."
+)
+
+
+class UnreadableJobInputsError(Exception):
+    """A stored `job_inputs` value that holds no mapping, so no run of this source can read it.
+
+    Raised as the cause of a `NonRetryableException` because the workflow reads the customer-facing
+    error text off the cause, not off the wrapper.
+    """
+
+
+def _decode_job_inputs(job_inputs: str) -> dict[str, Any]:
+    """Recover the config mapping from a `job_inputs` value stored as a JSON string.
+
+    `EncryptedJSONField` encrypts a mapping value by value, but stringifies and encrypts anything
+    else whole, and its read path hands a scalar straight back without parsing it. So a config
+    written as a JSON string instead of a mapping decodes to that same string on every later read,
+    with the mapping still inside it as plain JSON. `Config.from_dict` recovers such a config the
+    same way, so decoding here keeps the two readers in agreement.
+    """
+    try:
+        decoded = json.loads(job_inputs)
+    except ValueError:
+        # Text that holds no JSON and JSON that holds no mapping leave the caller with the same
+        # unusable config, so both take the branch below.
+        decoded = None
+
+    if not isinstance(decoded, dict):
+        raise NonRetryableException() from UnreadableJobInputsError(UNREADABLE_JOB_INPUTS_MESSAGE)
+
+    return decoded
+
+
 async def trim_source_job_inputs(source: "ExternalDataSource") -> None:
-    # job_inputs is an EncryptedJSONField, so it can decode to a non-dict (e.g. a bare string)
-    # for a malformed source config — nothing to trim key-by-key in that case.
-    if not isinstance(source.job_inputs, dict):
+    decoded_from_string = isinstance(source.job_inputs, str)
+    if decoded_from_string:
+        job_inputs = _decode_job_inputs(source.job_inputs)
+    elif isinstance(source.job_inputs, dict):
+        job_inputs = source.job_inputs
+    else:
+        # An unconfigured source (`None`) or any other non-mapping has no keys to trim. The config
+        # parse in the import activity reports an unusable value.
         return
 
-    did_update_inputs = False
-    for key, value in source.job_inputs.items():
+    # A value decoded out of a string is saved even when no key needs trimming, so the row is
+    # rewritten as a mapping once instead of every run reading the string back.
+    did_update_inputs = decoded_from_string
+    for key, value in job_inputs.items():
         if isinstance(value, str):
             if value.startswith(" ") or value.endswith(" "):
-                source.job_inputs[key] = value.strip()
+                job_inputs[key] = value.strip()
                 did_update_inputs = True
 
     if did_update_inputs:
+        source.job_inputs = job_inputs
         await database_sync_to_async_pool(source.save)()
+
+
+def _source_type_for_death_event(inputs: "ImportDataActivityInputs") -> str | None:
+    """The source type behind a dying run, so a death event is diagnosable per connector without
+    joining against the source table. Best-effort: the death event must survive a failed lookup."""
+    try:
+        from products.warehouse_sources.backend.models.external_data_source import (  # noqa: PLC0415 — Django models must not be imported at this activity module's load time
+            ExternalDataSource,
+        )
+
+        return (
+            ExternalDataSource.objects.filter(id=inputs.source_id, team_id=inputs.team_id)
+            .values_list("source_type", flat=True)
+            .first()
+        )
+    except Exception:
+        return None
 
 
 def report_heartbeat_timeout(inputs: "ImportDataActivityInputs", logger: FilteringBoundLogger) -> None:
@@ -169,6 +230,7 @@ def report_heartbeat_timeout(inputs: "ImportDataActivityInputs", logger: Filteri
                 "workflow_run_id": info.workflow_run_id,
                 "workflow_type": info.workflow_type,
                 "attempt": info.attempt,
+                "source_type": _source_type_for_death_event(inputs),
             }
             # What the dead attempt said it was doing, and what its pod neighbours said, at the moment
             # of death — the per-activity context this event otherwise cannot carry. Adds nothing when

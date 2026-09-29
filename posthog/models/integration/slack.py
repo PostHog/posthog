@@ -1,8 +1,6 @@
 """Slack integration: connected-workspace API calls and request-signature verification."""
 
-import hmac
 import time
-import hashlib
 from collections.abc import Iterable
 from datetime import timedelta
 from typing import TYPE_CHECKING, Literal, Optional
@@ -23,6 +21,8 @@ from slack_sdk.errors import SlackApiError
 
 from posthog.cache_utils import cache_for
 from posthog.egress.slack.client import SlackWebClient as WebClient
+from posthog.ingress.slack.provider import build_slack_signature_scheme
+from posthog.ingress.verify.schemes import VerificationOutcome, hmac_sha256_signature
 from posthog.models.instance_setting import get_instance_settings
 
 from . import model
@@ -86,17 +86,20 @@ SLACK_MEMBERS_MAX_REQUESTS = 10
 class SlackIntegration:
     integration: model.Integration
 
-    def __init__(self, integration: model.Integration) -> None:
+    def __init__(self, integration: model.Integration, *, source: str = "integration") -> None:
         if integration.kind not in SLACK_INTEGRATION_KINDS:
             raise Exception("SlackIntegration init called with Integration with wrong 'kind'")
 
         self.integration = integration
+        # The egress `source` label. A flow that posts on its own names itself here, so its Slack
+        # calls and 429s can be told apart from every other caller of the same integration.
+        self.source = source
 
     @property
     def client(self) -> WebClient:
         return WebClient(
             self.integration.sensitive_config["access_token"],
-            source="integration",
+            source=self.source,
             workspace_id=self.integration.integration_id,
             app_id="posthog",
         )
@@ -108,7 +111,7 @@ class SlackIntegration:
 
         return SlackAsyncWebClient(
             self.integration.sensitive_config["access_token"],
-            source="integration",
+            source=self.source,
             workspace_id=self.integration.integration_id,
             app_id="posthog",
             session=session,
@@ -218,7 +221,7 @@ class SlackIntegration:
         # fields they use.
         #
         # Every SHARED_CHANNEL_FLAGS entry has to survive. A dropped flag reads as absent, which
-        # reads as not shared, and team_notifications uses that to decide whether a channel matched
+        # reads as not shared, and posthog.slack.channels uses that to decide whether a channel matched
         # by name may receive an internal message.
         return {
             "id": channel["id"],
@@ -419,38 +422,23 @@ def sign_slack_request(body: bytes, signing_secret: str) -> SlackRequestSignatur
     and tests. The matching verifier is `validate_slack_request` below.
     """
     ts = str(int(time.time()))
-    sig_basestring = f"v0:{ts}:{body.decode('utf-8')}".encode()
-    signature = "v0=" + hmac.new(signing_secret.encode("utf-8"), sig_basestring, digestmod=hashlib.sha256).hexdigest()
+    # Assembled as bytes, so a body that is not valid UTF-8 signs rather than raising.
+    signed = b"v0:" + ts.encode("utf-8") + b":" + body
+    signature = hmac_sha256_signature(signing_secret, signed, prefix="v0=")
     return SlackRequestSignature(signature=signature, timestamp=ts)
 
 
 def validate_slack_request(request: HttpRequest | Request, signing_secret: str) -> None:
+    """Verify a Slack-signed request through the ingress Slack signature scheme.
+
+    These endpoints keep their own views because they answer Slack or a sibling region
+    synchronously, so only the verifying is delegated. Raises `SlackIntegrationError` on
+    anything that is not a good signature inside the replay window.
     """
-    Validate a Slack request using HMAC-SHA256 signature verification.
-    Based on https://api.slack.com/authentication/verifying-requests-from-slack
-    """
-    slack_signature = request.headers.get("X-SLACK-SIGNATURE")
-    slack_time = request.headers.get("X-SLACK-REQUEST-TIMESTAMP")
+    scheme = build_slack_signature_scheme(secret_getter=lambda: signing_secret)
+    verification = scheme.verify(body=request.body, headers=request.headers)
 
-    if not signing_secret or not slack_signature or not slack_time:
-        raise SlackIntegrationError("Invalid")
-
-    try:
-        if time.time() - float(slack_time) > 300:
-            raise SlackIntegrationError("Expired")
-    except ValueError:
-        raise SlackIntegrationError("Invalid")
-
-    sig_basestring = f"v0:{slack_time}:{request.body.decode('utf-8')}"
-
-    my_signature = (
-        "v0="
-        + hmac.new(
-            signing_secret.encode("utf-8"),
-            sig_basestring.encode("utf-8"),
-            digestmod=hashlib.sha256,
-        ).hexdigest()
-    )
-
-    if not hmac.compare_digest(my_signature, slack_signature):
+    if verification.outcome is VerificationOutcome.NOT_CONFIGURED:
+        raise SlackIntegrationError("Not configured")
+    if verification.outcome is not VerificationOutcome.VERIFIED:
         raise SlackIntegrationError("Invalid")

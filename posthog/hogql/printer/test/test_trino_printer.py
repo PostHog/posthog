@@ -708,6 +708,94 @@ def test_preserves_clickhouse_json_array_indexing() -> None:
     assert context.values == {"hogql_val_0": '$["key.with.dot"]', "hogql_val_1": '$["items"]'}
 
 
+@pytest.mark.parametrize("operator", ["+", "-", "*", "/", "%"])
+def test_chained_arithmetic_keeps_only_used_parameters(operator: str) -> None:
+    context = _context_with_trino_table()
+    terms = [f"JSONExtractFloat(user_id, 'metric_{index}')" for index in range(6)]
+
+    sql, _ = prepare_and_print_ast(parse_select(f"SELECT {f' {operator} '.join(terms)} FROM users"), context, "trino")
+
+    assert context.values == {f"hogql_val_{index}": f'$["metric_{index}"]' for index in range(6)}
+    rendered_terms = [
+        'coalesce(TRY(CAST(json_extract_scalar("users"."user_id", '
+        f"%(hogql_val_{index})s) AS DOUBLE)), CAST(0 AS DOUBLE))"
+        for index in range(6)
+    ]
+    expected = rendered_terms[0]
+    for term in rendered_terms[1:]:
+        if operator == "/":
+            expected = f"(CAST({expected} AS DOUBLE) / CAST({term} AS DOUBLE))"
+        elif operator == "%":
+            expected = f"MOD({expected}, {term})"
+        else:
+            expected = f"({expected} {operator} {term})"
+    assert sql == f'SELECT {expected} FROM "ducklake"."analytics"."users" AS "users"'
+
+
+@pytest.mark.parametrize("function", ["toInt", "toIntOrDefault", "toIntOrZero", "_toUInt64"])
+def test_nested_integer_conversions_keep_only_used_parameters(function: str) -> None:
+    context = _context_with_trino_table()
+    expression = "'7'"
+    for _ in range(6):
+        argument = f"toString({expression})" if function == "toIntOrZero" else expression
+        expression = f"{function}({argument})"
+
+    sql, _ = prepare_and_print_ast(parse_select(f"SELECT {expression}"), context, "trino")
+
+    assert context.values == {"hogql_val_0": "7"}
+    sql, values = convert_pyformat_placeholders(sql, context.values)
+    with duckdb.connect(":memory:") as connection:
+        assert connection.execute(sql, values).fetchone() == (7,)
+
+
+@pytest.mark.parametrize(
+    "expression",
+    [
+        "argMaxIf(10, 20, 1)",
+        "argMinIf(10, 20, 1)",
+        "groupArrayIf(10, 1)",
+        "groupUniqArrayIf(10, 1)",
+        "quantileIf(0.5)(10, 1)",
+        "quantileIf(0.5)(10, 1) OVER ()",
+        "sumIf(10, 1) OVER ()",
+        "countIf(1) OVER ()",
+    ],
+)
+def test_conditional_aggregates_coerce_numeric_predicates(expression: str) -> None:
+    sql, _ = prepare_and_print_ast(parse_select(f"SELECT {expression}"), _context_with_trino_table(), "trino")
+
+    assert "CAST(1 AS BOOLEAN)" in sql
+    if "OVER" in expression:
+        assert "FILTER" not in sql
+
+
+@pytest.mark.parametrize(
+    ("pattern", "expected"),
+    [
+        ("[0-9]+", ["12", "34"]),
+        ("([a-z])([0-9]+)", ["a", "b"]),
+        ("(?:[a-z])[0-9]+", ["a12", "b34"]),
+    ],
+)
+@pytest.mark.parametrize("dynamic", [False, True])
+def test_extract_all_uses_first_capture_or_entire_match(pattern: str, expected: list[str], dynamic: bool) -> None:
+    context = _context_with_trino_table()
+    query = (
+        "SELECT extractAll('a12 b34', pattern) FROM (SELECT {pattern} AS pattern)"
+        if dynamic
+        else "SELECT extractAll('a12 b34', {pattern})"
+    )
+    sql, _ = prepare_and_print_ast(
+        parse_select(query, placeholders={"pattern": ast.Constant(value=pattern)}),
+        context,
+        "trino",
+    )
+
+    sql, values = convert_pyformat_placeholders(sql, context.values)
+    with duckdb.connect(":memory:") as connection:
+        assert connection.execute(sql, values).fetchone() == (expected,)
+
+
 def test_lowers_event_property_backed_fields_to_the_physical_json_column() -> None:
     context = HogQLContext(
         database=Database(include_posthog_tables=True),

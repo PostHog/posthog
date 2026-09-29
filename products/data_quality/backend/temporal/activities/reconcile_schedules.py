@@ -36,15 +36,14 @@ SCHEDULE_TYPE_QUERY = " OR ".join(
 
 
 def _check_page(after_check_id: str | None) -> list[DataQualityCheck]:
-    checks = DataQualityCheck.objects.unscoped().filter(subject_type__in=SCHEDULED_SUBJECT_TYPES, metric__deleted=False)
+    checks = DataQualityCheck.objects.unscoped().filter(subject_type__in=SCHEDULED_SUBJECT_TYPES)
+    checks = checks.exclude(metric__deleted=True)
     if after_check_id:
         checks = checks.filter(id__gt=after_check_id)
-    # Every subject key the property reads, or reaching for it would lazy-load inside the async
-    # TaskGroup the reconciler runs these keys in.
     return list(
-        checks.only("id", "team_id", "subject_type", "metric_id", "saved_query_id", "table_id").order_by("id")[
-            :RECONCILE_PAGE_SIZE
-        ]
+        checks.only(
+            "id", "team_id", "subject_type", "metric_id", "saved_query_id", "table_id", "posthog_table"
+        ).order_by("id")[:RECONCILE_PAGE_SIZE]
     )
 
 

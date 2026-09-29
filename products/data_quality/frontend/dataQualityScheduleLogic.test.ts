@@ -6,16 +6,18 @@ import { expectLogic } from '~/test/keaTestUtils'
 
 import { dataQualityScheduleLogic } from './dataQualityScheduleLogic'
 import { dataQualityChecksScheduleRetrieve, dataQualityChecksSchedulePartialUpdate } from './generated/api'
+import { DataQualityScheduleIntervalEnumApi } from './generated/api.schemas'
+import type { DataQualityCheckScheduleApi } from './generated/api.schemas'
 
 jest.mock('./generated/api', () => ({
     dataQualityChecksScheduleRetrieve: jest.fn(),
     dataQualityChecksSchedulePartialUpdate: jest.fn(),
 }))
 
-const SCHEDULE = {
+const SCHEDULE: DataQualityCheckScheduleApi = {
     id: 'schedule-1',
     enabled: true,
-    interval: '24hour',
+    interval: DataQualityScheduleIntervalEnumApi['24hour'],
     next_run_at: '2026-09-05T00:00:00Z',
     last_run_at: null,
     last_suite_run: null,
@@ -122,6 +124,63 @@ describe('dataQualityScheduleLogic', () => {
         resolveRefresh(SCHEDULE)
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.schedule?.enabled).toBe(false)
+    })
+
+    it('starts from a schedule it was handed without fetching or polling', async () => {
+        const setIntervalSpy = jest.spyOn(window, 'setInterval')
+        logic = dataQualityScheduleLogic.build({
+            subjectType: 'metric',
+            subjectId: 'metric-1',
+            initialSchedule: SCHEDULE,
+            poll: false,
+        })
+
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.schedule).toEqual(SCHEDULE)
+        expect(dataQualityChecksScheduleRetrieve).not.toHaveBeenCalled()
+        expect(setIntervalSpy).not.toHaveBeenCalled()
+        setIntervalSpy.mockRestore()
+    })
+
+    it('waits while the surface loads the listing and fetches its own only if none arrives', async () => {
+        logic = dataQualityScheduleLogic.build({
+            subjectType: 'metric',
+            subjectId: 'metric-1',
+            initialSchedule: null,
+            poll: false,
+        })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(dataQualityChecksScheduleRetrieve).not.toHaveBeenCalled()
+
+        dataQualityScheduleLogic.build({
+            subjectType: 'metric',
+            subjectId: 'metric-1',
+            initialSchedule: SCHEDULE,
+            poll: false,
+        })
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.schedule).toEqual(SCHEDULE)
+        expect(dataQualityChecksScheduleRetrieve).not.toHaveBeenCalled()
+
+        const orphan = dataQualityScheduleLogic.build({
+            subjectType: 'metric',
+            subjectId: 'metric-2',
+            initialSchedule: null,
+            poll: false,
+        })
+        orphan.mount()
+        dataQualityScheduleLogic.build({
+            subjectType: 'metric',
+            subjectId: 'metric-2',
+            initialSchedule: undefined,
+            poll: false,
+        })
+        await expectLogic(orphan).toFinishAllListeners()
+        expect(dataQualityChecksScheduleRetrieve).toHaveBeenCalledTimes(1)
+        orphan.unmount()
     })
 
     it('refreshes the schedule while the frequency controls are open', async () => {

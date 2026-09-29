@@ -10,6 +10,8 @@ from parameterized import parameterized
 from pydantic import ValidationError
 
 from posthog.hogql_queries.ai.utils import HEAVY_COLUMN_NAMES
+from posthog.temporal.ai_observability.run_session_evaluation import SessionHogTestResult
+from posthog.temporal.ai_observability.run_trace_evaluation import TraceHogTestResult
 
 from products.ai_observability.backend.tools.run_hog_eval import RunHogEvalTestArgs, RunHogEvalTestTool
 
@@ -51,6 +53,20 @@ def test_run_hog_eval_args_reject_unknown_target():
 
 
 class TestRunHogEvalTestTool(BaseTest):
+    @patch("products.ai_observability.backend.tools.run_hog_eval.query_ai_events")
+    def test_numeric_preview_preserves_zero_and_enforces_bounds(self, mock_query):
+        mock_query.return_value = MagicMock(results=[_make_event()])
+        tool = self._make_tool()
+        result, _ = _run_tool(tool, source="return 0;", output_type="numeric", output_config={"min": 0, "max": 10})
+        self.assertIn("Result: 0.0", result)
+        result, _ = _run_tool(tool, source="return 11;", output_type="numeric", output_config={"min": 0, "max": 10})
+        self.assertIn("Result: ERROR", result)
+        for allows_na, expected in [(False, "ERROR"), (True, "N/A")]:
+            result, _ = _run_tool(
+                tool, source="return null;", output_type="numeric", output_config={"allows_na": allows_na}
+            )
+            self.assertIn(f"Result: {expected}", result)
+
     def _make_tool(self):
         return RunHogEvalTestTool(team=self.team, user=self.user)
 
@@ -217,11 +233,9 @@ class TestRunHogEvalTestTool(BaseTest):
 
         assert "Result: true" in result, f"expected true after heavy-merge, got: {result}"
 
-    @patch("posthog.temporal.ai_observability.run_trace_evaluation.run_hog_eval_over_recent_traces")
-    def test_trace_target_evaluates_whole_traces(self, mock_run_over_traces):
-        from posthog.temporal.ai_observability.run_trace_evaluation import TraceHogTestResult
-
-        mock_run_over_traces.return_value = [
+    @parameterized.expand([("trace", "window_seconds"), ("session", "quiet_period_seconds")])
+    def test_target_evaluates_whole_units(self, target: str, period_parameter: str) -> None:
+        sample_result = (
             TraceHogTestResult(
                 trace_id="trace-1",
                 verdict=True,
@@ -230,20 +244,33 @@ class TestRunHogEvalTestTool(BaseTest):
                 input_preview="hello",
                 output_preview="world",
             )
-        ]
-
-        tool = self._make_tool()
-        result, artifact = _run_tool(
-            tool,
-            source="return target.type == 'trace';",
-            sample_count=2,
-            target="trace",
-            window_seconds=120,
+            if target == "trace"
+            else SessionHogTestResult(
+                session_id="session-1",
+                verdict=True,
+                reasoning="looks good",
+                error=None,
+                input_preview="hello",
+                output_preview="world",
+            )
         )
+        tool = self._make_tool()
+        with patch(
+            f"posthog.temporal.ai_observability.run_{target}_evaluation.run_hog_eval_over_recent_{target}s",
+            return_value=[sample_result],
+        ) as mock_run_over_units:
+            result, artifact = _run_tool(
+                tool,
+                source=f"return target.type == '{target}';",
+                sample_count=2,
+                target=target,
+                **{period_parameter: 120},
+            )
 
         assert artifact is None
-        assert mock_run_over_traces.call_args.kwargs["window_seconds"] == 120
-        assert "Trace trace-1" in result
+        assert mock_run_over_units.call_args.kwargs[period_parameter] == 120
+        assert mock_run_over_units.call_args.kwargs["user"] == self.user
+        assert f"{target.capitalize()} {target}-1" in result
         assert "Result: true" in result
 
     @patch("products.ai_observability.backend.tools.run_hog_eval.query_ai_events")
@@ -257,6 +284,7 @@ class TestRunHogEvalTestTool(BaseTest):
         _run_tool(tool, source="return true;", sample_count=1)
 
         kwargs = mock_query.call_args.kwargs
+        assert kwargs["user"] == self.user
         select = kwargs["query"]
         assert isinstance(select, ast.SelectQuery)
         from_chain = select.select_from.table.chain  # type: ignore[union-attr]

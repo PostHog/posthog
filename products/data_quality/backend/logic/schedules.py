@@ -1,4 +1,5 @@
 import asyncio
+from collections.abc import Sequence
 from datetime import datetime
 from uuid import UUID
 
@@ -114,6 +115,25 @@ async def get_schedule(team_id: int, subject_type: str, subject_uuid: str | UUID
         return schedule_snapshot(key, description) if description is not None else None
     except Exception as error:
         raise ScheduleUnavailableError() from error
+
+
+@async_to_sync
+async def get_schedules(
+    team_id: int, subjects: Sequence[tuple[str, str | UUID]]
+) -> dict[SubjectScheduleKey, CheckSchedule]:
+    keys = [
+        await sync_to_async(schedule_key)(team_id, subject_type, subject_uuid)
+        for subject_type, subject_uuid in subjects
+    ]
+    if not keys:
+        return {}
+    try:
+        async with asyncio.timeout(SCHEDULE_REQUEST_TIMEOUT_SECONDS):
+            schedules = SubjectSchedules(await async_connect())
+            snapshots = await asyncio.gather(*(_describe_schedule(schedules, key) for key in keys))
+    except Exception as error:
+        raise ScheduleUnavailableError() from error
+    return {key: snapshot for key, snapshot in zip(keys, snapshots) if snapshot is not None}
 
 
 @async_to_sync

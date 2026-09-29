@@ -167,11 +167,23 @@ class AlertState(StrEnum):
     SNOOZED = "Snoozed"
 
 
+class AmazonAdsDefaultSources(StrEnum):
+    AMAZON = "amazon"
+    AMAZON_ADS = "amazon_ads"
+
+
 class AnnotationScope(StrEnum):
     DASHBOARD_ITEM = "dashboard_item"
     DASHBOARD = "dashboard"
     PROJECT = "project"
     ORGANIZATION = "organization"
+
+
+class AppleSearchAdsDefaultSources(StrEnum):
+    APPLE = "apple"
+    APPLE_SEARCH_ADS = "apple_search_ads"
+    APPLE_ADS = "apple_ads"
+    ASA = "asa"
 
 
 class ApprovalDecisionStatus(StrEnum):
@@ -1064,6 +1076,7 @@ class DetectorType(StrEnum):
     LOF = "lof"
     OCSVM = "ocsvm"
     PCA = "pca"
+    LLM = "llm"
 
 
 class DistanceFunc(StrEnum):
@@ -1259,6 +1272,12 @@ class StartHandling(StrEnum):
     LAST_SEEN = "last_seen"
 
 
+class Kind2(StrEnum):
+    EVENTS_NODE = "EventsNode"
+    ACTIONS_NODE = "ActionsNode"
+    EXPERIMENT_EXPOSURE_NODE = "ExperimentExposureNode"
+
+
 class ConversionRateInputType(StrEnum):
     MANUAL = "manual"
     AUTOMATIC = "automatic"
@@ -1350,6 +1369,7 @@ class FileSystemIconType(StrEnum):
     REVENUE_ANALYTICS_METADATA = "revenue_analytics_metadata"
     MARKETING_SETTINGS = "marketing_settings"
     MARKETING_ANALYTICS = "marketing_analytics"
+    CUSTOMER_ANALYTICS = "customer_analytics"
     MANAGED_VIEWSETS = "managed_viewsets"
     ENDPOINTS = "endpoints"
     SQL_EDITOR = "sql_editor"
@@ -1366,6 +1386,7 @@ class FileSystemIconType(StrEnum):
     EXPERIMENT = "experiment"
     FEATURE_FLAG = "feature_flag"
     FEATURE_FLAG_OFF = "feature_flag_off"
+    DATA_MODELING = "data_modeling"
     DATA_PIPELINE = "data_pipeline"
     DATA_PIPELINE_METADATA = "data_pipeline_metadata"
     DATA_WAREHOUSE = "data_warehouse"
@@ -1376,6 +1397,7 @@ class FileSystemIconType(StrEnum):
     TRACING = "tracing"
     METRICS = "metrics"
     WORKFLOWS = "workflows"
+    BROADCASTS = "broadcasts"
     NOTEBOOK = "notebook"
     ACTION = "action"
     ACTIVITY = "activity"
@@ -1422,6 +1444,24 @@ class FileSystemIconType(StrEnum):
     LLM_CLUSTERS = "llm_clusters"
     MCP_ANALYTICS = "mcp_analytics"
     EXPORTS = "exports"
+    PULSE = "pulse"
+    SKILL = "skill"
+    WIZARD = "wizard"
+    DATA_CATALOG = "data_catalog"
+    WAREHOUSE_DESTINATION = "warehouse_destination"
+    WAREHOUSE_PROPERTY = "warehouse_property"
+    DATA_SOURCE = "data_source"
+    DATA_DESTINATION = "data_destination"
+    DATA_TRANSFORMATION = "data_transformation"
+    EVENT_FILTER = "event_filter"
+    MANAGED_MIGRATION = "managed_migration"
+    WEB_SCRIPT = "web_script"
+    CORE_EVENT = "core_event"
+    PROPERTY_GROUP = "property_group"
+    MCP_SERVER = "mcp_server"
+    STREAMLIT_APP = "streamlit_app"
+    SQL_VARIABLE = "sql_variable"
+    BUSINESS_KNOWLEDGE = "business_knowledge"
 
 
 class FilterLogicalOperator(StrEnum):
@@ -1808,6 +1848,7 @@ class MCPToolQualitySortColumn(StrEnum):
     USERS = "users"
     SESSIONS = "sessions"
     LAST_SEEN = "last_seen"
+    TREND_SCORE = "trend_score"
 
 
 class MCPToolQualitySortDirection(StrEnum):
@@ -2077,6 +2118,10 @@ class NativeMarketingSource(StrEnum):
     BING_ADS = "BingAds"
     SNAPCHAT_ADS = "SnapchatAds"
     PINTEREST_ADS = "PinterestAds"
+    APPLE_SEARCH_ADS = "AppleSearchAds"
+    OPEN_AI_ADS = "OpenAIAds"
+    AMAZON_ADS = "AmazonAds"
+    ROKT_ADS = "RoktAds"
 
 
 class NodeKind(StrEnum):
@@ -2197,6 +2242,12 @@ class NodeKind(StrEnum):
     PROPERTY_VALUES_QUERY = "PropertyValuesQuery"
 
 
+class OpenAIAdsDefaultSources(StrEnum):
+    OPENAI = "openai"
+    CHATGPT = "chatgpt"
+    OPENAI_ADS = "openai_ads"
+
+
 class PathType(StrEnum):
     FIELD_PAGEVIEW = "$pageview"
     FIELD_SCREEN = "$screen"
@@ -2236,6 +2287,12 @@ class PlanningStepStatus(StrEnum):
     PENDING = "pending"
     IN_PROGRESS = "in_progress"
     COMPLETED = "completed"
+
+
+class PredicateFixAction(StrEnum):
+    EDIT_QUERY = "edit_query"
+    EDIT_PROPERTY_TYPE = "edit_property_type"
+    MATERIALIZE = "materialize"
 
 
 class PredicateIndexVerdict(StrEnum):
@@ -2361,14 +2418,14 @@ class ProductIntentContext(StrEnum):
 
 class ProductItemCategory(StrEnum):
     ANALYTICS = "Analytics"
+    DATA = "Data"
     AI_ENGINEERING = "AI engineering"
-    BEHAVIOR = "Behavior"
-    APP_MONITORING = "App monitoring"
-    FEATURES = "Features"
+    PRODUCT_ENGINEERING = "Product engineering"
+    MESSAGING = "Messaging"
+    MONITORING = "Monitoring"
     TOOLS = "Tools"
     SCHEMA = "Schema"
-    PIPELINE = "Pipeline"
-    METADATA = "Metadata"
+    CDP = "CDP"
     UNRELEASED = "Unreleased"
 
 
@@ -2641,6 +2698,11 @@ class RetentionType(StrEnum):
     RETENTION_RECURRING = "retention_recurring"
     RETENTION_FIRST_TIME = "retention_first_time"
     RETENTION_FIRST_EVER_OCCURRENCE = "retention_first_ever_occurrence"
+
+
+class RoktAdsDefaultSources(StrEnum):
+    ROKT = "rokt"
+    ROKT_ADS = "rokt_ads"
 
 
 class XScale(StrEnum):

@@ -118,7 +118,8 @@ class DataQualityCheck(
     subject_type = models.CharField(
         max_length=32,
         choices=subject_type_choices,
-        help_text="Kind of catalog object being checked: table, view, or metric. Kept so orphaned checks stay readable.",
+        help_text="Kind of object being checked: table, view, metric, or posthog_table. "
+        "Kept so orphaned checks stay readable.",
     )
     saved_query = models.ForeignKey(
         "data_modeling.DataWarehouseSavedQuery",
@@ -147,6 +148,12 @@ class DataQualityCheck(
         db_index=False,
         related_name="+",
         help_text="The data catalog metric this check evaluates. Exclusive with table and saved_query.",
+    )
+    posthog_table = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        help_text="Name of the PostHog table this check audits, such as events. Exclusive with every subject FK.",
     )
     subject_name = models.CharField(
         max_length=400,
@@ -232,6 +239,16 @@ class DataQualityCheck(
                     & (models.Q(saved_query__isnull=True) | models.Q(subject_type=SubjectType.VIEW))
                     & (models.Q(table__isnull=True) | models.Q(subject_type=SubjectType.TABLE))
                     & (models.Q(metric__isnull=True) | models.Q(subject_type=SubjectType.METRIC))
+                    & (
+                        models.Q(posthog_table="")
+                        | models.Q(
+                            subject_type=SubjectType.POSTHOG_TABLE,
+                            saved_query__isnull=True,
+                            table__isnull=True,
+                            metric__isnull=True,
+                        )
+                    )
+                    & ~models.Q(subject_type=SubjectType.POSTHOG_TABLE, posthog_table="")
                 ),
             ),
             # Partial per FK: orphaned checks (both FKs null) are exempt on purpose, and so are
@@ -251,6 +268,11 @@ class DataQualityCheck(
                 fields=["team", "metric", "fingerprint"],
                 condition=models.Q(metric__isnull=False) & ACTIVE,
                 name="unique_quality_check_fp_metric",
+            ),
+            models.UniqueConstraint(
+                fields=["team", "posthog_table", "fingerprint"],
+                condition=~models.Q(posthog_table="") & ACTIVE,
+                name="unique_quality_check_fp_posthog_table",
             ),
             # Partial on both counts: a blank name is the "address me by id" case, which many checks
             # share, and a deleted check keeps its name only as history -- holding the name against a
@@ -277,11 +299,21 @@ class DataQualityCheck(
                 condition=models.Q(table__isnull=False),
                 name="quality_check_table_idx",
             ),
+            models.Index(
+                fields=["team", "posthog_table"],
+                condition=~models.Q(posthog_table=""),
+                name="quality_check_ph_table_idx",
+            ),
         ]
 
     @property
     def subject_uuid(self) -> "uuid.UUID | None":
-        """Id of whichever subject FK is set; None once orphaned."""
+        """Id of whichever subject this check has; None once orphaned."""
+        if self.posthog_table:
+            from ..logic.posthog_tables import by_name  # noqa: PLC0415 — keeps HogQL off the model import path
+
+            entry = by_name(self.posthog_table)
+            return entry.id if entry else None
         return self.saved_query_id or self.table_id or self.metric_id
 
     def __str__(self) -> str:
