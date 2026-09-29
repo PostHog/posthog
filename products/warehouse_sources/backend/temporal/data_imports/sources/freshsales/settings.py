@@ -4,7 +4,16 @@ from typing import Optional
 from products.warehouse_sources.backend.types import IncrementalField
 
 
-@dataclass
+@dataclass(frozen=True)
+class FreshsalesSelectorFanout:
+    # Parent selector to enumerate, e.g. "selector/deal_pipelines".
+    parent_resource: str
+    parent_object_key: str
+    # Child path per parent, formatted with the parent's id.
+    child_path: str
+
+
+@dataclass(frozen=True)
 class FreshsalesEndpointConfig:
     name: str
     # API resource segment, e.g. "contacts" -> /crm/sales/api/contacts/...
@@ -29,6 +38,9 @@ class FreshsalesEndpointConfig:
     # also doesn't publish their response bodies, so the envelope key falls back to whatever list the
     # response carries rather than silently syncing an empty table.
     is_selector: bool = False
+    # Some selector endpoints only cover the default parent, so the whole collection needs a walk
+    # over the parent selector instead of one request.
+    selector_fanout: Optional[FreshsalesSelectorFanout] = None
     # Incremental sync is full-refresh only for now (see note below), so this stays empty for every
     # endpoint. Kept as the source of truth so enabling incremental later is a settings-only change.
     incremental_fields: list[IncrementalField] = field(default_factory=list)
@@ -113,6 +125,13 @@ FRESHSALES_ENDPOINTS: dict[str, FreshsalesEndpointConfig] = {
         resource="selector/deal_stages",
         object_key="deal_stages",
         is_selector=True,
+        # /selector/deal_stages returns the default pipeline's stages only, so an account with more
+        # than one pipeline would be missing the stages its deals point at.
+        selector_fanout=FreshsalesSelectorFanout(
+            parent_resource="selector/deal_pipelines",
+            parent_object_key="deal_pipelines",
+            child_path="selector/deal_pipelines/{parent_id}/deal_stages",
+        ),
     ),
     "deal_pipelines": FreshsalesEndpointConfig(
         name="deal_pipelines",

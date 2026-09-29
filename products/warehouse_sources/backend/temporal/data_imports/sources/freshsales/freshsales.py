@@ -116,13 +116,35 @@ def _fetch_page(session: Any, url: str, logger: FilteringBoundLogger) -> dict:
     return response.json()
 
 
-def _extract_items(data: dict, config: FreshsalesEndpointConfig) -> list[dict]:
-    items = data.get(config.object_key)
+def _extract_items(data: dict, object_key: str, allow_fallback: bool = False) -> list[dict]:
+    items = data.get(object_key)
     if isinstance(items, list):
         return items
-    if config.is_selector:
+    if allow_fallback:
         return next((v for v in data.values() if isinstance(v, list)), [])
     return []
+
+
+def _get_selector_fanout_rows(
+    session: Any, root: str, config: FreshsalesEndpointConfig, logger: FilteringBoundLogger
+) -> Iterator[list[dict]]:
+    fanout = config.selector_fanout
+    assert fanout is not None
+
+    parents_response = _fetch_page(session, f"{root}/{fanout.parent_resource}", logger)
+    parents = _extract_items(parents_response, fanout.parent_object_key, allow_fallback=True)
+    if not parents:
+        logger.warning(f"Freshsales: no parents found at '{fanout.parent_resource}' for '{config.name}'")
+        return
+
+    for parent in parents:
+        parent_id = parent.get("id")
+        if parent_id is None:
+            continue
+        data = _fetch_page(session, f"{root}/{fanout.child_path.format(parent_id=parent_id)}", logger)
+        items = _extract_items(data, config.object_key, allow_fallback=True)
+        if items:
+            yield items
 
 
 def _resolve_view_id(session: Any, root: str, resource: str, logger: FilteringBoundLogger) -> Optional[int]:
@@ -177,13 +199,17 @@ def get_rows(
                     return
                 raise ValueError(f"Freshsales: could not resolve a view for '{endpoint}'")
 
+    if config.selector_fanout is not None:
+        yield from _get_selector_fanout_rows(session, root, config, logger)
+        return
+
     page = resume.next_page if resume is not None else 1
 
     while page <= MAX_PAGES:
         url = _build_page_url(root, config, view_id, page)
         data = _fetch_page(session, url, logger)
 
-        items = _extract_items(data, config)
+        items = _extract_items(data, config.object_key, allow_fallback=config.is_selector)
         if not items:
             break
 

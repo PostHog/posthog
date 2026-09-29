@@ -222,8 +222,30 @@ class TestGetRows:
         # Freshsales doesn't publish selector response bodies; an unexpected envelope key must not
         # silently sync an empty table.
         manager = _FakeResumeManager()
-        batches = self._run("deal_stages", [_resp(body={"stages": [{"id": 1, "name": "Won"}]})], manager)
-        assert batches == [[{"id": 1, "name": "Won"}]]
+        batches = self._run("owners", [_resp(body={"portal_users": [{"id": 1, "name": "Ann"}]})], manager)
+        assert batches == [[{"id": 1, "name": "Ann"}]]
+
+    def test_deal_stages_walks_every_pipeline(self) -> None:
+        # /selector/deal_stages covers the default pipeline only, so a single request would miss the
+        # stages that deals in every other pipeline point at.
+        pipelines = _resp(body={"deal_pipelines": [{"id": 1, "name": "Sales"}, {"id": 2, "name": "Renewals"}]})
+        stages_1 = _resp(body={"deal_stages": [{"id": 10, "name": "New", "deal_pipeline_id": 1}]})
+        stages_2 = _resp(body={"deal_stages": [{"id": 20, "name": "Due", "deal_pipeline_id": 2}]})
+        manager = _FakeResumeManager()
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.freshsales.freshsales.make_tracked_session"
+        ) as mocked:
+            session = _session([pipelines, stages_1, stages_2])
+            mocked.return_value = session
+            batches = list(get_rows("acme", "acme", "deal_stages", MagicMock(), manager))  # type: ignore[arg-type]
+
+        assert [row["id"] for batch in batches for row in batch] == [10, 20]
+        assert [call.args[0].rsplit("/api/", 1)[1] for call in session.get.call_args_list] == [
+            "selector/deal_pipelines",
+            "selector/deal_pipelines/1/deal_stages",
+            "selector/deal_pipelines/2/deal_stages",
+        ]
 
     def test_tolerates_missing_object(self) -> None:
         # leads object absent -> /filters 404 -> stream yields nothing instead of failing.
