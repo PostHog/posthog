@@ -10,6 +10,7 @@ import {
   type TUI,
 } from "@earendil-works/pi-tui";
 import type { RunCommand } from "./models";
+import { terminalTheme } from "./theme";
 
 // Keys the app keeps for itself; everything else typed in a focused pane goes to its composer.
 const APP_KEYS: KeyId[] = [
@@ -36,8 +37,11 @@ export function isAppKey(sequence: string): boolean {
 const PASTE_START = "\u001b[200~";
 const PLAIN_RULE = /^─+$/;
 const INVERSE = "\u001b[7m";
-// A grey block: lighter than the inverse cursor on light and dark themes alike.
-const UNFOCUSED_CURSOR = "\u001b[100m";
+// A block close to the background, so it reads lighter than the inverse cursor on either theme.
+const UNFOCUSED_CURSOR = {
+  light: "\u001b[48;5;252m",
+  dark: "\u001b[48;5;238m",
+} as const;
 
 // Text a person types or pastes, as opposed to navigation and control keys.
 export function isTyping(sequence: string): boolean {
@@ -120,7 +124,9 @@ export class Composer {
       .render(width)
       .map((line) => line.replace(CURSOR_MARKER, ""))
       .map((line) =>
-        focused ? line : line.replaceAll(INVERSE, UNFOCUSED_CURSOR),
+        focused
+          ? line
+          : line.replaceAll(INVERSE, UNFOCUSED_CURSOR[terminalTheme()]),
       );
     // pi closes the input with a rule (or a "↓ n more" line); suggestions follow it.
     const closing = lines.findLastIndex(
