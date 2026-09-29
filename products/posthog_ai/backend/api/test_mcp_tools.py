@@ -129,6 +129,34 @@ class TestMCPToolsAPI(APIBaseTest):
         self.assertEqual(run_kwargs["user"], self.user)
         self.assertEqual(run_kwargs["analytics_props"], {"source": EventSource.MCP})
 
+    def test_async_sql_polling_timeout_preserves_adjusted_recovery(self) -> None:
+        query_status = {"id": "test-query-id", "complete": False}
+        with (
+            patch(
+                "ee.hogai.context.insight.query_executor.process_query_dict",
+                return_value={"query_status": query_status},
+            ),
+            patch("ee.hogai.context.insight.query_executor.get_query_status") as mock_status,
+            patch("ee.hogai.context.insight.query_executor.asyncio.sleep", new_callable=AsyncMock),
+        ):
+            mock_status.return_value.model_dump.return_value = query_status
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/mcp_tools/execute_sql/",
+                {"args": {"query": "SELECT 1"}},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {
+                "success": False,
+                "content": "Tool failed: MaxToolRetryableError: Error executing query: Query hasn't completed in time."
+                " It's worth trying again, maybe with a shorter time range.. You may retry with adjusted inputs.",
+                "error": {"type": "timeout", "code": "query_timeout", "retry_strategy": "adjusted"},
+            },
+        )
+
     @parameterized.expand(
         [
             (
