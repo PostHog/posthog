@@ -15,12 +15,12 @@ const group = (...values: UniversalFiltersGroup['values']): UniversalFiltersGrou
 
 describe('pinColumnFilters', () => {
     // A column key picked from the Log attributes tab arrives typed `log_attribute`, so the query reads
-    // a missing attribute map entry -> zero rows. These keys must resolve to `log` regardless of type,
-    // while any other key keeps the type it was picked under.
+    // a missing attribute map entry -> zero rows. These keys must resolve to `log`. A resource attribute
+    // of the same name is a distinct field, and any other key keeps the type it was picked under.
     it.each<[string, PropertyFilterType, PropertyFilterType]>([
         ['service_name', PropertyFilterType.LogAttribute, PropertyFilterType.Log],
         ['severity_level', PropertyFilterType.LogAttribute, PropertyFilterType.Log],
-        ['service_name', PropertyFilterType.LogResourceAttribute, PropertyFilterType.Log],
+        ['service_name', PropertyFilterType.LogResourceAttribute, PropertyFilterType.LogResourceAttribute],
         ['service_name', PropertyFilterType.Log, PropertyFilterType.Log],
         ['env', PropertyFilterType.LogAttribute, PropertyFilterType.LogAttribute],
         ['env', PropertyFilterType.LogResourceAttribute, PropertyFilterType.LogResourceAttribute],
@@ -28,6 +28,11 @@ describe('pinColumnFilters', () => {
     ])('resolves %s typed %s to %s', (key, type, expected) => {
         const pinned = pinColumnFilters(group(group(filter(key, type))))
         expect(pinned).toEqual(group(group(filter(key, expected))))
+    })
+
+    it('passes a malformed entry through instead of throwing', () => {
+        const malformed = group(null as unknown as UniversalFiltersGroup['values'][number])
+        expect(pinColumnFilters(malformed)).toBe(malformed)
     })
 
     // COLUMN_FILTER_KEYS hand-mirrors the backend `COLUMN_FILTER_FACET_FIELDS` dict. If the backend adds
