@@ -82,6 +82,7 @@ function backfill(overrides: Partial<EvaluationBackfillApi> = {}): EvaluationBac
         total_count: 10,
         dispatched_count: 8,
         skipped_count: 2,
+        failed_count: 0,
         remaining_count: null,
         created_by: null,
         created_at: '2024-01-02T00:00:00Z',
