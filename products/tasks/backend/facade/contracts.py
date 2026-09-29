@@ -99,6 +99,14 @@ class WizardCloudRunDTO:
 
 
 @dataclass(frozen=True)
+class TaskRunCost:
+    """Provider costs in integer USD cents, or None while a source is unavailable or incomplete."""
+
+    token_cost: int | None
+    compute_cost: int | None
+
+
+@dataclass(frozen=True)
 class TaskRunDTO:
     """A single execution of a task.
 
@@ -691,7 +699,10 @@ SPACE_SETUP_SCOPES = (
     "person:read",
     "group:read",
     "integration:read",
+    # The MCP server reads the caller from `/api/users/@me/` and refuses the whole session without it.
+    "user:read",
     "query:read",
+    "action:read",
     "data_catalog:read",
     "insight:read",
     "dashboard:read",
@@ -762,6 +773,20 @@ class CreatedTaskDTO:
     task_id: UUID
     team_id: int
     latest_run: TaskRunDTO | None = None
+
+
+@dataclass(frozen=True)
+class WorkflowLastRunDTO:
+    """The newest task a workflow created, as its last run.
+
+    ``status`` is the task's newest run status, or ``not_started`` when the task has no run yet.
+    ``ran_at`` is when that run started, or when the task was made if it has no run.
+    """
+
+    hog_flow_id: UUID
+    task_id: UUID
+    status: str
+    ran_at: datetime
 
 
 @dataclass(frozen=True)

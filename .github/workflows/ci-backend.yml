@@ -262,7 +262,6 @@ jobs:
                         - products/tasks/mcp/tools.yaml
                         - 'products/canvas/packages/canvas_builder/**'
                         - bin/build-schema-latest-versions.py
-                        - bin/build-taxonomy-json.py
                         - bin/check_uv_python_compatibility.py
                         - bin/find_python_dependencies.py
                         - pyproject.toml
@@ -355,7 +354,6 @@ jobs:
                         - 'packages/personhog-proto/**'
                         - 'posthog/**/*'
                         - bin/build-schema-latest-versions.py
-                        - bin/build-taxonomy-json.py
                         - bin/check_uv_python_compatibility.py
                         - bin/find_python_dependencies.py
                         - pyproject.toml
@@ -446,6 +444,13 @@ jobs:
                         - 'AGENTS.md'
                         - '.semgrep/**'
                         - 'pyproject.toml'
+                        # A generated file in a frontend-only PR still needs a known producer.
+                        - '**/*.generated.*'
+                        - '**/generated/**'
+                        # test_generated_files_are_registered.py also reads the projection
+                        # registry and the ci-python paths filter it must stay in step with.
+                        - 'tools/hogli-commands/hogli_commands/projections.py'
+                        - '.github/workflows/ci-python.yml'
                         - 'products/ruff.toml'
                         - '.github/scripts/**'
                       product_yamls:
@@ -467,14 +472,6 @@ jobs:
                         - 'products/*/frontend/generated/**/*'
                         - 'services/mcp/src/generated/**/*'
                         - 'services/mcp/src/api/generated.ts'
-                        # Task run model catalog: one Python module projected into a
-                        # checked-in .generated.ts per workspace. Only the outputs are
-                        # named — neither sits in a generated/ directory, and the
-                        # desktop one is under products/desktop, which the backend
-                        # filter excludes. The catalog and its generator are .py under
-                        # products/, so the backend filter already catches both.
-                        - 'products/tasks/frontend/modelCatalog.generated.ts'
-                        - 'products/desktop/packages/shared/src/model-catalog.generated.ts'
                         - 'tools/openapi-codegen/**/*'
                         - 'services/mcp/scripts/lib/**'
                         - 'frontend/bin/generate-openapi-types.mjs'
@@ -4495,13 +4492,16 @@ jobs:
         # DevEx project only, mirroring monitor-github-rate-limit; continue-on-error so
         # telemetry never reds CI. Skipped on forks/Dependabot, which never have the secret.
         if: |
-            !cancelled() && github.run_attempt == '1'
+            !cancelled()
             && github.actor != 'dependabot[bot]'
             && github.event.pull_request.head.repo.full_name == 'PostHog/posthog'
             && needs.turbo-discover.result == 'success'
             && needs.turbo-discover.outputs.mode != ''
         steps:
             - name: Capture test selection to DevEx PostHog
+              # Depot CI evaluates github.run_attempt as an empty string in a job-level if,
+              # so this guard stays on the step for the Depot copy of this job to run.
+              if: github.run_attempt == '1'
               continue-on-error: true
               uses: PostHog/posthog-github-action@58dea254b598fb5d469c0699c98af8288a7f7650 # v1.2.0
               with:

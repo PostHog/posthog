@@ -615,21 +615,25 @@ export const productConfiguration: Record<string, any> = {
         name: 'Business knowledge',
         projectBased: true,
         activityScope: 'KnowledgeSource',
-        iconType: 'conversations',
+        iconType: 'business_knowledge',
         description:
             'Upload text, public URLs, or files so PostHog AI can understand your business context, vision, and policies.',
     },
     BusinessKnowledgePlayground: {
         name: 'Business knowledge playground',
         projectBased: true,
-        iconType: 'conversations',
+        iconType: 'business_knowledge',
     },
-    BusinessKnowledgeSettings: { name: 'Business knowledge settings', projectBased: true, iconType: 'conversations' },
+    BusinessKnowledgeSettings: {
+        name: 'Business knowledge settings',
+        projectBased: true,
+        iconType: 'business_knowledge',
+    },
     BusinessKnowledgeSource: {
         name: 'Knowledge source',
         projectBased: true,
         activityScope: 'KnowledgeSource',
-        iconType: 'conversations',
+        iconType: 'business_knowledge',
     },
     Transformations: {
         projectBased: true,
@@ -1273,8 +1277,9 @@ export const productUrls = {
     customerAnalyticsFeatureRequests: (requestId?: string): string =>
         `/customer_analytics/feature-requests${requestId ? `/${requestId}` : ''}`,
     customerAnalyticsJourneys: (): string => '/customer_analytics/journeys',
-    customerAnalyticsConfiguration: (tab?: string): string =>
-        `/customer_analytics/configuration${tab ? `?tab=${tab}` : ''}`,
+    customerAnalyticsConfiguration: (tab?: string, returnTo?: string): string =>
+        combineUrl('/customer_analytics/configuration', { ...(tab ? { tab } : {}), ...(returnTo ? { returnTo } : {}) })
+            .url,
     customerJourneyBuilder: (): string => '/customer_analytics/journeys/new',
     customerJourneyTemplates: (): string => '/customer_analytics/journeys/templates',
     customerJourneyEdit: (id: string): string => `/customer_analytics/journeys/${id}/edit`,

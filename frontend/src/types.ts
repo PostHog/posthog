@@ -2088,7 +2088,6 @@ export interface SavedSessionRecordingPlaylistsFilters {
     page: number
     pinned: boolean
     type?: 'collection' | 'saved_filters'
-    collectionType: 'custom' | 'synthetic' | null
 }
 
 export interface SavedSessionRecordingPlaylistsResult extends PaginatedResponse<SessionRecordingPlaylistType> {
@@ -2625,6 +2624,7 @@ export interface DashboardWidgetInterface {
 
 export interface TextModel extends DashboardWidgetInterface {
     body: string
+    agent_context?: string | null
     last_modified_at: string
 }
 
@@ -2813,6 +2813,7 @@ export type DashboardTemplateStoredInsightTile = {
 export type DashboardTemplateStoredTextTile = {
     type: 'TEXT'
     body: string
+    agent_context?: string | null
     layouts?: Record<DashboardLayoutSize, TileLayout> | Record<string, never>
     color?: InsightColor | null
     transparent_background?: boolean | null
@@ -5939,6 +5940,7 @@ export const API_SCOPE_OBJECTS = [
     'marketing_analytics',
     'mcp_builtin_agent',
     'mcp_analytics',
+    'mcp_registry',
     'metrics',
     'notebook',
     'offline_evaluation_ingestion',
@@ -5986,6 +5988,7 @@ export const API_SCOPE_OBJECTS = [
     'web_analytics',
     'webhook',
     'wizard_session',
+    'wizard_run',
 ] as const
 
 export type APIScopeObject = (typeof API_SCOPE_OBJECTS)[number]

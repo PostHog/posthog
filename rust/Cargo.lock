@@ -2332,6 +2332,7 @@ dependencies = [
  "common-alloc",
  "common-compression",
  "common-continuous-profiling",
+ "common-kafka",
  "common-metrics",
  "envconfig",
  "flate2",
@@ -3935,7 +3936,7 @@ dependencies = [
 
 [[package]]
 name = "deltalite-python"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "arrow",
  "arrow-array",
