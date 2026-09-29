@@ -19,8 +19,8 @@ from products.customer_analytics.backend.constants import (
     DELIVERY_INTERRUPTED_ERROR,
     DELIVERY_RATE_LIMIT_DEFERRED_ERROR,
 )
-from products.customer_analytics.backend.facade.contracts import AnnouncementChannelView, AnnouncementValidationError
-from products.customer_analytics.backend.models import Account, Announcement, AnnouncementDelivery
+from products.customer_analytics.backend.facade.contracts import ShoutoutChannelView, ShoutoutValidationError
+from products.customer_analytics.backend.models import Account, Shoutout, ShoutoutDelivery
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
@@ -29,52 +29,50 @@ if TYPE_CHECKING:
 logger = structlog.get_logger(__name__)
 
 
-class AnnouncementRateLimited(Exception):
+class ShoutoutRateLimited(Exception):
     pass
 
 
-def create_announcement(team: Team, created_by: User, message: str, channel_ids: list[str]) -> Announcement:
+def create_shoutout(team: Team, created_by: User, message: str, channel_ids: list[str]) -> Shoutout:
     try:
         allowed = {c.id: c for c in list_support_bot_channels(team.pk, members_only=True)}
     except SupportSlackNotConfigured:
-        raise AnnouncementValidationError("The SupportHog Slack bot is not connected.")
+        raise ShoutoutValidationError("The SupportHog Slack bot is not connected.")
     except SupportSlackChannelsUnavailable:
-        raise AnnouncementValidationError("Could not verify Slack channels right now. Please try again.")
+        raise ShoutoutValidationError("Could not verify Slack channels right now. Please try again.")
 
     # Only member channels get a pending row (the only state the send task posts), so a
     # crafted channel ID can never make the bot post to an arbitrary Slack destination;
     # non-member channels are born failed, same as a channel lost between create and send.
     with transaction.atomic():
-        announcement = Announcement.objects.create(
+        shoutout = Shoutout.objects.create(
             team=team,
             message=message,
             created_by=created_by,
             total_channels=len(channel_ids),
-            status=Announcement.Status.PENDING,
+            status=Shoutout.Status.PENDING,
         )
-        AnnouncementDelivery.objects.bulk_create(
+        ShoutoutDelivery.objects.bulk_create(
             [
-                AnnouncementDelivery(
+                ShoutoutDelivery(
                     team=team,
-                    announcement=announcement,
+                    shoutout=shoutout,
                     slack_channel_id=cid,
                     slack_channel_name=allowed[cid].name if cid in allowed else "",
-                    status=(
-                        AnnouncementDelivery.Status.PENDING if cid in allowed else AnnouncementDelivery.Status.FAILED
-                    ),
+                    status=(ShoutoutDelivery.Status.PENDING if cid in allowed else ShoutoutDelivery.Status.FAILED),
                     error="" if cid in allowed else "not_in_channel",
                 )
                 for cid in channel_ids
             ]
         )
-    return announcement
+    return shoutout
 
 
-def list_channels(team_id: int) -> list[AnnouncementChannelView]:
+def list_channels(team_id: int) -> list[ShoutoutChannelView]:
     member_channels = list_support_bot_channels(team_id, members_only=True)
     name_by_channel = _customer_names_by_channel(team_id)
     enriched = [
-        AnnouncementChannelView(
+        ShoutoutChannelView(
             id=c.id,
             name=c.name,
             is_member=c.is_member,
@@ -95,66 +93,62 @@ def _customer_names_by_channel(team_id: int) -> dict[str, str]:
     return result
 
 
-def send_pending_deliveries(announcement_id: str, team_id: int) -> None:
-    announcement = Announcement.objects.for_team(team_id).filter(id=announcement_id).first()
-    if not announcement:
-        logger.warning("announcement_not_found", announcement_id=announcement_id, team_id=team_id)
+def send_pending_deliveries(shoutout_id: str, team_id: int) -> None:
+    shoutout = Shoutout.objects.for_team(team_id).filter(id=shoutout_id).first()
+    if not shoutout:
+        logger.warning("shoutout_not_found", shoutout_id=shoutout_id, team_id=team_id)
         return
 
-    pending = list(
-        AnnouncementDelivery.objects.filter(announcement_id=announcement.id, status=AnnouncementDelivery.Status.PENDING)
-    )
+    pending = list(ShoutoutDelivery.objects.filter(shoutout_id=shoutout.id, status=ShoutoutDelivery.Status.PENDING))
     if not pending:
-        _recompute_announcement_status(announcement)
+        _recompute_shoutout_status(shoutout)
         return
 
     # A pending row still claimed in-flight means a previous run crashed mid-post; the message
     # may already be in Slack, so never re-post it.
     interrupted_ids = {delivery.id for delivery in pending if delivery.error == DELIVERY_IN_FLIGHT_ERROR}
     if interrupted_ids:
-        AnnouncementDelivery.objects.for_team(team_id).filter(id__in=interrupted_ids).update(
-            status=AnnouncementDelivery.Status.FAILED,
+        ShoutoutDelivery.objects.for_team(team_id).filter(id__in=interrupted_ids).update(
+            status=ShoutoutDelivery.Status.FAILED,
             error=DELIVERY_INTERRUPTED_ERROR,
             updated_at=timezone.now(),
         )
         pending = [delivery for delivery in pending if delivery.id not in interrupted_ids]
 
-    if announcement.status == Announcement.Status.PENDING:
-        announcement.status = Announcement.Status.SENDING
-        announcement.save(update_fields=["status", "updated_at"])
+    if shoutout.status == Shoutout.Status.PENDING:
+        shoutout.status = Shoutout.Status.SENDING
+        shoutout.save(update_fields=["status", "updated_at"])
 
     deferred = 0
     for delivery in pending:
         try:
-            if not _deliver_to_channel(team_id, delivery, announcement.message):
+            if not _deliver_to_channel(team_id, delivery, shoutout.message):
                 deferred += 1
         except SupportSlackNotConfigured:
-            logger.warning("announcement_no_slack_credentials", announcement_id=announcement_id, team_id=team_id)
-            AnnouncementDelivery.objects.filter(
-                announcement_id=announcement.id, status=AnnouncementDelivery.Status.PENDING
-            ).update(
-                status=AnnouncementDelivery.Status.FAILED,
+            logger.warning("shoutout_no_slack_credentials", shoutout_id=shoutout_id, team_id=team_id)
+            ShoutoutDelivery.objects.filter(shoutout_id=shoutout.id, status=ShoutoutDelivery.Status.PENDING).update(
+                status=ShoutoutDelivery.Status.FAILED,
                 error="SupportHog Slack is not connected",
                 updated_at=timezone.now(),
             )
             deferred = 0
             break
 
-    _recompute_announcement_status(announcement)
+    _recompute_shoutout_status(shoutout)
     logger.info(
-        "announcement_sent",
-        announcement_id=announcement_id,
+        "shoutout_sent",
+        shoutout_id=shoutout_id,
         team_id=team_id,
-        sent=announcement.sent_count,
-        failed=announcement.failed_count,
+        sent=shoutout.sent_count,
+        failed=shoutout.failed_count,
         deferred=deferred,
     )
     if deferred:
         # Ride the task's autoretry backoff instead of sleeping in the worker.
-        raise AnnouncementRateLimited(f"{deferred} channel(s) rate limited")
+        raise ShoutoutRateLimited(f"{deferred} channel(s) rate limited")
 
 
-def _deliver_to_channel(team_id: int, delivery: AnnouncementDelivery, message: str) -> bool:
+def _deliver_to_channel(team_id: int, delivery: ShoutoutDelivery, message: str) -> bool:
     was_rate_limit_deferred = delivery.error == DELIVERY_RATE_LIMIT_DEFERRED_ERROR
     # Claim the row before posting so a crash between the Slack post and the outcome save
     # can never lead to a double post on retry.
@@ -162,7 +156,7 @@ def _deliver_to_channel(team_id: int, delivery: AnnouncementDelivery, message: s
     delivery.save(update_fields=["error", "updated_at"])
     try:
         delivery.slack_message_ts = post_support_message(team_id, delivery.slack_channel_id, message)
-        delivery.status = AnnouncementDelivery.Status.SENT
+        delivery.status = ShoutoutDelivery.Status.SENT
         delivery.sent_at = timezone.now()
         delivery.error = ""
     except SupportMessageSendError as e:
@@ -171,17 +165,17 @@ def _deliver_to_channel(team_id: int, delivery: AnnouncementDelivery, message: s
             delivery.error = DELIVERY_RATE_LIMIT_DEFERRED_ERROR
             delivery.save(update_fields=["error", "updated_at"])
             return False
-        delivery.status = AnnouncementDelivery.Status.FAILED
+        delivery.status = ShoutoutDelivery.Status.FAILED
         delivery.error = e.code[:2000]
     except SupportSlackNotConfigured:
         raise
     except Exception as e:
-        delivery.status = AnnouncementDelivery.Status.FAILED
+        delivery.status = ShoutoutDelivery.Status.FAILED
         delivery.error = str(e)[:2000]
     delivery.save(update_fields=["status", "slack_message_ts", "sent_at", "error", "updated_at"])
     logger.info(
-        "announcement_channel_delivery",
-        announcement_id=str(delivery.announcement_id),
+        "shoutout_channel_delivery",
+        shoutout_id=str(delivery.shoutout_id),
         team_id=team_id,
         channel=delivery.slack_channel_id,
         status=delivery.status,
@@ -191,28 +185,28 @@ def _deliver_to_channel(team_id: int, delivery: AnnouncementDelivery, message: s
     return True
 
 
-def _recompute_announcement_status(announcement: Announcement) -> None:
-    counts = AnnouncementDelivery.objects.filter(announcement_id=announcement.id).aggregate(
-        sent=models.Count("id", filter=models.Q(status=AnnouncementDelivery.Status.SENT)),
-        failed=models.Count("id", filter=models.Q(status=AnnouncementDelivery.Status.FAILED)),
-        pending=models.Count("id", filter=models.Q(status=AnnouncementDelivery.Status.PENDING)),
+def _recompute_shoutout_status(shoutout: Shoutout) -> None:
+    counts = ShoutoutDelivery.objects.filter(shoutout_id=shoutout.id).aggregate(
+        sent=models.Count("id", filter=models.Q(status=ShoutoutDelivery.Status.SENT)),
+        failed=models.Count("id", filter=models.Q(status=ShoutoutDelivery.Status.FAILED)),
+        pending=models.Count("id", filter=models.Q(status=ShoutoutDelivery.Status.PENDING)),
     )
     sent, failed, pending = counts["sent"], counts["failed"], counts["pending"]
 
     if pending:
-        status = Announcement.Status.SENDING
+        status = Shoutout.Status.SENDING
     elif failed and sent:
-        status = Announcement.Status.PARTIALLY_FAILED
+        status = Shoutout.Status.PARTIALLY_FAILED
     elif failed:
-        status = Announcement.Status.FAILED
+        status = Shoutout.Status.FAILED
     else:
-        status = Announcement.Status.SENT
+        status = Shoutout.Status.SENT
 
-    announcement.sent_count = sent
-    announcement.failed_count = failed
-    announcement.status = status
+    shoutout.sent_count = sent
+    shoutout.failed_count = failed
+    shoutout.status = status
     update_fields = ["sent_count", "failed_count", "status", "updated_at"]
-    if not pending and announcement.sent_at is None:
-        announcement.sent_at = timezone.now()
+    if not pending and shoutout.sent_at is None:
+        shoutout.sent_at = timezone.now()
         update_fields.append("sent_at")
-    announcement.save(update_fields=update_fields)
+    shoutout.save(update_fields=update_fields)

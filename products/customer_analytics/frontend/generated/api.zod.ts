@@ -430,15 +430,6 @@ export const CustomerAnalyticsAccountsTableQueryCreateBody = /* @__PURE__ */ zod
     .record(zod.string(), zod.unknown())
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
-export const AnnouncementsCreateBody = /* @__PURE__ */ zod.object({
-    message: zod.string().describe('Message body to send, rendered as Slack mrkdwn.'),
-    channels: zod
-        .array(zod.string())
-        .describe(
-            'Slack channel IDs to send to. Each must be a channel the SupportHog bot is a member of; names are resolved server-side.'
-        ),
-})
-
 /**
  * Start an admin-only Gmail and Google Calendar backfill for an inclusive UTC date range.
  * @summary Backfill a connected Google account
@@ -1693,6 +1684,15 @@ export const GroupsTypesMetricsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .nullish()
         .describe(
             'Required when `math` is `sum`; must be empty when `math` is `count`. For events metrics this is an event property name. For data warehouse metrics this is the column name (or HogQL expression) to sum on the DW table.'
+        ),
+})
+
+export const ShoutoutsCreateBody = /* @__PURE__ */ zod.object({
+    message: zod.string().describe('Message body to send, rendered as Slack mrkdwn.'),
+    channels: zod
+        .array(zod.string())
+        .describe(
+            'Slack channel IDs to send to. Each must be a channel the SupportHog bot is a member of; names are resolved server-side.'
         ),
 })
 

@@ -81,8 +81,6 @@ rules:
                               |Alert
                               |AlertConfiguration
                               |Annotation
-                              |Announcement
-                              |AnnouncementDelivery
                               |ApprovalPolicy
                               |AutoresearchIteration
                               |AutoresearchModel
@@ -349,6 +347,8 @@ rules:
                               |SessionRecording
                               |SessionRecordingPlaylist
                               |SharingConfiguration
+                              |Shoutout
+                              |ShoutoutDelivery
                               |SignalEmissionRecord
                               |SignalReport
                               |SignalReportAction
@@ -519,8 +519,6 @@ rules:
                         |Alert
                         |AlertConfiguration
                         |Annotation
-                        |Announcement
-                        |AnnouncementDelivery
                         |ApprovalPolicy
                         |AutoresearchIteration
                         |AutoresearchModel
@@ -777,6 +775,8 @@ rules:
                         |SessionRecording
                         |SessionRecordingPlaylist
                         |SharingConfiguration
+                        |Shoutout
+                        |ShoutoutDelivery
                         |SignalEmissionRecord
                         |SignalReport
                         |SignalReportAction

@@ -7,7 +7,7 @@ from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 from posthog.utils import generate_short_id
 
 
-class Announcement(TeamScopedRootMixin, UUIDModel, CreatedMetaFields, UpdatedMetaFields):
+class Shoutout(TeamScopedRootMixin, UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     class Status(models.TextChoices):
         PENDING = "pending", "Pending"
         SENDING = "sending", "Sending"
@@ -31,10 +31,12 @@ class Announcement(TeamScopedRootMixin, UUIDModel, CreatedMetaFields, UpdatedMet
     sent_at = models.DateTimeField(null=True, blank=True)
 
     class Meta(TeamScopedRootMixin.Meta):
+        # The table and index keep their pre-rename names, so the rename needs no DDL.
+        db_table = "customer_analytics_announcement"
         default_manager_name = "all_teams"
         indexes = [
             models.Index(fields=["team_id", "-created_at"], name="ca_announcement_team_idx"),
         ]
 
     def __str__(self) -> str:
-        return f"Announcement({self.short_id}, status={self.status})"
+        return f"Shoutout({self.short_id}, status={self.status})"

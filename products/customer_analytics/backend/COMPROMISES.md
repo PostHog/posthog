@@ -123,7 +123,7 @@ once the command has run everywhere.
   own SupportHog bot token. An editor can therefore point an account at any channel that team's bot
   is in — including a private channel the editor isn't a member of — and read its summary. Accepted
   for now: editors are internal team members, the token is team-scoped (no cross-team reach), and
-  the announcements feature already posts through the same binding. The activity re-resolves the
+  the shoutouts feature already posts through the same binding. The activity re-resolves the
   binding, cadence, and org AI-processing approval from the DB just before fetching, so stale or
   forged workflow inputs can't widen this. If summaries ever cover channels whose membership matters,
   validate the binding at write time against a server-side channel policy instead.

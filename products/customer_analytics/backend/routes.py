@@ -2,11 +2,11 @@ from posthog.api.routing import RouterRegistry
 
 from products.customer_analytics.backend.presentation.views import urls as external_api_urls
 from products.customer_analytics.backend.presentation.views.accounts_table_query import AccountsTableQueryViewSet
-from products.customer_analytics.backend.presentation.views.announcements import AnnouncementViewSet
 from products.customer_analytics.backend.presentation.views.customer_tasks import CustomerTaskViewSet
 from products.customer_analytics.backend.presentation.views.organization_members import (
     OrganizationMembersForAccountViewSet,
 )
+from products.customer_analytics.backend.presentation.views.shoutouts import ShoutoutViewSet
 from products.customer_analytics.backend.presentation.views.views import (
     AccountNotebookViewSet,
     AccountNotesViewSet,
@@ -44,9 +44,9 @@ def register_routes(routers: RouterRegistry) -> None:
         ["team_id"],
     )
     routers.projects.register(
-        r"announcements",
-        AnnouncementViewSet,
-        "project_announcements",
+        r"shoutouts",
+        ShoutoutViewSet,
+        "project_shoutouts",
         ["team_id"],
     )
     routers.projects.register(

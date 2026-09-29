@@ -8,4 +8,5 @@ from products.customer_analytics.backend.tasks.tasks import (  # noqa: F401
     recalculate_email_thread_account_links_for_threads,
     rematch_account_meetings,
     send_announcement,
+    send_shoutout,
 )

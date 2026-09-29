@@ -475,56 +475,6 @@ export const AccountsSummariesListQueryParams = () => zod.object({
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
-export const AnnouncementsListParams = () => zod.object({
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-        ),
-})
-
-export const AnnouncementsListQueryParams = () => zod.object({
-    limit: zod.number().optional().describe('Number of results to return per page.'),
-    offset: zod.number().optional().describe('The initial index from which to return the results.'),
-})
-
-export const AnnouncementsCreateParams = () => zod.object({
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-        ),
-})
-
-export const AnnouncementsCreateBody = () => zod.object({
-    message: zod.string().describe('Message body to send, rendered as Slack mrkdwn.'),
-    channels: zod
-        .array(zod.string())
-        .describe(
-            'Slack channel IDs to send to. Each must be a channel the SupportHog bot is a member of; names are resolved server-side.'
-        ),
-})
-
-export const AnnouncementsRetrieveParams = () => zod.object({
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-        ),
-    short_id: zod.string(),
-})
-
-/**
- * Slack channels the SupportHog bot can post to, labeled by customer account name.
- */
-export const AnnouncementsChannelsListParams = () => zod.object({
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-        ),
-})
-
 export const CustomPropertyDefinitionsListParams = () => zod.object({
     project_id: zod
         .string()
@@ -1974,6 +1924,56 @@ export const GroupsTypesMetricsDestroyParams = () => zod.object({
         .min(groupsTypesMetricsDestroyPathGroupTypeIndexMin)
         .max(groupsTypesMetricsDestroyPathGroupTypeIndexMax),
     id: zod.string().describe('A UUID string identifying this group usage metric.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const ShoutoutsListParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const ShoutoutsListQueryParams = () => zod.object({
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+})
+
+export const ShoutoutsCreateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const ShoutoutsCreateBody = () => zod.object({
+    message: zod.string().describe('Message body to send, rendered as Slack mrkdwn.'),
+    channels: zod
+        .array(zod.string())
+        .describe(
+            'Slack channel IDs to send to. Each must be a channel the SupportHog bot is a member of; names are resolved server-side.'
+        ),
+})
+
+export const ShoutoutsRetrieveParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+    short_id: zod.string(),
+})
+
+/**
+ * Slack channels the SupportHog bot can post to, labeled by customer account name.
+ */
+export const ShoutoutsChannelsListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(

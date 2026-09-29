@@ -17,13 +17,13 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
-import type { AnnouncementApi, AnnouncementDeliveryApi } from '../../generated/api.schemas'
+import type { ShoutoutApi, ShoutoutDeliveryApi } from '../../generated/api.schemas'
 import { ShoutoutAccountFilters } from './ShoutoutAccountFilters'
 import { shoutoutsLogic } from './shoutoutsLogic'
 
 type TagType = 'success' | 'primary' | 'warning' | 'danger' | 'default'
 
-function shoutoutStatusTag(status: AnnouncementApi['status']): { type: TagType; label: string } {
+function shoutoutStatusTag(status: ShoutoutApi['status']): { type: TagType; label: string } {
     switch (status) {
         case 'sent':
             return { type: 'success', label: 'Sent' }
@@ -127,8 +127,8 @@ function ShoutoutComposer(): JSX.Element {
     )
 }
 
-function DeliveriesTable({ deliveries }: { deliveries: readonly AnnouncementDeliveryApi[] }): JSX.Element {
-    const columns: LemonTableColumns<AnnouncementDeliveryApi> = [
+function DeliveriesTable({ deliveries }: { deliveries: readonly ShoutoutDeliveryApi[] }): JSX.Element {
+    const columns: LemonTableColumns<ShoutoutDeliveryApi> = [
         {
             title: 'Channel',
             key: 'channel',
@@ -160,7 +160,7 @@ function ShoutoutHistory(): JSX.Element {
     const { shoutouts, shoutoutsLoading } = useValues(shoutoutsLogic)
     const { loadShoutouts } = useActions(shoutoutsLogic)
 
-    const columns: LemonTableColumns<AnnouncementApi> = [
+    const columns: LemonTableColumns<ShoutoutApi> = [
         {
             title: 'Message',
             key: 'message',
@@ -204,7 +204,7 @@ function ShoutoutHistory(): JSX.Element {
                     Refresh
                 </LemonButton>
             </div>
-            <LemonTable<AnnouncementApi>
+            <LemonTable<ShoutoutApi>
                 dataSource={shoutouts}
                 loading={shoutoutsLoading}
                 rowKey="id"

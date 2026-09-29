@@ -623,140 +623,6 @@ const accountsSummariesList = (): ToolBase<
     },
 })
 
-const AnnouncementsChannelsListSchema = () => z.object({})
-
-const announcementsChannelsList = (): ToolBase<
-    ReturnType<typeof AnnouncementsChannelsListSchema>,
-    Schemas.AnnouncementChannel[]
-> => ({
-    name: 'announcements-channels-list',
-    schema: AnnouncementsChannelsListSchema(),
-    handler: async (context: Context, _params: z.infer<ReturnType<typeof AnnouncementsChannelsListSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.AnnouncementChannel[]>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/announcements/channels/`,
-        })
-        return result
-    },
-})
-
-const AnnouncementsCreateSchema = () => {
-    const AnnouncementsCreateBody = orvalSchemas.AnnouncementsCreateBody()
-    return AnnouncementsCreateBody
-}
-
-const AnnouncementsCreateSchemaExecute = z.strictObject({
-    confirmation_hash: z
-        .string()
-        .describe('The confirmation_hash returned by the matching -prepare tool. Pass it back verbatim.'),
-    confirmation: z.string().describe('The literal string "confirm", typed by the user in chat. Required to proceed.'),
-})
-
-const announcementsCreatePrepare = (): ToolBase<
-    ReturnType<typeof AnnouncementsCreateSchema>,
-    PrepareConfirmedActionResult
-> => ({
-    name: 'announcements-create-prepare',
-    schema: AnnouncementsCreateSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof AnnouncementsCreateSchema>>) => {
-        const __runtime = getConfirmedActionRuntime()
-        const __scopeProjectId = await context.stateManager.getProjectId()
-        return await prepareConfirmedAction(context, {
-            args: params,
-            purpose: 'announcements-create',
-            actionLabel: 'send announcement',
-            messageTemplate:
-                "About to send this announcement as the SupportHog bot — a real, outward-facing Slack message to customers that cannot be recalled once posted. The message body is: {message}. The destination channel list was signed at prepare time and cannot be changed afterwards — review the channels you asked to target before confirming. Reply 'confirm' to send.\n",
-            codec: __runtime.codec,
-            stash: __runtime.stash,
-            boundScope: { projectId: String(__scopeProjectId) },
-        })
-    },
-})
-
-const announcementsCreateExecute = (): ToolBase<typeof AnnouncementsCreateSchemaExecute, Schemas.Announcement> => ({
-    name: 'announcements-create-execute',
-    schema: AnnouncementsCreateSchemaExecute,
-    handler: async (context: Context, confirmationParams: z.infer<typeof AnnouncementsCreateSchemaExecute>) => {
-        const __runtime = getConfirmedActionRuntime()
-        const __scopeProjectId = await context.stateManager.getProjectId()
-        const __guard = await executeConfirmedAction<z.infer<ReturnType<typeof AnnouncementsCreateSchema>>>(context, {
-            incomingArgs: confirmationParams,
-            purpose: 'announcements-create',
-            codec: __runtime.codec,
-            ledger: __runtime.ledger,
-            stash: __runtime.stash,
-            expectedScope: { projectId: String(__scopeProjectId) },
-        })
-        if (!__guard.ok) {
-            return __guard.result as never
-        }
-        const params = __guard.verifiedArgs
-        const projectId = __scopeProjectId
-        const body: Record<string, unknown> = {}
-        if (params.message !== undefined) {
-            body['message'] = params.message
-        }
-        if (params.channels !== undefined) {
-            body['channels'] = params.channels
-        }
-        const result = await context.api.request<Schemas.Announcement>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/announcements/`,
-            body,
-        })
-        return result
-    },
-})
-
-const AnnouncementsListSchema = () => {
-    const AnnouncementsListQueryParams = orvalSchemas.AnnouncementsListQueryParams()
-    return AnnouncementsListQueryParams
-}
-
-const announcementsList = (): ToolBase<
-    ReturnType<typeof AnnouncementsListSchema>,
-    WithPostHogUrl<Schemas.PaginatedAnnouncementList>
-> => ({
-    name: 'announcements-list',
-    schema: AnnouncementsListSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof AnnouncementsListSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.PaginatedAnnouncementList>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/announcements/`,
-            query: {
-                limit: params.limit,
-                offset: params.offset,
-            },
-        })
-        const filtered = {
-            ...result,
-            results: (result.results ?? []).map((item: any) => omitResponseFields(item, ['deliveries'])),
-        } as typeof result
-        return await withPostHogUrl(context, filtered, '/customer_analytics')
-    },
-})
-
-const AnnouncementsRetrieveSchema = () => {
-    const AnnouncementsRetrieveParams = orvalSchemas.AnnouncementsRetrieveParams()
-    return AnnouncementsRetrieveParams.omit({ project_id: true })
-}
-
-const announcementsRetrieve = (): ToolBase<ReturnType<typeof AnnouncementsRetrieveSchema>, Schemas.Announcement> => ({
-    name: 'announcements-retrieve',
-    schema: AnnouncementsRetrieveSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof AnnouncementsRetrieveSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.Announcement>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/announcements/${encodeURIComponent(String(params.short_id))}/`,
-        })
-        return result
-    },
-})
-
 const CustomPropertyDefinitionsCreateSchema = () => {
     const CustomPropertyDefinitionsCreateBody = orvalSchemas.CustomPropertyDefinitionsCreateBody()
     return CustomPropertyDefinitionsCreateBody
@@ -2034,6 +1900,140 @@ const featureRequestsUpdateEvidenceCreate = (): ToolBase<
     },
 })
 
+const ShoutoutsChannelsListSchema = () => z.object({})
+
+const shoutoutsChannelsList = (): ToolBase<
+    ReturnType<typeof ShoutoutsChannelsListSchema>,
+    Schemas.ShoutoutChannel[]
+> => ({
+    name: 'shoutouts-channels-list',
+    schema: ShoutoutsChannelsListSchema(),
+    handler: async (context: Context, _params: z.infer<ReturnType<typeof ShoutoutsChannelsListSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ShoutoutChannel[]>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/shoutouts/channels/`,
+        })
+        return result
+    },
+})
+
+const ShoutoutsCreateSchema = () => {
+    const ShoutoutsCreateBody = orvalSchemas.ShoutoutsCreateBody()
+    return ShoutoutsCreateBody
+}
+
+const ShoutoutsCreateSchemaExecute = z.strictObject({
+    confirmation_hash: z
+        .string()
+        .describe('The confirmation_hash returned by the matching -prepare tool. Pass it back verbatim.'),
+    confirmation: z.string().describe('The literal string "confirm", typed by the user in chat. Required to proceed.'),
+})
+
+const shoutoutsCreatePrepare = (): ToolBase<
+    ReturnType<typeof ShoutoutsCreateSchema>,
+    PrepareConfirmedActionResult
+> => ({
+    name: 'shoutouts-create-prepare',
+    schema: ShoutoutsCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ShoutoutsCreateSchema>>) => {
+        const __runtime = getConfirmedActionRuntime()
+        const __scopeProjectId = await context.stateManager.getProjectId()
+        return await prepareConfirmedAction(context, {
+            args: params,
+            purpose: 'shoutouts-create',
+            actionLabel: 'send shoutout',
+            messageTemplate:
+                "About to send this shoutout as the SupportHog bot — a real, outward-facing Slack message to customers that cannot be recalled once posted. The message body is: {message}. The destination channel list was signed at prepare time and cannot be changed afterwards — review the channels you asked to target before confirming. Reply 'confirm' to send.\n",
+            codec: __runtime.codec,
+            stash: __runtime.stash,
+            boundScope: { projectId: String(__scopeProjectId) },
+        })
+    },
+})
+
+const shoutoutsCreateExecute = (): ToolBase<typeof ShoutoutsCreateSchemaExecute, Schemas.Shoutout> => ({
+    name: 'shoutouts-create-execute',
+    schema: ShoutoutsCreateSchemaExecute,
+    handler: async (context: Context, confirmationParams: z.infer<typeof ShoutoutsCreateSchemaExecute>) => {
+        const __runtime = getConfirmedActionRuntime()
+        const __scopeProjectId = await context.stateManager.getProjectId()
+        const __guard = await executeConfirmedAction<z.infer<ReturnType<typeof ShoutoutsCreateSchema>>>(context, {
+            incomingArgs: confirmationParams,
+            purpose: 'shoutouts-create',
+            codec: __runtime.codec,
+            ledger: __runtime.ledger,
+            stash: __runtime.stash,
+            expectedScope: { projectId: String(__scopeProjectId) },
+        })
+        if (!__guard.ok) {
+            return __guard.result as never
+        }
+        const params = __guard.verifiedArgs
+        const projectId = __scopeProjectId
+        const body: Record<string, unknown> = {}
+        if (params.message !== undefined) {
+            body['message'] = params.message
+        }
+        if (params.channels !== undefined) {
+            body['channels'] = params.channels
+        }
+        const result = await context.api.request<Schemas.Shoutout>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/shoutouts/`,
+            body,
+        })
+        return result
+    },
+})
+
+const ShoutoutsListSchema = () => {
+    const ShoutoutsListQueryParams = orvalSchemas.ShoutoutsListQueryParams()
+    return ShoutoutsListQueryParams
+}
+
+const shoutoutsList = (): ToolBase<
+    ReturnType<typeof ShoutoutsListSchema>,
+    WithPostHogUrl<Schemas.PaginatedShoutoutList>
+> => ({
+    name: 'shoutouts-list',
+    schema: ShoutoutsListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ShoutoutsListSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedShoutoutList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/shoutouts/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+            },
+        })
+        const filtered = {
+            ...result,
+            results: (result.results ?? []).map((item: any) => omitResponseFields(item, ['deliveries'])),
+        } as typeof result
+        return await withPostHogUrl(context, filtered, '/customer_analytics')
+    },
+})
+
+const ShoutoutsRetrieveSchema = () => {
+    const ShoutoutsRetrieveParams = orvalSchemas.ShoutoutsRetrieveParams()
+    return ShoutoutsRetrieveParams.omit({ project_id: true })
+}
+
+const shoutoutsRetrieve = (): ToolBase<ReturnType<typeof ShoutoutsRetrieveSchema>, Schemas.Shoutout> => ({
+    name: 'shoutouts-retrieve',
+    schema: ShoutoutsRetrieveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ShoutoutsRetrieveSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.Shoutout>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/shoutouts/${encodeURIComponent(String(params.short_id))}/`,
+        })
+        return result
+    },
+})
+
 const UsageMetricsCreateSchema = () => {
     const GroupsTypesMetricsCreateBody = orvalSchemas.GroupsTypesMetricsCreateBody()
     const GroupsTypesMetricsCreateParams = orvalSchemas.GroupsTypesMetricsCreateParams()
@@ -2239,11 +2239,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'accounts-relationships-list': accountsRelationshipsList,
     'accounts-retrieve': accountsRetrieve,
     'accounts-summaries-list': accountsSummariesList,
-    'announcements-channels-list': announcementsChannelsList,
-    'announcements-create-prepare': announcementsCreatePrepare,
-    'announcements-create-execute': announcementsCreateExecute,
-    'announcements-list': announcementsList,
-    'announcements-retrieve': announcementsRetrieve,
     'custom-property-definitions-create': customPropertyDefinitionsCreate,
     'custom-property-definitions-destroy': customPropertyDefinitionsDestroy,
     'custom-property-definitions-list': customPropertyDefinitionsList,
@@ -2286,6 +2281,11 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'feature-requests-retrieve': featureRequestsRetrieve,
     'feature-requests-status-history-list': featureRequestsStatusHistoryList,
     'feature-requests-update-evidence-create': featureRequestsUpdateEvidenceCreate,
+    'shoutouts-channels-list': shoutoutsChannelsList,
+    'shoutouts-create-prepare': shoutoutsCreatePrepare,
+    'shoutouts-create-execute': shoutoutsCreateExecute,
+    'shoutouts-list': shoutoutsList,
+    'shoutouts-retrieve': shoutoutsRetrieve,
     'usage-metrics-create': usageMetricsCreate,
     'usage-metrics-destroy': usageMetricsDestroy,
     'usage-metrics-list': usageMetricsList,

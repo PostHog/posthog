@@ -1305,14 +1305,14 @@ class EventStreamView:
     updated_at: datetime | None = None
 
 
-class AnnouncementValidationError(ValueError):
+class ShoutoutValidationError(ValueError):
     def __init__(self, detail: str | dict[str, str]) -> None:
         super().__init__(str(detail))
         self.detail = detail
 
 
 @stdlib_dataclass(frozen=True)
-class AnnouncementChannelView:
+class ShoutoutChannelView:
     id: str
     name: str
     is_member: bool
@@ -1320,7 +1320,7 @@ class AnnouncementChannelView:
 
 
 @stdlib_dataclass(frozen=True)
-class AnnouncementDeliveryView:
+class ShoutoutDeliveryView:
     id: UUID | None = None
     slack_channel_id: str = ""
     slack_channel_name: str = ""
@@ -1331,7 +1331,7 @@ class AnnouncementDeliveryView:
 
 
 @stdlib_dataclass(frozen=True)
-class AnnouncementView:
+class ShoutoutView:
     # Defaults let the wrapping DataclassSerializer parse create requests, which carry only
     # message + channels; channels is write-only and always returned empty.
     id: UUID | None = None
@@ -1344,7 +1344,7 @@ class AnnouncementView:
     sent_at: datetime | None = None
     created_at: datetime | None = None
     created_by: UserBasicInfo | None = None
-    deliveries: list[AnnouncementDeliveryView] = field(default_factory=list)
+    deliveries: list[ShoutoutDeliveryView] = field(default_factory=list)
     channels: list[str] = field(default_factory=list)
 
 

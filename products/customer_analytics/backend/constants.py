@@ -44,7 +44,7 @@ CUSTOM_PROPERTY_DISPLAY_TYPE_CHOICES = list(CustomPropertyDisplayType.values)
 CUSTOM_PROPERTY_OPTION_COLORS = [f"preset-{i}" for i in range(1, 11)]
 
 # Bounds the fan-out so one create can't enqueue an unbounded Slack send loop.
-MAX_ANNOUNCEMENT_CHANNELS = 200
+MAX_SHOUTOUT_CHANNELS = 200
 
 # Base URL for constructed Slack message permalinks (<origin>/<channel_id>/p<ts>) in account
 # channel summaries. Hardcodes PostHog's workspace — pre-GA compromise, see COMPROMISES.md.

@@ -105,7 +105,6 @@ from products.customer_analytics.backend.facade.enums import (
 from products.customer_analytics.backend.logic import (
     account_presence as _account_presence_logic,
     account_track_rules as _account_track_rules_logic,
-    announcements as _announcements_logic,
     channel_summaries as _channel_summaries_logic,
     custom_property_values as _custom_property_values_logic,
     customer_tasks as _customer_tasks_logic,
@@ -113,6 +112,7 @@ from products.customer_analytics.backend.logic import (
     feature_requests as _feature_requests_logic,
     ownership as _ownership,
     relationships as _relationships_logic,
+    shoutouts as _shoutouts_logic,
     user_customer_analytics_config as _user_customer_analytics_config_logic,
 )
 from products.customer_analytics.backend.logic.account_filters import (
@@ -147,7 +147,6 @@ from products.customer_analytics.backend.models import (
     AccountRelationship,
     AccountRelationshipControl,
     AccountRelationshipDefinition,
-    Announcement,
     CustomerJourney,
     CustomerProfileConfig,
     CustomerTask,
@@ -162,6 +161,7 @@ from products.customer_analytics.backend.models import (
     EventStream,
     EventStreamMember,
     Meeting,
+    Shoutout,
     SyncStatus,
     SyncTrigger,
     TargetType,
@@ -176,7 +176,7 @@ from products.customer_analytics.backend.models.custom_property_definition impor
     NUMERIC_DISPLAY_TYPES,
     DataType,
 )
-from products.customer_analytics.backend.tasks.tasks import send_announcement
+from products.customer_analytics.backend.tasks.tasks import send_shoutout
 from products.notebooks.backend.facade import (
     api as notebooks,
     contracts as notebook_contracts,
@@ -5361,11 +5361,11 @@ def set_event_stream_member(
     return _to_event_stream_view(stream)
 
 
-# --- Announcements ---
+# --- Shoutouts ---
 
 
-def _to_announcement_delivery_view(delivery) -> contracts.AnnouncementDeliveryView:
-    return contracts.AnnouncementDeliveryView(
+def _to_shoutout_delivery_view(delivery) -> contracts.ShoutoutDeliveryView:
+    return contracts.ShoutoutDeliveryView(
         id=delivery.id,
         slack_channel_id=delivery.slack_channel_id,
         slack_channel_name=delivery.slack_channel_name,
@@ -5376,56 +5376,56 @@ def _to_announcement_delivery_view(delivery) -> contracts.AnnouncementDeliveryVi
     )
 
 
-def _to_announcement_view(announcement) -> contracts.AnnouncementView:
-    return contracts.AnnouncementView(
-        id=announcement.id,
-        short_id=announcement.short_id,
-        message=announcement.message,
-        status=announcement.status,
-        total_channels=announcement.total_channels,
-        sent_count=announcement.sent_count,
-        failed_count=announcement.failed_count,
-        sent_at=announcement.sent_at,
-        created_at=announcement.created_at,
-        created_by=_to_user_basic_info(announcement.created_by),
-        deliveries=[_to_announcement_delivery_view(d) for d in announcement.deliveries.all()],
+def _to_shoutout_view(shoutout) -> contracts.ShoutoutView:
+    return contracts.ShoutoutView(
+        id=shoutout.id,
+        short_id=shoutout.short_id,
+        message=shoutout.message,
+        status=shoutout.status,
+        total_channels=shoutout.total_channels,
+        sent_count=shoutout.sent_count,
+        failed_count=shoutout.failed_count,
+        sent_at=shoutout.sent_at,
+        created_at=shoutout.created_at,
+        created_by=_to_user_basic_info(shoutout.created_by),
+        deliveries=[_to_shoutout_delivery_view(d) for d in shoutout.deliveries.all()],
     )
 
 
-def _announcements_queryset(team_id: int):
+def _shoutouts_queryset(team_id: int):
     return (
-        Announcement.objects.for_team(team_id)
+        Shoutout.objects.for_team(team_id)
         .select_related("created_by")
         .prefetch_related("deliveries")
         .order_by("-created_at")
     )
 
 
-def list_announcements(team_id: int, offset: int, limit: int) -> tuple[list[contracts.AnnouncementView], int]:
-    queryset = _announcements_queryset(team_id)
+def list_shoutouts(team_id: int, offset: int, limit: int) -> tuple[list[contracts.ShoutoutView], int]:
+    queryset = _shoutouts_queryset(team_id)
     total_count = queryset.count()
     page = queryset[offset : offset + limit]
-    return [_to_announcement_view(a) for a in page], total_count
+    return [_to_shoutout_view(a) for a in page], total_count
 
 
-def get_announcement(team_id: int, short_id: str) -> contracts.AnnouncementView | None:
-    announcement = _announcements_queryset(team_id).filter(short_id=short_id).first()
-    return _to_announcement_view(announcement) if announcement is not None else None
+def get_shoutout(team_id: int, short_id: str) -> contracts.ShoutoutView | None:
+    shoutout = _shoutouts_queryset(team_id).filter(short_id=short_id).first()
+    return _to_shoutout_view(shoutout) if shoutout is not None else None
 
 
-def create_announcement(*, team_id: int, user: "User", message: str, channels: list[str]) -> contracts.AnnouncementView:
+def create_shoutout(*, team_id: int, user: "User", message: str, channels: list[str]) -> contracts.ShoutoutView:
     team = Team.objects.get(id=team_id)
-    announcement = _announcements_logic.create_announcement(team, user, message, channels)
+    shoutout = _shoutouts_logic.create_shoutout(team, user, message, channels)
     # Dispatch only after the delivery rows commit; a rollback must not leave a phantom task.
-    transaction.on_commit(lambda: send_announcement.delay(str(announcement.id), team_id))
-    return _to_announcement_view(announcement)
+    transaction.on_commit(lambda: send_shoutout.delay(str(shoutout.id), team_id))
+    return _to_shoutout_view(shoutout)
 
 
-def list_announcement_channels(team_id: int) -> list[contracts.AnnouncementChannelView]:
+def list_shoutout_channels(team_id: int) -> list[contracts.ShoutoutChannelView]:
     try:
-        return _announcements_logic.list_channels(team_id)
+        return _shoutouts_logic.list_channels(team_id)
     except SupportSlackNotConfigured:
         return []
     except SupportSlackChannelsUnavailable:
-        logger.warning("announcement_channels_unavailable", team_id=team_id)
+        logger.warning("shoutout_channels_unavailable", team_id=team_id)
         return []

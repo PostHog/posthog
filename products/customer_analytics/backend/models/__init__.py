@@ -1,8 +1,6 @@
 from .account import Account
 from .account_channel_summary import AccountChannelSummary, SlackSummaryCadence
 from .account_track_rule_run import AccountTrackRuleRun, AccountTrackRuleRunStatus, AccountTrackRuleRunTrigger
-from .announcement import Announcement
-from .announcement_delivery import AnnouncementDelivery
 from .custom_property_definition import (
     CANONICAL_DISPLAY_TYPE_BY_NAME,
     CANONICAL_LAST_SLACK_MESSAGE_AT,
@@ -33,6 +31,8 @@ from .feature_request import (
 )
 from .meeting import Meeting, MeetingParticipant, MeetingResponseStatus, MeetingStatus
 from .relationship import AccountRelationship, AccountRelationshipControl, AccountRelationshipDefinition
+from .shoutout import Shoutout
+from .shoutout_delivery import ShoutoutDelivery
 from .team_customer_analytics_config import TeamCustomerAnalyticsConfig
 from .user_customer_analytics_config import UserCustomerAnalyticsConfig
 
@@ -48,8 +48,6 @@ __all__ = [
     "AccountRelationship",
     "AccountRelationshipControl",
     "AccountRelationshipDefinition",
-    "Announcement",
-    "AnnouncementDelivery",
     "CustomPropertyDefinition",
     "CustomPropertySource",
     "CustomPropertySyncRun",
@@ -79,6 +77,8 @@ __all__ = [
     "MeetingResponseStatus",
     "MeetingStatus",
     "RelationshipDefinition",
+    "Shoutout",
+    "ShoutoutDelivery",
     "SlackSummaryCadence",
     "SyncStatus",
     "SyncTrigger",

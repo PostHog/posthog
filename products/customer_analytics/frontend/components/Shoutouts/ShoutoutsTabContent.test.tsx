@@ -21,14 +21,14 @@ describe('ShoutoutsTabContent', () => {
         postedBodies = []
         useMocks({
             get: {
-                '/api/projects/:team_id/announcements/': { results: [], count: 0 },
-                '/api/projects/:team_id/announcements/channels/': [
+                '/api/projects/:team_id/shoutouts/': { results: [], count: 0 },
+                '/api/projects/:team_id/shoutouts/channels/': [
                     { id: 'C1', name: 'acme', is_member: true, customer_name: 'Acme' },
                     { id: 'C2', name: 'globex', is_member: true, customer_name: 'Globex' },
                 ],
             },
             post: {
-                '/api/projects/:team_id/announcements/': async ({ request }) => {
+                '/api/projects/:team_id/shoutouts/': async ({ request }) => {
                     postedBodies.push(await request.json())
                     return [200, { results: [], count: 0 }]
                 },

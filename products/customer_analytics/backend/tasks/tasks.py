@@ -12,9 +12,9 @@ from products.customer_analytics.backend.facade.email_matching import (
     finish_email_thread_link_recalculation,
     recalculate_email_thread_links,
 )
-from products.customer_analytics.backend.logic.announcements import send_pending_deliveries
 from products.customer_analytics.backend.logic.custom_property_sync import sync_custom_property_values
 from products.customer_analytics.backend.logic.feature_request_github import process_github_issue_update
+from products.customer_analytics.backend.logic.shoutouts import send_pending_deliveries
 
 logger = structlog.get_logger(__name__)
 
@@ -177,6 +177,20 @@ def recalculate_email_thread_account_links_for_threads(team_id: int, thread_ids:
 
 
 # autoretry_for is load-bearing: bare max_retries kwargs without it are silently inert.
+@shared_task(
+    name="customer_analytics.send_shoutout",
+    ignore_result=True,
+    autoretry_for=(Exception,),
+    max_retries=3,
+    retry_backoff=True,
+    retry_jitter=True,
+)
+@with_team_scope()
+def send_shoutout(shoutout_id: str, team_id: int) -> None:
+    send_pending_deliveries(shoutout_id, team_id)
+
+
+# Remove once no task queued under the pre-rename name is left in the broker.
 @shared_task(
     name="customer_analytics.send_announcement",
     ignore_result=True,

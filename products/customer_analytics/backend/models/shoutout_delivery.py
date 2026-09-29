@@ -5,10 +5,10 @@ from django.db import models
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import UUIDModel
 
-from .announcement import Announcement
+from .shoutout import Shoutout
 
 
-class AnnouncementDelivery(TeamScopedRootMixin, UUIDModel):
+class ShoutoutDelivery(TeamScopedRootMixin, UUIDModel):
     class Status(models.TextChoices):
         PENDING = "pending", "Pending"
         SENT = "sent", "Sent"
@@ -17,7 +17,9 @@ class AnnouncementDelivery(TeamScopedRootMixin, UUIDModel):
     all_teams = models.Manager()  # noqa: DJ012
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
-    announcement = models.ForeignKey(Announcement, on_delete=models.CASCADE, related_name="deliveries")
+    shoutout = models.ForeignKey(
+        Shoutout, on_delete=models.CASCADE, related_name="deliveries", db_column="announcement_id"
+    )
     slack_channel_id = models.CharField(max_length=64)
     slack_channel_name = models.CharField(max_length=255, blank=True, default="")
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
@@ -28,16 +30,18 @@ class AnnouncementDelivery(TeamScopedRootMixin, UUIDModel):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta(TeamScopedRootMixin.Meta):
+        # The table, column, index and constraint keep their pre-rename names, so the rename needs no DDL.
+        db_table = "customer_analytics_announcementdelivery"
         default_manager_name = "all_teams"
         constraints = [
             models.UniqueConstraint(
-                fields=["announcement", "slack_channel_id"],
+                fields=["shoutout", "slack_channel_id"],
                 name="ca_announcement_delivery_uniq",
             ),
         ]
         indexes = [
-            models.Index(fields=["announcement_id", "status"], name="ca_ann_deliv_status_idx"),
+            models.Index(fields=["shoutout_id", "status"], name="ca_ann_deliv_status_idx"),
         ]
 
     def __str__(self) -> str:
-        return f"AnnouncementDelivery({self.slack_channel_id}, status={self.status})"
+        return f"ShoutoutDelivery({self.slack_channel_id}, status={self.status})"

@@ -15,17 +15,17 @@ from posthog.event_usage import report_user_action
 from posthog.models.user import User
 
 from products.customer_analytics.backend.facade import api
-from products.customer_analytics.backend.facade.constants import MAX_ANNOUNCEMENT_CHANNELS
+from products.customer_analytics.backend.facade.constants import MAX_SHOUTOUT_CHANNELS
 from products.customer_analytics.backend.facade.contracts import (
-    AnnouncementDeliveryView,
-    AnnouncementValidationError,
-    AnnouncementView,
+    ShoutoutDeliveryView,
+    ShoutoutValidationError,
+    ShoutoutView,
 )
 from products.customer_analytics.backend.presentation.views.views import _FacadePaginationMixin
 
 # Duplicated from the model TextChoices so this module imports no product models;
 # ENUM_NAME_OVERRIDES matches the generated enums against these by value.
-_ANNOUNCEMENT_STATUS_CHOICES = [
+_SHOUTOUT_STATUS_CHOICES = [
     ("pending", "Pending"),
     ("sending", "Sending"),
     ("sent", "Sent"),
@@ -40,7 +40,7 @@ _DELIVERY_STATUS_CHOICES = [
 ]
 
 
-class AnnouncementDeliverySerializer(DataclassSerializer):
+class ShoutoutDeliverySerializer(DataclassSerializer):
     id = serializers.UUIDField(read_only=True)
     slack_channel_id = serializers.CharField(
         read_only=True, help_text="Slack channel ID the message was sent to (e.g. C0123ABCD)."
@@ -64,12 +64,12 @@ class AnnouncementDeliverySerializer(DataclassSerializer):
     )
 
     class Meta:
-        dataclass = AnnouncementDeliveryView
-        ref_name = "AnnouncementDelivery"
+        dataclass = ShoutoutDeliveryView
+        ref_name = "ShoutoutDelivery"
         fields = ["id", "slack_channel_id", "slack_channel_name", "status", "error", "slack_message_ts", "sent_at"]
 
 
-class AnnouncementChannelSerializer(serializers.Serializer):
+class ShoutoutChannelSerializer(serializers.Serializer):
     id = serializers.CharField(help_text="Slack channel ID (e.g. C0123ABCD).")
     name = serializers.CharField(help_text="Slack channel display name (without the leading #).")
     is_member = serializers.BooleanField(help_text="Whether the SupportHog bot is a member of this channel.")
@@ -79,16 +79,16 @@ class AnnouncementChannelSerializer(serializers.Serializer):
     )
 
 
-class AnnouncementSerializer(DataclassSerializer):
+class ShoutoutSerializer(DataclassSerializer):
     id = serializers.UUIDField(read_only=True)
-    short_id = serializers.CharField(read_only=True, help_text="Short human-friendly identifier for the announcement.")
+    short_id = serializers.CharField(read_only=True, help_text="Short human-friendly identifier for the shoutout.")
     message = serializers.CharField(help_text="Message body to send, rendered as Slack mrkdwn.")
     status = serializers.ChoiceField(
         read_only=True,
-        choices=_ANNOUNCEMENT_STATUS_CHOICES,
+        choices=_SHOUTOUT_STATUS_CHOICES,
         help_text="Overall status: pending, sending, sent, partially_failed, or failed.",
     )
-    total_channels = serializers.IntegerField(read_only=True, help_text="Number of channels this announcement targets.")
+    total_channels = serializers.IntegerField(read_only=True, help_text="Number of channels this shoutout targets.")
     sent_count = serializers.IntegerField(
         read_only=True, help_text="Number of channels the message was successfully delivered to."
     )
@@ -98,9 +98,9 @@ class AnnouncementSerializer(DataclassSerializer):
         allow_null=True,
         help_text="When delivery finished (all channels resolved). Null while pending/sending.",
     )
-    created_at = serializers.DateTimeField(read_only=True, help_text="When the announcement was created.")
+    created_at = serializers.DateTimeField(read_only=True, help_text="When the shoutout was created.")
     created_by = UserBasicSerializer(read_only=True)
-    deliveries = AnnouncementDeliverySerializer(
+    deliveries = ShoutoutDeliverySerializer(
         many=True, read_only=True, help_text="Per-channel delivery rows, one per selected Slack channel."
     )
     channels = serializers.ListField(
@@ -111,8 +111,8 @@ class AnnouncementSerializer(DataclassSerializer):
     )
 
     class Meta:
-        dataclass = AnnouncementView
-        ref_name = "Announcement"
+        dataclass = ShoutoutView
+        ref_name = "Shoutout"
         fields = [
             "id",
             "short_id",
@@ -137,62 +137,61 @@ class AnnouncementSerializer(DataclassSerializer):
         deduped = list(dict.fromkeys(value))
         if not deduped:
             raise serializers.ValidationError("Select at least one channel.")
-        if len(deduped) > MAX_ANNOUNCEMENT_CHANNELS:
-            raise serializers.ValidationError(
-                f"An announcement can target at most {MAX_ANNOUNCEMENT_CHANNELS} channels."
-            )
+        if len(deduped) > MAX_SHOUTOUT_CHANNELS:
+            raise serializers.ValidationError(f"A shoutout can target at most {MAX_SHOUTOUT_CHANNELS} channels.")
         return deduped
 
 
-class AnnouncementViewSet(
+class ShoutoutViewSet(
     TeamAndOrgViewSetMixin,
     _FacadePaginationMixin,
     mixins.CreateModelMixin,
     viewsets.ReadOnlyModelViewSet,
 ):
     scope_object = "customer_analytics"
-    serializer_class = AnnouncementSerializer
+    serializer_class = ShoutoutSerializer
     queryset = None  # data is reached through the facade; declared for router/schema only
     lookup_field = "short_id"
 
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         return self._paginate_via_facade(
             request,
-            lambda offset, limit: api.list_announcements(self.team_id, offset=offset, limit=limit),
-            AnnouncementSerializer,
+            lambda offset, limit: api.list_shoutouts(self.team_id, offset=offset, limit=limit),
+            ShoutoutSerializer,
         )
 
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        announcement = api.get_announcement(self.team_id, self.kwargs["short_id"])
-        if announcement is None:
+        shoutout = api.get_shoutout(self.team_id, self.kwargs["short_id"])
+        if shoutout is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
-        return Response(AnnouncementSerializer(instance=announcement).data)
+        return Response(ShoutoutSerializer(instance=shoutout).data)
 
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        serializer = AnnouncementSerializer(data=request.data)
+        serializer = ShoutoutSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
         try:
-            announcement = api.create_announcement(
+            shoutout = api.create_shoutout(
                 team_id=self.team_id,
                 user=cast(User, request.user),
                 message=data.message,
                 channels=data.channels,
             )
-        except AnnouncementValidationError as e:
+        except ShoutoutValidationError as e:
             raise serializers.ValidationError(e.detail)
         report_user_action(
             request.user,
+            # Keeps the pre-rename event name so existing insights on it keep working.
             "customer analytics announcement created",
-            {"id": str(announcement.id), "channel_count": announcement.total_channels},
+            {"id": str(shoutout.id), "channel_count": shoutout.total_channels},
             team=self.team,
             request=request,
         )
-        return Response(AnnouncementSerializer(instance=announcement).data, status=status.HTTP_201_CREATED)
+        return Response(ShoutoutSerializer(instance=shoutout).data, status=status.HTTP_201_CREATED)
 
-    @extend_schema(responses=AnnouncementChannelSerializer(many=True))
+    @extend_schema(responses=ShoutoutChannelSerializer(many=True))
     @action(detail=False, methods=["get"], pagination_class=None)
     def channels(self, request: Request, **kwargs: Any) -> Response:
         """Slack channels the SupportHog bot can post to, labeled by customer account name."""
-        member_channels = api.list_announcement_channels(self.team_id)
-        return Response(AnnouncementChannelSerializer(member_channels, many=True).data)
+        member_channels = api.list_shoutout_channels(self.team_id)
+        return Response(ShoutoutChannelSerializer(member_channels, many=True).data)

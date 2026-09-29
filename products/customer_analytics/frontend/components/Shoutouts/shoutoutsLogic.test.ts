@@ -21,13 +21,13 @@ describe('shoutoutsLogic', () => {
     beforeEach(() => {
         useMocks({
             get: {
-                '/api/projects/:team_id/announcements/': { results: [], count: 0 },
-                '/api/projects/:team_id/announcements/channels/': [
+                '/api/projects/:team_id/shoutouts/': { results: [], count: 0 },
+                '/api/projects/:team_id/shoutouts/channels/': [
                     { id: 'C1', name: 'acme', is_member: true, customer_name: 'Acme' },
                 ],
             },
             post: {
-                '/api/projects/:team_id/announcements/': {
+                '/api/projects/:team_id/shoutouts/': {
                     id: '1',
                     short_id: 'abc123',
                     message: 'Offsite this week',
@@ -110,8 +110,8 @@ describe('shoutoutsLogic', () => {
     it('narrows the channel picker to filtered accounts and bulk-selects them', async () => {
         useMocks({
             get: {
-                '/api/projects/:team_id/announcements/': { results: [], count: 0 },
-                '/api/projects/:team_id/announcements/channels/': [
+                '/api/projects/:team_id/shoutouts/': { results: [], count: 0 },
+                '/api/projects/:team_id/shoutouts/channels/': [
                     { id: 'C1', name: 'acme', is_member: true, customer_name: 'Acme' },
                     { id: 'C3', name: 'globex', is_member: true, customer_name: 'Globex' },
                 ],

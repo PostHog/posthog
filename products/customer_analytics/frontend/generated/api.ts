@@ -35,9 +35,6 @@ import type {
     AccountsSupportTicketMessagesListParams,
     AccountsTableQueryRequestApi,
     AccountsTableQueryResponseApi,
-    AnnouncementApi,
-    AnnouncementChannelApi,
-    AnnouncementsListParams,
     CalendarSyncBackfillApi,
     CalendarSyncIntervalApi,
     CalendarSyncStatusApi,
@@ -97,7 +94,6 @@ import type {
     PaginatedAccountRelationshipDefinitionListApi,
     PaginatedAccountSupportTicketMessageListApi,
     PaginatedAccountTrackRuleRunViewListApi,
-    PaginatedAnnouncementListApi,
     PaginatedCustomPropertyDefinitionListApi,
     PaginatedCustomPropertySourceListApi,
     PaginatedCustomPropertySyncRunListApi,
@@ -106,6 +102,7 @@ import type {
     PaginatedFeatureRequestListApi,
     PaginatedGroupUsageMetricListApi,
     PaginatedMeetingListApi,
+    PaginatedShoutoutListApi,
     PatchedAccountApi,
     PatchedAccountRelationshipDefinitionApi,
     PatchedCustomPropertyDefinitionApi,
@@ -119,6 +116,9 @@ import type {
     PatchedGroupUsageMetricApi,
     PatchedUserCustomerAnalyticsConfigUpdateApi,
     QueryStatusResponseApi,
+    ShoutoutApi,
+    ShoutoutChannelApi,
+    ShoutoutsListParams,
     SupportTicketApi,
     UserCustomerAnalyticsConfigApi,
 } from './api.schemas'
@@ -998,82 +998,6 @@ export const customerAnalyticsAccountsTableQueryCreate = async (
             body: JSON.stringify(accountsTableQueryRequestApi),
         }
     )
-}
-
-export const getAnnouncementsListUrl = (projectId: string, params?: AnnouncementsListParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/announcements/?${stringifiedParams}`
-        : `/api/projects/${projectId}/announcements/`
-}
-
-export const announcementsList = async (
-    projectId: string,
-    params?: AnnouncementsListParams,
-    options?: RequestInit
-): Promise<PaginatedAnnouncementListApi> => {
-    return apiMutator<PaginatedAnnouncementListApi>(getAnnouncementsListUrl(projectId, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getAnnouncementsCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/announcements/`
-}
-
-export const announcementsCreate = async (
-    projectId: string,
-    announcementApi: NonReadonly<AnnouncementApi>,
-    options?: RequestInit
-): Promise<AnnouncementApi> => {
-    return apiMutator<AnnouncementApi>(getAnnouncementsCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(announcementApi),
-    })
-}
-
-export const getAnnouncementsRetrieveUrl = (projectId: string, shortId: string) => {
-    return `/api/projects/${projectId}/announcements/${shortId}/`
-}
-
-export const announcementsRetrieve = async (
-    projectId: string,
-    shortId: string,
-    options?: RequestInit
-): Promise<AnnouncementApi> => {
-    return apiMutator<AnnouncementApi>(getAnnouncementsRetrieveUrl(projectId, shortId), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getAnnouncementsChannelsListUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/announcements/channels/`
-}
-
-/**
- * Slack channels the SupportHog bot can post to, labeled by customer account name.
- */
-export const announcementsChannelsList = async (
-    projectId: string,
-    options?: RequestInit
-): Promise<AnnouncementChannelApi[]> => {
-    return apiMutator<AnnouncementChannelApi[]>(getAnnouncementsChannelsListUrl(projectId), {
-        ...options,
-        method: 'GET',
-    })
 }
 
 export const getCalendarSyncListUrl = (projectId: string) => {
@@ -2556,6 +2480,82 @@ export const groupsTypesMetricsDestroy = async (
     return apiMutator<void>(getGroupsTypesMetricsDestroyUrl(projectId, groupTypeIndex, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getShoutoutsListUrl = (projectId: string, params?: ShoutoutsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/shoutouts/?${stringifiedParams}`
+        : `/api/projects/${projectId}/shoutouts/`
+}
+
+export const shoutoutsList = async (
+    projectId: string,
+    params?: ShoutoutsListParams,
+    options?: RequestInit
+): Promise<PaginatedShoutoutListApi> => {
+    return apiMutator<PaginatedShoutoutListApi>(getShoutoutsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getShoutoutsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/shoutouts/`
+}
+
+export const shoutoutsCreate = async (
+    projectId: string,
+    shoutoutApi: NonReadonly<ShoutoutApi>,
+    options?: RequestInit
+): Promise<ShoutoutApi> => {
+    return apiMutator<ShoutoutApi>(getShoutoutsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(shoutoutApi),
+    })
+}
+
+export const getShoutoutsRetrieveUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/shoutouts/${shortId}/`
+}
+
+export const shoutoutsRetrieve = async (
+    projectId: string,
+    shortId: string,
+    options?: RequestInit
+): Promise<ShoutoutApi> => {
+    return apiMutator<ShoutoutApi>(getShoutoutsRetrieveUrl(projectId, shortId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getShoutoutsChannelsListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/shoutouts/channels/`
+}
+
+/**
+ * Slack channels the SupportHog bot can post to, labeled by customer account name.
+ */
+export const shoutoutsChannelsList = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ShoutoutChannelApi[]> => {
+    return apiMutator<ShoutoutChannelApi[]>(getShoutoutsChannelsListUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }
 
