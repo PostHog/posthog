@@ -19,7 +19,7 @@
                   toStartOfDay(toTimeZone(e.created, 'UTC')) AS day_start,
                   ifNull(nullIf(leftUTF8(toString(e.prop_1), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.datawarehouse.trendquery/posthog_test_test_table_1/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `prop_1` String, `prop_2` String, `created` DateTime64(3, \'UTC\')') AS e
-           WHERE and(greaterOrEquals(toTimeZone(e.created, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.created, 'UTC'), assumeNotNull(toDateTime('2023-01-07 23:59:59', 'UTC'))))
+           WHERE and(greaterOrEquals(e.created, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC')), toIntervalDay(1)), 9, 'UTC')), lessOrEquals(e.created, assumeNotNull(toDateTime('2023-01-07 23:59:59', 'UTC'))))
            GROUP BY day_start,
                     breakdown_value)
         GROUP BY day_start,
@@ -94,7 +94,7 @@
                      posthog_test_test_table_1.prop_1 AS prop_2,
                      1 AS boolfield
               FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.datawarehouse.trendquery/posthog_test_test_table_1/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `prop_1` String, `prop_2` String, `created` DateTime64(3, \'UTC\')') AS posthog_test_test_table_1) AS e
-           WHERE and(greaterOrEquals(toTimeZone(e.created, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.created, 'UTC'), assumeNotNull(toDateTime('2023-01-07 23:59:59', 'UTC'))))
+           WHERE and(greaterOrEquals(e.created, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC')), toIntervalDay(1)), 9, 'UTC')), lessOrEquals(e.created, assumeNotNull(toDateTime('2023-01-07 23:59:59', 'UTC'))))
            GROUP BY day_start,
                     breakdown_value)
         GROUP BY day_start,
@@ -216,7 +216,7 @@
                   toStartOfDay(toTimeZone(e.created, 'UTC')) AS day_start,
                   ifNull(nullIf(leftUTF8(toString(e.prop_1), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.datawarehouse.trendquery/posthog_test_test_table_1/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `prop_1` String, `prop_2` String, `created` DateTime64(3, \'UTC\')') AS e
-           WHERE and(greaterOrEquals(toTimeZone(e.created, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.created, 'UTC'), assumeNotNull(toDateTime('2023-01-07 23:59:59', 'UTC'))), equals(e.prop_1, 'a'))
+           WHERE and(greaterOrEquals(e.created, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC')), toIntervalDay(1)), 9, 'UTC')), lessOrEquals(e.created, assumeNotNull(toDateTime('2023-01-07 23:59:59', 'UTC'))), equals(e.prop_1, 'a'))
            GROUP BY day_start,
                     breakdown_value)
         GROUP BY day_start,
@@ -255,7 +255,7 @@
        (SELECT count() AS total,
                toStartOfDay(toTimeZone(e.created, 'UTC')) AS day_start
         FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.datawarehouse.trendquery/posthog_test_test_table_1/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `prop_1` String, `prop_2` String, `created` DateTime64(3, \'UTC\')') AS e
-        WHERE and(greaterOrEquals(toTimeZone(e.created, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.created, 'UTC'), assumeNotNull(toDateTime('2023-01-07 23:59:59', 'UTC'))))
+        WHERE and(greaterOrEquals(e.created, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC')), toIntervalDay(1)), 9, 'UTC')), lessOrEquals(e.created, assumeNotNull(toDateTime('2023-01-07 23:59:59', 'UTC'))))
         GROUP BY day_start)
      GROUP BY day_start
      ORDER BY day_start ASC)
@@ -306,7 +306,7 @@
        (SELECT count() AS total,
                toStartOfDay(toTimeZone(e.created, 'UTC')) AS day_start
         FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.datawarehouse.trendquery/posthog_test_test_table_1/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `prop_1` String, `prop_2` String, `created` DateTime64(3, \'UTC\')') AS e
-        WHERE and(greaterOrEquals(toTimeZone(e.created, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.created, 'UTC'), assumeNotNull(toDateTime('2023-01-07 23:59:59', 'UTC'))))
+        WHERE and(greaterOrEquals(e.created, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC')), toIntervalDay(1)), 9, 'UTC')), lessOrEquals(e.created, assumeNotNull(toDateTime('2023-01-07 23:59:59', 'UTC'))))
         GROUP BY day_start)
      GROUP BY day_start
      ORDER BY day_start ASC)
@@ -338,7 +338,7 @@
        (SELECT count() AS total,
                toStartOfDay(toTimeZone(e.created, 'UTC')) AS day_start
         FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.datawarehouse.trendquery/posthog_test_test_table_1/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `prop_1` String, `prop_2` String, `created` DateTime64(3, \'UTC\')') AS e
-        WHERE and(greaterOrEquals(toTimeZone(e.created, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.created, 'UTC'), assumeNotNull(toDateTime('2023-01-07 23:59:59', 'UTC'))), equals(e.prop_1, 'a'))
+        WHERE and(greaterOrEquals(e.created, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC')), toIntervalDay(1)), 9, 'UTC')), lessOrEquals(e.created, assumeNotNull(toDateTime('2023-01-07 23:59:59', 'UTC'))), equals(e.prop_1, 'a'))
         GROUP BY day_start)
      GROUP BY day_start
      ORDER BY day_start ASC)
@@ -409,7 +409,7 @@
        (SELECT count() AS total,
                toStartOfDay(toTimeZone(e.created, 'UTC')) AS day_start
         FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.datawarehouse.trendquery/posthog_test_test_table_1/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `prop_1` String, `prop_2` String, `created` DateTime64(3, \'UTC\')') AS e
-        WHERE and(greaterOrEquals(toTimeZone(e.created, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2022-12-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.created, 'UTC'), assumeNotNull(toDateTime('2023-01-07 23:59:59', 'UTC'))))
+        WHERE and(greaterOrEquals(e.created, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2022-12-01 00:00:00', 'UTC')), toIntervalDay(1)), 9, 'UTC')), lessOrEquals(e.created, assumeNotNull(toDateTime('2023-01-07 23:59:59', 'UTC'))))
         GROUP BY day_start)
      GROUP BY day_start
      ORDER BY day_start ASC)
@@ -528,7 +528,7 @@
        (SELECT count() AS total,
                toStartOfDay(toTimeZone(e.created, 'UTC')) AS day_start
         FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.datawarehouse.trendquery/posthog_test_test_table_1/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `prop_1` String, `prop_2` String, `created` DateTime64(3, \'UTC\')') AS e
-        WHERE and(greaterOrEquals(toTimeZone(e.created, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.created, 'UTC'), assumeNotNull(toDateTime('2023-01-07 23:59:59', 'UTC'))), equals(e.prop_1, 'a'))
+        WHERE and(greaterOrEquals(e.created, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC')), toIntervalDay(1)), 9, 'UTC')), lessOrEquals(e.created, assumeNotNull(toDateTime('2023-01-07 23:59:59', 'UTC'))), equals(e.prop_1, 'a'))
         GROUP BY day_start)
      GROUP BY day_start
      ORDER BY day_start ASC)
@@ -560,7 +560,7 @@
        (SELECT count() AS total,
                toStartOfDay(toTimeZone(e.created, 'UTC')) AS day_start
         FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.datawarehouse.trendquery/posthog_test_test_table_1/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `prop_1` String, `prop_2` String, `created` DateTime64(3, \'UTC\')') AS e
-        WHERE and(greaterOrEquals(toTimeZone(e.created, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.created, 'UTC'), assumeNotNull(toDateTime('2023-01-07 23:59:59', 'UTC'))), and(equals(e.prop_1, 'a'), equals(e.prop_2, 'e'), equals(e.prop_1, 'a')))
+        WHERE and(greaterOrEquals(e.created, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC')), toIntervalDay(1)), 9, 'UTC')), lessOrEquals(e.created, assumeNotNull(toDateTime('2023-01-07 23:59:59', 'UTC'))), and(equals(e.prop_1, 'a'), equals(e.prop_2, 'e'), equals(e.prop_1, 'a')))
         GROUP BY day_start)
      GROUP BY day_start
      ORDER BY day_start ASC)
