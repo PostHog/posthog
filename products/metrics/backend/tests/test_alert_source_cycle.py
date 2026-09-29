@@ -553,6 +553,29 @@ class TestMetricsOnCallLifecycle(MetricsAlertEvaluationTestCase):
         assert evaluation.outcomes[0].new_state == "firing"
         assert evaluation.previews == ()
 
+    def test_a_hog_condition_gets_the_history_that_keep_firing_needs(self) -> None:
+        configuration = self._configuration(
+            evaluation_periods=1,
+            condition_type="hog",
+            condition_bytecode=compile_condition_bytecode("return value > 100"),
+            source_config={
+                "type": "MetricsAlertSource",
+                "clauses": [{"name": "a", "metric_name": "m1", "aggregation": "sum"}],
+                "keep_firing_windows": 1,
+            },
+        )
+        with team_scope(self.team.id):
+            PlatformAlert.objects.create(
+                team=self.team, configuration=configuration, grouping_key="", state=PlatformAlert.State.FIRING
+            )
+
+        evaluation, _ = self._run(
+            configuration, series=[_series([1.0, 500.0], end=self.due_at, step=timedelta(minutes=5))]
+        )
+
+        assert evaluation.outcomes[0].new_state == "firing"
+        assert evaluation.previews == ()
+
     def test_the_no_data_policy_applies_to_prior_windows(self) -> None:
         configuration = self._configuration(
             evaluation_periods=3,

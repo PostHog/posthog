@@ -532,7 +532,8 @@ def _evaluate_group(
     if check.condition_type == "hog" and check.condition_bytecode is not None:
         contexts = build_condition_contexts(
             values,
-            evaluation_periods=check.evaluation_periods,
+            # Every window the threshold path reads, so keep-firing sees the same history.
+            evaluation_periods=_windows_to_read(check, source),
             labels=labels,
             threshold={"count": check.threshold_count, "operator": check.threshold_operator},
             window_ends=window_ends,
@@ -653,7 +654,7 @@ def _evaluate_groups(
             budget=budget,
             labels=dict(one.labels),
             window_ends=_window_ends_newest_first(
-                window_end, check.evaluation_periods, timedelta(minutes=check.window_minutes)
+                window_end, _windows_to_read(check, source), timedelta(minutes=check.window_minutes)
             ),
             source=source,
         )
