@@ -239,6 +239,13 @@ SCOUT_USER_WRITE_SCOPES: list[str] = [
 #                          others meet. One scope object covers the whole surface, so the two
 #                          exclusions live in `products/replay_vision/backend/scout_writes.py`
 #                          instead: a scout cannot delete, and must cap what it creates or enables.
+#   ticket:write           Every support ticket in the scout's project: status, priority,
+#                          assignee, SLA, escalation, and tags, plus every saved ticket view. It also
+#                          sends CUSTOMER-FACING messages: a reply and a composed ticket both go
+#                          out as email, and an email that is sent cannot be recalled. Note edit
+#                          and delete reach only notes the caller wrote, and note delete is a
+#                          recoverable soft-delete. Ticket delete is not one of the scope's write
+#                          actions, so a scout cannot remove a ticket.
 #
 # `annotation:write` and `alert:write` exceed the "recoverable, project-scoped" bar the other
 # scopes meet. They stay in the v1 set that #94263 puts to the team, because narrowing the set is
@@ -246,6 +253,10 @@ SCOUT_USER_WRITE_SCOPES: list[str] = [
 # reaches, or drop the scopes. `llm_skill:write` carries the same kind of open question: a scout
 # holding it can rewrite the skill body it runs from. That is accepted while the grant is a
 # deliberate per-scout choice a person makes, and the surfaces that offer it say so.
+# `ticket:write` misses the bar in a different direction: a reply leaves PostHog and reaches a
+# customer, so it is neither recoverable nor project-scoped in effect. It is grantable on the same
+# terms as the others. A person grants it to one scout on purpose, and the picker row says the
+# scope sends customer-facing replies.
 SCOUT_GRANTABLE_WRITE_SCOPES: frozenset[str] = frozenset(
     {
         "dashboard:write",
@@ -256,6 +267,7 @@ SCOUT_GRANTABLE_WRITE_SCOPES: frozenset[str] = frozenset(
         "warehouse_view:write",
         "warehouse_table:write",
         "replay_scanner:write",
+        "ticket:write",
     }
 )
 
