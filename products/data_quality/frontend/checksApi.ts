@@ -13,6 +13,7 @@ import {
     dataQualityChecksRunsList,
     dataQualityChecksSchedulePartialUpdate,
     dataQualityChecksScheduleRetrieve,
+    dataQualityChecksSchedulesList,
     dataQualityChecksSubjectsList,
     dataQualityRunsCheckRunsList,
     dataQualityRunsCreate,
@@ -28,17 +29,19 @@ import type {
     DataQualityOutputSchemaApi,
     DataQualitySubjectApi,
     DataQualitySubjectHealthApi,
+    DataQualitySubjectScheduleApi,
     DataQualitySuiteRunApi,
     PatchedDataQualityCheckScheduleUpdateApi,
     PaginatedDataQualityOverviewCheckListApi,
     PaginatedDataQualitySuiteRunListApi,
+    SubjectTypeEnumApi,
 } from './generated/api.schemas'
 
 export function apiErrorDetail(error: unknown): string | null {
     return error instanceof ApiError ? error.detail : null
 }
 
-export type DataQualitySubjectType = 'table' | 'view' | 'metric'
+export type DataQualitySubjectType = SubjectTypeEnumApi
 
 export interface DataQualitySubjectRef {
     subjectType: DataQualitySubjectType
@@ -107,6 +110,8 @@ export const checksApi = {
 
     schedule: (ref: DataQualitySubjectRef): Promise<DataQualityCheckScheduleApi> =>
         dataQualityChecksScheduleRetrieve(projectId(), subjectParams(ref)),
+
+    schedules: (): Promise<DataQualitySubjectScheduleApi[]> => dataQualityChecksSchedulesList(projectId()),
 
     updateSchedule: (
         ref: DataQualitySubjectRef,

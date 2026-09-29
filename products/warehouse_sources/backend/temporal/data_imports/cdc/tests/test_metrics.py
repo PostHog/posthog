@@ -142,6 +142,7 @@ def _extract_patches(source, schemas, events):
         patch.object(CDCExtractActivity, "_update_schema_sync_type_config"),
         # The success repaint runs a locked DB transaction; these metric smoke tests are DB-less.
         patch(f"{_ACTIVITIES}.complete_schema_run", return_value=True),
+        patch(f"{_ACTIVITIES}.mark_schema_running_unless_halted", return_value=True),
         patch(f"{_ACTIVITIES}.get_cdc_adapter", return_value=adapter),
         patch(f"{_ACTIVITIES}.S3BatchWriter", return_value=s3),
         patch(f"{_ACTIVITIES}.PostgresProducer"),
@@ -217,6 +218,7 @@ def _sweeper_adapter(*, lag_bytes=0, retention_cap_mb=None):
     adapter.management_connection.side_effect = _conn
     adapter.get_lag_bytes.return_value = lag_bytes
     adapter.get_retention_cap_mb.return_value = retention_cap_mb
+    adapter.slot_exists.return_value = False
     return adapter
 
 

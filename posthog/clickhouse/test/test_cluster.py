@@ -12,7 +12,8 @@ from unittest.mock import Mock, patch, sentinel
 from clickhouse_driver import Client
 from clickhouse_driver.errors import ServerException
 
-from posthog.clickhouse.client.connection import NodeRole, Workload
+from posthog.clickhouse.client import connection
+from posthog.clickhouse.client.connection import ClickHouseCredentials, ClickHouseUser, NodeRole, Workload
 from posthog.clickhouse.cluster import (
     TOO_MANY_MUTATIONS,
     AlterTableMutationRunner,
@@ -36,6 +37,61 @@ pytestmark = pytest.mark.django_db
 @pytest.fixture
 def cluster(django_db_setup) -> Iterator[ClickhouseCluster]:
     yield get_cluster()
+
+
+@pytest.mark.parametrize(
+    "static_password, password_file_set, overrides_arg, expected_bootstrap, expect_provider",
+    [
+        pytest.param("static-fallback", True, None, "static", True, id="dual_armed_default_bootstraps_on_static"),
+        pytest.param("", True, None, "token", True, id="token_first_default_bootstraps_on_token"),
+        pytest.param("static-only", False, None, "unset", False, id="static_default_uses_password"),
+        pytest.param(
+            "static-fallback",
+            True,
+            {"user": "backups", "password": "bkp-static"},
+            "static",
+            False,
+            id="override_user_keeps_its_own_credential",
+        ),
+    ],
+)
+def test_get_cluster_keeps_the_bootstrap_off_an_expirable_token(
+    monkeypatch, tmp_path, static_password, password_file_set, overrides_arg, expected_bootstrap, expect_provider
+) -> None:
+    token = "live-token"
+    token_file = tmp_path / "token"
+    token_file.write_text(token)
+    creds = ClickHouseCredentials(
+        user="default",
+        password=static_password,
+        password_file=str(token_file) if password_file_set else None,
+    )
+    monkeypatch.setattr(connection, "__user_dict", {ClickHouseUser.DEFAULT: creds})
+
+    with (
+        patch("posthog.clickhouse.cluster.default_client") as mock_default_client,
+        patch("posthog.clickhouse.cluster.ClickhouseCluster") as mock_cluster,
+    ):
+        get_cluster(connection_overrides=overrides_arg)
+
+    bootstrap_password = mock_default_client.call_args.kwargs.get("password")
+    overrides = mock_cluster.call_args.kwargs["connection_overrides"]
+
+    if expected_bootstrap == "static":
+        assert bootstrap_password == static_password
+    elif expected_bootstrap == "token":
+        assert bootstrap_password == token
+    else:
+        assert bootstrap_password is None
+
+    if expect_provider:
+        assert overrides["credential_provider"]() == token
+    else:
+        assert "credential_provider" not in overrides
+
+    if overrides_arg is not None:
+        assert overrides["user"] == overrides_arg["user"]
+        assert overrides["password"] == overrides_arg["password"]
 
 
 def test_mutation_runner_rejects_invalid_parameters() -> None:

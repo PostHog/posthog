@@ -39,6 +39,11 @@ prompts = PromptTemplates(Path(__file__).parent / "prompts")
 CLASSIFIER_THREAD_HISTORY_MESSAGES = 10
 CLASSIFIER_MODEL = "claude-haiku-4-5-20251001"
 
+# Every classifier here shares `ai_product="slack_app_routing"`, so the captured generation
+# carries this property to say which one of them made the call. An online evaluation scopes
+# itself with it; without it a judge would grade all four.
+CLASSIFIER_PROPERTY = "slack_app_classifier"
+
 
 # The model-override and agent-directed classifiers both run on a reasoning model, which
 # draws its reasoning from the same token budget as the reply. The reply is one short JSON
@@ -191,7 +196,11 @@ def classify_task_needs_repo(
     )
     try:
         # The Go gateway refuses a Claude model on chat completions.
-        client = build_anthropic_client(product="slack_app_routing", ai_product="slack_app_routing")
+        client = build_anthropic_client(
+            product="slack_app_routing",
+            ai_product="slack_app_routing",
+            properties={CLASSIFIER_PROPERTY: "task_needs_repo"},
+        )
         response = client.messages.create(
             model=CLASSIFIER_MODEL,
             messages=[{"role": "user", "content": prompt}],
@@ -304,9 +313,11 @@ def classify_message_is_agent_directed(
         event_text=event_text,
     )
     try:
-        client = build_openai_client(product="slack_app_routing", ai_product="slack_app_routing").with_options(
-            timeout=AGENT_DIRECTED_TIMEOUT_SECONDS, max_retries=AGENT_DIRECTED_MAX_RETRIES
-        )
+        client = build_openai_client(
+            product="slack_app_routing",
+            ai_product="slack_app_routing",
+            properties={CLASSIFIER_PROPERTY: "agent_directed"},
+        ).with_options(timeout=AGENT_DIRECTED_TIMEOUT_SECONDS, max_retries=AGENT_DIRECTED_MAX_RETRIES)
         response = client.chat.completions.create(
             model=AGENT_DIRECTED_CLASSIFIER_MODEL,
             messages=[{"role": "user", "content": prompt}],
@@ -472,9 +483,11 @@ def classify_slack_app_model_override(
     )
 
     try:
-        client = build_openai_client(product="slack_app_routing", ai_product="slack_app_routing").with_options(
-            timeout=MODEL_OVERRIDE_TIMEOUT_SECONDS, max_retries=MODEL_OVERRIDE_MAX_RETRIES
-        )
+        client = build_openai_client(
+            product="slack_app_routing",
+            ai_product="slack_app_routing",
+            properties={CLASSIFIER_PROPERTY: "model_override"},
+        ).with_options(timeout=MODEL_OVERRIDE_TIMEOUT_SECONDS, max_retries=MODEL_OVERRIDE_MAX_RETRIES)
         response = client.chat.completions.create(
             model=MODEL_OVERRIDE_CLASSIFIER_MODEL,
             messages=[{"role": "user", "content": prompt}],
@@ -583,8 +596,14 @@ class _ProjectRouteReply(BaseModel):
     project_id: int | None = None
 
 
-def classify_slack_app_project_route(event_text: str, projects: list[Integration]) -> Integration | None:
+def classify_slack_app_project_route(
+    event_text: str, projects: list[Integration], default: Integration | None = None
+) -> Integration | None:
     """Read the project a mention asked to be answered from, out of its text.
+
+    ``default`` is the project the run is already on. It heads the list the model is
+    shown and is marked there, so that staying put is a visible choice rather than the
+    absence of one.
 
     Returns ``None`` when the author named none, which is the overwhelming majority of
     mentions, and on a reply this cannot parse.
@@ -599,16 +618,23 @@ def classify_slack_app_project_route(event_text: str, projects: list[Integration
     where the answer has to come from, because that is where the data lives. Quality on
     that is measured by ``products/slack_app/evals/eval_project_classifier.py``.
     """
+    # Named to the model by id rather than by a marker on its line: a team may be called
+    # anything, including whatever that marker would have been.
+    if default is not None and not any(p.id == default.id for p in projects):
+        default = None
     prompt = prompts.render(
         "project_route",
-        projects=format_project_candidate_list(projects),
+        projects=format_project_candidate_list(projects, first=default),
+        default_id=default.team_id if default is not None else None,
         event_text=event_text,
     )
 
     try:
-        client = build_openai_client(product="slack_app_routing", ai_product="slack_app_routing").with_options(
-            timeout=PROJECT_ROUTE_TIMEOUT_SECONDS, max_retries=PROJECT_ROUTE_MAX_RETRIES
-        )
+        client = build_openai_client(
+            product="slack_app_routing",
+            ai_product="slack_app_routing",
+            properties={CLASSIFIER_PROPERTY: "project_route"},
+        ).with_options(timeout=PROJECT_ROUTE_TIMEOUT_SECONDS, max_retries=PROJECT_ROUTE_MAX_RETRIES)
         response = client.chat.completions.create(
             model=PROJECT_ROUTE_CLASSIFIER_MODEL,
             messages=[{"role": "user", "content": prompt}],
@@ -667,7 +693,7 @@ def classify_slack_app_project_route_activity(input: SlackAppProjectRouteInput) 
         return None
 
     try:
-        chosen = classify_slack_app_project_route(input.event_text, projects)
+        chosen = classify_slack_app_project_route(input.event_text, projects, default=integration)
     except Exception:
         # The fallback boundary: a mention we cannot classify stays on the project
         # routing already resolved, which is what it would have done anyway.

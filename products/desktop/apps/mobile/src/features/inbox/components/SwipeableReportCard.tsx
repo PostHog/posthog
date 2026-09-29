@@ -47,7 +47,7 @@ const priorityColorMap: Record<
 interface SwipeableReportCardProps {
   report: SignalReport;
   onDismiss: (reportId: string) => void;
-  onAccept: (report: SignalReport) => void;
+  onAccept: (report: SignalReport) => Promise<boolean>;
   onExpand: (report: SignalReport) => void;
   isTopCard: boolean;
   /** Vertical offset in px — cards further back sit lower. */
@@ -124,8 +124,9 @@ export function SwipeableReportCard({
             toValue: 500,
             duration: 200,
             useNativeDriver: true,
-          }).start(() => {
-            p.onAccept(p.report);
+          }).start(async () => {
+            const accepted = await p.onAccept(p.report);
+            if (!accepted) translateX.setValue(0);
           });
         } else if (gesture.dx < -SWIPE_THRESHOLD) {
           // Swipe left → dismiss

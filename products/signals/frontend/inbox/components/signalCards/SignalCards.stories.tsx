@@ -97,7 +97,6 @@ const scannerFinding = makeSignal({
         scanner_type: 'ux',
         observation_id: 'obs-1',
         session_id: 'sess-2',
-        confidence: 0.82,
         problem_type: 'dead_end',
         start_time: 72,
         end_time: 90,
@@ -178,7 +177,6 @@ const scoutFinding = makeSignal({
         finding_id: 'finding-1a2b3c4d',
         skill_name: 'upload-health',
         skill_version: 3,
-        confidence: 0.85,
         severity: 'P1',
         hypothesis: 'The 2.4.0 release raised the client-side chunk size above the 413 limit on the upload endpoint.',
         evidence: [

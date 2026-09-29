@@ -1,14 +1,13 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 
-import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
-
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { initKeaTests } from '~/test/init'
 
 import {
     dataQualityChecksHealthList,
     dataQualityChecksList,
-    dataQualityChecksMetricSubjectsList,
+    dataQualityChecksScheduleRetrieve,
+    dataQualityChecksSubjectsList,
     dataQualityRunsCreate,
     dataQualityRunsRetrieve,
     dataQualityChecksCheckTypesList,
@@ -18,29 +17,6 @@ import type { DataQualityOverviewCheckApi } from 'products/data_quality/frontend
 
 import { DataQualityOverview } from './DataQualityOverview'
 import { subjectDisclosureId } from './dataQualityOverviewLogic'
-
-jest.mock('scenes/data-management/database/databaseTableListLogic', () => {
-    const { actions, kea, path, reducers } = jest.requireActual('kea')
-    return {
-        databaseTableListLogic: kea([
-            path(['scenes', 'data-management', 'database', 'databaseTableListLogic']),
-            actions({
-                loadDatabase: true,
-                ensureAllTableFields: true,
-                setDatabaseLoadError: (error: string | null) => ({ error }),
-            }),
-            reducers({
-                views: [[]],
-                dataWarehouseTables: [[]],
-                databaseLoading: [false],
-                databaseLoadError: [
-                    null,
-                    { setDatabaseLoadError: (_: string | null, { error }: { error: string | null }) => error },
-                ],
-            }),
-        ]),
-    }
-})
 
 jest.mock('lib/api', () => ({
     __esModule: true,
@@ -56,7 +32,7 @@ jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
 jest.mock('products/data_quality/frontend/generated/api', () => ({
     dataQualityChecksList: jest.fn(),
     dataQualityChecksHealthList: jest.fn(),
-    dataQualityChecksMetricSubjectsList: jest.fn(),
+
     dataQualityRunsCreate: jest.fn(),
     dataQualityRunsRetrieve: jest.fn(),
     dataQualityChecksRunsList: jest.fn(),
@@ -64,6 +40,9 @@ jest.mock('products/data_quality/frontend/generated/api', () => ({
     dataQualityChecksCheckTypesList: jest.fn(),
     dataQualityChecksCreate: jest.fn(),
     dataQualityChecksPartialUpdate: jest.fn(),
+    dataQualityChecksScheduleRetrieve: jest.fn(),
+    dataQualityChecksSchedulePartialUpdate: jest.fn(),
+    dataQualityChecksSchedulesList: jest.fn(() => Promise.resolve([])),
     dataQualityChecksSubjectsList: jest.fn(),
 }))
 
@@ -129,7 +108,7 @@ describe('DataQualityOverview', () => {
             failingHealth('orders'),
             failingHealth('customers'),
         ])
-        ;(dataQualityChecksMetricSubjectsList as jest.Mock).mockResolvedValue([])
+        ;(dataQualityChecksSubjectsList as jest.Mock).mockResolvedValue([])
         ;(dataQualityRunsCreate as jest.Mock).mockResolvedValue({
             id: 'suite-1',
             status: 'running',
@@ -219,6 +198,33 @@ describe('DataQualityOverview', () => {
         expect(screen.getAllByText('orders').length).toBeGreaterThan(0)
     })
 
+    it('groups a PostHog table under its own tag, with a schedule and a link to its node', async () => {
+        const check = buildCheck('check-events', 'events', {
+            subject_type: 'posthog_table',
+            subject_uuid: 'uuid-events',
+            subject_node_id: 'node-events',
+        })
+        ;(dataQualityChecksList as jest.Mock).mockResolvedValue({ results: [check] })
+        ;(dataQualityChecksHealthList as jest.Mock).mockResolvedValue([failingHealth('events')])
+        ;(dataQualityChecksScheduleRetrieve as jest.Mock).mockResolvedValue({
+            id: 'schedule-1',
+            enabled: true,
+            interval: '24hour',
+            next_run_at: null,
+            last_run_at: null,
+            last_suite_run: null,
+        })
+        render(<DataQualityOverview />)
+        await waitFor(() => expect(runSubjectButtons()).toHaveLength(1))
+
+        expect(screen.getByText('PostHog')).toBeTruthy()
+        expect(document.querySelector('a[href*="/models/node-events"]')).not.toBeNull()
+
+        fireEvent.click(queryAll('[data-attr="data-quality-subject-disclosure"]')[0])
+
+        expect(await screen.findByText('Run automatically')).toBeTruthy()
+    })
+
     it('shows only the creation path from the illustrated first-use state', async () => {
         ;(dataQualityChecksList as jest.Mock).mockResolvedValue({ results: [] })
         ;(dataQualityChecksHealthList as jest.Mock).mockResolvedValue([])
@@ -265,15 +271,13 @@ describe('DataQualityOverview', () => {
     it('shows a retry when the subject picker catalog cannot load', async () => {
         ;(dataQualityChecksList as jest.Mock).mockResolvedValue({ results: [] })
         ;(dataQualityChecksHealthList as jest.Mock).mockResolvedValue([])
+        ;(dataQualityChecksSubjectsList as jest.Mock).mockRejectedValue(new Error('down'))
         render(<DataQualityOverview />)
         await screen.findByText('No checks yet')
+
         fireEvent.click(document.querySelector('[data-attr="data-quality-overview-first-check"]')!)
 
-        ;(
-            databaseTableListLogic.actions as unknown as { setDatabaseLoadError: (error: string) => void }
-        ).setDatabaseLoadError('down')
-
-        expect(await screen.findByText("Couldn't load your tables and views.")).toBeTruthy()
+        expect(await screen.findByText("Couldn't load what you can check.")).toBeTruthy()
         expect(screen.getByText('Retry')).toBeTruthy()
     })
 

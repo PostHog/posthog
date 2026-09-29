@@ -409,6 +409,7 @@ const errorTrackingRecommendationsList = (): ToolBase<
             query: {
                 limit: params.limit,
                 offset: params.offset,
+                poll: params.poll,
             },
         })
         return result
@@ -769,6 +770,9 @@ const queryErrorTrackingIssue = (): ToolBase<
             }
             if (params.includeSparkline !== undefined) {
                 body['includeSparkline'] = params.includeSparkline
+            }
+            if (params.includeBreakdown !== undefined) {
+                body['includeBreakdown'] = params.includeBreakdown
             }
             const result = await context.api.request<Schemas.ErrorTrackingIssueDetail>({
                 method: 'POST',

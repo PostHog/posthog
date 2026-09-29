@@ -16,6 +16,7 @@ from products.replay_vision.backend.temporal.activities import (
     emit_classifier_tags_activity,
     emit_observation_event_activity,
     emit_observation_signal_activity,
+    emit_observation_signal_summaries_activity,
     emit_observation_signals_activity,
     ensure_session_asset_activity,
     fetch_session_events_activity,
@@ -45,11 +46,19 @@ from products.replay_vision.backend.temporal.activities import (
     upload_video_to_gemini_activity,
     upsert_scanner_schedule_activity,
 )
+from products.replay_vision.backend.temporal.activities.benchmark import (
+    load_benchmark_cases_activity,
+    prepare_benchmark_case_activity,
+    record_benchmark_case_activity,
+    snapshot_benchmark_labels_activity,
+    write_benchmark_manifest_activity,
+)
 from products.replay_vision.backend.temporal.activities.refresh_search_suggestions import (
     list_stale_search_suggestions_activity,
     refresh_scanner_search_suggestions_activity,
 )
 from products.replay_vision.backend.temporal.backfill_workflow import BackfillScannerWorkflow
+from products.replay_vision.backend.temporal.benchmark_workflow import BuildBenchmarkWorkflow
 from products.replay_vision.backend.temporal.estimates import RefreshScannerEstimatesWorkflow
 from products.replay_vision.backend.temporal.evaluation_workflow import EvaluatePromptSuggestionWorkflow
 from products.replay_vision.backend.temporal.gemini_cleanup_sweep import (
@@ -73,6 +82,7 @@ from products.replay_vision.backend.temporal.workflow import ApplyScannerWorkflo
 WORKFLOWS = [
     ApplyScannerWorkflow,
     BackfillScannerWorkflow,
+    BuildBenchmarkWorkflow,
     EvaluatePromptSuggestionWorkflow,
     MeterScannerReadsWorkflow,
     ObservationMediaWorkflow,
@@ -102,6 +112,7 @@ ACTIVITIES: list[Callable[..., Any]] = [
     emit_classifier_tags_activity,
     emit_observation_event_activity,
     emit_observation_signal_activity,
+    emit_observation_signal_summaries_activity,
     emit_observation_signals_activity,
     cleanup_gemini_file_activity,
     prepare_observation_thumbnail_activity,
@@ -133,6 +144,11 @@ ACTIVITIES: list[Callable[..., Any]] = [
     sweep_gemini_files_activity,
     list_stale_search_suggestions_activity,
     refresh_scanner_search_suggestions_activity,
+    snapshot_benchmark_labels_activity,
+    load_benchmark_cases_activity,
+    prepare_benchmark_case_activity,
+    record_benchmark_case_activity,
+    write_benchmark_manifest_activity,
 ]
 
 __all__ = [
@@ -161,6 +177,7 @@ __all__ = [
     "emit_classifier_tags_activity",
     "emit_observation_event_activity",
     "emit_observation_signal_activity",
+    "emit_observation_signal_summaries_activity",
     "emit_observation_signals_activity",
     "ensure_session_asset_activity",
     "fetch_session_events_activity",

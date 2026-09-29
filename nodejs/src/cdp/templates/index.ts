@@ -21,10 +21,12 @@ import { template as metaAdsTemplate } from './_destinations/meta_ads/meta.templ
 import { template as microsoftAdsTemplate } from './_destinations/microsoft_ads/microsoft.template'
 import { template as nativeWebhookTemplate } from './_destinations/native_webhook/webhook.template'
 import { template as openaiAdsTemplate } from './_destinations/openai_ads/openai.template'
+import { template as pagerdutyTemplate } from './_destinations/pagerduty/pagerduty.template'
 import { template as posthogCaptureTemplate } from './_destinations/posthog_capture/posthog-capture.template'
 import { template as posthogGroupIdentifyTemplate } from './_destinations/posthog_capture/posthog-group-identify.template'
 import { template as posthogUpdatePersonPropertiesTemplate } from './_destinations/posthog_capture/posthog-update-person-properties.template'
 import { template as posthogGetTicketTemplate } from './_destinations/posthog_conversations/posthog-get-ticket.template'
+import { template as posthogSendTicketMessageTemplate } from './_destinations/posthog_conversations/posthog-send-ticket-message.template'
 import { template as posthogUpdateTicketTemplate } from './_destinations/posthog_conversations/posthog-update-ticket.template'
 import { template as posthogCreateAccountTemplate } from './_destinations/posthog_customer_analytics/posthog-create-account.template'
 import { template as posthogCreateCustomerTaskTemplate } from './_destinations/posthog_customer_analytics/posthog-create-customer-task.template'
@@ -78,6 +80,7 @@ export const HOG_FUNCTION_TEMPLATES_COMING_SOON: HogFunctionTemplate[] = allComi
 export const HOG_FUNCTION_TEMPLATES_DESTINATIONS: HogFunctionTemplate[] = [
     slackTemplate,
     webhookTemplate,
+    pagerdutyTemplate,
     tiktokAdsTemplate,
     snapchatAdsTemplate,
     linearTemplate,
@@ -102,6 +105,7 @@ export const HOG_FUNCTION_TEMPLATES_DESTINATIONS: HogFunctionTemplate[] = [
     posthogUpdatePersonPropertiesTemplate,
     posthogSetHogflowVariableTemplate,
     posthogGetTicketTemplate,
+    posthogSendTicketMessageTemplate,
     posthogUpdateTicketTemplate,
     posthogCreateTaskTemplate,
     posthogRunScoutTemplate,

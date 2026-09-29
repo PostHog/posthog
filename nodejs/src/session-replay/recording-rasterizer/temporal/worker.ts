@@ -14,6 +14,7 @@ import { RasterizationMetrics } from '~/session-replay/recording-rasterizer/metr
 import { initMetrics, shutdownMetrics } from '~/session-replay/recording-rasterizer/otel-metrics'
 
 import { createActivities } from './activities'
+import { installUnhandledRejectionGuard } from './install-unhandled-rejection-guard'
 
 prometheus.collectDefaultMetrics()
 RasterizationMetrics.initialize()
@@ -21,6 +22,8 @@ RasterizationMetrics.initialize()
 initMetrics()
 
 const log = createLogger()
+
+installUnhandledRejectionGuard(log, () => RasterizationMetrics.incrementUnhandledRejection())
 
 // Route Temporal SDK logs through our JSON logger so all output is structured.
 Runtime.install({

@@ -1,5 +1,5 @@
 import type { HookInput } from "@anthropic-ai/claude-agent-sdk";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { Logger } from "../../../utils/logger";
 import {
   BUDGET_CAP_ENV,
@@ -173,14 +173,14 @@ describe("RunBudgetGuard", () => {
       const event = guard.recordAssistantMessage(opusCall(id, cacheRead));
       if (event) events.push(event.stage);
     };
-    record("m1", 1_000_000);
-    record("m1", 1_000_000);
-    expect(guard.spentUsd).toBeCloseTo(0.51126, 4);
+    record("m1", 800_000);
+    record("m1", 800_000);
+    expect(guard.spentUsd).toBeCloseTo(0.41126, 4);
     expect(events).toEqual([]);
-    record("m2", 500_000);
+    record("m2", 200_000);
     expect(events).toEqual(["warn"]);
     record("m3", 100_000);
-    record("m4", 200_000);
+    record("m4", 300_000);
     expect(events).toEqual(["warn", "critical"]);
     record("m5", 1_000_000);
     expect(events).toEqual(["warn", "critical"]);
@@ -188,7 +188,7 @@ describe("RunBudgetGuard", () => {
 
   test("keeps a threshold pending until a steer is delivered, and critical supersedes warn", () => {
     const guard = new RunBudgetGuard(1, DEFAULT_MODEL_PRICES, logger);
-    guard.recordAssistantMessage(opusCall("m1", 1_500_000));
+    guard.recordAssistantMessage(opusCall("m1", 1_000_000));
     expect(guard.takePendingSteer()).toBe("warn");
     expect(guard.takePendingSteer()).toBeNull();
     guard.markUndelivered("warn");
@@ -232,7 +232,7 @@ describe("RunBudgetGuard", () => {
     expect(guard.currentStage).toBe("critical");
   });
 
-  test("re-queues the delivered stage after a conversation clear but not after a refresh", () => {
+  test("re-queues the delivered stage after onConversationCleared but not after onQueryReset", () => {
     const guard = new RunBudgetGuard(1, DEFAULT_MODEL_PRICES, logger);
     guard.recordAssistantMessage(opusCall("m1", 2_000_000));
     expect(guard.takePendingSteer()).toBe("critical");
@@ -281,12 +281,12 @@ describe("RunBudgetGuard", () => {
     expect(guard.steerText("warn")).toContain("open the draft pull request");
   });
 
-  test.each(["Agent", "Task", "Workflow"])(
-    "denies a %s spawn only once the budget is critical",
+  test.each(["Agent", "Task", "Workflow", "WebFetch", "WebSearch"])(
+    "denies a %s call only once the budget is critical",
     async (toolName) => {
       const guard = new RunBudgetGuard(1, DEFAULT_MODEL_PRICES, logger);
       const hook = guard.preToolUseHook();
-      guard.recordAssistantMessage(opusCall("m1", 1_500_000));
+      guard.recordAssistantMessage(opusCall("m1", 1_000_000));
       expect(guard.currentStage).toBe("warn");
       expect(await hook(spawn(toolName), undefined, hookOptions())).toEqual({
         continue: true,
@@ -336,7 +336,7 @@ describe("RunBudgetGuard", () => {
       logger,
       "publish",
     );
-    guard.recordAssistantMessage(opusCall("m1", 1_500_000));
+    guard.recordAssistantMessage(opusCall("m1", 1_000_000));
     guard.recordSteer("warn", false);
     guard.recordSteer("warn", true);
     expect(guard.snapshot()).toMatchObject({
@@ -348,5 +348,34 @@ describe("RunBudgetGuard", () => {
         { stage: "warn", delivered: true },
       ],
     });
+  });
+
+  test("records what a steer cost between the threshold and its delivery", () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
+      const guard = new RunBudgetGuard(1, DEFAULT_MODEL_PRICES, logger);
+      guard.recordAssistantMessage(opusCall("m1", 1_000_000));
+      const threshold = guard.spentUsd;
+      guard.recordAssistantMessage(opusCall("m2", 200_000));
+      vi.advanceTimersByTime(5000);
+      const record = guard.recordSteer("warn", true);
+      expect(record.threshold_spent_usd).toBeCloseTo(threshold, 6);
+      expect(record.threshold_at).toBe("2026-01-01T00:00:00.000Z");
+      expect(record.delivered_at).toBe("2026-01-01T00:00:05.000Z");
+      expect(record.spent_usd - record.threshold_spent_usd).toBeCloseTo(
+        0.11126,
+        4,
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("leaves enough of the cap for the finishing work at critical", () => {
+    const guard = new RunBudgetGuard(1, DEFAULT_MODEL_PRICES, logger);
+    guard.recordAssistantMessage(opusCall("m1", 1_400_000));
+    expect(guard.currentStage).toBe("critical");
+    expect(guard.capUsd - guard.spentUsd).toBeGreaterThan(0.25);
   });
 });

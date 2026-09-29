@@ -1699,6 +1699,7 @@ class ProjectViewSet(
         request=None,
         responses={200: ProjectSerializer},
     )
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(
         methods=["POST"],
         detail=True,
@@ -1802,7 +1803,7 @@ class ProjectViewSet(
     )
     def rotate_secret_token(self, request: request.Request, id: str, **kwargs) -> response.Response:
         project = self.get_object()
-        validate_secret_token_generation(project.passthrough_team, cast(User, request.user))
+        validate_secret_token_generation(project.passthrough_team)
         project.passthrough_team.rotate_secret_token_and_save(
             user=request.user, is_impersonated_session=is_impersonated(request)
         )

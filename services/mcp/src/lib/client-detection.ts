@@ -185,11 +185,8 @@ export const POSTHOG_CODE_CONSUMER = 'posthog-code'
 // would misclassify Claude Code as a UI host.
 export const ANTHROPIC_UI_HOST_VENDOR_FRAGMENTS = ['claudeai', 'cowork'] as const
 
-// Claude web/desktop report `supportsInstructions` but never surface the
-// `instructions` payload to the model, so their env-context rides on the exec
-// command description instead (`keepEnvContext`). Cowork surfaces instructions
-// normally and gets env-context through them, so it is not a chat host even
-// though it is a UI host.
+// Claude web/desktop never show `instructions` to the model. Cowork does, so it
+// is not a chat host even though it is a UI host.
 export const ANTHROPIC_CHAT_HOST_VENDOR_FRAGMENTS = ['claudeai'] as const
 
 // Anthropic coding-agent surfaces that render MCP UI apps inline through the
@@ -300,8 +297,12 @@ export class MCPClientProfile {
         // `clientInfo.name`. Unlike `isClaudeUiHost`, matching the pooled name here
         // is safe and intended: every Anthropic product belongs in CLI mode, so
         // there is nothing to misclassify.
+        return matchesAnyFragment(this.vendorClient, ANTHROPIC_CLIENT_NAME_FRAGMENTS) || this.isAnthropicConnector()
+    }
+
+    isAnthropicConnector(): boolean {
+        // The connector omits `x-anthropic-client` on `tools/list` and sends it on the call, so this must not read it.
         return (
-            matchesAnyFragment(this.vendorClient, ANTHROPIC_CLIENT_NAME_FRAGMENTS) ||
             matchesAnyFragment(this.userAgent, ANTHROPIC_USER_AGENT_FRAGMENTS) ||
             normalizeClientName(this.clientName ?? '').startsWith('anthropic')
         )

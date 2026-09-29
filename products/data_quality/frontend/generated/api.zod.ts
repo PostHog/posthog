@@ -35,12 +35,12 @@ export const DataQualityChecksCreateBody = /* @__PURE__ */ zod
             .describe('Optional identifier-safe handle, unique per project. Omit to address the check by id.'),
         description: zod.string().optional().describe('Why this check exists and what a failure means.'),
         subject_type: zod
-            .enum(['table', 'view', 'metric'])
-            .describe('\* `table` - table\n\* `view` - view\n\* `metric` - metric')
+            .enum(['table', 'view', 'metric', 'posthog_table'])
+            .describe('\* `table` - table\n\* `view` - view\n\* `metric` - metric\n\* `posthog_table` - posthog_table')
             .describe(
-                "Kind of catalog object to check: 'table', 'view', or 'metric'.\n\n\* `table` - table\n\* `view` - view\n\* `metric` - metric"
+                "Kind of object to check: 'table', 'view', 'metric', or 'posthog_table'.\n\n\* `table` - table\n\* `view` - view\n\* `metric` - metric\n\* `posthog_table` - posthog_table"
             ),
-        subject_uuid: zod.uuid().describe('Id of the table, view, or metric to check.'),
+        subject_uuid: zod.uuid().describe('Id of the table, view, metric, or PostHog table to check.'),
         column_name: zod
             .string()
             .max(dataQualityChecksCreateBodyColumnNameMax)
@@ -249,13 +249,13 @@ export const DataQualityChecksPartialUpdateBody = /* @__PURE__ */ zod
 export const DataQualityChecksSchedulePartialUpdateBody = /* @__PURE__ */ zod
     .object({
         subject_type: zod
-            .enum(['table', 'view', 'metric'])
-            .describe('\* `table` - table\n\* `view` - view\n\* `metric` - metric')
+            .enum(['table', 'view', 'metric', 'posthog_table'])
+            .describe('\* `table` - table\n\* `view` - view\n\* `metric` - metric\n\* `posthog_table` - posthog_table')
             .optional()
             .describe(
-                "Kind of catalog object: 'table', 'view', or 'metric'.\n\n\* `table` - table\n\* `view` - view\n\* `metric` - metric"
+                "Kind of object: 'table', 'view', 'metric', or 'posthog_table'.\n\n\* `table` - table\n\* `view` - view\n\* `metric` - metric\n\* `posthog_table` - posthog_table"
             ),
-        subject_uuid: zod.uuid().optional().describe('Id of the table, view, or metric.'),
+        subject_uuid: zod.uuid().optional().describe('Id of the table, view, metric, or PostHog table.'),
         interval: zod
             .enum(['1hour', '6hour', '12hour', '24hour', '7day'])
             .describe(
@@ -279,11 +279,11 @@ export const DataQualityRunsCreateBody = /* @__PURE__ */ zod
             .optional()
             .describe('Ids of the checks to run. Omit to run every enabled check in the project.'),
         subject_type: zod
-            .enum(['table', 'view', 'metric'])
-            .describe('\* `table` - table\n\* `view` - view\n\* `metric` - metric')
+            .enum(['table', 'view', 'metric', 'posthog_table'])
+            .describe('\* `table` - table\n\* `view` - view\n\* `metric` - metric\n\* `posthog_table` - posthog_table')
             .optional()
             .describe(
-                'Narrow the run to one subject. Pass subject_uuid with it. Ignored when check_ids is given.\n\n\* `table` - table\n\* `view` - view\n\* `metric` - metric'
+                'Narrow the run to one subject. Pass subject_uuid with it. Ignored when check_ids is given.\n\n\* `table` - table\n\* `view` - view\n\* `metric` - metric\n\* `posthog_table` - posthog_table'
             ),
         subject_uuid: zod
             .uuid()

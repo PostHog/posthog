@@ -10,6 +10,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.client import LinkedinAdsClient
 from products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.source import (
+    _CONNECTION_CHECK_ERROR,
+    _MISSING_INTEGRATION_ERROR,
     LINKEDIN_ADS_VERSION_202606,
     LINKEDIN_ADS_VERSION_202607,
     LINKEDIN_ADS_VERSION_202608,
@@ -205,8 +207,7 @@ class TestLinkedInAdsSource:
         is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
 
         assert is_valid is False
-        assert error_message is not None
-        assert "LinkedIn Ads integration not found" in error_message
+        assert error_message == _MISSING_INTEGRATION_ERROR
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.source.Integration")
     @mock.patch(
@@ -223,9 +224,9 @@ class TestLinkedInAdsSource:
         is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
 
         assert is_valid is False
-        assert error_message is not None
-        assert "Failed to validate LinkedIn Ads credentials" in error_message
-        assert "Database error" in error_message
+        # The raw exception text is a database internal the user can do nothing with; it belongs in
+        # error tracking, not in the wizard.
+        assert error_message == _CONNECTION_CHECK_ERROR
         mock_capture_exception.assert_called_once()
 
     @pytest.mark.parametrize(
