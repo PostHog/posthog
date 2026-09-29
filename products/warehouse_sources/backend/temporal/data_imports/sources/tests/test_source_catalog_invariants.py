@@ -54,7 +54,6 @@ SOURCES_WITHOUT_AN_ICON_FILE = {
     "Appwrite",
     "Backblaze",
     "Baseten",
-    "BrowseAI",
     "BrowserUse",
     "Cohere",
     "DenoDeploy",
