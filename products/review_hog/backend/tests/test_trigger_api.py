@@ -90,27 +90,41 @@ class TestReviewHogTriggerApi(APIBaseTest):
         self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
         mock_start.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("other_org", "evil/repo"),
+            ("allowlisted_name_other_org", "evil/ai-gateway"),
+            ("allowlisted_prefix", "PostHog/ai-gateway-fork"),
+        ]
+    )
     @patch(_START, return_value="wf-1")
-    def test_disallowed_repo_rejected(self, mock_start):
+    def test_disallowed_repo_rejected(self, _name, repo, mock_start):
         resp = self.client.post(
             TRIGGER_URL,
-            {"repo": "evil/repo", "pr_number": 1},
+            {"repo": repo, "pr_number": 1},
             format="json",
             HTTP_AUTHORIZATION="Bearer secret-token",
         )
         self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
         mock_start.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("posthog_lowercase", "posthog/posthog"),
+            ("ai_gateway", "PostHog/ai-gateway"),
+            ("ai_gateway_lowercase", "posthog/ai-gateway"),
+        ]
+    )
     @patch(_START, return_value="wf-1")
-    def test_allowlist_is_case_insensitive(self, mock_start):
+    def test_allowlisted_repo_accepted(self, _name, repo, mock_start):
         resp = self.client.post(
             TRIGGER_URL,
-            {"repo": "posthog/posthog", "pr_number": 7},
+            {"repo": repo, "pr_number": 7},
             format="json",
             HTTP_AUTHORIZATION="Bearer secret-token",
         )
         self.assertEqual(resp.status_code, status.HTTP_202_ACCEPTED, resp.content)
-        mock_start.assert_called_once()
+        self.assertEqual(mock_start.call_args.kwargs["pr_url"], f"https://github.com/{repo}/pull/7")
 
     @override_settings(REVIEWHOG_TEAM_IDS=[])
     @patch(_START, return_value="wf-1")
