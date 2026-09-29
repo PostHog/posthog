@@ -86,6 +86,18 @@ def _send_batch(
         for token in tokens
     ]
 
+    tickets = _post_to_expo(payload, token_count=len(tokens))
+    if tickets is None:
+        return 0
+
+    accepted, invalid_tokens = _tally_tickets(tokens, tickets)
+    if invalid_tokens:
+        _prune_invalid_tokens(user, invalid_tokens)
+    return accepted
+
+
+def _post_to_expo(payload: list[dict[str, Any]], *, token_count: int) -> list[Any] | None:
+    """Return the ticket list from Expo, or ``None`` when the request or response is unusable."""
     try:
         response = requests.post(
             EXPO_PUSH_API_URL,
@@ -94,35 +106,39 @@ def _send_batch(
             timeout=EXPO_PUSH_API_TIMEOUT_SECONDS,
         )
     except requests.RequestException as exc:
-        logger.warning("expo_push.request_failed", error=str(exc), token_count=len(tokens))
-        return 0
+        logger.warning("expo_push.request_failed", error=str(exc), token_count=token_count)
+        return None
 
     if response.status_code >= 500:
         logger.warning(
             "expo_push.server_error",
             status_code=response.status_code,
-            token_count=len(tokens),
+            token_count=token_count,
         )
-        return 0
+        return None
     if response.status_code >= 400:
         logger.warning(
             "expo_push.client_error",
             status_code=response.status_code,
-            token_count=len(tokens),
+            token_count=token_count,
             body=response.text[:500],
         )
-        return 0
+        return None
 
     try:
         body_json = response.json()
     except ValueError:
         logger.warning("expo_push.invalid_response", body=response.text[:500])
-        return 0
+        return None
 
     tickets = body_json.get("data", []) if isinstance(body_json, dict) else []
     if not isinstance(tickets, list):
-        return 0
+        return None
+    return tickets
 
+
+def _tally_tickets(tokens: list[str], tickets: list[Any]) -> tuple[int, list[str]]:
+    """Return the accepted count and the tokens Expo reports as ``DeviceNotRegistered``."""
     # Expo's contract is one ticket per message in order. If we ever get a
     # mismatch, `zip` silently truncates and the tail tokens fall into a hole
     # — never counted as accepted, never pruned. Log so a contract regression
@@ -152,15 +168,15 @@ def _send_batch(
                 error=error_code,
                 message=ticket.get("message"),
             )
+    return accepted, invalid_tokens
 
-    if invalid_tokens:
-        # Scope pruning to this user — the same opaque token string could
-        # theoretically belong to another user (e.g. shared test device), and
-        # we should never delete a row we don't own the dispatch context for.
-        UserPushToken.objects.filter(user=user, token__in=invalid_tokens).delete()
-        logger.info("expo_push.pruned_invalid_tokens", count=len(invalid_tokens), user_id=user.id)
 
-    return accepted
+def _prune_invalid_tokens(user: User, invalid_tokens: list[str]) -> None:
+    # Scope pruning to this user — the same opaque token string could
+    # theoretically belong to another user (e.g. shared test device), and
+    # we should never delete a row we don't own the dispatch context for.
+    UserPushToken.objects.filter(user=user, token__in=invalid_tokens).delete()
+    logger.info("expo_push.pruned_invalid_tokens", count=len(invalid_tokens), user_id=user.id)
 
 
 def _chunk(items: list[str], size: int) -> Iterable[list[str]]:
