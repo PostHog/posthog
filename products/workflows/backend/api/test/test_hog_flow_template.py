@@ -4,6 +4,9 @@ from uuid import uuid4
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
+
 from rest_framework import status
 
 from posthog.cdp.templates.fixtures import template_slack
@@ -669,9 +672,11 @@ class TestHogFlowTemplateAPI(APIBaseTest):
         template_ids = [t["id"] for t in response.json()["results"]]
         assert template_id in template_ids
 
-    @patch("products.workflows.backend.api.hog_flow_template.load_global_templates", return_value=[])
+    @patch(
+        "products.workflows.backend.api.hog_flow_template.load_global_templates",
+        return_value=[{"id": "file-1"}, {"id": "file-2"}],
+    )
     def test_list_is_stably_ordered_across_pages_when_updated_at_ties(self, _mock_load_global_templates):
-        # Insert in ascending id order so the assertion cannot pass on insertion order alone.
         ids = sorted(uuid4() for _ in range(4))
         for template_id in ids:
             HogFlowTemplate.objects.create(
@@ -683,15 +688,24 @@ class TestHogFlowTemplateAPI(APIBaseTest):
                 actions=[],
                 created_by=self.user,
             )
-        # auto_now sets updated_at per row, so flatten it to put every template in one tie.
         HogFlowTemplate.objects.filter(team=self.team).update(updated_at="2026-01-01T00:00:00Z")
 
         walked: list[str] = []
-        for offset in (0, 2):
-            response = self.client.get(
-                f"/api/projects/{self.team.id}/hog_flow_templates", {"limit": 2, "offset": offset}
-            )
+        for offset in (0, 3):
+            with CaptureQueriesContext(connection) as queries:
+                response = self.client.get(
+                    f"/api/projects/{self.team.id}/hog_flow_templates", {"limit": 3, "offset": offset}
+                )
             assert response.status_code == 200, response.json()
-            walked.extend(t["id"] for t in response.json()["results"])
+            assert response.json()["count"] == 6
+            walked.extend(template["id"] for template in response.json()["results"])
+            template_selects = [
+                query["sql"]
+                for query in queries.captured_queries
+                if 'FROM "hogflow_templates"' in query["sql"] and "COUNT(" not in query["sql"]
+            ]
+            assert len(template_selects) == 1, template_selects
+            assert "LIMIT" in template_selects[0]
+            assert f'JOIN "{User._meta.db_table}"' in template_selects[0]
 
-        assert walked == [str(template_id) for template_id in sorted(ids, reverse=True)]
+        assert walked == ["file-1", "file-2", *(str(template_id) for template_id in sorted(ids, reverse=True))]
