@@ -126,7 +126,7 @@ class SystemOneClient:
             if not verdict.allowed:
                 raise SSRFBlockedError(verdict.reason)
             with tagged_http_client(
-                timeout=timeout, pin=(base_url, verdict.pinned_ips), follow_redirects=False
+                timeout=timeout, pin=(base_url, verdict.pinned_ips), follow_redirects=False, total_timeout=timeout
             ) as client:
                 response = client.post(
                     f"{base_url}/systemone",

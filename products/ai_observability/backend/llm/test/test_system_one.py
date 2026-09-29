@@ -31,7 +31,9 @@ from products.ai_observability.backend.llm.system_one import (
 
 
 def _response(status: int, body: dict[str, object] | str = "") -> httpx.Response:
-    return httpx.Response(status, content=json.dumps(body) if isinstance(body, dict) else body)
+    return httpx.Response(
+        status, stream=httpx.ByteStream((json.dumps(body) if isinstance(body, dict) else body).encode())
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -82,7 +84,7 @@ def test_system_one_key_validation(status: int, expected_state: str) -> None:
         },
     )
     with (
-        patch("httpx.HTTPTransport.handle_request", return_value=response) as request,
+        patch("httpx.AsyncHTTPTransport.handle_async_request", return_value=response) as request,
     ):
         state, message = Client.validate_key(
             "system_one", "example-token", base_url="https://decisions.example.com/v1", model="custom-model"
@@ -98,7 +100,7 @@ def test_system_one_key_validation(status: int, expected_state: str) -> None:
 @pytest.mark.parametrize("error", [httpx.ConnectError("Connection refused"), httpx.ReadTimeout("Timed out")])
 def test_transport_failures_are_retryable_connection_errors(error: Exception) -> None:
     with (
-        patch("httpx.HTTPTransport.handle_request", side_effect=error),
+        patch("httpx.AsyncHTTPTransport.handle_async_request", side_effect=error),
         pytest.raises(ProviderConnectionError),
     ):
         SystemOneClient.evaluate(
@@ -121,7 +123,7 @@ def test_system_one_rejects_invalid_probabilities(probability: object) -> None:
         },
     )
     with (
-        patch("httpx.HTTPTransport.handle_request", return_value=response),
+        patch("httpx.AsyncHTTPTransport.handle_async_request", return_value=response),
         pytest.raises(StructuredOutputParseError),
     ):
         SystemOneClient.evaluate(
@@ -138,7 +140,7 @@ def test_system_one_rate_limits_are_retryable(status: int) -> None:
     response = _response(status)
     response.headers["Retry-After"] = "15"
     with (
-        patch("httpx.HTTPTransport.handle_request", return_value=response),
+        patch("httpx.AsyncHTTPTransport.handle_async_request", return_value=response),
         pytest.raises(SystemOneRateLimitError) as error,
     ):
         SystemOneClient.evaluate(
@@ -170,7 +172,7 @@ def test_unavailable_usage_does_not_discard_a_valid_answer(
             "usage": usage,
         },
     )
-    with patch("httpx.HTTPTransport.handle_request", return_value=response):
+    with patch("httpx.AsyncHTTPTransport.handle_async_request", return_value=response):
         result = SystemOneClient.evaluate(
             api_key="example-token",
             base_url="https://decisions.example.com/v1",
@@ -189,7 +191,7 @@ def test_unavailable_usage_does_not_discard_a_valid_answer(
 )
 def test_official_endpoint_is_blocked(base_url: str) -> None:
     with (
-        patch("httpx.HTTPTransport.handle_request") as request,
+        patch("httpx.AsyncHTTPTransport.handle_async_request") as request,
         pytest.raises(SystemOneEndpointBlockedError, match="hosted endpoint is not available"),
     ):
         SystemOneClient.evaluate(
@@ -213,7 +215,7 @@ def test_system_one_requires_every_requested_answer(answers: dict[str, object]) 
         },
     )
     with (
-        patch("httpx.HTTPTransport.handle_request", return_value=response),
+        patch("httpx.AsyncHTTPTransport.handle_async_request", return_value=response),
         pytest.raises(StructuredOutputParseError),
     ):
         SystemOneClient.evaluate(
@@ -245,7 +247,7 @@ def test_system_one_preserves_error_categories(status: int, message: str, error_
     response = _response(status, message)
     response.headers["Location"] = "https://other.example.com/systemone"
     with (
-        patch("httpx.HTTPTransport.handle_request", return_value=response),
+        patch("httpx.AsyncHTTPTransport.handle_async_request", return_value=response),
         pytest.raises(error_type),
     ):
         SystemOneClient.evaluate(
@@ -283,7 +285,7 @@ def test_custom_endpoint_and_model(api_key: str) -> None:
         return response
 
     with (
-        patch("httpx.HTTPTransport.handle_request", side_effect=respond) as request,
+        patch("httpx.AsyncHTTPTransport.handle_async_request", side_effect=respond) as request,
         patch("posthog.egress.typesafe.transport.consume_typesafe_sync") as budget,
         patch("posthog.egress.typesafe.observability.typesafe_egress.record_response") as telemetry,
     ):
@@ -319,7 +321,7 @@ def test_custom_endpoint_and_model(api_key: str) -> None:
     ],
 )
 def test_invalid_endpoint_is_rejected_before_sending_credentials(base_url: str) -> None:
-    with patch("httpx.HTTPTransport.handle_request") as request:
+    with patch("httpx.AsyncHTTPTransport.handle_async_request") as request:
         state, _ = SystemOneClient.validate_key("example-token", base_url=base_url, model="custom-model")
     assert state == "error"
     request.assert_not_called()
@@ -330,7 +332,7 @@ def test_private_endpoint_is_blocked(base_url: str) -> None:
     with (
         override_settings(DEBUG=False, TEST=False),
         patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("127.0.0.1")}),
-        patch("httpx.HTTPTransport.handle_request") as request,
+        patch("httpx.AsyncHTTPTransport.handle_async_request") as request,
     ):
         state, _ = SystemOneClient.validate_key("example-token", base_url=base_url, model="custom-model")
     assert state == "error"
