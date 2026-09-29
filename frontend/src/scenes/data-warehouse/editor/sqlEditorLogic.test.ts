@@ -36,6 +36,7 @@ import { biEditorLogic } from './bi/biEditorLogic'
 import { BIConfig, BIEditorView, BIField } from './bi/biEditorTypes'
 import { buildSqlNotebook, editorSceneLogic } from './editorSceneLogic'
 import { OutputTab } from './outputPaneLogic'
+import { SELECTION_NOT_A_QUERY } from './saveCandidateProblems'
 import {
     activeTabMatchesUrlTarget,
     getDisplayTypeToSaveInsight,
@@ -1398,7 +1399,7 @@ describe('sqlEditorLogic', () => {
             logic.actions.saveAsMetric()
             await expectLogic(logic).toFinishAllListeners()
 
-            expect(openForm.mock.calls.at(-1)?.[0].initialValues).toEqual(PREFILL)
+            expect(openForm.mock.calls.at(-1)?.[0].initialValues).toEqual({ saveTarget: 0, ...PREFILL })
             openForm.mockRestore()
         })
 
@@ -1463,6 +1464,41 @@ describe('sqlEditorLogic', () => {
 
             expect(catalogMetrics.values.allMetrics.map((metric) => metric.name)).toEqual([PREFILL.name])
             catalogMetrics.unmount()
+        })
+    })
+
+    describe('save dialog selection guard', () => {
+        // Monaco reports a non-empty selection after a double-click, which is the editor state
+        // that let a single identifier reach the API as the query to save.
+        function createEditorWithSelection(selected: string): any {
+            return {
+                ...createMockEditor(),
+                getModel: () => ({ getValueInRange: () => selected }),
+                getSelection: () => ({ isEmpty: () => false }),
+            }
+        }
+
+        it.each([
+            ['view', (): void => logic.actions.saveAsView()],
+            ['endpoint', (): void => logic.actions.saveAsEndpoint()],
+            ['metric', (): void => logic.actions.saveAsMetric()],
+        ])('refuses to save a selected identifier as a %s', async (_target, openDialog) => {
+            const openForm = jest.spyOn(LemonDialog, 'openForm').mockImplementation(() => {})
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createEditorWithSelection('weekly_active_users'),
+            })
+            logic.mount()
+
+            openDialog()
+            await expectLogic(logic).toFinishAllListeners()
+
+            const form = openForm.mock.calls.at(-1)?.[0] as any
+            expect(form.errors.saveTarget(form.initialValues.saveTarget, form.initialValues)).toEqual(
+                SELECTION_NOT_A_QUERY
+            )
+            openForm.mockRestore()
         })
     })
 

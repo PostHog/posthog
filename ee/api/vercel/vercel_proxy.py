@@ -183,6 +183,9 @@ class VercelProxyViewSet(viewsets.ViewSet):
 
         self._log_vercel_response(vercel_response, config_id, path)
 
+        if vercel_response.status_code == status.HTTP_204_NO_CONTENT:
+            return Response(status=status.HTTP_204_NO_CONTENT)
+
         try:
             response_data = vercel_response.json()
         except requests.JSONDecodeError:

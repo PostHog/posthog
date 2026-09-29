@@ -25,12 +25,13 @@ from posthog.user_permissions import UserPermissions
 
 from products.signals.backend.agent_runtime import STEP_IMPLEMENTATION, resolve_agent_runtime
 from products.signals.backend.artefact_attribution import ArtefactAttribution
-from products.signals.backend.artefact_schemas import ImplementationDispatch, ImplementationReplacement
+from products.signals.backend.artefact_schemas import AutostartSkip, ImplementationDispatch, ImplementationReplacement
 from products.signals.backend.billing import (
     BillingExemptionError,
     mark_report_billing_exempt,
     system_billing_exempt_reason,
 )
+from products.signals.backend.enums import ReportLinkKind
 from products.signals.backend.free_trial import capture_signal_report_free_trial_paused, self_driving_free_trial_enabled
 from products.signals.backend.models import (
     MAX_SCOUT_CONTENT_REVISIONS,
@@ -66,6 +67,7 @@ from products.signals.backend.signal_metadata import (
     fetch_source_products_for_reports,
     fetch_source_references_for_report,
 )
+from products.signals.backend.stack_plan import dependency_head_branch
 from products.signals.backend.supersession import (
     TargetVerificationUnavailable,
     decision_is_current,
@@ -80,6 +82,12 @@ from products.signals.backend.task_run_artefacts import (
     record_implementation_task,
 )
 from products.signals.backend.tracker_issues import create_tracker_issue_for_report
+from products.signals.backend.typed_report_links import (
+    duplicate_chain,
+    has_open_or_merged_pull_request,
+    incoming_links,
+    outgoing_links,
+)
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.usage import task_run_usage_limited
 
@@ -305,6 +313,17 @@ def _head_branch_instruction(head_branch: str) -> str:
     )
 
 
+def _stack_base_instruction(stack_base_branch: str | None) -> str:
+    if not stack_base_branch:
+        return ""
+    return (
+        f"\n\nThis report is one layer of a stack of dependent pull requests. The run starts on "
+        f"`{stack_base_branch}`, the head branch of the pull request this layer builds on. Open your PR "
+        f"with `{stack_base_branch}` as its base, and do not push to that branch. Change only what this "
+        "layer's summary asks for, because the layer below already carries the rest."
+    )
+
+
 def _superseded_pr_instruction(supersede: SupersedeDecision) -> str:
     """Tell the agent which pull request it is replacing, and to say so in its own description.
 
@@ -474,12 +493,172 @@ def _capture_steering_attached(*, team: Team, report_id: str, task_id: str, stee
                 "notes_attached": steering.notes_attached,
                 "scratchpad_available": steering.scratchpad_available,
                 "memory_protocol": steering.memory_protocol,
+                "nudge_rendered": steering.nudge_rendered,
             },
             groups=groups(team.organization, team),
         )
     except Exception:
         # Analytics must never break auto-start.
         logger.exception("Failed to capture signals_autostart_steering_attached", report_id=report_id)
+
+
+# Stable slugs for `signals_autostart_skipped`. The outcome's `reason` stays a human sentence that
+# reaches the caller and the log; the slug is what a breakdown groups on, so it must not drift when
+# the sentence is reworded. `task_exists` has no slug on purpose: it is idempotency, not a gate, and
+# it fires on every re-evaluation of a report whose run already started. The two non-immediate
+# actionability choices get a slug each: a report waiting on a person still holds work, so counting
+# it as `not_actionable` would read as the opposite conclusion.
+SKIP_NOT_ACTIONABLE = "not_actionable"
+SKIP_REQUIRES_HUMAN_INPUT = "requires_human_input"
+SKIP_ALREADY_ADDRESSED = "already_addressed"
+SKIP_NO_PRIORITY = "no_priority"
+SKIP_AUTOSTART_DISABLED = "autostart_disabled"
+SKIP_QUOTA_EXHAUSTED = "quota_exhausted"
+SKIP_NO_RUNNER = "no_runner"
+SKIP_FREE_TRIAL = "free_trial"
+
+
+def _capture_autostart_skipped(
+    *, team_id: int, report_id: str, skip_reason: str, linked_report_id: str | None = None
+) -> None:
+    """`signals_autostart_skipped` — fired once per evaluation that started nothing, so the share of
+    reports each gate holds back is readable against the share that started.
+
+    Keyed on `team.uuid` like the rest of the signal lifecycle events, so it joins the same
+    person-level funnels.
+    """
+    try:
+        team = Team.objects.select_related("organization").filter(pk=team_id).first()
+        if team is None:
+            return
+        posthoganalytics.capture(
+            event="signals_autostart_skipped",
+            distinct_id=str(team.uuid),
+            properties={
+                "team_id": team.id,
+                "organization_id": str(team.organization.id),
+                "report_id": report_id,
+                "skip_reason": skip_reason,
+                "linked_report_id": linked_report_id,
+            },
+            groups=groups(team.organization, team),
+        )
+    except Exception:
+        # Analytics must never break auto-start.
+        logger.exception("Failed to capture signals_autostart_skipped", report_id=report_id)
+
+
+def _duplicate_claims(*, team_id: int, report_id: str, duplicate_ids: list[str]) -> list[str]:
+    """Every report this one duplicates, directly or through a chain, the oldest claim's chain first.
+
+    `duplicate_chain` follows only the oldest `duplicate_of` link, so the cluster keeps a stable name.
+    The gate asks whether the work is already in flight, and the work can sit behind any claim, so
+    each later claim's chain is walked too. The node budget bounds a report that holds many claims.
+    """
+    claims = duplicate_chain(team_id=team_id, report_id=report_id)
+    for target_id in duplicate_ids:
+        if len(claims) >= SignalReportArtefact.MAX_REPORT_LINK_GRAPH_NODES:
+            break
+        if target_id not in claims:
+            claims += [target_id, *duplicate_chain(team_id=team_id, report_id=target_id)]
+    return list(dict.fromkeys(claims))
+
+
+def _duplicate_already_worked_on(*, team_id: int, chain: list[str]) -> str | None:
+    """The nearest report in the duplicate chain that already holds this work, or None.
+
+    Every member is asked, not only the root, because a pull request stays on the report whose run
+    opened it: in A -> B -> C the fix can be in flight on B while C carries nothing. A member the
+    reader cannot load makes no claim.
+    """
+    if not chain:
+        return None
+    statuses = {
+        str(report_id): status
+        for report_id, status in SignalReport.objects.using("default")
+        .filter(team_id=team_id, id__in=chain)
+        .values_list("id", "status")
+    }
+    with_work = has_open_or_merged_pull_request(team_id=team_id, report_ids=chain)
+    for candidate in chain:
+        status = statuses.get(candidate)
+        if status is None:
+            continue
+        if candidate in with_work or status == SignalReport.Status.RESOLVED:
+            return candidate
+    return None
+
+
+def _evaluate_link_gates(team_id: int, report_id: str) -> AutostartSkip | None:
+    """Which typed link, if any, says this report must not open its own pull request.
+
+    Three questions, cheapest first, and a report with no links pays one indexed read for all of
+    them. Each answer names the report that decided it, because the reason lives on another report
+    and a reader looking at this one would otherwise see only that nothing started.
+
+    A gate holds the automatic path only. The Implement button goes through the tasks API, so a
+    person can always override any of these.
+    """
+    links = outgoing_links(team_id=team_id, report_id=report_id)
+
+    duplicate_ids = [edge.target_id for edge in links if edge.kind == ReportLinkKind.DUPLICATE_OF]
+    if duplicate_ids:
+        deciding_id = _duplicate_already_worked_on(
+            team_id=team_id,
+            chain=_duplicate_claims(team_id=team_id, report_id=report_id, duplicate_ids=duplicate_ids),
+        )
+        if deciding_id is not None:
+            return AutostartSkip(
+                skip_reason="duplicate_of",
+                linked_report_id=deciding_id,
+                detail=(
+                    "No work started here because this report duplicates another one that is already "
+                    "resolved or has a pull request."
+                ),
+            )
+
+    dependency_ids = [edge.target_id for edge in links if edge.kind == ReportLinkKind.DEPENDS_ON]
+    if dependency_ids:
+        with_work = has_open_or_merged_pull_request(team_id=team_id, report_ids=dependency_ids)
+        unmet = [report for report in dependency_ids if report not in with_work]
+        if unmet:
+            return AutostartSkip(
+                skip_reason="blocked_by_dependency",
+                linked_report_id=unmet[0],
+                detail="No work started here because a report this one depends on has no pull request yet.",
+            )
+
+    # A parent is the plan, not a step in it, so it never gets its own run: the children carry the
+    # work and the parent resolves when they all land.
+    if incoming_links(team_id=team_id, report_id=report_id, kinds=(ReportLinkKind.PART_OF,)):
+        return AutostartSkip(
+            skip_reason="plan_parent",
+            detail="No work started here because other reports are part of this one and do the work.",
+        )
+    return None
+
+
+def _record_link_gate_skip(team_id: int, report_id: str, skip: AutostartSkip) -> None:
+    """Put the gate on the report's work log, then count it.
+
+    Best-effort on the artefact: holding the report back is the decision that matters, and losing
+    the log row must not turn a blocked report into a started one.
+    """
+    try:
+        SignalReportArtefact.add_log(
+            team_id=team_id,
+            report_id=report_id,
+            content=skip,
+            attribution=ArtefactAttribution.system(),
+        )
+    except Exception:
+        logger.exception("signals autostart skip artefact failed", report_id=report_id, team_id=team_id)
+    _capture_autostart_skipped(
+        team_id=team_id,
+        report_id=report_id,
+        skip_reason=skip.skip_reason,
+        linked_report_id=skip.linked_report_id,
+    )
 
 
 def _has_unimplemented_work(report: SignalReport) -> bool:
@@ -543,13 +722,14 @@ def _create_implementation_task_if_absent(
     user_id: int,
     repository: str,
     base_branch: str | None,
+    stack_base_branch: str | None = None,
     billing_exempt_reason: str | None = None,
     steering: ReportSteering = NO_STEERING,
     free_trial_enabled: bool | None = None,
     supersede: SupersedeDecision = NO_SUPERSEDE,
     dispatch: ImplementationDispatch | None = None,
     requested_after_run_count: int | None = None,
-) -> bool:
+) -> bool | AutostartSkip:
     """Create the implementation task and record it (gate row + work-log artefact), serialized per report.
 
     Auto-start is re-evaluated from several independent paths — the reviewer-edit on-commit hook,
@@ -558,7 +738,7 @@ def _create_implementation_task_if_absent(
     workflow, duplicate draft PR, duplicate spend). Locking the `SignalReport` row and re-checking
     inside the lock makes the decision atomic: the second evaluation blocks, then sees the gate and
     returns ``False``. Returns ``True`` if it created the task, ``False`` if one already exists / the
-    report is gone.
+    report is gone. Returns `AutostartSkip` when a link blocks the task under the lock.
 
     The same lock is where billing exemptions freeze (`_stamp_billing_exemption`): the reason is
     decided and written before the task exists, so it can never race a billable PR run.
@@ -660,6 +840,9 @@ def _create_implementation_task_if_absent(
             # Re-checked under the lock: the caller resolved the supersede decision outside it, so a
             # racing evaluation that already stamped this pass must not open a second replacement.
             return False
+        link_skip = _evaluate_link_gates(team_id, report_id)
+        if link_skip is not None:
+            return link_skip
         if (supersede.allowed or requested_after_run_count is not None) and claim is not None:
             release_claim(claim, ArtefactAttribution.system(), takeover=True)
         # Both stamps move together. The task about to start is built from the report as it stands
@@ -692,6 +875,7 @@ def _create_implementation_task_if_absent(
             # The pre-generated branch the description instructs the agent to push to; stamped
             # into protected run state so the review carve-out can verify the PR is this run's.
             self_driving_head_branch=head_branch,
+            stack_base_branch=stack_base_branch,
             # Internal so the run stays out of the default task list; the report surfaces it by id.
             internal=True,
             runtime_adapter=agent_runtime.runtime_adapter,
@@ -1146,6 +1330,11 @@ async def maybe_autostart_implementation_task(
     `_create_implementation_task_if_absent`, so concurrent evaluations
     (reviewer-edit hook, pipeline, custom agent) can't double-start.
 
+    A typed `report_link` to another report can also hold it back — a duplicate, an unmet
+    dependency, or a plan whose children do the work (see `_evaluate_link_gates`). Those gates
+    write an `autostart_skip` artefact naming the deciding report, because unlike every other skip
+    the reason is not visible on this report.
+
     Suggested reviewers no longer gate the pipeline path: an immediately-actionable report
     whose reviewers don't resolve to a connected-GitHub member (or has none) still auto-starts
     under the member who enabled signals for the team (see `_resolve_autostart_fallback_user`),
@@ -1193,16 +1382,28 @@ async def maybe_autostart_implementation_task(
         return AutostartOutcome(status="cancelled", reason="Replacement decision is no longer eligible")
 
     skip_reason: str | None = None
+    skip_code: str | None = None
     if task_exists and not supersede.allowed:
         skip_reason = "implementation task already exists"
     elif actionability.actionability != ActionabilityChoice.IMMEDIATELY_ACTIONABLE:
         skip_reason = f"not immediately actionable: {actionability.actionability.value}"
+        skip_code = (
+            SKIP_REQUIRES_HUMAN_INPUT
+            if actionability.actionability == ActionabilityChoice.REQUIRES_HUMAN_INPUT
+            else SKIP_NOT_ACTIONABLE
+        )
     elif actionability.already_addressed:
         skip_reason = "report already addressed"
+        skip_code = SKIP_ALREADY_ADDRESSED
     elif priority is None:
         skip_reason = "no priority assessment"
+        skip_code = SKIP_NO_PRIORITY
     if skip_reason is not None:
         logger.info("self-driving auto-start skipped", report_id=report_id, team_id=team_id, reason=skip_reason)
+        if skip_code is not None:
+            await database_sync_to_async(_capture_autostart_skipped, thread_sensitive=False)(
+                team_id=team_id, report_id=report_id, skip_reason=skip_code
+            )
         return AutostartOutcome(status="blocked", reason=skip_reason)
 
     assert priority is not None  # narrowed by the `priority is None` skip_reason guard above
@@ -1218,8 +1419,26 @@ async def maybe_autostart_implementation_task(
             team_id=team_id,
             reason="autostart disabled for team",
         )
+        await database_sync_to_async(_capture_autostart_skipped, thread_sensitive=False)(
+            team_id=team_id, report_id=report_id, skip_reason=SKIP_AUTOSTART_DISABLED
+        )
         return AutostartOutcome(status="blocked", reason="Autostart is disabled")
     team_default_priority = Priority(team_config.default_autostart_priority) if team_config else Priority.P4
+
+    # Between the team's master switch and the quota gate. A team that opted out of auto-start
+    # entirely gets no artefact and no gate reason, and a duplicate or a plan parent never counts
+    # as quota-held work, because the work was never this report's to do.
+    link_skip = await database_sync_to_async(_evaluate_link_gates, thread_sensitive=False)(team_id, report_id)
+    if link_skip is not None:
+        logger.info(
+            "self-driving auto-start skipped",
+            report_id=report_id,
+            team_id=team_id,
+            reason=link_skip.skip_reason,
+            linked_report_id=link_skip.linked_report_id,
+        )
+        await database_sync_to_async(_record_link_gate_skip, thread_sensitive=False)(team_id, report_id, link_skip)
+        return AutostartOutcome(status="blocked", reason=link_skip.detail)
 
     # Quota gate: the implementation task is the step that leads to the billable PR, so a team
     # whose org is over its self-driving credits quota starts none, on any path (pipeline, custom agent, scout, or
@@ -1235,6 +1454,9 @@ async def maybe_autostart_implementation_task(
             report_id=report_id,
             team_id=team_id,
             reason="org over self-driving credits quota",
+        )
+        await database_sync_to_async(_capture_autostart_skipped, thread_sensitive=False)(
+            team_id=team_id, report_id=report_id, skip_reason=SKIP_QUOTA_EXHAUSTED
         )
         return AutostartOutcome(status="blocked", reason="Self-driving quota is exhausted")
 
@@ -1274,6 +1496,9 @@ async def maybe_autostart_implementation_task(
             team_id=team_id,
             reason="no autostart runner: no reviewer met threshold, and no enabling member for a report at/above the team autostart priority",
         )
+        await database_sync_to_async(_capture_autostart_skipped, thread_sensitive=False)(
+            team_id=team_id, report_id=report_id, skip_reason=SKIP_NO_RUNNER
+        )
         return AutostartOutcome(status="blocked", reason="No eligible autostart runner")
 
     # Free trial gate: a trial org gets reports, not pull requests, so no implementation task on
@@ -1289,9 +1514,17 @@ async def maybe_autostart_implementation_task(
             team_id=team_id,
             reason="org on self-driving free trial",
         )
+        await database_sync_to_async(_capture_autostart_skipped, thread_sensitive=False)(
+            team_id=team_id, report_id=report_id, skip_reason=SKIP_FREE_TRIAL
+        )
         return AutostartOutcome(status="blocked", reason="Organization is on a free trial")
 
     base_branch = team_config.base_branch_for(repository) if team_config else None
+    stack_base_branch = await database_sync_to_async(dependency_head_branch, thread_sensitive=False)(
+        team_id=team_id, report_id=report_id, repository=repository
+    )
+    if stack_base_branch:
+        base_branch = stack_base_branch
 
     source_references = await database_sync_to_async(_fetch_source_references, thread_sensitive=False)(
         team_id, report_id
@@ -1315,10 +1548,12 @@ async def maybe_autostart_implementation_task(
                 source_references=source_references,
                 steering=steering,
                 supersede=supersede,
-            ),
+            )
+            + _stack_base_instruction(stack_base_branch),
             user_id=task_user.id,
             repository=repository,
             base_branch=base_branch,
+            stack_base_branch=stack_base_branch,
             billing_exempt_reason=billing_exempt_reason,
             steering=steering,
             # The verdict resolved above, so the create-time gate re-reads no flag while it holds the
@@ -1333,6 +1568,9 @@ async def maybe_autostart_implementation_task(
                 team_id=team_id, report_id=report_id, remaining_retries=remaining_retries - 1, dispatch=dispatch
             )
         raise ReportChangedDuringAutostart("Report kept changing during autostart")
+    if isinstance(created, AutostartSkip):
+        await database_sync_to_async(_record_link_gate_skip, thread_sensitive=False)(team_id, report_id, created)
+        return AutostartOutcome(status="blocked", reason=created.detail)
     if not created:
         # Another evaluation won the race and already created the implementation task.
         logger.info("self-driving auto-start skipped", report_id=report_id, team_id=team_id, reason="lost create race")

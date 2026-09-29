@@ -24,7 +24,8 @@ LIST_VIEWSETS_WITHOUT_DIRECT_SHARED_PAGINATION = {
     "products.managed_migrations.backend.api.support_batch_imports.BatchImportSupportViewSet",
     "products.product_analytics.backend.presentation.insight_ee.EnterpriseInsightsViewSet",
     "products.reminders.backend.api.reminder.ReminderViewSet",
-    "products.workflows.backend.api.hog_flow_template.PublicHogFlowTemplateViewSet",
+    "products.workflows.backend.presentation.views.hog_flow.HogFlowViewSet",
+    "products.workflows.backend.presentation.views.hog_flow_template.PublicHogFlowTemplateViewSet",
 }
 
 EXISTING_CUSTOM_LIST_VIEWSETS = {
@@ -37,8 +38,6 @@ EXISTING_CUSTOM_LIST_VIEWSETS = {
     "ee.clickhouse.views.groups.GroupsViewSet",
     "ee.clickhouse.views.person.EnterprisePersonViewSet",
     "ee.clickhouse.views.person.LegacyEnterprisePersonViewSet",
-    "posthog.admin.admins.code_based_verification_bypass_admin.CodeBasedVerificationBypassViewSet",
-    "posthog.admin.admins.code_based_verification_bypass_admin.CodeBasedVerificationGlobalDisableViewSet",
     "posthog.admin.admins.radar_bypass_admin.RadarBypassViewSet",
     "posthog.api.advanced_activity_logs.viewset.ActivityLogViewSet",
     "posthog.api.advanced_activity_logs.viewset.AdvancedActivityLogsViewSet",
@@ -92,6 +91,7 @@ EXISTING_CUSTOM_LIST_VIEWSETS = {
     "products.ai_observability.backend.api.evaluations.EvaluationViewSet",
     "products.ai_observability.backend.api.instrumentation_checklist.AIObservabilityInstrumentationChecklistViewSet",
     "products.ai_observability.backend.api.models.LLMModelsViewSet",
+    "products.ai_observability.backend.api.offline_experiments.OfflineExperimentViewSet",
     "products.ai_observability.backend.api.personal_spend.PersonalSpendViewSet",
     "products.ai_observability.backend.api.provider_keys.LLMProviderKeyViewSet",
     "products.ai_observability.backend.api.review_queues.ReviewQueueItemViewSet",
@@ -106,6 +106,7 @@ EXISTING_CUSTOM_LIST_VIEWSETS = {
     "products.autoresearch.backend.presentation.views.views.AutoresearchSuggestionViewSet",
     "products.autoresearch.backend.presentation.views.views.AutoresearchTrainingRunViewSet",
     "products.batch_exports.backend.api.batch_export.BatchExportRunViewSet",
+    "products.business_knowledge.backend.api.playground.BusinessKnowledgePlaygroundChatViewSet",
     "products.business_knowledge.backend.api.views.KnowledgeGapSuggestionViewSet",
     "products.business_knowledge.backend.api.views.KnowledgeSourceViewSet",
     "products.canvas.backend.presentation.views.CanvasViewSet",
@@ -124,6 +125,7 @@ EXISTING_CUSTOM_LIST_VIEWSETS = {
     "products.customer_analytics.backend.presentation.views.views.AccountRelationshipViewSet",
     "products.customer_analytics.backend.presentation.views.views.AccountTrackRuleViewSet",
     "products.customer_analytics.backend.presentation.views.views.AccountViewSet",
+    "products.customer_analytics.backend.presentation.views.views.AccountViewTemplateViewSet",
     "products.customer_analytics.backend.presentation.views.views.CalendarSyncViewSet",
     "products.customer_analytics.backend.presentation.views.views.CustomPropertyDefinitionViewSet",
     "products.customer_analytics.backend.presentation.views.views.CustomPropertySourceViewSet",
@@ -257,9 +259,9 @@ EXISTING_CUSTOM_LIST_VIEWSETS = {
     "products.wizard.backend.presentation.registry.views.WizardRegistryViewSet",
     "products.wizard.backend.presentation.runs.views.WizardRunViewSet",
     "products.wizard.backend.presentation.sessions.views.WizardSessionViewSet",
-    "products.workflows.backend.api.hog_flow.HogFlowViewSet",
-    "products.workflows.backend.api.hog_flow_template.HogFlowTemplateViewSet",
-    "products.workflows.backend.api.hog_flow_template.PublicHogFlowTemplateViewSet",
+    "products.workflows.backend.presentation.views.hog_flow.HogFlowViewSet",
+    "products.workflows.backend.presentation.views.hog_flow_template.HogFlowTemplateViewSet",
+    "products.workflows.backend.presentation.views.hog_flow_template.PublicHogFlowTemplateViewSet",
 }
 
 

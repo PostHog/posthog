@@ -64,6 +64,15 @@ class TestCSPMiddleware(APIBaseTest):
             response = self.client.get("/")
         assert expected in response["Content-Security-Policy"]
 
+    def test_dev_policy_admits_a_remote_vite_host(self):
+        # A devbox serves Vite from its Coder host, so a policy naming only localhost renders a blank page.
+        with override_settings(JS_URL="https://frontend--devbox--jane.coder.example.com"):
+            response = self.client.get("/")
+        script_src = next(
+            part for part in response["Content-Security-Policy"].split("; ") if part.startswith("script-src ")
+        ).split()
+        assert {"http://localhost:8234", "https://frontend--devbox--jane.coder.example.com"} <= set(script_src)
+
     def test_replay_player_frame_serves_the_mount_node_without_a_session(self):
         # Shared recordings render the player for logged-out viewers.
         self.client.logout()
@@ -116,7 +125,7 @@ class TestCSPMiddleware(APIBaseTest):
 
         embedded = self.client.get("/shared/notarealtoken")
         assert "Content-Security-Policy" not in embedded
-        assert "frame-ancestors" in embedded["Content-Security-Policy-Report-Only"]
+        assert "frame-ancestors" not in embedded["Content-Security-Policy-Report-Only"]
 
     @override_settings(CLOUD_DEPLOYMENT="US")  # As PostHog Cloud
     def test_html_response_declares_default_reporting_endpoint_with_distinct_id(self):

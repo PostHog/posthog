@@ -1142,7 +1142,7 @@ describe('runStreamLogic', () => {
     })
 
     describe('pushHumanMessage', () => {
-        it('appends a human_message item ordered before subsequently ingested assistant frames', async () => {
+        it('appends a timestamped human_message item ordered before subsequently ingested assistant frames', async () => {
             await expectLogic(logic, () => {
                 logic.actions.pushHumanMessage('hello agent')
                 // The agent takes the send up and echoes it, which is what places the message.
@@ -1159,6 +1159,7 @@ describe('runStreamLogic', () => {
                 type: 'human_message',
                 text: 'hello agent',
                 complete: true,
+                startedAt: expect.any(Number),
             })
             expect(logic.values.threadItems[1].type).toEqual('assistant_message')
         })
@@ -1203,6 +1204,47 @@ describe('runStreamLogic', () => {
                     .filter((item) => item.type === 'human_message' || item.type === 'assistant_message')
                     .map((item) => item.text)
             ).toEqual(['still here', '10', 'answer to 10', '11'])
+        })
+
+        it('stops sinking a send the agent never took up once two turns closed over it', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.pushHumanMessage('never echoed')
+                logic.actions.ingestAcpFrame(notification('_posthog/turn_complete', {}))
+                logic.actions.ingestAcpFrame(
+                    sessionUpdate({ sessionUpdate: 'agent_message', messageId: 'm1', content: { text: 'first' } })
+                )
+                logic.actions.ingestAcpFrame(notification('_posthog/turn_complete', {}))
+                logic.actions.ingestAcpFrame(
+                    sessionUpdate({ sessionUpdate: 'agent_message', messageId: 'm2', content: { text: 'second' } })
+                )
+            }).toFinishAllListeners()
+
+            expect(
+                logic.values.threadItems
+                    .filter((item) => item.type === 'human_message' || item.type === 'assistant_message')
+                    .map((item) => item.text)
+            ).toEqual(['never echoed', 'first', 'second'])
+        })
+
+        it('still takes up a send that settled when its echo finally arrives', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.pushHumanMessage('late echo')
+                logic.actions.ingestAcpFrame(notification('_posthog/turn_complete', {}))
+                logic.actions.ingestAcpFrame(
+                    sessionUpdate({ sessionUpdate: 'agent_message', messageId: 'm1', content: { text: 'first' } })
+                )
+                logic.actions.ingestAcpFrame(notification('_posthog/turn_complete', {}))
+                logic.actions.ingestAcpFrame(notification('_posthog/user_message', { content: 'late echo' }))
+                logic.actions.ingestAcpFrame(
+                    sessionUpdate({ sessionUpdate: 'agent_message', messageId: 'm2', content: { text: 'at last' } })
+                )
+            }).toFinishAllListeners()
+
+            expect(
+                logic.values.threadItems
+                    .filter((item) => item.type === 'human_message' || item.type === 'assistant_message')
+                    .map((item) => item.text)
+            ).toEqual(['first', 'late echo', 'at last'])
         })
 
         it('leaves a send typed mid-answer below the text already streaming', async () => {
@@ -1834,6 +1876,7 @@ describe('runStreamLogic', () => {
                     error_message: null,
                     output: null,
                     task_summary: null,
+                    task_tags: [],
                     artifacts: [],
                     state: {
                         pending_user_message: wrapWithPosthogContext(content, [
@@ -2624,6 +2667,7 @@ describe('runStreamLogic', () => {
                     error_message: null,
                     output: null,
                     task_summary: null,
+                    task_tags: [],
                     artifacts: [],
                     state: { resume_from_run_id: 'run-1' },
                 }
@@ -2712,6 +2756,7 @@ describe('runStreamLogic', () => {
                     error_message: null,
                     output: null,
                     task_summary: null,
+                    task_tags: [],
                     artifacts: [],
                     state: { resume_from_run_id: 'run-1' },
                     runtime_adapter: null,
@@ -2767,6 +2812,7 @@ describe('runStreamLogic', () => {
                 error_message: 'Failed to start task workflow',
                 output: null,
                 task_summary: null,
+                task_tags: [],
                 artifacts: [],
                 state: { resume_from_run_id: 'run-1' },
                 runtime_adapter: null,
@@ -3136,6 +3182,7 @@ describe('runStreamLogic', () => {
                 error_message: null,
                 output: null,
                 task_summary: null,
+                task_tags: [],
                 artifacts: [],
                 state: { resume_from_run_id: 'run-1' },
             } satisfies TaskRunDetailDTOApi
@@ -3247,6 +3294,7 @@ describe('runStreamLogic', () => {
                     error_message: null,
                     output: null,
                     task_summary: null,
+                    task_tags: [],
                     artifacts: [],
                     state: { resume_from_run_id: 'run-1' },
                 })
@@ -3669,6 +3717,7 @@ describe('runStreamLogic', () => {
                         error_message: null,
                         output: null,
                         task_summary: null,
+                        task_tags: [],
                         artifacts: [],
                         state: { resume_from_run_id: 'run-0' },
                     })
