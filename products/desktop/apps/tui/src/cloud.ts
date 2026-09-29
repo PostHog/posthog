@@ -6,6 +6,7 @@ import { createCloudTaskEngine } from "@posthog/core/cloud-task/cloud-task-engin
 import type { RootLogger, ScopedLogger } from "@posthog/di/logger";
 import type { IAnalytics } from "@posthog/platform/analytics";
 import { TRANSCRIPT_TAIL_WINDOW } from "@posthog/shared";
+import { currentRepository, PiChats } from "./chats";
 import { CloudRuns } from "./runs";
 
 export const LOG_PATH = join(tmpdir(), "posthog-tui.log");
@@ -65,10 +66,10 @@ const noAnalytics: IAnalytics = {
   shutdown: async () => {},
 };
 
-export function createCloudRuns(
+export function createCloud(
   auth: TokenSource & { apiHost: string },
   api: PostHogAPIClient,
-): CloudRuns {
+): { runs: CloudRuns; chats: PiChats } {
   let teamId: Promise<number> | null = null;
   const context = async () => {
     teamId ??= api.getCurrentUser().then(
@@ -89,7 +90,23 @@ export function createCloudRuns(
     logger,
     transcriptTailWindow: TRANSCRIPT_TAIL_WINDOW,
   });
-  return new CloudRuns(engine, context, (taskId, runId, options) =>
+  const runs = new CloudRuns(engine, context, (taskId, runId, options) =>
     api.getTaskRunSessionLogsPage(taskId, runId, options),
   );
+  const sendMessage = async (
+    taskId: string,
+    runId: string,
+    content: string,
+  ) => {
+    const result = await engine.sendCommand({
+      taskId,
+      runId,
+      ...(await context()),
+      method: "user_message",
+      params: { content, artifact_ids: [], steer: false },
+    });
+    if (!result.success)
+      throw new Error(result.error ?? "Couldn't send the message");
+  };
+  return { runs, chats: new PiChats(api, sendMessage, currentRepository()) };
 }
