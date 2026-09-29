@@ -121,6 +121,25 @@ class _EvidenceBuilder:
             "or external state; an absent action may be unobserved."
         ]
 
+    def record(self, source_id: str, text: str, location: str, kind: EvidenceKind) -> None:
+        if source_id not in self.sources:
+            self.sources[source_id] = TrialEvidenceSource(id=source_id, kind=kind, text=text)
+            self.locations[source_id] = []
+        self.locations[source_id].append(location)
+
+    def add_container(self, value: dict[str, JsonValue] | list[JsonValue], location: str, kind: EvidenceKind) -> None:
+        shape = (
+            {"type": "object", "keys": sorted(value)}
+            if isinstance(value, dict)
+            else {"type": "array", "length": len(value)}
+        )
+        self.record(
+            f"offline-container-{_hash([kind, shape])[:32]}",
+            f"Captured container shape: {_canonical_json(shape)}. Child values retain their original locations.",
+            location,
+            kind,
+        )
+
     def add(self, value: JsonValue, location: str, kind: EvidenceKind) -> None:
         if location in self.instructions:
             kind = "instructions"
@@ -129,18 +148,17 @@ class _EvidenceBuilder:
             split = split or any(text in self.shared_text for text in _long_strings(value))
         if split:
             if isinstance(value, dict):
+                self.add_container(value, location, kind)
                 for key in sorted(value):
                     self.add(value[key], _child(location, key), kind)
                 return
             if isinstance(value, list):
+                self.add_container(value, location, kind)
                 for index, child in enumerate(value):
                     self.add(child, _child(location, index), kind)
                 return
         source_id = f"offline-{_hash([kind, value])[:32]}"
-        if source_id not in self.sources:
-            self.sources[source_id] = TrialEvidenceSource(id=source_id, kind=kind, text=_render(value))
-            self.locations[source_id] = []
-        self.locations[source_id].append(location)
+        self.record(source_id, _render(value), location, kind)
 
     def prepare_transcript(self, value: JsonValue) -> None:
         if isinstance(value, str) and value.strip():
@@ -161,6 +179,7 @@ class _EvidenceBuilder:
 
     def add_transcript(self, value: JsonValue) -> None:
         if self.transcript is not None:
+            self.add_container(self.transcript, "transcript:", "trace")
             for index, entry in enumerate(self.transcript):
                 location = f"transcript:/{index}"
                 self.instructions.update(_transcript_instruction_locations(entry, location))
@@ -176,6 +195,7 @@ class _EvidenceBuilder:
         if not isinstance(value, dict) or not value:
             self.add(value, location, "context")
             return
+        self.add_container(value, location, "context")
         for collection, rows in sorted(value.items()):
             collection_location = _child(location, collection)
             kind: EvidenceKind = "context"
@@ -184,6 +204,7 @@ class _EvidenceBuilder:
             elif collection == "scratchpad":
                 kind = "memory"
             if isinstance(rows, list) and rows:
+                self.add_container(rows, collection_location, kind)
                 for index, row in enumerate(rows):
                     row_location = _child(collection_location, index)
                     if collection == "scout_runs" and isinstance(row, dict):
@@ -198,6 +219,7 @@ class _EvidenceBuilder:
         if not isinstance(value, dict) or not value:
             self.add(value, "output:/artifacts", "context")
             return
+        self.add_container(value, "output:/artifacts", "context")
         for key, child in sorted(value.items()):
             location = _child("output:/artifacts", key)
             if key in {"before", "after"}:
@@ -208,6 +230,7 @@ class _EvidenceBuilder:
                 self.add(child, location, "context")
 
     def build(self, output: dict[str, JsonValue]) -> OfflineEvidence:
+        self.add_container(output, "output:", "context")
         self.instructions.update(f"output:/{key}" for key in ("prompt", "instructions", "run_note") if key in output)
         if "raw_log" in output:
             self.prepare_transcript(output["raw_log"])

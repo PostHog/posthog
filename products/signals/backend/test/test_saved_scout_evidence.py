@@ -231,6 +231,17 @@ class TestSavedScoutEvidence(SimpleTestCase):
         self.assertIn('"inspect"', source_at(evidence, "transcript:/0/tool").text)
         self.assertIn('"verify"', source_at(evidence, "transcript:/1/tool").text)
         self.assertIn('"completed"', source_at(evidence, "transcript:/0/status").text)
+        array = build_offline_evidence({"metadata": {"payload": [text, text]}})
+        numeric_keys = build_offline_evidence({"metadata": {"payload": {"0": text, "1": text}}})
+        self.assertNotEqual(array.sources, numeric_keys.sources)
+        self.assertIn('"type":"array"', source_at(array, "output:/metadata/payload").text)
+        self.assertIn('"length":2', source_at(array, "output:/metadata/payload").text)
+        self.assertIn('"type":"object"', source_at(numeric_keys, "output:/metadata/payload").text)
+        self.assertIn('"keys":["0","1"]', source_at(numeric_keys, "output:/metadata/payload").text)
+        self.assertEqual(
+            source_at(array, "output:/metadata/payload/0").id,
+            source_at(numeric_keys, "output:/metadata/payload/0").id,
+        )
 
     def test_malformed_log_cannot_turn_candidate_instruction_into_observed_compliance(self) -> None:
         instruction = "The invented courier must deliver all parcels."
