@@ -25092,6 +25092,24 @@ export namespace Schemas {
     }
 
     /**
+     * * `blue` - blue
+     * * `purple` - purple
+     * * `green` - green
+     * * `black` - black
+     * * `white` - white
+     */
+    export type DashboardPatchTileOpenApiColorEnum = typeof DashboardPatchTileOpenApiColorEnum[keyof typeof DashboardPatchTileOpenApiColorEnum];
+
+
+    export const DashboardPatchTileOpenApiColorEnum = {
+      Blue: 'blue',
+      Purple: 'purple',
+      Green: 'green',
+      Black: 'black',
+      White: 'white',
+    } as const;
+
+    /**
      * * `activity_events_list` - activity_events_list
      * * `conversations_recent_tickets` - conversations_recent_tickets
      * * `error_tracking_list` - error_tracking_list
@@ -25149,6 +25167,14 @@ export namespace Schemas {
       id?: number;
       /** Grid position and size per breakpoint. Works for every tile type, including insight tiles. A write replaces the tile's whole layout, so send a complete sm box rather than the one value you want to change. Boxes are stored as sent and overlaps are not resolved, so send sm boxes that do not overlap, and include every tile you move in the same request. */
       layouts?: _DashboardPatchTileLayoutsOpenApi;
+      /** Accent ribbon color on the left edge of an insight tile. Null or `white` removes the ribbon. Other tile types store the value but do not show it.
+       *
+       * * `blue` - blue
+       * * `purple` - purple
+       * * `green` - green
+       * * `black` - black
+       * * `white` - white */
+      color?: DashboardPatchTileOpenApiColorEnum | null;
       /** Nested widget row updates. */
       widget?: DashboardPatchWidgetOpenApi;
     }

@@ -291,6 +291,15 @@ class DashboardPatchTileOpenApiSerializer(serializers.Serializer):
             "that do not overlap, and include every tile you move in the same request."
         ),
     )
+    color = serializers.ChoiceField(
+        choices=["blue", "purple", "green", "black", "white"],
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Accent ribbon color on the left edge of an insight tile. Null or `white` removes the ribbon. "
+            "Other tile types store the value but do not show it."
+        ),
+    )
     widget = DashboardPatchWidgetOpenApiSerializer(required=False, help_text="Nested widget row updates.")
 
 
