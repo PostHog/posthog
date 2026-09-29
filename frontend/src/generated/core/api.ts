@@ -26,6 +26,8 @@ import type {
     EmojiSearchSuggestRetrieveParams,
     EnterprisePropertyDefinitionApi,
     EventIngestionRestrictionApi,
+    EventMatchRequestApi,
+    EventMatchResponseApi,
     ExportedAssetApi,
     ExportedAssetCreateApi,
     ExportsListParams,
@@ -34,6 +36,7 @@ import type {
     FileSystemHomeFolderApi,
     FileSystemListParams,
     FileSystemShortcutApi,
+    FileSystemShortcutBulkUpdateApi,
     FileSystemShortcutListParams,
     FileSystemShortcutReorderApi,
     GitHubBranchesResponseApi,
@@ -2045,6 +2048,26 @@ export const fileSystemShortcutDestroy = async (
     })
 }
 
+export const getFileSystemShortcutBulkUpdateCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/file_system_shortcut/bulk_update/`
+}
+
+/**
+ * Create and delete several of the current user's shortcuts in one transaction, then return the full shortcut list in display order. Any unknown ID in `remove_ids` rejects the whole request.
+ */
+export const fileSystemShortcutBulkUpdateCreate = async (
+    projectId: string,
+    fileSystemShortcutBulkUpdateApi?: FileSystemShortcutBulkUpdateApi,
+    options?: RequestInit
+): Promise<FileSystemShortcutApi[]> => {
+    return apiMutator<FileSystemShortcutApi[]>(getFileSystemShortcutBulkUpdateCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(fileSystemShortcutBulkUpdateApi),
+    })
+}
+
 export const getFileSystemShortcutReorderCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/file_system_shortcut/reorder/`
 }
@@ -2598,6 +2621,27 @@ export const taxonomicSearchIntentClassifyCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(searchIntentRequestApi),
+    })
+}
+
+export const getTaxonomicSearchIntentMatchEventsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/taxonomic_search_intent/match_events/`
+}
+
+/**
+ * Guess which PostHog core events a search that matched no event name describes.
+ * @summary Match an events search to core events
+ */
+export const taxonomicSearchIntentMatchEventsCreate = async (
+    projectId: string,
+    eventMatchRequestApi: EventMatchRequestApi,
+    options?: RequestInit
+): Promise<EventMatchResponseApi> => {
+    return apiMutator<EventMatchResponseApi>(getTaxonomicSearchIntentMatchEventsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(eventMatchRequestApi),
     })
 }
 

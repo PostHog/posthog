@@ -602,7 +602,7 @@ class RunAggregateEvaluationWorkflow(PostHogWorkflow):
                 "evaluation_id": inputs.evaluation_id,
                 "evaluation_type": evaluation_type,
             }
-            if evaluation.get("output_type") != "numeric":
+            if evaluation.get("output_type") not in ("numeric", "categorical"):
                 disabled_result["verdict"] = None
             return disabled_result
 
@@ -720,6 +720,8 @@ class RunAggregateEvaluationWorkflow(PostHogWorkflow):
             workflow_result["verdict"] = result["verdict"]
         if "score" in result:
             workflow_result["score"] = result["score"]
+        if "categories" in result:
+            workflow_result["categories"] = result["categories"]
         if result.get("skipped"):
             skip_reason = result.get("skip_reason")
             if skip_reason is not None:

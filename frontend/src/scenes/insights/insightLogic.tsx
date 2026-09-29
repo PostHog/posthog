@@ -29,7 +29,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
-import { InsightEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { InsightEventSource, sanitizeInsight, sanitizeQuery } from 'lib/utils/eventUsageLogic'
 import { isEmptyObject, isObject } from 'lib/utils/guards'
 import { objectsEqual } from 'lib/utils/objects'
 import { isDashboardFilterOverrideEmpty } from 'scenes/dashboard/dashboardFilterEmpty'
@@ -107,6 +107,21 @@ import { teamLogic } from '../teamLogic'
 import { insightDataLogic, isInsightSceneInstance } from './insightDataLogic'
 import { getInsightId } from './utils'
 import { insightsApi } from './utils/api'
+
+function reportInsightSaved(
+    insight: Partial<InsightModel> | null,
+    query: Node | null,
+    isNewInsight: boolean,
+    saveType: 'save' | 'save_as'
+): void {
+    // "insight saved" is a proxy for the new insight's results being valuable to the user
+    posthog.capture('insight saved', {
+        ...sanitizeQuery(query),
+        insight: sanitizeInsight(insight),
+        is_new_insight: isNewInsight,
+        save_type: saveType,
+    })
+}
 
 export const UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES = 3
 
@@ -637,7 +652,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             ['activeSceneId'],
         ],
         actions: [tagsModel, ['refreshTags'], teamLogic, ['addProductIntent']],
-        logic: [eventUsageLogic, dashboardsModel],
+        logic: [dashboardsModel],
     })),
 
     actions({
@@ -1310,12 +1325,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             // and so we shouldn't copy the result from `values.insight` as it might be stale
             const result = savedInsight.result || (values.query ? values.insight.result : null)
             actions.setInsight({ ...savedInsight, result: result }, { fromPersistentApi: true, overrideQuery: true })
-            eventUsageLogic.actions.reportInsightSaved(
-                savedInsight,
-                values.query,
-                insightNumericId === undefined,
-                'save'
-            )
+            reportInsightSaved(savedInsight, values.query, insightNumericId === undefined, 'save')
             lemonToast.success(`Insight saved${dashboards?.length === 1 ? ' & added to dashboard' : ''}`, {
                 button: {
                     label: 'View Insights list',
@@ -1414,7 +1424,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             }
 
             if (persist) {
-                eventUsageLogic.actions.reportInsightSaved(insight, values.query, true, 'save_as')
+                reportInsightSaved(insight, values.query, true, 'save_as')
             }
             actions.reloadSavedInsights() // Load insights afresh
 

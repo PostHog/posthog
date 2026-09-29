@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconPlusSmall, IconRefresh } from '@posthog/icons'
-import { LemonButton, LemonSelect, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonSelect } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -15,11 +15,14 @@ import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
+import { ManagedSourcesTable } from 'products/data_warehouse/frontend/shared/components/ManagedSourcesTable'
+
 import { PipelineHealth } from './PipelineHealth'
 import type { PipelineStatsWindow } from './pipelineOverviewSceneLogic'
 import { pipelineOverviewSceneLogic } from './pipelineOverviewSceneLogic'
 import { PipelineStatTiles } from './PipelineStatTiles'
 import { RecentFailures } from './RecentFailures'
+import { RowsByDestination } from './RowsByDestination'
 
 export const scene: SceneExport = {
     component: PipelineOverviewScene,
@@ -29,7 +32,7 @@ export const scene: SceneExport = {
 
 export function PipelineOverviewScene(): JSX.Element {
     const { featureFlags, receivedFeatureFlags } = useValues(featureFlagLogic)
-    const { window, jobStatsLoading } = useValues(pipelineOverviewSceneLogic)
+    const { window, jobStatsLoading, hasIssues } = useValues(pipelineOverviewSceneLogic)
     const { setWindow, refresh } = useActions(pipelineOverviewSceneLogic)
 
     // Wait for the flags to land before refusing. Rendering NotFound first and the scene a beat
@@ -73,18 +76,21 @@ export function PipelineOverviewScene(): JSX.Element {
 
             <SceneDivider />
 
-            <SceneSection
-                title="Needs attention"
-                description="Worst first. A pipeline stopped by a billing limit counts as needing attention."
-            >
-                <PipelineHealth />
-            </SceneSection>
+            {/* Hidden entirely when everything is healthy: an empty problem list is not worth the
+                vertical space, and its absence already says there is nothing wrong. */}
+            {hasIssues ? (
+                <>
+                    <SceneSection title="Needs attention" description="Tables and sources that have stopped syncing.">
+                        <PipelineHealth />
+                    </SceneSection>
 
-            <SceneDivider />
+                    <SceneDivider />
+                </>
+            ) : null}
 
             <SceneSection
                 title="Runs"
-                description="How many runs finished, and how many of them failed."
+                description="Runs that failed in this window. A table can be broken here with no recent run, if nothing retried it."
                 actions={
                     <LemonSelect<PipelineStatsWindow>
                         size="small"
@@ -100,6 +106,21 @@ export function PipelineOverviewScene(): JSX.Element {
                 }
             >
                 <RecentFailures />
+            </SceneSection>
+
+            <SceneDivider />
+
+            <SceneSection
+                title="Rows synced by destination"
+                description="Rows written to each destination. A row that reaches two destinations counts against both, so the series stack."
+            >
+                <RowsByDestination />
+            </SceneSection>
+
+            <SceneDivider />
+
+            <SceneSection title="Synced sources" description="Sources PostHog imports on a schedule.">
+                <ManagedSourcesTable />
             </SceneSection>
 
             <SceneDivider />
@@ -121,10 +142,6 @@ export function PipelineOverviewScene(): JSX.Element {
                         Manage destinations
                     </LemonButton>
                 </div>
-                <p className="mt-2 mb-0 text-xs text-muted">
-                    Pipeline failures are also listed on <Link to={urls.pipelineStatus()}>Pipeline status</Link>, which
-                    covers materialized views and batch exports too.
-                </p>
             </SceneSection>
         </SceneContent>
     )

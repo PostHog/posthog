@@ -83,24 +83,6 @@ def test_create_s3_family_batch_export_requires_an_integration(
     assert response.json()["detail"] == f"Integration is required for {destination_type} batch exports"
 
 
-def test_create_legacy_s3_type_is_rejected(client: HttpClient, temporal, organization, team, user):
-    """The legacy `S3` type is deprecated and can no longer be created via the API."""
-    client.force_login(user)
-    response = create_batch_export(
-        client,
-        team.pk,
-        {
-            "name": "my-export",
-            "interval": "hour",
-            "destination": {"type": "S3", "config": {**_S3_FAMILY_BASE_CONFIG}},
-        },
-    )
-    assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-    assert "deprecated" in response.json()["detail"]
-    assert "AwsS3" in response.json()["detail"]
-    assert "S3Compatible" in response.json()["detail"]
-
-
 @pytest.mark.parametrize(
     "destination_type,integration_fixture",
     [

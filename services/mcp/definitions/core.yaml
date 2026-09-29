@@ -154,6 +154,9 @@ tools:
     file-system-retrieve:
         operation: file_system_retrieve
         enabled: false
+    file-system-shortcut-bulk-update-create:
+        operation: file_system_shortcut_bulk_update_create
+        enabled: false
     file-system-shortcut-create:
         operation: file_system_shortcut_create
         enabled: false
@@ -538,6 +541,9 @@ tools:
         enabled: false
     taxonomic-search-intent-classify-create:
         operation: taxonomic_search_intent_classify_create
+        enabled: false
+    taxonomic-search-intent-match-events-create:
+        operation: taxonomic_search_intent_match_events_create
         enabled: false
     uploaded-media-create:
         operation: uploaded_media_create
