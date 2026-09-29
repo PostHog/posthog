@@ -52,7 +52,7 @@ import {
 } from '~/layout/navigation-3000/sidepanel/panels/access_control/RolesAccessControls'
 import { AccessControlLevel, AccessControlResourceType, AvailableFeature, Realm } from '~/types'
 
-import { LearnFromSupportSetting } from 'products/business_knowledge/frontend/settings/LearnFromSupportSetting'
+import { LearnFromSupportSetting } from 'products/business_knowledge/frontend/scenes/settings/LearnFromSupportSetting'
 import { AISection } from 'products/conversations/frontend/scenes/settings/AISection'
 import { GeneralSection } from 'products/conversations/frontend/scenes/settings/GeneralSection'
 import { NotificationsSection } from 'products/conversations/frontend/scenes/settings/NotificationsSection'
