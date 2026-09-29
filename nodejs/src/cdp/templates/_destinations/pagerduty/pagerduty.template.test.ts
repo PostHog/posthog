@@ -104,6 +104,35 @@ describe('pagerduty template', () => {
         expect(sentBody(response).payload.severity).toBe('error')
     })
 
+    it.each([
+        ['the event property when it is set', 'checkout-api', 'checkout-api'],
+        ['the project name when the event property is empty', '', 'project-name'],
+        ['the project name when the event property is missing', undefined, 'project-name'],
+    ])('defaults the source to %s', async (_label, eventSource, expected) => {
+        const { source: _omitted, ...withoutSource } = inputs()
+        const response = await tester.invoke(
+            withoutSource,
+            eventSource === undefined ? {} : { event: { properties: { source: eventSource } } }
+        )
+
+        expect(sentBody(response).payload.source).toBe(expected)
+    })
+
+    it.each(['', null])('sends a fallback source when the source renders as %p', async (source) => {
+        const response = await tester.invoke(inputs({ source }))
+
+        expect(sentBody(response).payload.source).toBe('PostHog')
+    })
+
+    it.each([
+        ['us', ENQUEUE_URL],
+        ['eu', 'https://events.eu.pagerduty.com/v2/enqueue'],
+    ])('posts to the %s endpoint', async (region, url) => {
+        const response = await tester.invoke(inputs({ region }))
+
+        expect(response.invocation.queueParameters).toMatchObject({ url })
+    })
+
     it('cuts the summary to the PagerDuty limit', async () => {
         const response = await tester.invoke(inputs({ summary: 'x'.repeat(1100) }))
 

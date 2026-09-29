@@ -32774,6 +32774,34 @@ export namespace Schemas {
       Failed: 'failed',
     } as const;
 
+    /**
+     * One merged pull request as the digest listed it.
+     */
+    export interface _DigestSummaryPR {
+      /** Pull request number on GitHub. */
+      readonly pr_number: number;
+      /** Pull request title. */
+      readonly title: string;
+      /** Full URL to the pull request on GitHub. */
+      readonly url: string;
+      /** GitHub login of the pull request author. */
+      readonly author_login: string;
+      /** The one-line summary of the change that the digest posted. */
+      readonly summary: string;
+      /** Repository full name, e.g. 'PostHog/posthog'. Blank on older runs. */
+      readonly repository: string;
+    }
+
+    /**
+     * What the digest posted to Slack: the headline and the pull requests it listed.
+     */
+    export interface _DigestSummary {
+      /** Prose about the merges with real consequence. Blank when the digest led with its first line. */
+      readonly headline: string;
+      /** The merged pull requests the digest listed, in the order it listed them. */
+      readonly prs: readonly _DigestSummaryPR[];
+    }
+
     export interface DigestRun {
       readonly id: string;
       /** Digest bucket this run drained, e.g. a team slug or 'repo:PostHog/posthog'. */
@@ -32797,6 +32825,8 @@ export namespace Schemas {
       readonly status: DigestRunStatusEnum;
       /** Number of merged PRs included in the posted digest. */
       readonly pr_count: number;
+      /** What the digest posted: its headline and the merged pull requests it listed. Both are empty on a run with nothing to post, and on runs stored before this format. */
+      readonly summary: _DigestSummary;
       /** Slack message timestamp of the posted digest, if posted. */
       readonly slack_message_ts: string;
       /** Error message if the run failed, blank otherwise. */
@@ -35248,10 +35278,10 @@ export namespace Schemas {
     } as const;
 
     /**
-     * One typed, directed link to write on the report being edited.
+     * One typed, directed link to write on the report being emitted or edited.
      */
     export interface ReportLinkWrite {
-      /** How the edited report relates to `report_id`. `depends_on` for work that cannot land until the other report's fix does, `part_of` for one piece of a larger report, `follow_up_of` for work the other report left behind, `duplicate_of` for the same problem filed twice, and `recurrence_of` for a problem a resolved report already covered.
+      /** How this report relates to `report_id`. `depends_on` for work that cannot land until the other report's fix does, `part_of` for one piece of a larger report, `follow_up_of` for work the other report left behind, `duplicate_of` for the same problem filed twice, and `recurrence_of` for a problem a resolved report already covered.
        *
        * * `depends_on` - Depends on
        * * `part_of` - Part of
@@ -35792,6 +35822,11 @@ export namespace Schemas {
          * @items.maxLength 200
          */
       suggested_prompts?: string[];
+      /**
+         * Typed, directed links from the new report to reports that already exist. Send them here, not in a later `edit-report` call, because autostart reads them when the report is created: a `duplicate_of` link to a report that already has a pull request, or a `depends_on` link to a report with no pull request yet, stops a second draft PR. Only the new report gets a row, so link from the side the sentence starts at. Links of the same kind must stay acyclic and every report must be in this project.
+         * @maxItems 10
+         */
+      links?: ReportLinkWrite[];
       /**
          * Optional name for this emission, unique within the run. Reuse it verbatim to retry a call whose outcome you don't know (a timeout, a dropped connection): the retry returns the report the first call authored, with `idempotent_replay` true, instead of a second report. Omit it and the report's own content is the key, which covers a retry of the identical call — pass one when a retry might reword the report.
          * @maxLength 200
@@ -90623,6 +90658,134 @@ export namespace Schemas {
       summary: string;
       /** Charts the scout attached. The summary places one inline with a `[label](chart:<chart_id>)` link; any it does not place render after the body. */
       charts: ReportChart[];
+    }
+
+    /**
+     * * `default` - Default
+     * * `custom` - Custom
+     */
+    export type ScoutRubricSourceEnum = typeof ScoutRubricSourceEnum[keyof typeof ScoutRubricSourceEnum];
+
+
+    export const ScoutRubricSourceEnum = {
+      Default: 'default',
+      Custom: 'custom',
+    } as const;
+
+    export interface ScoutRubricCriterion {
+      /**
+         * Stable criterion identifier.
+         * @maxLength 80
+         * @pattern ^[a-z][a-z0-9_-]{0,79}$
+         */
+      id: string;
+      /**
+         * Short name for the criterion.
+         * @maxLength 120
+         */
+      title: string;
+      /**
+         * What this criterion measures.
+         * @maxLength 1000
+         */
+      description: string;
+      /**
+         * The evidence needed to pass this criterion.
+         * @maxLength 2000
+         */
+      pass_condition: string;
+      /**
+         * When this criterion applies or cannot be assessed.
+         * @maxLength 1000
+         */
+      applicability: string;
+      /** Whether future evaluations should use this criterion. */
+      enabled: boolean;
+      /** Shared default or scout-specific criterion.
+       *
+       * * `default` - Default
+       * * `custom` - Custom */
+      source: ScoutRubricSourceEnum;
+    }
+
+    /**
+     * * `queued` - Queued
+     * * `running` - Running
+     * * `completed` - Completed
+     * * `failed` - Failed
+     */
+    export type ScoutRubricGenerationStatusEnum = typeof ScoutRubricGenerationStatusEnum[keyof typeof ScoutRubricGenerationStatusEnum];
+
+
+    export const ScoutRubricGenerationStatusEnum = {
+      Queued: 'queued',
+      Running: 'running',
+      Completed: 'completed',
+      Failed: 'failed',
+    } as const;
+
+    export interface ScoutRubricGeneration {
+      /** Identifier for this generation attempt. */
+      id: string;
+      /** Background generation status.
+       *
+       * * `queued` - Queued
+       * * `running` - Running
+       * * `completed` - Completed
+       * * `failed` - Failed */
+      status: ScoutRubricGenerationStatusEnum;
+      /** When generation was requested. */
+      requested_at: string;
+      /**
+         * When generation completed or failed.
+         * @nullable
+         */
+      completed_at: string | null;
+      /**
+         * Task performing the investigation, once created.
+         * @nullable
+         */
+      task_id: string | null;
+      /**
+         * Task run performing the investigation, once created.
+         * @nullable
+         */
+      task_run_id: string | null;
+      /**
+         * Failure message and suggested next step.
+         * @nullable
+         */
+      error: string | null;
+      /** Draft criteria awaiting review and explicit saving. */
+      suggestions: ScoutRubricCriterion[];
+      /** Investigation summary and limitations. */
+      summary: string;
+    }
+
+    export interface ScoutRubricDocument {
+      /** Scout config that owns this rubric. */
+      config_id: string;
+      /** Scout skill name. */
+      skill_name: string;
+      /**
+         * Saved rubric revision. Zero means it has not been saved.
+         * @minimum 0
+         */
+      revision: number;
+      /** Saved criteria, or enabled defaults before the first save. */
+      criteria: ScoutRubricCriterion[];
+      /** Latest background generation, if any. */
+      generation: ScoutRubricGeneration | null;
+    }
+
+    export interface ScoutRubricSave {
+      /**
+         * Revision read by the editor; stale saves return 409.
+         * @minimum 0
+         */
+      revision: number;
+      /** Complete set of criteria to save. */
+      criteria: ScoutRubricCriterion[];
     }
 
     /**
