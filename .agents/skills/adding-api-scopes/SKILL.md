@@ -37,6 +37,7 @@ Then decide two more things, separately from the kind:
    - Standard actions need no extra work: `list` and `retrieve` need `:read`, and `create`, `update` and `destroy` need `:write`.
    - A custom `@action` needs `required_scopes`, for example `required_scopes=["<object>:write"]`. Use `:read` if it only reads data, and `:write` if it changes data. Without it, token requests get a 403.
    - An endpoint set to `scope_object = "INTERNAL"` accepts only logged-in sessions. Change it to the new object to open it to tokens.
+   - Then call each custom action with a personal API key that has only the new scope. No test checks this.
 3. **Regenerate.** Run `hogli build:openapi`, which carries the object to the frontend type, and `hogli build:projections`, which updates the MCP OAuth list. **DO NOT EDIT GENERATED FILES BY HAND.**
 4. **Show it in the pickers.** In `frontend/src/lib/scopes.tsx`:
    - Add a row to `API_SCOPES` with a sentence-case label and plural (`/writing-user-facing-copy`). Disable `write` if no endpoint writes. If the key modal should not offer the object, add a reason to `API_SCOPES_OMITTED_FROM_MODAL` instead.
@@ -53,7 +54,23 @@ The groups make a long list readable, so a person can find a product quickly.
 - Add a new group only when it gets two or more objects. A group with one object makes the list longer, not easier to read.
 - OAuth-hidden objects go in "Internal tools". The pickers do not show these objects, so a person never sees this group. Do not put a public object there, because it would show under the "Internal tools" label.
 
-## Read the scope list
+## If a test fails
+
+- **`frontend/src/lib/scopes.test.ts`, the coverage test:** a grantable object has no picker row and no omission reason. Add a row to `API_SCOPES`, or a reason to `API_SCOPES_OMITTED_FROM_MODAL`. If the object is missing from `APIScopeObject`, run `hogli build:openapi` first.
+- **`frontend/src/lib/scopes.test.ts`, the group test:** an object is in no group, or in two groups. Put it in exactly one group of `API_SCOPE_GROUPS`.
+- **`posthog/test/test_scopes.py`:** an internal, OAuth-hidden or privileged scope leaks into a list it must stay out of, or the project secret API key list in `posthog/scopes.py` differs from the copy in `frontend/src/lib/scopes.tsx`. Fix the set, or make the two lists equal.
+- **`services/mcp/tests/unit/tool-filtering.test.ts`, the completeness test:** an MCP tool requires a scope that OAuth does not advertise. If the scope is new, run `hogli build:projections`. If it is internal, add it to the test's server-only list. Otherwise fix the scope name in `tools.yaml`.
+
+## What no test covers
+
+- A custom `@action` without `required_scopes`. Tokens get a 403.
+- A read scope on an action that changes data.
+- A group that makes no sense for the object, or a new group that should not exist. The group test only checks that each object has exactly one group. Check that it sits where a person would look for it, and that a new group has at least two objects. See "Choose a group".
+- A wrong or unclear label.
+
+## Where to read scopes in code
+
+Use these instead of writing your own list of scopes.
 
 - **Python:** import from `posthog.scopes`.
   - `API_SCOPE_OBJECTS`: every object, internal ones too.
@@ -64,17 +81,3 @@ The groups make a long list readable, so a person can find a product quickly.
 - **Frontend list at runtime:** `Object.values(ScopeObjectEnumApi)`, from `products/access_control/frontend/generated/api.schemas`.
 - **Frontend labels and groups:** `API_SCOPES`, `API_SCOPE_GROUPS` and `getScopeDescription` from `lib/scopes`.
 - **MCP server:** `OAUTH_SCOPES_SUPPORTED` and `OAUTH_SCOPES_HIDDEN` from `services/mcp/src/lib/oauth-scopes.generated.ts`.
-
-## Check your work
-
-These tests catch most omissions:
-
-- `frontend/src/lib/scopes.test.ts`:
-  - "offers or explicitly omits every scope object" fails for an object with no picker row and no reason. Add one of the two.
-  - "files every scope object in exactly one group" fails for an object in no group, or in two groups. Put the object in exactly one group of `API_SCOPE_GROUPS`.
-- `posthog/test/test_scopes.py`: the internal, hidden and privileged sets, and the project secret API key lists.
-- `services/mcp/tests/unit/tool-filtering.test.ts`: an MCP tool that needs a scope OAuth does not list.
-
-No test catches a custom action without `required_scopes`, a read scope on a write action, or a wrong group or label.
-Check these yourself.
-Call each custom action with a personal API key that has only the new scope.
