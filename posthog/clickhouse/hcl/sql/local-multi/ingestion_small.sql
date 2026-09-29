@@ -148,6 +148,13 @@ CREATE TABLE posthog.kafka_person_distinct_id_overrides (
   is_deleted Int8,
   version Int64
 ) ENGINE = Kafka(msk_cluster) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse-person-distinct-id-overrides', kafka_topic_list = 'clickhouse_person_distinct_id';
+CREATE TABLE posthog.kafka_person_group_membership (
+  team_id Int64,
+  distinct_id String,
+  timestamp DateTime64(6, 'UTC'),
+  properties String,
+  person_mode Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2)
+) ENGINE = Kafka(warpstream_ingestion) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_person_group_membership', kafka_max_block_size = 100000, kafka_num_consumers = 1, kafka_poll_timeout_ms = 10000, kafka_skip_broken_messages = 100, kafka_thread_per_consumer = 1, kafka_topic_list = 'clickhouse_events_json';
 CREATE TABLE posthog.kafka_plugin_log_entries (
   id UUID,
   team_id Int64,
@@ -758,6 +765,26 @@ CREATE MATERIALIZED VIEW posthog.person_distinct_id_overrides_mv TO posthog.writ
   _partition
 FROM posthog.kafka_person_distinct_id_overrides
 WHERE version > 0;
+CREATE MATERIALIZED VIEW posthog.person_group_membership_mv TO posthog.writable_person_group_membership (team_id Int64, group_type_index UInt8, group_key String, distinct_id String, first_seen DateTime64(6, 'UTC'), last_seen DateTime64(6, 'UTC')) AS WITH
+  dictGet('person_group_membership_config_dict', ('group_type_index', 'enabled'), tuple(toInt64(team_id))) AS config
+SELECT
+  team_id,
+  config.1 AS group_type_index,
+  JSONExtractString(properties, concat('$group_', toString(group_type_index))) AS group_key,
+  distinct_id,
+  min(timestamp) AS first_seen,
+  max(timestamp) AS last_seen
+FROM posthog.kafka_person_group_membership
+WHERE
+  config.2 = 1
+AND
+  group_type_index <= 4
+AND
+  person_mode != 'propertyless'
+AND
+  group_key != ''
+GROUP BY
+  team_id, group_type_index, group_key, distinct_id;
 CREATE MATERIALIZED VIEW posthog.person_mv TO posthog.writable_person (id UUID, created_at DateTime64(3), team_id Int64, properties String, is_identified Int8, is_deleted Int8, version UInt64, last_seen_at Nullable(DateTime64(3)), _timestamp Nullable(DateTime), _offset UInt64) AS SELECT
   id,
   created_at,

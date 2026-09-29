@@ -66,6 +66,7 @@ CONSUMER_GROUP_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_WS = (
 )
 CONSUMER_GROUP_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_WS = "clickhouse_error_tracking_fingerprint_issue_state_ws"
 CONSUMER_GROUP_USAGE_REPORT_EVENTS_PREAGG = "clickhouse_usage_report_events_preagg"
+CONSUMER_GROUP_PERSON_GROUP_MEMBERSHIP = "clickhouse_person_group_membership"
 
 STORAGE_POLICY = lambda: "SETTINGS storage_policy = 'hot_to_cold'" if settings.CLICKHOUSE_ENABLE_STORAGE_POLICY else ""
 

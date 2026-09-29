@@ -696,6 +696,26 @@
   
   '''
 # ---
+# name: test_create_kafka_table_with_different_kafka_host[kafka_person_group_membership]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS kafka_person_group_membership
+  (
+      team_id Int64,
+      distinct_id String,
+      timestamp DateTime64(6, 'UTC'),
+      properties String,
+      person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2)
+  )
+  ENGINE = Kafka(warpstream_ingestion, kafka_topic_list = 'clickhouse_events_json_test', kafka_group_name = 'clickhouse_person_group_membership', kafka_format = 'JSONEachRow')
+  SETTINGS kafka_skip_broken_messages = 100,
+           kafka_num_consumers = 1,
+           kafka_thread_per_consumer = 1,
+           kafka_poll_timeout_ms = 10000,
+           kafka_max_block_size = 100000
+  
+  '''
+# ---
 # name: test_create_kafka_table_with_different_kafka_host[kafka_person_overrides]
   '''
   
@@ -3136,6 +3156,26 @@
       version Int64
       
   ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_person_distinct_id_test', kafka_group_name = 'clickhouse-person-distinct-id-overrides', kafka_format = 'JSONEachRow')
+  
+  '''
+# ---
+# name: test_create_table_query[kafka_person_group_membership]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS kafka_person_group_membership
+  (
+      team_id Int64,
+      distinct_id String,
+      timestamp DateTime64(6, 'UTC'),
+      properties String,
+      person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2)
+  )
+  ENGINE = Kafka(warpstream_ingestion, kafka_topic_list = 'clickhouse_events_json_test', kafka_group_name = 'clickhouse_person_group_membership', kafka_format = 'JSONEachRow')
+  SETTINGS kafka_skip_broken_messages = 100,
+           kafka_num_consumers = 1,
+           kafka_thread_per_consumer = 1,
+           kafka_poll_timeout_ms = 10000,
+           kafka_max_block_size = 100000
   
   '''
 # ---
@@ -5794,6 +5834,29 @@
   ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.person_group_membership_config', '{replica}-{shard}', version)
   ORDER BY team_id
   SETTINGS index_granularity = 8192
+  
+  '''
+# ---
+# name: test_create_table_query[person_group_membership_mv]
+  '''
+  
+  CREATE MATERIALIZED VIEW IF NOT EXISTS person_group_membership_mv
+  TO writable_person_group_membership
+  AS WITH dictGet('person_group_membership_config_dict',
+      ('group_type_index', 'enabled'), tuple(toInt64(team_id))) AS config
+  SELECT
+      team_id,
+      config.1 AS group_type_index,
+      JSONExtractString(properties, concat('$group_', toString(group_type_index))) AS group_key,
+      distinct_id,
+      min(timestamp) AS first_seen,
+      max(timestamp) AS last_seen
+  FROM kafka_person_group_membership
+  WHERE config.2 = 1
+      AND group_type_index <= 4
+      AND person_mode != 'propertyless'
+      AND group_key != ''
+  GROUP BY team_id, group_type_index, group_key, distinct_id
   
   '''
 # ---

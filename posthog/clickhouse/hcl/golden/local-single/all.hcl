@@ -4133,6 +4133,35 @@ database "posthog" {
     }
   }
 
+  table "kafka_person_group_membership" {
+    column "team_id" {
+      type = "Int64"
+    }
+    column "distinct_id" {
+      type = "String"
+    }
+    column "timestamp" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "properties" {
+      type = "String"
+    }
+    column "person_mode" {
+      type = "Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2)"
+    }
+    engine "kafka" {
+      collection           = "warpstream_ingestion"
+      topic_list           = "clickhouse_events_json"
+      group_name           = "clickhouse_person_group_membership"
+      format               = "JSONEachRow"
+      num_consumers        = 1
+      max_block_size       = 100000
+      skip_broken_messages = 100
+      poll_timeout_ms      = 10000
+      thread_per_consumer  = true
+    }
+  }
+
   table "kafka_person_overrides" {
     column "team_id" {
       type = "Int32"
@@ -23731,6 +23760,51 @@ SQL
     }
     column "_partition" {
       type = "UInt64"
+    }
+  }
+
+  materialized_view "person_group_membership_mv" {
+    to_table = "posthog.writable_person_group_membership"
+    query    = <<SQL
+WITH
+  dictGet('person_group_membership_config_dict', ('group_type_index', 'enabled'), tuple(toInt64(team_id))) AS config
+SELECT
+  team_id,
+  config.1 AS group_type_index,
+  JSONExtractString(properties, concat('$group_', toString(group_type_index))) AS group_key,
+  distinct_id,
+  min(timestamp) AS first_seen,
+  max(timestamp) AS last_seen
+FROM posthog.kafka_person_group_membership
+WHERE
+  config.2 = 1
+AND
+  group_type_index <= 4
+AND
+  person_mode != 'propertyless'
+AND
+  group_key != ''
+GROUP BY
+  team_id, group_type_index, group_key, distinct_id
+SQL
+
+    column "team_id" {
+      type = "Int64"
+    }
+    column "group_type_index" {
+      type = "UInt8"
+    }
+    column "group_key" {
+      type = "String"
+    }
+    column "distinct_id" {
+      type = "String"
+    }
+    column "first_seen" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "last_seen" {
+      type = "DateTime64(6, 'UTC')"
     }
   }
 

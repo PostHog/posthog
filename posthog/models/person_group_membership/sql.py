@@ -3,7 +3,9 @@ from django.conf import settings
 from posthog.hogql.escape_sql import escape_clickhouse_identifier, escape_clickhouse_string
 
 from posthog.clickhouse.client.connection import ClickHouseUser, get_clickhouse_creds
+from posthog.clickhouse.kafka_engine import CONSUMER_GROUP_PERSON_GROUP_MEMBERSHIP, kafka_engine, kafka_num_consumers
 from posthog.clickhouse.table_engines import AggregatingMergeTree, Distributed, ReplacingMergeTree, ReplicationScheme
+from posthog.kafka_client.topics import KAFKA_EVENTS_JSON
 
 PERSON_GROUP_MEMBERSHIP_TABLE = "person_group_membership"
 SHARDED_PERSON_GROUP_MEMBERSHIP_TABLE = f"sharded_{PERSON_GROUP_MEMBERSHIP_TABLE}"
@@ -131,4 +133,63 @@ PRIMARY KEY team_id
 SOURCE(CLICKHOUSE({source}))
 LIFETIME(MIN 60 MAX {PERSON_GROUP_MEMBERSHIP_CONFIG_DICTIONARY_LIFETIME_MAX_SECONDS})
 LAYOUT(COMPLEX_KEY_HASHED())
+"""
+
+
+KAFKA_PERSON_GROUP_MEMBERSHIP_TABLE = f"kafka_{PERSON_GROUP_MEMBERSHIP_TABLE}"
+PERSON_GROUP_MEMBERSHIP_MV = f"{PERSON_GROUP_MEMBERSHIP_TABLE}_mv"
+
+KAFKA_PERSON_GROUP_MEMBERSHIP_COLUMNS = """
+    team_id Int64,
+    distinct_id String,
+    timestamp DateTime64(6, 'UTC'),
+    properties String,
+    person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2)
+""".strip()
+
+
+def KAFKA_PERSON_GROUP_MEMBERSHIP_TABLE_SQL() -> str:
+    return f"""
+CREATE TABLE IF NOT EXISTS {KAFKA_PERSON_GROUP_MEMBERSHIP_TABLE}
+(
+    {KAFKA_PERSON_GROUP_MEMBERSHIP_COLUMNS}
+)
+ENGINE = {
+        kafka_engine(
+            topic=KAFKA_EVENTS_JSON,
+            group=CONSUMER_GROUP_PERSON_GROUP_MEMBERSHIP,
+            named_collection=settings.CLICKHOUSE_KAFKA_WARPSTREAM_INGESTION_NAMED_COLLECTION,
+        )
+    }
+SETTINGS kafka_skip_broken_messages = 100,
+         kafka_num_consumers = {kafka_num_consumers(1)},
+         kafka_thread_per_consumer = 1,
+         kafka_poll_timeout_ms = 10000,
+         kafka_max_block_size = 100000
+"""
+
+
+def PERSON_GROUP_MEMBERSHIP_MV_SELECT_SQL(source_table: str) -> str:
+    return f"""WITH dictGet('{PERSON_GROUP_MEMBERSHIP_CONFIG_DICTIONARY}',
+    ('group_type_index', 'enabled'), tuple(toInt64(team_id))) AS config
+SELECT
+    team_id,
+    config.1 AS group_type_index,
+    JSONExtractString(properties, concat('$group_', toString(group_type_index))) AS group_key,
+    distinct_id,
+    min(timestamp) AS first_seen,
+    max(timestamp) AS last_seen
+FROM {escape_clickhouse_identifier(source_table)}
+WHERE config.2 = 1
+    AND group_type_index <= {PERSON_GROUP_MEMBERSHIP_MAX_GROUP_TYPE_INDEX}
+    AND person_mode != 'propertyless'
+    AND group_key != ''
+GROUP BY team_id, group_type_index, group_key, distinct_id"""
+
+
+def PERSON_GROUP_MEMBERSHIP_MV_SQL() -> str:
+    return f"""
+CREATE MATERIALIZED VIEW IF NOT EXISTS {PERSON_GROUP_MEMBERSHIP_MV}
+TO {WRITABLE_PERSON_GROUP_MEMBERSHIP_TABLE}
+AS {PERSON_GROUP_MEMBERSHIP_MV_SELECT_SQL(KAFKA_PERSON_GROUP_MEMBERSHIP_TABLE)}
 """
