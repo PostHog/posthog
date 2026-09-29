@@ -265,19 +265,9 @@ export const API_SCOPES: APIScope[] = [
 API_SCOPES.sort((a, b) => a.objectName.localeCompare(b.objectName))
 
 // Scope objects deliberately absent from the key-creation modal above, each with the reason.
-// Every scope object in `API_SCOPE_OBJECTS` must be either offered in `API_SCOPES` or listed here —
+// Every grantable scope object in `ScopeObjectEnumApi` must be either offered in `API_SCOPES` or listed here —
 // scopes.test.ts enforces that partition so a newly added backend scope can't silently go missing.
-// Keep the internal/hidden entries in sync with `INTERNAL_API_SCOPE_OBJECTS` and
-// `OAUTH_HIDDEN_SCOPE_OBJECTS` in posthog/scopes.py.
 export const API_SCOPES_OMITTED_FROM_MODAL: Partial<Record<APIScopeObject, string>> = {
-    // INTERNAL_API_SCOPE_OBJECTS — server-minted only, never user-grantable.
-    clickhouse_test_cluster_perf: 'Internal: minted programmatically only.',
-    context_layer_internal: 'Internal: permits channel-bound Context Wiki writes from task runs.',
-    internal_run: 'Internal: marks a server-minted sandbox/agent run credential.',
-    mcp_builtin_agent: 'Internal: identifies a trusted built-in agent credential.',
-    signal_scout_internal: 'Internal: sandbox-only writes for the headless Signals agent.',
-    signal_scout_report: 'Internal: sandbox-only writes for the scout report channel.',
-    signal_scratchpad_internal: 'Internal: sandbox-only writes for the Signals scratchpad.',
     // OAUTH_HIDDEN_SCOPE_OBJECTS — pasteable into a PAT, but never advertised via OAuth/CLI/MCP.
     batch_import_support: 'OAuth-hidden: staff-only, pasteable into a PAT but not advertised.',
     query_performance: 'OAuth-hidden: staff-only, pasteable into a PAT but not advertised.',
@@ -401,10 +391,10 @@ export const PROJECT_SECRET_API_KEY_SCOPE_PRESETS: ProjectSecretAPIKeyScopePrese
     { value: 'llm_gateway', label: 'AI gateway access', scopes: ['llm_gateway:read'] },
 ]
 
-// The product areas that the scope pickers use to group objects, in display order. Each object in
-// API_SCOPE_OBJECTS is in exactly one group, and scopes.test.ts fails until a new object has a group.
-// Internal and OAuth-hidden objects go in the last group, "Internal tools". The pickers do not show
-// those objects, so a person never sees that group.
+// The product areas that the scope pickers use to group objects, in display order. Each grantable
+// scope object in `ScopeObjectEnumApi` is in exactly one group, and scopes.test.ts fails until a new
+// object has a group. OAuth-hidden objects go in the last group, "Internal tools". The pickers do not
+// show those objects, so a person never sees that group.
 export type APIScopeGroup = {
     label: string
     objects: APIScopeObject[]
@@ -566,19 +556,7 @@ export const API_SCOPE_GROUPS: APIScopeGroup[] = [
     },
     {
         label: 'Internal tools',
-        objects: [
-            'batch_import_support',
-            'clickhouse_test_cluster_perf',
-            'context_layer_internal',
-            'internal_run',
-            'mcp_builtin_agent',
-            'query_performance',
-            'signal_scout_internal',
-            'signal_scout_report',
-            'signal_scratchpad_internal',
-            'wizard_session',
-            'wizard_run',
-        ],
+        objects: ['batch_import_support', 'query_performance', 'wizard_session', 'wizard_run'],
     },
 ]
 
