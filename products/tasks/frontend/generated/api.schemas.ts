@@ -1850,7 +1850,7 @@ export interface TaskRunDetailDTOApi {
     /** Latest slug tags for this task, including tags inherited from an earlier run. */
     task_tags: string[]
     state: TaskRunDetailDTOApiState
-    /** Why a lifecycle bound stopped this run, when one did. `timed_out_wall_clock` is the hard cap on total run time, `timed_out_inactivity` the idle cap, and `sandbox_gone` a sandbox that disappeared. Null when the run ended on its own, so a failed run with a null `error_message` and a null reason is a genuine failure rather than a timeout.
+    /** Which lifecycle bound stopped this run, when one did. `timed_out_wall_clock` is the hard cap on total run time, `timed_out_inactivity` the idle cap, and `sandbox_gone` a sandbox that disappeared. Null when no bound was tripped, which on a terminal run means the run ended on its own, so a failed run with a null `error_message` and a null reason is a genuine failure rather than a timeout.
      *
      * * `sandbox_gone` - sandbox_gone
      * * `timed_out_wall_clock` - timed_out_wall_clock

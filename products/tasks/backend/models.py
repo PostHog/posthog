@@ -41,7 +41,12 @@ from posthog.storage import object_storage
 from posthog.temporal.oauth import PosthogMcpScopes
 from posthog.uuidt import uuid7
 
-from products.tasks.backend.constants import DEFAULT_TRUSTED_DOMAINS, GITHUB_PR_URL_PREFIX, PR_LOOP_ENABLED_STATE_KEY
+from products.tasks.backend.constants import (
+    DEFAULT_TRUSTED_DOMAINS,
+    GITHUB_PR_URL_PREFIX,
+    PR_LOOP_ENABLED_STATE_KEY,
+    TASK_RUN_TERMINATION_REASON_MARKERS,
+)
 from products.tasks.backend.error_telemetry import truncate_error_message
 from products.tasks.backend.feature_flags import (
     is_task_run_stream_presence_gated,
@@ -2554,6 +2559,7 @@ class TaskRun(models.Model):
         )
 
     _CLOUD_RESUME_CLEARED_STATE_KEYS = (
+        *TASK_RUN_TERMINATION_REASON_MARKERS,
         "pending_user_message",
         "pending_user_artifact_ids",
         "pending_user_message_id",
