@@ -1,3 +1,5 @@
+import { Page } from 'puppeteer'
+
 import { type InactivityPeriod, METADATA_FOOTER_HEIGHT_PX } from '@posthog/replay-headless/protocol'
 
 import { config as defaultConfig } from '~/session-replay/recording-rasterizer/config'
@@ -104,14 +106,44 @@ export async function rasterizeRecording(
     const setupStart = process.hrtime()
     const captureConfig = buildCaptureConfig(input)
 
-    const rawPage = await pool.getPage()
+    const blockProxy = options.blockSource ?? new BlockProxy(cfg, log)
+    const blockCount = await blockProxy.fetchBlocks(input)
+    const compressedBytes = blockProxy.totalCompressedBytes
+    log.info({ blockCount, compressedBytes }, 'block listing fetched')
+    if (!Number.isFinite(compressedBytes)) {
+        // A malformed listing yields NaN, and NaN > cap is false: the gate would switch off
+        // silently. Fail open, but visibly.
+        log.warn({ blockCount }, 'block listing has non-numeric byte ranges; size gate skipped')
+    } else if (compressedBytes > cfg.maxRecordingCompressedBytes) {
+        // Fail permanently before loading: oversized recordings run the pod into its memory
+        // limit, and the kernel kill takes the healthy renders on the pod down with it.
+        throw new RasterizationError(
+            `Recording too large to render: ${compressedBytes} compressed bytes in ${blockCount} blocks (limit ${cfg.maxRecordingCompressedBytes})`,
+            false,
+            'RECORDING_TOO_LARGE'
+        )
+    }
+
+    // Taken before the page, so a render that waits for the budget does not hold a Chromium process.
+    let releaseBytes: (() => void) | null = null
+    if (options.byteBudget) {
+        const budgetBytes = Number.isFinite(compressedBytes) ? compressedBytes : 0
+        releaseBytes = await acquireByteBudget(options.byteBudget, budgetBytes, onProgress, log, signal)
+    }
+
+    let rawPage: Page
+    try {
+        rawPage = await pool.getPage()
+    } catch (err) {
+        releaseBytes?.()
+        throw err
+    }
     const onAbort = (): void => {
         log.warn('abort requested, closing page to stop capture')
         rawPage.close().catch(() => {})
     }
     signal?.addEventListener('abort', onAbort, { once: true })
     let player: PlayerController | null = null
-    let releaseBytes: (() => void) | null = null
     try {
         // An abort that fired while getPage was launching Chromium predates the listener above and
         // would otherwise be silently missed; the finally below releases the page.
@@ -129,29 +161,6 @@ export async function rasterizeRecording(
             cfg.captureBrowserLogs,
             log
         )
-
-        const blockProxy = options.blockSource ?? new BlockProxy(cfg, log)
-        const blockCount = await blockProxy.fetchBlocks(input)
-        const compressedBytes = blockProxy.totalCompressedBytes
-        log.info({ blockCount, compressedBytes }, 'block listing fetched')
-        if (!Number.isFinite(compressedBytes)) {
-            // A malformed listing yields NaN, and NaN > cap is false: the gate would switch off
-            // silently. Fail open, but visibly.
-            log.warn({ blockCount }, 'block listing has non-numeric byte ranges; size gate skipped')
-        } else if (compressedBytes > cfg.maxRecordingCompressedBytes) {
-            // Fail permanently before loading: oversized recordings run the pod into its memory
-            // limit, and the kernel kill takes the healthy renders on the pod down with it.
-            throw new RasterizationError(
-                `Recording too large to render: ${compressedBytes} compressed bytes in ${blockCount} blocks (limit ${cfg.maxRecordingCompressedBytes})`,
-                false,
-                'RECORDING_TOO_LARGE'
-            )
-        }
-
-        if (options.byteBudget) {
-            const budgetBytes = Number.isFinite(compressedBytes) ? compressedBytes : 0
-            releaseBytes = await acquireByteBudget(options.byteBudget, budgetBytes, onProgress, log, signal)
-        }
 
         const playerConfig = buildPlayerConfig(input, captureConfig.playbackSpeed, blockCount)
         player = new PlayerController(capturePage, blockProxy, onProgress, log)
@@ -197,7 +206,7 @@ export async function rasterizeRecording(
         try {
             await pool.releasePage(rawPage)
         } finally {
-            // A leaked grant blocks every later render on this worker.
+            // A leaked grant delays every later render on this worker until its wait cap.
             releaseBytes?.()
         }
     }

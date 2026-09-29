@@ -120,7 +120,7 @@ describe('rasterizeRecording', () => {
 
         await rasterizeRecording(mockPool, baseInput(), '/tmp/out.mp4', '<html></html>', jest.fn(), { cfg })
 
-        expect(callOrder).toEqual(['getPage', 'prepare', 'fetchBlocks', 'load', 'waitForStart', 'capturePlayback'])
+        expect(callOrder).toEqual(['fetchBlocks', 'getPage', 'prepare', 'load', 'waitForStart', 'capturePlayback'])
     })
 
     it('fails permanently before loading when the listing exceeds the byte cap', async () => {
@@ -133,8 +133,7 @@ describe('rasterizeRecording', () => {
             rasterizeRecording(mockPool, baseInput(), '/tmp/out.mp4', '<html></html>', jest.fn(), { cfg })
         ).rejects.toMatchObject({ code: 'RECORDING_TOO_LARGE', retryable: false })
 
-        expect(mockPlayer.load).not.toHaveBeenCalled()
-        expect(mockPool.releasePage).toHaveBeenCalledWith(mockPage)
+        expect(mockPool.getPage).not.toHaveBeenCalled()
     })
 
     it.each([
@@ -159,7 +158,7 @@ describe('rasterizeRecording', () => {
                     byteBudget,
                 }).catch(() => {})
                 await new Promise((resolve) => setImmediate(resolve))
-                expect(mockPlayer.load).not.toHaveBeenCalled()
+                expect(mockPool.getPage).not.toHaveBeenCalled()
 
                 jest.advanceTimersByTime(10_000)
                 expect(onProgress).toHaveBeenCalledTimes(1)
@@ -202,14 +201,14 @@ describe('rasterizeRecording', () => {
         expect(mockPool.releasePage).toHaveBeenCalledWith(mockPage)
     })
 
-    it('releases page when BlockProxy.fetchBlocks throws', async () => {
+    it('takes no page when BlockProxy.fetchBlocks throws', async () => {
         mockedBlockProxy.prototype.fetchBlocks = jest.fn().mockRejectedValue(new Error('API down'))
 
         await expect(
             rasterizeRecording(mockPool, baseInput(), '/tmp/out.mp4', '<html></html>', jest.fn(), { cfg })
         ).rejects.toThrow('API down')
 
-        expect(mockPool.releasePage).toHaveBeenCalledWith(mockPage)
+        expect(mockPool.getPage).not.toHaveBeenCalled()
     })
 
     it('passes playerHtml to CapturePage.prepare', async () => {
