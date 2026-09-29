@@ -114,7 +114,7 @@ function clearSortIfColumnRemoved(values: SortLikeValues, actions: SortLikeActio
 
 export type RoleFilterValue = number[]
 
-export type AccountFilterType = 'tag' | 'assignment_status' | 'my_accounts' | 'assigned_to'
+export type AccountFilterType = 'tag' | 'assignment_status' | 'my_accounts' | 'assigned_to' | 'or_group'
 
 export type AccountSortableColumn = string
 
@@ -1604,6 +1604,12 @@ export const accountsLogic = kea<accountsLogicType>([
             if (!objectsEqual(supportedFilters, values.accountFilters)) {
                 actions.setAccountFilters(supportedFilters)
             }
+            const supportedGroups = values.accountFilterGroups.map((group) =>
+                supportedAccountFilters(group, definitionsById, values.relationshipDefinitionsById)
+            )
+            if (!objectsEqual(supportedGroups, values.accountFilterGroups)) {
+                actions.setAccountFilterGroups(supportedGroups)
+            }
         },
         loadRelationshipDefinitionsSuccess: () => {
             cache.relationshipDefinitionsLoaded = true
@@ -1618,27 +1624,57 @@ export const accountsLogic = kea<accountsLogicType>([
             if (!objectsEqual(supportedFilters, values.accountFilters)) {
                 actions.setAccountFilters(supportedFilters)
             }
+            const supportedGroups = values.accountFilterGroups.map((group) =>
+                supportedAccountFilters(group, values.customPropertyDefinitionsById, values.relationshipDefinitionsById)
+            )
+            if (!objectsEqual(supportedGroups, values.accountFilterGroups)) {
+                actions.setAccountFilterGroups(supportedGroups)
+            }
         },
         loadRelationshipDefinitionsFailure: () => {
             cache.relationshipDefinitionsLoaded = true
             actions.setAccountFilters(values.accountFilters)
+            const supportedGroups = values.accountFilterGroups.map((group) =>
+                supportedAccountFilters(group, values.customPropertyDefinitionsById, values.relationshipDefinitionsById)
+            )
+            if (!objectsEqual(supportedGroups, values.accountFilterGroups)) {
+                actions.setAccountFilterGroups(supportedGroups)
+            }
         },
-        setAccountFilterGroups: () => {
+        setAccountFilterGroups: ({ groups }) => {
+            if (cache.customPropertyDefinitionsLoaded && cache.relationshipDefinitionsLoaded) {
+                const supportedGroups = groups.map((group) =>
+                    supportedAccountFilters(
+                        group,
+                        values.customPropertyDefinitionsById,
+                        values.relationshipDefinitionsById
+                    )
+                )
+                if (!objectsEqual(supportedGroups, groups)) {
+                    actions.setAccountFilterGroups(supportedGroups)
+                    return
+                }
+            }
             persistViewStateAndUrl(actions, cache.applyingViewState, values.viewStateHydrated)
         },
         addAccountFilterGroup: () => {
             persistViewStateAndUrl(actions, cache.applyingViewState, values.viewStateHydrated)
+            actions.reportFilterChange('or_group')
         },
         removeFirstAccountFilterGroup: () => {
             const [first = [], ...remaining] = values.accountFilterGroups
             actions.setAccountFilterGroups(remaining)
-            actions.updateAccountFilters(first)
+            actions.setAccountFilters(first)
+            actions.reportFilterChange('or_group')
         },
         removeAccountFilterGroup: () => {
             persistViewStateAndUrl(actions, cache.applyingViewState, values.viewStateHydrated)
+            actions.reportFilterChange('or_group')
         },
         updateAccountFilterGroup: () => {
             persistViewStateAndUrl(actions, cache.applyingViewState, values.viewStateHydrated)
+            actions.setAccountFilterGroups(values.accountFilterGroups)
+            actions.reportFilterChange('or_group')
         },
         setAccountFilters: ({ filters }) => {
             persistViewStateAndUrl(actions, cache.applyingViewState, values.viewStateHydrated)
@@ -1721,6 +1757,12 @@ export const accountsLogic = kea<accountsLogicType>([
                     properties.value = values.assignedToFilter
                     properties.role_count = values.assignedToFilter.length
                     properties.is_cleared = values.assignedToFilter.length === 0
+                    break
+                case 'or_group':
+                    properties.group_count = values.accountFilterGroups.length + 1
+                    properties.is_cleared =
+                        values.accountFilters.length === 0 &&
+                        values.accountFilterGroups.every((group) => group.length === 0)
                     break
             }
             posthog.capture(AccountsEvents.FilterChanged, properties)

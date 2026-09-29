@@ -154,6 +154,27 @@ describe('accountsTableQuery', () => {
         )
     })
 
+    it('keeps valid conditions when a restored group contains deleted properties', () => {
+        const validName = accountFieldFilter({
+            key: AccountsTableAccountField.Name,
+            operator: PropertyOperator.Exact,
+            value: 'Example',
+        })
+        const missingProperty = customFilter({ key: '99999999-9999-9999-9999-999999999999' })
+        const plan = buildAccountsTableQueryPlan(
+            queryInput({
+                accountFilters: [validName, missingProperty],
+                accountFilterGroups: [[relationshipFilter(), missingProperty], [missingProperty]],
+            })
+        )
+
+        expect(plan.query.filters).toEqual([])
+        expect(plan.query.filterGroups).toEqual([
+            [{ kind: 'account_field', field: AccountsTableAccountField.Name, operator: 'exact', values: ['Example'] }],
+            [{ kind: 'relationship', definitionId: RELATIONSHIP_ID, operator: 'exact', userIds: [7] }],
+        ])
+    })
+
     it('translates typed native account field filters', () => {
         const plan = buildAccountsTableQueryPlan(
             queryInput({

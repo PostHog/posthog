@@ -3187,6 +3187,8 @@ def _apply_account_table_filters(
     filters: tuple[contracts.AccountTableFilter, ...],
     filter_groups: tuple[tuple[contracts.AccountTableFilter, ...], ...],
     custom_property_display_types: dict[UUID, DisplayType],
+    include_churned: bool,
+    include_ignored: bool,
 ) -> QuerySet[Account]:
     member_external_ids_by_query: dict[str, tuple[str, ...]] = {}
     for filter_ in filters:
@@ -3209,8 +3211,18 @@ def _apply_account_table_filters(
         if filter_groups:
             matching_groups = Q()
             for group in filter_groups:
+                group_query = queryset
+                branch_filters = filters + group
+                if not include_churned and not _filters_account_table_field(
+                    branch_filters, contracts.AccountTableField.CHURNED_AT
+                ):
+                    group_query = group_query.filter(churned_at__isnull=True)
+                if not include_ignored and not _filters_account_table_field(
+                    branch_filters, contracts.AccountTableField.IGNORED_AT
+                ):
+                    group_query = group_query.filter(ignored_at__isnull=True)
                 group_query = apply_account_filters(
-                    queryset,
+                    group_query,
                     team_id=team_id,
                     filters=group,
                     custom_property_display_types=custom_property_display_types,
@@ -3354,11 +3366,11 @@ def query_accounts_metrics(
             raise InvalidAccountTableColumn("Account table metrics require numeric custom properties.")
 
     accounts = _accounts_queryset(team_id, user_access_control)
-    all_filters = filters + tuple(filter_ for group in filter_groups for filter_ in group)
-    if not include_churned and not _filters_account_table_field(all_filters, contracts.AccountTableField.CHURNED_AT):
-        accounts = accounts.filter(churned_at__isnull=True)
-    if not include_ignored and not _filters_account_table_field(all_filters, contracts.AccountTableField.IGNORED_AT):
-        accounts = accounts.filter(ignored_at__isnull=True)
+    if not filter_groups:
+        if not include_churned and not _filters_account_table_field(filters, contracts.AccountTableField.CHURNED_AT):
+            accounts = accounts.filter(churned_at__isnull=True)
+        if not include_ignored and not _filters_account_table_field(filters, contracts.AccountTableField.IGNORED_AT):
+            accounts = accounts.filter(ignored_at__isnull=True)
     accounts = _apply_account_table_filters(
         accounts,
         team_id=team_id,
@@ -3366,6 +3378,8 @@ def query_accounts_metrics(
         filters=filters,
         filter_groups=filter_groups,
         custom_property_display_types=custom_property_display_types,
+        include_churned=include_churned,
+        include_ignored=include_ignored,
     )
     results: list[float | int | None] = [None] * len(metrics)
     for index, metric in enumerate(metrics):
@@ -3446,11 +3460,11 @@ def query_accounts_table(
     )
 
     queryset = _accounts_queryset(team_id, user_access_control)
-    all_filters = filters + tuple(filter_ for group in filter_groups for filter_ in group)
-    if not include_churned and not _filters_account_table_field(all_filters, contracts.AccountTableField.CHURNED_AT):
-        queryset = queryset.filter(churned_at__isnull=True)
-    if not include_ignored and not _filters_account_table_field(all_filters, contracts.AccountTableField.IGNORED_AT):
-        queryset = queryset.filter(ignored_at__isnull=True)
+    if not filter_groups:
+        if not include_churned and not _filters_account_table_field(filters, contracts.AccountTableField.CHURNED_AT):
+            queryset = queryset.filter(churned_at__isnull=True)
+        if not include_ignored and not _filters_account_table_field(filters, contracts.AccountTableField.IGNORED_AT):
+            queryset = queryset.filter(ignored_at__isnull=True)
     queryset = _apply_account_table_filters(
         queryset,
         team_id=team_id,
@@ -3458,6 +3472,8 @@ def query_accounts_table(
         filters=filters,
         filter_groups=filter_groups,
         custom_property_display_types=custom_property_display_types,
+        include_churned=include_churned,
+        include_ignored=include_ignored,
     )
     queryset = _apply_account_table_sort(
         queryset,

@@ -308,8 +308,21 @@ describe('accountsLogic', () => {
             },
         ])
 
+        logic.actions.setAccountFilterGroups([
+            [
+                ACCOUNT_FILTERS[0],
+                {
+                    type: PropertyFilterType.AccountCustomProperty,
+                    key: '99999999-9999-9999-9999-999999999999',
+                    operator: PropertyOperator.Exact,
+                    value: 'missing',
+                },
+            ],
+        ])
+
         expect(logic.values.accountFilters).toEqual([])
-        expect(logic.values.activeFilterCount).toBe(0)
+        expect(logic.values.accountFilterGroups).toEqual([[ACCOUNT_FILTERS[0]]])
+        expect(logic.values.activeFilterCount).toBe(1)
     })
 
     it('adds native account filters to the query and shareable view state', () => {
@@ -354,6 +367,23 @@ describe('accountsLogic', () => {
         })
         expect(capture.mock.calls.at(-1)?.[1]).not.toHaveProperty('key')
         expect(capture.mock.calls.at(-1)?.[1]).not.toHaveProperty('value')
+    })
+
+    it('tracks edits to OR groups without tracking restored state', () => {
+        const capture = jest.spyOn(posthog, 'capture').mockImplementation()
+        logic.actions.setAccountFilters([ACCOUNT_FILTERS[0]])
+        logic.actions.setAccountFilterGroups([[ACCOUNT_FILTERS[0]]])
+        expect(capture).not.toHaveBeenCalledWith(AccountsEvents.FilterChanged, expect.anything())
+
+        logic.actions.updateAccountFilterGroup(0, [ACCOUNT_FILTERS[1]])
+        logic.actions.addAccountFilterGroup()
+        logic.actions.removeAccountFilterGroup(1)
+
+        expect(capture.mock.calls.filter(([event]) => event === AccountsEvents.FilterChanged)).toEqual([
+            [AccountsEvents.FilterChanged, expect.objectContaining({ filter_type: 'or_group', group_count: 2 })],
+            [AccountsEvents.FilterChanged, expect.objectContaining({ filter_type: 'or_group', group_count: 3 })],
+            [AccountsEvents.FilterChanged, expect.objectContaining({ filter_type: 'or_group', group_count: 2 })],
+        ])
     })
 
     it('setTagsFilter updates the reducer', () => {
