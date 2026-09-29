@@ -1084,6 +1084,7 @@ doesn't conflict with concurrent PRs.
 - gcp_recommender
 - gcp_security_command_center
 - gdelt
+- gem
 - genesys_cloud
 - gerrit
 - getdx
@@ -1400,6 +1401,7 @@ doesn't conflict with concurrent PRs.
 - speedcurve
 - spotify_ads
 - sprinklr
+- sprinto
 - sprout_social
 - starburst
 - statsig
