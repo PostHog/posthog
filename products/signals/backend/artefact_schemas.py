@@ -1003,6 +1003,10 @@ class CheckScheduled(CheckLifecycleEntry):
         description="Scout skill that answers an `agent` check. Absent when it runs on the fleet's follow-up scout.",
     )
     runs: int = Field(default=1, description="How many runs the check was written for.")
+    replaces_check_id: str | None = Field(
+        default=None,
+        description="UUID of the errored or expired check this one retries. Absent on a check written fresh.",
+    )
 
 
 class CheckExpired(CheckLifecycleEntry):

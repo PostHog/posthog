@@ -28,6 +28,7 @@ import { Task, TaskRunStatus } from 'products/posthog_ai/frontend/types/taskType
 import {
     signalsReportArtefactsDiff,
     signalsReportChecksDestroy,
+    signalsReportChecksRetry,
     signalsReportChecksList,
     signalsReportPrChecks,
     signalsReportPrComments,
@@ -334,6 +335,7 @@ export interface inboxReportDetailLogicValues {
     reportReviewers: EnrichedReviewer[] | null
     reportSignals: SignalNode[] | null
     reportSignalsLoading: boolean
+    retryingCheckIds: string[]
     reportSummary: string | null
     reportTaskToOpen: ReportTaskEntry | null
     reportTasks: ReportTaskEntry[] | null
@@ -546,6 +548,12 @@ export interface inboxReportDetailLogicActions {
     postReviewCommentFinished: () => {
         value: true
     }
+    retryReportCheck: (checkId: string) => {
+        checkId: string
+    }
+    retryReportCheckDone: (checkId: string) => {
+        checkId: string
+    }
     rateReport: (sentiment: InboxReportFeedbackSentiment) => {
         sentiment: InboxReportFeedbackSentiment
     }
@@ -720,6 +728,9 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         cancelReportCheck: (checkId: string) => ({ checkId }),
         // Fired whether the cancel succeeded or failed, so the row's button always comes back.
         cancelReportCheckDone: (checkId: string) => ({ checkId }),
+        retryReportCheck: (checkId: string) => ({ checkId }),
+        // Fired whether the retry succeeded or failed, so the row's button always comes back.
+        retryReportCheckDone: (checkId: string) => ({ checkId }),
         // Driven by the submit listener only, so the re-entrancy guard and the Send button's
         // loading state read the same flag.
         setFeedbackNoteSubmitting: (submitting: boolean) => ({ submitting }),
@@ -909,6 +920,15 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 cancelReportCheck: (state: string[], { checkId }: { checkId: string }) =>
                     state.includes(checkId) ? state : [...state, checkId],
                 cancelReportCheckDone: (state: string[], { checkId }: { checkId: string }) =>
+                    state.filter((id) => id !== checkId),
+            },
+        ],
+        retryingCheckIds: [
+            [] as string[],
+            {
+                retryReportCheck: (state: string[], { checkId }: { checkId: string }) =>
+                    state.includes(checkId) ? state : [...state, checkId],
+                retryReportCheckDone: (state: string[], { checkId }: { checkId: string }) =>
                     state.filter((id) => id !== checkId),
             },
         ],
@@ -1371,6 +1391,25 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 lemonToast.error(error?.detail || "Couldn't stop this check. Try again in a moment.")
             } finally {
                 actions.cancelReportCheckDone(checkId)
+            }
+        },
+        // The failed check stays as it is, and the new one joins the list. The artefacts reload so
+        // the rail can see the new check replaces the old one and hide the old row's Retry button.
+        retryReportCheck: async ({ checkId }) => {
+            const teamId = teamLogic.values.currentTeamId
+            if (!teamId) {
+                actions.retryReportCheckDone(checkId)
+                return
+            }
+            try {
+                const replacement = await signalsReportChecksRetry(String(teamId), props.reportId, checkId)
+                actions.loadReportChecksSuccess([replacement, ...(values.reportChecks ?? [])])
+                actions.loadReportArtefacts()
+                lemonToast.success('Check scheduled again')
+            } catch (error: any) {
+                lemonToast.error(error?.error || error?.detail || "Couldn't retry this check. Try again in a moment.")
+            } finally {
+                actions.retryReportCheckDone(checkId)
             }
         },
         setDetailTab: ({ tab }) => {
