@@ -82,7 +82,9 @@ def npm_ranges(spec: str) -> list[MajorRange]:
             elif token.startswith(">="):
                 low = max(low, _major(token[2:]))
             elif token.startswith(">"):
-                low = max(low, _major(token[1:]))
+                # `>5` or `>5.1` excludes every 5.x; only a full `>5.1.0` still admits later 5.x.
+                bound = token[1:]
+                low = max(low, _major(bound) + 1 if re.fullmatch(r"v?\d+(\.\d+)?", bound) else _major(bound))
             elif token.startswith("<="):
                 high = _major(token[2:]) if high is None else min(high, _major(token[2:]))
             elif token.startswith("<"):
@@ -352,6 +354,9 @@ def test_go_sdk_stays_on_its_major() -> None:
         ("latest", 5, False, True),
         ("<5", 5, False, False),
         ("<5.0.0-0", 5, False, False),
+        (">5", 5, False, False),
+        (">5.0.0", 5, False, True),
+        (">4 <6", 5, True, True),
     ],
 )
 def test_npm_range_semantics(spec: str, expected: int, pinned: bool, admits: bool) -> None:
