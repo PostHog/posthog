@@ -1,7 +1,7 @@
-from enum import StrEnum
 from typing import Literal
 
 from django.db import OperationalError
+from django.db.models import TextChoices
 
 from clickhouse_driver.errors import NetworkError, SocketTimeoutError
 from pydantic import BaseModel, Field
@@ -24,15 +24,21 @@ from ee.hogai.chat_agent.schema_generator.parsers import PydanticOutputParserExc
 from ee.hogai.tool_errors import MaxToolAccessDeniedError, MaxToolRetryableError, MaxToolTransientError
 
 
-class MCPToolErrorCode(StrEnum):
-    INVALID_INPUT = "invalid_input"
-    PERMISSION_DENIED = "permission_denied"
-    QUERY_TIMEOUT = "query_timeout"
-    QUERY_CAPACITY_EXCEEDED = "query_capacity_exceeded"
-    QUERY_MEMORY_LIMIT_EXCEEDED = "query_memory_limit_exceeded"
-    QUERY_LIMIT_EXCEEDED = "query_limit_exceeded"
-    SERVICE_UNAVAILABLE = "service_unavailable"
-    INTERNAL_ERROR = "internal_error"
+class MCPToolErrorCode(TextChoices):
+    INVALID_INPUT = "invalid_input", "The tool rejected the input. Check the query and tool schema."
+    PERMISSION_DENIED = "permission_denied", "You do not have permission to access this data."
+    QUERY_TIMEOUT = "query_timeout", "The query timed out before it could finish."
+    QUERY_CAPACITY_EXCEEDED = "query_capacity_exceeded", "The query service is at capacity. Wait before retrying."
+    QUERY_MEMORY_LIMIT_EXCEEDED = (
+        "query_memory_limit_exceeded",
+        "The query ran out of memory. Use a shorter date range or narrower filters.",
+    )
+    QUERY_LIMIT_EXCEEDED = (
+        "query_limit_exceeded",
+        "The query exceeded an execution or size limit. Use a smaller or narrower query.",
+    )
+    SERVICE_UNAVAILABLE = "service_unavailable", "The query service could not complete the request."
+    INTERNAL_ERROR = "internal_error", "The tool raised an internal error."
 
 
 class MCPToolErrorDetails(BaseModel):
@@ -54,16 +60,7 @@ class MCPToolErrorDetails(BaseModel):
 
     @property
     def safe_message(self) -> str:
-        return {
-            "invalid_input": "The tool rejected the input. Check the query and tool schema.",
-            "permission_denied": "You do not have permission to access this data.",
-            "query_timeout": "The query timed out before it could finish.",
-            "query_capacity_exceeded": "The query service is at capacity. Wait before retrying.",
-            "query_memory_limit_exceeded": "The query ran out of memory. Use a shorter date range or narrower filters.",
-            "query_limit_exceeded": "The query exceeded an execution or size limit. Use a smaller or narrower query.",
-            "service_unavailable": "The query service could not complete the request.",
-            "internal_error": "The tool raised an internal error.",
-        }[self.code]
+        return str(self.code.label)
 
     @classmethod
     def from_exception(cls, error: Exception) -> "MCPToolErrorDetails":
