@@ -123,10 +123,12 @@ class TestRunAlertCondition:
         assert second.breached is None
         assert second.transient is True
 
-    def test_the_batch_wall_budget_stops_further_runs_even_with_cpu_budget_left(self) -> None:
+    def test_the_batch_wall_budget_counts_condition_runs_only(self) -> None:
         bytecode = compile_alert_condition("return true")
         budget = _budget(wall_total=timedelta(microseconds=1))
 
+        # Time that passes before any run, such as the batch's queries, does not count.
+        assert budget.take() is not None
         first = run_alert_condition(bytecode, _context(), budget)
         second = run_alert_condition(bytecode, _context(), budget)
 

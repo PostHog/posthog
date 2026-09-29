@@ -98,18 +98,18 @@ class ConditionBudget:
         self._wall_total = wall_total.total_seconds()
         self._run_timeout = run_timeout
         self._spent = 0.0
-        self._started_at: float | None = None
+        self._wall_spent = 0.0
 
     def take(self) -> timedelta | None:
         """The wall timeout for the next run, or None once the batch's CPU or wall budget is spent."""
-        if self._started_at is None:
-            self._started_at = time.perf_counter()
-        if self._spent >= self._total or time.perf_counter() - self._started_at > self._wall_total:
+        if self._spent >= self._total or self._wall_spent >= self._wall_total:
             return None
         return self._run_timeout
 
-    def spend(self, cpu_seconds: float) -> None:
+    def spend(self, cpu_seconds: float, wall_seconds: float = 0.0) -> None:
+        """Only condition runs count. The queries a batch runs between conditions do not."""
         self._spent += max(cpu_seconds, 0.0)
+        self._wall_spent += max(wall_seconds, 0.0)
 
 
 def _stats(values: Sequence[float | None]) -> dict[str, float | None]:
@@ -218,8 +218,9 @@ def run_alert_condition(bytecode: list[Any], context: ConditionContext, budget: 
         # The type only: a message could carry the values the program was given.
         error = f"condition failed: {type(failure).__name__}"
     cpu_elapsed = time.thread_time() - cpu_start
-    budget.spend(cpu_elapsed)
-    duration_ms = (time.perf_counter() - wall_start) * 1000
+    wall_elapsed = time.perf_counter() - wall_start
+    budget.spend(cpu_elapsed, wall_elapsed)
+    duration_ms = wall_elapsed * 1000
 
     if error is not None:
         return ConditionResult(breached=None, error=error, transient=transient, duration_ms=duration_ms)
