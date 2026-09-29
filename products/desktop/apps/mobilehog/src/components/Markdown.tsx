@@ -4,9 +4,12 @@ import {
   isSafeExternalUrl,
   unescapeXmlAttr,
 } from "@posthog/shared";
+import { Lexer, type Token, type Tokens } from "marked";
+import { Fragment, type ReactNode, useMemo } from "react";
 import {
   type ColorValue,
   Linking,
+  ScrollView,
   StyleSheet,
   Text,
   useColorScheme,
@@ -23,253 +26,145 @@ interface MarkdownProps {
   color?: ColorValue;
 }
 
-type Segment =
-  | { kind: "text"; value: string }
-  | { kind: "bold"; value: string }
-  | { kind: "code"; value: string }
-  | { kind: "link"; value: string; href: string };
-
-const INLINE = /(`[^`]+`|\[[^\]]+\]\([^)]+\)|\*\*[^*]+\*\*)/g;
-
-function parseInline(line: string): Segment[] {
-  const segments: Segment[] = [];
-  let lastIndex = 0;
-  for (const match of line.matchAll(INLINE)) {
-    const index = match.index ?? 0;
-    if (index > lastIndex)
-      segments.push({ kind: "text", value: line.slice(lastIndex, index) });
-    const token = match[0];
-    if (token.startsWith("**"))
-      segments.push({ kind: "bold", value: token.slice(2, -2) });
-    else if (token.startsWith("`"))
-      segments.push({ kind: "code", value: token.slice(1, -1) });
-    else {
-      const link = /\[([^\]]+)\]\(([^)]+)\)/.exec(token);
-      if (link) segments.push({ kind: "link", value: link[1], href: link[2] });
-    }
-    lastIndex = index + token.length;
-  }
-  if (lastIndex < line.length)
-    segments.push({ kind: "text", value: line.slice(lastIndex) });
-  return segments;
+function openLink(href: string): void {
+  if (isSafeExternalUrl(href)) void Linking.openURL(href).catch(() => {});
 }
 
-function Inline({ line, color }: { line: string; color: ColorValue }) {
+function Inline({ tokens }: { tokens: Token[] }) {
   return (
     <>
-      {parseInline(line).map((segment, index) => {
-        const key = `${index}-${segment.value}`;
-        switch (segment.kind) {
-          case "bold":
+      {tokens.map((token, index) => {
+        const key = `${token.type}-${index}`;
+        const children =
+          "tokens" in token && token.tokens ? (
+            <Inline key={key} tokens={token.tokens ?? []} />
+          ) : (
+            unescapeXmlAttr("text" in token ? token.text : token.raw)
+          );
+        switch (token.type) {
+          case "strong":
             return (
-              <Text key={key} style={{ fontFamily: fonts.sansSemi, color }}>
-                {segment.value}
+              <Text key={key} style={{ fontWeight: "600" }}>
+                {children}
               </Text>
             );
-          case "code":
+          case "em":
+            return (
+              <Text key={key} style={{ fontStyle: "italic" }}>
+                {children}
+              </Text>
+            );
+          case "del":
+            return (
+              <Text key={key} style={{ textDecorationLine: "line-through" }}>
+                {children}
+              </Text>
+            );
+          case "codespan":
             return (
               <Text key={key} style={styles.inlineCode}>
-                {segment.value}
+                {unescapeXmlAttr(token.text)}
               </Text>
             );
           case "link":
             return (
               <Text
                 key={key}
+                accessibilityRole="link"
                 style={styles.link}
-                onPress={() => {
-                  if (isSafeExternalUrl(segment.href))
-                    void Linking.openURL(segment.href).catch(() => {});
-                }}
+                onPress={() => openLink(token.href)}
               >
-                <Inline line={segment.value} color={colors.accent} />
+                {children}
               </Text>
             );
+          case "br":
+            return <Text key={key}>{"\n"}</Text>;
           default:
-            return <Text key={key}>{segment.value}</Text>;
+            return <Fragment key={key}>{children}</Fragment>;
         }
       })}
     </>
   );
 }
 
-type NodeType =
-  | { type: "code"; lang: string; lines: string[] }
-  | { type: "heading"; level: number; text: string }
-  | { type: "bullet"; text: string; ordered: boolean; index: number }
-  | { type: "quote"; text: string }
-  | { type: "paragraph"; text: string }
-  | { type: "gap" };
-
-function parseBlocks(text: string): NodeType[] {
-  const nodes: NodeType[] = [];
-  const lines = text.replace(/\r\n/g, "\n").split("\n");
-  let code: { lang: string; lines: string[] } | null = null;
-  let paragraph: string[] = [];
-  let ordinal = 0;
-  let objectBlock: { tag: string; lines: string[] } | null = null;
-
-  const flush = (): void => {
-    if (paragraph.length > 0) {
-      nodes.push({ type: "paragraph", text: paragraph.join("\n") });
-      paragraph = [];
+function RichText({
+  text,
+  color,
+  tokens,
+}: {
+  text: string;
+  color: ColorValue;
+  tokens?: Token[];
+}) {
+  const nodes: ReactNode[] = [];
+  const segments = parseObjectTags(text);
+  for (const segment of segments) {
+    if (segment.type === "tag") {
+      nodes.push(<InsightCard key={nodes.length} reference={segment.ref} />);
+      continue;
     }
-  };
-
-  for (const line of lines) {
-    if (objectBlock) {
-      objectBlock.lines.push(line);
+    let inline: Token[] = [];
+    const flush = (): void => {
+      if (!inline.length) return;
+      nodes.push(
+        <Text key={nodes.length} style={[styles.body, { color }]} selectable>
+          <Inline tokens={inline} />
+        </Text>,
+      );
+      inline = [];
+    };
+    for (const token of tokens && segments.length === 1
+      ? tokens
+      : Lexer.lexInline(segment.value, { gfm: true })) {
+      const file =
+        token.type === "html"
+          ? /^<file\s+[^>]*?path="([^"]+)"[^>]*\/>$/.exec(token.raw.trim())
+          : null;
+      const href = file
+        ? unescapeXmlAttr(file[1])
+        : token.type === "image" || token.type === "link"
+          ? token.href
+          : null;
       if (
-        line.includes(`</${objectBlock.tag}>`) ||
-        line.trimEnd().endsWith("/>")
+        href &&
+        (token.type === "image" ||
+          isRasterImageFile(href.split("?")[0]) ||
+          artifactDownloadPath(href))
       ) {
-        nodes.push({ type: "paragraph", text: objectBlock.lines.join("\n") });
-        objectBlock = null;
-      }
-      continue;
-    }
-    if (code) {
-      if (line.trim().startsWith("```")) {
-        nodes.push({ type: "code", ...code });
-        code = null;
-      } else {
-        code.lines.push(line);
-      }
-      continue;
-    }
-    const fence = /^\s*```(\w*)/.exec(line);
-    if (fence) {
-      flush();
-      code = { lang: fence[1] ?? "", lines: [] };
-      continue;
-    }
-    const objectStart = /^\s*<(hogql|insight)\b/.exec(line);
-    if (
-      objectStart &&
-      !line.includes(`</${objectStart[1]}>`) &&
-      !line.trimEnd().endsWith("/>")
-    ) {
-      flush();
-      objectBlock = { tag: objectStart[1], lines: [line] };
-      continue;
-    }
-    if (line.trim() === "") {
-      flush();
-      ordinal = 0;
-      continue;
-    }
-    const heading = /^(#{1,6})\s+(.*)$/.exec(line);
-    if (heading) {
-      flush();
-      nodes.push({
-        type: "heading",
-        level: heading[1].length,
-        text: heading[2],
-      });
-      continue;
-    }
-    const bullet = /^\s*[-*•]\s+(.*)$/.exec(line);
-    if (bullet) {
-      flush();
-      nodes.push({ type: "bullet", text: bullet[1], ordered: false, index: 0 });
-      continue;
-    }
-    const numbered = /^\s*(\d+)[.)]\s+(.*)$/.exec(line);
-    if (numbered) {
-      flush();
-      ordinal += 1;
-      nodes.push({
-        type: "bullet",
-        text: numbered[2],
-        ordered: true,
-        index: ordinal,
-      });
-      continue;
-    }
-    const quote = /^\s*>\s?(.*)$/.exec(line);
-    if (quote) {
-      flush();
-      nodes.push({ type: "quote", text: quote[1] });
-      continue;
-    }
-    paragraph.push(line.trim());
-  }
-  if (code) nodes.push({ type: "code", ...code });
-  flush();
-  return nodes;
-}
-
-function RichText({ text, color }: { text: string; color: ColorValue }) {
-  return (
-    <View style={{ gap: 8 }}>
-      {parseObjectTags(text).flatMap((segment, index) => {
-        if (segment.type === "tag")
-          return [
-            <InsightCard
-              key={`${index}-${segment.ref.kind}-${segment.ref.id}`}
-              reference={segment.ref}
-            />,
-          ];
-        const parts = segment.value.split(
-          /(!?\[[^\]]*\]\([^)]+\)|<file\s+[^>]*\/>)/g,
+        flush();
+        nodes.push(
+          <ChatImage
+            key={nodes.length}
+            uri={href}
+            label={("text" in token && token.text) || href.split("/").pop()}
+          />,
         );
-        return parts.filter(Boolean).map((part, partIndex) => {
-          const key = `${index}-${partIndex}`;
-          const image = /^!?\[([^\]]*)\]\(([^)]+)\)$/.exec(part);
-          if (
-            image &&
-            (part.startsWith("!") ||
-              isRasterImageFile(image[2].split("?")[0]) ||
-              artifactDownloadPath(image[2]))
-          )
-            return (
-              <ChatImage key={key} uri={image[2]} label={image[1] || "Image"} />
-            );
-          const file = /^<file\s+[^>]*?path="([^"]+)"[^>]*\/>$/.exec(part);
-          const path = file ? unescapeXmlAttr(file[1]) : null;
-          if (
-            path &&
-            (isRasterImageFile(path.split("?")[0]) ||
-              artifactDownloadPath(path))
-          )
-            return (
-              <ChatImage key={key} uri={path} label={path.split("/").pop()} />
-            );
-          return (
-            <Text key={key} style={[styles.body, { color }]} selectable>
-              <Inline line={part} color={color} />
-            </Text>
-          );
-        });
-      })}
-    </View>
-  );
+      } else {
+        inline.push(token);
+      }
+    }
+    flush();
+  }
+  return <View style={{ gap: 8 }}>{nodes}</View>;
 }
 
-export function Markdown({ text, color = colors.ink }: MarkdownProps) {
-  const nodes = parseBlocks(text);
+function Code({ code, lang }: { code: string; lang?: string }) {
   const dark = useColorScheme() === "dark";
-  return (
-    <View style={styles.root}>
-      {nodes.map((node, index) => {
-        const key = `${index}-${node.type}`;
-        switch (node.type) {
-          case "code":
-            if (node.lang.toLowerCase() === "mermaid")
-              return (
-                <View key={key} style={styles.codeBlock}>
-                  <MermaidDiagram
-                    code={node.lines.join("\n")}
-                    dark={dark}
-                    dom={{
-                      useExpoDOMWebView: false,
-                      matchContents: true,
-                      scrollEnabled: false,
-                      style: { backgroundColor: "transparent", minHeight: 160 },
-                      allowUniversalAccessFromFileURLs: false,
-                      javaScriptCanOpenWindowsAutomatically: false,
-                      setSupportMultipleWindows: false,
-                      injectedJavaScriptBeforeContentLoaded: `(() => {
+  if (lang?.toLowerCase() === "mermaid")
+    return (
+      <View style={styles.codeBlock}>
+        <MermaidDiagram
+          code={code}
+          dark={dark}
+          dom={{
+            useExpoDOMWebView: false,
+            matchContents: true,
+            scrollEnabled: false,
+            style: { backgroundColor: "transparent", minHeight: 160 },
+            allowUniversalAccessFromFileURLs: false,
+            javaScriptCanOpenWindowsAutomatically: false,
+            setSupportMultipleWindows: false,
+            injectedJavaScriptBeforeContentLoaded: `(() => {
                     const apply = () => {
                       if (!document.head) return;
                       const meta = document.createElement('meta');
@@ -282,67 +177,164 @@ export function Markdown({ text, color = colors.ink }: MarkdownProps) {
                     observer.observe(document.documentElement || document, { childList: true, subtree: true });
                     apply();
                   })(); true;`,
-                    }}
-                  />
-                </View>
-              );
-            return (
-              <View key={key} style={styles.codeBlock}>
-                {node.lang ? (
-                  <Text style={styles.codeLang}>{node.lang}</Text>
-                ) : null}
-                <Text style={styles.codeText} selectable>
-                  {node.lines.join("\n")}
-                </Text>
-              </View>
-            );
+          }}
+        />
+      </View>
+    );
+  return (
+    <View style={styles.codeBlock}>
+      {lang ? <Text style={styles.codeLang}>{lang}</Text> : null}
+      <ScrollView horizontal>
+        <Text style={styles.codeText} selectable>
+          {code}
+        </Text>
+      </ScrollView>
+    </View>
+  );
+}
+
+function Blocks({ tokens, color }: { tokens: Token[]; color: ColorValue }) {
+  return (
+    <View style={styles.root}>
+      {tokens.map((token, index) => {
+        const key = `${token.type}-${index}`;
+        switch (token.type) {
+          case "space":
+            return null;
+          case "code":
+            return <Code key={key} code={token.text} lang={token.lang} />;
           case "heading":
             return (
               <Text
                 key={key}
                 style={[
                   styles.heading,
-                  {
-                    fontFamily: fonts.sans,
-                    fontSize: node.level <= 2 ? 19 : 16,
-                    color,
-                  },
+                  { fontSize: token.depth <= 2 ? 20 : 17, color },
                 ]}
+                selectable
               >
-                <Inline line={node.text} color={color} />
+                <Inline key={key} tokens={token.tokens ?? []} />
               </Text>
             );
-          case "bullet":
-            return (
-              <View key={key} style={styles.bulletRow}>
-                <Text style={[styles.bulletMark, { color }]}>
-                  {node.ordered ? `${node.index}.` : "•"}
-                </Text>
-                <View style={styles.bulletText}>
-                  <RichText text={node.text} color={color} />
-                </View>
-              </View>
-            );
-          case "quote":
+          case "hr":
+            return <View key={key} style={styles.rule} />;
+          case "blockquote":
             return (
               <View key={key} style={styles.quote}>
-                <Text style={[styles.body, { color: colors.inkSoft }]}>
-                  <Inline line={node.text} color={colors.inkSoft} />
-                </Text>
+                <Blocks tokens={token.tokens ?? []} color={colors.inkSoft} />
               </View>
             );
-          case "paragraph":
-            return <RichText key={key} text={node.text} color={color} />;
+          case "list": {
+            const list = token as Tokens.List;
+            return (
+              <View key={key} style={{ gap: 8 }}>
+                {list.items.map((item, itemIndex) => (
+                  <View
+                    key={`${itemIndex}-${item.type}`}
+                    style={styles.bulletRow}
+                  >
+                    <Text style={[styles.bulletMark, { color }]}>
+                      {item.task
+                        ? item.checked
+                          ? "☑"
+                          : "☐"
+                        : list.ordered
+                          ? `${Number(list.start) + itemIndex}.`
+                          : "•"}
+                    </Text>
+                    <View style={styles.bulletText}>
+                      <Blocks tokens={item.tokens} color={color} />
+                    </View>
+                  </View>
+                ))}
+              </View>
+            );
+          }
+          case "table": {
+            const table = token as Tokens.Table;
+            return (
+              <ScrollView
+                key={key}
+                horizontal
+                accessibilityLabel="Table. Scroll horizontally to read all columns."
+              >
+                <View style={styles.table}>
+                  {[table.header, ...table.rows].map((row, rowIndex) => (
+                    <View
+                      key={`${rowIndex}-${row[0]?.text}`}
+                      style={[
+                        styles.tableRow,
+                        rowIndex === 0 && styles.tableHeader,
+                      ]}
+                    >
+                      {row.map((cell, column) => (
+                        <View
+                          key={`${column}-${table.header[column]?.text}`}
+                          style={styles.cell}
+                        >
+                          <Text
+                            selectable
+                            style={[
+                              styles.body,
+                              {
+                                color,
+                                textAlign: table.align[column] ?? "left",
+                                fontWeight: rowIndex === 0 ? "600" : "400",
+                              },
+                            ]}
+                          >
+                            <Inline tokens={cell.tokens} />
+                          </Text>
+                        </View>
+                      ))}
+                    </View>
+                  ))}
+                </View>
+              </ScrollView>
+            );
+          }
           default:
-            return null;
+            return (
+              <RichText
+                key={key}
+                text={"text" in token ? token.text : token.raw}
+                tokens={"tokens" in token ? token.tokens : undefined}
+                color={color}
+              />
+            );
         }
       })}
     </View>
   );
 }
 
+export function Markdown({ text, color = colors.ink }: MarkdownProps) {
+  const tokens = useMemo(() => Lexer.lex(text, { gfm: true }), [text]);
+  return <Blocks tokens={tokens} color={color} />;
+}
+
 const styles = StyleSheet.create({
-  root: { gap: 8 },
+  root: { gap: 10 },
+  table: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.line,
+    borderRadius: 8,
+    overflow: "hidden",
+  },
+  tableRow: { flexDirection: "row" },
+  tableHeader: { backgroundColor: colors.fill },
+  cell: {
+    width: 180,
+    padding: 10,
+    borderRightWidth: StyleSheet.hairlineWidth,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.line,
+  },
+  rule: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: colors.line,
+    marginVertical: 8,
+  },
   body: { fontFamily: fonts.sans, fontSize: 16, lineHeight: 24 },
   heading: { fontFamily: fonts.sansSemi, lineHeight: 26, marginTop: 4 },
   bulletRow: { flexDirection: "row", gap: 8, paddingLeft: 4 },

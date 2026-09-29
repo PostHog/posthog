@@ -35,7 +35,11 @@ export function DrawerContent({ closeDrawer }: { closeDrawer: () => void }) {
     archived,
   );
   const userName = useAuth((s) => s.session?.userName ?? "");
-  const unread = useActivity().data?.unread_count ?? 0;
+  const activity = useActivity().data;
+  const unread = activity?.unread_count ?? 0;
+  const unreadTasks = new Set(
+    activity?.results.filter((row) => row.is_unread).map((row) => row.task_id),
+  );
   const reports = useReports().data ?? [];
   const seenReports = useSeenReports((s) => s.seen);
   const newReports = reports.filter(
@@ -205,6 +209,7 @@ export function DrawerContent({ closeDrawer }: { closeDrawer: () => void }) {
           <TaskListRow
             key={task.id}
             task={task}
+            unread={unreadTasks.has(task.id)}
             onPress={() => {
               closeDrawer();
               router.push({

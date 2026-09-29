@@ -307,7 +307,20 @@ export function Composer({
         </View>
       ) : null}
       {error || voice.error ? (
-        <Text style={styles.error}>{error || voice.error}</Text>
+        <View style={styles.notice} accessibilityRole="alert">
+          <Text style={styles.noticeText}>{error || voice.error}</Text>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Dismiss message"
+            style={styles.iconButton}
+            onPress={() => {
+              setError(null);
+              voice.clearError();
+            }}
+          >
+            <Text style={styles.addText}>×</Text>
+          </Pressable>
+        </View>
       ) : null}
       {expanded ? (
         <View style={styles.row}>
@@ -374,6 +387,8 @@ export function Composer({
 }
 
 const styles = StyleSheet.create({
+  notice: { flexDirection: "row", alignItems: "center", paddingLeft: 8 },
+  noticeText: { flex: 1, fontSize: 14, color: colors.inkSoft },
   shell: {
     borderRadius: 28,
     paddingHorizontal: 8,

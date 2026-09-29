@@ -36,6 +36,7 @@ function getEngine(): CloudTaskEngine {
         return { apiHost: getBaseUrl(), teamId: getProjectId() };
       },
     },
+    transcriptTailWindow: 200,
     analytics: engineAnalytics,
     logger,
     // React Native's global fetch cannot stream a body; expo/fetch can.

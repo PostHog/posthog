@@ -64,6 +64,10 @@ export default function SelfDrivingScreen() {
   const savePrefs = usePrefs((s) => s.set);
   const [menu, setMenu] = useState<"sort" | "actions" | null>(null);
   const syncError = useSeenReports((s) => s.syncError);
+  const [syncNoticeDismissed, setSyncNoticeDismissed] = useState(false);
+  useEffect(() => {
+    if (!syncError) setSyncNoticeDismissed(false);
+  }, [syncError]);
   const seen = useSeenReports((s) => s.seen);
   const markSeen = useSeenReports((s) => s.markSeen);
   const dismiss = useDismissReport();
@@ -85,8 +89,13 @@ export default function SelfDrivingScreen() {
   }, [notice]);
 
   const all = useMemo(
-    () => (reports.data ?? []).filter((report) => !handled.has(report.id)),
-    [reports.data, handled],
+    () =>
+      (reports.data ?? []).filter(
+        (report) =>
+          !handled.has(report.id) &&
+          (view !== "unread" || !seen.has(report.id)),
+      ),
+    [reports.data, handled, view, seen],
   );
   const unseen = useMemo(
     () => all.filter((report) => !seen.has(report.id)),
@@ -385,10 +394,27 @@ export default function SelfDrivingScreen() {
           ) : null}
         </Animated.ScrollView>
       )}
-      {syncError ? (
-        <Text style={{ color: colors.inkSoft, padding: 16 }}>
-          Read state could not sync. Pull to refresh and try again.
-        </Text>
+      {syncError && !syncNoticeDismissed ? (
+        <View
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            padding: 12,
+            gap: 8,
+          }}
+        >
+          <Text style={{ color: colors.inkSoft, flex: 1, fontSize: 13 }}>
+            Read changes stay on this phone until sync is available.
+          </Text>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Dismiss sync notice"
+            onPress={() => setSyncNoticeDismissed(true)}
+            style={{ padding: 12 }}
+          >
+            <Text style={{ color: colors.inkSoft }}>×</Text>
+          </Pressable>
+        </View>
       ) : null}
       {notice ? (
         <Animated.View

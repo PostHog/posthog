@@ -39,6 +39,7 @@ useAuth.subscribe((state, previous) => {
   useRepo.setState({ repository: undefined });
   useSeenReports.setState({
     seen: new Set(),
+    pending: {},
     hydrated: false,
     syncError: false,
   });

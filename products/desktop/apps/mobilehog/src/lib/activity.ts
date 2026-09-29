@@ -1,12 +1,17 @@
 import type { TaskActivityItem } from "@posthog/core/canvas/taskActivity";
 import { toTaskActivityItems } from "@posthog/core/canvas/taskActivity";
 import { formatRelativeAge, getRelativeDateGroup } from "@posthog/shared";
-import type { TaskActivityPage } from "@posthog/shared/domain-types";
+import type {
+  TaskActivity,
+  TaskActivityPage,
+} from "@posthog/shared/domain-types";
 import {
+  type InfiniteData,
   useInfiniteQuery,
   useMutation,
   useQueryClient,
 } from "@tanstack/react-query";
+import { Alert } from "react-native";
 import { useAuth } from "@/lib/auth";
 import { getClient } from "@/lib/client";
 
@@ -43,10 +48,79 @@ export function useMarkActivityRead() {
           items.slice(offset, offset + 500).map((item) => ({
             task_id: item.taskId,
             seen_before: item.activityAt,
-            activity_id: item.id,
+            ...(item.commentId ? { activity_id: item.id } : {}),
           })),
         );
       }
+    },
+    onMutate: async (items) => {
+      await queryClient.cancelQueries({ queryKey: activityKey });
+      const changed: TaskActivity[] = [];
+      queryClient.setQueryData<InfiniteData<TaskActivityPage>>(
+        activityKey,
+        (data) => {
+          if (!data) return data;
+          const pages = data.pages.map((page) => ({
+            ...page,
+            results: page.results.map((row) => {
+              const matches = items.some((item) =>
+                item.commentId
+                  ? item.id === row.id
+                  : !row.latest_comment_id &&
+                    item.taskId === row.task_id &&
+                    Date.parse(row.activity_at) <= Date.parse(item.activityAt),
+              );
+              if (!row.is_unread || !matches) return row;
+              changed.push(row);
+              return { ...row, is_unread: false };
+            }),
+          }));
+          return {
+            ...data,
+            pages: pages.map((page) => ({
+              ...page,
+              unread_count: Math.max(0, page.unread_count - changed.length),
+            })),
+          };
+        },
+      );
+      return { changed };
+    },
+    onError: (_error, _items, context) => {
+      queryClient.setQueryData<InfiniteData<TaskActivityPage>>(
+        activityKey,
+        (data) => {
+          if (!data || !context) return data;
+          let restored = 0;
+          const pages = data.pages.map((page) => ({
+            ...page,
+            results: page.results.map((row) => {
+              if (
+                !row.is_unread &&
+                context.changed.some(
+                  (old) =>
+                    old.id === row.id && old.activity_at === row.activity_at,
+                )
+              ) {
+                restored++;
+                return { ...row, is_unread: true };
+              }
+              return row;
+            }),
+          }));
+          return {
+            ...data,
+            pages: pages.map((page) => ({
+              ...page,
+              unread_count: page.unread_count + restored,
+            })),
+          };
+        },
+      );
+      Alert.alert(
+        "Could not mark activity as read",
+        "Check your connection and try again.",
+      );
     },
     onSettled: () => queryClient.invalidateQueries({ queryKey: activityKey }),
   });

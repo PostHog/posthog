@@ -150,7 +150,7 @@ Type checks alone do not validate WebView messages, native appearance, or cloud 
 Dictation needs a new native build. Existing sign-ins need renewed authorization for saved insights.
 The [app README](../../products/desktop/apps/mobilehog/README.md) covers setup and feature limits.
 
-## Drafts, recovery, and review
+## Drafts and recovery
 
 - Write a new-task draft and a reply with a photo. Close and reopen the app. Confirm that both drafts remain in their own composers. Send one; only that draft clears.
 - Switch projects and accounts with a draft open. The next account must not show it. Sign out and confirm that draft files and cached conversations are removed.
@@ -158,8 +158,8 @@ The [app README](../../products/desktop/apps/mobilehog/README.md) covers setup a
 - Interrupt a send. The draft must remain. Check for server acceptance before retrying when the result is uncertain.
 - Rename, archive, and restore a task. Confirm the same state in Desktop and use each status filter. Archived running tasks must keep running.
 - Mark a report read on mobile and check Desktop, then reverse the direction. Mark unread, dismiss, undo, and restore from History. Another user's read state must not change.
-- Search report text and a saved message. The result must open the report or matching conversation text. Offline message search must not claim to cover all server history.
-- Review a task with multiple changed files, failed checks, and a large or binary diff. Load another page and open GitHub. A task without a pull request must show an explanation.
+- Search task and report text. Only Tasks and Self-driving tabs appear. A result opens its task or report.
+- Open task options. Only Rename and Archive (or Restore) appear. Internal tasks and sandbox image-builder tasks stay out of the task list.
 - Use large text and VoiceOver to operate task menus, search tabs, the composer, and report actions. Check reduced motion and a narrow device in both appearances.
 - Install a preview build, publish a compatible test update, and use Settings to apply it. A native-module change must produce a different fingerprint and require a new build.
 - In the configured telemetry project, confirm that a test failure resolves to source code. Inspect the event payload: no prompt, image, token, search text, response body, or exception text may be present.
@@ -173,5 +173,14 @@ The [app README](../../products/desktop/apps/mobilehog/README.md) covers setup a
 - Open a report from the list and Search. Confirm both open the full report screen, with triage available only from the Self-driving menu.
 - Delay report read-state requests. Confirm loaded reports appear before those requests finish.
 
-Deploy the report read-state migration and API, PR review endpoint, and task notification title before distributing the matching mobile build.
+Deploy the report read-state migration and API, and task notification title before distributing the matching mobile build.
 Mobile PR footers also require the task worker and agent image update. Existing runs can retain their previous agent image.
+
+## Read state and chat rendering
+
+- Mark a task update and a comment notification read. Both indicators and the Activity count clear. Fail a read request and confirm the indicator returns with a dismissible alert.
+- Open a task from Recent Tasks. Its loaded activity clears; an update newer than the loaded conversation stays unread. Read icons are neutral and unread icons are yellow, as on Desktop.
+- Make the report read-state endpoint unavailable. Mark a report read, restart, and confirm it stays read locally. Restore the endpoint and confirm pending changes sync. Switch accounts and confirm pending changes remain separate.
+- Open a long conversation. Recent messages appear before older history is requested. Load older messages across an agent message and a tool-update boundary; text must join correctly without duplicate messages or lost live updates.
+- Render a Markdown table, nested list, inline and plain URL, image, insight, and Mermaid diagram. Links stay within their sentences; wide tables scroll horizontally.
+- Deny dictation permission. The Settings dialog can be closed, and no red warning remains in the composer. Other composer errors can be dismissed without deleting the draft.

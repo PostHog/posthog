@@ -74,6 +74,8 @@ export function useTasks(
     ...query,
     data: [...new Map(tasks.map((task) => [task.id, task])).values()].filter(
       (task) =>
+        !task.internal &&
+        task.origin_product !== "image_builder" &&
         task.latest_run?.environment !== "local" &&
         !task.origin_key?.startsWith("desktop_onboarding"),
     ),

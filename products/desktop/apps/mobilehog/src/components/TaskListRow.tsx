@@ -32,10 +32,12 @@ export function TaskListRow({
   task,
   onPress,
   preview = false,
+  unread = false,
 }: {
   task: Task;
   onPress: () => void;
   preview?: boolean;
+  unread?: boolean;
 }) {
   const status = task.latest_run?.status ?? "not_started";
   const failed = status === "failed";
@@ -59,17 +61,23 @@ export function TaskListRow({
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={`${title}. ${statusLabel}. ${time}.`}
+      accessibilityLabel={`${unread ? "Unread. " : ""}${title}. ${statusLabel}. ${time}.`}
       onPress={onPress}
       style={({ pressed }) => [styles.row, pressed && { opacity: 0.5 }]}
     >
       <View
-        style={styles.status}
+        style={[styles.status, unread && styles.unread]}
         accessibilityElementsHidden
         importantForAccessibility="no-hide-descendants"
       >
         {symbol ? (
-          <Text style={[styles.statusSymbol, failed && styles.failed]}>
+          <Text
+            style={[
+              styles.statusSymbol,
+              failed && styles.failed,
+              unread && { color: colors.unreadInk },
+            ]}
+          >
             {symbol}
           </Text>
         ) : (
@@ -79,7 +87,10 @@ export function TaskListRow({
         )}
       </View>
       <View style={styles.body}>
-        <Text style={styles.title} numberOfLines={2}>
+        <Text
+          style={[styles.title, unread && { fontWeight: "600" }]}
+          numberOfLines={2}
+        >
           {title}
         </Text>
         <Text style={styles.meta}>
@@ -104,11 +115,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
   },
   status: {
-    width: 16,
-    height: 21,
+    width: 26,
+    height: 26,
+    borderRadius: 7,
+    backgroundColor: colors.fill,
     alignItems: "center",
     justifyContent: "center",
   },
+  unread: { backgroundColor: colors.unread },
   ring: {
     width: 12,
     height: 12,

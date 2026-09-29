@@ -6,6 +6,7 @@ import { AppState } from "react-native";
 import { create } from "zustand";
 import { getAccountQueryClient } from "@/lib/accountLifecycle";
 import { sessionIdentity, useAuth } from "@/lib/auth";
+import { useSeenReports } from "@/lib/reports";
 import { useSessions } from "@/lib/session";
 import { deviceWorkspace, WEEK } from "@/lib/storage";
 
@@ -22,7 +23,10 @@ export function useOfflineWorkspace(): void {
         state.isConnected !== false && state.isInternetReachable !== false;
       useConnectivity.setState({ online });
       onlineManager.setOnline(online);
-      if (online) useSessions.getState().reconnect();
+      if (online) {
+        useSessions.getState().reconnect();
+        void useSeenReports.getState().sync([]);
+      }
     };
     void Network.getNetworkStateAsync()
       .then(update)

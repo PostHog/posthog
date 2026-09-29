@@ -1,6 +1,6 @@
 import { useFocusEffect } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AppState } from "react-native";
+import { Alert, AppState, Linking } from "react-native";
 
 type SpeechModule =
   typeof import("expo-speech-recognition")["ExpoSpeechRecognitionModule"];
@@ -70,10 +70,21 @@ export function useDictation(onTranscript: (text: string) => void) {
       const permission = await module.requestPermissionsAsync();
       if (!mounted.current || !active.current || id !== recordingId.current)
         return;
-      if (!permission.granted)
-        throw new Error(
-          "Allow microphone and speech recognition access in iOS Settings, then try again.",
+      if (!permission.granted) {
+        finish(false);
+        Alert.alert(
+          "Allow voice input",
+          "Enable microphone and speech recognition access in Settings to dictate a message.",
+          [
+            { text: "Cancel", style: "cancel" },
+            {
+              text: "Open Settings",
+              onPress: () => void Linking.openSettings(),
+            },
+          ],
         );
+        return;
+      }
       const result = module.addListener("result", (event) => {
         const text = event.results[0]?.transcript;
         if (text) {
@@ -147,5 +158,13 @@ export function useDictation(onTranscript: (text: string) => void) {
     };
   }, [cancel, finish]);
 
-  return { status, error, preview, start, stop, cancel };
+  return {
+    status,
+    error,
+    preview,
+    start,
+    stop,
+    cancel,
+    clearError: () => setError(null),
+  };
 }

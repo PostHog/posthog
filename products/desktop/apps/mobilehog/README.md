@@ -59,16 +59,16 @@ The app cannot use permissions that your account or project does not have.
 
 ## Tasks and chat
 
-- **Tasks** lists your cloud tasks in the selected project, across all spaces, with the latest activity first. Pull to refresh or return to the app to load changes.
-- Use **Search** for task titles and descriptions, Self-driving report titles and summaries, or messages saved on this phone. Message search covers up to 20 opened conversations, not all server history. Select a result to open the matching message. Before you enter text, Search shows recent searches.
-- Model and reasoning selections apply to the next message. The app waits for the agent to accept them before it sends your message. If a change fails, the draft stays on the phone. A live Claude Code or Codex run can change models within its provider; use **Task options → Stop run** before changing providers. Pi runs can change providers.
+- **Tasks** lists your cloud tasks in the selected project, across all spaces, with the latest activity first. Internal tasks and sandbox image builders are hidden. Pull to refresh or return to the app to load changes.
+- Use **Search** for task titles and descriptions or Self-driving report titles and summaries. Before you enter text, Search shows recent searches.
+- Model and reasoning selections apply to the next message. The app waits for the agent to accept them before it sends your message. If a change fails, the draft stays on the phone. A live Claude Code or Codex run can change models within its provider. Start a new task to use another provider. Pi runs can change providers.
 - Start a task from the main menu. Select a repository and model, then send your request.
 - New tasks use the server's Personal default. Mobile does not show space controls or labels.
 - Open an existing task to read it and send replies. Tasks from Desktop must use cloud runs and remain accessible to your account.
 - Select **All**, **Running**, **Failed**, **Queued**, or **Done** above the list to filter by status. **All** includes tasks that have not started or were canceled. Select **Task list options → View archived** to open archived tasks. Status filters also work in this view; select **Back** to return. The task menu can rename, archive, or restore a task. Archiving does not stop a running task.
 - Select **+** to attach photos. You can send text, photos, or both. Remove a preview before sending to exclude that photo.
 - Select the microphone to dictate. Select Stop or wait for recognition to finish. Edit the resulting text, then select Send.
-- While the agent works, you can read earlier messages. Select **Latest message** to return to the end.
+- Chats load the latest messages first. Select **Load older messages** to read earlier history. While the agent works, you can read earlier messages without forced scrolling. Select **Latest message** to return to the end.
 
 Photo attachments support JPEG, PNG, GIF, and WebP. iOS converts HEIC selections to JPEG.
 You can attach up to three photos, with a combined size below 5 MB. Text and photo drafts survive app restarts.
@@ -94,24 +94,19 @@ Use **Load more** to read older pages.
 The **⋯** menu contains **Triage reports** and a counted action to mark loaded reports as read.
 Triage is optional. It lets you review reports one at a time and dismiss them or start a task.
 The read action asks for confirmation and leaves reports in the list. It does not dismiss them.
-Read state syncs with Desktop when both apps and the backend include the read-state API. The phone keeps up to 500 local indicators for offline use. Failed sync does not hide loaded reports.
+Read state syncs with Desktop when both apps and the backend include the read-state API. The phone saves read changes before sending them to the server and keeps up to 500 local indicators. If sync is unavailable, local indicators still work and pending changes survive restarts. Sync retries when reports refresh or the connection returns. The notice can be dismissed.
 The menu also contains Unread and History views. History contains dismissed and resolved reports. Mark unread keeps a report for later.
 Dismissal changes the report for the project and can close its pull request. Undo restores the report; it does not reopen a closed pull request.
 
-## Review a result
-
-Open a task, then **⋯ → Review result** to read its pull request summary, check result, and changed files.
-Expand a file to read the diff. Large and binary changes must open in GitHub. Review requires the task's GitHub integration and the new backend endpoint.
-The review is read-only; use **Open in GitHub** for approvals, comments, or merging. Pull to refresh before acting on a check result.
-
 ## Activity
 
-Activity shows task updates and replies. Unread items have a marker and stronger text.
+Activity shows task updates and replies. Unread items have a yellow icon and stronger text; read icons are neutral. The task list uses the same distinction for loaded activity.
 Open an item to read its task, or use its read action. The bulk action shows how many loaded updates it will change.
-New updates remain unread. Activity read state is stored on the server.
+Opening a loaded conversation also marks its task activity read. Newer updates remain unread. Activity read state is stored on the server; a failed update restores the unread indicator.
 
 ## Images, charts, and diagrams
 
+Chat supports Markdown tables, nested lists, inline links, and code blocks. Wide tables and code scroll horizontally.
 Chat displays inline images, uploaded cloud attachments, saved insight references, and SQL charts.
 Tap an image to expand it. If an image or chart fails to load, tap Retry.
 Report details also display the charts attached to the report.
@@ -144,7 +139,7 @@ Cached tasks, reports, repository choices, and model choices appear while the ap
 ## Backend deployment
 
 Installing the mobile app does not deploy the server changes in this PR.
-The matching server release must include the report read-state API and database migration, the task PR review endpoint, and the task push title (`posthog`).
+The matching server release must include the report read-state API and database migration, and the task push title (`posthog`).
 The task worker and agent image must also include the Mobile PR footer support. New runs use that image; existing runs can keep the previous image.
 Deploy the server changes before distributing a build that uses the new endpoints. No manual device-token changes are required.
 

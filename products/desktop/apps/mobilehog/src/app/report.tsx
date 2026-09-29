@@ -27,6 +27,12 @@ export default function ReportScreen() {
   const report = detail.data;
   const [menu, setMenu] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    if (error) {
+      Alert.alert("Could not update report", error);
+      setError(null);
+    }
+  }, [error]);
   const opened = useRef<string | null>(null);
   const markSeen = useSeenReports((s) => s.markSeen);
   const dismiss = useDismissReport();
@@ -40,13 +46,14 @@ export default function ReportScreen() {
   });
   const read = useMutation({
     mutationFn: (seen: boolean) => markSeen([id], seen),
-    onError: () => setError("Could not sync read state. Try again."),
+    onError: () =>
+      setError("Could not save read state on this phone. Try again."),
   });
   useEffect(() => {
     if (!report || opened.current === id) return;
     opened.current = id;
     void markSeen([id]).catch(() =>
-      setError("Could not sync read state. Try again."),
+      setError("Could not save read state on this phone. Try again."),
     );
   }, [id, report, markSeen]);
   const busy =
@@ -78,7 +85,6 @@ export default function ReportScreen() {
           <Text style={styles.glyph}>⋯</Text>
         </GlassCircleButton>
       </View>
-      {error ? <Text style={styles.error}>{error}</Text> : null}
       {report ? (
         <ReportDetail report={report} />
       ) : (

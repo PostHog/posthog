@@ -62,6 +62,7 @@ async function prune(
     } catch {}
   }
   for (const name of entries) {
+    if (name === "report-read-state.json") continue;
     const path = `${directory}${name}`;
     const info = await FileSystem.getInfoAsync(path);
     if (!info.exists) continue;

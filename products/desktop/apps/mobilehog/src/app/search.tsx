@@ -1,4 +1,4 @@
-import { useInfiniteQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
 import * as SecureStore from "expo-secure-store";
 import { useEffect, useState } from "react";
@@ -17,22 +17,27 @@ import { Glass, GlassCircleButton } from "@/components/Glass";
 import { SearchIcon } from "@/components/Icons";
 import { ListState } from "@/components/ListState";
 import { TaskListRow } from "@/components/TaskListRow";
+import { useActivity } from "@/lib/activity";
 import { accountStorageKey, sessionIdentity, useAuth } from "@/lib/auth";
 import { getClient } from "@/lib/client";
 import { useTasks } from "@/lib/queries";
-import { useSessions } from "@/lib/session";
 import { colors, fonts, radius } from "@/lib/theme";
 
 const RECENT_SEARCHES_KEY = "mobilehog_recent_searches";
 
 export default function SearchScreen() {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const insets = useSafeAreaInsets();
   const [query, setQuery] = useState("");
   const [search, setSearch] = useState("");
   const [recentSearches, setRecentSearches] = useState<string[]>([]);
   const session = useAuth((state) => state.session);
   const identity = sessionIdentity();
+  const activity = useActivity().data;
+  const unreadTasks = new Set(
+    activity?.results.filter((row) => row.is_unread).map((row) => row.task_id),
+  );
 
   useEffect(() => {
     if (!session) return;
@@ -68,16 +73,19 @@ export default function SearchScreen() {
     const timeout = setTimeout(() => setSearch(query.trim()), 300);
     return () => clearTimeout(timeout);
   }, [query]);
-  const [scope, setScope] = useState<"tasks" | "messages" | "reports">("tasks");
+  const [scope, setScope] = useState<"tasks" | "reports">("tasks");
   const tasks = useTasks(search, !!search && scope === "tasks");
-  const sessions = useSessions((state) => state.sessions);
   const reports = useInfiniteQuery({
     queryKey: ["reports", "search", search],
     initialPageParam: 0,
     enabled: !!search && scope === "reports",
     queryFn: async ({ pageParam }) => {
       const client = getClient();
-      const user = await client.getCurrentUser();
+      const user = await queryClient.fetchQuery({
+        queryKey: ["current-user"],
+        queryFn: async () => ({ uuid: (await client.getCurrentUser()).uuid }),
+        staleTime: 5 * 60_000,
+      });
       if (!user.uuid) throw new Error("Could not identify your account.");
       return client.getSignalReports({
         search,
@@ -93,27 +101,9 @@ export default function SearchScreen() {
       return loaded < page.count && page.results.length ? loaded : undefined;
     },
   });
-  const messages = search
-    ? Object.values(sessions).flatMap((session) =>
-        session.blocks.flatMap((block) =>
-          (block.kind === "user" || block.kind === "agent") &&
-          block.text.toLowerCase().includes(search.toLowerCase())
-            ? [
-                {
-                  id: `${session.taskId}:${block.id}`,
-                  taskId: session.taskId,
-                  text: block.text,
-                },
-              ]
-            : [],
-        ),
-      )
-    : [];
   const activeQuery = scope === "reports" ? reports : tasks;
   const waiting = query.trim() !== search;
-  const loading =
-    !!query.trim() &&
-    (waiting || (scope !== "messages" && activeQuery.isLoading));
+  const loading = !!query.trim() && (waiting || activeQuery.isLoading);
 
   const close = (): void => {
     Keyboard.dismiss();
@@ -131,7 +121,7 @@ export default function SearchScreen() {
           {query.trim() ? "Search results" : "Recent searches"}
         </Text>
         <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 16 }}>
-          {(["tasks", "messages", "reports"] as const).map((value) => (
+          {(["tasks", "reports"] as const).map((value) => (
             <Pressable
               key={value}
               accessibilityRole="tab"
@@ -145,18 +135,11 @@ export default function SearchScreen() {
                   scope === value && { color: colors.accent },
                 ]}
               >
-                {value === "reports"
-                  ? "Self-driving"
-                  : value === "messages"
-                    ? "Messages"
-                    : "Tasks"}
+                {value === "reports" ? "Self-driving" : "Tasks"}
               </Text>
             </Pressable>
           ))}
         </View>
-        {scope === "messages" ? (
-          <Text style={styles.caption}>Messages saved on this phone</Text>
-        ) : null}
       </View>
       <FlatList
         data={waiting || !query.trim() || scope !== "tasks" ? [] : tasks.data}
@@ -167,6 +150,7 @@ export default function SearchScreen() {
         renderItem={({ item }) => (
           <TaskListRow
             task={item}
+            unread={unreadTasks.has(item.id)}
             preview={!!search}
             onPress={() => {
               saveSearch(query);
@@ -207,31 +191,6 @@ export default function SearchScreen() {
                   </View>
                 </Pressable>
               ))}
-              {(scope === "messages" ? messages : []).map((message) => (
-                <Pressable
-                  key={message.id}
-                  accessibilityRole="button"
-                  style={styles.recentRow}
-                  onPress={() => {
-                    saveSearch(query);
-                    router.dismissTo({
-                      pathname: "/(drawer)/task/[id]",
-                      params: { id: message.taskId, search },
-                    });
-                  }}
-                >
-                  <Text style={styles.caption} numberOfLines={4}>
-                    {message.text.slice(
-                      Math.max(
-                        0,
-                        message.text
-                          .toLowerCase()
-                          .indexOf(search.toLowerCase()) - 60,
-                      ),
-                    )}
-                  </Text>
-                </Pressable>
-              ))}
             </View>
           ) : !!query.trim() &&
             tasks.isError &&
@@ -239,7 +198,7 @@ export default function SearchScreen() {
             !waiting ? (
             <Pressable
               accessibilityRole="button"
-              disabled={tasks.isFetching}
+              disabled={activeQuery.isFetching}
               onPress={() => void tasks.refetch()}
               style={styles.action}
             >
@@ -274,17 +233,16 @@ export default function SearchScreen() {
             ) : (
               <ListState
                 title="No recent searches"
-                description="Search for a task to get started."
+                description="Search Tasks or Self-driving to get started."
                 icon={<SearchIcon />}
               />
             )
-          ) : (scope === "messages" && messages.length > 0) ||
-            (scope === "reports" &&
-              reports.data?.pages.some(
-                (page) => page.results.length,
-              )) ? null : loading ? (
+          ) : scope === "reports" &&
+            reports.data?.pages.some(
+              (page) => page.results.length,
+            ) ? null : loading ? (
             <ListState title="Searching" loading />
-          ) : scope !== "messages" && activeQuery.isError ? (
+          ) : activeQuery.isError ? (
             <ListState
               title="Could not load results"
               description="Check your connection and try again."
@@ -294,7 +252,7 @@ export default function SearchScreen() {
                 disabled: activeQuery.isFetching,
               }}
             />
-          ) : scope !== "messages" && activeQuery.hasNextPage ? (
+          ) : activeQuery.hasNextPage ? (
             <ListState
               title="No cloud tasks in this page"
               description="Load more tasks to continue."
@@ -303,23 +261,16 @@ export default function SearchScreen() {
           ) : (
             <ListState
               title="No matches"
-              description={
-                scope === "messages"
-                  ? "Open a conversation to save its messages, or try another search."
-                  : "Try another search."
-              }
+              description="Try another search."
               icon={<SearchIcon />}
             />
           )
         }
         ListFooterComponent={
-          !!query.trim() &&
-          scope !== "messages" &&
-          activeQuery.hasNextPage &&
-          !waiting ? (
+          !!query.trim() && activeQuery.hasNextPage && !waiting ? (
             <Pressable
               accessibilityRole="button"
-              disabled={tasks.isFetching}
+              disabled={activeQuery.isFetching}
               onPress={() => void activeQuery.fetchNextPage()}
               style={styles.action}
             >

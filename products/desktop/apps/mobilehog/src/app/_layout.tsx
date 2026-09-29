@@ -47,7 +47,7 @@ function AuthGate() {
   useEffect(() => {
     if (!useAuth.getState().session) return;
     hydrateRepo();
-    hydrateSeen();
+    void hydrateSeen().catch(() => {});
   }, [hydrateRepo, hydrateSeen]);
 
   useEffect(() => {
