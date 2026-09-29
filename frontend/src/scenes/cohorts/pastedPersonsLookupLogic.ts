@@ -17,16 +17,20 @@ const EMAIL_PATTERN = /^[^@\s]+@[^@.\s]+(?:\.[^@.\s]+)+$/
 export function parsePastedPersonValues(text: string): string[] | null {
     const cleanToken = (token: string): string => token.replace(/^["'<]+|["'>]+$/g, '')
     const isBracketed = (token: string): boolean => token.startsWith('<') && token.endsWith('>')
-    const tokens = text.split(/[\s,;]+/).filter((token) => cleanToken(token).length > 0)
-    // In a "Name <address>" list the display name identifies nobody, so only addresses are looked up
-    const hasBracketedTokens = tokens.some(isBracketed)
-    const values = Array.from(
-        new Set(
-            tokens
-                .filter((token) => !hasBracketedTokens || isBracketed(token) || EMAIL_PATTERN.test(cleanToken(token)))
-                .map(cleanToken)
-        )
-    )
+    const parseEntry = (entry: string): string[] => {
+        const tokens = entry.split(/[\s,]+/).filter((token) => cleanToken(token).length > 0)
+        // In a "Name <address>" entry the display name identifies nobody, so only addresses are looked up
+        if (tokens.some(isBracketed)) {
+            return tokens.filter((token) => isBracketed(token) || EMAIL_PATTERN.test(cleanToken(token))).map(cleanToken)
+        }
+        // Commas and spaces separate emails, but a distinct ID can contain them
+        if (tokens.every((token) => EMAIL_PATTERN.test(cleanToken(token)))) {
+            return tokens.map(cleanToken)
+        }
+        const value = cleanToken(entry.trim())
+        return value ? [value] : []
+    }
+    const values = Array.from(new Set(text.split(/[\n\r\t;]+/).flatMap(parseEntry)))
     if (values.length < 2) {
         return null
     }

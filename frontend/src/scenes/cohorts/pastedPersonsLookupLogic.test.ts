@@ -30,6 +30,7 @@ describe('pastedPersonsLookupLogic', () => {
             ['alice@example.com', 'bob@example.com'],
         ],
         ['distinct IDs on separate lines', 'user-1\nuser-2\nuser-1', ['user-1', 'user-2']],
+        ['distinct IDs with commas and spaces', 'user,1\nuser,2\nJane Doe', ['user,1', 'user,2', 'Jane Doe']],
         ['a single email', 'alice@example.com', null],
         ['a full name', 'Alice Smith', null],
         ['a name with a comma', 'Smith, Alice', null],
