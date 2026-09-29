@@ -157,7 +157,7 @@ class _StamphogTeamScopedViewSet(TeamAndOrgViewSetMixin):
         """The team whose rows this request reads and writes, or None when there is no team yet."""
         try:
             team = self.team
-        except (Team.DoesNotExist, KeyError):
+        except Team.DoesNotExist, KeyError:
             return None
         if team.parent_team_id is None or team.parent_team_id == team.id or team.parent_team is None:
             return team

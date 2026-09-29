@@ -56,7 +56,7 @@ def _validate_supported_metric(alert: BillingAlertConfiguration) -> None:
 def _decimal(value: Any, *, field: str) -> Decimal:
     try:
         parsed = Decimal(str(value))
-    except (InvalidOperation, TypeError, ValueError):
+    except InvalidOperation, TypeError, ValueError:
         raise BillingAlertEvaluationError(f"Billing status returned an invalid amount for {field}: {value!r}.")
     if not parsed.is_finite():
         raise BillingAlertEvaluationError(f"Billing status returned an invalid amount for {field}: {value!r}.")
@@ -68,7 +68,7 @@ def _parse_period_boundary(value: Any) -> datetime | None:
         return None
     try:
         parsed = datetime.fromisoformat(str(value))
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
     return parsed.astimezone(UTC) if parsed.tzinfo else parsed.replace(tzinfo=UTC)
 

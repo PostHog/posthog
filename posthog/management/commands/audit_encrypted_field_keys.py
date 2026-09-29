@@ -87,7 +87,7 @@ def _leaves(value: object) -> list[str]:
 def _looks_like_fernet_token(value: str) -> bool:
     try:
         decoded = base64.urlsafe_b64decode(value.encode("utf-8"))
-    except (binascii.Error, ValueError):
+    except binascii.Error, ValueError:
         return False
     return len(decoded) >= _FERNET_MIN_BYTES and decoded[0] == _FERNET_VERSION
 
@@ -98,7 +98,7 @@ def _decryptable(fernet: MultiFernet | None, token: str) -> bool:
     try:
         fernet.decrypt(token.encode("utf-8"))
         return True
-    except (InvalidToken, ValueError, TypeError):
+    except InvalidToken, ValueError, TypeError:
         return False
 
 
@@ -220,7 +220,7 @@ class Command(BaseCommand):
         if is_json_column and isinstance(raw, str):
             try:
                 return json.loads(raw)
-            except (json.JSONDecodeError, TypeError):
+            except json.JSONDecodeError, TypeError:
                 return raw
         return raw
 

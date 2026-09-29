@@ -297,7 +297,7 @@ def _to_document(config: SignalScoutConfig) -> ScoutRubricDocument:
 def get_scout_rubric(team_id: int, config_id: str) -> ScoutRubricDocument:
     try:
         config = SignalScoutConfig.objects.for_team(team_id).get(id=config_id)
-    except (SignalScoutConfig.DoesNotExist, ValidationError, ValueError):
+    except SignalScoutConfig.DoesNotExist, ValidationError, ValueError:
         raise ScoutRubricNotFound from None
     return _to_document(config)
 

@@ -1361,7 +1361,7 @@ class StamphogGitHubClient:
             )
         try:
             node_id = self._json(response, path).get("node_id")
-        except (StamphogGitHubError, AttributeError):
+        except StamphogGitHubError, AttributeError:
             node_id = None
         if node_id:
             self._minimize_as_outdated(node_id, repo=repo, pr_number=pr_number, review_id=review_id)

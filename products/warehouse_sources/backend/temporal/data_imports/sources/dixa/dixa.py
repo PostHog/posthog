@@ -82,7 +82,7 @@ def _to_ms(value: Any) -> Optional[int]:
         return int(datetime.combine(value, datetime.min.time(), tzinfo=UTC).timestamp() * 1000)
     try:
         return int(value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
 
 

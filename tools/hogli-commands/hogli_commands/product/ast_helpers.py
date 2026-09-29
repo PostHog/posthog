@@ -19,7 +19,7 @@ def ast_parse_safe(file_path: Path) -> ast.Module | None:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", SyntaxWarning)
             return ast.parse(file_path.read_text())
-    except (SyntaxError, OSError):
+    except SyntaxError, OSError:
         return None
 
 

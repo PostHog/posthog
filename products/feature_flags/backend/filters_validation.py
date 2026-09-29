@@ -215,7 +215,7 @@ def _check_semver_value(value: Any, operator: str, path: str) -> Violation | Non
         semver_value = semver_value.rstrip(".*")
     try:
         parse_semver(semver_value)
-    except (ValueError, IndexError):
+    except ValueError, IndexError:
         return Violation(
             rule_id="cross_field.semver_value_invalid",
             path=path,

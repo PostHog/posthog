@@ -143,7 +143,7 @@ class ArrayTextareaField(forms.CharField):
                 parsed = ast.literal_eval(text)
                 if isinstance(parsed, list | tuple):
                     return [str(item).strip() for item in parsed if str(item).strip()]
-            except (ValueError, SyntaxError):
+            except ValueError, SyntaxError:
                 pass
         return [line.strip() for line in text.split("\n") if line.strip()]
 

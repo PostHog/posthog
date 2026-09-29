@@ -45,7 +45,7 @@ def _to_epoch(value: Any) -> Optional[int]:
         return int(datetime.combine(value, datetime.min.time(), tzinfo=UTC).timestamp())
     try:
         return int(value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
 
 

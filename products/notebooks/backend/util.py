@@ -235,7 +235,7 @@ def _coerce_query_attr(raw: Any) -> dict[str, Any] | None:
     if isinstance(raw, str):
         try:
             parsed = json.loads(raw)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             return None
         return parsed if isinstance(parsed, dict) else None
     return None
@@ -864,7 +864,7 @@ def _read_markdown_component_prop_value(source: str, index: int) -> tuple[Any, i
                         parsed_value = json.loads(source[index : next_index + 1])
                         if isinstance(parsed_value, str):
                             return html.unescape(parsed_value), next_index + 1
-                    except (TypeError, ValueError):
+                    except TypeError, ValueError:
                         pass
                 return html.unescape(value), next_index + 1
             value += character
@@ -936,7 +936,7 @@ def _parse_markdown_expression_value(raw: str) -> Any:
 
     try:
         return json.loads(unwrapped)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return trimmed
 
 

@@ -184,7 +184,7 @@ def _parse_search_after(raw: str | None, logger: FilteringBoundLogger) -> list[A
         return None
     try:
         parsed = json.loads(raw)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         logger.warning(f"JumpCloud: could not parse X-Search_After header: {raw!r}")
         return None
     if not isinstance(parsed, list) or not parsed:

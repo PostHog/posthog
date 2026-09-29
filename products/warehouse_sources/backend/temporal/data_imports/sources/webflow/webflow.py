@@ -310,7 +310,7 @@ def _delivered_at(value: Any) -> int:
     """Webflow's x-webflow-timestamp as an int, or 0 when it's missing or unparseable."""
     try:
         return int(str(value))
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return 0
 
 

@@ -55,7 +55,7 @@ def _query_phrocs(cmd: dict) -> dict | None:
             sock.sendall((json.dumps(cmd) + "\n").encode())
             with sock.makefile() as f:
                 return json.loads(f.readline())
-    except (OSError, json.JSONDecodeError, TimeoutError):
+    except OSError, json.JSONDecodeError, TimeoutError:
         return None
 
 

@@ -890,7 +890,7 @@ def is_team_exempt_from_ai_rate_limit(team_id: int) -> bool:
 
     try:
         payload = json.loads(raw_payload) if isinstance(raw_payload, str) else raw_payload
-    except (json.JSONDecodeError, TypeError):
+    except json.JSONDecodeError, TypeError:
         return False
 
     if not isinstance(payload, dict):
@@ -1214,7 +1214,7 @@ class UserVerifyEmailThrottle(UserOrEmailRateThrottle):
                 # spelling and let a caller sidestep the per-target limit. Fall back to the raw text
                 # (never raise from a cache key) when it isn't a parseable UUID.
                 key_source = str(uuid.UUID(str(target_uuid)))
-            except (ValueError, AttributeError, TypeError):
+            except ValueError, AttributeError, TypeError:
                 key_source = str(target_uuid)
             ident = hashlib.sha256(key_source.encode()).hexdigest()
             return self.cache_format % {"scope": self.scope, "ident": ident}

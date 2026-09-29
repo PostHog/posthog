@@ -761,7 +761,7 @@ def _write_branch_and_pull_request(
             branch,
             base,
         )
-    except (GitHubIntegrationError, GitHubRateLimitError):
+    except GitHubIntegrationError, GitHubRateLimitError:
         # A transport failure on this POST is ambiguous: GitHub may still have opened the pull
         # request, and api_request doesn't retry a POST. Reconcile before cleaning up, so a timeout
         # can't delete a branch that now heads a live review.
@@ -827,7 +827,7 @@ def _reconcile_open_pr(
     """
     try:
         pull = publisher.get_open_pull_request_for_head(repo, branch)
-    except (GitHubIntegrationError, GitHubRateLimitError):
+    except GitHubIntegrationError, GitHubRateLimitError:
         logger.warning("community_skill_publish_pr_lookup_failed", slug=slug, branch=branch, exc_info=True)
         return None
     if pull is None or not pull.get("url"):
@@ -851,7 +851,7 @@ def _delete_publish_branch(
     """
     try:
         cleanup_result = publisher.delete_branch(repo, branch, expected_sha=commit_sha)
-    except (GitHubIntegrationError, GitHubRateLimitError):
+    except GitHubIntegrationError, GitHubRateLimitError:
         logger.warning("community_skill_publish_branch_cleanup_failed", slug=slug, branch=branch, exc_info=True)
         return
     if not cleanup_result.get("success"):

@@ -101,7 +101,7 @@ def detect_content_type(data: bytes, filename: str) -> str:
                             ct = ct_file.read(4096).decode("utf-8", errors="replace")
                         if "wordprocessingml" in ct:
                             return "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                except (KeyError, OSError):
+                except KeyError, OSError:
                     pass
                 raise UnsupportedFileTypeError(
                     "Unsupported file type. Allowed: PDF, DOCX, Markdown (.md), CSV, plain text (.txt)."
@@ -154,7 +154,7 @@ def _check_zip_bomb(zf: zipfile.ZipFile) -> None:
                         )
     except zipfile.BadZipFile:
         raise FileParseError("File appears corrupt — cannot read ZIP contents.")
-    except (RuntimeError, NotImplementedError):
+    except RuntimeError, NotImplementedError:
         raise FileParseError("File is encrypted or uses an unsupported compression method.")
 
 

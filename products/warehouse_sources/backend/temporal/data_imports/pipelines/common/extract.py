@@ -203,7 +203,7 @@ def report_heartbeat_timeout(inputs: "ImportDataActivityInputs", logger: Filteri
 
         try:
             last_heartbeat_timestamp = float(last_heartbeat_timestamp)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             logger.debug(f"Last heartbeat timestamp could not be converted to float: {last_heartbeat_timestamp}")
             return
 

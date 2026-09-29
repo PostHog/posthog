@@ -56,7 +56,7 @@ def run_aeo_citation_checks_task() -> None:
     for raw_team_id in settings.AEO_CITATION_TEAM_IDS:
         try:
             team = Team.objects.get(id=int(raw_team_id))
-        except (Team.DoesNotExist, ValueError):
+        except Team.DoesNotExist, ValueError:
             logger.warning("aeo_citation_task_unknown_team", team_id=raw_team_id)
             continue
         if not _citation_tracking_enabled(team):

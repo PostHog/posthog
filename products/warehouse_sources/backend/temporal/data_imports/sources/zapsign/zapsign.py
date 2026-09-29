@@ -204,7 +204,7 @@ def _webhook_table_transformer(table: pa.Table) -> pa.Table:
             if isinstance(value, str):
                 try:
                     row[column] = dateutil_parser.parse(value)
-                except (ValueError, OverflowError):
+                except ValueError, OverflowError:
                     row[column] = None
 
         updated = row.get("last_update_at") or row.get("created_at")

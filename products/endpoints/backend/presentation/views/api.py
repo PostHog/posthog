@@ -276,14 +276,14 @@ class EndpointViewSet(
         if body_version is not None:
             try:
                 return int(body_version)
-            except (ValueError, TypeError):
+            except ValueError, TypeError:
                 raise ValidationError({"version": f"Must be an integer, got: {body_version}"})
 
         query_version = request.query_params.get("version")
         if query_version is not None:
             try:
                 return int(query_version)
-            except (ValueError, TypeError):
+            except ValueError, TypeError:
                 raise ValidationError({"version": f"Must be an integer, got: {query_version}"})
 
         return None
@@ -299,7 +299,7 @@ class EndpointViewSet(
                 value = int(query_param)
                 if min_value is not None and value < min_value:
                     raise ValueError()
-            except (ValueError, TypeError):
+            except ValueError, TypeError:
                 return None, Response(
                     {"error": f"Invalid {name} parameter: {query_param}"},
                     status=status.HTTP_400_BAD_REQUEST,

@@ -139,7 +139,7 @@ def validate_ticket_id(ticket_id: str | uuid.UUID) -> Response | None:
         return None
     try:
         uuid.UUID(str(ticket_id))
-    except (ValueError, AttributeError, TypeError):
+    except ValueError, AttributeError, TypeError:
         return Response({"error": "Invalid ticket_id format"}, status=status.HTTP_400_BAD_REQUEST)
     return None
 
@@ -163,7 +163,7 @@ def workflow_trigger_from_request(request: Request) -> Trigger | None:
         return None
     try:
         uuid.UUID(hog_flow_id)
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         return None
     return Trigger(job_type="hog_flow", job_id=hog_flow_id, payload={})
 

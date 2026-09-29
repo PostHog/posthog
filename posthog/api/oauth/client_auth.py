@@ -60,7 +60,7 @@ def client_credentials_from_basic_auth(request: Any) -> ClientCredentials | None
 
     try:
         decoded = base64.b64decode(auth_header[len(BASIC_PREFIX) :].strip()).decode("utf-8")
-    except (binascii.Error, ValueError, UnicodeDecodeError):
+    except binascii.Error, ValueError, UnicodeDecodeError:
         return None
 
     client_id, separator, client_secret = decoded.partition(":")

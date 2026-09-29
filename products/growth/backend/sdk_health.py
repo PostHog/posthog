@@ -335,7 +335,7 @@ def _released_ago(release_date_iso: Optional[str], now: Optional[datetime] = Non
         return None
     try:
         release = datetime.fromisoformat(release_date_iso.replace("Z", "+00:00"))
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         return None
     if release.tzinfo is None:
         release = release.replace(tzinfo=UTC)
@@ -599,7 +599,7 @@ def assess_release(
     if entry.release_date:
         try:
             days_since_release = _calculate_version_age_days(entry.release_date, now=now)
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             days_since_release = None
         if days_since_release is not None and diff is not None and diff.diff > 0:
             weeks_old = days_since_release / 7

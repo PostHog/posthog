@@ -56,7 +56,7 @@ def scanner_config_error(scanner_type: ScannerType, scanner_config: Any) -> str 
             return "Scale max must be greater than min."
     try:
         scanner = validate_scanner_config(scanner_config=scanner_config, scanner_type=scanner_type)
-    except (ValueError, PydanticValidationError):
+    except ValueError, PydanticValidationError:
         return "Scanner configuration is invalid."
     # The pydantic models ignore extra keys — reject here so typos and junk don't snapshot onto every observation.
     unknown = set(scanner_config) - set(type(scanner).model_fields)

@@ -780,7 +780,7 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
             if field in request.data:
                 try:
                     value = int(request.data[field])
-                except (TypeError, ValueError):
+                except TypeError, ValueError:
                     return Response(
                         status=status.HTTP_400_BAD_REQUEST,
                         data={"message": f"{field} must be an integer."},

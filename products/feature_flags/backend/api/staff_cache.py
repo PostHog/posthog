@@ -240,7 +240,7 @@ def _parse_warm_run_status(raw: Optional[str]) -> Optional[dict[str, Any]]:
         return None
     try:
         run = json.loads(raw)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         logger.warning("flags_staff_warm_run_status_unparseable")
         return None
     if (
@@ -257,7 +257,7 @@ def _parse_warm_run_status(raw: Optional[str]) -> Optional[dict[str, Any]]:
 def _as_epoch(value: Any) -> int:
     try:
         return int(value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return 0
 
 

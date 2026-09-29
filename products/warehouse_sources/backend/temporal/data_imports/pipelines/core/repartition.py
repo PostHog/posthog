@@ -304,7 +304,7 @@ async def _valid_delta_row_count(uri: str, storage_options: dict[str, str]) -> i
             return None
         dt = await asyncio.to_thread(deltalake.DeltaTable, table_uri=uri, storage_options=storage_options)
         return await asyncio.to_thread(_table_row_count, dt)
-    except (deltalake.exceptions.DeltaError, FileNotFoundError):
+    except deltalake.exceptions.DeltaError, FileNotFoundError:
         return None
 
 
@@ -510,7 +510,7 @@ async def _live_missing_data_file(live_uri: str, storage_options: dict[str, str]
     try:
         live_delta = await asyncio.to_thread(deltalake.DeltaTable, table_uri=live_uri, storage_options=storage_options)
         file_uris = await asyncio.to_thread(live_delta.file_uris)
-    except (deltalake.exceptions.DeltaError, FileNotFoundError):
+    except deltalake.exceptions.DeltaError, FileNotFoundError:
         # Live unreadable — the corrupted-log revive already covers that state.
         return None
     basename = missing_path.rsplit("/", 1)[-1]
@@ -1495,7 +1495,7 @@ async def repartition_table_in_place(
                     },
                 )
             raise
-        except (RepartitionSupersededError, RepartitionUnpartitionableError):
+        except RepartitionSupersededError, RepartitionUnpartitionableError:
             raise
         except Exception as e:
             missing_path = _missing_live_object_path(e, live_uri)

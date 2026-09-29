@@ -273,7 +273,7 @@ def _to_datetime(value: Any) -> Any:
         return value
     try:
         return datetime.fromtimestamp(value / 1000, tz=UTC)
-    except (OverflowError, OSError, ValueError):
+    except OverflowError, OSError, ValueError:
         return value
 
 

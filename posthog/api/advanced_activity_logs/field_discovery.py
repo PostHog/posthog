@@ -133,7 +133,7 @@ class AdvancedActivityLogFieldDiscovery:
                 if isinstance(detail, str):
                     try:
                         detail = json.loads(detail)
-                    except (json.JSONDecodeError, TypeError):
+                    except json.JSONDecodeError, TypeError:
                         detail = None
                 records.append({"scope": scope, "detail": detail})
         return records

@@ -72,7 +72,7 @@ def _slack_retry_after(exc: Exception) -> int | None:
         return None
     try:
         return min(int(exc.response.headers.get("Retry-After", "1")), 30)
-    except (AttributeError, TypeError, ValueError):
+    except AttributeError, TypeError, ValueError:
         return 1
 
 

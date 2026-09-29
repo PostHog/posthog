@@ -290,7 +290,7 @@ def _daemon_pids() -> list[int]:
     try:
         # POSIX `-A -o` (not BSD `-axo`) so this parses on both macOS and Linux.
         result = subprocess.run(["ps", "-A", "-o", "pid=,args="], capture_output=True, text=True)
-    except (OSError, subprocess.SubprocessError):
+    except OSError, subprocess.SubprocessError:
         return []
     pids: list[int] = []
     for line in result.stdout.splitlines():
@@ -323,7 +323,7 @@ def _daemon_ssh_path(pid: int) -> str | None:
         return None
     try:
         result = subprocess.run(["ps", "eww", "-o", "command=", "-p", str(pid)], capture_output=True, text=True)
-    except (OSError, subprocess.SubprocessError):
+    except OSError, subprocess.SubprocessError:
         return None
     match = re.search(r"(?:^|\s)MUTAGEN_SSH_PATH=(.*?)(?=\s\S+=|$)", result.stdout)
     return match.group(1) if match else None
@@ -453,7 +453,7 @@ def conflict_count(session: dict[str, Any]) -> int:
     excluded = session.get("excludedConflicts") or 0
     try:
         return len(shown) + int(excluded)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return len(shown)
 
 

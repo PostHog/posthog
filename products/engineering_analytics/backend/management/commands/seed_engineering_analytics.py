@@ -173,7 +173,7 @@ def _synthesize_jobs(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
         try:
             run_start = datetime.strptime(run["run_started_at"], _TS_FMT)
             run_end = datetime.strptime(run["updated_at"], _TS_FMT)
-        except (KeyError, TypeError, ValueError):
+        except KeyError, TypeError, ValueError:
             pass
         window = (run_end - run_start).total_seconds() if run_start and run_end and run_end > run_start else 0.0
         segment = window / count if window else 0.0

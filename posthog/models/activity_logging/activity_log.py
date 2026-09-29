@@ -1066,7 +1066,7 @@ def safely_get_field_value(instance: models.Model | None, field: str):
     # If the field is a related field and the related object has been deleted, this will raise an ObjectDoesNotExist
     # exception. We catch this exception and return None, since the related object has been deleted, and we
     # don't need any additional information about it other than the fact that it was deleted.
-    except (ObjectDoesNotExist, FieldDoesNotExist):
+    except ObjectDoesNotExist, FieldDoesNotExist:
         return None
 
 

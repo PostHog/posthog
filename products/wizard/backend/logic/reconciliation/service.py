@@ -74,13 +74,13 @@ def reconcile_pending_dispatches() -> ReconciliationSummary:
             if error.exhausted:
                 try:
                     lifecycle.fail_run(team_id, run_id, error_code=WizardRunErrorCode.DISPATCH_FAILED.value)
-                except (IllegalStatusTransitionError, WizardRunNotFoundError, ValueError):
+                except IllegalStatusTransitionError, WizardRunNotFoundError, ValueError:
                     logger.exception(
                         "wizard_run_dispatch_exhaustion_failed",
                         extra={"team_id": team_id, "run_id": str(run_id)},
                     )
             continue
-        except (WizardRunNotFoundError, ValueError):
+        except WizardRunNotFoundError, ValueError:
             logger.exception("wizard_run_redispatch_failed", extra={"team_id": team_id, "run_id": str(run_id)})
             continue
         reconciled += 1
@@ -108,7 +108,7 @@ def reconcile_pending_cancellations() -> ReconciliationSummary:
     for team_id, run_id in pending:
         try:
             reconciled += cancellation.dispatch_cancellation(team_id, run_id)
-        except (WizardRunNotFoundError, ValueError):
+        except WizardRunNotFoundError, ValueError:
             logger.exception(
                 "wizard_run_cancellation_reconciliation_failed",
                 extra={"team_id": team_id, "run_id": str(run_id)},
@@ -131,7 +131,7 @@ def reconcile_expired_runs() -> ReconciliationSummary:
     for team_id, run_id, workflow_id in expired:
         try:
             run = lifecycle.fail_run(team_id, run_id, error_code=WizardRunErrorCode.TIMEOUT)
-        except (IllegalStatusTransitionError, WizardRunNotFoundError, ValueError):
+        except IllegalStatusTransitionError, WizardRunNotFoundError, ValueError:
             logger.exception("wizard_run_expiration_failed", extra={"team_id": team_id, "run_id": str(run_id)})
             continue
         wizard_observability.run_past_deadline(run)

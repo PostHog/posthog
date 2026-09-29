@@ -239,7 +239,7 @@ class Batcher:
         assert self._table_buffer_schema is not None
         try:
             return pa.unify_schemas([self._table_buffer_schema, schema], promote_options="permissive")
-        except (pa.ArrowInvalid, pa.ArrowTypeError):
+        except pa.ArrowInvalid, pa.ArrowTypeError:
             return None
 
     def _start_table_buffer(self, table: pa.Table, table_bytes: int) -> None:

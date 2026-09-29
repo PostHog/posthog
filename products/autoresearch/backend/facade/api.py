@@ -103,7 +103,7 @@ def _as_uuid(value: str | UUID | None) -> UUID | None:
         return None
     try:
         return value if isinstance(value, UUID) else UUID(str(value))
-    except (ValueError, AttributeError, TypeError):
+    except ValueError, AttributeError, TypeError:
         return None
 
 
@@ -533,7 +533,7 @@ def resolve_action_target(project_id: int, action_id: Any) -> tuple[str, int]:
     """
     try:
         action = Action.objects.get(id=action_id, team__project_id=project_id, deleted=False)
-    except (Action.DoesNotExist, ValueError, TypeError, OverflowError):
+    except Action.DoesNotExist, ValueError, TypeError, OverflowError:
         raise PipelineNotFound(f"Action {action_id} was not found in this project.")
     step_events = action.get_step_events()
     if any(event is None or event == PREDICTION_EVENT_NAME for event in step_events):

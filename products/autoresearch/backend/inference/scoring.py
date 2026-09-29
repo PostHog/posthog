@@ -101,7 +101,7 @@ _PREDICTION_UUID_NAMESPACE = uuid.UUID("6f9a4a24-0e5c-4a5a-9d0e-2f6a0f0b1c3d")
 def _is_uuid(value: str) -> bool:
     try:
         uuid.UUID(str(value))
-    except (ValueError, AttributeError, TypeError):
+    except ValueError, AttributeError, TypeError:
         return False
     return True
 

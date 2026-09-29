@@ -53,7 +53,7 @@ def research_domain(url: str) -> DomainResearch:
         return DomainResearch(outcome="not_configured", url=url)
     except FirecrawlEgressBudgetExhausted:
         return DomainResearch(outcome="busy", url=url)
-    except (FirecrawlScrapeFailed, RequestException):
+    except FirecrawlScrapeFailed, RequestException:
         logger.warning("domain_research_scrape_failed", url=url)
         return DomainResearch(outcome="unreachable", url=url)
 

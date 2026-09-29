@@ -186,7 +186,7 @@ class PersonalAPIKeyScheme(OpenApiAuthenticationExtension):
                     if not scopes:
                         return []
                     return [{self.name: scopes}]
-                except (PermissionDenied, ImproperlyConfigured):
+                except PermissionDenied, ImproperlyConfigured:
                     # NOTE: This should never happen - it indicates that we shouldn't be including it in the docs
                     pass
 

@@ -137,7 +137,7 @@ def github_graphql_request(
             # to raise_if_github_rate_limited, which only inspects 429/403 responses.
             try:
                 reset_at: int | None = int(response.headers.get("x-ratelimit-reset", ""))
-            except (ValueError, TypeError):
+            except ValueError, TypeError:
                 reset_at = None
             retry_after = max(1, reset_at - int(time.time())) if reset_at is not None else 60
             raise GitHubRateLimitError(

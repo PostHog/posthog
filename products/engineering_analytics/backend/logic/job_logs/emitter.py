@@ -42,7 +42,7 @@ def _parse_ns(ts: str) -> int | None:
     try:
         normalized = re.sub(r"(\.\d{6})\d+Z$", r"\1Z", ts).replace("Z", "+00:00")
         return int(datetime.fromisoformat(normalized).timestamp() * 1_000_000_000)
-    except (ValueError, OverflowError):
+    except ValueError, OverflowError:
         return None
 
 
@@ -65,7 +65,7 @@ def _otel_id(value: str | int | None, n_bytes: int) -> int:
         return 0
     try:
         parsed = int(value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return 0
     return parsed if 0 < parsed < (1 << (n_bytes * 8)) else 0
 

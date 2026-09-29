@@ -123,7 +123,7 @@ def _latest_reviewer_rows(report_id: str) -> list[dict[str, Any]]:
         return []
     try:
         payloads = json.loads(latest.content)
-    except (json.JSONDecodeError, TypeError, ValueError):
+    except json.JSONDecodeError, TypeError, ValueError:
         return []
     if not isinstance(payloads, list):
         return []

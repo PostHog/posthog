@@ -278,7 +278,7 @@ async def _load_resolved_report_context(team_id: int, report_id: str) -> tuple[s
                     recurrence_ids.append(link.report_id)
             else:
                 related_ids.append(str(UUID(RelatedTo.model_validate_json(artefact.content).report_id)))
-        except (ValidationError, ValueError):
+        except ValidationError, ValueError:
             continue
     related_ids = recurrence_ids or related_ids
     if not related_ids:
@@ -353,7 +353,7 @@ def _collect_linked_report_context(team_id: int, report_id: str) -> list[LinkedR
     for target_id, content, judged_at in judgments:
         try:
             verdict = json.loads(content)
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             continue
         if isinstance(verdict, dict) and verdict.get("choice") is True:
             approved[str(target_id)] = judged_at

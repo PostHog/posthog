@@ -51,7 +51,7 @@ def _scrub_alert_contact(row: dict[str, Any]) -> dict[str, Any]:
         return row
     try:
         contact_type = int(row["type"])
-    except (KeyError, TypeError, ValueError):
+    except KeyError, TypeError, ValueError:
         contact_type = -1
     if contact_type in _ALERT_CONTACT_PLAINTEXT_VALUE_TYPES:
         return row
@@ -170,7 +170,7 @@ def _next_offset(payload: dict[str, Any], requested_offset: int, page_len: int) 
         offset = int(pagination.get("offset", requested_offset))
         limit = int(pagination.get("limit", PAGE_LIMIT))
         total = int(pagination["total"])
-    except (KeyError, TypeError, ValueError):
+    except KeyError, TypeError, ValueError:
         # No usable pagination metadata — assume more pages only if this one came back full.
         return requested_offset + page_len if page_len >= PAGE_LIMIT else None
 

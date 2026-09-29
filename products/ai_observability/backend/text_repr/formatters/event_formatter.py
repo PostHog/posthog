@@ -79,7 +79,7 @@ def _format_error_section(props: dict[str, Any]) -> list[str]:
                 parsed = json.loads(error_value)
                 if isinstance(parsed, dict):
                     parsed_dict = parsed
-            except (json.JSONDecodeError, ValueError):
+            except json.JSONDecodeError, ValueError:
                 pass
         elif isinstance(error_value, dict):
             parsed_dict = error_value
@@ -283,7 +283,7 @@ def _maybe_decode_json(value: Any) -> Any:
         return value
     try:
         return json.loads(value)
-    except (json.JSONDecodeError, ValueError):
+    except json.JSONDecodeError, ValueError:
         return value
 
 

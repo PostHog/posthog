@@ -53,7 +53,7 @@ def _as_uuid(value: object) -> uuid.UUID | None:
     # of the same revision as a foreign edit.
     try:
         return uuid.UUID(str(value))
-    except (AttributeError, TypeError, ValueError):
+    except AttributeError, TypeError, ValueError:
         return None
 
 
@@ -412,7 +412,7 @@ class DataWarehouseSavedQuerySerializer(
                         for item in client_types
                     }
                 inferred_external_tables = probe.get_s3_tables(database=self.context["database"])
-            except (RecursionError, ResolutionCycleError):
+            except RecursionError, ResolutionCycleError:
                 raise serializers.ValidationError("Model contains a cycle")
             except Exception as e:
                 capture_exception(e)

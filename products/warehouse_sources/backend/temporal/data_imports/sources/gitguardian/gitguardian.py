@@ -149,7 +149,7 @@ def _error_detail(response: requests.Response) -> str | None:
     """Extract GitGuardian's own `detail` message (e.g. the scope it wants) from an error body."""
     try:
         detail = response.json().get("detail")
-    except (ValueError, AttributeError):
+    except ValueError, AttributeError:
         return None
     return detail if isinstance(detail, str) and detail else None
 

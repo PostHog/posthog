@@ -329,7 +329,7 @@ def _coerce_to_dict(value: Any) -> dict:
     if isinstance(value, str):
         try:
             parsed = json.loads(value)
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             return {}
         return parsed if isinstance(parsed, dict) else {}
     return {}

@@ -731,7 +731,7 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
         try:
             columns = getattr(table, "columns", None)
             present = bool(columns and hasattr(columns, "__contains__") and column_name in columns)
-        except (TypeError, AttributeError, KeyError):
+        except TypeError, AttributeError, KeyError:
             present = False
         self._table_column_cache[cache_key] = present
         return present

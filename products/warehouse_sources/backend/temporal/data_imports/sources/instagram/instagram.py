@@ -708,7 +708,7 @@ def validate_credentials(
             "The Instagram connection is missing permissions this source needs. Reconnect it and grant "
             "access to your page, Instagram insights and comments."
         )
-    except (InstagramRetryableError, InstagramRequestBudgetError):
+    except InstagramRetryableError, InstagramRequestBudgetError:
         return False, "Instagram is busy or temporarily unavailable. Wait a few minutes and try again."
     except InstagramBadRequestError:
         return False, (

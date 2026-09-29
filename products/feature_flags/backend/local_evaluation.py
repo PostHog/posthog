@@ -523,7 +523,7 @@ def _is_supported_legacy_flag(flag: FeatureFlag) -> bool:
         return True
     except ConfigFormatError:
         return False
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         logger.warning(
             "Malformed feature flag omitted from legacy definitions",
             extra={"team_id": flag.team_id, "flag_id": flag.pk},
@@ -670,7 +670,7 @@ def _get_flags_response_for_local_evaluation_batch(teams: list[Team]) -> dict[in
         ):
             try:
                 validate_legacy_filters(filters)
-            except (ConfigFormatError, TypeError, ValueError):
+            except ConfigFormatError, TypeError, ValueError:
                 excluded_by_team[team_id][str(flag_id)] = key
 
     # Load only the referenced cohorts and resolve nested dependencies

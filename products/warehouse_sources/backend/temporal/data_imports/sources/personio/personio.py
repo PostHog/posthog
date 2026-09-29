@@ -86,7 +86,7 @@ def validate_credentials(client_id: str, client_secret: str) -> bool:
     probe = Request(method="GET", url=PERSONIO_BASE_URL).prepare()
     try:
         auth(probe)
-    except (OAuth2AuthRequestError, requests.RequestException):
+    except OAuth2AuthRequestError, requests.RequestException:
         return False
     return True
 

@@ -135,7 +135,7 @@ def playlist_name_sort_key(playlist: SessionRecordingPlaylist) -> str:
 def parse_non_negative_int(value: Any, default: int) -> int:
     try:
         return max(0, int(value))
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return default
 
 
@@ -377,7 +377,7 @@ def precompute_recordings_counts(playlists: list[SessionRecordingPlaylist], user
                 continue
             try:
                 parsed = json.loads(value)
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 logger.warning(
                     "saved_filters_redis_payload_malformed",
                     team_id=team.id,

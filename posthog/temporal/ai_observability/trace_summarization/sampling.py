@@ -54,7 +54,7 @@ def _missing_cohort_ids(team: Team, event_filters: list[dict[str, Any]]) -> list
             continue
         try:
             referenced.append(int(value))
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             # Non-numeric cohort values (name lookups) skip pre-flight; the resolver
             # raises a structured QueryError downstream.
             continue

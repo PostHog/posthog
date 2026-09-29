@@ -402,7 +402,7 @@ def compute_repository_readiness(
                         generated_at_dt = generated_at_dt.replace(tzinfo=UTC)
                     age_seconds = max(0, int((timezone.now() - generated_at_dt).total_seconds()))
                     return {**cached, "cacheAgeSeconds": age_seconds}
-                except (ValueError, TypeError):
+                except ValueError, TypeError:
                     pass
             return cached
 

@@ -703,7 +703,7 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
                 .prefetch_related("tiles__insight")
                 .aget(id=int(dashboard_id), team=self._team, deleted=False)
             )
-        except (Dashboard.DoesNotExist, ValueError):
+        except Dashboard.DoesNotExist, ValueError:
             raise MaxToolFatalError(DASHBOARD_NOT_FOUND_PROMPT.format(dashboard_id=dashboard_id))
 
         await self.check_object_access(dashboard, "viewer", action="read")

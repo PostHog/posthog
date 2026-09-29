@@ -507,5 +507,5 @@ class MediaViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def get_success_headers(self, location: str) -> dict:
         try:
             return {"Location": location}
-        except (TypeError, KeyError):
+        except TypeError, KeyError:
             return {}

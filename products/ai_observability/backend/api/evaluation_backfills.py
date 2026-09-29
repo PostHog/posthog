@@ -134,7 +134,7 @@ class EvaluationBackfillAccessControlPermission(AccessControlPermission):
         # user whom the resource check rejects but the object-level grant allows.
         try:
             evaluation_id = uuid.UUID(str(backfill_view.kwargs.get("parent_lookup_evaluation_id")))
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             return False
         evaluation = Evaluation.objects.filter(team_id=backfill_view.team_id, id=evaluation_id).first()
         return evaluation is not None and self.has_object_permission(request, view, evaluation)
@@ -308,7 +308,7 @@ class EvaluationBackfillViewSet(
             return self._evaluation_for_url_cache
         try:
             evaluation_id = uuid.UUID(self.kwargs["parent_lookup_evaluation_id"])
-        except (KeyError, ValueError):
+        except KeyError, ValueError:
             raise NotFound()
         evaluation = Evaluation.objects.filter(team_id=self.team_id, pk=evaluation_id, deleted=False).first()
         if evaluation is None:

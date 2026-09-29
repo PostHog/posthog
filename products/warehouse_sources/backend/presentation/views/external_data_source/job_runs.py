@@ -143,7 +143,7 @@ class ExternalDataSourceJobRunsMixin(base.ExternalDataSourceViewSetBase):
         try:
             after_date = parser.parse(after) if after else None
             before_date = parser.parse(before) if before else None
-        except (ValueError, OverflowError):
+        except ValueError, OverflowError:
             raise ValidationError("after and before must be ISO 8601 timestamps.")
 
         # select_related joins the full ExternalDataSchema row; defer its large JSON/text

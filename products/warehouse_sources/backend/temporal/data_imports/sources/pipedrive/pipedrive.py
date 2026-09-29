@@ -155,7 +155,7 @@ def _parse_timestamp(value: Any) -> Optional[datetime.datetime]:
         return None
     try:
         return dateutil_parser.parse(value)
-    except (ValueError, OverflowError):
+    except ValueError, OverflowError:
         return None
 
 

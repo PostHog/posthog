@@ -114,7 +114,7 @@ class Command(BaseCommand):
                     emit_event=False,
                     replace_active=False,
                 )
-            except (relationships_logic.RelationshipOccupiedError, relationships_logic.ManagedRolePolicyError):
+            except relationships_logic.RelationshipOccupiedError, relationships_logic.ManagedRolePolicyError:
                 continue
             assigned += 1
         return assigned

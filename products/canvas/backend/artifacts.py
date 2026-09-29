@@ -115,7 +115,7 @@ def canvas_artifact(request: HttpRequest, token: str, artifact_path: str) -> Htt
     try:
         build_id = UUID(str(claims.get("build_id")))
         canvas_id = UUID(str(claims.get("canvas_id")))
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         raise Http404 from None
     build = (
         CanvasBuild.objects.for_team(team_id)

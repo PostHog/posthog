@@ -76,7 +76,7 @@ class LegalDocumentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def retrieve(self, request: Request, pk: str, **kwargs) -> Response:
         try:
             document_id = UUID(pk)
-        except (ValueError, DjangoValidationError):
+        except ValueError, DjangoValidationError:
             raise exceptions.NotFound()
         dto = api.get_for_organization(document_id, self.organization.id)
         if dto is None:
@@ -94,7 +94,7 @@ class LegalDocumentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         """
         try:
             document_id = UUID(pk)
-        except (ValueError, DjangoValidationError):
+        except ValueError, DjangoValidationError:
             raise exceptions.NotFound()
         presigned_url = api.get_signed_pdf_download_url(document_id, self.organization.id)
         if not presigned_url:
@@ -116,7 +116,7 @@ class LegalDocumentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         """
         try:
             document_id = UUID(pk)
-        except (ValueError, DjangoValidationError):
+        except ValueError, DjangoValidationError:
             raise exceptions.NotFound()
         try:
             api.delete_document(document_id, self.organization.id)

@@ -687,7 +687,7 @@ def load_corpus_rows(path: Path, *, text_col: str, count_col: str | None = None)
         if count_i is not None:
             try:
                 n = int(row[count_i])
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 n = 1
         out.append((text, n))
     return out

@@ -370,7 +370,7 @@ class HogQLQueryExecutor:
     def _prepare_direct_query(self) -> _PreparedExecution | None:
         try:
             query_type = self._get_select_query_type()
-        except (QueryError, ResolutionError, AttributeError):
+        except QueryError, ResolutionError, AttributeError:
             if self.connection_id is None:
                 return None
             raise
@@ -820,7 +820,7 @@ class HogQLQueryExecutor:
             try:
                 try:
                     self.results, self.types = run_clickhouse_query()
-                except (CHQueryErrorS3Error, CHQueryErrorS3FileChangedDuringRead):
+                except CHQueryErrorS3Error, CHQueryErrorS3FileChangedDuringRead:
                     # Files backing a warehouse table can be replaced mid-read; one retry re-lists them
                     sleep(TRANSIENT_S3_ERROR_RETRY_DELAY_SECONDS)
                     self.results, self.types = run_clickhouse_query()

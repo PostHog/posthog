@@ -344,7 +344,7 @@ class OrganizationAdmin(admin.ModelAdmin):
                 try:
                     dt = datetime.fromtimestamp(redis_until, tz=UTC)
                     info["redis_quota_limited_until_formatted"] = dt.strftime("%Y-%m-%d %H:%M:%S UTC")
-                except (ValueError, OSError, OverflowError):
+                except ValueError, OSError, OverflowError:
                     info["redis_quota_limited_until_formatted"] = str(redis_until)
             else:
                 info["redis_quota_limited_until_formatted"] = "-"
@@ -354,7 +354,7 @@ class OrganizationAdmin(admin.ModelAdmin):
                 try:
                     dt = datetime.fromtimestamp(usage_until, tz=UTC)
                     info["usage_quota_limited_until_formatted"] = dt.strftime("%Y-%m-%d %H:%M:%S UTC")
-                except (ValueError, OSError, OverflowError):
+                except ValueError, OSError, OverflowError:
                     info["usage_quota_limited_until_formatted"] = str(usage_until)
             else:
                 info["usage_quota_limited_until_formatted"] = "-"
@@ -393,7 +393,7 @@ class OrganizationAdmin(admin.ModelAdmin):
                     "end": end_dt.strftime("%Y-%m-%d"),
                     "days_remaining": max(0, days_remaining),
                 }
-            except (ValueError, IndexError, AttributeError):
+            except ValueError, IndexError, AttributeError:
                 pass
 
         # Format numbers with thousand separators

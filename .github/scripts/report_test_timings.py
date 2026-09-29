@@ -1,6 +1,6 @@
 #!/usr/bin/env -S uv run --script
 # /// script
-# requires-python = ">=3.11"
+# requires-python = ">=3.14"
 # dependencies = [
 #   "defusedxml~=0.7",
 #   "opentelemetry-api~=1.27",
@@ -718,7 +718,7 @@ def get_pull_request_number() -> int | None:
     if event_path:
         try:
             payload = json.loads(Path(event_path).read_text())
-        except (OSError, json.JSONDecodeError):
+        except OSError, json.JSONDecodeError:
             payload = {}
         number = payload.get("number")
         if isinstance(number, int):

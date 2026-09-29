@@ -1,6 +1,6 @@
 #!/usr/bin/env -S uv run --script
 # /// script
-# requires-python = ">=3.12"
+# requires-python = ">=3.14"
 # dependencies = [
 #     "pytest-snob>=0.1.14",
 # ]
@@ -178,7 +178,7 @@ def _read_tree(path: str) -> ast.AST | None:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", SyntaxWarning)
             return ast.parse((REPO_ROOT / path).read_text(), filename=path)
-    except (OSError, SyntaxError, UnicodeDecodeError):
+    except OSError, SyntaxError, UnicodeDecodeError:
         return None
 
 
@@ -607,7 +607,7 @@ def load_durations() -> dict[str, float]:
         return {}
     try:
         raw = json.loads(DURATIONS_PATH.read_text())
-    except (json.JSONDecodeError, OSError):
+    except json.JSONDecodeError, OSError:
         return {}
     return {str(key): float(value) for key, value in raw.items()}
 

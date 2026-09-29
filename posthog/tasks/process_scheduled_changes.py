@@ -132,7 +132,7 @@ def resolve_schedule_timezone(tz_name: str | None) -> tzinfo:
         return UTC
     try:
         return ZoneInfo(tz_name)
-    except (ZoneInfoNotFoundError, ValueError):
+    except ZoneInfoNotFoundError, ValueError:
         return UTC
 
 

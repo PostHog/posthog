@@ -150,7 +150,7 @@ def validate_credentials(
         # unreachable probe — `validate_via_probe` swallows the exception into `(False, None)`.
         try:
             auth(Request(method="GET", url=_base_url(api_version)).prepare())
-        except (OAuth2AuthRequestError, requests.RequestException):
+        except OAuth2AuthRequestError, requests.RequestException:
             return False, "Invalid Greenhouse client credentials. Please check them and try again."
 
     _ok, status = validate_via_probe(

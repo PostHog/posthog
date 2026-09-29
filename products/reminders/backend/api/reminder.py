@@ -245,7 +245,7 @@ class ReminderSerializer(serializers.ModelSerializer):
     def validate_timezone(self, value: str) -> str:
         try:
             ZoneInfo(value)
-        except (ZoneInfoNotFoundError, ValueError):
+        except ZoneInfoNotFoundError, ValueError:
             raise ValidationError(f"Unknown timezone: {value}")
         return value
 

@@ -111,7 +111,7 @@ def _coerce_refs_for_lookup(model: Any, lookup_field: str, refs: list[str]) -> l
     for ref in refs:
         try:
             coerced.append(field.to_python(ref))
-        except (DjangoValidationError, ValueError, TypeError):
+        except DjangoValidationError, ValueError, TypeError:
             continue
     return coerced
 
@@ -388,7 +388,7 @@ def denied_short_id_refs(user_access_control: UserAccessControl, project_id: int
             for pk in pks:
                 try:
                     valid_pks.append(pk_field.to_python(pk))
-                except (DjangoValidationError, ValueError, TypeError):
+                except DjangoValidationError, ValueError, TypeError:
                     continue
             if not valid_pks:
                 continue

@@ -16,6 +16,6 @@ def parse_seconds(value: Any) -> int | None:
             return int(value)
         if isinstance(value, str):
             return int(float(value.strip()))
-    except (ValueError, OverflowError):
+    except ValueError, OverflowError:
         return None
     return None

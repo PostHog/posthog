@@ -493,7 +493,7 @@ def _estimate_flox_logs(repo_root: Path) -> CleanupEstimate:
     for log in flox_log_dir.rglob("*.log"):
         try:
             stat = log.stat()
-        except (FileNotFoundError, PermissionError, OSError):
+        except FileNotFoundError, PermissionError, OSError:
             continue
         if not log.is_file():
             continue
@@ -608,7 +608,7 @@ def _estimate_rust_targets(repo_root: Path) -> CleanupEstimate:
     # Check if cargo is available
     try:
         subprocess.run(["cargo", "--version"], capture_output=True, check=True)
-    except (FileNotFoundError, subprocess.CalledProcessError):
+    except FileNotFoundError, subprocess.CalledProcessError:
         return CleanupEstimate(
             total_size=0.0,
             items=[],
@@ -651,7 +651,7 @@ def _estimate_pnpm_store(repo_root: Path) -> CleanupEstimate:
 
     try:
         subprocess.run(["pnpm", "--version"], capture_output=True, check=True)
-    except (FileNotFoundError, subprocess.CalledProcessError):
+    except FileNotFoundError, subprocess.CalledProcessError:
         return CleanupEstimate(
             total_size=0.0,
             items=[],
@@ -713,7 +713,7 @@ def _estimate_git(repo_root: Path) -> CleanupEstimate:
                 actual_git_path = Path(gitdir_content[8:])
                 # Go up to the main .git directory (worktrees/xxx -> .git)
                 git_dir = actual_git_path.parent.parent
-        except (OSError, ValueError):
+        except OSError, ValueError:
             # If reading or parsing .git file fails, fallback to default .git directory
             pass
 
@@ -783,7 +783,7 @@ def _docker_df_rows() -> list[dict[str, str]]:
             check=False,
             timeout=_DOCKER_PROBE_TIMEOUT,
         )
-    except (FileNotFoundError, subprocess.TimeoutExpired):
+    except FileNotFoundError, subprocess.TimeoutExpired:
         return []
     if result.returncode != 0:
         return []
@@ -813,7 +813,7 @@ def _docker_total_size(rows: Sequence[dict[str, str]]) -> float:
 def _docker_running() -> bool:
     try:
         subprocess.run(["docker", "info"], capture_output=True, check=True, timeout=_DOCKER_PROBE_TIMEOUT)
-    except (FileNotFoundError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+    except FileNotFoundError, subprocess.CalledProcessError, subprocess.TimeoutExpired:
         return False
     return True
 
@@ -921,7 +921,7 @@ def _holds_more_than_a_cache(path: Path) -> bool:
 
     try:
         resolved = path.resolve()
-    except (OSError, RuntimeError):
+    except OSError, RuntimeError:
         return True
 
     if resolved == Path(resolved.anchor):
@@ -993,7 +993,7 @@ def _estimate_uv_cache(repo_root: Path) -> CleanupEstimate:
 
     try:
         subprocess.run(["uv", "--version"], capture_output=True, check=True)
-    except (FileNotFoundError, subprocess.CalledProcessError):
+    except FileNotFoundError, subprocess.CalledProcessError:
         return CleanupEstimate(total_size=0.0, items=[], details=["   uv not available; skipping."], available=False)
 
     details: list[str] = []
@@ -1057,7 +1057,7 @@ def _nix_dead_paths() -> list[str] | None:
             check=False,
             timeout=_NIX_PROBE_TIMEOUT,
         )
-    except (FileNotFoundError, subprocess.TimeoutExpired):
+    except FileNotFoundError, subprocess.TimeoutExpired:
         return None
     if result.returncode != 0:
         return None
@@ -1095,7 +1095,7 @@ def _nix_chunk_size(chunk: Sequence[str]) -> NixStoreSize:
                 check=False,
                 timeout=_NIX_PROBE_TIMEOUT,
             )
-        except (FileNotFoundError, subprocess.TimeoutExpired):
+        except FileNotFoundError, subprocess.TimeoutExpired:
             return NixStoreSize(total=total, complete=False)
         answered = result.stdout.split()
         for token in answered:
@@ -1300,7 +1300,7 @@ def _collect_python_cache_dirs(repo_root: Path) -> Iterable[CleanupItem]:
                 continue
             try:
                 resolved = cache_dir.resolve()
-            except (FileNotFoundError, PermissionError, RuntimeError):
+            except FileNotFoundError, PermissionError, RuntimeError:
                 continue
             if resolved in seen or not cache_dir.is_dir():
                 continue
@@ -1320,7 +1320,7 @@ def _collect_old_dagster_files(storage_dir: Path) -> Iterable[CleanupItem]:
             continue
         try:
             stat = item.stat()
-        except (FileNotFoundError, PermissionError, OSError):
+        except FileNotFoundError, PermissionError, OSError:
             continue
         if stat.st_mtime < cutoff and stat.st_size > 0:
             yield CleanupItem(item, stat.st_size, is_dir=False)
@@ -1336,7 +1336,7 @@ def _collect_paths_from_patterns(repo_root: Path, patterns: Sequence[str]) -> li
         for path in repo_root.glob(pattern):
             try:
                 resolved = path.resolve()
-            except (FileNotFoundError, PermissionError, RuntimeError):
+            except FileNotFoundError, PermissionError, RuntimeError:
                 continue
             if resolved in seen:
                 continue
@@ -1350,7 +1350,7 @@ def _collect_paths_from_patterns(repo_root: Path, patterns: Sequence[str]) -> li
             else:
                 try:
                     size = path.stat().st_size
-                except (FileNotFoundError, PermissionError, OSError):
+                except FileNotFoundError, PermissionError, OSError:
                     continue
                 if size <= 0:
                     continue
@@ -1376,7 +1376,7 @@ def _collect_rust_target_dirs(repo_root: Path) -> list[CleanupItem]:
     if external is not None and external.is_dir():
         try:
             resolved = external.resolve()
-        except (FileNotFoundError, PermissionError, RuntimeError):
+        except FileNotFoundError, PermissionError, RuntimeError:
             resolved = None
         if resolved is not None:
             size, _ = _get_dir_size(external)
@@ -1398,7 +1398,7 @@ def _collect_rust_target_dirs(repo_root: Path) -> list[CleanupItem]:
 
         try:
             resolved = target_dir.resolve()
-        except (FileNotFoundError, PermissionError, RuntimeError):
+        except FileNotFoundError, PermissionError, RuntimeError:
             continue
         if resolved in seen or not target_dir.is_dir():
             continue
@@ -1430,7 +1430,7 @@ def _find_cargo_workspaces(repo_root: Path) -> list[Path]:
 
         try:
             resolved = workspace_dir.resolve()
-        except (FileNotFoundError, PermissionError, RuntimeError):
+        except FileNotFoundError, PermissionError, RuntimeError:
             continue
 
         if resolved in seen:
@@ -1440,7 +1440,7 @@ def _find_cargo_workspaces(repo_root: Path) -> list[Path]:
         # We look for workspace roots (rust/, cli/, funnel-udf/) and skip members
         try:
             cargo_content = cargo_toml.read_text()
-        except (FileNotFoundError, PermissionError, OSError):
+        except FileNotFoundError, PermissionError, OSError:
             continue
 
         # If it has [workspace], it's a workspace root
@@ -1488,7 +1488,7 @@ def _delete_items(items: Iterable[CleanupItem]) -> float:
             else:
                 item.path.unlink()
             freed += item.size
-        except (FileNotFoundError, PermissionError, OSError):
+        except FileNotFoundError, PermissionError, OSError:
             continue
     return freed
 
@@ -1517,9 +1517,9 @@ def _get_dir_size(path: Path, cap: float = float("inf")) -> tuple[float, bool]:
                             total += entry.stat(follow_symlinks=False).st_size
                             if total > cap:
                                 return total, True
-                    except (FileNotFoundError, PermissionError, OSError):
+                    except FileNotFoundError, PermissionError, OSError:
                         continue
-        except (FileNotFoundError, PermissionError, NotADirectoryError, OSError):
+        except FileNotFoundError, PermissionError, NotADirectoryError, OSError:
             continue
 
     return total, False
@@ -1827,7 +1827,7 @@ def _parse_ps_line(line: str) -> _PsLine | None:
         ppid = int(parts[1])
         cpu = float(parts[2])
         rss = int(parts[3])
-    except (ValueError, IndexError):
+    except ValueError, IndexError:
         return None
 
     # lstart is always 5 tokens: Day Mon DD HH:MM:SS YYYY
@@ -2765,7 +2765,7 @@ def _check_disk(repo_root: Path) -> CheckResult:
                     continue
                 try:
                     resolved = cache_dir.resolve()
-                except (FileNotFoundError, PermissionError, RuntimeError):
+                except FileNotFoundError, PermissionError, RuntimeError:
                     continue
                 if resolved in seen or not cache_dir.is_dir():
                     continue
@@ -2786,7 +2786,7 @@ def _check_disk(repo_root: Path) -> CheckResult:
         for path in repo_root.glob(pattern):
             try:
                 resolved = path.resolve()
-            except (FileNotFoundError, PermissionError, RuntimeError):
+            except FileNotFoundError, PermissionError, RuntimeError:
                 continue
             if resolved in node_seen:
                 continue
@@ -2797,7 +2797,7 @@ def _check_disk(repo_root: Path) -> CheckResult:
             else:
                 try:
                     total += path.stat().st_size
-                except (FileNotFoundError, PermissionError, OSError):
+                except FileNotFoundError, PermissionError, OSError:
                     continue
             if total > budget:
                 return CheckResult(
@@ -3147,7 +3147,7 @@ def _process_cwd(pid: str) -> Path | None:
         out = subprocess.run(
             ["lsof", "-a", "-p", pid, "-d", "cwd", "-Fn"], capture_output=True, text=True, timeout=5
         ).stdout
-    except (OSError, subprocess.SubprocessError):
+    except OSError, subprocess.SubprocessError:
         return None
     return next((Path(line[1:]) for line in out.splitlines() if line.startswith("n")), None)
 
@@ -3161,7 +3161,7 @@ def _common_dir_of(cwd: Path) -> Path | None:
             text=True,
             timeout=5,
         )
-    except (OSError, subprocess.SubprocessError):
+    except OSError, subprocess.SubprocessError:
         return None
     if result.returncode != 0:
         return None
@@ -3179,7 +3179,7 @@ def _process_belongs_to_repo(pid: str, repo: str, common_dir: Path) -> bool:
     """
     try:
         cmdline = subprocess.run(["ps", "-p", pid, "-o", "command="], capture_output=True, text=True, timeout=5)
-    except (OSError, subprocess.SubprocessError):
+    except OSError, subprocess.SubprocessError:
         return True  # Cannot tell, so claim it and do nothing.
     if _names_path(cmdline.stdout, repo) or _names_path(cmdline.stdout, str(common_dir)):
         return True
@@ -3204,7 +3204,7 @@ def _git_housekeeping_running(main_worktree: Path, common_dir: Path) -> bool:
             text=True,
             timeout=5,
         )
-    except (OSError, subprocess.SubprocessError):
+    except OSError, subprocess.SubprocessError:
         return True  # Cannot tell, so assume yes and do nothing.
     if result.returncode > 1:
         # pgrep exits 1 for no match and 2 or more for its own errors, such as a
@@ -3236,7 +3236,7 @@ def _git_maintenance_registered(main_worktree: Path) -> bool:
             text=True,
             timeout=5,
         )
-    except (OSError, subprocess.SubprocessError):
+    except OSError, subprocess.SubprocessError:
         return True  # Cannot tell, so do not touch the user's global config.
     registered = {line.strip() for line in result.stdout.splitlines() if line.strip()}
     return str(main_worktree) in registered or str(main_worktree.resolve()) in registered
@@ -3459,7 +3459,7 @@ def _run_output(cmd: Sequence[str], timeout: float = 5.0) -> str | None:
     """Run a command and return its trimmed stdout, or None on any failure."""
     try:
         result = subprocess.run(list(cmd), capture_output=True, text=True, timeout=timeout, check=False)
-    except (FileNotFoundError, OSError, subprocess.SubprocessError):
+    except FileNotFoundError, OSError, subprocess.SubprocessError:
         return None
     if result.returncode != 0:
         return None

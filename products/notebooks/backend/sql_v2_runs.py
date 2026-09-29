@@ -93,7 +93,7 @@ def touch_run_progress(team_id: int, notebook_short_id: str, run_id: str) -> Non
         NotebookNodeRun.objects.for_team(team_id).filter(id=run_id, status=NotebookNodeRun.Status.RUNNING).update(
             updated_at=timezone.now()
         )
-    except (DjangoValidationError, ValueError):
+    except DjangoValidationError, ValueError:
         # The id comes out of a signed token, so a malformed one means the minting side has a
         # bug. Swallow it here rather than failing the sandbox's fetch over it.
         logger.warning("notebook_run_progress_touch_invalid_run_id", run_id=run_id, team_id=team_id)

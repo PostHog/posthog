@@ -255,7 +255,7 @@ def score_inbox_reports(limit: int | None = None) -> ScoreInboxReportsResult:
                 outcomes = scorer.score_reports(
                     team_id, report_ids, persist=True, now=now, serving=serving, capture=capture
                 )
-            except (scorer.ScoringError, ModelLoadError):
+            except scorer.ScoringError, ModelLoadError:
                 # A pass without a served score is worse than no pass.
                 raise
             except Exception:

@@ -102,7 +102,7 @@ def _adf_to_text(raw: Any) -> str:
         return ""
     try:
         doc = json.loads(raw) if isinstance(raw, str) else raw
-    except (json.JSONDecodeError, TypeError):
+    except json.JSONDecodeError, TypeError:
         return ""
     parts: list[str] = []
 
@@ -136,7 +136,7 @@ def _parse_labels(raw: Any) -> list[str]:
     if isinstance(raw, str):
         try:
             parsed = json.loads(raw)
-        except (json.JSONDecodeError, TypeError):
+        except json.JSONDecodeError, TypeError:
             return []
         return [str(label) for label in parsed] if isinstance(parsed, list) else []
     return []

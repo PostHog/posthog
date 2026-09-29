@@ -68,7 +68,7 @@ def _resolve_date(value: Any, team: Team) -> Optional[datetime]:
         if value.startswith(("-", "+")) or value.lower() in {"today", "yesterday"}:
             return relative_date_parse(value, team.timezone_info)
         return datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         return None
 
 

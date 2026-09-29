@@ -140,7 +140,7 @@ Raw data tables (installs, in-app events, uninstalls, retargeting conversions, a
         except AppsFlyerCredentialsError as e:
             # The token or app id was rejected — surface which one rather than a conflated message.
             return False, str(e)
-        except (AppsFlyerRetryableError, requests.RequestException):
+        except AppsFlyerRetryableError, requests.RequestException:
             # A rate-limit, 5xx, or network blip isn't a bad credential — don't mislabel it.
             return (
                 False,

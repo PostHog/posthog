@@ -90,7 +90,7 @@ def team_from_row(row: dict, *, organization_id: str | None = None) -> CPTeam | 
     """Build a CPTeam from a raw API row, or None when the row is unusable."""
     try:
         team_id = int(row["team_id"])  # defensive: the API serializes ints, but coerce anyway
-    except (KeyError, TypeError, ValueError):
+    except KeyError, TypeError, ValueError:
         logger.warning("cp_teams_row_missing_team_id")
         return None
     schema_name = row.get("schema_name")

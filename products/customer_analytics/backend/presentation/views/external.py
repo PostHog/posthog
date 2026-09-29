@@ -183,7 +183,7 @@ def _authenticate_team(request: Request) -> tuple[Team, None] | tuple[None, Resp
     # is the public project key embedded in client-side JS and visible to anyone.
     try:
         team = Team.objects.get(Q(secret_api_token=api_key) | Q(secret_api_token_backup=api_key))
-    except (Team.DoesNotExist, Team.MultipleObjectsReturned):
+    except Team.DoesNotExist, Team.MultipleObjectsReturned:
         return None, Response({"error": "Invalid API key"}, status=status.HTTP_401_UNAUTHORIZED)
 
     # Same 401 as an unknown token: a valid secret token for a team without customer

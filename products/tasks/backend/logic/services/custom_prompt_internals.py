@@ -341,7 +341,7 @@ async def _refresh_task_run(task_run_id) -> TaskRun:
 
     try:
         return await sync_to_async(_read)()
-    except (OperationalError, InterfaceError):
+    except OperationalError, InterfaceError:
         logger.warning(
             "custom_prompt - poll_for_turn: DB connection dropped during TaskRun refresh, reconnecting, run=%s",
             task_run_id,

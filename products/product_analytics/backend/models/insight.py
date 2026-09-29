@@ -402,7 +402,7 @@ class Insight(Taggable, RootTeamMixin, FileSystemSyncMixin, models.Model):
                         return bool(value.get("showLegend", False))
 
             return bool(self.filters.get("show_legend", False) if self.filters else False)
-        except (AttributeError, TypeError, KeyError):
+        except AttributeError, TypeError, KeyError:
             return False
 
     def _unwrapped_query_kind(self) -> str | None:

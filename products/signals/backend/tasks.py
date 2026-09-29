@@ -259,7 +259,7 @@ def _slack_retry_after_seconds(exc: Exception) -> int | None:
     raw_value = headers.get("Retry-After") or headers.get("retry-after")
     try:
         retry_after = int(raw_value) if raw_value is not None else None
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
     return retry_after if retry_after is not None and retry_after > 0 else None
 

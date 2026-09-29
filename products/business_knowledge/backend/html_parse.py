@@ -57,7 +57,7 @@ def _decode(body: bytes, content_type: str | None) -> str:
         if match:
             try:
                 return body.decode(match.group(1))
-            except (UnicodeDecodeError, LookupError):
+            except UnicodeDecodeError, LookupError:
                 pass
     try:
         return body.decode("utf-8")

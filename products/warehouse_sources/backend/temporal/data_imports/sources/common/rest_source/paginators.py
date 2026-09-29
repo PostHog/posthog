@@ -276,7 +276,7 @@ class OffsetPaginator(BasePaginator):
                     if self.offset >= int(raw_total):
                         self._has_next_page = False
                         return
-                except (TypeError, ValueError):
+                except TypeError, ValueError:
                     pass
 
         if self.total_path:

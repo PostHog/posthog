@@ -303,7 +303,7 @@ def _get_log_v2_rows(
 def _row_timestamp(item: dict[str, Any]) -> int:
     try:
         return int(item.get("timestamp") or 0)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return 0
 
 

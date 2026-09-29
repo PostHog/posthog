@@ -188,7 +188,7 @@ async def finalize_observation_thumbnail_activity(inputs: FinalizeObservationThu
     try:
         # `for_team` resolves the canonical team with a synchronous query of its own.
         await sync_to_async(_link_media)(inputs, content_location)
-    except (IntegrityError, ReplayObservation.DoesNotExist):
+    except IntegrityError, ReplayObservation.DoesNotExist:
         # The observation went away between the render and this write, so nothing will point at the object.
         # The sweep deletes the stored object only for a row that carries a location.
         await ExportedAsset.objects.filter(pk=inputs.media_asset_id, team_id=inputs.team_id).aupdate(

@@ -260,7 +260,7 @@ def _cooldown_seconds_remaining(schema: ExternalDataSchema) -> float:
         return 0.0
     try:
         last_dt = parser.parse(last)
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         return 0.0
     return max(0.0, REPARTITION_COOLDOWN_SECONDS - (timezone.now() - last_dt).total_seconds())
 
@@ -272,7 +272,7 @@ def _seconds_since_last_repartition(schema: ExternalDataSchema) -> float | None:
         return None
     try:
         last_dt = parser.parse(last)
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         return None
     return (timezone.now() - last_dt).total_seconds()
 

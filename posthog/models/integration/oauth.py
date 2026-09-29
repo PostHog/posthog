@@ -60,7 +60,7 @@ def _extract_oauth_error_message(res: requests.Response) -> str | None:
     # Unknown shape — surface a serialized snippet so the customer at least sees what came back.
     try:
         snippet = json.dumps(body)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         snippet = (res.text or "").strip()
     return snippet[:300] if snippet else None
 

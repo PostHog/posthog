@@ -186,7 +186,7 @@ def remember_observed_core_limit(installation_id: str | None, response: "request
         return
     try:
         limit = int(headers.get("x-ratelimit-limit", ""))
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return
     if limit < _SANE_MIN_OBSERVED_LIMIT:
         return

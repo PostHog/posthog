@@ -461,7 +461,7 @@ class SearchErrorTrackingIssuesTool(MaxTool):
                 value = first_exception.get("value")
                 if value:
                     return value
-        except (json.JSONDecodeError, TypeError, KeyError, AttributeError):
+        except json.JSONDecodeError, TypeError, KeyError, AttributeError:
             pass
 
         return None
@@ -476,6 +476,6 @@ class SearchErrorTrackingIssuesTool(MaxTool):
             elif isinstance(date_value, str):
                 dt = datetime.fromisoformat(date_value.replace("Z", "+00:00"))
                 return dt.strftime("%Y-%m-%d %H:%M UTC")
-        except (ValueError, AttributeError):
+        except ValueError, AttributeError:
             return str(date_value) if date_value else ""
         return str(date_value)

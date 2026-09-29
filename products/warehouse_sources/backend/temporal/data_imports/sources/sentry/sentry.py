@@ -418,7 +418,7 @@ def _parse_datetime_value(value: Any) -> datetime | None:
     if isinstance(value, str):
         try:
             parsed_value = dateutil_parser.parse(value)
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             return None
         return coerce_datetime_to_utc(parsed_value)
     return coerce_datetime_to_utc(value)

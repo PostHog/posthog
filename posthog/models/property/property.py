@@ -415,7 +415,7 @@ class Property:
                     pass  # Continue to try JSON parsing
                 else:
                     return value
-            except (ValueError, TypeError):
+            except ValueError, TypeError:
                 pass
 
         try:
@@ -424,7 +424,7 @@ class Property:
             if isinstance(parsed, int | float) and math.isinf(parsed):
                 return value
             return parsed
-        except (json.JSONDecodeError, TypeError):
+        except json.JSONDecodeError, TypeError:
             return value
 
 

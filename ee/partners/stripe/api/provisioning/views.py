@@ -238,7 +238,7 @@ class AccountRequestsView(StripeProvisioningAPIView):
         if requested_team_id is not None:
             try:
                 requested_team_id = int(requested_team_id)
-            except (ValueError, TypeError):
+            except ValueError, TypeError:
                 raise SpecError("invalid_request", "configuration.team_id must be an integer", request_id=request_id)
 
         existing_user = EmailLookupHandler.get_user_by_email(email, is_active=None)
@@ -584,7 +584,7 @@ class StripeResourceAPIView(SignatureCheckedMixin, StripeProvisioningAPIView):
     def parse_resource_team_id(self, resource_id: str, access_token: OAuthAccessToken) -> int:
         try:
             team_id = int(resource_id)
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             raise SpecError("invalid_resource_id", "Invalid resource ID", resource_id=resource_id)
 
         if team_id not in (access_token.scoped_teams or []):

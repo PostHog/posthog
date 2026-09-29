@@ -212,7 +212,7 @@ def finish_personal(request: HttpRequest) -> FinishResult:
             team_integration = GitHubIntegration.integration_from_installation_id(
                 installation_id, authorize_state.team_id, user
             )
-        except (GitHubInstallationAccessFetchError, requests.RequestException):
+        except GitHubInstallationAccessFetchError, requests.RequestException:
             logger.warning(
                 "github_link: failed to create team integration",
                 installation_id=installation_id,

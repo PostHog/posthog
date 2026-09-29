@@ -241,7 +241,7 @@ async def aretry_on_db_connection_drop(operation: Callable[[], Coroutine[Any, An
             raise
         await sync_to_async(_close_db_connections)()
         return await operation()
-    except (django.db.OperationalError, django.db.InterfaceError):
+    except django.db.OperationalError, django.db.InterfaceError:
         await sync_to_async(_close_db_connections)()
         return await operation()
 
@@ -274,7 +274,7 @@ def retry_on_db_connection_drop(operation: Callable[[], T]) -> T:
             raise
         _close_db_connections()
         return operation()
-    except (django.db.OperationalError, django.db.InterfaceError):
+    except django.db.OperationalError, django.db.InterfaceError:
         _close_db_connections()
         return operation()
 

@@ -49,7 +49,7 @@ class MarketplaceGitBasicAuthentication(PersonalAPIKeyAuthentication):
             return None
         try:
             decoded = base64.b64decode(header[len("basic ") :].strip()).decode("utf-8")
-        except (binascii.Error, UnicodeDecodeError, ValueError):
+        except binascii.Error, UnicodeDecodeError, ValueError:
             return None
         username, _, password = decoded.partition(":")
         # Prefer the password field (the credential-helper convention), fall back to username.

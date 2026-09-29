@@ -94,7 +94,7 @@ def scan_references(name: str, files: list[Path], repo_root: Path) -> list[Refer
             continue
         try:
             text = path.read_text()
-        except (OSError, UnicodeDecodeError):
+        except OSError, UnicodeDecodeError:
             continue
         if f"products.{name}.backend" not in text:
             continue
@@ -654,7 +654,7 @@ def execute_move_plan(plan: MovePlan, repo_root: Path = REPO_ROOT, dry_run: bool
         for path in _git_python_files(repo_root):
             try:
                 text = path.read_text()
-            except (OSError, UnicodeDecodeError):
+            except OSError, UnicodeDecodeError:
                 continue
             rewritten = rewrite_paths(text, plan.module_renames)
             if rewritten != text:

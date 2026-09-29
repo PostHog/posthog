@@ -1742,7 +1742,7 @@ class MCPGatewayMemberViewSet(GatewayAdminMixin, TeamAndOrgViewSetMixin, viewset
         try:
             user_id = int(pk or "")
             membership = self._memberships().get(user_id=user_id)
-        except (OrganizationMembership.DoesNotExist, ValueError):
+        except OrganizationMembership.DoesNotExist, ValueError:
             raise NotFound("Member not found.")
         return Response(self._member_rows([membership])[0])
 

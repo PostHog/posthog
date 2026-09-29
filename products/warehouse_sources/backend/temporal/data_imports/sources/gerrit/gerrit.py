@@ -304,7 +304,7 @@ def validate_credentials(
                         "Gerrit returned an unexpectedly large response. "
                         "Check that the instance URL points to your Gerrit instance."
                     )
-                except (json.JSONDecodeError, ValueError):
+                except json.JSONDecodeError, ValueError:
                     return False, (
                         "Gerrit didn't return a valid API response. "
                         "Check that the instance URL points to your Gerrit instance."

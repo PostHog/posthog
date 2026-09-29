@@ -344,7 +344,7 @@ def _try_json(text: str) -> Any | None:
         return None
     try:
         return json.loads(text)
-    except (ValueError, json.JSONDecodeError):
+    except ValueError, json.JSONDecodeError:
         return None
 
 

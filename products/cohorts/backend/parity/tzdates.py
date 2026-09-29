@@ -33,7 +33,7 @@ def resolve_zoneinfo(name: str) -> ZoneInfo:
     ``resolve_tz_or_utc``)."""
     try:
         return ZoneInfo(name)
-    except (ZoneInfoNotFoundError, ValueError):
+    except ZoneInfoNotFoundError, ValueError:
         return ZoneInfo("UTC")
 
 

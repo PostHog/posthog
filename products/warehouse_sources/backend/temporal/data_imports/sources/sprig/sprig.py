@@ -58,7 +58,7 @@ def _format_incremental_value(value: Any) -> Optional[int]:
         return int(value)
     try:
         return int(datetime.fromisoformat(str(value)).timestamp() * 1000)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
 
 

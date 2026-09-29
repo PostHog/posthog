@@ -2410,7 +2410,7 @@ def send_new_ticket_notification(ticket_id: str, team_id: int, first_message_con
     try:
         team = Team.objects.get(pk=team_id)
         ticket = Ticket.objects.get(id=ticket_id, team=team)
-    except (Team.DoesNotExist, Ticket.DoesNotExist):
+    except Team.DoesNotExist, Ticket.DoesNotExist:
         logger.warning(f"Skipping new ticket notification: ticket or team not found (ticket_id={ticket_id})")
         return
 

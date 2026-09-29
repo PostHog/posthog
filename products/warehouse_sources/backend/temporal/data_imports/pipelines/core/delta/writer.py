@@ -127,7 +127,7 @@ def _commit_metadata_layouts(commit: dict[str, Any]) -> list[dict[str, Any]]:
     if isinstance(raw, str):
         try:
             nested = json.loads(raw)
-        except (json.JSONDecodeError, ValueError):
+        except json.JSONDecodeError, ValueError:
             nested = None
         if isinstance(nested, dict):
             layouts.append(nested)

@@ -88,7 +88,7 @@ def _is_older_than_cutoff(value: Any, cutoff: datetime) -> bool:
     if isinstance(value, str):
         try:
             parsed = dateutil_parser.parse(value)
-        except (ValueError, TypeError, OverflowError):
+        except ValueError, TypeError, OverflowError:
             return False
     elif isinstance(value, datetime):
         parsed = value
@@ -268,7 +268,7 @@ def get_rows(
                 # stringified watermark still bounds the walk rather than crashing.
                 try:
                     value = dateutil_parser.parse(str(value))
-                except (ValueError, TypeError, OverflowError):
+                except ValueError, TypeError, OverflowError:
                     value = None
             if isinstance(value, datetime):
                 cutoff = _as_utc(value) - (config.incremental_lookback or timedelta(0))

@@ -307,9 +307,9 @@ def get_file_from_archive(archive: bytes, filename: str, *, json_parse: bool = T
     try:
         try:
             return get_file_from_zip_archive(archive, filename, json_parse=json_parse)
-        except (BadZipFile, FileNotFoundError):
+        except BadZipFile, FileNotFoundError:
             return get_file_from_tgz_archive(archive, filename, json_parse=json_parse)
-    except (KeyError, ReadError):
+    except KeyError, ReadError:
         return None
 
 

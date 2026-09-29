@@ -150,7 +150,7 @@ def _automation_receipts(team_id: int, report_id: str) -> dict[UUID, SignalRepor
                 and str(row.task_id) == content.task_id
             ):
                 receipts[UUID(content.run_id)] = row
-        except (ValidationError, ValueError):
+        except ValidationError, ValueError:
             continue
     return receipts
 

@@ -92,7 +92,7 @@ class PostgreSQLServerIntegration:
         port = config.get("port", None)
         try:
             port = int(port)  # type: ignore
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             raise common.IntegrationError("Port must be an integer")
 
         if port > 65535 or port < 0:

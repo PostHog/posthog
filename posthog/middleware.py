@@ -90,7 +90,7 @@ except ValueError:
 # if sysconf is unavailable on the host (e.g. an exotic OS).
 try:
     _PAGE_SIZE_BYTES: int = os.sysconf("SC_PAGE_SIZE")
-except (OSError, ValueError):
+except OSError, ValueError:
     _PAGE_SIZE_BYTES = 4096
 
 
@@ -101,7 +101,7 @@ def current_rss_mb() -> float | None:
     try:
         with open("/proc/self/statm") as statm:
             resident_pages = int(statm.read().split()[1])
-    except (OSError, ValueError, IndexError):
+    except OSError, ValueError, IndexError:
         return None
     return resident_pages * _PAGE_SIZE_BYTES / (1024 * 1024)
 
@@ -620,7 +620,7 @@ class CHQueries:
         try:
             if name in request.POST:
                 return request.POST[name]
-        except (ValueError, RuntimeError):
+        except ValueError, RuntimeError:
             # Django 5 ASGI: request stream may be closed when accessing POST
             pass
         return None
@@ -1649,7 +1649,7 @@ class ImpersonationReadOnlyMiddleware:
         try:
             body = json.loads(request.body)
             return isinstance(body, dict) and set(body.keys()) == {"set_current_organization"}
-        except (json.JSONDecodeError, UnicodeDecodeError):
+        except json.JSONDecodeError, UnicodeDecodeError:
             return False
 
 
@@ -1714,7 +1714,7 @@ class ImpersonationBlockedPathsMiddleware:
         try:
             body = json.loads(request.body)
             return isinstance(body, dict) and set(body.keys()) == {"set_current_organization"}
-        except (json.JSONDecodeError, UnicodeDecodeError):
+        except json.JSONDecodeError, UnicodeDecodeError:
             return False
 
 

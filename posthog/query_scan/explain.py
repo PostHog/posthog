@@ -134,7 +134,7 @@ def parse_query_plan(payload: object) -> QueryPlan:
     if isinstance(payload, str | bytes | bytearray):
         try:
             payload = json.loads(payload)
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             return QueryPlan(reads=())
 
     reads: list[PlanTableRead] = []

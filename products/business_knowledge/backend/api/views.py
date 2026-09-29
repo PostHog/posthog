@@ -264,7 +264,7 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def retrieve(self, request: Request, pk: str, **kwargs) -> Response:
         try:
             source_id = UUID(pk)
-        except (ValueError, DjangoValidationError):
+        except ValueError, DjangoValidationError:
             raise exceptions.NotFound()
         source = logic.get_for_team(source_id, self.team_id)
         if source is None:
@@ -278,7 +278,7 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def partial_update(self, request: Request, pk: str, **kwargs) -> Response:
         try:
             source_id = UUID(pk)
-        except (ValueError, DjangoValidationError):
+        except ValueError, DjangoValidationError:
             raise exceptions.NotFound()
 
         try:
@@ -361,7 +361,7 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             )
         except logic.InvalidUrlError:
             raise exceptions.ValidationError({"url": "URL is not reachable."})
-        except (logic.UrlFetchFailedError, logic.EmptyContentError):
+        except logic.UrlFetchFailedError, logic.EmptyContentError:
             raise exceptions.ValidationError({"url": "Could not fetch the URL."})
         except logic.SourceBusyError:
             raise _ConflictError("A refresh is already in progress for this source.")
@@ -383,7 +383,7 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def documents(self, request: Request, pk: str, **kwargs) -> Response:
         try:
             source_id = UUID(pk)
-        except (ValueError, DjangoValidationError):
+        except ValueError, DjangoValidationError:
             raise exceptions.NotFound()
         documents = logic.list_live_documents_for_source(source_id, self.team_id)
         if documents is None:
@@ -402,7 +402,7 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def text(self, request: Request, pk: str, **kwargs) -> Response:
         try:
             source_id = UUID(pk)
-        except (ValueError, DjangoValidationError):
+        except ValueError, DjangoValidationError:
             raise exceptions.NotFound()
         try:
             content = logic.get_source_text_for_team(source_id, self.team_id)
@@ -421,7 +421,7 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def refresh(self, request: Request, pk: str, **kwargs) -> Response:
         try:
             source_id = UUID(pk)
-        except (ValueError, DjangoValidationError):
+        except ValueError, DjangoValidationError:
             raise exceptions.NotFound()
         try:
             source = logic.claim_refresh_source(source_id=source_id, team_id=self.team_id)
@@ -461,7 +461,7 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def destroy(self, request: Request, pk: str, **kwargs) -> Response:
         try:
             source_id = UUID(pk)
-        except (ValueError, DjangoValidationError):
+        except ValueError, DjangoValidationError:
             raise exceptions.NotFound()
         try:
             deleted = logic.delete_source(source_id, self.team_id)
@@ -524,7 +524,7 @@ class KnowledgeDocumentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def window(self, request: Request, pk: str, **kwargs) -> Response:
         try:
             document_id = UUID(pk)
-        except (ValueError, DjangoValidationError):
+        except ValueError, DjangoValidationError:
             raise exceptions.NotFound()
 
         # 404 for unknown / cross-team docs before touching the chunk window so
@@ -611,7 +611,7 @@ class KnowledgeDocumentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return default
         try:
             return int(raw)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             raise exceptions.ValidationError({name: "Must be an integer."})
 
 

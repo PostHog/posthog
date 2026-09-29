@@ -205,7 +205,7 @@ def _time_unix_nano(entry_timestamp: Any) -> int:
     if isinstance(entry_timestamp, str):
         try:
             return int(datetime.fromisoformat(entry_timestamp).timestamp() * 1_000_000_000)
-        except (ValueError, OverflowError):
+        except ValueError, OverflowError:
             pass
     return time.time_ns()
 

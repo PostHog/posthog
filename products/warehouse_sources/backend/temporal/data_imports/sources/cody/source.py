@@ -141,7 +141,7 @@ Sourcegraph Analytics is available to Sourcegraph Enterprise customers. Create a
             return True, None
         except CodyCredentialsError as e:
             return False, str(e)
-        except (CodyRetryableError, requests.RequestException):
+        except CodyRetryableError, requests.RequestException:
             # A rate-limit, 5xx, or network blip isn't a bad credential — don't mislabel it.
             return (
                 False,

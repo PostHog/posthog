@@ -115,7 +115,7 @@ def _to_unix_seconds(value: Any) -> int | None:
         return int(datetime(value.year, value.month, value.day, tzinfo=UTC).timestamp())
     try:
         return int(value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
 
 

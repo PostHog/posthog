@@ -804,7 +804,7 @@ def get_installed_coder_version() -> str | None:
         if not version:
             return None
         return _normalize_version(version)
-    except (json.JSONDecodeError, AttributeError):
+    except json.JSONDecodeError, AttributeError:
         return None
 
 

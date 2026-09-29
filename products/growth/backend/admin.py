@@ -413,7 +413,7 @@ class EnrichmentPromptConfigForm(forms.ModelForm):
                     raise ValidationError(f"output_fields entry {key!r} has a range but is not a number.")
                 try:
                     low, high = float(entry["min"]), float(entry["max"])
-                except (TypeError, ValueError):
+                except TypeError, ValueError:
                     raise ValidationError(f"output_fields entry {key!r} has a non-numeric 'min' or 'max'.")
                 if low > high:
                     raise ValidationError(f"output_fields entry {key!r} has 'min' {low} above 'max' {high}.")

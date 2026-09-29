@@ -540,7 +540,7 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
             return None
         try:
             stamped = datetime.fromisoformat(raw)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             return None
         return stamped if stamped.tzinfo is not None else None
 
@@ -1358,7 +1358,7 @@ def _coerce_incremental_datetime(value: str) -> datetime | int:
     """
     try:
         return _parse_datetime_string(value)
-    except (parser.ParserError, OverflowError):
+    except parser.ParserError, OverflowError:
         stripped = value.strip()
         if stripped.lstrip("-").isdigit():
             return int(stripped)

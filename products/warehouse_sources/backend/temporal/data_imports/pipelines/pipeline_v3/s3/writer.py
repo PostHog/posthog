@@ -68,7 +68,7 @@ def _object_size(file_info: object) -> int:
             continue
         try:
             return int(value)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             continue
     return 0
 

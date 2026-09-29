@@ -204,7 +204,7 @@ class PodMemory:
         try:
             with open(path) as f:
                 raw = f.read().strip()
-        except (OSError, ValueError):
+        except OSError, ValueError:
             return None
         if raw == "max":  # cgroup v2 unlimited
             return None

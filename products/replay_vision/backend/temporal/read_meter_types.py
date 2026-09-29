@@ -46,7 +46,7 @@ def parse_bucket_hour(hour_iso: str) -> dt.datetime | None:
     """
     try:
         hour = dt.datetime.fromisoformat(hour_iso)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
     return hour if hour.tzinfo else hour.replace(tzinfo=dt.UTC)
 
@@ -66,7 +66,7 @@ def _spend_since(by_hour: dict[str, int] | None, cutoff: dt.datetime) -> int:
             continue
         try:
             total += int(read_bytes)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             pass
     return total
 

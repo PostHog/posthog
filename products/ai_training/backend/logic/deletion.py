@@ -19,7 +19,7 @@ def queue_training_deletion(team_id: int, kind: str, identifiers: Sequence[str] 
         for value in identifiers:
             try:
                 session_id = uuid.UUID(value)
-            except (ValueError, AttributeError):
+            except ValueError, AttributeError:
                 continue
             if session_id.version == 7:
                 normalized.append(str(session_id))

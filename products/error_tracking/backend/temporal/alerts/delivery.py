@@ -314,14 +314,14 @@ def deliver_alert_notifications(inputs: AlertDeliveryWorkflowInputs, *, final_at
 def _slack_error_code(error: SlackApiError) -> str:
     try:
         return str(error.response["error"])
-    except (KeyError, TypeError):
+    except KeyError, TypeError:
         return "unknown"
 
 
 def _slack_retry_after(error: SlackApiError) -> timedelta:
     try:
         return timedelta(seconds=int(error.response.headers.get("Retry-After", 0)))
-    except (AttributeError, TypeError, ValueError):
+    except AttributeError, TypeError, ValueError:
         return timedelta(0)
 
 

@@ -36,7 +36,7 @@ def update_pull_request_assignments(payload: dict, pr_state: str | None) -> None
             pr_state=pr_state,
             merged_at=merged_at,
         )
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         logger.warning("github_pr_webhook_signal_assignment_missing_number", pr_url=pull_request.get("html_url"))
     except Exception:
         logger.exception("github_pr_webhook_signal_assignment_update_failed", pr_url=pull_request.get("html_url"))
@@ -51,7 +51,7 @@ def refresh_pull_request_review_decisions(payload: dict) -> None:
         return
     try:
         pr_number = int(number)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         logger.warning("github_pr_webhook_signal_review_decision_missing_number", pr_url=pull_request.get("html_url"))
         return
 

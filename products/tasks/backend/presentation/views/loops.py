@@ -129,7 +129,7 @@ def _idempotency_key(request) -> str | None:
 def _content_length(request) -> int:
     try:
         return int(request.META.get("CONTENT_LENGTH") or 0)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return 0
 
 

@@ -791,7 +791,7 @@ def _run_data_imports_verification_checks(
         raw_value = typing.cast(str | bytes | int | float, row[0])
         try:
             observed = float(raw_value)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             logger.warning(
                 "DuckLake verification query returned a non-numeric value",
                 check=query.name,

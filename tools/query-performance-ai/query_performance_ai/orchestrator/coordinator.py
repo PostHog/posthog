@@ -186,7 +186,7 @@ def _detect_current_branch(cwd: Path) -> str | None:
             cwd=cwd,
             timeout=5,
         )
-    except (FileNotFoundError, subprocess.TimeoutExpired):
+    except FileNotFoundError, subprocess.TimeoutExpired:
         return None
     branch = (result.stdout or "").strip()
     return branch or None
@@ -786,7 +786,7 @@ def _check_branch_on_remote(repo_root: Path, repository: str, branch: str) -> No
             cwd=repo_root,
             timeout=10,
         )
-    except (FileNotFoundError, subprocess.TimeoutExpired):
+    except FileNotFoundError, subprocess.TimeoutExpired:
         _log(f"warning: couldn't check whether {branch!r} exists on origin (git unavailable)")
         return
     if ls_remote.returncode != 0 or not ls_remote.stdout.strip():

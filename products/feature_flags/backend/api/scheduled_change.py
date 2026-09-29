@@ -263,7 +263,7 @@ class ScheduledChangeSerializer(serializers.ModelSerializer):
 
         try:
             feature_flag = FeatureFlag.objects.get(id=record_id, team_id=team_id)
-        except (FeatureFlag.DoesNotExist, ValueError):
+        except FeatureFlag.DoesNotExist, ValueError:
             # ValueError: non-numeric record_id (record_id is a free-form CharField) — treat as not found.
             raise serializers.ValidationError("Feature flag not found")
 
@@ -450,7 +450,7 @@ class ScheduledChangeViewSet(ApprovalHandlingMixin, TeamAndOrgViewSetMixin, view
             return
         try:
             feature_flag = FeatureFlag.objects.get(id=instance.record_id, team_id=instance.team_id)
-        except (FeatureFlag.DoesNotExist, ValueError):
+        except FeatureFlag.DoesNotExist, ValueError:
             # Orphaned schedule (flag deleted / non-numeric record_id): allow team-scoped cleanup.
             return
         # Reuse the viewset's access-control instance (warmed by safely_get_queryset) instead of

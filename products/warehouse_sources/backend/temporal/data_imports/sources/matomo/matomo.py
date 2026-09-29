@@ -157,7 +157,7 @@ def get_rows(
         if should_use_incremental_field and db_incremental_field_last_value is not None:
             try:
                 min_timestamp = int(float(db_incremental_field_last_value))
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 min_timestamp = 0
 
         # Defer visits that may still be in progress so their action list is

@@ -551,7 +551,7 @@ def _call_native_tool(
         except (ConnectorToolError, GitHubIntegrationError) as error:
             outcome = ConnectorCallResult(status=ConnectorCallStatus.UPSTREAM_ERROR, detail=str(error))
             continue
-        except (ValueError, TypeError, AttributeError, KeyError):
+        except ValueError, TypeError, AttributeError, KeyError:
             return ConnectorCallResult(
                 status=ConnectorCallStatus.UPSTREAM_ERROR, detail="GitHub returned an invalid response."
             )

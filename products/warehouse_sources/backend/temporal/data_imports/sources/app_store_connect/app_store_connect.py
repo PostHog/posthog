@@ -816,7 +816,7 @@ def _normalize_report_column(name: str) -> str:
 def _decompress_report(payload: bytes) -> str:
     try:
         raw = gzip.decompress(payload)
-    except (OSError, EOFError):
+    except OSError, EOFError:
         # urllib3 already unwraps a `Content-Encoding: gzip` body, so the payload can arrive as plain TSV.
         raw = payload
     return raw.decode("utf-8-sig", errors="replace")

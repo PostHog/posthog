@@ -77,7 +77,7 @@ def _fetch_event_properties_from_valkey(inputs: EventPropertiesWorkflowInputs) -
 
     try:
         properties = json.loads(payload)
-    except (json.JSONDecodeError, TypeError, UnicodeDecodeError):
+    except json.JSONDecodeError, TypeError, UnicodeDecodeError:
         ERROR_TRACKING_EVENT_PROPERTIES_READS.labels(source="valkey", outcome="invalid_payload").inc()
         return None
 

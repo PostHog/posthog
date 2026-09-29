@@ -133,7 +133,7 @@ def _require_activity_timestamp(value: Any) -> str:
     # the Email Activity query.
     try:
         return _to_activity_timestamp(value)
-    except (TypeError, ValueError, OverflowError, OSError):
+    except TypeError, ValueError, OverflowError, OSError:
         raise ValueError(f"SendGrid resume state contains an unexpected timestamp: {value!r}")
 
 
@@ -147,7 +147,7 @@ def _offset_from_url(url: str) -> int:
     values = parse_qs(urlparse(url).query).get("offset", ["0"])
     try:
         return int(values[0])
-    except (ValueError, IndexError):
+    except ValueError, IndexError:
         return 0
 
 
@@ -217,7 +217,7 @@ class SendGridMessagesPaginator(BasePaginator):
                 continue
             try:
                 normalized = _to_activity_timestamp(raw)
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 continue
             if oldest is None or normalized < oldest:
                 oldest = normalized

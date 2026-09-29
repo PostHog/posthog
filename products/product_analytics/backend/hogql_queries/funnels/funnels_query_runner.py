@@ -181,7 +181,7 @@ class FunnelsQueryRunner(AnalyticsQueryRunner[FunnelsQueryResponse]):
                 continue
             try:
                 cohort_id = int(value)  # type: ignore[arg-type]
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 continue
             try:
                 label = get_breakdown_cohort_name(cohort_id, self.team)

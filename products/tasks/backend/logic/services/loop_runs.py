@@ -266,7 +266,7 @@ def _render_payload_trigger_context(trigger_type: str, payload: dict | None) -> 
 
     try:
         raw = json.dumps(payload, indent=2, default=str, sort_keys=True)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         raw = str(payload)
 
     encoded = raw.encode("utf-8")

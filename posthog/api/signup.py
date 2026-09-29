@@ -743,7 +743,7 @@ class InviteSignupViewset(generics.CreateAPIView):
         try:
             # nosemgrep: idor-lookup-without-org, idor-taint-user-input-to-org-model (invite UUID serves as auth token)
             invite: OrganizationInvite = OrganizationInvite.objects.get(id=invite_id)
-        except (OrganizationInvite.DoesNotExist, ValidationError):
+        except OrganizationInvite.DoesNotExist, ValidationError:
             raise serializers.ValidationError("The provided invite ID is not valid.")
 
         user = request.user if request.user.is_authenticated else None
@@ -880,7 +880,7 @@ def process_social_invite_signup(
         invite: Union[OrganizationInvite, TeamInviteSurrogate] = OrganizationInvite.objects.select_related(
             "organization"
         ).get(id=invite_id)
-    except (OrganizationInvite.DoesNotExist, ValidationError):
+    except OrganizationInvite.DoesNotExist, ValidationError:
         try:
             invite = TeamInviteSurrogate(invite_id)
         except Team.DoesNotExist:
@@ -964,7 +964,7 @@ def process_social_domain_jit_provisioning_signup(
                     if is_delegation:
                         strategy.session_set("next", "/onboarding")
 
-                except (OrganizationInvite.DoesNotExist, InviteExpiredException):
+                except OrganizationInvite.DoesNotExist, InviteExpiredException:
                     user = User.objects.create_and_join(
                         organization=domain_instance.organization,
                         email=email,
@@ -1000,7 +1000,7 @@ def _resolve_invite_organization(invite_id: str) -> Optional[Organization]:
     try:
         # nosemgrep: idor-lookup-without-org (invite UUID from server session serves as auth token)
         invite = OrganizationInvite.objects.select_related("organization").get(id=invite_id)
-    except (OrganizationInvite.DoesNotExist, ValidationError):
+    except OrganizationInvite.DoesNotExist, ValidationError:
         return None
     return invite.organization
 

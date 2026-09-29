@@ -211,7 +211,7 @@ class BearerResourceAPIView(ProvisioningAPIView):
         """
         try:
             team_id = int(resource_id)
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             raise ProvisioningError("invalid_resource_id", "Invalid resource ID", resource_id=resource_id)
 
         if team_id not in (access_token.scoped_teams or []):

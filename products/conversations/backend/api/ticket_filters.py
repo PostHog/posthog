@@ -89,7 +89,7 @@ def _is_assignee_entry(value: Any) -> bool:
     if value.get("type") == "user":
         try:
             int(entry_id)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             return False
         return True
     if value.get("type") == "role":
@@ -427,12 +427,12 @@ def _assignee_filter_q(entries: list[Any], user: User | None) -> Q:
         elif isinstance(entry, dict) and entry.get("type") == "user":
             try:
                 user_ids.append(int(entry["id"]))
-            except (ValueError, TypeError):
+            except ValueError, TypeError:
                 pass
         elif isinstance(entry, dict) and entry.get("type") == "role":
             try:
                 role_ids.append(uuid.UUID(str(entry["id"])))
-            except (ValueError, AttributeError):
+            except ValueError, AttributeError:
                 pass
     assignee_q = Q()
     if user_ids:

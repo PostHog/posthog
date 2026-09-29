@@ -68,7 +68,7 @@ def _log_web_worker_started() -> None:
         try:
             with open("/proc/self/statm") as statm:
                 rss_mb = int(statm.read().split()[1]) * os.sysconf("SC_PAGE_SIZE") / (1024 * 1024)
-        except (OSError, ValueError, IndexError):
+        except OSError, ValueError, IndexError:
             rss_mb = None
 
         structlog.get_logger("posthog.wsgi").info(

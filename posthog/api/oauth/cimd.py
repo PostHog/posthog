@@ -228,7 +228,7 @@ def _parse_cache_ttl(response: requests.Response) -> int:
             try:
                 max_age = int(directive.split("=", 1)[1])
                 return max(CIMD_CACHE_MIN_TTL, min(max_age, CIMD_CACHE_MAX_TTL))
-            except (ValueError, IndexError):
+            except ValueError, IndexError:
                 pass
     return CIMD_CACHE_DEFAULT_TTL
 
@@ -902,7 +902,7 @@ def fetch_and_upsert_cimd_application(
                 },
             )
             return new_app
-        except (IntegrityError, ValidationError):
+        except IntegrityError, ValidationError:
             app = OAuthApplication.objects.filter(client_id=url).first()
             if app:
                 logger.debug("cimd_app_race_resolved", url=url, app_id=str(app.pk))

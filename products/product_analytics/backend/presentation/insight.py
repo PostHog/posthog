@@ -1986,7 +1986,7 @@ class InsightViewSet(
         try:
             days = int(request.GET.get("days", "7"))
             limit = min(int(request.GET.get("limit", "10")), 100)
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             raise ValidationError("days and limit must be valid integers")
 
         cutoff_date = now() - timedelta(days=days)

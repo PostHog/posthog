@@ -944,7 +944,7 @@ def JSONExtractFloat(args: list[Any], team: Optional["Team"], stdout: Optional[l
     val = get_nested_value(obj, path, True)
     try:
         return float(val)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
 
 
@@ -959,7 +959,7 @@ def JSONExtractInt(args: list[Any], team: Optional["Team"], stdout: Optional[lis
     val = get_nested_value(obj, path, True)
     try:
         return int(val)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
 
 

@@ -80,7 +80,7 @@ class ClusteringJobSerializer(serializers.ModelSerializer):
                 continue
             try:
                 referenced_ids.append(int(cohort_value))
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 # Non-numeric cohort references (e.g. name lookups) are passed
                 # through untouched — the resolver validates them at query time.
                 continue

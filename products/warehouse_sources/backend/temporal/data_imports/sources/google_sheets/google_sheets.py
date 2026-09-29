@@ -206,7 +206,7 @@ def _is_retryable_api_error(e: gspread.exceptions.APIError) -> bool:
 
     try:
         return int(e.code) in _RETRYABLE_API_ERROR_CODES
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return False
 
 

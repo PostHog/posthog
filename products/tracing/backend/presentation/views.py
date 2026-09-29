@@ -1167,7 +1167,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             return default
         try:
             parsed = int(value)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             return default
         return max(minimum, parsed)
 
@@ -1485,7 +1485,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 )
             try:
                 symbols = [self.get_model(s, SourceSymbol) for s in raw_symbols]
-            except (ValidationError, ValueError, ParseError):
+            except ValidationError, ValueError, ParseError:
                 return Response(
                     {"detail": "Each symbol must be an object with integer `startLine` and `endLine`."},
                     status=status.HTTP_400_BAD_REQUEST,
@@ -1543,7 +1543,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 if query_data.get("filterGroup")
                 else None
             )
-        except (ValidationError, ValueError, ParseError):
+        except ValidationError, ValueError, ParseError:
             filter_group = None
 
         spans_query = TraceSpansQuery(
@@ -1577,7 +1577,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 if query_data.get("filterGroup")
                 else None
             )
-        except (ValidationError, ValueError, ParseError):
+        except ValidationError, ValueError, ParseError:
             filter_group = None
 
         root_spans = query_data.get("rootSpans", True)
@@ -1621,7 +1621,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 if query_data.get("filterGroup")
                 else None
             )
-        except (ValidationError, ValueError, ParseError):
+        except ValidationError, ValueError, ParseError:
             filter_group = None
 
         response = run_latency_heatmap_query(
@@ -1648,7 +1648,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 if query_data.get("filterGroup")
                 else None
             )
-        except (ValidationError, ValueError, ParseError):
+        except ValidationError, ValueError, ParseError:
             filter_group = None
 
         compare_filter = self._parse_compare_filter(query_data)
@@ -1733,7 +1733,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 if query_data.get("filterGroup")
                 else None
             )
-        except (ValidationError, ValueError, ParseError):
+        except ValidationError, ValueError, ParseError:
             filter_group = None
 
         compare_filter = self._parse_compare_filter(query_data)
@@ -1805,7 +1805,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 if query_data.get("filterGroup")
                 else None
             )
-        except (ValidationError, ValueError, ParseError):
+        except ValidationError, ValueError, ParseError:
             filter_group = None
 
         compare_filter = self._parse_compare_filter(query_data)
@@ -1858,7 +1858,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 if query_data.get("filterGroup")
                 else None
             )
-        except (ValidationError, ValueError, ParseError):
+        except ValidationError, ValueError, ParseError:
             filter_group = None
 
         offset = max(int(query_data.get("offset") or 0), 0)

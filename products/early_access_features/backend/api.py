@@ -241,7 +241,7 @@ class EarlyAccessFeatureSerializer(UserAccessControlSerializerMixin, serializers
             if not Role.objects.filter(id=assignee["id"], organization=organization).exists():
                 raise serializers.ValidationError({"assignee": "Assignee role does not belong to this organization."})
             return {"assigned_user_id": None, "assigned_role_id": assignee["id"]}
-        except (ValueError, TypeError, DjangoValidationError):
+        except ValueError, TypeError, DjangoValidationError:
             raise serializers.ValidationError({"assignee": "Assignee ID is invalid."})
 
     def update(self, instance: EarlyAccessFeature, validated_data: Any) -> EarlyAccessFeature:

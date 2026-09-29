@@ -16,7 +16,7 @@ def _umap_threading_available() -> bool:
         reducer = umap.UMAP(n_components=2, n_neighbors=2, random_state=42)
         reducer.fit_transform(np.random.randn(5, 10))
         return True
-    except (ValueError, ImportError):
+    except ValueError, ImportError:
         return False
 
 

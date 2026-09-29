@@ -85,7 +85,7 @@ def _ms_to_iso(value: Any) -> Any:
         return value
     try:
         millis = int(value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return value
     # Build from an exact millisecond timedelta — `fromtimestamp(millis / 1000)` loses
     # precision in the float division and can land a millisecond off.
@@ -118,7 +118,7 @@ def _to_epoch_ms(value: Any) -> Optional[int]:
         return round(datetime.combine(value, datetime.min.time(), tzinfo=UTC).timestamp() * 1000)
     try:
         return int(value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
 
 

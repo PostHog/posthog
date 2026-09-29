@@ -48,7 +48,7 @@ def _parse_retry_after(response: requests.Response) -> float | None:
         return None
     try:
         seconds = float(raw)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
     return max(0.0, seconds)
 

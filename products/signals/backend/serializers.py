@@ -1347,7 +1347,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
             return None
         try:
             data = json.loads(art.content)
-        except (json.JSONDecodeError, TypeError, ValueError):
+        except json.JSONDecodeError, TypeError, ValueError:
             return None
         return data if isinstance(data, dict) else None
 
@@ -1365,7 +1365,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
             return None
         try:
             data = json.loads(art.content)
-        except (json.JSONDecodeError, TypeError, ValueError):
+        except json.JSONDecodeError, TypeError, ValueError:
             return None
         if not isinstance(data, dict):
             return None
@@ -1396,7 +1396,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
             return None
         try:
             data = json.loads(art.content)
-        except (json.JSONDecodeError, TypeError, ValueError):
+        except json.JSONDecodeError, TypeError, ValueError:
             return None
         return data if isinstance(data, dict) else None
 
@@ -1429,7 +1429,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
             return None
         try:
             data = json.loads(art.content)
-        except (json.JSONDecodeError, TypeError, ValueError):
+        except json.JSONDecodeError, TypeError, ValueError:
             return None
         return data if isinstance(data, dict) else None
 
@@ -1468,7 +1468,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
             if not all(isinstance(head, str) and head for head in heads):
                 raise ValueError("readable head names must be non-empty strings")
             readable_heads = sorted(heads)
-        except (ValueError, KeyError, TypeError, AttributeError):
+        except ValueError, KeyError, TypeError, AttributeError:
             logger.warning("signals.ranking_score.invalid_content", report_id=str(obj.id), artefact_id=str(art.id))
             return None
         return {
@@ -1844,7 +1844,7 @@ CHECK_RESULT_HIDDEN_EXPLANATION = (
 def _is_uuid(value: str) -> bool:
     try:
         uuid.UUID(value)
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         return False
     return True
 
@@ -2115,7 +2115,7 @@ class SignalReportArtefactSerializer(serializers.ModelSerializer):
     def get_content(self, obj: SignalReportArtefact) -> dict | list:
         try:
             parsed = json.loads(obj.content)
-        except (json.JSONDecodeError, ValueError):
+        except json.JSONDecodeError, ValueError:
             return {}
 
         # Enrich suggested_reviewers with fresh PostHog user info at read time

@@ -132,7 +132,7 @@ def _retry_after_seconds(response: requests.Response) -> Optional[float]:
             continue
         try:
             seconds = float(raw)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             continue
         if seconds >= 0:
             return min(seconds, MAX_BACKOFF_SECONDS)

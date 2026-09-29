@@ -240,7 +240,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             split = helpers.get_nonsensitive_and_sensitive_field_names(source.get_source_config.fields)
             # CDC fields aren't form fields but are non-secret operational config the UI needs.
             nonsensitive = split.nonsensitive | helpers._CDC_EXPOSED_JOB_INPUT_KEYS
-        except (ValueError, KeyError):
+        except ValueError, KeyError:
             representation["job_inputs"] = {}
             return representation
 
@@ -976,7 +976,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
             credential = PendingSourceCredential.objects.for_team(self.team_id).get(
                 id=credential_id, created_by=cast(User, self.request.user), expires_at__gt=timezone.now()
             )
-        except (PendingSourceCredential.DoesNotExist, ValueError, TypeError, DjangoValidationError):
+        except PendingSourceCredential.DoesNotExist, ValueError, TypeError, DjangoValidationError:
             return credential_store.ResolvedStoredCredential(
                 payload=payload,
                 credential=None,

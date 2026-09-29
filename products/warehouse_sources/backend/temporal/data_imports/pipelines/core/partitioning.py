@@ -219,7 +219,7 @@ def append_partition_key_to_table(
                     # isn't integer-like lands in the null bucket instead of crashing the sync.
                     try:
                         coerced_key_value = int(key_value)
-                    except (TypeError, ValueError):
+                    except TypeError, ValueError:
                         partition_array.append(NULL_NUMERICAL_PARTITION)
                     else:
                         partition_array.append(str(coerced_key_value // partition_size))
@@ -250,7 +250,7 @@ def append_partition_key_to_table(
                     try:
                         date = parser.parse(date)
                         partition_array.append(date.strftime(date_format))
-                    except (ValueError, OverflowError):
+                    except ValueError, OverflowError:
                         # Non-date-like string (e.g. a UUID primary key) — treat as unknown date
                         partition_array.append("1970-01")
                 elif isinstance(date, str):

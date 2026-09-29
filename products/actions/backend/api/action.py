@@ -567,7 +567,7 @@ class ActionViewSet(
             return None
         try:
             value = int(raw)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             return None
         return value if value >= 0 else None
 
@@ -646,7 +646,7 @@ class ActionViewSet(
         if tags:
             try:
                 tags_list = json.loads(tags)
-            except (json.JSONDecodeError, TypeError):
+            except json.JSONDecodeError, TypeError:
                 tags_list = None
             if tags_list:
                 actions = actions.filter(tagged_items__tag__name__in=tags_list).distinct()

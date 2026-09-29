@@ -102,7 +102,7 @@ async def get_request_json(request: Request) -> dict[str, Any] | None:
         try:
             data = json.loads(body)
             parsed = data if isinstance(data, dict) else None
-        except (json.JSONDecodeError, TypeError):
+        except json.JSONDecodeError, TypeError:
             parsed = None
     request.state._cached_json = parsed
     return parsed

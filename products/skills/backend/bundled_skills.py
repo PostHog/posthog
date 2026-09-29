@@ -80,7 +80,7 @@ def _declared_name(entry_point: Path) -> str | None:
         if match is None:
             return None
         frontmatter = yaml.safe_load(match.group(1))
-    except (OSError, yaml.YAMLError):
+    except OSError, yaml.YAMLError:
         return None
     if not isinstance(frontmatter, dict):
         return None

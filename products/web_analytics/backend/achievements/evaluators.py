@@ -200,7 +200,7 @@ def _daily_buckets(checkpoint: dict[str, object], fingerprints: list[list[object
             for day, counts in daily.items()
             if isinstance(counts, list) and len(counts) == len(fingerprints)
         }
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
 
 

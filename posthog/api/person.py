@@ -672,7 +672,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         except ValueError:
             try:
                 int(person_id)
-            except (ValueError, TypeError):
+            except ValueError, TypeError:
                 raise ValidationError(
                     f"The ID provided does not look like a personID. If you are using a distinctId, please use /persons?distinct_id={person_id} instead."
                 )
@@ -1775,7 +1775,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         try:
             uuids = [str(uuid.UUID(u)) for u in uuids]
-        except (ValueError, AttributeError):
+        except ValueError, AttributeError:
             raise ValidationError("One or more UUIDs are invalid.")
 
         # MinimalPersonSerializer only renders 10 distinct_ids, so bound the fetch to match.

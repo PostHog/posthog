@@ -103,7 +103,7 @@ class Migration(SchemaMigration):
     def _parse_value_key(key: str) -> Optional[dict]:
         try:
             parsed = json.loads(key)
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             return None
         return parsed if isinstance(parsed, dict) else None
 
@@ -111,7 +111,7 @@ class Migration(SchemaMigration):
     def _parse_position_key(key: str) -> Optional[int]:
         try:
             return int(key)
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             return None
 
     @staticmethod

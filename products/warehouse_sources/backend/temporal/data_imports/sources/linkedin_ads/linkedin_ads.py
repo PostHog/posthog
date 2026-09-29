@@ -96,7 +96,7 @@ def _extract_type_and_id_from_urn(urn: str) -> tuple[str, int] | None:
     try:
         _, _, urn_type, id_str = urn.split(":")
         return urn_type, int(id_str)
-    except (ValueError, AttributeError):
+    except ValueError, AttributeError:
         return None
 
 
@@ -352,7 +352,7 @@ def _coerce_metric(value: typing.Any, field_name: str, resource_name: str, *, as
     # Everything else routes through float, since `int()` rejects "3.0".
     try:
         numeric = float(value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         module_logger.warning(
             "linkedin_ads.unparseable_metric",
             resource=resource_name,

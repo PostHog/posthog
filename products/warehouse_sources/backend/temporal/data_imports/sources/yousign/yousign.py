@@ -98,7 +98,7 @@ def _date_filter_value(value: Any) -> str | None:
     else:
         try:
             as_date = dateutil_parser.parse(str(value)).date()
-        except (ValueError, OverflowError):
+        except ValueError, OverflowError:
             return None
     return (as_date - timedelta(days=1)).isoformat()
 
@@ -326,7 +326,7 @@ def _maybe_json_loads(value: Any) -> Any:
 def _event_time(row: dict[str, Any]) -> int:
     try:
         return int(row.get("event_time") or 0)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return 0
 
 

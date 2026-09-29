@@ -115,7 +115,7 @@ def _deserialize_scout_costs(value: object) -> ScoutCosts | None:
                     reports_touched=counts[2],
                 )
             )
-    except (InvalidOperation, KeyError, TypeError, ValueError):
+    except InvalidOperation, KeyError, TypeError, ValueError:
         return None
     return ScoutCosts(window_days=window_days, scouts=scouts, available=available)
 

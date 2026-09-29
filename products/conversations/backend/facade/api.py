@@ -297,7 +297,7 @@ def list_support_bot_channels(team_id: int, *, members_only: bool = False) -> li
         raise SupportSlackNotConfigured()
     try:
         channels = _list_support_bot_channels(team, members_only=members_only)
-    except (SupportSlackNotConfigured, SupportSlackChannelsUnavailable):
+    except SupportSlackNotConfigured, SupportSlackChannelsUnavailable:
         raise
     except Exception:
         # slack_sdk errors must not cross the boundary as slack_sdk types.
@@ -315,7 +315,7 @@ def post_support_message(team_id: int, channel_id: str, text: str) -> str:
     try:
         team = Team.objects.get(id=team_id)
         client = get_slack_client(team)
-    except (Team.DoesNotExist, ValueError):
+    except Team.DoesNotExist, ValueError:
         raise SupportSlackNotConfigured()
 
     message_kwargs: dict[str, Any] = {}
@@ -337,7 +337,7 @@ def post_support_message(team_id: int, channel_id: str, text: str) -> str:
             raw_retry_after = (getattr(slack_response, "headers", None) or {}).get("Retry-After")
             try:
                 retry_after = float(raw_retry_after) if raw_retry_after is not None else None
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 retry_after = None
         raise SupportMessageSendError(error_code, retry_after=retry_after)
     except Exception:

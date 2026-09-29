@@ -398,7 +398,7 @@ def _link_target(*, comment: Comment, task: Task) -> _LinkTarget | None:
             .only("id", "channel_id", "name")
             .first()
         )
-    except (ValueError, ValidationError):
+    except ValueError, ValidationError:
         return None
     if canvas is None:
         return None

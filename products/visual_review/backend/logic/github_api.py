@@ -91,7 +91,7 @@ def _is_ancestor(repo: Repo, ancestor_sha: str, head_sha: str) -> bool | None:
     try:
         github = get_github_integration_for_repo(repo)
         merge_base = _get_merge_base_sha(github, repo.repo_full_name, ancestor_sha, head_sha)
-    except (errors.GitHubIntegrationNotFoundError, GitHubRateLimitError):
+    except errors.GitHubIntegrationNotFoundError, GitHubRateLimitError:
         logger.warning("visual_review.commit_ancestry_unknown", repo_id=str(repo.id), ancestor=ancestor_sha)
         return None
     if merge_base is None:

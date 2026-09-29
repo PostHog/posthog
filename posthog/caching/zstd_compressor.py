@@ -44,7 +44,7 @@ class ZstdCompressor(BaseCompressor):
             return value
         try:
             return zstd.decompress(value)
-        except (zstd.Error, MemoryError, OverflowError, SystemError):
+        except zstd.Error, MemoryError, OverflowError, SystemError:
             # Corrupt frame sizes can raise allocation errors instead of zstd.Error.
             # Count old frames even after compression is disabled.
             COULD_NOT_DECOMPRESS_VALUE_COUNTER.inc()

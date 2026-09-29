@@ -91,7 +91,7 @@ def to_query_datetime(value: Any) -> str | None:
     if isinstance(value, str):
         try:
             value = dateutil_parser.parse(value)
-        except (ValueError, OverflowError):
+        except ValueError, OverflowError:
             return None
     normalized = coerce_datetime_to_utc(value)
     if normalized is None:

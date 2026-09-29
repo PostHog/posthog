@@ -283,7 +283,7 @@ def _write_persons_to_postgres(team_id: int, persons: dict[str, _PersonAccumulat
     for person_id, entry in persons.items():
         try:
             properties = json.loads(entry.properties)
-        except (json.JSONDecodeError, TypeError):
+        except json.JSONDecodeError, TypeError:
             properties = {}
         person_rows.append((uuid.UUID(person_id), Jsonb(properties), entry.version, entry.created_at))
 

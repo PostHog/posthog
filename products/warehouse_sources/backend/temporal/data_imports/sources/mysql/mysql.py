@@ -217,7 +217,7 @@ def _safe_convert_date(obj: Any) -> datetime.date | None:
     try:
         parts = obj.split("-", 2)
         return datetime.date(int(parts[0]), int(parts[1]), int(parts[2]))
-    except (ValueError, IndexError, AttributeError):
+    except ValueError, IndexError, AttributeError:
         return None
 
 
@@ -236,7 +236,7 @@ def _safe_convert_datetime(obj: Any) -> datetime.datetime | None:
         seconds = int(sec_parts[0])
         microseconds = int(sec_parts[1].ljust(6, "0")) if len(sec_parts) > 1 else 0
         return datetime.datetime(date_values[0], date_values[1], date_values[2], hours, minutes, seconds, microseconds)
-    except (ValueError, IndexError, AttributeError):
+    except ValueError, IndexError, AttributeError:
         return None
 
 

@@ -59,7 +59,7 @@ class _AlertsPlatformActivityInterceptor(ActivityInboundInterceptor):
         try:
             await _log_activity_event("alerts_platform_activity_started")
             return await super().execute_activity(input)
-        except (asyncio.CancelledError, CancelledError):
+        except asyncio.CancelledError, CancelledError:
             outcome = "cancellation"
             raise
         except BaseException as error:

@@ -136,7 +136,7 @@ def _load_action(action_dir: Path) -> dict[str, object] | None:
             continue
         try:
             data = yaml.safe_load(path.read_text(encoding="utf-8"))
-        except (yaml.YAMLError, OSError, UnicodeDecodeError):
+        except yaml.YAMLError, OSError, UnicodeDecodeError:
             return None
         return data if isinstance(data, dict) else None
     return None
@@ -164,7 +164,7 @@ def unparseable_actions(repo_root: Path) -> list[str]:
     for path in sorted(actions_root.rglob("action.y*ml")):
         try:
             data = yaml.safe_load(path.read_text(encoding="utf-8"))
-        except (yaml.YAMLError, OSError, UnicodeDecodeError):
+        except yaml.YAMLError, OSError, UnicodeDecodeError:
             broken.append(path.relative_to(repo_root).as_posix())
             continue
         # Parsing is not the bar; being usable is. An empty file, a list or a

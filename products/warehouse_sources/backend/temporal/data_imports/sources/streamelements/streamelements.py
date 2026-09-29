@@ -51,11 +51,11 @@ def _to_epoch_ms(value: Any) -> Optional[int]:
             pass
         try:
             return _to_epoch_ms(dateutil_parser.parse(value))
-        except (ValueError, OverflowError):
+        except ValueError, OverflowError:
             return None
     try:
         return int(value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
 
 

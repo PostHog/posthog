@@ -278,7 +278,7 @@ def _server_version(server_url: str, connect_token: str | None) -> str | None:
         if response.status_code != 200:
             return None
         return str(response.json().get("version") or "")
-    except (requests.RequestException, ValueError):
+    except requests.RequestException, ValueError:
         return None
 
 

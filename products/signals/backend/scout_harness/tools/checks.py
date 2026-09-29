@@ -86,7 +86,7 @@ def _resolve_dispatched_check(team: Team, run: SignalScoutRun, check_id: str) ->
     """
     try:
         uuid.UUID(str(check_id))
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         raise InvalidCheckResultError(f"check {check_id} not found")
     check = SignalReportCheck.all_teams.select_related("team__organization", "report").filter(id=check_id).first()
     if check is None:
@@ -286,7 +286,7 @@ def _resolve_report(team: Team, report_id: str) -> SignalReport:
     """
     try:
         uuid.UUID(str(report_id))
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         raise InvalidCheckWriteError(f"report {report_id} not found")
     report = (
         SignalReport.objects.select_related("team")
@@ -364,7 +364,7 @@ def cancel_report_check(*, team: Team, run: SignalScoutRun, check_id: str) -> Sc
     _assert_run_may_write_checks(team, run)
     try:
         uuid.UUID(str(check_id))
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         raise InvalidCheckWriteError(f"check {check_id} not found")
     check = SignalReportCheck.all_teams.select_related("team", "report").filter(id=check_id).first()
     if check is None:

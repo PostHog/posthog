@@ -69,7 +69,7 @@ def _format_updated_from(value: Any) -> Optional[str]:
     if isinstance(value, str):
         try:
             value = dateutil_parser.parse(value)
-        except (ValueError, OverflowError):
+        except ValueError, OverflowError:
             return None
     if isinstance(value, datetime):
         aware = value if value.tzinfo is not None else value.replace(tzinfo=UTC)

@@ -1079,7 +1079,7 @@ def _merge_forward_reviewer_evidence(*, report_id: str, suggested_reviewers: Sug
         return suggested_reviewers
     try:
         prior_content = json.loads(current.content)
-    except (json.JSONDecodeError, ValueError):
+    except json.JSONDecodeError, ValueError:
         return suggested_reviewers
     if not isinstance(prior_content, list):
         return suggested_reviewers
@@ -1546,5 +1546,5 @@ def _validate_report_id(report_id: str) -> None:
     both the DRF path (CharField) and the async Temporal path, which don't go through a UUID field."""
     try:
         uuid.UUID(str(report_id))
-    except (ValueError, AttributeError, TypeError):
+    except ValueError, AttributeError, TypeError:
         raise InvalidScoutReportError(f"report_id is not a valid UUID: {report_id!r}")

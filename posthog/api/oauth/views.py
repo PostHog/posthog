@@ -257,7 +257,7 @@ def _token_error_code(response: HttpResponse) -> str:
     code when the body isn't the documented JSON shape."""
     try:
         payload = json.loads(response.content)
-    except (json.JSONDecodeError, ValueError, UnicodeDecodeError):
+    except json.JSONDecodeError, ValueError, UnicodeDecodeError:
         return f"http_{response.status_code}"
     if isinstance(payload, dict) and isinstance(payload.get("error"), str):
         return payload["error"]
@@ -424,7 +424,7 @@ class OAuthAuthorizationSerializer(serializers.Serializer):
         """
         try:
             return not self.fields["allow"].to_internal_value(self.initial_data.get("allow"))
-        except (serializers.ValidationError, TypeError):
+        except serializers.ValidationError, TypeError:
             return False
 
     def validate_scoped_organizations(self, scoped_organization_ids: list[str]) -> list[str]:
@@ -2033,7 +2033,7 @@ class OAuthTokenView(TokenView):
         }
         try:
             application = OAuthApplication.objects.get(client_id=client_id)
-        except (OAuthApplication.DoesNotExist, DatabaseError):
+        except OAuthApplication.DoesNotExist, DatabaseError:
             pass
         else:
             properties.update(_oauth_app_event_properties(application))
@@ -2101,7 +2101,7 @@ class OAuthTokenView(TokenView):
         if request.content_type == "application/json" and request.body:
             try:
                 json_data = json.loads(request.body)
-            except (json.JSONDecodeError, ValueError, RecursionError):
+            except json.JSONDecodeError, ValueError, RecursionError:
                 self._capture_token_rejected("unknown", "", "invalid_request")
                 return JsonResponse(
                     {"error": "invalid_request", "error_description": "Invalid JSON payload"},
@@ -2251,7 +2251,7 @@ class OAuthTokenView(TokenView):
         if response.status_code != 200 and response.get("Content-Type", "").startswith("text/html"):
             try:
                 json.loads(response.content)
-            except (json.JSONDecodeError, ValueError):
+            except json.JSONDecodeError, ValueError:
                 pass
             else:
                 response["Content-Type"] = "application/json"
@@ -2338,7 +2338,7 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
             if not token_to_introspect and request.content_type == "application/json" and request.body:
                 try:
                     token_to_introspect = json.loads(request.body).get("token")
-                except (json.JSONDecodeError, ValueError, RecursionError):
+                except json.JSONDecodeError, ValueError, RecursionError:
                     pass
 
         return bool(bearer_token and token_to_introspect and bearer_token == token_to_introspect)
@@ -2533,7 +2533,7 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
             try:
                 json_data = json.loads(request.body)
                 token = json_data.get("token")
-            except (json.JSONDecodeError, ValueError, RecursionError):
+            except json.JSONDecodeError, ValueError, RecursionError:
                 pass
         return self.get_token_response(request, token)
 

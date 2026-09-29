@@ -1483,7 +1483,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                             # but an id could be an integer and wouldn't match
                             if isinstance(match_value, str):  # because mypy
                                 match_value = int(match_value)
-                        except (ValueError, TypeError):
+                        except ValueError, TypeError:
                             pass
 
                         id_match_structure: basic_structure | nested_structure = [{"attrs": {"id": match_value}}]
@@ -1751,7 +1751,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             try:
                 get_kernel_runtime(notebook, config_user).restart()
                 restarted = True
-            except (SandboxProvisionError, RuntimeError):
+            except SandboxProvisionError, RuntimeError:
                 logger.exception("notebook_kernel_config_restart_failed", notebook_short_id=notebook.short_id)
                 # The configuration stays saved: it is what the next sandbox gets. Status prices
                 # the runtime's own shape while one is alive, so a failed restart no longer makes

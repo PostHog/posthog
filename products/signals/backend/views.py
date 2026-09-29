@@ -374,7 +374,7 @@ class InternalSignalViewSet(viewsets.ViewSet):
     def emit(self, request: Request, team_id: str, *args, **kwargs):
         try:
             team = Team.objects.get(id=int(team_id))
-        except (Team.DoesNotExist, ValueError):
+        except Team.DoesNotExist, ValueError:
             return Response({"error": "Team not found"}, status=status.HTTP_404_NOT_FOUND)
 
         serializer = InternalEmitSignalSerializer(data=request.data)
@@ -1410,7 +1410,7 @@ class SignalReportViewSet(
             return None
         try:
             return uuid.UUID(raw.strip())
-        except (ValueError, AttributeError):
+        except ValueError, AttributeError:
             raise serializers.ValidationError({"channel_id": f"Invalid value: {raw!r}. Expected a UUID."})
 
     def _apply_signal_report_channel_filter(self, queryset):
@@ -3580,7 +3580,7 @@ class SignalReportViewSet(
                 github = GitHubIntegration.first_for_team_repository(
                     self.team.id, repository, source="signals_pr_ci_status", priority=Priority.NORMAL
                 )
-            except (GitHubRateLimitError, GitHubEgressBudgetExhausted):
+            except GitHubRateLimitError, GitHubEgressBudgetExhausted:
                 # The probe never reached GitHub, so nothing was learned about the repository. Same
                 # policy as a throttled fetch below: remember nothing and let the next poll ask again.
                 logger.info("signals.reports.pr_ci_statuses.lookup_throttled", repository=repository)
@@ -3607,7 +3607,7 @@ class SignalReportViewSet(
                 batch = pending[start : start + batch_size]
                 try:
                     fetched = github.get_pull_request_ci_statuses(batch)
-                except (GitHubRateLimitError, GitHubEgressBudgetExhausted):
+                except GitHubRateLimitError, GitHubEgressBudgetExhausted:
                     # Expected under load, and the reader loses nothing they had: skip the glyph and
                     # let the next request (or the detail view) answer once the limit clears.
                     logger.info("signals.reports.pr_ci_statuses.throttled", pr_count=len(batch))
@@ -4322,7 +4322,7 @@ def append_suggested_reviewers(
         )
         try:
             prior_content = json.loads(current.content) if current else []
-        except (json.JSONDecodeError, ValueError):
+        except json.JSONDecodeError, ValueError:
             prior_content = []
         if not isinstance(prior_content, list):
             prior_content = []
@@ -4590,7 +4590,7 @@ class SignalReportCheckViewSet(
         report_id = self.parents_query_dict["report_id"]
         try:
             uuid.UUID(str(report_id))
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             raise NotFound()
         report = (
             SignalReport.objects.filter(id=report_id, team=self.team)
@@ -4685,7 +4685,7 @@ class SignalReportArtefactViewSet(
         report_id = self.parents_query_dict["report_id"]
         try:
             uuid.UUID(str(report_id))
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             raise NotFound()
         return report_id
 
@@ -4799,7 +4799,7 @@ class SignalReportArtefactViewSet(
         """Build the create/update response payload, parsing stored JSON content for the echo."""
         try:
             parsed_content: dict | list = json.loads(artefact.content)
-        except (json.JSONDecodeError, ValueError):
+        except json.JSONDecodeError, ValueError:
             parsed_content = {}
         return SignalReportArtefactWriteResponseSerializer(
             {
@@ -4961,7 +4961,7 @@ class SignalReportArtefactViewSet(
             if latest is not None:
                 try:
                     parsed = json.loads(latest.content)
-                except (json.JSONDecodeError, TypeError, ValueError):
+                except json.JSONDecodeError, TypeError, ValueError:
                     parsed = []
                 if isinstance(parsed, list):
                     rows = [entry for entry in parsed if isinstance(entry, dict)]
@@ -5145,7 +5145,7 @@ class SignalReportArtefactViewSet(
             )
         try:
             content = json.loads(artefact.content)
-        except (json.JSONDecodeError, ValueError):
+        except json.JSONDecodeError, ValueError:
             content = {}
         if not isinstance(content, dict):
             # Log artefacts store arbitrary JSON; a non-object payload has no repository/commit.

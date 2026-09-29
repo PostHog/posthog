@@ -193,7 +193,7 @@ def _load_rendered_assets(cache_key: str | None) -> dict[str, int]:
         return {}
     try:
         cached = json.loads(raw)
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         return {}
     if not isinstance(cached, dict):
         return {}

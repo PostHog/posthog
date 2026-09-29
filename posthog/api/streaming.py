@@ -174,7 +174,7 @@ async def _instrumented_aiter(
     try:
         async for chunk in stream:
             yield chunk
-    except (GeneratorExit, asyncio.CancelledError):
+    except GeneratorExit, asyncio.CancelledError:
         outcome = "client_disconnect"
         raise
     except BaseException:

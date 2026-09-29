@@ -145,7 +145,7 @@ def suggest_emojis(query: str, *, team_id: int) -> EmojiSearchResult:
             keys = json.loads(cached)
             if isinstance(keys, list) and all(isinstance(key, str) and key in catalog.emojis for key in keys):
                 return EmojiSearchResult([catalog.emojis[key].suggestion for key in keys])
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             pass
 
     client = build_system_one_client(

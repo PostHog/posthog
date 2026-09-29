@@ -142,7 +142,7 @@ def _incremental_cutoff(db_incremental_field_last_value: Any, lookback: timedelt
     if isinstance(value, str):
         try:
             value = dateutil_parser.parse(value)
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             return None
     if not isinstance(value, datetime):
         return None
@@ -154,7 +154,7 @@ def _is_older_than_cutoff(value: Any, cutoff: datetime) -> bool:
     if isinstance(value, str):
         try:
             value = dateutil_parser.parse(value)
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             return False
     if not isinstance(value, datetime):
         return False

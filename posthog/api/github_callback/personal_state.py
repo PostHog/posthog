@@ -117,7 +117,7 @@ def list_user_github_app_installations(
             params={"per_page": 100},
             timeout=10,
         )
-    except (requests.RequestException, GitHubEgressBudgetExhausted):
+    except requests.RequestException, GitHubEgressBudgetExhausted:
         if discovery:
             discovery.audit.record(
                 "discovery_failed", discovery_id=discovery.discovery_id, reason="github_request_failed"

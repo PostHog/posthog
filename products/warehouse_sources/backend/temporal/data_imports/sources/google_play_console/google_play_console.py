@@ -91,7 +91,7 @@ def _date_from_message(message: Any) -> dt.date | None:
         return None
     try:
         return dt.date(int(message["year"]), int(message["month"]), int(message["day"]))
-    except (KeyError, TypeError, ValueError):
+    except KeyError, TypeError, ValueError:
         return None
 
 
@@ -109,7 +109,7 @@ def _datetime_from_message(message: Any) -> dt.datetime | None:
             int(message.get("minutes") or 0),
             int(message.get("seconds") or 0),
         )
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
 
 
@@ -141,7 +141,7 @@ def _dimension_value(dimension: dict[str, Any]) -> Any:
     if "int64Value" in dimension:
         try:
             return int(dimension["int64Value"])
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             return None
     value = dimension.get("stringValue")
     return value if value is not None else dimension.get("valueLabel")
@@ -161,7 +161,7 @@ def _metric_value(metric: dict[str, Any]) -> float | None:
         return None
     try:
         return float(raw)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
 
 
@@ -242,7 +242,7 @@ class GooglePlayConsoleClient:
 
         try:
             ttl = int(payload.get("expires_in") or TOKEN_TTL_SECONDS)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             ttl = TOKEN_TTL_SECONDS
         self._access_token = str(token)
         self._token_expires_at = issued_at + ttl - TOKEN_EXPIRY_SKEW_SECONDS

@@ -421,7 +421,7 @@ def _convert_literal_to_runtime_type(value: object, target_type: RuntimeType) ->
             if isinstance(value, str):
                 return date.fromisoformat(value)
             return None
-    except (TypeError, ValueError, OverflowError):
+    except TypeError, ValueError, OverflowError:
         return None
     return None
 

@@ -299,7 +299,7 @@ def _parse_retry_after(value: str | None) -> float | None:
         pass
     try:
         retry_at = parsedate_to_datetime(value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
     if retry_at.tzinfo is None:
         retry_at = retry_at.replace(tzinfo=UTC)
@@ -589,7 +589,7 @@ def _get_account_timezone(session: requests.Session, headers: dict[str, str], lo
     if isinstance(name, str):
         try:
             return ZoneInfo(name)
-        except (ValueError, ZoneInfoNotFoundError):
+        except ValueError, ZoneInfoNotFoundError:
             pass
     logger.warning(f"Klaviyo: account timezone {name!r} is unknown, computing the report window in UTC")
     return UTC

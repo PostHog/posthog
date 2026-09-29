@@ -188,7 +188,7 @@ def _language_service_call(
             )
     except MalformedLanguageServiceResponse:
         return _EditorAssistRoute(enabled=True, result=None, reason="invalid_response", malformed_stage="http_response")
-    except (DatabaseSchemaUnavailable, LanguageServiceError):
+    except DatabaseSchemaUnavailable, LanguageServiceError:
         return _EditorAssistRoute(enabled=True, result=None, reason="service_error")
     if result is None:
         return _EditorAssistRoute(enabled=True, result=None, reason="service_error")
@@ -487,7 +487,7 @@ def _build_database_schema_query(
             include_hidden_posthog_tables=True,
             include_fields=query.includeFields is not False,
         )
-    except (APIException, ExposedHogQLError, ResolutionError, UserAccessControlError):
+    except APIException, ExposedHogQLError, ResolutionError, UserAccessControlError:
         # These already carry an actionable message, and the query view maps them to a 4xx.
         raise
     except Exception as e:
@@ -598,7 +598,7 @@ def process_query_model(
                     try:
                         with timings.measure("response_mapping"):
                             autocomplete_response = _autocomplete_response_from_language_service(language_result)
-                    except (AttributeError, KeyError, TypeError, ValueError):
+                    except AttributeError, KeyError, TypeError, ValueError:
                         logger.warning("hogql_language_service_invalid_autocomplete_response")
                         python_reason = "invalid_response"
                     else:
@@ -641,7 +641,7 @@ def process_query_model(
             if (language_result := route.result) is not None:
                 try:
                     metadata_response = _metadata_response_from_language_service(query, language_result)
-                except (AttributeError, KeyError, TypeError, ValueError):
+                except AttributeError, KeyError, TypeError, ValueError:
                     logger.warning("hogql_language_service_invalid_metadata_response")
                     python_reason = "invalid_response"
                 else:

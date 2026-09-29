@@ -26,7 +26,7 @@ class CupedQueryConfig:
 def _parse_lookback_days(value: Any, fallback: int = DEFAULT_CUPED_LOOKBACK_DAYS) -> int:
     try:
         days = int(value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return fallback
 
     if days < MIN_CUPED_LOOKBACK_DAYS:

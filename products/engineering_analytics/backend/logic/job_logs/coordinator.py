@@ -145,7 +145,7 @@ def _github_source_params(job_inputs: dict[str, Any] | None) -> tuple[int, str] 
         return None
     try:
         return int(integration_id), repo
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
 
 

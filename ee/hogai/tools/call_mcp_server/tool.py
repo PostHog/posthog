@@ -171,7 +171,7 @@ class CallMCPServerTool(MaxTool):
         if arguments:
             try:
                 args_str = json.dumps(arguments, indent=2, default=str)
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 args_str = repr(arguments)
             args_block = f"\n\n```json\n{args_str}\n```"
         else:

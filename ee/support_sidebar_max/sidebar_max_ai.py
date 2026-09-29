@@ -172,7 +172,7 @@ class ConversationHistory:
                     bucket_key = cls._get_bucket_key(limit_type)
                     cache.set(bucket_key, remaining)
                     cache.set(cls._get_last_update_key(limit_type), time.time())
-                except (ValueError, TypeError):
+                except ValueError, TypeError:
                     continue
 
 

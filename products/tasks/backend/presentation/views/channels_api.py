@@ -580,7 +580,7 @@ class ChannelFeedMessageViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
             raise NotFound("Channel ID is required")
         try:
             UUID(channel_id)
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             raise NotFound("Channel not found")
         return channel_id
 
@@ -771,7 +771,7 @@ class TaskThreadMessageViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise NotFound("Task ID is required")
         try:
             UUID(task_id)
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             raise NotFound("Task not found")
         return task_id
 

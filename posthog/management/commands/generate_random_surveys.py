@@ -982,7 +982,7 @@ class Command(BaseCommand):
                             elif question.get("isNpsQuestion") and isinstance(response, str):
                                 try:
                                     score = int(response)
-                                except (TypeError, ValueError):
+                                except TypeError, ValueError:
                                     score = None
                                 if score is not None:
                                     if score <= 6:

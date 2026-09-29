@@ -193,7 +193,7 @@ def safe_parse_datetime(date_str: object | None) -> None | pa.TimestampScalar | 
             return parser.parse(date_str)
 
         return None
-    except (ValueError, OverflowError, TypeError):
+    except ValueError, OverflowError, TypeError:
         return None
 
 
@@ -891,7 +891,7 @@ def _cast_column_to(column: pa.ChunkedArray | pa.Array, target: pa.DataType) -> 
     """Safe-cast a column, returning None when the values don't fit the target type."""
     try:
         return pc.cast(column, target)
-    except (pa.ArrowInvalid, pa.ArrowNotImplementedError, pa.ArrowTypeError):
+    except pa.ArrowInvalid, pa.ArrowNotImplementedError, pa.ArrowTypeError:
         return None
 
 
@@ -901,7 +901,7 @@ def _common_type(left: pa.DataType, right: pa.DataType) -> pa.DataType | None:
         unified = pa.unify_schemas(
             [pa.schema([pa.field("f", left)]), pa.schema([pa.field("f", right)])], promote_options="permissive"
         )
-    except (pa.ArrowInvalid, pa.ArrowTypeError, pa.ArrowNotImplementedError):
+    except pa.ArrowInvalid, pa.ArrowTypeError, pa.ArrowNotImplementedError:
         return None
     return unified.field("f").type
 
@@ -1056,7 +1056,7 @@ def unify_schemas_with_text_fallback(schemas: list[pa.Schema], logger: Filtering
     """
     try:
         return pa.unify_schemas(schemas, promote_options="permissive")
-    except (pa.ArrowInvalid, pa.ArrowTypeError, pa.ArrowNotImplementedError):
+    except pa.ArrowInvalid, pa.ArrowTypeError, pa.ArrowNotImplementedError:
         pass
 
     merged: dict[str, pa.Field] = {}
@@ -1178,7 +1178,7 @@ def _decimal_values_from_column(column: pa.ChunkedArray) -> list[decimal.Decimal
         else:
             try:
                 result.append(decimal.Decimal(str(value)))
-            except (decimal.InvalidOperation, ValueError, TypeError):
+            except decimal.InvalidOperation, ValueError, TypeError:
                 return None
     return result
 

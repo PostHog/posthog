@@ -97,7 +97,7 @@ class VeeqoPaginator(PageNumberPaginator):
                 if self.page > int(total_pages_header):
                     self._has_next_page = False
                     return
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 pass
 
         if data is not None and len(data) < self.page_size:

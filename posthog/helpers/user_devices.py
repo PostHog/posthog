@@ -25,7 +25,7 @@ def has_valid_known_device_cookie(request: HttpRequest, user: User) -> bool:
         return False
     try:
         return _signer(user).unsign(value, max_age=KNOWN_DEVICE_COOKIE_MAX_AGE) == str(user.pk)
-    except (BadSignature, ValueError):
+    except BadSignature, ValueError:
         return False
 
 

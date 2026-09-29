@@ -273,7 +273,7 @@ def _track_sync_failure(sandbox_record: StreamlitAppSandbox) -> int:
     # Refresh TTL so slow-drip failures still trip the circuit.
     try:
         cache.touch(key, _SYNC_FAILURE_TTL_SECONDS)
-    except (AttributeError, NotImplementedError):
+    except AttributeError, NotImplementedError:
         cache.set(key, new_value, _SYNC_FAILURE_TTL_SECONDS)
     return new_value
 

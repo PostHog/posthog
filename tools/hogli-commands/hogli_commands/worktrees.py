@@ -376,7 +376,7 @@ def _resolve_repo(repo: str | None) -> Path:
             text=True,
             stderr=subprocess.DEVNULL,
         ).strip()
-    except (subprocess.CalledProcessError, FileNotFoundError):
+    except subprocess.CalledProcessError, FileNotFoundError:
         top = ""
     return _resolve(Path(top)) if top else _resolve(base)
 
@@ -391,7 +391,7 @@ def _git_common_dir(start: Path) -> Path | None:
             text=True,
             stderr=subprocess.DEVNULL,
         ).strip()
-    except (subprocess.CalledProcessError, FileNotFoundError):
+    except subprocess.CalledProcessError, FileNotFoundError:
         return None
     if not out:
         return None
@@ -443,7 +443,7 @@ def _discover_worktrees(root: Path, max_depth: int = 2) -> list[Path]:
     def scan(directory: Path, depth: int) -> None:
         try:
             entries = list(directory.iterdir())
-        except (PermissionError, OSError):
+        except PermissionError, OSError:
             return
         for child in entries:
             if child.is_symlink() or not child.is_dir():
@@ -471,7 +471,7 @@ def _registered_worktrees(repo_root: Path) -> dict[Path, dict] | None:
             text=True,
             stderr=subprocess.DEVNULL,
         )
-    except (subprocess.CalledProcessError, FileNotFoundError):
+    except subprocess.CalledProcessError, FileNotFoundError:
         return None
 
     registry: dict[Path, dict] = {}
@@ -505,7 +505,7 @@ def _protected_paths(repo_root: Path) -> set[Path]:
         ).strip()
         if top:
             protected.add(_resolve(Path(top)))
-    except (subprocess.CalledProcessError, FileNotFoundError):
+    except subprocess.CalledProcessError, FileNotFoundError:
         pass
     return protected
 
@@ -513,7 +513,7 @@ def _protected_paths(repo_root: Path) -> set[Path]:
 def _resolve(path: Path) -> Path:
     try:
         return path.resolve()
-    except (OSError, RuntimeError):
+    except OSError, RuntimeError:
         return path
 
 
@@ -551,7 +551,7 @@ def _common_git_dir(gitdir: Path) -> Path | None:
 
     try:
         rel = (gitdir / "commondir").read_text().strip()
-    except (OSError, ValueError):
+    except OSError, ValueError:
         return None
     return _resolve(gitdir / rel)
 
@@ -601,7 +601,7 @@ def _gitdir_for(path: Path) -> Path | None:
         if dot_git.is_dir():
             return dot_git
         content = dot_git.read_text().strip()
-    except (OSError, ValueError):
+    except OSError, ValueError:
         return None
     if content.startswith("gitdir:"):
         target = Path(content[len("gitdir:") :].strip())
@@ -638,7 +638,7 @@ def _find_dir_case_insensitive(parent: Path, name: str) -> Path | None:
         for child in parent.iterdir():
             if child.name.casefold() == folded and child.is_dir():
                 return child
-    except (OSError, PermissionError):
+    except OSError, PermissionError:
         return None
     return None
 
@@ -695,7 +695,7 @@ def _repo_has_remotes(repo_root: Path) -> bool:
 def _git(cwd: Path, args: Sequence[str], timeout: float = 30.0) -> subprocess.CompletedProcess[str] | None:
     try:
         return subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, timeout=timeout)
-    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+    except FileNotFoundError, subprocess.TimeoutExpired, OSError:
         return None
 
 
@@ -812,7 +812,7 @@ def _du_sizes(paths: Sequence[Path]) -> dict[str, float]:
             text=True,
             timeout=_DU_TIMEOUT_SECONDS,
         )
-    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+    except FileNotFoundError, subprocess.TimeoutExpired, OSError:
         return {}
 
     sizes: dict[str, float] = {}

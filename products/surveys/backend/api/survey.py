@@ -2953,7 +2953,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
         try:
             question_index_param = request.query_params.get("question_index", None)
             question_index = int(question_index_param) if question_index_param else None
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             question_index = None
 
         question_id = request.query_params.get("question_id", None)

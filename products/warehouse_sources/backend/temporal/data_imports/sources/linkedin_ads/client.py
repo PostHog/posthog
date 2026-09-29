@@ -103,7 +103,7 @@ def _parse_retry_after(response: Any) -> float | None:
         return None
     try:
         seconds = float(raw)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
     return seconds if seconds >= 0 else None
 
@@ -410,7 +410,7 @@ class LinkedinAdsClient:
             # A malformed/empty envelope is treated as "no more pages" rather than crashing the sync.
             try:
                 metadata = json.loads(response.response.text).get("metadata", {})
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 metadata = {}
             next_page_token = metadata.get("nextPageToken")
 

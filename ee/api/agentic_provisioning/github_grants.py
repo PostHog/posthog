@@ -149,7 +149,7 @@ def load_grant(grant_id: str, partner: OAuthApplication) -> GitHubGrant | None:
     try:
         payload = json.loads(_grant_cipher.decrypt(raw))
         grant = GitHubGrant.from_cache(grant_id, payload)
-    except (InvalidToken, ValueError, KeyError, TypeError):
+    except InvalidToken, ValueError, KeyError, TypeError:
         logger.warning("github_grant.corrupt_payload", grant_id=grant_id)
         return None
     if grant.partner_id != str(partner.id):

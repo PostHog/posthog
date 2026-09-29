@@ -342,7 +342,7 @@ def _confirm_reference_missing(team_id: int, name: str, version: str | None, lab
         return not LLMPromptLabel.objects.filter(
             team_id=team_id, prompt_name=name, name=label, prompt__deleted=False
         ).exists()
-    except (OperationalError, InterfaceError):
+    except OperationalError, InterfaceError:
         return False
 
 

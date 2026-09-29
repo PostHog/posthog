@@ -218,7 +218,7 @@ def _resolve_assigned_reviewers(team_id: int, signal_report_id: Any) -> list[Any
         return []
     try:
         reviewers = json.loads(artefact.content)
-    except (json.JSONDecodeError, TypeError, ValueError):
+    except json.JSONDecodeError, TypeError, ValueError:
         return []
     if not isinstance(reviewers, list):
         return []

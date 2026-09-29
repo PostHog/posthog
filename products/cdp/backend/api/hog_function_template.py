@@ -119,7 +119,7 @@ class PublicHogFunctionTemplateViewSet(
             raise NotFound("Project not found.")
         try:
             return Team.objects.select_related("organization").get(id=project_id)
-        except (Team.DoesNotExist, ValueError, TypeError):
+        except Team.DoesNotExist, ValueError, TypeError:
             raise NotFound("Project not found.")
 
     def get_permissions(self):

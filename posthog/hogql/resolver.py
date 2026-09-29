@@ -2454,7 +2454,7 @@ class Resolver(CloningVisitor):
                     elif isinstance(value, list):
                         try:
                             value = value[int(link)]
-                        except (ValueError, IndexError):
+                        except ValueError, IndexError:
                             raise QueryError(f"Cannot resolve field: {'.'.join(parsed_chain)}")
                     else:
                         raise QueryError(f"Cannot resolve field: {'.'.join(parsed_chain)}")

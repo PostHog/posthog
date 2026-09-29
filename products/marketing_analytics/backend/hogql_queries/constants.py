@@ -747,12 +747,12 @@ def to_marketing_analytics_data(
         if isinstance(value, str):
             try:
                 value = float(value) if "." in value else int(value)
-            except (ValueError, TypeError):
+            except ValueError, TypeError:
                 value = None
         if isinstance(previous, str):
             try:
                 previous = float(previous) if "." in previous else int(previous)
-            except (ValueError, TypeError):
+            except ValueError, TypeError:
                 previous = None
 
     # Handle percentage conversion for CTR
@@ -784,7 +784,7 @@ def to_marketing_analytics_data(
             else:
                 # Normal case: previous != 0
                 change_from_previous_pct = round(100 * (value - previous) / previous)
-        except (ValueError, ZeroDivisionError):
+        except ValueError, ZeroDivisionError:
             pass
 
     return MarketingAnalyticsItem(

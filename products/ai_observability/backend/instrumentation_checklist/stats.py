@@ -149,7 +149,7 @@ def _stats_from_cache(cached: object) -> ChecklistStats | None:
         return None
     try:
         return ChecklistStats(**cached)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
 
 

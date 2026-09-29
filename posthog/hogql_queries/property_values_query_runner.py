@@ -353,7 +353,7 @@ class PropertyValuesQueryRunner(AnalyticsQueryRunner[PropertyValuesQueryResponse
             raw = row[0]
             try:
                 values.append(json.loads(raw))
-            except (json.JSONDecodeError, TypeError):
+            except json.JSONDecodeError, TypeError:
                 values.append(raw)
         return self._to_property_value_items(values)
 
@@ -366,7 +366,7 @@ class PropertyValuesQueryRunner(AnalyticsQueryRunner[PropertyValuesQueryResponse
             raw_value, count = row[0], row[1]
             try:
                 name = convert_property_value(json.loads(raw_value))
-            except (json.JSONDecodeError, TypeError):
+            except json.JSONDecodeError, TypeError:
                 name = convert_property_value(raw_value)
             results.append(PropertyValueItem(name=name, count=int(count)))
         return results

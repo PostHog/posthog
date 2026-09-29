@@ -83,7 +83,7 @@ async def alerts_platform_discover_demand_activity(inputs: DemandDiscoveryInputs
 async def alerts_platform_probe_postgres_activity() -> None:
     try:
         await sync_to_async(check_postgres_connection, thread_sensitive=False)()
-    except (OperationalError, InterfaceError):
+    except OperationalError, InterfaceError:
         raise ApplicationError("Postgres connectivity probe failed", type=POSTGRES_PROBE_FAILURE) from None
 
 

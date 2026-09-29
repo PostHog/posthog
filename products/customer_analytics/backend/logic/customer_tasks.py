@@ -66,7 +66,7 @@ def _visible_account_queryset(team_id: int, user_access_control: UserAccessContr
 def _task_by_id(queryset: QuerySet[CustomerTask], task_id: UUID | str) -> CustomerTask | None:
     try:
         return queryset.filter(id=task_id).first()
-    except (DjangoValidationError, ValueError):
+    except DjangoValidationError, ValueError:
         return None
 
 

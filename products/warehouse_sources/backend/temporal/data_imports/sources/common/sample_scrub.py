@@ -111,7 +111,7 @@ class CaptureConfig:
     def from_json(cls, raw: bytes | str) -> CaptureConfig | None:
         try:
             data = json.loads(raw)
-        except (TypeError, ValueError, json.JSONDecodeError):
+        except TypeError, ValueError, json.JSONDecodeError:
             logger.warning("Failed to decode capture config JSON")
             return None
 

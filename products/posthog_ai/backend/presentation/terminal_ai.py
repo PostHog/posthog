@@ -139,7 +139,7 @@ class TerminalAIViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             raise TerminalAIUnavailable()
         try:
             content_length = int(request.META.get("CONTENT_LENGTH") or 0)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             raise RequestValidationError("Invalid request size. Start a new pi session.")
         if content_length > 1024 * 1024:
             raise RequestValidationError("The conversation exceeds 1 MiB. Start a new pi session.")
@@ -147,7 +147,7 @@ class TerminalAIViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             if len(json.dumps(request.data, ensure_ascii=False, separators=(",", ":")).encode("utf-8")) > 1024 * 1024:
                 raise RequestValidationError("The conversation exceeds 1 MiB. Start a new pi session.")
             body = TerminalAIRequest.model_validate(request.data).model_dump_json(exclude_none=True)
-        except (ValidationError, UnicodeEncodeError, PydanticSerializationError):
+        except ValidationError, UnicodeEncodeError, PydanticSerializationError:
             raise RequestValidationError("Invalid model request. Use pi's PostHog provider.")
         # Keep the gateway credential server-side; derive attribution and policy headers from the authenticated session.
         headers = (

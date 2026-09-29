@@ -419,7 +419,7 @@ class CommunityPublishOwnerPermission(BasePermission):
         skill_view = cast("LLMSkillViewSet", view)
         try:
             team = skill_view.team
-        except (ValueError, KeyError, AttributeError):
+        except ValueError, KeyError, AttributeError:
             return False
 
         skill_name = skill_view.kwargs.get("skill_name") or ""

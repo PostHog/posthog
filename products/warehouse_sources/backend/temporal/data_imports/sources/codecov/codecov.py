@@ -87,7 +87,7 @@ def _is_older_than_cutoff(value: Any, cutoff: datetime) -> bool:
     if isinstance(value, str):
         try:
             parsed = dateutil_parser.parse(value)
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             return False
     elif isinstance(value, datetime):
         parsed = value

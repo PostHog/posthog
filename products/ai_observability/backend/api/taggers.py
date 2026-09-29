@@ -567,7 +567,7 @@ class TaggerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDes
             # Use "tagger" kind so we don't expose PRODUCT_ASYNC_FUNCTIONS (fetch, posthogCapture, …) —
             # taggers should only classify, never perform side effects.
             bytecode = compile_ai_observability_hog(source, "tagger")
-        except (ValueError, SyntaxError):
+        except ValueError, SyntaxError:
             logger.exception("Compilation error in Hog source")
             return Response({"error": "Invalid Hog source provided"}, status=400)
         except Exception:

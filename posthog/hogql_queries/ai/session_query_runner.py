@@ -409,7 +409,7 @@ class SessionQueryRunner(AnalyticsQueryRunner[SessionQueryResponse]):
             if raw is not None:
                 try:
                     trace_dict[parsed_key] = orjson.loads(raw)
-                except (TypeError, orjson.JSONDecodeError):
+                except TypeError, orjson.JSONDecodeError:
                     trace_dict[parsed_key] = raw
 
         return LLMTrace.model_validate(

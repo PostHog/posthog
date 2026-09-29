@@ -181,7 +181,7 @@ def _resolve_target(
         return None
     try:
         UUID(run_id)
-    except (ValueError, AttributeError, TypeError):
+    except ValueError, AttributeError, TypeError:
         return None
 
     run = get_task_run(run_id, team_id=integration.team_id)

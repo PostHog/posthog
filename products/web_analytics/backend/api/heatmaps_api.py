@@ -624,7 +624,7 @@ class HeatmapAggregateQueryScopingPermission(AccessControlPermission):
 
         try:
             team = view.team
-        except (ValueError, KeyError):
+        except ValueError, KeyError:
             return True
 
         # Resolve the same way HeatmapsRequestSerializer does — otherwise a caller could get
@@ -1322,7 +1322,7 @@ class HeatmapScreenshotViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         try:
             requested_width = int(request.query_params.get("width", 1024))
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             return _finish(
                 response.Response(
                     {"error": "Invalid width parameter, must be an integer"}, status=status.HTTP_400_BAD_REQUEST

@@ -202,7 +202,7 @@ async def _run_signals_scout(input: RunSignalsScoutInput) -> RunSignalsScoutOutp
                 run_note=input.run_note,
                 check_id=input.check_id,
             )
-    except (OperationalError, InterfaceError):
+    except OperationalError, InterfaceError:
         # Transient DB connection drop (pgbouncer pool recycle / failover / deploy). Stay
         # fail-safe and silent: report a failed run for this tick rather than raising. The
         # decorator already evicted the dead connection; the next scheduled tick retries on

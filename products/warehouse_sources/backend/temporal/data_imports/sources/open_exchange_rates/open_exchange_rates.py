@@ -160,7 +160,7 @@ def _date_from_timestamp(timestamp: Any) -> Optional[date]:
         return None
     try:
         return datetime.fromtimestamp(int(timestamp), tz=UTC).date()
-    except (ValueError, OverflowError, OSError, TypeError):
+    except ValueError, OverflowError, OSError, TypeError:
         return None
 
 

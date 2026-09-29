@@ -65,7 +65,7 @@ def _fixed_window_count(cache_key: str, window_seconds: int) -> int:
             # cache.add preserves any counter a concurrent request already initialized,
             # so a transient cache error doesn't reset the window for a caller at the limit.
             cache.add(cache_key, 1, timeout=window_seconds)
-        except (RedisError, ConnectionInterrupted):
+        except RedisError, ConnectionInterrupted:
             pass
         return 1
     except (RedisError, ConnectionInterrupted) as e:

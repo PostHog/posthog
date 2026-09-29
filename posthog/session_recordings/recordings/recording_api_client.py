@@ -61,7 +61,7 @@ class RecordingApiClient:
                     )
                 response.raise_for_status()
                 return await response.read()
-        except (RecordingDeletedError, BlockFetchError):
+        except RecordingDeletedError, BlockFetchError:
             raise
         except aiohttp.ClientError as e:
             logger.exception(

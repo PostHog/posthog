@@ -81,7 +81,7 @@ def _format_period_for_display(iso_str: str) -> str:
     """
     try:
         dt = datetime.fromisoformat(iso_str).astimezone(UTC)
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         return iso_str
     return dt.strftime("%b %d, %Y %H:%M UTC")
 

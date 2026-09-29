@@ -220,7 +220,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         if self._is_team_view or self._is_project_view:
             try:
                 team_id = self.team_id
-            except (KeyError, ValidationError, AuthenticationFailed):
+            except KeyError, ValidationError, AuthenticationFailed:
                 # Resolution failed — leave context unset; downstream code that
                 # touches a scoped model will get TeamScopeError, which is the
                 # correct fail-closed behavior.
@@ -478,7 +478,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         else:
             try:
                 team = Team.objects.select_related("organization").get(id=self.team_id)
-            except (Team.DoesNotExist, ValueError):
+            except Team.DoesNotExist, ValueError:
                 raise NotFound(
                     # TODO: "Environment" instead of "Project" when project environments are rolled out.
                     # Keep in sync with SCOPE_NOT_FOUND_DETAILS in frontend/src/lib/api-error.ts, which
@@ -516,7 +516,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         try:
             # nosemgrep: idor-lookup-without-org (routing validates org access via permissions)
             return Project.objects.get(id=self.project_id)
-        except (Project.DoesNotExist, ValueError):
+        except Project.DoesNotExist, ValueError:
             raise NotFound(detail="Project not found.")
 
     @cached_property
@@ -546,7 +546,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
             return Organization.objects.get(
                 id=self.project.organization_id if self._is_project_view else self.organization_id
             )
-        except (Organization.DoesNotExist, ValueError):
+        except Organization.DoesNotExist, ValueError:
             raise NotFound(detail="Organization not found.")
 
     def _filter_queryset_by_parents_lookups(self, queryset):
@@ -685,7 +685,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         team: Optional[Team] = None
         try:
             team = self.team
-        except (Team.DoesNotExist, KeyError):
+        except Team.DoesNotExist, KeyError:
             pass
 
         return UserAccessControl(user=cast(User, self.request.user), team=team, organization_id=self.organization_id)

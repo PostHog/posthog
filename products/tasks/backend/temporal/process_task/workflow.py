@@ -2384,7 +2384,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         creation.cancel()
         try:
             await creation
-        except (asyncio.CancelledError, temporalio.exceptions.ActivityError):
+        except asyncio.CancelledError, temporalio.exceptions.ActivityError:
             pass
         raise _TaskCompletedDuringSandboxCreation
 
@@ -3291,7 +3291,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         relay_task.cancel()
         try:
             await relay_task
-        except (asyncio.CancelledError, Exception):
+        except asyncio.CancelledError, Exception:
             pass
 
     async def _create_resume_snapshot(self, sandbox_id: str, *, reason: str, allow_pruning: bool) -> bool:

@@ -680,14 +680,14 @@ def _looks_like_uuid(value: str) -> bool:
     try:
         uuid_mod.UUID(value)
         return True
-    except (ValueError, AttributeError, TypeError):
+    except ValueError, AttributeError, TypeError:
         return False
 
 
 def _parse_uuid_or_none(value: Any) -> Optional[uuid_mod.UUID]:
     try:
         return uuid_mod.UUID(str(value))
-    except (ValueError, AttributeError, TypeError):
+    except ValueError, AttributeError, TypeError:
         return None
 
 
@@ -766,7 +766,7 @@ def _apply_email_template_content(config: dict, team: Team, strict: bool, contex
 
     try:
         parsed_uuid = uuid_mod.UUID(str(template_uuid))
-    except (ValueError, AttributeError, TypeError):
+    except ValueError, AttributeError, TypeError:
         parsed_uuid = None
     # Memoized per request: a drip sequence reuses one template across steps, and the actions
     # list validates one action at a time, so without this each step re-queries the same row.
@@ -1425,7 +1425,7 @@ class HogFlowActionSerializer(serializers.Serializer):
         for cohort_id in cohort_ids:
             try:
                 cohort = Cohort.objects.get(pk=cohort_id, team__project_id=project_id, deleted=False)
-            except (Cohort.DoesNotExist, ValueError, TypeError):
+            except Cohort.DoesNotExist, ValueError, TypeError:
                 continue  # missing/invalid cohort surfaces during audience resolution, not here
             if cohort.is_static:
                 continue
@@ -2003,7 +2003,7 @@ class HogFlowActionSerializer(serializers.Serializer):
                 continue
             try:
                 ZoneInfo(value)
-            except (ZoneInfoNotFoundError, ValueError, TypeError):
+            except ZoneInfoNotFoundError, ValueError, TypeError:
                 raise serializers.ValidationError(
                     {"config": f"delay_until.{field} must be an IANA timezone name, e.g. 'Europe/Berlin'."}
                 )
@@ -2235,7 +2235,7 @@ class HogFlowScheduleSerializer(serializers.ModelSerializer):
 
         try:
             sample = compute_next_occurrences(rrule_str, starts_at, timezone_str=timezone_str, count=2)
-        except (KeyError, ValueError):
+        except KeyError, ValueError:
             raise serializers.ValidationError({"timezone": "Invalid or unknown timezone."})
 
         if len(sample) == 0:
@@ -4880,7 +4880,7 @@ class HogFlowViewSet(
 
                 if trigger:
                     queryset = queryset.filter(trigger__contains=trigger)
-            except (ValueError, KeyError, TypeError):
+            except ValueError, KeyError, TypeError:
                 raise exceptions.ValidationError({"trigger": f"Invalid trigger"})
 
         return queryset
@@ -4990,7 +4990,7 @@ class HogFlowViewSet(
                 raise exceptions.NotFound()
             try:
                 hog_flow_id = str(uuid_mod.UUID(self.kwargs["pk"]))
-            except (ValueError, KeyError):
+            except ValueError, KeyError:
                 raise exceptions.NotFound()
 
         serializer = HogInvocationCancelRequestSerializer(data=request.data)
@@ -6173,7 +6173,7 @@ class HogFlowViewSet(
     def invocations(self, request: Request, *args, **kwargs):
         try:
             hog_flow = self.get_object()
-        except (Http404, exceptions.NotFound):
+        except Http404, exceptions.NotFound:
             # Only a genuinely missing workflow lands here (e.g. testing from the builder before first
             # save) — fall back to testing the submitted payload. Permission failures never reach this
             # fallback: a resource-level denial 403s upstream before this method runs, and an object-level
@@ -6794,7 +6794,7 @@ class HogFlowViewSet(
     def batch_jobs(self, request: Request, *args, **kwargs):
         try:
             hog_flow = self.get_object()
-        except (Http404, exceptions.NotFound):
+        except Http404, exceptions.NotFound:
             # A PermissionDenied from the object-level access check propagates as a 403; only a genuine
             # missing workflow becomes a friendly 404.
             raise exceptions.NotFound(f"Workflow {kwargs.get('pk')} not found")
@@ -6856,7 +6856,7 @@ class HogFlowViewSet(
 
         try:
             batch_job = HogFlowBatchJob.objects.get(id=kwargs["batch_job_id"], hog_flow=hog_flow, team_id=self.team_id)
-        except (HogFlowBatchJob.DoesNotExist, DjangoValidationError, ValueError):
+        except HogFlowBatchJob.DoesNotExist, DjangoValidationError, ValueError:
             # DjangoValidationError fires when the id is not a parseable UUID — surface
             # as 404 rather than a 500 reported to error tracking.
             raise exceptions.NotFound("Batch job not found")
@@ -7086,7 +7086,7 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
 
         try:
             team = Team.objects.get(id=int(team_id))
-        except (Team.DoesNotExist, ValueError):
+        except Team.DoesNotExist, ValueError:
             return Response({"error": "Team not found"}, status=404)
 
         if "filters" not in request.data:
@@ -7129,7 +7129,7 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
 
         try:
             team = Team.objects.get(id=int(team_id))
-        except (Team.DoesNotExist, ValueError):
+        except Team.DoesNotExist, ValueError:
             return Response({"error": "Team not found"}, status=404)
 
         if "filters" not in request.data:
@@ -7176,7 +7176,7 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
 
         try:
             team = Team.objects.get(id=int(team_id))
-        except (Team.DoesNotExist, ValueError):
+        except Team.DoesNotExist, ValueError:
             return Response({"error": "Team not found"}, status=404)
 
         filters = request.data.get("filters") or {}
@@ -7383,7 +7383,7 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
 
         try:
             team = Team.objects.get(id=int(team_id))
-        except (Team.DoesNotExist, ValueError):
+        except Team.DoesNotExist, ValueError:
             return Response({"error": "Team not found"}, status=404)
 
         new_status = request.data.get("status")
@@ -7395,7 +7395,7 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
 
         try:
             batch_job = HogFlowBatchJob.objects.get(id=batch_job_id, team=team)
-        except (HogFlowBatchJob.DoesNotExist, DjangoValidationError, ValueError):
+        except HogFlowBatchJob.DoesNotExist, DjangoValidationError, ValueError:
             # `DjangoValidationError` fires when `batch_job_id` is not a parseable
             # UUID (UUIDField rejects it before the lookup). `ValueError` is a
             # belt-and-suspenders catch for str→int / str→UUID edge cases on

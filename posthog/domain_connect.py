@@ -364,7 +364,7 @@ def _lookup_domain_connect_endpoint(domain: str) -> str | None:
             txt_value = "".join(s.decode("utf-8") if isinstance(s, bytes) else s for s in rdata.strings)
             if txt_value:
                 return txt_value.strip()
-    except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer, dns.resolver.NoNameservers, dns.resolver.Timeout):
+    except dns.resolver.NXDOMAIN, dns.resolver.NoAnswer, dns.resolver.NoNameservers, dns.resolver.Timeout:
         pass
     except Exception:
         logger.exception("Unexpected error during Domain Connect DNS lookup for %s", domain)
@@ -392,7 +392,7 @@ def _fetch_provider_settings(endpoint: str, domain: str) -> dict | None:
             return None
         cache.set(cache_key, data, 60 * 60)
         return data
-    except (requests.RequestException, ValueError):
+    except requests.RequestException, ValueError:
         logger.warning("Failed to fetch Domain Connect settings from %s", url)
         cache.set(cache_key, False, 60 * 60)
         return None

@@ -458,7 +458,7 @@ def _cached_team_flag(flag_key: str, team: Team, evaluate: Callable[[], bool]) -
         # int(): the setting round-trips through InstanceSetting's raw JSON storage, so a value
         # edited in the Django admin can come back as a str, float, or blank string.
         ttl = int(get_instance_setting("HOGQL_TEAM_FLAG_CACHE_TTL_SECONDS"))
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         ttl = 0
     if ttl <= 0:
         return evaluate()

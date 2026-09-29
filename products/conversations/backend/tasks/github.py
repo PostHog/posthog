@@ -201,7 +201,7 @@ def _handle_github_issue_event(team: Team, repo: str, action: str, payload: dict
                         event_ts=issue_updated_at,
                     )
                     return
-            except (ValueError, TypeError):
+            except ValueError, TypeError:
                 pass
 
         new_status = Status.RESOLVED if action == "closed" else Status.OPEN

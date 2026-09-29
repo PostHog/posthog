@@ -333,7 +333,7 @@ def sync_community_skills_from_github(registry_url: str = COMMUNITY_SKILLS_REGIS
         seen_slugs.add(slug)
         try:
             created_or_updated = _upsert_community_skill(entry)
-        except (KeyError, ValueError, TypeError, AttributeError, DjangoValidationError, IntegrityError, DataError):
+        except KeyError, ValueError, TypeError, AttributeError, DjangoValidationError, IntegrityError, DataError:
             # One bad entry (missing/oversized/mistyped field, or a constraint violation) must not
             # abort the whole loop or skip the reconciliation below. Each upsert runs in its own
             # atomic block, so the failed insert has already rolled back cleanly by the time we

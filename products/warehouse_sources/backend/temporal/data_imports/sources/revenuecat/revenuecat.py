@@ -142,7 +142,7 @@ def _list_accessible_project_ids(session: requests.Session) -> list[str] | None:
         response.raise_for_status()
         try:
             payload = response.json() or {}
-        except (ValueError, requests.exceptions.JSONDecodeError):
+        except ValueError, requests.exceptions.JSONDecodeError:
             return None
 
         ids.extend(_accessible_project_ids(payload))

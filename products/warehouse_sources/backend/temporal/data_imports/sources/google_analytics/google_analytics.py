@@ -297,7 +297,7 @@ def _convert_metric_value(value: str, metric_type: str) -> Any:
         if metric_type in _INTEGER_METRIC_TYPES:
             return int(value)
         return float(value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return value
 
 

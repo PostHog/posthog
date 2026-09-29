@@ -20,7 +20,7 @@ class InstanceSetting(models.Model):
     def value(self):
         try:
             parsed = json.loads(self.raw_value)
-        except (json.JSONDecodeError, ValueError):
+        except json.JSONDecodeError, ValueError:
             # raw_value may be a bare string (e.g. saved via Django admin without json.dumps wrapping)
             return self.raw_value
 

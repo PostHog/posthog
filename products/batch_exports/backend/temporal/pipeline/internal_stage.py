@@ -848,7 +848,7 @@ def _written_rows_from_summary(summary: dict[str, typing.Any] | None) -> int | N
         return None
     try:
         return int(summary["written_rows"])
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
 
 
@@ -944,7 +944,7 @@ async def _wait_for_query_completion(client: ClickHouseClient, query_id: str) ->
         while status == ClickHouseQueryStatus.RUNNING:
             await asyncio.sleep(10)
             status = await check_query(query_id, raise_on_error=True)
-    except (ClickHouseQueryNotFound, ClickHouseCheckQueryStatusError):
+    except ClickHouseQueryNotFound, ClickHouseCheckQueryStatusError:
         logger.exception("Wait for query failed", num_attempts=num_attempts)
         try:
             await client.acancel_query(query_id)

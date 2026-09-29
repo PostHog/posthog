@@ -147,7 +147,7 @@ class _TraversalCatalogBuilder:
             return None
         try:
             table = self.database.get_table(name)
-        except (QueryError, ResolutionError):
+        except QueryError, ResolutionError:
             self.omissions["canonical_unresolvable"] += 1
             return None
         return table

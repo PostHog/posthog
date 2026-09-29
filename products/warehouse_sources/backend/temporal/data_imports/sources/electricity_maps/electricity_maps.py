@@ -60,7 +60,7 @@ def _coerce_datetime(value: Any) -> Optional[datetime]:
     if isinstance(value, str):
         try:
             parsed = dateutil_parser.parse(value)
-        except (ValueError, OverflowError):
+        except ValueError, OverflowError:
             return None
         return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
     return None

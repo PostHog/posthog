@@ -1994,7 +1994,7 @@ def safe_int(value: Any, default: Optional[int] = None) -> Optional[int]:
     """Safely convert a value to integer, returning default if conversion fails."""
     try:
         return int(value)
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         return default
 
 
@@ -2077,7 +2077,7 @@ def is_json(val):
         pass
     try:
         json.loads(val)
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         return False
     return True
 

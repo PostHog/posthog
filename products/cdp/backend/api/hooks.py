@@ -143,7 +143,7 @@ class HookViewSet(
 
             self.perform_destroy(instance)
 
-        except (Hook.DoesNotExist, Http404):
+        except Hook.DoesNotExist, Http404:
             pass
 
         if not found:
@@ -156,7 +156,7 @@ class HookViewSet(
                 hog_function.deleted = True
                 hog_function.save()
                 found = True
-            except (HogFunction.DoesNotExist, ValidationError):
+            except HogFunction.DoesNotExist, ValidationError:
                 pass
 
         if found:

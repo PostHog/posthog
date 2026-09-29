@@ -496,7 +496,7 @@ def _git(*args: str) -> str | None:
     """Trimmed stdout of a git command, None on any failure."""
     try:
         result = subprocess.run(["git", *args], capture_output=True, text=True, timeout=5.0)
-    except (OSError, subprocess.SubprocessError):
+    except OSError, subprocess.SubprocessError:
         return None
     return result.stdout.strip() if result.returncode == 0 else None
 

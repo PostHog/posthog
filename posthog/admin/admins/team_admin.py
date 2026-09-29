@@ -503,7 +503,7 @@ class TeamAdmin(admin.ModelAdmin):
                 if not isinstance(parsed, list):
                     raise ValueError
                 parsed_default_columns = parsed
-            except (json.JSONDecodeError, ValueError):
+            except json.JSONDecodeError, ValueError:
                 messages.error(request, "Default columns must be a valid JSON array.")
                 return redirect(
                     reverse("admin:posthog_team_edit_group_type_mapping", args=[object_id, group_type_index])
@@ -1853,7 +1853,7 @@ class TeamAdmin(admin.ModelAdmin):
                         display_value = ", ".join(raw_value) if isinstance(raw_value, list) else str(raw_value)
                         suffix = unit_suffixes.get(f.get("key", ""), "")
                         parts.append(f"{filter_key} {op} {display_value}{suffix}")
-                except (json.JSONDecodeError, TypeError):
+                except json.JSONDecodeError, TypeError:
                     parts.append(f"{key}: {value}")
             else:
                 label = key.replace("_", " ")

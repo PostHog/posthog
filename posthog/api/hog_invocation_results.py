@@ -105,7 +105,7 @@ def _decode_invocation_globals(stored: str) -> dict[str, Any]:
     try:
         decoded = stored if stored.startswith("{") else gzip.decompress(base64.b64decode(stored)).decode("utf-8")
         parsed = json.loads(decoded)
-    except (ValueError, OSError, EOFError):
+    except ValueError, OSError, EOFError:
         return {}
     return parsed if isinstance(parsed, dict) else {}
 

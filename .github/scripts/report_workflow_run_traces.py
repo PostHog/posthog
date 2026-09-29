@@ -1,6 +1,6 @@
 #!/usr/bin/env -S uv run --script
 # /// script
-# requires-python = ">=3.11"
+# requires-python = ">=3.14"
 # dependencies = [
 #   "opentelemetry-api~=1.27",
 #   "opentelemetry-sdk~=1.27",

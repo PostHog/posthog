@@ -131,7 +131,7 @@ def _maybe_show_hint(command: str | None) -> None:
             last_dt = datetime.fromisoformat(last_shown)
             if now - last_dt < timedelta(hours=24):
                 return
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             pass
 
     hint = _pick_hint(state, now)
@@ -156,7 +156,7 @@ def _pick_hint(state: HintsState, now: datetime) -> str | None:
             last_dt = datetime.fromisoformat(last_run)
             if now - last_dt > timedelta(days=hint_def.threshold_days):
                 return hint_def.message
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             return hint_def.message
 
     return None

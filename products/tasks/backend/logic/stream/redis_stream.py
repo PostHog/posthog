@@ -330,7 +330,7 @@ class TaskRunRedisStream:
                             last_yield_time = asyncio.get_running_loop().time()
                             yield normalized_stream_id, data
 
-            except (TaskRunStreamError, GeneratorExit):
+            except TaskRunStreamError, GeneratorExit:
                 raise
             except redis_exceptions.ConnectionError:
                 raise TaskRunStreamError("Connection lost to task run stream")

@@ -405,7 +405,7 @@ def _parse_run_id_or_404(kwargs: dict) -> uuid.UUID:
         raise exceptions.NotFound()
     try:
         return uuid.UUID(str(raw))
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         raise exceptions.NotFound()
 
 
@@ -2714,7 +2714,7 @@ def create_scout_with_generated_slug(
         name = allocate_scout_slug(team_id=team.id, display_name=display_name, taken=lost)
         try:
             return create_scout_for_source(team=team, user=user, name=name, display_name=display_name, **kwargs)
-        except (Conflict, LLMSkillDuplicateNameConflictError):
+        except Conflict, LLMSkillDuplicateNameConflictError:
             if attempt == SLUG_ALLOCATION_ATTEMPTS - 1:
                 raise
             lost.add(name)

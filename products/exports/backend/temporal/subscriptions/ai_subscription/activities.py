@@ -207,7 +207,7 @@ def _ai_credit_reset_date(subscription: Subscription) -> datetime:
             # resume "on a past date" and re-fire every tick — fall through to the fallback instead.
             if reset_date > tz.now():
                 return reset_date
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             pass
     return tz.now() + dt.timedelta(days=_CREDIT_RESET_FALLBACK_DAYS)
 

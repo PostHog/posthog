@@ -878,7 +878,7 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
                 f"Valid conversion steps: 0 (exposure step) to {num_metric_steps}."
             )
 
-        from posthog.schema import ActionsNode, ExperimentEventExposureConfig
+        from posthog.schema import ExperimentEventExposureConfig
 
         exposure_config: ExperimentEventExposureConfig | ActionsNode
         activation_config: ExperimentEventExposureConfig | ActionsNode | None = None

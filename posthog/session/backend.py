@@ -24,7 +24,7 @@ def _auth_user_id(data: dict[str, Any]) -> int | None:
         return None
     try:
         return int(data[SESSION_KEY])
-    except (KeyError, TypeError, ValueError):
+    except KeyError, TypeError, ValueError:
         return None
 
 

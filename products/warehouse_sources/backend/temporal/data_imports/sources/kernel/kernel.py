@@ -93,7 +93,7 @@ def _next_page(headers: Any, current_offset: int, page_len: int) -> tuple[bool, 
     if next_offset_header is not None:
         try:
             return has_more, int(next_offset_header)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             pass
     return has_more, current_offset + page_len
 

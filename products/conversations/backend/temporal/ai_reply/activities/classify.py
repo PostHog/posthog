@@ -90,7 +90,7 @@ classify the customer's support question."""
             needs_diagnostics=bool(parsed.get("needs_diagnostics", ticket_type == "diagnostic")),
             seed_queries=seed_queries,
         )
-    except (json_module.JSONDecodeError, ValueError, TypeError, AttributeError):
+    except json_module.JSONDecodeError, ValueError, TypeError, AttributeError:
         # Fail open to a retrieval ticket so a parse hiccup never silently drops a real question.
         logger.warning("support_reply_classify_parse_failed", raw=str(content)[:200])
         return ClassifyOutput(ticket_type="how_to", needs_diagnostics=False, seed_queries=[])

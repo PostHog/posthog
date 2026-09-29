@@ -141,7 +141,7 @@ def link_github_installation_for_user(
     audit.record("link_started", path="oauth")
     try:
         has_access = GitHubIntegration.verify_user_installation_access(installation_id, authorization.access_token)
-    except (requests.RequestException, GitHubEgressBudgetExhausted):
+    except requests.RequestException, GitHubEgressBudgetExhausted:
         logger.warning(
             "github_integration_create: installation ownership check failed",
             installation_id=installation_id,
@@ -213,7 +213,7 @@ def authorize_link_existing_installation(
         )
     try:
         has_access = GitHubIntegration.verify_user_installation_access(source_installation_id, user_access_token)
-    except (requests.RequestException, GitHubEgressBudgetExhausted):
+    except requests.RequestException, GitHubEgressBudgetExhausted:
         raise ValidationError("Failed to verify installation access")
     if not has_access:
         raise ValidationError(
@@ -260,7 +260,7 @@ def adopt_orphan_installation(
         )
     try:
         has_access = GitHubIntegration.verify_user_installation_access(installation_id, credential.token)
-    except (requests.RequestException, GitHubEgressBudgetExhausted):
+    except requests.RequestException, GitHubEgressBudgetExhausted:
         raise ValidationError("Failed to verify installation access")
     if not has_access:
         raise ValidationError("You do not have access to this GitHub installation", code="installation_access_denied")
@@ -521,7 +521,7 @@ def link_existing_team_github_integration(
     if source_team_id:
         try:
             source_team_id_int = int(source_team_id)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             raise ValidationError("source_team_id must be an integer")
 
         if source_team_id_int not in accessible_team_ids:

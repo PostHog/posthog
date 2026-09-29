@@ -19,7 +19,7 @@ def _coerce_to_filter_list(value: object) -> list:
         # The most common corruption is a JSON-encoded list passed as a string; keep its contents.
         try:
             parsed = json.loads(value)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             return []
         if isinstance(parsed, list):
             return parsed

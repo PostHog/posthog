@@ -31,6 +31,6 @@ def parse_datetime_value(value: Any) -> datetime | None:
     if isinstance(value, str):
         try:
             value = dateutil_parser.parse(value)
-        except (ValueError, TypeError, OverflowError):
+        except ValueError, TypeError, OverflowError:
             return None
     return coerce_datetime_to_utc(value)

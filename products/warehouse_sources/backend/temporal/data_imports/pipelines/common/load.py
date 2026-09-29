@@ -585,7 +585,7 @@ def _repartitioned_during_job(schema: ExternalDataSchema, job: ExternalDataJob) 
         return False
     try:
         return dt.datetime.fromisoformat(stamped) >= job.created_at
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return True
 
 

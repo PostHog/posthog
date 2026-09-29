@@ -102,7 +102,7 @@ def scan(products_root: str) -> dict[str, list[str]]:
             continue
         try:
             source = path.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
+        except OSError, UnicodeDecodeError:
             type_to_products[WILDCARD].add(product)
             continue
         # every relevant form contains "schema" — skip the rest cheaply

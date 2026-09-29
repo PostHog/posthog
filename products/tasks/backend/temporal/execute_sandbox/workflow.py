@@ -1485,7 +1485,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
         relay_task.cancel()
         try:
             await relay_task
-        except (asyncio.CancelledError, Exception):
+        except asyncio.CancelledError, Exception:
             pass
 
     @log_on_fail("Resume snapshot failed (non-fatal)", level="warning", suppress=True)

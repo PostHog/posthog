@@ -167,7 +167,7 @@ def validate_aws_role_arn(aws_role_arn: str, our_aws_role_arn: str, external_id:
                 }
             ),
         )
-    except (ClientError, BotoCoreError):
+    except ClientError, BotoCoreError:
         LOGGER.exception("Assume role failed")
         raise common.IntegrationError("Could not validate AWS role ARN due to an internal error. Try again later.")
 

@@ -168,7 +168,7 @@ def _get_ssh_client(hostname: str) -> paramiko.SSHClient:
                 key_file.seek(0)
                 pkey = key_class.from_private_key(key_file)
                 break
-            except (paramiko.SSHException, ValueError):
+            except paramiko.SSHException, ValueError:
                 continue
         if pkey is None:
             raise dagster.Failure(

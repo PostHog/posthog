@@ -257,7 +257,7 @@ def _holder_token_age_seconds(token: str) -> float | None:
     """Age of the holder token derived from its UUIDv7 timestamp, or None if not a UUIDv7."""
     try:
         holder_uuid = uuid.UUID(token)
-    except (ValueError, AttributeError, TypeError):
+    except ValueError, AttributeError, TypeError:
         return None
     if holder_uuid.version != 7:
         return None

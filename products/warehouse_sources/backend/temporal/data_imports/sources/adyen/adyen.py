@@ -140,7 +140,7 @@ def _to_batch_number(value: Any) -> int | None:
         return None
     try:
         return int(float(str(value)))
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
 
 

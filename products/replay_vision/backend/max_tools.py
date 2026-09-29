@@ -526,7 +526,7 @@ class SearchReplayVisionObservationsTool(ReplayVisionGatesMixin, MaxTool):
         if scanner_id:
             try:
                 scanner_uuid = uuid.UUID(scanner_id)
-            except (ValueError, TypeError):
+            except ValueError, TypeError:
                 # A model-supplied non-UUID would raise ValidationError deeper in the ORM (alert noise); treat as not-found.
                 return None
             scanner = scanner_for_reading_observations(self._team.id, scanner_uuid)

@@ -102,7 +102,7 @@ def _results_list(payload: Any) -> list[dict[str, Any]]:
     spans multiple result sets (e.g. a dataset that accepts multiple TableNames)."""
     try:
         results = payload["BEAAPI"]["Results"]
-    except (KeyError, TypeError):
+    except KeyError, TypeError:
         return []
     if isinstance(results, list):
         return [result for result in results if isinstance(result, dict)]

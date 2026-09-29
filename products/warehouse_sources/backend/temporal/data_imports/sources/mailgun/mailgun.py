@@ -93,7 +93,7 @@ def _to_epoch(value: Any) -> Optional[int]:
         return int(datetime.combine(value, datetime.min.time(), tzinfo=UTC).timestamp())
     try:
         return int(float(value))
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
 
 
@@ -117,7 +117,7 @@ def _parse_retry_after(value: str | None) -> float | None:
     try:
         retry_at = parsedate_to_datetime(value)
         return max((retry_at - datetime.now(UTC)).total_seconds(), 0)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
 
 

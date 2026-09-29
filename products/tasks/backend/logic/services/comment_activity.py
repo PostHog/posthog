@@ -49,7 +49,7 @@ def target_is_accessible(
     try:
         if TaskArtifact.objects.for_team(team_id).filter(task_id=task.id, id=item_id).exists():
             return True
-    except (ValueError, DjangoValidationError):
+    except ValueError, DjangoValidationError:
         pass
     return TaskRun.objects.filter(
         team_id=team_id,
@@ -128,7 +128,7 @@ def project_comment_activity(
                         .values_list("created_by_id", flat=True)
                         .first()
                     )
-                except (ValueError, DjangoValidationError):
+                except ValueError, DjangoValidationError:
                     pass
             if owner_id is None and comment.scope == "desktop_canvas" and comment.item_id:
                 from products.canvas.backend.comment_access import canvas_owner_id

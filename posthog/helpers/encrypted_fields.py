@@ -87,7 +87,7 @@ class EncryptedFieldMixin:
         for _ in range(MAX_ENCRYPTION_LAYERS):
             try:
                 value = self.f.decrypt(bytes(value, "utf-8")).decode("utf-8")
-            except (InvalidToken, UnicodeDecodeError):
+            except InvalidToken, UnicodeDecodeError:
                 return None
             if not value.startswith(FERNET_TOKEN_PREFIX):
                 return value

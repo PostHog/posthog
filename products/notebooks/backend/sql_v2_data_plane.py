@@ -74,7 +74,7 @@ def _rows_to_arrow_bytes(
         values = [row[index] for row in rows]
         try:
             arrays.append(pa.array(values))
-        except (pa.ArrowInvalid, pa.ArrowTypeError, pa.ArrowNotImplementedError):
+        except pa.ArrowInvalid, pa.ArrowTypeError, pa.ArrowNotImplementedError:
             arrays.append(pa.array([None if value is None else str(value) for value in values], type=pa.string()))
     table = pa.Table.from_arrays(arrays, names=columns)
     # Carry the HogQL/ClickHouse type names alongside the Arrow schema — the FE viz
@@ -125,7 +125,7 @@ def notebook_sql_v2_data_plane(request: HttpRequest) -> HttpResponse:
 
     try:
         body = json.loads(request.body)
-    except (json.JSONDecodeError, ValueError):
+    except json.JSONDecodeError, ValueError:
         return JsonResponse({"error": "Invalid JSON body"}, status=400)
 
     serializer = NotebookSQLV2DataPlaneRequestSerializer(data=body)

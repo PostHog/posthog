@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # /// script
-# requires-python = ">=3.11"
+# requires-python = ">=3.14"
 # dependencies = ["diff-cover>=9,<11", "defusedxml~=0.7", "coverage~=7.12"]
 # ///
 """Per-product backend coverage reporter.

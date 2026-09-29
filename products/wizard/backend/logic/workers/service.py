@@ -162,7 +162,7 @@ def provision_wizard_worker(request: WizardWorkerProvisionRequest) -> WizardWork
 def _start_cpu_billing_sampler(sandbox: SandboxBase) -> None:
     try:
         started = sandbox.start_cpu_billing_sampler()
-    except (SandboxExecutionError, SandboxNotFoundError, SandboxTimeoutError):
+    except SandboxExecutionError, SandboxNotFoundError, SandboxTimeoutError:
         logger.warning(
             "wizard_worker_cpu_billing_sampler_start_failed", extra={"sandbox_id": sandbox.id}, exc_info=True
         )
@@ -340,7 +340,7 @@ def destroy_worker(sandbox_id: str) -> None:
 def measure_worker_usage(sandbox_id: str) -> WizardWorkerUsageMeasurement | None:
     try:
         sandbox = get_sandbox_class().get_by_id(sandbox_id)
-    except (SandboxExecutionError, SandboxNotFoundError, SandboxTimeoutError):
+    except SandboxExecutionError, SandboxNotFoundError, SandboxTimeoutError:
         logger.exception("wizard_worker_usage_measurement_failed", extra={"sandbox_id": sandbox_id})
         return None
 

@@ -655,7 +655,7 @@ def _lint_scripts_directory(root: Path, *, pin_scripts: bool = True) -> list[str
 def _frontmatter_lines(path: Path) -> list[str]:
     try:
         lines = path.read_text(encoding="utf-8").splitlines()
-    except (OSError, UnicodeDecodeError):
+    except OSError, UnicodeDecodeError:
         return []
     if not lines or lines[0].strip() != FRONTMATTER_DELIMITER:
         return []

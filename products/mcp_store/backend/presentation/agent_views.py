@@ -242,7 +242,7 @@ class MCPGatewayAgentViewSet(viewsets.ViewSet):
             return HttpResponse('{"error": "Server not found"}', content_type="application/json", status=404)
         try:
             access = self._grant_for_proxy(principal, pk, request.query_params.get(AGENT_GRANT_CREDENTIAL_OWNER_PARAM))
-        except (DjangoValidationError, ValueError):
+        except DjangoValidationError, ValueError:
             access = None
         if access is None:
             return HttpResponse(

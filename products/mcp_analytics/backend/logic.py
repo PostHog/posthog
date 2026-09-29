@@ -633,12 +633,12 @@ def _extract_error_message(raw: Any) -> str | None:
         return None
     try:
         parsed = json.loads(value)
-    except (json.JSONDecodeError, ValueError):
+    except json.JSONDecodeError, ValueError:
         # HogQL's property accessor strips a string value's outer quotes but keeps the
         # inner escapes; re-wrap to unescape, then parse the payload it encodes.
         try:
             parsed = json.loads(json.loads(f'"{value}"'))
-        except (json.JSONDecodeError, ValueError):
+        except json.JSONDecodeError, ValueError:
             return value
     if isinstance(parsed, dict):
         content = parsed.get("content")
@@ -895,7 +895,7 @@ def _parse_int(value: str | int | None) -> int | None:
         return None
     try:
         return int(value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
 
 

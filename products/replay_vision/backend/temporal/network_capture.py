@@ -169,7 +169,7 @@ def _iter_captured_requests(lines: Iterable[str]) -> Iterator[tuple[dict[str, An
             continue
         try:
             parsed = json.loads(line)
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             continue
         for event in _events_from_line(parsed):
             yield from _iter_event_requests(event)
@@ -296,7 +296,7 @@ def _as_int(value: Any) -> int | None:
         return None
     try:
         return int(float(value))
-    except (ValueError, OverflowError):
+    except ValueError, OverflowError:
         return None
 
 

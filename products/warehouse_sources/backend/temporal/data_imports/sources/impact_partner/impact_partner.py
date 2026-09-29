@@ -68,7 +68,7 @@ def validate_credentials(account_sid: str, auth_token: str, api_version: str) ->
 def _safe_int(value: Any) -> Optional[int]:
     try:
         return int(value) if value is not None else None
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
 
 

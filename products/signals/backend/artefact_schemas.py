@@ -254,7 +254,7 @@ class SuggestedReviewerEntry(BaseModel):
         # containment filter, where a differently-formatted UUID for the same user never hits.
         try:
             return str(UUID(v.strip()))
-        except (ValueError, AttributeError):
+        except ValueError, AttributeError:
             raise ValueError("must be a UUID")
 
     @model_validator(mode="after")

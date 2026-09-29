@@ -63,7 +63,7 @@ def _stdin_is_tty() -> bool:
     is closed or absent (daemon / sandbox / agent contexts)."""
     try:
         return sys.stdin.isatty()
-    except (ValueError, AttributeError):
+    except ValueError, AttributeError:
         return False
 
 
@@ -76,7 +76,7 @@ def _read_piped_stdin() -> str:
     """
     try:
         return sys.stdin.read()
-    except (ValueError, AttributeError):
+    except ValueError, AttributeError:
         return ""
 
 

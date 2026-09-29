@@ -618,7 +618,7 @@ async def classify_team(
                 logger.info("Skipping report %s: %s", report.id, e)
             except GitHubAPIError as e:
                 logger.warning("Skipping report %s: GitHub error %s", report.id, e)
-            except (GitHubRateLimitError, GitHubEgressBudgetExhausted):
+            except GitHubRateLimitError, GitHubEgressBudgetExhausted:
                 logger.warning("Outcome sweep stopping for team %s: GitHub egress exhausted", team.id)
                 return classified
             except Exception:

@@ -134,7 +134,7 @@ class WizardSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def check_permissions(self, request: Request) -> None:
         try:
             team_id = self.team_id
-        except (KeyError, ValidationError, NotFound, AttributeError):
+        except KeyError, ValidationError, NotFound, AttributeError:
             team_id = None
         _log_request_auth(request, action=getattr(self, "action", "<unknown>"), team_id=team_id)
         super().check_permissions(request)

@@ -77,7 +77,7 @@ def _read_bytes_from(upstream: requests.Response) -> int | None:
         return None
     try:
         bytes_read = int(value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         logger.warning("snuffle_proxy_invalid_read_bytes", value=value)
         return None
     return bytes_read if bytes_read >= 0 else None

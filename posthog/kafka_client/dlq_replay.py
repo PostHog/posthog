@@ -82,7 +82,7 @@ def _replay_count(headers: Sequence[Header]) -> int:
         if key == REPLAY_COUNT_HEADER:
             try:
                 return int(value.decode("utf-8"))
-            except (ValueError, UnicodeDecodeError):
+            except ValueError, UnicodeDecodeError:
                 return 0
     return 0
 
@@ -92,7 +92,7 @@ def _team_id(headers: Sequence[Header]) -> Optional[int]:
         if key == TEAM_ID_HEADER:
             try:
                 return int(value.decode("utf-8"))
-            except (ValueError, UnicodeDecodeError):
+            except ValueError, UnicodeDecodeError:
                 return None
     return None
 

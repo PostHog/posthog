@@ -97,7 +97,7 @@ def get_ai_free_tier_credits(team_id: int) -> int:
     if team_id_str in region_config:
         try:
             return int(region_config[team_id_str])
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             return DEFAULT_FREE_TIER_CREDITS
 
     return DEFAULT_FREE_TIER_CREDITS
@@ -122,7 +122,7 @@ def get_ga_launch_date() -> datetime:
         if parsed_date.tzinfo is None:
             parsed_date = parsed_date.replace(tzinfo=UTC)
         return parsed_date
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         return DEFAULT_GA_LAUNCH_DATE
 
 
@@ -321,7 +321,7 @@ def _parse_period_datetime(value: object) -> datetime | None:
 
     try:
         parsed = dateutil.parser.isoparse(value)
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         return None
 
     if parsed.tzinfo is None:

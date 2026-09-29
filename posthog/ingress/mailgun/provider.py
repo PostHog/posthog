@@ -85,7 +85,7 @@ class MailgunProvider(WebhookProvider):
             return None
         try:
             return request.POST
-        except (MultiPartParserError, UnreadablePostError):
+        except MultiPartParserError, UnreadablePostError:
             # A truncated or malformed multipart body is the caller's problem, so it must not
             # become a 500. Django answers RequestDataTooBig and TooManyFieldsSent itself.
             return None

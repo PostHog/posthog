@@ -303,7 +303,7 @@ def resolve_gateway_agent_token(token: str) -> GatewayAgentPrincipal | None:
             id=account_id,
             handle__in=built_in_agent_handles(),
         )
-    except (MCPServiceAccount.DoesNotExist, TeamScopeError, ValueError):
+    except MCPServiceAccount.DoesNotExist, TeamScopeError, ValueError:
         return None
     # A token outlives offboarding (its max age is hours), so the owner's
     # eligibility is re-checked on every resolution, not just at mint time.

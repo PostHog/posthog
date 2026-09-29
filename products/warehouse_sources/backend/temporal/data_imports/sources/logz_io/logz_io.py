@@ -148,7 +148,7 @@ def _parse_scroll_hits(response: dict[str, Any]) -> list[dict[str, Any]]:
     if isinstance(raw_hits, str):
         try:
             raw_hits = json.loads(raw_hits)
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             return []
     if not isinstance(raw_hits, dict):
         return []

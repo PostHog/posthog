@@ -10,7 +10,7 @@ def review_mode_for_run(report: ReviewReport, run_index: int) -> str:
         if finding.validation_context:
             try:
                 context = json.loads(finding.validation_context)
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 continue
             if isinstance(context, dict):
                 mode = context.get("review_mode")

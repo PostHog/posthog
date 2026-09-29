@@ -350,7 +350,7 @@ def parent_snapshot_covers_through(team_id: int, source_id: str, parent_name: st
     """
     try:
         parent_schema = get_schema_if_exists(parent_name, team_id, uuid.UUID(source_id))
-    except (ValueError, AttributeError):
+    except ValueError, AttributeError:
         return None
     if parent_schema is None:
         return None

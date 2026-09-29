@@ -378,7 +378,7 @@ class ConversationViewSet(
                 conversation = Conversation.objects.exclude(deleted=True).get(id=conversation_id, team=self.team)
                 if conversation.type == Conversation.Type.DEEP_RESEARCH:
                     return True
-            except (Conversation.DoesNotExist, ValidationError):
+            except Conversation.DoesNotExist, ValidationError:
                 # DoesNotExist or ValidationError (invalid UUID) - not a research conversation
                 pass
 

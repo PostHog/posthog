@@ -167,7 +167,7 @@ class OAuthTokenView(ProvisioningAPIView):
         if partner_id:
             try:
                 oauth_app = OAuthApplication.objects.get(id=partner_id)
-            except (OAuthApplication.DoesNotExist, ValidationError, ValueError):
+            except OAuthApplication.DoesNotExist, ValidationError, ValueError:
                 logger.warning("token_exchange_app_missing", partner_id=partner_id)
         if oauth_app is None:
             capture_provisioning_event("token_exchange", "oauth_app_missing", grant_type="authorization_code")

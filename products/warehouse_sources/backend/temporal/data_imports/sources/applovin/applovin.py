@@ -70,7 +70,7 @@ def _body_code(body: Any) -> Optional[int]:
         return None
     try:
         return int(body["code"])
-    except (KeyError, TypeError, ValueError):
+    except KeyError, TypeError, ValueError:
         return None
 
 

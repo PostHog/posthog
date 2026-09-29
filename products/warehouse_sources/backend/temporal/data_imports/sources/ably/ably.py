@@ -92,7 +92,7 @@ def _parse_interval_start(interval_id: Optional[str]) -> Optional[datetime]:
         hour = int(parts[1]) if len(parts) > 1 else 0
         minute = int(parts[2]) if len(parts) > 2 else 0
         return datetime(year, month, day, hour, minute, tzinfo=UTC)
-    except (ValueError, IndexError):
+    except ValueError, IndexError:
         # Unexpected intervalId shape — leave the incremental/partition columns unset rather
         # than raising, so a single malformed bucket doesn't fail the whole sync.
         return None

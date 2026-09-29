@@ -142,7 +142,7 @@ def _ms_to_date(timestamp_ms: Any) -> str | None:
         return None
     try:
         return datetime.fromtimestamp(int(timestamp_ms) / 1000, tz=UTC).date().isoformat()
-    except (ValueError, TypeError, OverflowError, OSError):
+    except ValueError, TypeError, OverflowError, OSError:
         return None
 
 

@@ -347,7 +347,7 @@ def resolve_post_import_context_activity(inputs: PostImportWorkflowInputs) -> Po
         schema = ExternalDataSchema.objects.prefetch_related("source", "table").get(
             id=inputs.schema_id, team_id=inputs.team_id
         )
-    except (ExternalDataJob.DoesNotExist, ExternalDataSchema.DoesNotExist):
+    except ExternalDataJob.DoesNotExist, ExternalDataSchema.DoesNotExist:
         logger.warning(
             "Post-import context could not be resolved (job or schema deleted), skipping all steps",
             job_id=inputs.job_id,

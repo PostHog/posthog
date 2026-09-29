@@ -50,7 +50,7 @@ class BasePyODDetector(BaseDetector):
 
             last_point = test_data[-1:]
             prob = float(model.predict_proba(last_point)[0, 1])
-        except (ValueError, np.linalg.LinAlgError):
+        except ValueError, np.linalg.LinAlgError:
             return DetectionResult(is_anomaly=False)
 
         is_anomaly = prob > threshold
@@ -94,7 +94,7 @@ class BasePyODDetector(BaseDetector):
                 model = self._build_model(n_samples=len(train_data))
                 model.fit(train_data)
                 prob = float(model.predict_proba(test_point)[0, 1])
-            except (ValueError, np.linalg.LinAlgError):
+            except ValueError, np.linalg.LinAlgError:
                 scores.append(None)
                 continue
 

@@ -424,7 +424,7 @@ def _accumulate_meta(combined: dict[str, Any], turn: dict[str, Any]) -> None:
 def _run_tool_call(call: Any, *, presented_urls: set[str], signup_domain: str | None) -> ToolOutcome:
     try:
         arguments = json.loads(call.function.arguments or "{}")
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return ToolOutcome(
             name=call.function.name,
             arguments={},

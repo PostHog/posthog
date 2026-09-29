@@ -26,7 +26,7 @@ def safe_float(val: typing.Any) -> float:
         return 0.0
     try:
         return float(val)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return 0.0
 
 

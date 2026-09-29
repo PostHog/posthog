@@ -329,7 +329,7 @@ def _rate_limit_backoff_seconds(resp: Response, default: float) -> float:
         return default
     try:
         return max(float(raw), 0.0)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return default
 
 

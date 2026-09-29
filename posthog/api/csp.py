@@ -318,7 +318,7 @@ def process_csp_report(request):
         try:
             sample_rate = request.GET.get("sample_rate", 1.0)
             sample_rate = float(sample_rate)
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             sample_rate = 1.0
 
         if request.content_type == "application/csp-report":

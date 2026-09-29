@@ -356,7 +356,7 @@ class MaxChatViewSet(viewsets.ViewSet):
                                 reset_time = datetime.fromisoformat(headers[header].rstrip("Zs")).replace(tzinfo=UTC)
                                 wait_seconds = max(0, int((reset_time - now).total_seconds()))
                                 reset_times.append(min(wait_seconds, self.MAX_BACKOFF))
-                            except (ValueError, TypeError):
+                            except ValueError, TypeError:
                                 continue
 
                     retry_seconds = min(max(reset_times) if reset_times else self.MAX_BACKOFF, self.MAX_BACKOFF)

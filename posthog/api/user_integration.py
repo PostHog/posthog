@@ -920,7 +920,7 @@ def _resolve_team_for_github_start(user: User, request: Request):
     if raw_id is not None and raw_id != "":
         try:
             tid = int(raw_id)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             raise exceptions.ValidationError("team_id must be an integer")
         team = user.teams.filter(id=tid).first()
         if team is None:

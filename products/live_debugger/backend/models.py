@@ -157,7 +157,7 @@ class LiveDebuggerBreakpoint(UUIDModel):
                         stack_trace=stack_trace_data,
                     )
                 )
-            except (json.JSONDecodeError, TypeError, ValueError):
+            except json.JSONDecodeError, TypeError, ValueError:
                 # Skip malformed entries
                 continue
 

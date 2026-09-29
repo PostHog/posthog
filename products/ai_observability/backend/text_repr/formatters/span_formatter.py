@@ -30,7 +30,7 @@ def _format_string_state(state: str, options: FormatterOptions | None) -> list[s
             json_str = json.dumps(parsed, indent=2)
             content_lines, _ = truncate_content(json_str, options)
             return content_lines
-    except (ValueError, SyntaxError):
+    except ValueError, SyntaxError:
         pass
 
     content_lines, _ = truncate_content(state, options)

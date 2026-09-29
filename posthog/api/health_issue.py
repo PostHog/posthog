@@ -69,7 +69,7 @@ class SnoozeDurationField(serializers.DateTimeField):
             )
         try:
             snoozed_until = relative_date_parse(data.strip(), ZoneInfo("UTC"), increase=True)
-        except (ValueError, OverflowError):
+        except ValueError, OverflowError:
             # A duration large enough to overflow the date arithmetic is well beyond the cap.
             raise serializers.ValidationError(f"Cannot snooze for longer than {MAX_SNOOZE_DAYS} days.") from None
         # Capture now after parsing: a zero-length duration such as "0d" resolves to the parser's own

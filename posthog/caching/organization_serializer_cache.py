@@ -46,7 +46,7 @@ def _org_serializer_cache_version(organization_id: str) -> int:
         return 0
     try:
         return int(raw)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return 0
 
 

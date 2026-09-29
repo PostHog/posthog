@@ -151,7 +151,7 @@ def _extract_datetime_constant(expr: ast.Expr, context: HogQLContext) -> Optiona
                 # Try parsing ISO format
                 dt_str = expr.value.replace("Z", "+00:00")
                 return datetime.fromisoformat(dt_str)
-            except (ValueError, AttributeError):
+            except ValueError, AttributeError:
                 return None
 
     # Handle wrapper functions that pass through to their first argument

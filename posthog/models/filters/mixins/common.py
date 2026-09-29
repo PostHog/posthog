@@ -130,7 +130,7 @@ class BreakdownMixin(BaseParamMixin):
 
         try:
             return json.loads(breakdown)
-        except (TypeError, json.decoder.JSONDecodeError):
+        except TypeError, json.decoder.JSONDecodeError:
             return breakdown
 
     @cached_property
@@ -162,7 +162,7 @@ class BreakdownMixin(BaseParamMixin):
             else:
                 return breakdowns
 
-        except (TypeError, json.decoder.JSONDecodeError):
+        except TypeError, json.decoder.JSONDecodeError:
             raise ValidationError(detail="breakdowns must be a list of items, each with property and type")
 
     @cached_property
@@ -170,7 +170,7 @@ class BreakdownMixin(BaseParamMixin):
         if BREAKDOWN_LIMIT in self._data:
             try:
                 return int(self._data[BREAKDOWN_LIMIT])
-            except (ValueError, TypeError):
+            except ValueError, TypeError:
                 pass
         return None
 
@@ -191,7 +191,7 @@ class BreakdownMixin(BaseParamMixin):
         if BREAKDOWN_HISTOGRAM_BIN_COUNT in self._data:
             try:
                 return int(self._data[BREAKDOWN_HISTOGRAM_BIN_COUNT])
-            except (ValueError, TypeError):
+            except ValueError, TypeError:
                 pass
         return None
 
@@ -200,7 +200,7 @@ class BreakdownMixin(BaseParamMixin):
         if BREAKDOWN_HIDE_OTHER_AGGREGATION in self._data:
             try:
                 return self._data[BREAKDOWN_HIDE_OTHER_AGGREGATION] in ("True", "true", True)
-            except (ValueError, TypeError):
+            except ValueError, TypeError:
                 pass
         return None
 

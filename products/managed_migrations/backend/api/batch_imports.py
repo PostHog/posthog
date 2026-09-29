@@ -326,7 +326,7 @@ class BatchImportS3SourceCreateSerializer(BatchImportTrialOptionsMixin, BatchImp
                 ExternalId=external_id,
                 DurationSeconds=900,
             )["Credentials"]
-        except (ClientError, BotoCoreError):
+        except ClientError, BotoCoreError:
             raise serializers.ValidationError(
                 "PostHog could not assume this IAM role. Verify the role exists, its trust policy "
                 "allows PostHog's import role, and the External ID matches the one shown in setup."
@@ -342,7 +342,7 @@ class BatchImportS3SourceCreateSerializer(BatchImportTrialOptionsMixin, BatchImp
         )
         try:
             s3.list_objects_v2(Bucket=data["s3_bucket"], Prefix=data.get("s3_prefix", ""), MaxKeys=1)
-        except (ClientError, BotoCoreError):
+        except ClientError, BotoCoreError:
             raise serializers.ValidationError(
                 "The IAM role was assumed successfully, but listing the bucket failed. "
                 "Check the role's s3:ListBucket and s3:GetObject permissions for this bucket and prefix."

@@ -47,7 +47,7 @@ def float_header(headers: Mapping[str, str] | None, name: str) -> float | None:
         return None
     try:
         return float(value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
 
 

@@ -94,7 +94,7 @@ def get_server_detail(*, pk: str, team_id: int, caller_is_staff: bool) -> contra
     """Full server record, or None when the caller may not see this server."""
     try:
         server = logic.get_server_for_caller(pk, team_id=team_id, caller_is_staff=caller_is_staff)
-    except (MCPRegistryServer.DoesNotExist, ValueError):
+    except MCPRegistryServer.DoesNotExist, ValueError:
         return None
 
     visibility = logic.measured_visibility(server, team_id, caller_is_staff)

@@ -439,7 +439,7 @@ def _property_value_error(operator: str, value: Any) -> str | None:
             return "Must be a semver string."
         try:
             parse_semver(value.rstrip(".*") if operator == "semver_wildcard" else value)
-        except (ValueError, IndexError):
+        except ValueError, IndexError:
             return "Must be a semver string."
     return None
 
@@ -546,5 +546,5 @@ def _encoded_size(value: object, *, allow_nan: bool = True) -> int | None:
             return None
         return len(encoded.encode("utf-8"))
     # Nesting past the recursion limit in the walk above is one more shape we cannot size.
-    except (TypeError, ValueError, RecursionError):
+    except TypeError, ValueError, RecursionError:
         return None

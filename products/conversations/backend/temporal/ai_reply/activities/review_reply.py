@@ -119,7 +119,7 @@ TICKET TYPE: {input.ticket_type}"""
         parsed = json_module.loads(strip_json_fence(content))
         result = ReplyReviewResult.model_validate(parsed)
         return ReviewReplyOutput(safe=result.safe, reason=result.reason)
-    except (json_module.JSONDecodeError, ValueError, TypeError, AttributeError):
+    except json_module.JSONDecodeError, ValueError, TypeError, AttributeError:
         logger.warning("support_reply_review_parse_failed", raw=str(content)[:200])
         return ReviewReplyOutput(
             safe=False, reason="reviewer output could not be parsed — blocking reply as a precaution"

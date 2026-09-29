@@ -268,7 +268,7 @@ class UserGitHubIntegration(GitHubIntegrationBase):
         raw_id = github_user.get("id") if isinstance(github_user, dict) else None
         try:
             gh_id = int(raw_id) if raw_id is not None else None
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             return None
         if not login or gh_id is None:
             return None
@@ -589,7 +589,7 @@ def user_github_integration_from_installation(
     now = int(time.time())
     try:
         expires_in = int(datetime.fromisoformat(installation.token_expires_at).timestamp() - now)
-    except (ValueError, AttributeError):
+    except ValueError, AttributeError:
         expires_in = 3600
 
     # A re-link without organization context keeps the stored one, so later diagnostics stay durable.
@@ -701,7 +701,7 @@ def refresh_user_github_installation_access(
     now = int(time.time())
     try:
         expires_in = int(datetime.fromisoformat(installation.token_expires_at).timestamp() - now)
-    except (ValueError, AttributeError):
+    except ValueError, AttributeError:
         expires_in = 3600
 
     config = dict(integration.config)

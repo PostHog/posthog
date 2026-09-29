@@ -82,7 +82,7 @@ class BriefSettings:
             if key in settings:
                 try:
                     overrides[key] = _clamp(cast(settings[key]), lo, hi)
-                except (TypeError, ValueError):
+                except TypeError, ValueError:
                     continue
         return replace(DEFAULT_BRIEF_SETTINGS, **overrides)  # type: ignore[arg-type]
 

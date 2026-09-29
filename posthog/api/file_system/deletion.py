@@ -311,7 +311,7 @@ def delete_file_system_object(
 
     try:
         instance = _get_object(registration, ref=ref, team_id=entry.team_id)
-    except (ObjectDoesNotExist, DjangoValidationError, ValueError, TypeError):
+    except ObjectDoesNotExist, DjangoValidationError, ValueError, TypeError:
         # A ref the lookup field can't hold (`FileSystem.ref` is a plain CharField, set by the
         # caller when the row is created) is the same situation as one that resolves to nothing:
         # the row references no object, so drop the row itself.
@@ -384,7 +384,7 @@ def get_restorable_object(type_string: str, ref: str, *, team_id: int | None) ->
 
     try:
         instance = _get_object(registration, ref=ref, team_id=team_id)
-    except (ObjectDoesNotExist, DjangoValidationError, ValueError, TypeError):
+    except ObjectDoesNotExist, DjangoValidationError, ValueError, TypeError:
         # `ref` is caller-supplied and every model's lookup field rejects a different shape: an
         # integer pk raises ValueError on "oops", a UUID pk raises ValidationError. Those are all
         # the same answer as a missing object, and must return it identically so a caller can't

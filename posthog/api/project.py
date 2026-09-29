@@ -2124,7 +2124,7 @@ class ProjectViewSet(
                         "You must be an admin of both the source and target organizations to move a project."
                     )
 
-            except (OrganizationMembership.DoesNotExist, Organization.DoesNotExist):
+            except OrganizationMembership.DoesNotExist, Organization.DoesNotExist:
                 raise exceptions.ValidationError("You must be a member of the target organization to move a project.")
 
             # Compare resolved UUIDs: target_organization_id comes off the request body as a string, so

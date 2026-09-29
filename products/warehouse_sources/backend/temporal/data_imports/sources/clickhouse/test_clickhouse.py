@@ -1960,7 +1960,7 @@ def _recording_server(response: bytes = _FORBIDDEN_RESPONSE) -> Iterator[tuple[i
         while not stop.is_set():
             try:
                 conn, _ = server.accept()
-            except (TimeoutError, OSError):
+            except TimeoutError, OSError:
                 continue
             with conn:
                 requests.append(conn.recv(8192).decode("latin-1").split("\r\n")[0])

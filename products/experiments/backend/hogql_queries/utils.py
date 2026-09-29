@@ -84,7 +84,7 @@ def _parse_enum_config(value: Any, enum_class: type[Enum], default: Any) -> Any:
         elif isinstance(value, enum_class):
             return value
         return default
-    except (KeyError, TypeError):
+    except KeyError, TypeError:
         return default
 
 
@@ -94,7 +94,7 @@ def _validate_numeric_range(value: Any, min_val: float, max_val: float, default:
         if min_val <= float_value <= max_val:
             return float_value
         return default
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return default
 
 

@@ -468,7 +468,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         # If this fails, it will set is_materialized = False
         try:
             saved_query.schedule_materialization(trigger_immediate_run=True, triggered_by_id=request.user.pk)
-        except (UnsatisfiableFrequencyError, UnsupportedFrequencyTargetError):
+        except UnsatisfiableFrequencyError, UnsupportedFrequencyTargetError:
             # The check above already refused every cadence the lineage forbids, so reaching here
             # means the lineage moved mid-request. Say so plainly rather than forwarding a message
             # built from unredacted names. `schedule_materialization` re-raises these without

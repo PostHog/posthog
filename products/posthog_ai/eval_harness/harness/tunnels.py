@@ -40,7 +40,7 @@ def tailscale_status() -> dict[str, Any] | None:
     binary is missing, the daemon is unreachable, or the output is unparseable."""
     try:
         result = _run_tailscale(["status", "--json"], timeout=15)
-    except (OSError, subprocess.SubprocessError):
+    except OSError, subprocess.SubprocessError:
         return None
     if result.returncode != 0:
         return None
@@ -92,7 +92,7 @@ def _configured_public_ports() -> set[int]:
     guessed."""
     try:
         result = _run_tailscale(["serve", "status", "--json"], timeout=15)
-    except (OSError, subprocess.SubprocessError):
+    except OSError, subprocess.SubprocessError:
         return set()
     if result.returncode != 0:
         return set()

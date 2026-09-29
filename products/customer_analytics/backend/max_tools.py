@@ -40,7 +40,7 @@ async def _aget_account_by_id(team: "Team", account_id: str) -> Account | None:
         return None
     try:
         return await Account.objects.unscoped().aget(id=account_id, team=team)
-    except (Account.DoesNotExist, ValidationError, ValueError):
+    except Account.DoesNotExist, ValidationError, ValueError:
         return None
 
 
@@ -94,7 +94,7 @@ class OpenAccountTool(MaxTool):
             if match is None:
                 match = await accounts.filter(name__iexact=account).afirst()
             return match
-        except (ValidationError, ValueError):
+        except ValidationError, ValueError:
             return None
 
 
@@ -491,7 +491,7 @@ class UpsertAccountNotebookTool(MaxTool):
                 .select_related("notebook", "account")
                 .afirst()
             )
-        except (ValidationError, ValueError):
+        except ValidationError, ValueError:
             return None
         if link is None or link.account is None:
             return None

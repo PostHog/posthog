@@ -86,7 +86,7 @@ class VercelSSOViewSet(VercelErrorResponseMixin, VercelRegionProxyMixin, viewset
         if resource_id:
             try:
                 resource_pk = int(resource_id)
-            except (ValueError, TypeError):
+            except ValueError, TypeError:
                 return False
             # nosemgrep: idor-lookup-without-team — intentionally cross-team: checking if resource exists anywhere in this region
             return not Integration.objects.filter(pk=resource_pk, kind=Integration.IntegrationKind.VERCEL).exists()

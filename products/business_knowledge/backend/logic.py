@@ -1287,13 +1287,13 @@ def _resolve_crawl_config(raw: dict | None) -> discover.CrawlConfig:
         raw = raw or {}
     try:
         max_pages = int(raw.get("max_pages", DEFAULT_MAX_PAGES))
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         max_pages = DEFAULT_MAX_PAGES
     max_pages = max(1, min(max_pages, MAX_URLS_PER_SOURCE))
 
     try:
         max_depth = int(raw.get("max_depth", DEFAULT_CRAWL_MAX_DEPTH))
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         max_depth = DEFAULT_CRAWL_MAX_DEPTH
     max_depth = max(0, min(max_depth, CRAWL_HARD_MAX_DEPTH))
 
@@ -2329,7 +2329,7 @@ def _semantic_chunk_candidates(
         doc_id_str, distance = row
         try:
             candidates.append(_SemanticCandidate(chunk_id=UUID(doc_id_str), distance=float(distance)))
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             continue
     return candidates
 

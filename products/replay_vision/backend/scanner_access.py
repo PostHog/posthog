@@ -29,7 +29,7 @@ if TYPE_CHECKING:
 def is_uuid(value: str) -> bool:
     try:
         uuid.UUID(str(value))
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         return False
     return True
 
@@ -174,7 +174,7 @@ def scanner_for_recording_derived_read(
     """
     try:
         scanner_id = uuid.UUID(viewset.kwargs[scanner_id_kwarg])
-    except (KeyError, ValueError):
+    except KeyError, ValueError:
         raise NotFound()
     scanner = scanner_for_reading_observations(viewset.team_id, scanner_id)
     if scanner is None:

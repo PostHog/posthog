@@ -653,7 +653,7 @@ class UpsertDashboardTool(MaxTool):
         # LLMs sometimes output IDs as floats (e.g., "642161.0"), so we parse to int
         try:
             parsed_id = int(float(dashboard_id))
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             raise MaxToolFatalError(DASHBOARD_NOT_FOUND_PROMPT.format(dashboard_id=dashboard_id))
         try:
             dashboard = await Dashboard.objects.aget(id=parsed_id, team=self._team, deleted=False)

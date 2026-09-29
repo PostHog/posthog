@@ -49,7 +49,7 @@ def _canonical_report_id(report_id: str | uuid.UUID) -> str | None:
     """
     try:
         return str(uuid.UUID(str(report_id)))
-    except (ValueError, AttributeError, TypeError):
+    except ValueError, AttributeError, TypeError:
         return None
 
 

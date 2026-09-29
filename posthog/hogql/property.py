@@ -160,7 +160,7 @@ def semver_range_compare(
 
     try:
         lower_bound, upper_bound = bounds_calculator(value)
-    except (ValueError, IndexError):
+    except ValueError, IndexError:
         raise QueryError(f"{operator_name} operator requires a valid semver string (e.g., '1.2.3')")
 
     return ast.And(
@@ -562,7 +562,7 @@ def _validate_between_values(value: ValueT, operator: PropertyOperator) -> TypeG
             raise not_numeric
         try:
             parsed = float(bound)
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             raise not_numeric
         if math.isnan(parsed):
             raise not_numeric
@@ -985,7 +985,7 @@ def _behavioral_property_to_expr(property: Property, team: Team, scope: str, str
     if property.event_type == "actions":
         try:
             action = Action.objects.get(pk=int(property.key), team__project_id=team.project_id)
-        except (Action.DoesNotExist, ValueError, TypeError):
+        except Action.DoesNotExist, ValueError, TypeError:
             raise QueryError(f"Action '{property.key}' in behavioral filter not found")
         conditions: list[ast.Expr] = [action_to_expr(action)]
     else:
@@ -1010,7 +1010,7 @@ def _behavioral_property_to_expr(property: Property, team: Team, scope: str, str
         interval_function = get_interval_func(property.time_interval)
         try:
             time_value = int(property.time_value)
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             raise QueryError(f"Invalid behavioral filter time value: {property.time_value}")
         if time_value <= 0:
             raise QueryError(f"Invalid behavioral filter time value: {property.time_value}")
@@ -1046,7 +1046,7 @@ def _behavioral_property_to_expr(property: Property, team: Team, scope: str, str
     if property.value == BehavioralPropertyType.PERFORMED_EVENT_MULTIPLE:
         try:
             count = int(property.operator_value)  # type: ignore[arg-type]
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             raise QueryError(f"Invalid behavioral filter count: {property.operator_value}")
         # count() = 0 can never match a grouped row, so a non-positive threshold silently matches nobody.
         if count <= 0:

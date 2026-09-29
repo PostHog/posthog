@@ -119,7 +119,7 @@ def get_posthog_code_usage(user, team_id: int) -> CodeUsageStatus | None:
     except requests.RequestException:
         logger.warning("code_usage_gate: gateway usage request failed", exc_info=True)
         return None
-    except (ValueError, AttributeError):
+    except ValueError, AttributeError:
         logger.warning("code_usage_gate: could not parse gateway usage response", exc_info=True)
         return None
     finally:

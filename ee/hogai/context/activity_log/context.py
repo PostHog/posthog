@@ -98,7 +98,7 @@ class ActivityLogContext:
     def _parse_datetime(value: str) -> datetime | None:
         try:
             return datetime.fromisoformat(value)
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             return None
 
     @database_sync_to_async

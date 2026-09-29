@@ -102,7 +102,7 @@ class WorkflowCustomerTaskViewSet(viewsets.GenericViewSet):
             ) from None
         except contracts.CustomerTaskAccountNotFound:
             raise NotFound("Account not found.") from None
-        except (contracts.CustomerTaskAssigneeInvalid, contracts.CustomerTaskAssigneeCannotViewAccount):
+        except contracts.CustomerTaskAssigneeInvalid, contracts.CustomerTaskAssigneeCannotViewAccount:
             raise ValidationError(
                 {"assigned_to_id": "Choose a project member who can access the linked account."}
             ) from None

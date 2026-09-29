@@ -393,7 +393,7 @@ def process_expr_on_table(
             engine = connection_metadata.get("engine") if isinstance(connection_metadata, dict) else None
             dialect = "mysql" if engine == "mysql" else "postgres"
         prepare_and_print_ast(select_query, context, dialect)
-    except (NotImplementedError, SyntaxError):
+    except NotImplementedError, SyntaxError:
         raise
 
 

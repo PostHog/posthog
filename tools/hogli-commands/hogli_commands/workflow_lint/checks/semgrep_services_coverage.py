@@ -89,7 +89,7 @@ def _tracked_services(repo_root: Path, services_dir: Path) -> list[str]:
             capture_output=True,
             text=True,
         )
-    except (OSError, subprocess.CalledProcessError):
+    except OSError, subprocess.CalledProcessError:
         return sorted(p.name for p in services_dir.iterdir() if p.is_dir() and not p.name.startswith("."))
     tracked = {
         entry.split("/")[1]

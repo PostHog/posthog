@@ -99,7 +99,7 @@ class ProvisioningConfig(BaseModel):
         for key, raw in value.items():
             try:
                 parsed = int(raw)
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 # Dropped like a null rather than raised: pydantic lets a TypeError out of a
                 # validator, and the config is re-parsed on every read, so one unreadable
                 # value would fail every request for that partner.

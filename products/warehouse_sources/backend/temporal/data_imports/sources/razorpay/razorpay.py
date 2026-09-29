@@ -40,7 +40,7 @@ def build_from_param(db_incremental_field_last_value: Optional[Any]) -> Optional
 
     try:
         watermark = int(db_incremental_field_last_value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
 
     return max(watermark - INCREMENTAL_LOOKBACK_SECONDS, MIN_FROM_TIMESTAMP)

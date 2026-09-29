@@ -473,7 +473,7 @@ def _message_headers(raw_headers: list[dict[str, Any]]) -> dict[str, str]:
 def _decode_header(value: str) -> str:
     try:
         return str(make_header(decode_header(value)))
-    except (LookupError, UnicodeError):
+    except LookupError, UnicodeError:
         return value
 
 
@@ -499,7 +499,7 @@ def _parse_addresses(value: str) -> tuple[EmailAddress, ...]:
 def _parse_internal_date(value: Any) -> datetime:
     try:
         return datetime.fromtimestamp(int(str(value)) / 1000, tz=UTC)
-    except (TypeError, ValueError, OverflowError):
+    except TypeError, ValueError, OverflowError:
         return timezone.now()
 
 
@@ -544,7 +544,7 @@ def _decode_body(data: str) -> str:
     try:
         padded = data + "=" * (-len(data) % 4)
         return base64.urlsafe_b64decode(padded).decode("utf-8", errors="replace")
-    except (ValueError, binascii.Error):
+    except ValueError, binascii.Error:
         return ""
 
 

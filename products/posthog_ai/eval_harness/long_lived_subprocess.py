@@ -146,7 +146,7 @@ class LongLivedSubprocessManager:
 
         try:
             process_pgid = os.getpgid(pid)
-        except (ProcessLookupError, PermissionError):
+        except ProcessLookupError, PermissionError:
             self._remove_pid_file(port)
             return
 
@@ -167,20 +167,20 @@ class LongLivedSubprocessManager:
             return
         try:
             os.killpg(proc.pid, signal.SIGTERM)
-        except (ProcessLookupError, PermissionError):
+        except ProcessLookupError, PermissionError:
             return
         try:
             proc.wait(timeout=5)
         except subprocess.TimeoutExpired:
             try:
                 os.killpg(proc.pid, signal.SIGKILL)
-            except (ProcessLookupError, PermissionError):
+            except ProcessLookupError, PermissionError:
                 pass
 
     def _terminate_process_group(self, pgid: int, port: int) -> None:
         try:
             os.killpg(pgid, signal.SIGTERM)
-        except (ProcessLookupError, PermissionError):
+        except ProcessLookupError, PermissionError:
             return
 
         deadline = time.monotonic() + 5
@@ -191,7 +191,7 @@ class LongLivedSubprocessManager:
 
         try:
             os.killpg(pgid, signal.SIGKILL)
-        except (ProcessLookupError, PermissionError):
+        except ProcessLookupError, PermissionError:
             return
 
         deadline = time.monotonic() + 5
@@ -224,7 +224,7 @@ class LongLivedSubprocessManager:
         pid_file = self._pid_file_path(port)
         try:
             raw: object = json.loads(pid_file.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
+        except OSError, json.JSONDecodeError:
             return None
 
         if not isinstance(raw, dict):

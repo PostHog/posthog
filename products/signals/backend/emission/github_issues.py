@@ -113,7 +113,7 @@ def _author_login(raw_user: Any) -> str | None:
     if isinstance(raw_user, str):
         try:
             raw_user = json.loads(raw_user)
-        except (json.JSONDecodeError, TypeError):
+        except json.JSONDecodeError, TypeError:
             # The blob itself names a person, so log only enough to spot a shape change upstream.
             logger.warning(
                 "Ignoring unparseable GitHub issue user field",

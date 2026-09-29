@@ -45,7 +45,7 @@ def _page_from_url(url: str) -> int:
     page_values = qs.get("page", ["1"])
     try:
         return int(page_values[0])
-    except (ValueError, IndexError):
+    except ValueError, IndexError:
         return 1
 
 

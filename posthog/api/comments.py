@@ -79,7 +79,7 @@ def _require_ticket_editor_access(
 
     try:
         ticket = Ticket.objects.get(team_id=team_id, id=item_id)
-    except (Ticket.DoesNotExist, ValueError, django_exceptions.ValidationError):
+    except Ticket.DoesNotExist, ValueError, django_exceptions.ValidationError:
         raise exceptions.ValidationError({"item_id": "Ticket not found"})
 
     if not user_access_control.check_access_level_for_object(ticket, required_level="editor"):
@@ -678,7 +678,7 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
                 candidate_scopes.add(
                     Comment.objects.filter(team_id=self.team_id, pk=pk).values_list("scope", flat=True).first()
                 )
-            except (ValueError, django_exceptions.ValidationError):
+            except ValueError, django_exceptions.ValidationError:
                 return None
         if request.method not in ("GET", "HEAD", "OPTIONS") and isinstance(request.data, dict):
             if body_scope := request.data.get("scope"):
@@ -693,7 +693,7 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
                         .values_list("scope", flat=True)
                         .first()
                     )
-                except (ValueError, django_exceptions.ValidationError):
+                except ValueError, django_exceptions.ValidationError:
                     return None
         candidate_scopes.discard(None)
         if not candidate_scopes & TICKET_COMMENT_SCOPES:
@@ -841,7 +841,7 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
             return
         try:
             target = Comment.objects.filter(team_id=self.team_id, pk=pk).values_list("scope", "item_id").first()
-        except (ValueError, django_exceptions.ValidationError):
+        except ValueError, django_exceptions.ValidationError:
             return
         if not target:
             return
@@ -850,7 +850,7 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
             return
         try:
             ticket = Ticket.objects.get(team_id=self.team_id, id=item_id)
-        except (Ticket.DoesNotExist, ValueError, django_exceptions.ValidationError):
+        except Ticket.DoesNotExist, ValueError, django_exceptions.ValidationError:
             return
         if not self.user_access_control.check_access_level_for_object(ticket, required_level="viewer"):
             # Match the list path, where a denied ticket's comments are simply absent.
@@ -862,7 +862,7 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
             return
         try:
             comment = Comment.objects.filter(team_id=self.team_id, pk=pk).first()
-        except (ValueError, django_exceptions.ValidationError):
+        except ValueError, django_exceptions.ValidationError:
             return
         if comment is None or comment.scope not in DESKTOP_COMMENT_SCOPES:
             return
@@ -903,7 +903,7 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
         if item_id:
             try:
                 ticket = Ticket.objects.get(team_id=self.team_id, id=item_id)
-            except (Ticket.DoesNotExist, ValueError, django_exceptions.ValidationError):
+            except Ticket.DoesNotExist, ValueError, django_exceptions.ValidationError:
                 return queryset.none()
             if not self.user_access_control.check_access_level_for_object(ticket, required_level="viewer"):
                 return queryset.none()

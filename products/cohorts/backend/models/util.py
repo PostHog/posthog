@@ -176,7 +176,7 @@ def save_recovery_bookkeeping(save_fn: Callable[[], None], *, cohort_id: int, te
     """
     try:
         save_fn()
-    except (InterfaceError, OperationalError):
+    except InterfaceError, OperationalError:
         connections[DEFAULT_DB_ALIAS].close()  # next query opens a fresh connection
         try:
             save_fn()
@@ -363,7 +363,7 @@ def validate_actors_query_for_cohort(query_dict: dict[str, Any]) -> None:
 
     try:
         parser.parse(day)
-    except (ValueError, OverflowError):
+    except ValueError, OverflowError:
         raise ValidationError(invalid_day_message) from None
 
 
@@ -1000,7 +1000,7 @@ def get_nested_cohort_ids(cohort: Cohort) -> set[int]:
         if prop.type == "cohort" and not isinstance(prop.value, list):
             try:
                 ids.add(int(prop.value))
-            except (ValueError, TypeError):
+            except ValueError, TypeError:
                 continue
     return ids
 

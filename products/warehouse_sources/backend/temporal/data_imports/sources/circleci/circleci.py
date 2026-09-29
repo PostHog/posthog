@@ -92,7 +92,7 @@ def _rate_limit_sleep_seconds(response: requests.Response) -> int:
             continue
         try:
             seconds = int(float(raw))
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             continue
         return max(0, min(seconds, MAX_RATE_LIMIT_SLEEP_SECONDS))
     return 0

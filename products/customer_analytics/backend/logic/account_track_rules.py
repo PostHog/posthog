@@ -333,7 +333,7 @@ def get_account_track_rules(team_id: int) -> contracts.AccountTrackRulesConfig:
     row, _ = TeamCustomerAnalyticsConfig.objects.get_or_create(team_id=team_id)
     try:
         return _config_from_json(row.account_track_rules)
-    except (AccountTrackRuleValidationError, KeyError, TypeError, ValueError):
+    except AccountTrackRuleValidationError, KeyError, TypeError, ValueError:
         return contracts.AccountTrackRulesConfig()
 
 

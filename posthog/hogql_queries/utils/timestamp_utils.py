@@ -157,7 +157,7 @@ def _coerce_to_datetime(value: Any, tz: tzinfo) -> datetime:
     if isinstance(value, str):
         try:
             parsed = parse_datetime(value)
-        except (ValueError, TypeError, OverflowError):
+        except ValueError, TypeError, OverflowError:
             return EARLIEST_EVENT_TIMESTAMP
         return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=tz)
     return EARLIEST_EVENT_TIMESTAMP

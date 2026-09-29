@@ -445,7 +445,7 @@ def is_token_expiring(sensitive: dict) -> bool:
     try:
         retrieved_at = float((sensitive or {}).get("token_retrieved_at", 0))
         expires_in = float((sensitive or {}).get("expires_in", 0))
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return False
     if not retrieved_at or not expires_in:
         return False

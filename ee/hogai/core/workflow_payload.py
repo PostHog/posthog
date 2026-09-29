@@ -9,6 +9,6 @@ def get_workflow_input_size_estimates(inputs: object) -> dict[str, int]:
             continue
         try:
             sizes[field_name] = len(json.dumps(value, default=str, ensure_ascii=False).encode("utf-8"))
-        except (TypeError, ValueError, RecursionError):
+        except TypeError, ValueError, RecursionError:
             continue
     return sizes

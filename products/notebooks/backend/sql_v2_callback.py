@@ -70,7 +70,7 @@ def notebook_sql_v2_callback(request, run_id: str) -> JsonResponse:
 
     try:
         body = json.loads(request.body)
-    except (json.JSONDecodeError, ValueError):
+    except json.JSONDecodeError, ValueError:
         return JsonResponse({"error": "Invalid JSON body"}, status=400)
 
     serializer = NotebookSQLV2CallbackRequestSerializer(data=body)

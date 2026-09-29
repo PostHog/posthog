@@ -117,7 +117,7 @@ CITED CHUNKS:
             missing=list(parsed.get("missing", [])),
             blocker=blocker,
         )
-    except (json_module.JSONDecodeError, ValueError, TypeError):
+    except json_module.JSONDecodeError, ValueError, TypeError:
         logger.warning("support_reply_validate_parse_failed", raw=str(content)[:200])
         return ValidateOutput(
             grounded=False, coverage=0.0, confidence=0.0, missing=["parse_failure"], blocker="knowledge"

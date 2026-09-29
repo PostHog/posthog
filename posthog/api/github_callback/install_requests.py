@@ -49,7 +49,7 @@ def _requester_from_code(user: User, code: str | None, redirect_uri: str | None)
 
     try:
         authorization = GitHubIntegration.github_user_from_code(code, redirect_uri=redirect_uri)
-    except (requests.RequestException, ValueError):
+    except requests.RequestException, ValueError:
         # ValueError: GitHub answered 200 with a non-JSON body (outage page, proxy
         # interstitial); the callback redirect must still proceed.
         authorization = None

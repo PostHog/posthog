@@ -331,7 +331,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
                 return
 
             raise NoSchedulableDagError(f"Saved query {self.id} has no DAG that can schedule it")
-        except (UnsatisfiableFrequencyError, UnsupportedFrequencyTargetError):
+        except UnsatisfiableFrequencyError, UnsupportedFrequencyTargetError:
             # The query is fine — the requested frequency is not. Surface it to the caller
             # instead of silently disabling materialization.
             raise

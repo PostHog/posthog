@@ -95,7 +95,7 @@ def _page_count(response: Response) -> Optional[int]:
         return None
     try:
         return int(values[0])
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
 
 

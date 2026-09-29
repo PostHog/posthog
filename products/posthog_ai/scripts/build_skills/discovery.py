@@ -22,7 +22,7 @@ def _unrendered_skill_name(skill: skill_manifest.DiscoveredSkill) -> str:
     """
     try:
         metadata, _ = frontmatter.parse_frontmatter(skill.source_file.read_text())
-    except (OSError, yaml.YAMLError):
+    except OSError, yaml.YAMLError:
         return skill.name
     return metadata.get("name") or skill.name
 

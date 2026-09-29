@@ -154,7 +154,7 @@ def _load_and_cache_materialization_state(
             team_id=team_id, name=endpoint_name, is_active=True, deleted=False
         )
         endpoint_version = endpoint.get_version(version)
-    except (Endpoint.DoesNotExist, EndpointVersion.DoesNotExist):
+    except Endpoint.DoesNotExist, EndpointVersion.DoesNotExist:
         state = MaterializedServingState.not_ready()
         set_endpoint_materialization_state(team_id, endpoint_name, state, version=version)
         return state

@@ -622,7 +622,7 @@ def proxy_mcp_request(
             headers=headers,
             stream=True,
         )
-    except (SSRFBlockedError, httpx.ProxyError):
+    except SSRFBlockedError, httpx.ProxyError:
         client.close()
         logger.warning("Upstream MCP connection blocked by URL or proxy policy")
         return HttpResponse(

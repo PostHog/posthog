@@ -241,7 +241,7 @@ async def _fetch_gateway_cost(request_id: str) -> GatewayRequestCost | None:
         ):
             return None
         return GatewayRequestCost(model=model, provider=provider, cost_microusd=int(Decimal(amount) * 1_000_000))
-    except (aiohttp.ClientError, TimeoutError, ValueError, TypeError):
+    except aiohttp.ClientError, TimeoutError, ValueError, TypeError:
         logger.warning("task_gateway_usage.lookup_failed")
         return None
 

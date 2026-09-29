@@ -133,7 +133,7 @@ class ExternalDataSchemaOOMEvent(TeamScopedRootMixin, UUIDModel):
         if last_repartition_at:
             try:
                 since = max(since, parser.parse(last_repartition_at))
-            except (ValueError, TypeError):
+            except ValueError, TypeError:
                 pass
         return cls._classified_count(cls._events_since(schema, since), since)
 

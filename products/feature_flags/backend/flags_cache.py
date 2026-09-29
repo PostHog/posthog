@@ -105,7 +105,7 @@ def _parse_dependency_ids(properties: list[FlagProperty]) -> set[int]:
     for prop in properties:
         try:
             dep_ids.add(int(prop["key"]))
-        except (ValueError, KeyError, TypeError):
+        except ValueError, KeyError, TypeError:
             continue
     return dep_ids
 
@@ -176,7 +176,7 @@ def _stored_dependency_ids(flag: FeatureFlag) -> set[int] | None:
         return set()
     try:
         return _parse_dependency_ids(flag_dependency_properties(filters))
-    except (AttributeError, TypeError):
+    except AttributeError, TypeError:
         return None
 
 

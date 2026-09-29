@@ -1303,7 +1303,7 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
                         cdp_sink,
                         person_property_sink,
                     )
-            except (Exception, asyncio.CancelledError):
+            except Exception, asyncio.CancelledError:
                 # A retry stages from scratch and a terminal failure produces nothing, so whatever
                 # this attempt wrote is only ever waste.
                 await cdp_sink.discard()
@@ -1343,7 +1343,7 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
         )
         published = True
         return result
-    except (Exception, asyncio.CancelledError):
+    except Exception, asyncio.CancelledError:
         if not published:
             await cdp_sink.discard()
         raise

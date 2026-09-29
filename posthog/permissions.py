@@ -88,14 +88,14 @@ def get_organization_from_view(view) -> Organization:
         organization = view.organization
         if isinstance(organization, Organization):
             return organization
-    except (KeyError, AttributeError, AssertionError):
+    except KeyError, AttributeError, AssertionError:
         pass
 
     try:
         organization = view.team.organization
         if isinstance(organization, Organization):
             return organization
-    except (KeyError, AttributeError, AssertionError):
+    except KeyError, AttributeError, AssertionError:
         pass
 
     raise ValueError("View not compatible with organization-based permissions!")
@@ -221,7 +221,7 @@ class TeamMemberAccessPermission(BasePermission):
             psak = request.successful_authenticator.project_secret_api_key
             try:
                 return view.team.id == psak.team_id
-            except (AttributeError, KeyError, Team.DoesNotExist):
+            except AttributeError, KeyError, Team.DoesNotExist:
                 return False
 
         if is_authenticated_via_team_secret_token(request):
@@ -302,14 +302,14 @@ def url_target_organization(view) -> Optional[Organization]:
         organization = view.team.organization
         if isinstance(organization, Organization):
             return organization
-    except (KeyError, AttributeError, AssertionError, Team.DoesNotExist):
+    except KeyError, AttributeError, AssertionError, Team.DoesNotExist:
         pass
 
     try:
         organization = view.organization
         if isinstance(organization, Organization):
             return organization
-    except (KeyError, AttributeError, AssertionError):
+    except KeyError, AttributeError, AssertionError:
         pass
 
     return None
@@ -896,7 +896,7 @@ class APIScopePermission(ScopeBasePermission):
         psak = request.successful_authenticator.project_secret_api_key
         try:
             team_id = view.team.id
-        except (AttributeError, KeyError, Team.DoesNotExist):
+        except AttributeError, KeyError, Team.DoesNotExist:
             raise PermissionDenied("Project secret API keys are only supported on project-based endpoints.")
 
         if team_id != psak.team_id:
@@ -943,7 +943,7 @@ class APIScopePermission(ScopeBasePermission):
                 team = view.team
                 if team.id not in scoped_teams:
                     raise PermissionDenied(f"API key does not have access to the requested project: ID {team.id}.")
-            except (KeyError, AttributeError):
+            except KeyError, AttributeError:
                 raise PermissionDenied("API keys with scoped projects are only supported on project-based endpoints.")
 
         if scoped_organizations and not skip_team_and_org:
@@ -1036,7 +1036,7 @@ class MCPAccessPermission(ScopeBasePermission):
             return None
         try:
             return get_organization_from_view(view)
-        except (ValueError, NotFound):
+        except ValueError, NotFound:
             return None
 
     def _admits(self, request, view, organization: Optional[Organization]) -> bool:
@@ -1154,7 +1154,7 @@ class AccessControlPermission(ScopeBasePermission):
 
         try:
             team = view.team
-        except (ValueError, KeyError):
+        except ValueError, KeyError:
             # TODO: Change this to a super specific exception...
             # TODO: Does this means its okay because there is no team level thing?
             return True
@@ -1301,7 +1301,7 @@ class PostHogFeatureFlagPermission(BasePermission):
             if "*" in actions or view.action in actions:
                 try:
                     team_for_flag = view.team
-                except (ValueError, KeyError, AttributeError):
+                except ValueError, KeyError, AttributeError:
                     team_for_flag = None
 
                 enabled = posthog_feature_flag_enabled(
@@ -1345,7 +1345,7 @@ class TeamSecretTokenPermission(BasePermission):
         authenticated_team = request.user.team  # From TeamSecretTokenUser
         try:
             resolved_team = view.team  # From routing logic (may use project_api_key override)
-        except (AttributeError, KeyError, Team.DoesNotExist):
+        except AttributeError, KeyError, Team.DoesNotExist:
             # If team resolution fails, let it be handled as a 404 in the viewset
             return True
 

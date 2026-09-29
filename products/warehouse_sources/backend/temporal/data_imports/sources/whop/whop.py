@@ -60,7 +60,7 @@ def _parse_datetime(value: Any) -> Optional[datetime]:
     if isinstance(value, int | float):
         try:
             return datetime.fromtimestamp(value, tz=UTC)
-        except (OverflowError, OSError, ValueError):
+        except OverflowError, OSError, ValueError:
             return None
     if isinstance(value, str):
         try:

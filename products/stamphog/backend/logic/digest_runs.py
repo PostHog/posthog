@@ -149,7 +149,7 @@ def _write_proof_of_post(team_id: int, run_id: str, message_ts: str | None, pr_c
                 slack_message_ts=message_ts or "posted", pr_count=pr_count, summary=summary_dict
             )
             return
-        except (OperationalError, InterfaceError):
+        except OperationalError, InterfaceError:
             # Only the transient connectivity classes: retrying an IntegrityError/ProgrammingError
             # burns the attempts on a deterministic failure and delays the real traceback.
             if attempt == _PROOF_OF_POST_WRITE_ATTEMPTS - 1:

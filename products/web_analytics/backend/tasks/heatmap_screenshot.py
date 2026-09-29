@@ -377,7 +377,7 @@ def _page_status_from(response: requests.Response) -> int | None:
     # API page. Absent or unparseable means we don't know, which must not fail an otherwise fine render.
     try:
         return int(response.headers["x-response-code"])
-    except (KeyError, TypeError, ValueError):
+    except KeyError, TypeError, ValueError:
         return None
 
 

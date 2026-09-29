@@ -472,7 +472,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             limit = min(int(request.GET.get("limit", DEFAULT_LIMIT)), MAX_LIMIT)
             offset = max(int(request.GET.get("offset", 0)), 0)
             cutoff_days = int(request.GET.get("cutoff_days", DEFAULT_CUTOFF_DAYS))
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             return Response(
                 {"error": "Invalid limit, offset, or cutoff_days parameter"}, status=status.HTTP_400_BAD_REQUEST
             )
@@ -576,7 +576,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             limit = min(int(request.GET.get("limit", DEFAULT_LIMIT)), MAX_LIMIT)
             offset = max(int(request.GET.get("offset", 0)), 0)
             cutoff_days = int(request.GET.get("cutoff_days", DEFAULT_CUTOFF_DAYS))
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             return Response(
                 {"error": "Invalid limit, offset, or cutoff_days parameter"}, status=status.HTTP_400_BAD_REQUEST
             )
@@ -692,7 +692,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                     {"error": "Invalid days parameter. Must be 1, 7, or 30."},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             return Response({"error": "Invalid days parameter"}, status=status.HTTP_400_BAD_REQUEST)
 
         cache_key = _pipeline_stats_cache_key("job_stats", self.team_id, days)

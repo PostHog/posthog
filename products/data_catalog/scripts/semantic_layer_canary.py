@@ -325,7 +325,7 @@ class PostHogCanaryClient:
                     f"/api/projects/{self.project_id}/tasks/{opened.task_id}/runs/{opened.run_id}/cancel/",
                     json={"reason": "semantic-layer canary: agent asked a clarifying question"},
                 )
-            except (httpx.TimeoutException, httpx.TransportError):
+            except httpx.TimeoutException, httpx.TransportError:
                 continue
             if _is_retryable_status(response.status_code):
                 continue

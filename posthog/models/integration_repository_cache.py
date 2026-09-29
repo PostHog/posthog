@@ -464,11 +464,11 @@ async def _acquire_sync_lock(integration_id: int) -> AsyncIterator[None]:
         stop_heartbeat.set()
         try:
             await heartbeat_task
-        except (Exception, asyncio.CancelledError):
+        except Exception, asyncio.CancelledError:
             logger.exception("github_full_cache.sync_lock_heartbeat_unexpected", integration_id=integration_id)
         # Shield the redis call so a cancellation arriving mid-flight doesn't abort the unlock.
         # Release is token-checked: no-op if our token no longer matches.
         try:
             await asyncio.shield(redis.eval(_RELEASE_LOCK_SCRIPT, 1, lock_key, lock_token))
-        except (Exception, asyncio.CancelledError):
+        except Exception, asyncio.CancelledError:
             logger.exception("github_full_cache.sync_lock_release_failed", integration_id=integration_id)

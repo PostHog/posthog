@@ -576,7 +576,7 @@ class EndpointExecutionService(PydanticModelMixin):
                         limit=limit,
                         offset=offset,
                     )
-                except (ConcurrencyLimitExceeded, APIQueriesBudgetExceeded):
+                except ConcurrencyLimitExceeded, APIQueriesBudgetExceeded:
                     # A refusal is not a broken table. The inline path meets the same limiter
                     # with the same balance, so falling back cannot succeed.
                     raise

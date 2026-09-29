@@ -453,7 +453,7 @@ def _decode_last_used_marks(raw: dict[Any, Any]) -> dict[str, int]:
         raw_ts = value.decode() if isinstance(value, bytes | bytearray) else value
         try:
             marks[hash_key] = int(raw_ts)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             continue
     return marks
 

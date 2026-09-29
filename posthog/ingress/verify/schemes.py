@@ -229,7 +229,7 @@ class SnsSignature:
         try:
             # RecursionError: deeply nested JSON from an unauthenticated caller must not 500.
             message = json.loads(body)
-        except (json.JSONDecodeError, UnicodeDecodeError, RecursionError):
+        except json.JSONDecodeError, UnicodeDecodeError, RecursionError:
             return VerificationOutcome.INVALID
         if not isinstance(message, dict):
             return VerificationOutcome.INVALID

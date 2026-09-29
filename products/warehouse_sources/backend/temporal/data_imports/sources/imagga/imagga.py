@@ -56,7 +56,7 @@ def _daily_usage_rows(result: dict[str, Any]) -> list[dict[str, Any]]:
     for ts_key, count in daily.items():
         try:
             timestamp = int(ts_key)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             continue
         day = datetime.fromtimestamp(timestamp, tz=UTC).date().isoformat()
         rows.append({"date": day, "timestamp": timestamp, "count": count})

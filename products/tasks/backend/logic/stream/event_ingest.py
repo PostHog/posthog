@@ -607,7 +607,7 @@ async def _task_run_exists(run_id: str, task_id: str, team_id: int) -> bool:
     run_check = sync_to_async(_task_run_exists_sync, thread_sensitive=True)
     try:
         return await run_check(run_id, task_id, team_id)
-    except (OperationalError, InterfaceError):
+    except OperationalError, InterfaceError:
         logger.warning("task_run_event_ingest_exists_db_reconnect", run_id=run_id, exc_info=True)
         return await run_check(run_id, task_id, team_id)
 

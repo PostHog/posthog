@@ -272,7 +272,7 @@ def _parse_cargo_package_name(cargo_toml: Path) -> str | None:
     try:
         data = tomllib.loads(cargo_toml.read_text())
         return data.get("package", {}).get("name")
-    except (tomllib.TOMLDecodeError, OSError):
+    except tomllib.TOMLDecodeError, OSError:
         return None
 
 
@@ -281,7 +281,7 @@ def _parse_package_json_name(package_json: Path) -> str | None:
     try:
         data = json.loads(package_json.read_text())
         return data.get("name")
-    except (json.JSONDecodeError, OSError):
+    except json.JSONDecodeError, OSError:
         return None
 
 

@@ -113,7 +113,7 @@ def _close_parent(*, parent: SignalReport, target: SignalReport.Status) -> bool:
         return False
     try:
         updated_fields = parent.transition_to(target)
-    except (InvalidStatusTransition, ValueError, TypeError):
+    except InvalidStatusTransition, ValueError, TypeError:
         logger.info(
             "signals.plan_rollup.transition_skipped",
             report_id=str(parent.id),

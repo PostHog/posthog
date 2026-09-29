@@ -73,7 +73,7 @@ def parse_and_validate_positive_integer(value: Optional[Union[str, int]], value_
         raise ValueError(f"{value_name} cannot be None")
     try:
         parsed_value = int(value)
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         raise ValueError(f"{value_name} must be an integer, got {value}")
     if parsed_value <= 0:
         raise ValueError(f"{value_name} must be greater than 0, got {value}")

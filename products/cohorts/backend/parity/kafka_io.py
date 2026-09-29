@@ -159,7 +159,7 @@ def drain_topic(
             if value is not None:
                 try:
                     decoded = json.loads(value.decode("utf-8"))
-                except (ValueError, UnicodeDecodeError):
+                except ValueError, UnicodeDecodeError:
                     stats.undecodable += 1
                 else:
                     stats.consumed += 1

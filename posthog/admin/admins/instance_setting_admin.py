@@ -19,6 +19,6 @@ class InstanceSettingAdmin(admin.ModelAdmin):
         # so bare strings like "abc123" get saved instead of '"abc123"'.
         try:
             json.loads(obj.raw_value)
-        except (json.JSONDecodeError, ValueError):
+        except json.JSONDecodeError, ValueError:
             obj.raw_value = json.dumps(obj.raw_value)
         super().save_model(request, obj, form, change)

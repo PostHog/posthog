@@ -85,7 +85,7 @@ def validate_credentials(integration_key: str, region: Optional[str]) -> tuple[b
         # `redact_values` masks the integration key from logged URLs and captured HTTP samples.
         session = make_tracked_session(redact_values=(integration_key,))
         response = session.get(url, headers=_get_headers(integration_key), timeout=10)
-    except (requests.RequestException, OSError):
+    except requests.RequestException, OSError:
         return False, "Could not reach Pendo. Check your network connection and the selected region."
 
     if response.status_code == 200:

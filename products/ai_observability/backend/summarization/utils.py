@@ -30,7 +30,7 @@ def get_summarization_lookup_date_range(
                 date_from=date_from or (parsed_timestamp - timedelta(days=1)).isoformat(),
                 date_to=date_to or (parsed_timestamp + timedelta(days=1)).isoformat(),
             )
-    except (ValueError, OverflowError):
+    except ValueError, OverflowError:
         pass
 
     return date_range

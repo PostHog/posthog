@@ -74,7 +74,7 @@ def _format_close_datetime(value: Any) -> str:
     else:
         try:
             dt = parser.parse(str(value))
-        except (ValueError, OverflowError):
+        except ValueError, OverflowError:
             return str(value)
 
     if dt.tzinfo is None:
@@ -89,7 +89,7 @@ def _parse_close_datetime(value: Any) -> Optional[datetime]:
     elif isinstance(value, str) and value:
         try:
             dt = parser.parse(value)
-        except (ValueError, OverflowError):
+        except ValueError, OverflowError:
             return None
     else:
         return None
@@ -122,7 +122,7 @@ class CloseOffsetPaginator(OffsetPaginator):
         try:
             body = response.json()
             has_more = bool(body.get("has_more")) if isinstance(body, dict) else False
-        except (ValueError, AttributeError):
+        except ValueError, AttributeError:
             has_more = False
 
         if not has_more:

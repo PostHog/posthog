@@ -599,7 +599,7 @@ def _endpoint_request_url(base_url: str, endpoint: Any) -> str | None:
     )
     try:
         resolved = path.format_map(bindable)
-    except (ValueError, IndexError, KeyError):
+    except ValueError, IndexError, KeyError:
         # Malformed / positional format string — it's re-vetted at request time anyway.
         resolved = path
 

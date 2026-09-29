@@ -177,7 +177,7 @@ class Command(BaseCommand):
         if options["dag_id"]:
             try:
                 dag = DAG.objects.get(team_id=team.pk, id=uuid.UUID(options["dag_id"]))
-            except (DAG.DoesNotExist, ValueError):
+            except DAG.DoesNotExist, ValueError:
                 raise CommandError(f"No DAG {options['dag_id']!r} on team {team.pk}")
             for node_id in schedulable_nodes(dag).values_list("id", flat=True):
                 nodes_by_dag[dag].add(str(node_id))

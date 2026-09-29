@@ -63,7 +63,7 @@ def _to_report_date(value: Any) -> Optional[str]:
         return value.isoformat()
     try:
         parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         return None
     return (parsed.astimezone(UTC) if parsed.tzinfo else parsed).date().isoformat()
 

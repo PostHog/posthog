@@ -319,7 +319,7 @@ def _is_empty_repository_response(response: requests.Response) -> bool:
     try:
         body = response.json()
         message = body.get("message", "") if isinstance(body, dict) else ""
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         message = response.text or ""
     return isinstance(message, str) and "repository is empty" in message.lower()
 
@@ -333,7 +333,7 @@ def _is_repository_too_large_for_code_frequency(response: requests.Response) -> 
     try:
         body = response.json()
         message = body.get("message", "") if isinstance(body, dict) else ""
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         message = response.text or ""
     return isinstance(message, str) and "fewer than 10000 commits" in message.lower()
 
@@ -361,7 +361,7 @@ def _is_older_than_cutoff(value: Any, cutoff: datetime) -> bool:
     if isinstance(value, str):
         try:
             parsed_value = dateutil_parser.parse(value)
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             return False
     elif isinstance(value, datetime):
         parsed_value = value
@@ -453,7 +453,7 @@ def validate_credentials(
             False,
             f"GitHub rejected the request (status {response.status_code}). Please check your token and repository access.",
         )
-    except (GitHubEgressBudgetExhausted, GitHubRateLimitError):
+    except GitHubEgressBudgetExhausted, GitHubRateLimitError:
         return False, "GitHub rate limit reached while validating the repository; please retry shortly."
     except requests.exceptions.RequestException as e:
         return False, str(e)
@@ -501,7 +501,7 @@ def check_org_endpoint_permission(
         )
         # A rate-limited 403 carries limit markers; without this check it would read as a missing grant.
         raise_if_github_rate_limited(response)
-    except (GitHubEgressBudgetExhausted, GitHubRateLimitError, requests.exceptions.RequestException):
+    except GitHubEgressBudgetExhausted, GitHubRateLimitError, requests.exceptions.RequestException:
         return None
     if response.status_code in (401, 403, 404):
         return _ORG_PERMISSION_REASON
@@ -853,7 +853,7 @@ def _repository_resolves(
             session=make_tracked_session(retry=_NO_ADAPTER_RETRY),
         )
         raise_if_github_rate_limited(response)
-    except (GitHubEgressBudgetExhausted, GitHubRateLimitError, requests.RequestException):
+    except GitHubEgressBudgetExhausted, GitHubRateLimitError, requests.RequestException:
         return None
     if response.status_code == 404:
         return False
@@ -1400,7 +1400,7 @@ def _raise_if_graphql_rate_limited(response: requests.Response, body: dict[str, 
 
     try:
         reset_at: int | None = int(response.headers.get("x-ratelimit-reset", ""))
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         reset_at = None
     # A response without a usable reset header still needs a wait longer than the plain backoff, for
     # the same reason.
@@ -1997,7 +1997,7 @@ def create_repo_webhook(
             json=payload,
         )
         raise_if_github_rate_limited(response)
-    except (GitHubEgressBudgetExhausted, GitHubRateLimitError):
+    except GitHubEgressBudgetExhausted, GitHubRateLimitError:
         return WebhookCreationResult(
             success=False,
             error="GitHub rate limit reached while creating the repository webhook; please retry shortly.",
@@ -2076,7 +2076,7 @@ def ensure_repo_webhook(
             },
         )
         raise_if_github_rate_limited(response)
-    except (GitHubEgressBudgetExhausted, GitHubRateLimitError):
+    except GitHubEgressBudgetExhausted, GitHubRateLimitError:
         return WebhookCreationResult(
             success=False,
             error="GitHub rate limit reached while updating the repository webhook; please retry shortly.",
@@ -2126,7 +2126,7 @@ def _list_repo_hooks(
             session=make_tracked_session(retry=_NO_ADAPTER_RETRY),
         )
         raise_if_github_rate_limited(response)
-    except (GitHubEgressBudgetExhausted, GitHubRateLimitError):
+    except GitHubEgressBudgetExhausted, GitHubRateLimitError:
         return None, "GitHub rate limit reached while listing repository webhooks; please retry shortly."
     except requests.exceptions.RequestException as e:
         return None, str(e)
@@ -2198,7 +2198,7 @@ def delete_repo_webhook(
             session=make_tracked_session(),
         )
         raise_if_github_rate_limited(response)
-    except (GitHubEgressBudgetExhausted, GitHubRateLimitError):
+    except GitHubEgressBudgetExhausted, GitHubRateLimitError:
         return WebhookDeletionResult(
             success=False,
             error="GitHub rate limit reached while deleting the repository webhook; please retry shortly.",
@@ -2281,7 +2281,7 @@ def update_repo_webhook(
             json={"events": merged},
         )
         raise_if_github_rate_limited(response)
-    except (GitHubEgressBudgetExhausted, GitHubRateLimitError):
+    except GitHubEgressBudgetExhausted, GitHubRateLimitError:
         return WebhookSyncResult(
             success=False,
             error="GitHub rate limit reached while updating webhook events; it will be retried on the next schema update.",

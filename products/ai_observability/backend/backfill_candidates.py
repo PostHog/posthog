@@ -344,7 +344,7 @@ def _run_on_ai_events(
                 workload=Workload.OFFLINE,
                 settings=HogQLGlobalSettings(max_execution_time=MAX_EXECUTION_TIME_SECONDS),
             )
-        except (AIEventsNotFoundError, AIEventsExpiredError):
+        except AIEventsNotFoundError, AIEventsExpiredError:
             return []
     return list(response.results or [])
 

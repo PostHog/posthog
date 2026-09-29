@@ -102,7 +102,7 @@ class ThreadedWorker(Worker):
                 # Django connections — a session leaked idle-in-transaction there blocks
                 # the teardown TRUNCATE of the whole test database.
                 loop.run_until_complete(asyncio.wait_for(sync_to_async(connections.close_all)(), timeout=10))
-            except (TimeoutError, RuntimeError):
+            except TimeoutError, RuntimeError:
                 logger.exception("Could not fully clean up Temporal test worker executors/connections")
             finally:
                 loop.close()

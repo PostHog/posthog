@@ -1625,7 +1625,7 @@ def handle_ai_preferences_block_action(payload: dict, action: dict) -> HttpRespo
         if action_id in (ACTION_TASKS_REFRESH, ACTION_TASKS_PAGE_PREV, ACTION_TASKS_PAGE_NEXT):
             try:
                 page = max(0, int(action.get("value") or "0"))
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 page = 0
         else:
             page = 0
@@ -2546,7 +2546,7 @@ def _apply_project_pick(
         return
     try:
         team_id = int(selected)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return
     target = (
         Integration.objects.filter(kind="slack", integration_id=integration.integration_id, team_id=team_id)

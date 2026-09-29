@@ -486,7 +486,7 @@ class SessionRecordingSnapshotsRequestSerializer(serializers.Serializer):
             try:
                 data["min_blob_key"] = int(start_blob_key)
                 data["max_blob_key"] = int(end_blob_key)
-            except (ValueError, TypeError):
+            except ValueError, TypeError:
                 raise serializers.ValidationError("Blob keys must be integers")
 
             max_blobs_allowed = 20 if is_personal_api_key else 100

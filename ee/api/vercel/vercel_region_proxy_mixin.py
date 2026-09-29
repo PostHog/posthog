@@ -95,7 +95,7 @@ class VercelRegionProxyMixin:
             if data_region in ["US", "EU"]:
                 return data_region.lower()
 
-        except (json.JSONDecodeError, UnicodeDecodeError, AttributeError):
+        except json.JSONDecodeError, UnicodeDecodeError, AttributeError:
             pass
 
         return None

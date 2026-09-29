@@ -59,7 +59,7 @@ def _to_datetime(value: Any) -> Optional[datetime]:
         return datetime.combine(value, datetime.min.time(), tzinfo=UTC)
     try:
         parsed = dateutil_parser.parse(str(value))
-    except (ValueError, TypeError, OverflowError):
+    except ValueError, TypeError, OverflowError:
         return None
     return parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed.astimezone(UTC)
 

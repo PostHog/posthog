@@ -1600,7 +1600,7 @@ class IntegrationViewSet(
                     updated,
                 ):
                     return
-        except (ConnectionInterrupted, RedisError, OSError):
+        except ConnectionInterrupted, RedisError, OSError:
             # The caller already resolved the channel, so a Redis failure here must not turn a
             # successful lookup into a 500. The next list refresh rebuilds the cache.
             logger.warning("slack_channel_cache_update_failed", cache_key=key, exc_info=True)
@@ -2033,7 +2033,7 @@ class IntegrationViewSet(
 
         try:
             limit = int(request.query_params.get("limit", ANTHROPIC_MANAGED_AGENT_LIST_PAGE_LIMIT))
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             raise ValidationError("`limit` must be an integer")
         after = request.query_params.get("after") or None
         force_refresh = request.query_params.get("force_refresh", "false").lower() == "true"

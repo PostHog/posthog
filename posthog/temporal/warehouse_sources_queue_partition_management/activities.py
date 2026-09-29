@@ -82,7 +82,7 @@ async def manage_warehouse_sources_queue_partitions() -> dict:
                 suffix = partition_name.rsplit("_", 1)[-1]
                 try:
                     partition_date = date(int(suffix[:4]), int(suffix[4:6]), int(suffix[6:8]))
-                except (ValueError, IndexError):
+                except ValueError, IndexError:
                     continue
                 if partition_date < cutoff:
                     if table == "sourcebatch":

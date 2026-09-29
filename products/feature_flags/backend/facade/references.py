@@ -39,7 +39,7 @@ def referenced_cohort_ids(filters: Mapping[str, Any] | None) -> set[int]:
             continue
         try:
             cohort_ids.add(int(value))
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             continue
     return cohort_ids
 

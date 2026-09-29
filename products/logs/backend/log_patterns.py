@@ -244,7 +244,7 @@ def _prepare_json_body(body: str) -> str | None:
     # ValueError rather than JSONDecodeError, which subclasses it. A log producer controls the
     # body, and an integer literal past sys.get_int_max_str_digits() raises a plain ValueError
     # from the number parser, which would otherwise fail the whole patterns request with a 500.
-    except (ValueError, RecursionError):
+    except ValueError, RecursionError:
         return None
     if not isinstance(parsed, dict):
         return None

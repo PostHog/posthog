@@ -302,7 +302,7 @@ def _resolve_account(team_id: int, account_id: str | None = None, external_id: s
         if external_id:
             return Account.objects.for_team(team_id).get(external_id=external_id)
         return None
-    except (Account.DoesNotExist, ValidationError, ValueError):
+    except Account.DoesNotExist, ValidationError, ValueError:
         return None
 
 
@@ -381,7 +381,7 @@ def _resolve_accessible_account(
         return None
     try:
         return _accounts_queryset(team_id, user_access_control).filter(**lookup).first()
-    except (ValidationError, ValueError):
+    except ValidationError, ValueError:
         return None
 
 
@@ -2276,7 +2276,7 @@ def get_custom_property_source_binding_id(team_id: int, source_id: str) -> str |
             .values_list("saved_query_id", "external_data_schema_id")
             .first()
         )
-    except (ValidationError, ValueError):  # a non-UUID id from the URL is simply unknown
+    except ValidationError, ValueError:  # a non-UUID id from the URL is simply unknown
         return None
     if row is None:
         return None
@@ -3855,7 +3855,7 @@ def get_accessible_account_id(team_id: int, account_id: str, user_access_control
     queryset = user_access_control.filter_queryset_by_access_level(Account.objects.unscoped().filter(team_id=team_id))
     try:
         account = queryset.filter(id=account_id).first()
-    except (ValidationError, ValueError):
+    except ValidationError, ValueError:
         return None
     return str(account.id) if account is not None else None
 
@@ -4576,14 +4576,14 @@ def _get_team_scoped(model, team_id: int, pk: str | UUID):
     profile-config path, whose old viewset returned 404 for both."""
     try:
         return model.objects.filter(team_id=team_id).get(pk=pk)
-    except (model.DoesNotExist, ValidationError, ValueError):
+    except model.DoesNotExist, ValidationError, ValueError:
         return None
 
 
 def _get_custom_property_definition(team_id: int, definition_id: str | UUID) -> CustomPropertyDefinition | None:
     try:
         return CustomPropertyDefinition.objects.for_team(team_id).get(pk=definition_id)
-    except (CustomPropertyDefinition.DoesNotExist, ValidationError, ValueError):
+    except CustomPropertyDefinition.DoesNotExist, ValidationError, ValueError:
         return None
 
 
@@ -4592,7 +4592,7 @@ def _get_object_or_raise(queryset, pk: str, model):
     absent/malformed ids (the view maps that to 404)."""
     try:
         obj = queryset.filter(pk=pk).first()
-    except (ValidationError, ValueError):
+    except ValidationError, ValueError:
         raise model.DoesNotExist()
     if obj is None:
         raise model.DoesNotExist()

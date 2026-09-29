@@ -136,7 +136,7 @@ def _report_repository(report: SignalReport) -> str | None:
         return None
     try:
         data = json.loads(art.content)
-    except (json.JSONDecodeError, TypeError, ValueError):
+    except json.JSONDecodeError, TypeError, ValueError:
         return None
     if not isinstance(data, dict):
         return None
@@ -154,7 +154,7 @@ def _latest_priority(report: SignalReport) -> str | None:
         return None
     try:
         data = json.loads(art.content)
-    except (json.JSONDecodeError, TypeError, ValueError):
+    except json.JSONDecodeError, TypeError, ValueError:
         return None
     if not isinstance(data, dict):
         return None
@@ -172,7 +172,7 @@ def _latest_actionability(report: SignalReport) -> str | None:
         return None
     try:
         data = json.loads(art.content)
-    except (json.JSONDecodeError, TypeError, ValueError):
+    except json.JSONDecodeError, TypeError, ValueError:
         return None
     if not isinstance(data, dict):
         return None
@@ -221,7 +221,7 @@ def _resolve_suggested_reviewer_user_ids(report: SignalReport) -> set[int]:
     for art in artefacts:
         try:
             parsed = json.loads(art.content)
-        except (json.JSONDecodeError, TypeError, ValueError):
+        except json.JSONDecodeError, TypeError, ValueError:
             continue
         if not isinstance(parsed, list):
             continue

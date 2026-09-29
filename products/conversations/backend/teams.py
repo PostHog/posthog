@@ -68,7 +68,7 @@ def resolve_teams_user(tenant_id: str, teams_user_id: str, team: Team, fallback_
 
     try:
         normalized_user_id = str(uuid.UUID(teams_user_id))
-    except (ValueError, TypeError, AttributeError):
+    except ValueError, TypeError, AttributeError:
         logger.warning("teams_user_resolve_invalid_id", teams_user_id=teams_user_id)
         return dict(unknown)
 
@@ -513,7 +513,7 @@ def post_teams_channel_message_via_graph(
         try:
             raw_id = resp.json().get("id")
             message_id = str(raw_id) if raw_id else None
-        except (ValueError, AttributeError, TypeError):
+        except ValueError, AttributeError, TypeError:
             message_id = None
         if message_id:
             mark_teams_graph_message_seen(_get_team_id(team), channel_id, message_id)

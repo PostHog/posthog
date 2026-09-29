@@ -485,12 +485,12 @@ def _parse_json_leniently(response: Response) -> dict | None:
     """
     try:
         payload = response.json()
-    except (ValueError, AttributeError):
+    except ValueError, AttributeError:
         payload = None
     if payload is None:
         try:
             payload, _ = json.JSONDecoder().raw_decode(response.text.lstrip())
-        except (ValueError, TypeError, AttributeError):
+        except ValueError, TypeError, AttributeError:
             return None
     return payload if isinstance(payload, dict) else None
 

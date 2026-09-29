@@ -221,7 +221,7 @@ def _row_team_id(row: dict) -> int | None:
     """A control-plane row's team id as int, tolerating a string serialization."""
     try:
         return int(row["team_id"])
-    except (KeyError, TypeError, ValueError):
+    except KeyError, TypeError, ValueError:
         return None
 
 

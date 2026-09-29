@@ -117,7 +117,7 @@ def _describe_target(pipeline: AutoresearchPipeline) -> _TargetDescription:
             )
             inline_ref = f"the action `{_wrap_untrusted(action.name)}`"
             return _TargetDescription(spec_line=spec_line, inline_ref=inline_ref)
-        except (Action.DoesNotExist, TypeError, ValueError):
+        except Action.DoesNotExist, TypeError, ValueError:
             logger.warning("autoresearch_target_action_missing", pipeline_id=str(pipeline.pk), action_id=action_id)
     wrapped_event = _wrap_untrusted(pipeline.target_event)
     return _TargetDescription(spec_line=f"event `{wrapped_event}`", inline_ref=f"`{wrapped_event}`")

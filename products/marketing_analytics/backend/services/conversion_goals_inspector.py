@@ -454,7 +454,7 @@ def _summary_with_split(
 def _resolve_action(team: Team, goal_id: str) -> tuple[Action | None, str | None]:
     try:
         action_id_int = int(goal_id)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None, f"Goal id '{goal_id}' is not a valid integer for ActionsNode"
     try:
         return Action.objects.get(id=action_id_int, team_id=team.pk, deleted=False), None
@@ -703,7 +703,7 @@ def _parse_date_or(raw: str | None, *, default: datetime) -> datetime:
         return default
     try:
         parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return default
     # Keep everything timezone-aware so comparisons against `now` don't raise.
     return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)

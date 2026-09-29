@@ -473,7 +473,7 @@ class SESProvider:
             # time instead.
             try:
                 self._associate_tenant_resource(expected_tenant, self._configuration_set_arn(config_set))
-            except (ClientError, BotoCoreError):
+            except ClientError, BotoCoreError:
                 logger.exception(
                     "Failed to associate configuration set '%s' with tenant '%s'", config_set, expected_tenant
                 )
@@ -623,7 +623,7 @@ class SESProvider:
                     dmarc_status = "Success"
                     dmarc_record_value = txt_value.strip()
                     break
-        except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer, dns.resolver.NoNameservers, dns.resolver.Timeout):
+        except dns.resolver.NXDOMAIN, dns.resolver.NoAnswer, dns.resolver.NoNameservers, dns.resolver.Timeout:
             pass  # No DMARC record found — fall back to "Pending" status
         except Exception:
             logger.exception("Unexpected error during DMARC lookup for %s", domain)
@@ -676,7 +676,7 @@ class SESProvider:
                         if rdata.target == expected:
                             r["status"] = "success"
                             break
-                except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer, dns.resolver.NoNameservers, dns.resolver.Timeout):
+                except dns.resolver.NXDOMAIN, dns.resolver.NoAnswer, dns.resolver.NoNameservers, dns.resolver.Timeout:
                     pass
                 except Exception:
                     logger.exception("Unexpected error during DKIM CNAME lookup for %s", r["recordHostname"])

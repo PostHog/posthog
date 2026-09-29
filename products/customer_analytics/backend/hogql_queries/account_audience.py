@@ -252,7 +252,7 @@ def _finite_numbers(values: list[Any]) -> list[float]:
     for value in values:
         try:
             numbers.append(float(value))
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             continue
     return numbers
 

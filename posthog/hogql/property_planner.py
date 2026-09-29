@@ -501,7 +501,7 @@ def _property_scope(property_type: ast.PropertyType, context: HogQLContext) -> P
 
     try:
         resolved_table = unwrapped_table_type.resolve_database_table(context)
-    except (HogQLNotImplementedError, QueryError, ResolutionError):
+    except HogQLNotImplementedError, QueryError, ResolutionError:
         return PropertyScope.UNKNOWN
 
     if isinstance(resolved_table, EventsTable | FlagEvaluationsTable):

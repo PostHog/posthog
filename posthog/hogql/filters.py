@@ -468,7 +468,7 @@ class ReplaceFilters(CloningVisitor):
                 property = Property(**prop)
             else:
                 property = Property(**prop.dict())
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             # Incomplete saved filters apply nowhere, matching property_to_expr's behavior.
             return None
 

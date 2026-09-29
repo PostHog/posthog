@@ -32,7 +32,7 @@ def current_rss_mb() -> float | None:
     try:
         with open("/proc/self/statm") as statm:
             resident_pages = int(statm.read().split()[1])
-    except (OSError, ValueError, IndexError):
+    except OSError, ValueError, IndexError:
         return None
     return resident_pages * os.sysconf("SC_PAGE_SIZE") / (1024 * 1024)
 

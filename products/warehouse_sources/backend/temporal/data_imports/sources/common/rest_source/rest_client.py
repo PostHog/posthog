@@ -236,7 +236,7 @@ def _parse_retry_after(response: Response) -> Optional[float]:
         except ValueError:
             try:
                 dt = parsedate_to_datetime(retry_after_header)
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 return None
             return min(max(0.0, (dt - datetime.now(UTC)).total_seconds()), MAX_RETRY_AFTER_SECONDS)
 

@@ -44,7 +44,7 @@ def _record_worker_usage(
 ) -> None:
     try:
         worker_store.record_usage(team_id, run_id, usage)
-    except (DatabaseError, ObjectDoesNotExist, ValueError):
+    except DatabaseError, ObjectDoesNotExist, ValueError:
         logger.exception(
             "wizard_worker_usage_recording_failed",
             extra={"team_id": team_id, "run_id": str(run_id), "sandbox_id": sandbox_id},
@@ -77,7 +77,7 @@ def _report_worker_usage(team_id: int, run_id: UUID) -> None:
     try:
         run = run_store.get_run(team_id, run_id)
         telemetry = worker_store.get_worker_telemetry(team_id, run_id)
-    except (DatabaseError, ObjectDoesNotExist, ValueError, WizardRunNotFoundError):
+    except DatabaseError, ObjectDoesNotExist, ValueError, WizardRunNotFoundError:
         logger.exception(
             "wizard_worker_usage_reporting_failed",
             extra={"team_id": team_id, "run_id": str(run_id)},

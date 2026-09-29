@@ -40,7 +40,7 @@ printf 'tmp_available_kb='; df -Pk /tmp 2>/dev/null | awk 'NR == 2 { print $4 }'
 def _probe_value_as_int(probe: dict[str, str], key: str) -> int | None:
     try:
         return int(probe[key])
-    except (KeyError, ValueError):
+    except KeyError, ValueError:
         return None
 
 

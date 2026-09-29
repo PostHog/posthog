@@ -192,7 +192,7 @@ def _parse_datetime(value: Any) -> Optional[datetime]:
         return None
     try:
         return parser.parse(value)
-    except (ValueError, OverflowError):
+    except ValueError, OverflowError:
         return None
 
 

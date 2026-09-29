@@ -470,7 +470,7 @@ def _parse_report_text(content: Any) -> InvestigationReport | None:
         try:
             parsed = json.loads(candidate)
             return InvestigationReport.model_validate(parsed)
-        except (ValueError, TypeError, ValidationError):
+        except ValueError, TypeError, ValidationError:
             continue
     return None
 

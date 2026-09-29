@@ -213,7 +213,7 @@ def _coerce_date(value: Any) -> date | None:
     if isinstance(value, str):
         try:
             return date_parser.parse(value).date()
-        except (ValueError, OverflowError):
+        except ValueError, OverflowError:
             return None
     return None
 

@@ -72,7 +72,7 @@ class PendingOAuthConnection:
             return None
         try:
             payload = json.loads(unquote(raw))
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             return None
         if not isinstance(payload, dict):
             return None

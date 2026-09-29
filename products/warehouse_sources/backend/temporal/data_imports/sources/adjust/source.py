@@ -136,7 +136,7 @@ Adjust's Report Service API returns metrics aggregated per day, so these tables 
             return True, None
         except AdjustCredentialsError as e:
             return False, str(e)
-        except (AdjustRetryableError, requests.RequestException):
+        except AdjustRetryableError, requests.RequestException:
             # A rate-limit, 5xx, or network blip isn't a bad credential — don't mislabel it.
             return (
                 False,

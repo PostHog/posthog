@@ -829,7 +829,7 @@ class ClickHouseClient:
 
         try:
             return int(results[0]["written_rows"])
-        except (KeyError, TypeError, ValueError):
+        except KeyError, TypeError, ValueError:
             self.logger.warning("Failed to read written rows from query log", query_id=query_id, exc_info=True)
             return None
 

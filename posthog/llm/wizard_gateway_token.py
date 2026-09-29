@@ -514,7 +514,7 @@ def _parse_cap(raw: object) -> Decimal | None:
         return None
     try:
         cap = Decimal(str(raw))
-    except (InvalidOperation, ValueError):
+    except InvalidOperation, ValueError:
         return None
     if not cap.is_finite():
         return None

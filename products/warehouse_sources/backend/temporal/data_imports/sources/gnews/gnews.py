@@ -138,7 +138,7 @@ def validate_credentials(api_key: str) -> tuple[bool, str | None]:
         errors = response.json().get("errors")
         if errors:
             return False, errors[0] if isinstance(errors, list) else str(errors)
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         pass
     return False, response.text
 

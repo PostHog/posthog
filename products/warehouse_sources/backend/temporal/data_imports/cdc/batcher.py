@@ -167,13 +167,13 @@ def _safe_pa_array(values: list, target_type: pa.DataType) -> pa.Array:
     """
     try:
         return pa.array(values, type=target_type)
-    except (pa.ArrowTypeError, pa.ArrowInvalid):
+    except pa.ArrowTypeError, pa.ArrowInvalid:
         try:
             arr = pa.array(values)
             if arr.type == pa.null():
                 return arr.cast(pa.string())
             return arr
-        except (pa.ArrowTypeError, pa.ArrowInvalid):
+        except pa.ArrowTypeError, pa.ArrowInvalid:
             return pa.array([str(v) if v is not None else None for v in values], type=pa.string())
 
 
@@ -559,7 +559,7 @@ def _events_to_table(events: list[ChangeEvent], position_to_seq: Callable[[str],
         else:
             try:
                 arr = pa.array(source_data[col_name])
-            except (pa.ArrowInvalid, pa.ArrowTypeError):
+            except pa.ArrowInvalid, pa.ArrowTypeError:
                 arr = pa.array([str(v) if v is not None else None for v in source_data[col_name]], type=pa.string())
             if arr.type == pa.null():
                 arr = arr.cast(pa.string())

@@ -249,7 +249,7 @@ def _retry_after_seconds(response: requests.Response) -> float | None:
         pass
     try:
         retry_at = parsedate_to_datetime(header)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
     if retry_at.tzinfo is None:
         retry_at = retry_at.replace(tzinfo=UTC)
@@ -303,7 +303,7 @@ def _mint_reviewer_scoped_token(gateway: AIGatewayConfig, run: ReviewRun, user: 
                 try:
                     payload = response.json()
                     token = payload["token"]
-                except (ValueError, TypeError, KeyError):
+                except ValueError, TypeError, KeyError:
                     payload, token = {}, None
                 if token:
                     if allowed_models and not payload.get("allowed_models"):

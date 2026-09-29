@@ -120,7 +120,7 @@ class LLMModelsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         if key_id:
             try:
                 provider_key = LLMProviderKey.objects.get(id=key_id, team_id=self.team_id)
-            except (LLMProviderKey.DoesNotExist, DjangoValidationError):
+            except LLMProviderKey.DoesNotExist, DjangoValidationError:
                 # DjangoValidationError covers a key_id that isn't a well-formed UUID, which the ORM
                 # rejects while building the query rather than returning an empty result.
                 return Response(

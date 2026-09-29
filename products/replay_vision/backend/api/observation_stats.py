@@ -152,7 +152,7 @@ def _version_markers(queryset: QuerySet[ReplayObservation]) -> list[dict[str, An
     for row in rows:
         try:
             version = int(row["snapshot_version"])
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             continue
         snapshot = _parse_json_object(row["snapshot"])
         config = snapshot.get("scanner_config")

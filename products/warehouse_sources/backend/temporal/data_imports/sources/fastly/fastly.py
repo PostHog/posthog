@@ -301,7 +301,7 @@ def _bucket_timeline(meta: dict[str, Any]) -> _BucketTimeline | None:
 
     try:
         parsed = date_parser.parse(start)
-    except (ValueError, OverflowError):
+    except ValueError, OverflowError:
         return None
 
     if parsed.tzinfo is None:

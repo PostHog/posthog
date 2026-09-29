@@ -108,7 +108,7 @@ def _git_sha() -> str | None:
         )
         if result.returncode == 0:
             return result.stdout.strip()
-    except (FileNotFoundError, subprocess.TimeoutExpired):
+    except FileNotFoundError, subprocess.TimeoutExpired:
         return None
     return None
 
@@ -516,7 +516,7 @@ def profile_migrations(
         for alias in installed_on:
             try:
                 connections[alias].execute_wrappers.remove(cursor_wrapper)
-            except (ValueError, Exception):
+            except ValueError, Exception:
                 pass
 
         BaseDatabaseSchemaEditor.execute = schema_editor_original  # type: ignore[method-assign]

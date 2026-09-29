@@ -109,7 +109,7 @@ class ErrorTrackingIssueAssigneeWriteSerializer(serializers.Serializer):
         if attrs["type"] == "user":
             try:
                 attrs["id"] = int(str(assignee_id))
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 raise serializers.ValidationError({"id": "Provide a numeric user ID."})
         else:
             try:

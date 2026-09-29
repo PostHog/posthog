@@ -261,7 +261,7 @@ async def sample_and_embed_for_job_activity(inputs: SamplerActivityInputs) -> Sa
     async with Heartbeater():
         try:
             return await database_sync_to_async(_sample_and_embed_sync, thread_sensitive=False)(inputs)
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             raise
         except Exception as exc:
             logger.exception(

@@ -99,7 +99,7 @@ def _current_rate() -> float:
     raw = get_instance_setting(_RATE_SETTING)
     try:
         rate = float(raw)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         logger.warning("person_property_update.invalid_rate_setting", raw_value=raw)
         rate = _DEFAULT_RATE_PER_SEC
     return max(_MIN_RATE_PER_SEC, rate)
@@ -278,7 +278,7 @@ class PersonPropertyUpdateConsumer:
         """Handle one message. Terminal outcomes (sent/dlq) commit; retry does not."""
         try:
             payload = json.loads(value)
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             return self._dlq(value, "invalid_json")
         # Valid JSON that isn't an object (``[]``, ``"foo"``, ``null``) parses fine but can never map
         # to a $set; DLQ it instead of letting build_capture_kwargs crash and wedge the partition.

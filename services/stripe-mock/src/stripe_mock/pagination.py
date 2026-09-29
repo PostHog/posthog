@@ -50,7 +50,7 @@ def paginate_search(
     if page_token:
         try:
             offset = int(base64.b64decode(page_token).decode())
-        except (ValueError, Exception):
+        except ValueError, Exception:
             offset = 0
 
     page = items[offset : offset + limit]

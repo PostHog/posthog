@@ -200,7 +200,7 @@ def workflow_run_from_object(raw: JsonObject) -> WorkflowRun:
 def workflow_run_from_event(path: Path) -> WorkflowRun | None:
     try:
         parsed = json.loads(path.read_text())
-    except (FileNotFoundError, json.JSONDecodeError):
+    except FileNotFoundError, json.JSONDecodeError:
         return None
     if not isinstance(parsed, dict):
         return None

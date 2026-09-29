@@ -52,7 +52,7 @@ def _cell(output: dict[str, Any], field: dict[str, str]) -> str:
     if field["type"] == "number":
         try:
             return f"{float(value):.2f}"
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             return str(value)
     return str(value)
 

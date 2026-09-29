@@ -1240,7 +1240,7 @@ class BillingManager:
                         result[k] = parsed
                     else:
                         result[k] = v
-                except (json.JSONDecodeError, ValueError):
+                except json.JSONDecodeError, ValueError:
                     result[k] = v
             else:
                 result[k] = v

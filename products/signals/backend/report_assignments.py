@@ -321,7 +321,7 @@ def _apply_pr_report_state(report: SignalReport, pr_state: str | None) -> None:
         return
     try:
         updated_fields = report.transition_to(target)
-    except (InvalidStatusTransition, ValueError, TypeError):
+    except InvalidStatusTransition, ValueError, TypeError:
         logger.info(
             "signals.assignment.pr_state_transition_skipped",
             report_id=str(report.id),

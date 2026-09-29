@@ -544,7 +544,7 @@ class DebugCHQueries(viewsets.ViewSet):
 
         try:
             team = Team.objects.select_related("organization").get(id=int(team_id))
-        except (Team.DoesNotExist, TypeError, ValueError):
+        except Team.DoesNotExist, TypeError, ValueError:
             raise exceptions.NotFound(f"Team {team_id} not found.")
 
         config = get_or_create_team_extension(team, TeamExperimentsConfig)
@@ -607,7 +607,7 @@ class DebugCHQueries(viewsets.ViewSet):
 
         try:
             hours = int(request.query_params.get("hours", 1))
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             raise exceptions.ValidationError("hours must be an integer.")
         hours = max(1, min(hours, 168))  # clamp to 1h–7d
 
@@ -615,7 +615,7 @@ class DebugCHQueries(viewsets.ViewSet):
         if request.query_params.get("team_id"):
             try:
                 team_id_filter = int(request.query_params["team_id"])
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 raise exceptions.ValidationError("team_id must be an integer.")
             if team_id_filter <= 0:
                 raise exceptions.ValidationError("team_id must be a positive integer.")
@@ -624,7 +624,7 @@ class DebugCHQueries(viewsets.ViewSet):
         if request.query_params.get("experiment_id"):
             try:
                 experiment_id_filter = int(request.query_params["experiment_id"])
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 raise exceptions.ValidationError("experiment_id must be an integer.")
             if experiment_id_filter <= 0:
                 raise exceptions.ValidationError("experiment_id must be a positive integer.")
@@ -644,7 +644,7 @@ class DebugCHQueries(viewsets.ViewSet):
         if request.query_params.get("exception_code"):
             try:
                 exception_code_filter = int(request.query_params["exception_code"])
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 raise exceptions.ValidationError("exception_code must be an integer.")
             if exception_code_filter <= 0:
                 raise exceptions.ValidationError("exception_code must be a positive integer.")
@@ -837,7 +837,7 @@ class DebugCHQueries(viewsets.ViewSet):
 
         try:
             hours = int(request.query_params.get("hours", 24))
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             raise exceptions.ValidationError("hours must be an integer.")
         hours = max(1, min(hours, 168))  # clamp to 1h–7d
 
@@ -1061,7 +1061,7 @@ class DebugCHQueries(viewsets.ViewSet):
 
         try:
             hours = int(request.query_params.get("hours", 168))
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             raise exceptions.ValidationError("hours must be an integer.")
         hours = max(1, min(hours, 504))  # clamp to 1h–21d
 
@@ -1255,7 +1255,7 @@ class DebugCHQueries(viewsets.ViewSet):
 
         try:
             hours = int(request.query_params.get("hours", 24))
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             raise exceptions.ValidationError("hours must be an integer.")
         hours = max(1, min(hours, 168))  # clamp to 1h–7d; query_log retention bounds it anyway
 
@@ -1265,7 +1265,7 @@ class DebugCHQueries(viewsets.ViewSet):
         if request.query_params.get("team_id"):
             try:
                 team_id_filter = int(request.query_params["team_id"])
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 raise exceptions.ValidationError("team_id must be an integer.")
             if team_id_filter <= 0:
                 raise exceptions.ValidationError("team_id must be a positive integer.")
@@ -1570,7 +1570,7 @@ class DebugCHQueries(viewsets.ViewSet):
 
         try:
             hours = int(request.query_params.get("hours", 336))
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             raise exceptions.ValidationError("hours must be an integer.")
         hours = max(1, min(hours, 504))  # clamp to 1h–21d
 

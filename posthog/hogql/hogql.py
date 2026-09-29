@@ -58,7 +58,7 @@ def translate_hogql(
             dialect=dialect,
             stack=[prepared_select_query],
         )
-    except (NotImplementedError, SyntaxError):
+    except NotImplementedError, SyntaxError:
         raise
     finally:
         context.modifiers.personsOnEventsMode = actual_poe_mode  # Restore the original value

@@ -199,7 +199,7 @@ def _sitemaps_from_robots(robots_text: str, *, origin: str) -> list[str]:
 def _is_sitemap(xml_text: str) -> bool:
     try:
         root = ET.fromstring(xml_text)
-    except (DefusedParseError, DefusedXmlException):
+    except DefusedParseError, DefusedXmlException:
         return False
     root_name = root.tag.rsplit("}", 1)[-1].lower()
     return root_name in {"urlset", "sitemapindex"}

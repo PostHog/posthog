@@ -237,7 +237,7 @@ def _app_labels() -> dict[str, str]:
         product = apps_py.parents[1].name
         try:
             tree = ast.parse(apps_py.read_text(encoding="utf-8", errors="ignore"))
-        except (SyntaxError, OSError):
+        except SyntaxError, OSError:
             continue
         for node in ast.walk(tree):
             if not isinstance(node, ast.Assign):
@@ -351,7 +351,7 @@ def _read_imports(source: bytes, package: str) -> _ImportTable:
     lifted = b"\n".join(match.group(0).lstrip() for match in _IMPORT_STATEMENT_RE.finditer(source))
     try:
         tree = ast.parse(lifted)
-    except (SyntaxError, ValueError):
+    except SyntaxError, ValueError:
         return _ImportTable((), ())
     edges: list[_ImportEdge] = []
     aliases: list[_ModuleAlias] = []
@@ -1202,7 +1202,7 @@ class _CallGraph:
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore", SyntaxWarning)
                 return _module_defs(ast.parse(path.read_bytes()))
-        except (OSError, SyntaxError, ValueError):
+        except OSError, SyntaxError, ValueError:
             return None
 
     def _imported(self, module: str) -> tuple[_ImportEdge, ...]:
@@ -1580,7 +1580,7 @@ def scan_crossing_uses(products: Iterable[str] | None = None) -> list[CrossingUs
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore", SyntaxWarning)
                 tree = ast.parse(source)
-        except (SyntaxError, ValueError):
+        except SyntaxError, ValueError:
             continue
         parents: dict[int, ast.AST] | None = None
         for node, label in _class_nodes(tree, names, aliases, origins):

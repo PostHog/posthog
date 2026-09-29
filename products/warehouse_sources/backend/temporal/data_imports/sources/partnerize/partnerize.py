@@ -50,7 +50,7 @@ def _format_start_date(value: Any) -> str:
         # Watermarks read back from the warehouse arrive as "YYYY-MM-DD HH:MM:SS" strings.
         try:
             return _format_start_date(dateutil_parser.parse(value))
-        except (ValueError, OverflowError):
+        except ValueError, OverflowError:
             return DEFAULT_START_DATE
     return DEFAULT_START_DATE
 

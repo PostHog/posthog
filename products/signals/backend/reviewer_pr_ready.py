@@ -103,7 +103,7 @@ def _resolved_reviewer_users(*, team_id: int, report_id: str) -> list[User]:
         return []
     try:
         payloads = json.loads(latest.content)
-    except (json.JSONDecodeError, TypeError, ValueError):
+    except json.JSONDecodeError, TypeError, ValueError:
         return []
     if not isinstance(payloads, list):
         return []

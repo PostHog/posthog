@@ -255,11 +255,11 @@ def _widened_ts_window(state: dict) -> TimestampWindow:
     """
     try:
         ts_start = _ch_ts((datetime.fromisoformat(state["period_start"]) - timedelta(days=7)).isoformat())
-    except (ValueError, TypeError, KeyError):
+    except ValueError, TypeError, KeyError:
         ts_start = _ch_ts(_TARGET_LOOKUP_TS_START_SENTINEL)
     try:
         ts_end = _ch_ts((datetime.fromisoformat(state["period_end"]) + timedelta(days=1)).isoformat())
-    except (ValueError, TypeError, KeyError):
+    except ValueError, TypeError, KeyError:
         ts_end = _ch_ts(_TARGET_LOOKUP_TS_END_SENTINEL)
     return TimestampWindow(ts_start=ts_start, ts_end=ts_end)
 
@@ -1403,7 +1403,7 @@ def list_recent_report_runs(
 
     try:
         period_start = datetime.fromisoformat(state["period_start"])
-    except (ValueError, TypeError, KeyError):
+    except ValueError, TypeError, KeyError:
         period_start = datetime.now(tz=UTC)
 
     since = period_start - timedelta(days=since_days)

@@ -293,7 +293,7 @@ def push_subscriptions(request: Request):
             # load_data_from_request only reads the body for POST (other methods read a `data` query
             # param). DELETE carries the same gzipped JSON body as POST, so decompress it directly.
             data = decompress(request.body, request.headers.get("content-encoding", "").lower())
-    except (RequestParsingError, UnspecifiedCompressionFallbackParsingError):
+    except RequestParsingError, UnspecifiedCompressionFallbackParsingError:
         return _rejection_response(
             request,
             "Invalid JSON body.",

@@ -48,7 +48,7 @@ def _slack_unicode_to_char(unicode_hex: str) -> str | None:
         return None
     try:
         return "".join(chr(int(cp, 16)) for cp in unicode_hex.split("-"))
-    except (ValueError, OverflowError):
+    except ValueError, OverflowError:
         return None
 
 
@@ -562,7 +562,7 @@ def _list_start(node: JSON) -> int:
     attrs = node.get("attrs") or {}
     try:
         return max(int(attrs.get("start") or 1), 1)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return 1
 
 
@@ -590,7 +590,7 @@ def _serialize_block_node_to_markdown(node: JSON, include_images: bool = True) -
         attrs = node.get("attrs") or {}
         try:
             level = min(max(int(attrs.get("level") or 1), 1), 6)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             level = 1
         text = _serialize_inline_nodes_to_markdown(node.get("content", []), include_images=include_images)
         return f"{'#' * level} {text}" if text else ""
@@ -979,7 +979,7 @@ def _serialize_block_node_to_html(node: JSON) -> str:
         attrs = node.get("attrs") or {}
         try:
             level = min(max(int(attrs.get("level") or 1), 1), 6)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             level = 1
         return f"<h{level}>{_serialize_inline_nodes_to_html(node.get('content', []))}</h{level}>"
 

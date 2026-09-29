@@ -37,7 +37,7 @@ def _phrocs_supports_subcommands() -> bool:
             text=True,
             timeout=5,
         )
-    except (OSError, subprocess.TimeoutExpired):
+    except OSError, subprocess.TimeoutExpired:
         return False
     text = (result.stdout or "") + (result.stderr or "")
     return "wait" in text and "stop" in text

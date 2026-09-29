@@ -92,7 +92,7 @@ def _to_datetime(value: Any) -> Optional[datetime]:
         return datetime.combine(value, datetime.min.time(), tzinfo=UTC)
     try:
         parsed = date_parser.parse(str(value))
-    except (ValueError, OverflowError, TypeError):
+    except ValueError, OverflowError, TypeError:
         return None
     return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
 

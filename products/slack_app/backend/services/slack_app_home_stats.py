@@ -157,7 +157,7 @@ def coerce_window_days(raw: str | int | None) -> int:
     """Clamp an untrusted window value from a Slack payload to one we offer."""
     try:
         days = int(raw)  # type: ignore[arg-type]
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return DEFAULT_STATS_WINDOW_DAYS
     return days if days in _VALID_WINDOW_DAYS else DEFAULT_STATS_WINDOW_DAYS
 

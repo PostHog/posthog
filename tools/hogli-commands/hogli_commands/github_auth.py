@@ -31,7 +31,7 @@ def github_token() -> str | None:
             timeout=10,
             check=False,
         )
-    except (OSError, subprocess.TimeoutExpired):
+    except OSError, subprocess.TimeoutExpired:
         return None
     token = result.stdout.strip()
     return token if result.returncode == 0 and token else None

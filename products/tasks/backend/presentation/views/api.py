@@ -656,7 +656,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         task_id = self._sandbox_bound_task_id(request, pk)
         try:
             parsed_comment_id = UUID(root_comment_id)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             raise NotFound()
         try:
             comment = tasks_facade.retrieve_task_comment(
@@ -1637,7 +1637,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise NotFound("Task ID is required")
         try:
             UUID(task_id)
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             raise NotFound("Task not found")
         return task_id
 
@@ -3594,7 +3594,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                         entry_dt = datetime.fromisoformat(entry_ts.replace("Z", "+00:00"))
                         if entry_dt <= after:
                             continue
-                    except (ValueError, TypeError):
+                    except ValueError, TypeError:
                         continue  # Skip entries with unparseable timestamps
 
                 # Determine the event type for filtering
@@ -4102,7 +4102,7 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
             raise NotFound("Task ID is required")
         try:
             UUID(task_id)
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             raise NotFound("Task not found")
         return task_id
 
@@ -4112,7 +4112,7 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
             raise NotFound("Run ID is required")
         try:
             UUID(run_id)
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             raise NotFound("Run not found")
         return run_id
 
@@ -4268,7 +4268,7 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
                 # or we'd validate one shape and render another.
                 query = upgrade(query)
                 QuerySchemaRoot.model_validate(query)
-            except (pydantic.ValidationError, TypeError, KeyError, ValueError):
+            except pydantic.ValidationError, TypeError, KeyError, ValueError:
                 capture_render(failure_reason="invalid_query")
                 return Response(
                     TaskRunErrorResponseSerializer({"error": "Invalid insight query"}).data,

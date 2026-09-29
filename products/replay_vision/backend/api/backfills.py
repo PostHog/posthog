@@ -176,7 +176,7 @@ class ReplayScannerBackfillViewSet(
             return cached
         try:
             scanner_id = uuid.UUID(self.kwargs["parent_lookup_scanner_id"])
-        except (KeyError, ValueError):
+        except KeyError, ValueError:
             raise NotFound()
         # `objects` is configured-only: an inline scan is a throwaway keyed to one question, so it has
         # no schedule to backfill and must not be addressable here (unlike the observation read paths,

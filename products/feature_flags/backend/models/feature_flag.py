@@ -387,7 +387,7 @@ class FeatureFlag(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMix
                 ec.evaluation_context.name
                 for ec in self.flag_evaluation_contexts.select_related("evaluation_context").all()
             ]
-        except (AttributeError, DatabaseError):
+        except AttributeError, DatabaseError:
             return None
 
     def get_filters(self) -> dict:

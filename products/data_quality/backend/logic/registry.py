@@ -26,7 +26,7 @@ _SPECS: dict[CheckType, CheckTypeSpec] = {
 def get_spec(check_type: str) -> CheckTypeSpec:
     try:
         return _SPECS[CheckType(check_type)]
-    except (KeyError, ValueError):
+    except KeyError, ValueError:
         raise UnknownCheckTypeError(check_type)
 
 

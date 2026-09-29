@@ -267,7 +267,7 @@ class ReplayScannerPromptSuggestionViewSet(
             return cached
         try:
             scanner_id = uuid.UUID(self.kwargs["parent_lookup_scanner_id"])
-        except (KeyError, ValueError):
+        except KeyError, ValueError:
             raise NotFound()
         scanner = ReplayScanner.objects.filter(team_id=self.team_id, id=scanner_id).first()
         if scanner is None:

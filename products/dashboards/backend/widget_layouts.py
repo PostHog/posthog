@@ -113,7 +113,7 @@ def collect_dashboard_sm_layouts_for_dashboard(dashboard: Any) -> list[dict[str,
         if isinstance(layouts, str):
             try:
                 layouts = json.loads(layouts)
-            except (ValueError, TypeError):
+            except ValueError, TypeError:
                 layouts = None
         sm_layout = layouts.get("sm") if isinstance(layouts, dict) else None
         if isinstance(sm_layout, dict):

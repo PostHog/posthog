@@ -226,7 +226,7 @@ def trusted_manual_reviewer_adders(
             break
         try:
             entries = json.loads(row.content)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             return [None] * len(reviewers)
         if not isinstance(entries, list):
             return [None] * len(reviewers)
@@ -339,7 +339,7 @@ def normalized_github_logins_from_suggested_reviewer_artefacts(
             continue
         try:
             parsed_list = json.loads(art.content)
-        except (json.JSONDecodeError, TypeError, ValueError):
+        except json.JSONDecodeError, TypeError, ValueError:
             continue
         if not isinstance(parsed_list, list):
             continue
@@ -354,7 +354,7 @@ def source_skills_from_suggested_reviewer_artefacts(artefacts: Iterable[SignalRe
             continue
         try:
             parsed_list = json.loads(art.content)
-        except (json.JSONDecodeError, TypeError, ValueError):
+        except json.JSONDecodeError, TypeError, ValueError:
             continue
         if not isinstance(parsed_list, list):
             continue
@@ -389,7 +389,7 @@ def _normalized_reviewer_user_uuid(raw: object) -> str | None:
         return None
     try:
         return str(UUID(str(raw).strip()))
-    except (ValueError, AttributeError):
+    except ValueError, AttributeError:
         return None
 
 
@@ -478,7 +478,7 @@ def normalized_user_uuids_from_suggested_reviewer_artefacts(
             continue
         try:
             parsed_list = json.loads(art.content)
-        except (json.JSONDecodeError, TypeError, ValueError):
+        except json.JSONDecodeError, TypeError, ValueError:
             continue
         if not isinstance(parsed_list, list):
             continue

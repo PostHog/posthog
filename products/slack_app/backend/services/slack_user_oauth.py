@@ -164,7 +164,7 @@ class InviteToken(BaseModel):
         callers can render a friendly error instead of throwing."""
         try:
             payload = signing.loads(token, salt=INVITE_TOKEN_SALT, max_age=INVITE_TOKEN_MAX_AGE_SECONDS)
-        except (signing.BadSignature, signing.SignatureExpired):
+        except signing.BadSignature, signing.SignatureExpired:
             return None
         if not isinstance(payload, dict):
             return None
@@ -195,7 +195,7 @@ class CallbackState(BaseModel):
     def decode(cls, token: str) -> "CallbackState | None":
         try:
             payload = signing.loads(token, salt=CALLBACK_STATE_SALT, max_age=CALLBACK_STATE_MAX_AGE_SECONDS)
-        except (signing.BadSignature, signing.SignatureExpired):
+        except signing.BadSignature, signing.SignatureExpired:
             return None
         if not isinstance(payload, dict):
             return None

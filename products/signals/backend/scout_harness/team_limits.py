@@ -261,7 +261,7 @@ def _team_configs(payload: dict | None) -> dict[int, dict]:
             continue
         try:
             team_id = int(key)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             continue
         configs[team_id] = value
     return configs

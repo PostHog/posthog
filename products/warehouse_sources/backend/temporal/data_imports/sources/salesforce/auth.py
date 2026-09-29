@@ -116,7 +116,7 @@ def salesforce_refresh_access_token(refresh_token: str, instance_url: str, *, ca
                     "refresh_token": refresh_token,
                 },
             )
-        except (RequestsConnectionError, RequestsTimeout):
+        except RequestsConnectionError, RequestsTimeout:
             # A failed connection or timeout reaching the token endpoint — most often PostHog's
             # egress proxy returning a transient 502 on CONNECT — never minted a token, so it's safe
             # to reissue. Without this in-process retry a single proxy blip fails the whole import

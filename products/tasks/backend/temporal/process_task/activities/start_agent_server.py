@@ -292,7 +292,7 @@ def _read_agent_shadow_result(sandbox: SandboxBase, run_id: str) -> dict[str, st
         return observation
     try:
         payload = json.loads(lines[-1])
-    except (TypeError, json.JSONDecodeError):
+    except TypeError, json.JSONDecodeError:
         return observation
     if not isinstance(payload, dict):
         return observation
@@ -720,7 +720,7 @@ def _record_boot_total(input: StartAgentServerInput) -> int | None:
         if started_at.tzinfo is None:
             started_at = started_at.replace(tzinfo=UTC)
         boot_total_ms = max(0, int((datetime.now(UTC) - started_at).total_seconds() * 1000) - input.boot_excluded_ms)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         logger.warning("boot_total_unparseable_start_time", workflow_start_at=input.workflow_start_at)
         return None
     record_boot_total_ms(

@@ -86,7 +86,7 @@ def parse_account_audience_filters(filters: dict) -> AccountAudienceFilters:
             )
         try:
             definition_id = UUID(str(entry.get("key")))
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             raise exceptions.ValidationError(
                 {"filters": {"properties": "Account custom property filter keys must be property definition ids."}}
             )

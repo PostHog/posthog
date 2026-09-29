@@ -51,7 +51,7 @@ def action_match_expr(conversion_goal: ConversionGoal, team: Team) -> Optional[a
         return None
     try:
         action = Action.objects.get(pk=int(conversion_goal.id), team__project_id=team.project_id)
-    except (Action.DoesNotExist, TypeError, ValueError):
+    except Action.DoesNotExist, TypeError, ValueError:
         return None
     return action_to_expr(action)
 

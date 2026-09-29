@@ -237,12 +237,12 @@ class StamphogReviewWorkflow(PostHogWorkflow):
         sandbox_id = ""
         try:
             sandbox_id = (await sandbox_start).get("sandbox_id") or ""
-        except (Exception, asyncio.CancelledError):
+        except Exception, asyncio.CancelledError:
             pass
         if sandbox_checkout is not None:
             try:
                 await sandbox_checkout
-            except (Exception, asyncio.CancelledError):
+            except Exception, asyncio.CancelledError:
                 pass
         try:
             await workflow.execute_activity(

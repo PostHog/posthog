@@ -125,7 +125,7 @@ def _latest_resolution_note(report: SignalReport) -> str | None:
         return None
     try:
         content = json.loads(artefact.content)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
     note = content.get("note") if isinstance(content, dict) else None
     return note.strip()[:MAX_CHECK_NOTE_RESOLUTION_LENGTH] if isinstance(note, str) and note.strip() else None

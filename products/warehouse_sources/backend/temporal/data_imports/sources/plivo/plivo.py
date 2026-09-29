@@ -70,7 +70,7 @@ def _normalize_row(row: dict[str, Any], config: PlivoEndpointConfig) -> dict[str
         if isinstance(value, str) and value:
             try:
                 row[field_name] = dateutil_parser.parse(value)
-            except (ValueError, OverflowError):
+            except ValueError, OverflowError:
                 pass  # leave the raw string for a value we can't parse
     return row
 

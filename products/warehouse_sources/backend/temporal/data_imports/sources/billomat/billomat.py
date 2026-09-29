@@ -41,7 +41,7 @@ def _extract_total_count(response: Response) -> Optional[int]:
     total = wrapper.get("total")
     try:
         return int(total) if total is not None else None
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
 
 

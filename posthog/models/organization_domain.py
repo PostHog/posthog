@@ -259,7 +259,7 @@ class OrganizationDomain(ModelActivityMixin, UUIDTModel):
         """
         try:
             dns_response = dnssec_resolver().resolve(f"_posthog-challenge.{self.domain}", "TXT")
-        except (dns.resolver.NoAnswer, dns.resolver.NXDOMAIN, dns.resolver.NoNameservers):
+        except dns.resolver.NoAnswer, dns.resolver.NXDOMAIN, dns.resolver.NoNameservers:
             pass
         else:
             for item in list(dns_response.response.answer[0]):

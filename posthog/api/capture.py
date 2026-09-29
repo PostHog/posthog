@@ -973,7 +973,7 @@ def _parse_retry_after(header_value: Optional[str]) -> float:
         return 0.0
     try:
         val = float(header_value)
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         return 1.0
     return min(max(val, 0), CAPTURE_V1_INTERNAL_RETRY_AFTER_CAP_SECONDS)
 

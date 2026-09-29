@@ -68,7 +68,7 @@ def _handle_notification(message: Mapping[str, Any]) -> None:
     """
     try:
         event = json.loads(message.get("Message", ""))
-    except (json.JSONDecodeError, TypeError):
+    except json.JSONDecodeError, TypeError:
         return
     if not isinstance(event, dict) or event.get("source") != "aws.ses":
         return

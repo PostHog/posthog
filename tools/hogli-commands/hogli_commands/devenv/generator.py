@@ -640,7 +640,7 @@ def load_devenv_config(mprocs_path: Path) -> DevenvConfig | None:
     try:
         with open(mprocs_path) as f:
             data = yaml.safe_load(f) or {}
-    except (yaml.YAMLError, OSError):
+    except yaml.YAMLError, OSError:
         return None
 
     posthog_data = data.get("_posthog")

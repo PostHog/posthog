@@ -586,7 +586,7 @@ def _normalize_datetime_string(value: str) -> datetime | None:
         if parsed.tzinfo is None:
             parsed = parsed.replace(tzinfo=UTC)
         return parsed.astimezone(UTC)
-    except (ValueError, parser.ParserError):
+    except ValueError, parser.ParserError:
         return None
 
 

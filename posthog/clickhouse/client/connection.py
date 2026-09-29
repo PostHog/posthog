@@ -148,7 +148,7 @@ def _token_expiry(token: str) -> float | None:
             return None
         exp = claims.get("exp")
         return float(exp) if isinstance(exp, int | float) and not isinstance(exp, bool) else None
-    except (ValueError, TypeError, OverflowError):
+    except ValueError, TypeError, OverflowError:
         return None
 
 

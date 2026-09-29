@@ -249,7 +249,7 @@ def _schedule_gap_minutes(config: SignalScoutConfig) -> int:
             widest = max(widest, (occurrence - previous).total_seconds() / 60)
             previous = occurrence
         return int(widest) or config.run_interval_minutes
-    except (CroniterError, ValueError):
+    except CroniterError, ValueError:
         # A stored expression the coordinator can't read either — the scout isn't running on it,
         # so its rolling interval is the honest estimate.
         return config.run_interval_minutes

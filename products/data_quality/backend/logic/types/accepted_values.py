@@ -76,7 +76,7 @@ def _coerce_value(value: str | float | bool, column_type: str) -> str | float | 
             raise CheckConfigError(f"{value!r} is not a number, but the column is {column_type}.")
         try:
             number = float(value)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             raise CheckConfigError(f"{value!r} is not a number, but the column is {column_type}.")
         # An integer column cannot hold a fraction, so reject one at authoring time rather than store
         # a value no row can ever match. A whole number written as 2.0 still passes.

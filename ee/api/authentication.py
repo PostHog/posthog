@@ -180,7 +180,7 @@ class MultitenantSAMLAuth(SAMLAuth):
                 .distinct()
                 .exists()
             )
-        except (DjangoValidationError, ValueError):
+        except DjangoValidationError, ValueError:
             return False  # malformed or IdP-supplied value
 
     @staticmethod
@@ -365,7 +365,7 @@ class MultitenantSAMLAuth(SAMLAuth):
         try:
             # nosemgrep: idor-lookup-without-org (pre-auth SAML validation, config identifier from IdP round-trip)
             idp_config = IdentityProviderConfig.objects.get(saml_relay_state=idp_name)
-        except (IdentityProviderConfig.DoesNotExist, DjangoValidationError):
+        except IdentityProviderConfig.DoesNotExist, DjangoValidationError:
             saml_logger.warning(
                 "saml_email_domain_validation_failed",
                 reason="invalid_idp",

@@ -1264,7 +1264,7 @@ class OrganizationFeatureFlagView(
                                 if not original_child_cohort or original_child_cohort.name is None:
                                     continue
                                 prop.value = name_to_dest_cohort_id[original_child_cohort.name]
-                            except (ValueError, TypeError):
+                            except ValueError, TypeError:
                                 continue
 
                     destination_cohort_serializer = CohortSerializer(
@@ -1312,7 +1312,7 @@ class OrganizationFeatureFlagView(
                             continue
                         cohort_name = original_cohort_ref.name
                         prop["value"] = name_to_dest_cohort_id[cohort_name]
-                    except (ValueError, TypeError):
+                    except ValueError, TypeError:
                         continue
 
         if target_flag_access_context is not None:
@@ -1673,7 +1673,7 @@ class OrganizationFeatureFlagView(
                         created_by=user,
                         change_request=change_request,
                     )
-            except (PolicyConflict, ApprovalRequired):
+            except PolicyConflict, ApprovalRequired:
                 # The copied change can't be gated with a fresh single CR on the target — it either
                 # matches multiple policies (PolicyConflict) or would bind an already-approved
                 # duplicate (ApprovalRequired). Skip it (fail closed) rather than copy it ungated or

@@ -124,7 +124,7 @@ def get_auth_brand_from_next_param(next_param: str | None) -> str | None:
         parsed = urlparse(next_param)
         client_id = parse_qs(parsed.query).get("client_id", [None])[0]
         return get_auth_brand_for_client_id(client_id)
-    except (ValueError, IndexError, KeyError):
+    except ValueError, IndexError, KeyError:
         return None
 
 
@@ -797,7 +797,7 @@ class ExportRendererAuthentication(authentication.BaseAuthentication):
             self.export_context = export_context
             user = User.objects.get(pk=user_id)
             return user, None
-        except (jwt.DecodeError, jwt.InvalidAudienceError):
+        except jwt.DecodeError, jwt.InvalidAudienceError:
             return None
         except Exception:
             raise AuthenticationFailed(detail="Token invalid.")
@@ -1105,7 +1105,7 @@ def _decode_delegated_user_token(request: Union[HttpRequest, Request]) -> dict[s
         return None
     try:
         return decode_jwt(authorization_match.group(1).strip(), PosthogJwtAudience.DELEGATED_USER)
-    except (jwt.DecodeError, jwt.InvalidAudienceError):
+    except jwt.DecodeError, jwt.InvalidAudienceError:
         return None
     except jwt.InvalidTokenError as error:
         raise AuthenticationFailed(detail="Token invalid.") from error
@@ -1241,7 +1241,7 @@ class InternalAPIAuthentication(authentication.BaseAuthentication):
         Team = apps.get_model(app_label="posthog", model_name="Team")
         try:
             team = Team.objects.only("id", "organization_id").get(id=team_id)
-        except (Team.DoesNotExist, ValueError):
+        except Team.DoesNotExist, ValueError:
             raise AuthenticationFailed("Invalid internal API team.")
 
         return InternalAPIUser(current_organization_id=team.organization_id, current_team_id=team.id)
@@ -1363,7 +1363,7 @@ class ScopedServiceJWTAuthentication(authentication.BaseAuthentication):
         Team = apps.get_model(app_label="posthog", model_name="Team")
         try:
             team = Team.objects.only("id", "organization_id").get(id=claim_team_id)
-        except (Team.DoesNotExist, ValueError, TypeError):
+        except Team.DoesNotExist, ValueError, TypeError:
             raise AuthenticationFailed("Invalid service token team.")
 
         return InternalAPIUser(current_organization_id=team.organization_id, current_team_id=team.id), claims
@@ -1605,7 +1605,7 @@ class WebhookSignatureAuthentication(authentication.BaseAuthentication):
 
         try:
             ts = int(timestamp)
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             raise AuthenticationFailed("Invalid webhook timestamp.")
         if abs(time.time() - ts) > self.timestamp_tolerance:
             raise AuthenticationFailed("Webhook timestamp too old.")

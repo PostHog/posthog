@@ -110,7 +110,7 @@ def _web_search(arguments: dict[str, Any]) -> ToolOutcome:
         )
     try:
         limit = max(1, min(int(arguments.get("num_results") or DEFAULT_SEARCH_RESULTS), MAX_SEARCH_LIMIT))
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return ToolOutcome(
             name="web_search",
             arguments=arguments,
@@ -133,7 +133,7 @@ def _web_search(arguments: dict[str, Any]) -> ToolOutcome:
         return ToolOutcome(
             name="web_search", arguments=arguments, result={"error": "web search is busy"}, urls=(), error="busy"
         )
-    except (FirecrawlSearchFailed, RequestException):
+    except FirecrawlSearchFailed, RequestException:
         return ToolOutcome(
             name="web_search", arguments=arguments, result={"error": "web search is busy"}, urls=(), error="busy"
         )
@@ -184,7 +184,7 @@ def _fetch_page(arguments: dict[str, Any]) -> ToolOutcome:
         return ToolOutcome(
             name="fetch_page", arguments=arguments, result={"error": "page fetching is busy"}, urls=(), error="busy"
         )
-    except (FirecrawlScrapeFailed, RequestException):
+    except FirecrawlScrapeFailed, RequestException:
         return ToolOutcome(
             name="fetch_page", arguments=arguments, result={"error": "page fetching is busy"}, urls=(), error="busy"
         )

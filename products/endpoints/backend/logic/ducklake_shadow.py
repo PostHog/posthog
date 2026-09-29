@@ -70,7 +70,7 @@ def run_ducklake_shadow_comparison(
         team = Team.objects.get(pk=team_id)
         endpoint = Endpoint.objects.get(pk=endpoint_id, team_id=team_id)
         version = EndpointVersion.objects.get(pk=version_id, endpoint=endpoint)
-    except (Team.DoesNotExist, Endpoint.DoesNotExist, EndpointVersion.DoesNotExist):
+    except Team.DoesNotExist, Endpoint.DoesNotExist, EndpointVersion.DoesNotExist:
         logger.info(
             "ducklake_shadow_skip_missing_entity",
             team_id=team_id,

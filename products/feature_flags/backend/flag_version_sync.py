@@ -275,7 +275,7 @@ def direct_flag_dependency_ids(flag: FeatureFlag) -> set[int]:
                 continue
             try:
                 dependency_ids.add(int(prop["key"]))
-            except (ValueError, KeyError, TypeError):
+            except ValueError, KeyError, TypeError:
                 continue
     return dependency_ids
 

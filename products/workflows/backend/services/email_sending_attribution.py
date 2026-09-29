@@ -37,7 +37,7 @@ def looks_like_uuid(value: str) -> bool:
     try:
         uuid_mod.UUID(value)
         return True
-    except (ValueError, AttributeError, TypeError):
+    except ValueError, AttributeError, TypeError:
         return False
 
 

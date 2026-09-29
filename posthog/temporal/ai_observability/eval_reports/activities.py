@@ -582,7 +582,7 @@ def _period_for_scheduled_report(report, now: dt.datetime) -> dt.timedelta:
         tz = ZoneInfo(report.timezone_name or "UTC")
         starts_local = report.starts_at.astimezone(tz).replace(tzinfo=None)
         rule = rrulestr(report.rrule, dtstart=starts_local, ignoretz=True)
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         return _DEFAULT_PERIOD
     now_local = now.astimezone(tz).replace(tzinfo=None)
     prev = rule.before(now_local, inc=False)

@@ -173,7 +173,7 @@ def _build_first_message(
     topic_part = _normalise_topic(topic_text) or "your experience"
     try:
         rendered = string.Template(template).substitute(user_name=name_part, topic_text=topic_part)
-    except (KeyError, ValueError):
+    except KeyError, ValueError:
         logger.warning(
             "user_interviews_first_message_template_invalid",
             team_id=team_id,

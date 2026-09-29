@@ -18,7 +18,7 @@ def set_team_in_cache(token: str, team: Optional["Team"] = None) -> None:
     if not team:
         try:
             team = Team.objects.get(api_token=token)
-        except (Team.DoesNotExist, Team.MultipleObjectsReturned):
+        except Team.DoesNotExist, Team.MultipleObjectsReturned:
             cache.delete(f"team_token:{token}")
             return
 

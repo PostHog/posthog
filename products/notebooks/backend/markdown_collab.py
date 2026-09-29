@@ -271,7 +271,7 @@ def fetch_missed_markdown_updates(
             continue
         try:
             data = json.loads(fields[DATA_KEY])
-        except (json.JSONDecodeError, KeyError):
+        except json.JSONDecodeError, KeyError:
             return MarkdownSubmitResult(status="stale", version=current_version)
         diff = data.get("diff")
         if data.get("type") != UPDATE_EVENT_TYPE or not isinstance(diff, list):

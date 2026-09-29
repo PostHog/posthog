@@ -76,7 +76,7 @@ class CommunitySkillFeatureFlagPermission(BasePermission):
         # rollout evaluates True in the UI but would 403 here if we only sent the organization group.
         try:
             team_for_flag = view.team
-        except (ValueError, KeyError, AttributeError):
+        except ValueError, KeyError, AttributeError:
             team_for_flag = None
         if team_for_flag is not None:
             project_id = str(team_for_flag.id)
@@ -268,7 +268,7 @@ class CommunitySkillViewSet(
         except CommunitySkillInvalidPayloadError as err:
             self._report_install_failed(request, slug, "invalid_payload")
             return Response({"detail": err.detail}, status=status.HTTP_400_BAD_REQUEST)
-        except (LLMSkillFileLimitError, LLMSkillFilePathConflictError):
+        except LLMSkillFileLimitError, LLMSkillFilePathConflictError:
             # The synced community payload violates the skill limits (too many files / bad paths).
             self._report_install_failed(request, slug, "invalid_files")
             return Response(

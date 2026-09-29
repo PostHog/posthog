@@ -179,7 +179,7 @@ def load(host: str = DEFAULT_HOST) -> Credential | None:
     host = _normalize_host(host)
     try:
         raw = json.loads(_cache_path(host).read_text())
-    except (OSError, ValueError):
+    except OSError, ValueError:
         return None
     if not isinstance(raw, dict) or raw.get("host") != host:
         # Hosts differing only by URL path share a filename, which the slug cannot carry. A miss
@@ -195,7 +195,7 @@ def load(host: str = DEFAULT_HOST) -> Credential | None:
             expires_at=raw.get("expires_at"),
             granted=tuple(raw.get("granted") or ()),
         )
-    except (KeyError, TypeError):
+    except KeyError, TypeError:
         return None
 
 
@@ -676,7 +676,7 @@ def _readable_terminal() -> bool:
         return False
     try:
         return os.tcgetpgrp(sys.stdin.fileno()) == os.getpgrp()
-    except (OSError, AttributeError):
+    except OSError, AttributeError:
         return False
 
 

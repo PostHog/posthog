@@ -88,7 +88,7 @@ class Command(BaseCommand):
         for art in artefacts:
             try:
                 content = json.loads(art.content)
-            except (json.JSONDecodeError, TypeError):
+            except json.JSONDecodeError, TypeError:
                 content = art.content
             entry["artefacts"].append(
                 {

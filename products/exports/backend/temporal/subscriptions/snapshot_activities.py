@@ -226,7 +226,7 @@ def _describe_result_shape(result: Any) -> dict[str, Any]:
 def _get_delivery_by_id(delivery_id: str) -> SubscriptionDelivery | None:
     try:
         return SubscriptionDelivery.objects.get(pk=uuid.UUID(delivery_id))
-    except (SubscriptionDelivery.DoesNotExist, ValueError):
+    except SubscriptionDelivery.DoesNotExist, ValueError:
         return None
 
 

@@ -48,7 +48,7 @@ def gateway_generation_request(request: HttpRequest, team_id: int, run_id: str, 
     if request.body.strip():
         try:
             body = json.loads(request.body)
-        except (json.JSONDecodeError, UnicodeDecodeError):
+        except json.JSONDecodeError, UnicodeDecodeError:
             return JsonResponse({"error": "Invalid request body"}, status=400)
         if body != {}:
             return JsonResponse({"error": "Invalid request body"}, status=400)

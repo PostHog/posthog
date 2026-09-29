@@ -387,7 +387,7 @@ def _iter_message_header_values(request: MailgunRequest, header_name: str) -> It
         return
     try:
         parsed_headers = json.loads(raw_headers)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return
     if not isinstance(parsed_headers, list):
         return
@@ -490,14 +490,14 @@ def _parse_sent_at(request: MailgunRequest) -> datetime:
             if sent_at <= now + MAX_SENT_AT_CLOCK_SKEW:
                 return sent_at
             logger.warning("email_inbound_future_date_header")
-        except (TypeError, ValueError, OverflowError):
+        except TypeError, ValueError, OverflowError:
             logger.warning("email_inbound_invalid_date_header")
 
     webhook_timestamp = request.POST.get("timestamp", "")
     if webhook_timestamp:
         try:
             return datetime.fromtimestamp(float(webhook_timestamp), tz=UTC)
-        except (ValueError, OverflowError):
+        except ValueError, OverflowError:
             logger.warning("email_inbound_invalid_timestamp")
     return now
 

@@ -1467,7 +1467,7 @@ class TestTaskRun(TestCase):
                 tags = {tag["Key"]: tag["Value"] for tag in response.get("TagSet", [])}
                 self.assertEqual(tags.get("ttl_days"), "30")
                 self.assertEqual(tags.get("team_id"), str(self.team.id))
-        except (ClientError, AttributeError):
+        except ClientError, AttributeError:
             # Tagging might not be available in test environment
             pass
 

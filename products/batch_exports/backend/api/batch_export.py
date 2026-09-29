@@ -128,7 +128,7 @@ def validate_date_input(date_input: Any, batch_export: BatchExport) -> dt.dateti
     if batch_export.interval == "day" or batch_export.interval == "week":
         try:
             parsed_date = dt.date.fromisoformat(date_input)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             # Try to parse as a datetime string so we can give a more helpful error message
             try:
                 parsed = dt.datetime.fromisoformat(date_input)
@@ -136,7 +136,7 @@ def validate_date_input(date_input: Any, batch_export: BatchExport) -> dt.dateti
                     f"Input '{date_input}' is not a valid ISO formatted date. "
                     "Daily or weekly batch export backfills expect only the date component, but a time was included."
                 )
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 pass
             raise ValidationError(f"Input '{date_input}' is not a valid ISO formatted date.")
 
@@ -163,7 +163,7 @@ def validate_date_input(date_input: Any, batch_export: BatchExport) -> dt.dateti
     else:
         try:
             parsed = dt.datetime.fromisoformat(date_input)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             raise ValidationError(f"Input {date_input} is not a valid ISO formatted datetime.")
 
         if parsed.tzinfo is None:

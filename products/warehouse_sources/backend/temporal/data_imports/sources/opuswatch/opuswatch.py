@@ -45,7 +45,7 @@ def _window_start(last_value: Any) -> Optional[date]:
     if isinstance(last_value, str):
         try:
             return parser.parse(last_value).date()
-        except (ValueError, OverflowError):
+        except ValueError, OverflowError:
             return None
     return None
 

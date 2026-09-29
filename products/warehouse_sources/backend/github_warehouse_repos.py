@@ -54,7 +54,7 @@ def github_source_credential(*, team_id: int, source_id: str) -> GitHubSourceCre
             .exclude(deleted=True)
             .first()
         )
-    except (ValidationError, ValueError):
+    except ValidationError, ValueError:
         # The id travels from a resolve the caller made, so a value that is no UUID is a normal
         # answer of "no such source" rather than a failure.
         return None

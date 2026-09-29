@@ -42,7 +42,7 @@ def _to_epoch_seconds(value: Any) -> Optional[int]:
         return int(value)
     try:
         return int(datetime.fromisoformat(str(value).replace("Z", "+00:00")).timestamp())
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         return None
 
 

@@ -120,7 +120,7 @@ def record_backfill_started(*, team_id: int, dataset: str, partition_key: str, r
                 "last_error": None,
             },
         )
-    except (DatabaseError, ValueError):
+    except DatabaseError, ValueError:
         # Status is a projection for the UI: never fail the backfill itself over it.
         logger.exception(
             "managed_warehouse_backfill_status_write_failed",

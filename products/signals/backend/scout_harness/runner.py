@@ -1202,7 +1202,7 @@ def _failure_streak_runs_in_window(config: SignalScoutConfig) -> int:
     if config.run_cron_schedule:
         try:
             return _cron_runs_in_window(config.run_cron_schedule)
-        except (CroniterError, ValueError):
+        except CroniterError, ValueError:
             logger.warning(
                 "signals_scout: invalid cron schedule while sizing failure breaker",
                 extra={"scout_config_id": str(config.pk)},

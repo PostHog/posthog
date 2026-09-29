@@ -294,7 +294,7 @@ def get_review_reasoning(run: contracts.ReviewRunDTO) -> contracts.ReviewReasoni
         return contracts.ReviewReasoningDTO()
     try:
         parsed = parse_reviewer_output(raw)
-    except (AttributeError, TypeError, ValueError):
+    except AttributeError, TypeError, ValueError:
         # A crashed or version-skewed engine can print a malformed verdict. Retrieve must still answer.
         logger.warning("stamphog_review_reasoning_unparseable", review_run_id=str(run.id))
         return contracts.ReviewReasoningDTO()

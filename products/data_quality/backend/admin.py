@@ -23,7 +23,7 @@ class _UnscopedForeignKeyRawIdWidget(ForeignKeyRawIdWidget):
         manager = cast(TeamScopedManager, self.rel.model._default_manager)
         try:
             related_object = manager.unscoped().using(self.db).get(**{self.rel.get_related_field().name: value})
-        except (ValueError, ObjectDoesNotExist, ValidationError):
+        except ValueError, ObjectDoesNotExist, ValidationError:
             return "", ""
 
         options = related_object._meta

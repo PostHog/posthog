@@ -324,7 +324,7 @@ class EvaluationReportSerializer(serializers.ModelSerializer):
                     )
                 try:
                     slack_ids_to_verify.add(int(integration_id))
-                except (TypeError, ValueError):
+                except TypeError, ValueError:
                     raise serializers.ValidationError("Slack integration_id must be an integer.")
         if slack_ids_to_verify:
             # Enforce tenant + kind boundary: only integrations that belong to this team AND
@@ -602,7 +602,7 @@ class EvaluationReportAccessControlPermission(AccessControlPermission):
         try:
             evaluation_id = UUID(str(request.data.get("evaluation")))
             evaluation = Evaluation.objects.filter(team_id=report_view.team_id, id=evaluation_id).first()
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             return False
         return evaluation is not None and self.has_object_permission(request, view, evaluation)
 

@@ -245,7 +245,7 @@ def resolve_metric_events(experiment: Experiment) -> list[MetricEventSource]:
     for metric_dict in iter_metric_dicts(experiment):
         try:
             metric = build_metric(metric_dict)
-        except (KeyError, pydantic.ValidationError):
+        except KeyError, pydantic.ValidationError:
             logger.warning("Skipping unparseable metric %s on experiment %s", metric_dict.get("uuid"), experiment.pk)
             continue
         all_sources = _metric_sources(metric)
@@ -285,7 +285,7 @@ def build_source_condition(node: MetricSourceNode, team: Team) -> ast.Expr:
     try:
         condition = event_or_action_to_filter(team, node)
         fixed = [property_to_expr(prop, team) for prop in node.fixedProperties or []]
-    except (Cohort.DoesNotExist, BaseHogQLError):
+    except Cohort.DoesNotExist, BaseHogQLError:
         logger.warning("Unresolvable metric source filter for team %s; source matches nothing.", team.pk)
         return ast.Constant(value=False)
     if fixed:

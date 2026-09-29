@@ -752,7 +752,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                 try:
                     if date.fromisoformat(day_str[:10]).isoweekday() in allowed_iso_days:
                         kept_indices.append(i)
-                except (ValueError, TypeError):
+                except ValueError, TypeError:
                     kept_indices.append(i)  # Keep unparseable entries
             return kept_indices
 

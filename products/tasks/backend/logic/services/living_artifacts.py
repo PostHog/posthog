@@ -1365,7 +1365,7 @@ def _post_blocks_with_processing_retry(
                 headers = getattr(e.response, "headers", None) or {}
                 try:
                     retry_after = float(headers.get("Retry-After") or _IMAGE_BLOCK_POST_RETRY_INTERVAL_S)
-                except (TypeError, ValueError):
+                except TypeError, ValueError:
                     retry_after = _IMAGE_BLOCK_POST_RETRY_INTERVAL_S
                 wait = min(retry_after, _RATE_LIMIT_MAX_WAIT_S)
             else:

@@ -96,7 +96,7 @@ def _awaiting_clarification_round(ticket: Ticket) -> tuple[bool, int]:
     raw_rounds = triage.get("clarification_rounds")
     try:
         stored = int(raw_rounds or 0)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         stored = 0
     return True, max(stored, 1)
 

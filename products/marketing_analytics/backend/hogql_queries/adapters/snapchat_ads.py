@@ -144,7 +144,7 @@ class SnapchatAdsAdapter(MarketingSourceAdapter[SnapchatAdsConfig]):
                                 ],
                             )
                         )
-        except (TypeError, AttributeError, KeyError):
+        except TypeError, AttributeError, KeyError:
             pass
 
         if not exprs:

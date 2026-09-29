@@ -55,7 +55,7 @@ def _spans_about_a_week(call_input: dict[str, Any]) -> bool:
     try:
         start = datetime.fromisoformat(str(call_input["window_start"]).replace("Z", "+00:00"))
         end = datetime.fromisoformat(str(call_input["window_end"]).replace("Z", "+00:00"))
-    except (KeyError, ValueError):
+    except KeyError, ValueError:
         return False
     # A day of slack either way, since the agent picks its own clock and rounding.
     return timedelta(days=6) <= end - start <= timedelta(days=8)

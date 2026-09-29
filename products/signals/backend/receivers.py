@@ -189,7 +189,7 @@ def _verdict_is_unsafe(content: str | None) -> bool:
         return False
     try:
         data = json.loads(content)
-    except (json.JSONDecodeError, TypeError, ValueError):
+    except json.JSONDecodeError, TypeError, ValueError:
         return True
     return isinstance(data, dict) and data.get("choice") is False
 
@@ -951,7 +951,7 @@ def _classification_snapshot(
                 data = json.loads(content)
                 if isinstance(data, dict):
                     value = data.get(content_key)
-            except (json.JSONDecodeError, TypeError, ValueError):
+            except json.JSONDecodeError, TypeError, ValueError:
                 value = None
         snapshot[prop] = value if isinstance(value, str) else None
     return snapshot

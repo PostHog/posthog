@@ -281,7 +281,7 @@ class SSHTunnel:
     def has_valid_port(self) -> tuple[bool, str]:
         try:
             port = int(self.port)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             return False, "Port must be a number between 1 and 65535"
 
         # Out-of-range ports otherwise slip through to sshtunnel, which asserts `0 <= port <= 65535`

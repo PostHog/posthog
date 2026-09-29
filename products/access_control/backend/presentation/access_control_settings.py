@@ -706,7 +706,7 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
                     # nosemgrep: orm-field-injection, no-request-param-orm-filter
                     qs = qs.filter(**{f"{display.name_field}__icontains": search})
                 pks = [str(pk) for pk in qs.order_by(display.name_field).values_list("pk", flat=True)[:limit]]
-        except (ValueError, DjangoValidationError):
+        except ValueError, DjangoValidationError:
             # A lookup id of the wrong shape for the model's pk matches nothing
             pks = []
         # One place builds display names, so the picker shows exactly what the rules list will

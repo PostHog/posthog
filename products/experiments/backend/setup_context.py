@@ -1371,7 +1371,7 @@ def _metric_event_roles(query: dict[str, Any], event: str, action_events: dict[i
             return False
         try:
             action_id = int(node["id"])
-        except (KeyError, TypeError, ValueError):
+        except KeyError, TypeError, ValueError:
             return False
         return event in action_events.get(action_id, set())
 

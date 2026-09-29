@@ -438,7 +438,7 @@ async def _spec_from_frozen_plan(
             window=window,
             ai_query_plan=ai_query_plan,
         )
-    except (PromptRejectedError, StoredPlanInvalidError):
+    except PromptRejectedError, StoredPlanInvalidError:
         raise
     except Exception as exc:
         raise AiReportStageError(ReportStage.PLANNER, exc) from exc

@@ -149,7 +149,7 @@ class LegacyEventsListQuery:
                 request_window_seconds = int(
                     (relative_date_parse(before, tzinfo) - relative_date_parse(after, tzinfo)).total_seconds()
                 )
-            except (ValueError, TypeError):
+            except ValueError, TypeError:
                 pass
 
         # Only probe windows shorter than the request's own range.

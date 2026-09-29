@@ -163,7 +163,7 @@ def _version_trend_lines(scanner: ReplayScanner) -> list[str]:
     for raw_version, is_correct in rows:
         try:
             version = int(raw_version)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             continue
         counts.setdefault(version, [0, 0])[0 if is_correct else 1] += 1
     if len(counts) < 2:

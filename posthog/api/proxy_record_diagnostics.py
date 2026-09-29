@@ -348,7 +348,7 @@ def _check_cname(record: ProxyRecord) -> CheckResult:
                 records=[DnsRecord(name=record.domain, type="CNAME", value=record.target_cname)],
             ),
         )
-    except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer):
+    except dns.resolver.NXDOMAIN, dns.resolver.NoAnswer:
         return CheckResult(
             id="cname",
             name="DNS CNAME",
@@ -528,7 +528,7 @@ def _check_caa(record: ProxyRecord, hostname_info: Optional[CustomHostname], *, 
         except dns.resolver.NoAnswer:
             name = name.parent()
             continue
-        except (dns.resolver.NXDOMAIN, dns.exception.DNSException):
+        except dns.resolver.NXDOMAIN, dns.exception.DNSException:
             name = name.parent()
             continue
 

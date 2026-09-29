@@ -22,7 +22,7 @@ def get_registry(*, distinct_id: str, organization_id: str) -> tuple[WizardProgr
             only_evaluate_locally=False,
             send_feature_flag_events=False,
         )
-    except (APIError, RequestsConnectionError, RequestsTimeout):
+    except APIError, RequestsConnectionError, RequestsTimeout:
         logger.warning("wizard_registry_fallback", extra={"reason": "request_failed"}, exc_info=True)
         report_registry_fallback("request_failed")
         return FALLBACK_REGISTRY.programs

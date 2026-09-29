@@ -548,7 +548,7 @@ def _get_granted_scopes(store_id: str, sess: requests.Session) -> set[str] | Non
         res = sess.get(SHOPIFY_ACCESS_SCOPES_URL.format(store_id))
         res.raise_for_status()
         data = res.json()
-    except (requests.RequestException, ValueError):
+    except requests.RequestException, ValueError:
         return None
     scopes = data.get("access_scopes", []) if isinstance(data, dict) else []
     return {scope["handle"] for scope in scopes if isinstance(scope, dict) and "handle" in scope}
@@ -812,7 +812,7 @@ def check_endpoint_permissions(
             continue
         try:
             error = _probe_resource_permission(api_url, sess, resource)
-        except (ShopifyRetryableError, requests.RequestException):
+        except ShopifyRetryableError, requests.RequestException:
             # A throttle/5xx/transport blip on one endpoint isn't a permission verdict. Leave it
             # unknown (reachable) so the rest of the batch keeps its results instead of the whole
             # probe aborting — the real scope check still runs when the user adds that schema.

@@ -200,7 +200,7 @@ class AsyncEgressClient(_EgressHooks, ABC):
         request_headers = {**self._standard_headers(), **(headers or {})}
         try:
             response = await session.request(method, url, headers=request_headers, **kwargs)
-        except (aiohttp.ClientError, TimeoutError):
+        except aiohttp.ClientError, TimeoutError:
             # aiohttp raises a bare TimeoutError when ClientTimeout.total expires; only the connect
             # phase gets wrapped into a ClientError. Catching just ClientError would drop the most
             # likely outage from the metric.

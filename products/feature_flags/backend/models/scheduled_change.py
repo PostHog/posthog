@@ -113,7 +113,7 @@ class ScheduledChange(RootTeamMixin, models.Model):
                         message += " (will retry automatically)"
 
                 return message
-        except (json.JSONDecodeError, TypeError):
+        except json.JSONDecodeError, TypeError:
             # Not JSON or invalid format, treat as plain string
             pass
 

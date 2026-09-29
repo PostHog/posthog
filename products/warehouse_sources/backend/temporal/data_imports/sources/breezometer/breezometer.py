@@ -201,7 +201,7 @@ def _date_obj_to_iso(value: Any) -> str | None:
         return None
     try:
         return datetime(int(value["year"]), int(value["month"]), int(value["day"]), tzinfo=UTC).isoformat()
-    except (KeyError, TypeError, ValueError):
+    except KeyError, TypeError, ValueError:
         return None
 
 

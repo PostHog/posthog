@@ -263,7 +263,7 @@ class ApprovalPolicySerializer(serializers.ModelSerializer):
             return value
         try:
             return [int(lvl) for lvl in value]
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             raise serializers.ValidationError("All membership levels must be integers")
 
     def validate_bypass_roles(self, value):

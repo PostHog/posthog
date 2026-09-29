@@ -189,7 +189,7 @@ async def run_scout_suggestions_activity(input: RunScoutSuggestionsInput) -> Run
                 triggered_by=input.triggered_by,
                 acting_user_id=input.acting_user_id,
             )
-    except (OperationalError, InterfaceError):
+    except OperationalError, InterfaceError:
         # Transient pooled-connection drop (pgbouncer recycle / failover / deploy). The coordinator
         # has already stamped `last_requested_at`, so this has to be recorded as a failure or the
         # team is simply suppressed until its next refresh with nothing to show for the attempt.

@@ -1,6 +1,6 @@
 #!/usr/bin/env -S uv run --script
 # /// script
-# requires-python = ">=3.11"
+# requires-python = ">=3.14"
 # dependencies = []
 # ///
 """Affected-only Playwright E2E spec selection.
@@ -369,13 +369,13 @@ def _compute_result(args: argparse.Namespace) -> dict:
     try:
         area_map = load_map(Path(args.map))
         all_specs = discover_specs(REPO_ROOT)
-    except (OSError, ValueError):
+    except OSError, ValueError:
         traceback.print_exc(file=sys.stderr)
         return _error_result("map_load_failed")
 
     try:
         changed = changed_files_from_git(args.base_ref)
-    except (subprocess.CalledProcessError, OSError):
+    except subprocess.CalledProcessError, OSError:
         traceback.print_exc(file=sys.stderr)
         return _error_result("git_diff_failed", total_spec_count=len(all_specs))
 

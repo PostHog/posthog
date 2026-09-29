@@ -178,7 +178,7 @@ class _CredentialPayloadCodec:
                     sslmode=connect["sslmode"],
                 ),
             )
-        except (InvalidToken, UnicodeDecodeError, json.JSONDecodeError, KeyError, TypeError, ValueError):
+        except InvalidToken, UnicodeDecodeError, json.JSONDecodeError, KeyError, TypeError, ValueError:
             return None
 
 
@@ -287,7 +287,7 @@ class RedisServiceCredentialCache:
             return None
         try:
             self._validate_credential(credential)
-        except (ServiceCredentialUnavailable, AttributeError, TypeError):
+        except ServiceCredentialUnavailable, AttributeError, TypeError:
             _record_cache_event("invalid_payload")
             return None
         if credential.expires_at <= self._now() + SQL_EDITOR_CREDENTIAL_REFRESH_MARGIN:

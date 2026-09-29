@@ -132,7 +132,7 @@ def _collect_action_ids(obj: Any, action_ids: set[int]) -> None:
             # Convert to int in case it's stored as a string
             try:
                 action_ids.add(int(obj["id"]))
-            except (ValueError, TypeError):
+            except ValueError, TypeError:
                 logger.warning("Invalid action ID in ActionsNode: %s", obj["id"])
         for value in obj.values():
             _collect_action_ids(value, action_ids)
@@ -148,7 +148,7 @@ def _update_action_names(obj: Any, actions_by_id: dict[int, str]) -> None:
             # Convert to int in case it's stored as a string
             try:
                 action_id = int(obj["id"])
-            except (ValueError, TypeError):
+            except ValueError, TypeError:
                 logger.warning("Invalid action ID in ActionsNode: %s", obj["id"])
                 return
 
@@ -173,7 +173,7 @@ def _collect_event_names_and_action_ids(obj: Any, event_names: set[str], action_
         elif kind == "ActionsNode" and "id" in obj:
             try:
                 action_ids.add(int(obj["id"]))
-            except (ValueError, TypeError):
+            except ValueError, TypeError:
                 logger.warning("Invalid action ID in ActionsNode: %s", obj["id"])
         for value in obj.values():
             _collect_event_names_and_action_ids(value, event_names, action_ids)

@@ -125,7 +125,7 @@ class PostHogSCIMGroup(SCIMGroup):
             return None
         try:
             return str(int(raw_member_id))
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             logger.warning("scim_group_skip_invalid_member_id", extra={"member_value": raw_member_id})
             return None
 

@@ -38,6 +38,6 @@ def get_widget_generation_cost(request_ids: list[str | None]) -> Decimal | None:
                     return None
                 total += cost
             return (total * (1 + Decimal(str(AI_COST_MARKUP_PERCENT)))).quantize(Decimal("0.000001"))
-    except (httpx.HTTPError, ValueError, InvalidOperation):
+    except httpx.HTTPError, ValueError, InvalidOperation:
         logger.warning("notebook_widget_generation_cost_unavailable")
         return None

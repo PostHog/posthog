@@ -98,7 +98,7 @@ def get_cached_organization(organization_id: str | UUID) -> Organization | None:
     if not settings.ORGANIZATION_ACCESS_CACHE_ENABLED:
         try:
             return organization_model.objects.get(id=organization_id)
-        except (organization_model.DoesNotExist, ValueError):
+        except organization_model.DoesNotExist, ValueError:
             return None
 
     key = _organization_cache_key(organization_id)
@@ -111,7 +111,7 @@ def get_cached_organization(organization_id: str | UUID) -> Organization | None:
 
     try:
         organization = organization_model.objects.get(id=organization_id)
-    except (organization_model.DoesNotExist, ValueError):
+    except organization_model.DoesNotExist, ValueError:
         _set_versioned_access_cache_value(key, _ORGANIZATION_ACCESS_CACHE_MISS, version)
         return None
 
@@ -147,7 +147,7 @@ def get_cached_organization_membership(organization_id: str | UUID, user: User) 
             return organization_membership_model.objects.select_related("organization").get(
                 organization_id=organization_id, user_id=user.id
             )
-        except (organization_membership_model.DoesNotExist, ValueError):
+        except organization_membership_model.DoesNotExist, ValueError:
             return None
 
     key = _organization_membership_cache_key(organization_id, user.id)
@@ -163,7 +163,7 @@ def get_cached_organization_membership(organization_id: str | UUID, user: User) 
         membership = organization_membership_model.objects.select_related("organization").get(
             organization_id=organization_id, user_id=user.id
         )
-    except (organization_membership_model.DoesNotExist, ValueError):
+    except organization_membership_model.DoesNotExist, ValueError:
         _set_versioned_access_cache_value(key, _ORGANIZATION_ACCESS_CACHE_MISS, version)
         return None
 

@@ -50,7 +50,7 @@ def _format_zylo_filter_date(value: Any) -> str:
     else:
         try:
             d = parser.parse(str(value)).date()
-        except (ValueError, OverflowError):
+        except ValueError, OverflowError:
             return f"{value},gte"
     return f"{d.isoformat()},gte"
 

@@ -287,7 +287,7 @@ def _parse_bound_value(raw: str, field_type: IncrementalFieldType) -> Any | None
             return int(s)
         if field_type == IncrementalFieldType.Numeric:
             return float(s)
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         return None
     return None
 

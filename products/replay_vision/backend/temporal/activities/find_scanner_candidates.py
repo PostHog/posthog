@@ -122,7 +122,7 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
     )
     try:
         batch = candidate_query.run_batch(limit)
-    except (DRFValidationError, PermissionDenied):
+    except DRFValidationError, PermissionDenied:
         # The exposure filter (run as the creator) can't resolve the targeted experiment: the creator
         # lost experiment access, or the experiment can't answer for its exposed population — most
         # often a draft that hasn't launched, but also deleted, group-aggregated, or renamed-variant.

@@ -193,7 +193,7 @@ def _read_paths(repo: Repo, story_index_hash: str) -> dict[str, str] | None:
     try:
         document = json.loads(raw)
     # A deeply nested document raises RecursionError, which is not a ValueError.
-    except (ValueError, RecursionError):
+    except ValueError, RecursionError:
         document = None
     paths = document.get("paths") if isinstance(document, dict) and document.get("version") == _MAP_VERSION else None
     if not isinstance(paths, dict):

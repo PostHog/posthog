@@ -196,7 +196,7 @@ class AnalyticsCapture:
                     req.events = [e.get("event", "unknown") for e in data["batch"]]
                 elif isinstance(data, dict) and "event" in data:
                     req.events = [data["event"]]
-            except (json.JSONDecodeError, TypeError):
+            except json.JSONDecodeError, TypeError:
                 pass
         self._pending[id(request)] = req
         if self.verbose:

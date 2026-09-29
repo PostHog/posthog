@@ -16,7 +16,7 @@ def _latest_judgment(contents: list[str], max_actionability_length: int) -> tupl
     for content in contents:
         try:
             parsed = json.loads(content)
-        except (json.JSONDecodeError, TypeError, ValueError):
+        except json.JSONDecodeError, TypeError, ValueError:
             continue
         if not isinstance(parsed, dict):
             continue

@@ -75,7 +75,7 @@ def validate_credentials(access_token: str, project_id: str) -> tuple[bool, Opti
         )
         if (project_data.get("app") or {}).get("byId") is None:
             raise ExpoAPIError("Expo project not found")
-    except (ExpoAPIError, requests.HTTPError):
+    except ExpoAPIError, requests.HTTPError:
         return False, (
             "Expo could not read this project. Check the project ID, and that the token's account owns it. "
             "Run `eas project:info` to see the ID."

@@ -42,7 +42,7 @@ class OrganizationMembersForAccountViewSet(
             return OrganizationMembership.objects.none()
         try:
             UUID(str(organization_id))
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             return OrganizationMembership.objects.none()
         # Pagination needs a stable order, closed by `id` in `_ordering`. The default
         # `-joined_at` is served by the (organization, -joined_at) composite index when

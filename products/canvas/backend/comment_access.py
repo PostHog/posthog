@@ -17,7 +17,7 @@ def canvas_belongs_to_task(*, team_id: int, user_id: int | None, canvas_id: str,
             .filter(Q(generation_task_id=task_id) | Q(source_versions__task_id=task_id))
             .exists()
         )
-    except (ValueError, ValidationError):
+    except ValueError, ValidationError:
         return False
 
 
@@ -40,7 +40,7 @@ def visible_canvas_user_ids(*, team_id: int, canvas_id: str, user_ids: Iterable[
             ).values_list("channel__memberships__user_id", flat=True)
         )
         return visible_ids
-    except (ValueError, ValidationError):
+    except ValueError, ValidationError:
         return set()
 
 
@@ -52,5 +52,5 @@ def canvas_owner_id(*, team_id: int, canvas_id: str) -> int | None:
             .values_list("created_by_id", flat=True)
             .first()
         )
-    except (ValueError, ValidationError):
+    except ValueError, ValidationError:
         return None

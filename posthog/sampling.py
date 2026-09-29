@@ -32,7 +32,7 @@ def clamp_to_range(
                     f"{label} must be a number. Using max or fallback. max: {max_val}, fallback: {fallback_value}"
                 )
             value = float(fallback_value if fallback_value is not None else max_val)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         value = float(fallback_value if fallback_value is not None else max_val)
 
     # Now clamp the value

@@ -23,7 +23,7 @@ def parse_zoned_datetime_string(value: object) -> Optional[datetime]:
     try:
         # Dates too close to datetime.min/max overflow when converted to another timezone.
         parsed.astimezone(UTC)
-    except (OverflowError, ValueError):
+    except OverflowError, ValueError:
         return None
     return parsed
 

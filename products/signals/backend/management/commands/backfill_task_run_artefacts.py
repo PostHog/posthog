@@ -34,7 +34,7 @@ class Command(BaseCommand):
             try:
                 if json.loads(artefact.content).get("task_id") == task_id:
                     return True
-            except (json.JSONDecodeError, ValueError):
+            except json.JSONDecodeError, ValueError:
                 continue
         return False
 

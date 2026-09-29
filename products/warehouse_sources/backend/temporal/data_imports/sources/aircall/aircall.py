@@ -73,7 +73,7 @@ def _to_epoch(value: Any) -> Optional[int]:
         return int(datetime.combine(value, datetime.min.time(), tzinfo=UTC).timestamp())
     try:
         return int(value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
 
 
@@ -95,7 +95,7 @@ def _reaches_record_cap(url: str) -> bool:
     try:
         page = int(query["page"][0])
         per_page = int(query.get("per_page", [str(PAGE_SIZE)])[0])
-    except (KeyError, IndexError, ValueError):
+    except KeyError, IndexError, ValueError:
         # A link carrying no usable page number cannot be range-checked here. The paginator's
         # record counter is the backstop for that case.
         return False

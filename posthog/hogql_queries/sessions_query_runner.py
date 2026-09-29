@@ -369,7 +369,7 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
                                 try:
                                     parsed = Property(**prop) if isinstance(prop, dict) else prop
                                     where_exprs.append(self._person_property_to_expr(parsed))
-                                except (ValueError, TypeError):
+                                except ValueError, TypeError:
                                     continue
                             elif prop_type in ("cohort", "static-cohort", "precalculated-cohort"):
                                 # Cohort filters reference person_id which doesn't exist on sessions;

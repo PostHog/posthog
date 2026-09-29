@@ -206,7 +206,7 @@ def _parse_entry(raw: Any, index: int, result: LoadResult) -> Entry | None:
     for key in ("added", "expires"):
         try:
             dates[key] = date.fromisoformat(raw.get(key, ""))
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             result.errors.append(f"{label}: '{key}' must be an ISO date (YYYY-MM-DD)")
             return None
 

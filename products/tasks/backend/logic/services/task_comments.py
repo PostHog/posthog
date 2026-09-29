@@ -109,7 +109,7 @@ def _decode_cursor(cursor: str) -> tuple[datetime, UUID]:
         if parsed_created_at.utcoffset() is None:
             raise InvalidTaskCommentCursor
         return parsed_created_at, UUID(comment_id)
-    except (ValueError, UnicodeDecodeError):
+    except ValueError, UnicodeDecodeError:
         raise InvalidTaskCommentCursor from None
 
 

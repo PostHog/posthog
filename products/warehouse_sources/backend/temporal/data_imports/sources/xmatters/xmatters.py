@@ -98,7 +98,7 @@ class XmattersPaginator(OffsetPaginator):
         try:
             body = response.json()
             has_next_link = bool(body.get("links", {}).get("next")) if isinstance(body, dict) else False
-        except (ValueError, AttributeError):
+        except ValueError, AttributeError:
             has_next_link = False
 
         # More pages iff the API hands us a `next` link OR the page came back full.

@@ -190,7 +190,7 @@ class _ClusteringWorkflowInterceptor(WorkflowInboundInterceptor):
             if input.args:
                 try:
                     analysis_level = input.args[0].analysis_level
-                except (IndexError, AttributeError):
+                except IndexError, AttributeError:
                     pass
 
         increment_workflow_started(analysis_level)

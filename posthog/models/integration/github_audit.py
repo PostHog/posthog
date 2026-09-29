@@ -163,7 +163,7 @@ class GitHubAudit:
             organization_id = (
                 UUID(str(config["originating_organization_id"])) if config.get("originating_organization_id") else None
             )
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             organization_id = None
         return cls(
             organization_id=organization_id,

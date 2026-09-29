@@ -26,7 +26,7 @@ def parse_json_list(raw: Any) -> list[Any]:
     if isinstance(raw, str):
         try:
             parsed = json.loads(raw)
-        except (json.JSONDecodeError, TypeError):
+        except json.JSONDecodeError, TypeError:
             return []
         return parsed if isinstance(parsed, list) else []
     return []

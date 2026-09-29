@@ -234,7 +234,7 @@ def _find_ticket(team_id: int, ref: str) -> Ticket | None:
         return Ticket.objects.filter(team_id=team_id, ticket_number=int(ref)).first()
     try:
         return Ticket.objects.filter(team_id=team_id, pk=ref).first()
-    except (ValueError, ValidationError):
+    except ValueError, ValidationError:
         return None
 
 

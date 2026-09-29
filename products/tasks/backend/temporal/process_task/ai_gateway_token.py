@@ -230,14 +230,14 @@ def _cap_override(raw: str, key: str, setting_name: str) -> str | None:
         return None
     try:
         override = json.loads(raw).get(key)
-    except (ValueError, AttributeError):
+    except ValueError, AttributeError:
         logger.warning("Ignoring invalid JSON object for %s", setting_name)
         return None
     if override is None:
         return None
     try:
         cap = Decimal(str(override))
-    except (InvalidOperation, ValueError):
+    except InvalidOperation, ValueError:
         logger.warning("Ignoring invalid cap for %s", setting_name)
         return None
     if not cap.is_finite():
@@ -313,7 +313,7 @@ def mint_scoped_token(*, ai_product: str, team_id: int, user: str | None = None)
                 try:
                     token = response.json().get("token")
                     last_error = "mint response had no token"
-                except (ValueError, AttributeError):
+                except ValueError, AttributeError:
                     token = None
                     last_error = "mint response was not a JSON object"
                 if token:

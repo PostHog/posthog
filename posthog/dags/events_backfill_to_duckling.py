@@ -1124,7 +1124,7 @@ def table_exists(
     try:
         conn.execute(f"DESCRIBE {catalog_alias}.{schema}.{table}")
         return True
-    except (psycopg.errors.UndefinedTable, psycopg.errors.InvalidSchemaName):
+    except psycopg.errors.UndefinedTable, psycopg.errors.InvalidSchemaName:
         return False
 
 
@@ -1486,7 +1486,7 @@ def delete_events_partition_data(
             )
         return deleted_count
 
-    except (psycopg.errors.UndefinedTable, psycopg.errors.InvalidSchemaName):
+    except psycopg.errors.UndefinedTable, psycopg.errors.InvalidSchemaName:
         context.log.debug(f"Events table doesn't exist yet, nothing to delete for team_id={team_id}, date={date_str}")
         return 0
     except Exception as exc:
@@ -1559,7 +1559,7 @@ def delete_persons_partition_data(
             )
         return deleted_count
 
-    except (psycopg.errors.UndefinedTable, psycopg.errors.InvalidSchemaName):
+    except psycopg.errors.UndefinedTable, psycopg.errors.InvalidSchemaName:
         context.log.debug(f"Persons table doesn't exist yet, nothing to delete for team_id={team_id}")
         return 0
     except Exception as exc:

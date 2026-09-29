@@ -71,7 +71,7 @@ def _to_iso8601(value: Any) -> Optional[str]:
     else:
         try:
             parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             return None
         moment = parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
     return moment.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")

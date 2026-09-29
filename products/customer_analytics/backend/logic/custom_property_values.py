@@ -362,7 +362,7 @@ def list_custom_property_value_suggestions(*, team_id: int, definition_id: str |
     definition doesn't exist — suggestions are best-effort, not an error surface."""
     try:
         definition = CustomPropertyDefinition.objects.for_team(team_id).get(id=definition_id)
-    except (CustomPropertyDefinition.DoesNotExist, ValidationError, ValueError):
+    except CustomPropertyDefinition.DoesNotExist, ValidationError, ValueError:
         return []
 
     needle = (search or "").strip().lower()
@@ -432,7 +432,7 @@ def _coerce_numeric(definition: CustomPropertyDefinition, value: Any) -> float:
         raise InvalidCustomPropertyValue(_expects(definition, "a numeric value"))
     try:
         result = float(value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         raise InvalidCustomPropertyValue(_expects(definition, "a numeric value"))
     # Reject NaN/inf: float() accepts "nan"/"inf", but a non-finite value silently corrupts
     # AVG/SUM aggregates over this column downstream.

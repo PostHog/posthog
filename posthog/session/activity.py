@@ -142,7 +142,7 @@ def revoke_user_auth_session(user: User, public_id: str) -> bool:
     """
     try:
         target = uuid.UUID(str(public_id))
-    except (ValueError, AttributeError, TypeError):
+    except ValueError, AttributeError, TypeError:
         return False
     # The public id is a one-way derivation of the key, so match by recomputing over the user's own
     # (small) set of sessions rather than querying it directly.

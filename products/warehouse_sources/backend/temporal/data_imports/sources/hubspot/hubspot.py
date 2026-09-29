@@ -742,7 +742,7 @@ def get_rows_via_search(
                 for result in results:
                     try:
                         result_id = int(result["id"])
-                    except (KeyError, ValueError):
+                    except KeyError, ValueError:
                         continue
                     if result_id > next_anchor_id:
                         next_anchor_id = result_id

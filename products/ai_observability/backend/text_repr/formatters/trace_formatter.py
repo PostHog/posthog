@@ -60,7 +60,7 @@ def _normalize_hierarchy_id(value: Any) -> str | None:
 def _latency_ms(event: LLMTraceEvent) -> float:
     try:
         latency = float(event.properties.get("$ai_latency", 0))
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return 0.0
     return latency * 1000 if latency > 0 else 0.0
 
@@ -70,7 +70,7 @@ def _operation_start_ms(event: LLMTraceEvent) -> float:
     finishes, so its timestamp is the end; OTel-ingested spans already carry the start."""
     try:
         end_ms = isoparse(event.createdAt).timestamp() * 1000
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return 0.0
     if event.properties.get("$ai_ingestion_source") == "otel":
         return end_ms
@@ -184,7 +184,7 @@ def _format_latency(latency: Any) -> str:
     """Format latency to 2 decimal places. Coerces string-valued latencies before formatting."""
     try:
         return f"{float(latency):.2f}s"
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return str(latency)
 
 
@@ -192,7 +192,7 @@ def _format_cost(cost: Any) -> str:
     """Format cost in USD. Coerces string-valued costs before formatting."""
     try:
         return f"${float(cost):.4f}"
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return str(cost)
 
 

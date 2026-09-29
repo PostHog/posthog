@@ -67,7 +67,7 @@ def _authenticate_team(request: Request) -> tuple[Team, None] | tuple[None, Resp
             Q(secret_api_token=api_key) | Q(secret_api_token_backup=api_key),
             conversations_enabled=True,
         )
-    except (Team.DoesNotExist, Team.MultipleObjectsReturned):
+    except Team.DoesNotExist, Team.MultipleObjectsReturned:
         return None, Response({"error": "Invalid API key"}, status=status.HTTP_401_UNAUTHORIZED)
 
     TICKET_ACTION_AUTH_COUNTER.labels(auth_method="secret_api_token", http_method=(request.method or "").lower()).inc()

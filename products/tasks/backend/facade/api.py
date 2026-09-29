@@ -1846,7 +1846,7 @@ def get_owner_origin_latest_run(
             origin_product=origin_product,
             deleted=False,
         ).first()
-    except (ValueError, TypeError, DjangoValidationError):
+    except ValueError, TypeError, DjangoValidationError:
         return None
     if task is None:
         return None
@@ -2805,14 +2805,14 @@ def task_run_exists(run_id: str | UUID, task_id: str | UUID, team_id: int) -> bo
     """Precheck so callers can 404 before doing expensive work (e.g. a render)."""
     try:
         return TaskRun.objects.filter(pk=run_id, team_id=team_id, task_id=task_id).exists()
-    except (ValueError, TypeError, DjangoValidationError):
+    except ValueError, TypeError, DjangoValidationError:
         return False
 
 
 def task_run_matches_current_ownership(run_id: str | UUID, task_id: str | UUID, team_id: int) -> bool:
     try:
         run = _task_run_queryset().filter(pk=run_id, team_id=team_id, task_id=task_id).first()
-    except (ValueError, TypeError, DjangoValidationError):
+    except ValueError, TypeError, DjangoValidationError:
         return False
     return run is not None and run.matches_task_ownership()
 
@@ -3744,7 +3744,7 @@ def validate_task_run_sandbox_token(
 
     try:
         claims = validate_sandbox_event_ingest_token(token)
-    except (InvalidTokenError, ValueError):
+    except InvalidTokenError, ValueError:
         return False
     return (
         claims.run_id == str(run_id)
@@ -3778,7 +3778,7 @@ def issue_codex_subscription_access_grant(
 
     try:
         claims = validate_codex_subscription_run_token(run_token)
-    except (InvalidTokenError, ValueError):
+    except InvalidTokenError, ValueError:
         return None
     if claims.run_id != str(run_id) or claims.task_id != str(task_id) or claims.team_id != team_id:
         return None
@@ -4660,7 +4660,7 @@ def _read_run_stream_entries(run: TaskRun) -> list[dict]:
             continue
         try:
             parsed = json.loads(raw)
-        except (json.JSONDecodeError, TypeError):
+        except json.JSONDecodeError, TypeError:
             continue
         if isinstance(parsed, dict):
             entries.append(parsed)
@@ -4713,7 +4713,7 @@ def _overlap_with_log_tail(log_entries: list[dict], stream_entries: list[dict]) 
 def _entry_time(entry: dict) -> datetime | None:
     try:
         parsed = datetime.fromisoformat(entry["timestamp"])
-    except (KeyError, TypeError, ValueError):
+    except KeyError, TypeError, ValueError:
         return None
     return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
 
@@ -8285,7 +8285,7 @@ def warm_task_sandbox(
             extra_state=extra_state,
             create_pr=True,
         )
-    except (Throttled, PermissionDenied, QuotaLimitExceeded):
+    except Throttled, PermissionDenied, QuotaLimitExceeded:
         task.soft_delete()
         return None
 
@@ -8452,7 +8452,7 @@ def warm_task_resume_sandbox(
             expected_resume_from_run_id=previous_run.id,
             required_existing_state=stable_selection,
         )
-    except (PermissionDenied, QuotaLimitExceeded, Throttled, WarmSourceChanged, TaskOwnershipChangedError):
+    except PermissionDenied, QuotaLimitExceeded, Throttled, WarmSourceChanged, TaskOwnershipChangedError:
         # TaskOwnershipChangedError guards a handoff that lands after the check above but before the
         # locked create_run, keeping this best-effort endpoint from returning a server error.
         return None
@@ -11013,7 +11013,7 @@ def _comment_target_name(task: Task, *, scope: str, item_id: str | None) -> str 
             .values_list("name", flat=True)
             .first()
         )
-    except (ValueError, DjangoValidationError):
+    except ValueError, DjangoValidationError:
         name = None
     if not name:
         run = (

@@ -74,7 +74,7 @@ def _coerce_epoch(value: Any) -> int | None:
             pass
         try:
             parsed = parser.parse(value)
-        except (ValueError, OverflowError):
+        except ValueError, OverflowError:
             return None
         aware = parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
         return int(aware.timestamp())

@@ -182,7 +182,7 @@ def _classify_batch(client: OpenAI, batch: list[tuple[str, str]], team: Team) ->
     for attempt in range(2):
         try:
             parsed = _call_llm(client, messages, team)
-        except (openai.OpenAIError, ValidationError, ValueError):
+        except openai.OpenAIError, ValidationError, ValueError:
             if attempt == 1:
                 break
             continue

@@ -102,7 +102,7 @@ def agent_proxy_callback(request, run_id: str) -> JsonResponse:
     # Validate and parse the request body
     try:
         body = json.loads(request.body)
-    except (json.JSONDecodeError, ValueError):
+    except json.JSONDecodeError, ValueError:
         return JsonResponse({"error": "Invalid JSON body"}, status=400)
 
     serializer = AgentProxyCallbackRequestSerializer(data=body)

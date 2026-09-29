@@ -502,7 +502,7 @@ def classify_slack_app_model_override(
         # but the model is still the classifier's word, not ours, until checked against
         # the catalogue below.
         reply = SlackAppModelOverride.model_validate(parsed)
-    except (ValidationError, ValueError):
+    except ValidationError, ValueError:
         logger.info("slack_app_model_override_unusable_reply")
         return None
     except Exception:
@@ -645,7 +645,7 @@ def classify_slack_app_project_route(
         # the gateway does not honour a response format identically on every route.
         parsed = extract_json_object(response.choices[0].message.content or "")
         reply = _ProjectRouteReply.model_validate(parsed)
-    except (ValidationError, ValueError):
+    except ValidationError, ValueError:
         logger.info("slack_app_project_route_unusable_reply")
         return None
 

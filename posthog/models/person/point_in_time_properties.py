@@ -122,7 +122,7 @@ def _validate_build_inputs(timestamp: datetime, distinct_ids: list[str], row_lim
 def _parse_property_json(raw: Any) -> Optional[dict]:
     try:
         parsed = json.loads(raw)
-    except (json.JSONDecodeError, TypeError):
+    except json.JSONDecodeError, TypeError:
         return None
     return parsed if isinstance(parsed, dict) else None
 

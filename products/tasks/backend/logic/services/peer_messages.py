@@ -192,7 +192,7 @@ def peer_message_id_from_context(context: dict[str, Any] | None) -> str | None:
         return None
     try:
         uuid.UUID(peer_message_id)
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         return None
     return peer_message_id
 
@@ -220,7 +220,7 @@ def resolve_peer_target(sender_run: TaskRun, target_run_id: str) -> TaskRun | No
     ValueError — catch both so agent-supplied ids can never 500."""
     try:
         return visible_peer_runs(sender_run).select_related("task__created_by", "task__team").get(id=target_run_id)
-    except (TaskRun.DoesNotExist, DjangoValidationError, ValueError, TypeError):
+    except TaskRun.DoesNotExist, DjangoValidationError, ValueError, TypeError:
         return None
 
 

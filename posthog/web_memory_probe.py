@@ -66,7 +66,7 @@ def _read_vmrss_kb() -> int | None:
             for line in status:
                 if line.startswith("VmRSS:"):
                     return int(line.split()[1])
-    except (OSError, ValueError, IndexError):
+    except OSError, ValueError, IndexError:
         return None
     return None
 
@@ -118,7 +118,7 @@ def _handle_probe(signum: int, frame: FrameType | None) -> None:
     if _LIBC is not None:
         try:
             released = int(_LIBC.malloc_trim(0))
-        except (OSError, AttributeError):
+        except OSError, AttributeError:
             released = None
     rss_after_trim = _read_vmrss_kb()
     log.warning(
@@ -154,6 +154,6 @@ def install_memory_probe_handler() -> None:
     try:
         signal.signal(signal.SIGUSR2, _handle_probe)
         logger.info("web memory probe handler installed on SIGUSR2")
-    except (ValueError, OSError):
+    except ValueError, OSError:
         # signal.signal raises ValueError off the main thread; stay best-effort.
         logger.exception("failed to install web memory probe handler")

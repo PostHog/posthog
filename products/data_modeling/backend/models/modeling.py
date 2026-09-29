@@ -928,7 +928,7 @@ class DataWarehouseModelPathManager(models.Manager["DataWarehouseModelPath"]):
                         DataWarehouseTable.objects.exclude(deleted=True).filter(team=team, name=table.name).get()
                     )
 
-            except (ObjectDoesNotExist, QueryError):
+            except ObjectDoesNotExist, QueryError:
                 pass
             else:
                 parent_path, _ = self.get_or_create_root_path_for_data_warehouse_table(parent_table)
@@ -1027,7 +1027,7 @@ class DataWarehouseModelPathManager(models.Manager["DataWarehouseModelPath"]):
                                         .filter(team=team, name=table.name)
                                         .get()
                                     )
-                            except (ObjectDoesNotExist, QueryError):
+                            except ObjectDoesNotExist, QueryError:
                                 raise UnknownParentError(parent, model_query)
                             else:
                                 parent_id = parent_table.id.hex

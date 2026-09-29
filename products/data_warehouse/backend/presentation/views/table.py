@@ -664,7 +664,7 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
         content_length = request.META.get("CONTENT_LENGTH")
         try:
             declared_body_size = int(content_length) if content_length else 0
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             declared_body_size = 0
         if declared_body_size > MAX_UPLOAD_REQUEST_BODY_BYTES:
             return response.Response(

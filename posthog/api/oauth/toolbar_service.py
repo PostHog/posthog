@@ -315,7 +315,7 @@ def _post_to_token_endpoint(data: dict[str, str], error_code: str) -> dict[str, 
     if response.content:
         try:
             payload = response.json()
-        except (ValueError, requests.exceptions.JSONDecodeError):
+        except ValueError, requests.exceptions.JSONDecodeError:
             logger.warning("toolbar_oauth_token_request_failed", code=error_code, status=502)
             raise ToolbarOAuthError(error_code, "Non-JSON response from token endpoint", 502)
     else:

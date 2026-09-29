@@ -123,7 +123,7 @@ def _deserialize_cache_value(raw_value: bytes | str) -> dict | None:
         data = json.loads(raw_bytes)
         if isinstance(data, dict):
             return data
-    except (json.JSONDecodeError, UnicodeDecodeError, ValueError):
+    except json.JSONDecodeError, UnicodeDecodeError, ValueError:
         pass
 
     # Try zstd decompression then pickle (if Redis compression is enabled)
@@ -249,7 +249,7 @@ def _verify_secret_entries(
         else:
             try:
                 team_id = int(raw_team_id)
-            except (ValueError, TypeError):
+            except ValueError, TypeError:
                 result.parse_errors += 1
                 stale_keys.append(key)
                 _record_stale("secret", result)
@@ -479,7 +479,7 @@ def _verify_project_secret_entries(
                 stale_keys.append(key)
                 _record_stale("project_secret", result)
                 continue
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             result.parse_errors += 1
             stale_keys.append(key)
             _record_stale("project_secret", result)

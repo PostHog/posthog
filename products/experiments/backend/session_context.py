@@ -1004,7 +1004,7 @@ def _query_exposure_event_branches(
             conditions = build_exposure_event_conditions(
                 meta.resolution.criteria, team, meta.resolution.flag_key, default_exposure_event=DEFAULT_EXPOSURE_EVENT
             )
-        except (Cohort.DoesNotExist, BaseHogQLError):
+        except Cohort.DoesNotExist, BaseHogQLError:
             # Criteria this project can't resolve — a cohort filter whose cohort doesn't exist
             # here (e.g. a duplicated experiment carrying the source project's cohort id), or a
             # property filter HogQL can't compile — must not fail the whole surface. Match

@@ -167,7 +167,7 @@ def verify_sns_message(message: Mapping[str, Any]) -> bool:
         return False
     try:
         signature = base64.b64decode(message.get("Signature", ""))
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         return False
     cert_pem = _fetch_signing_cert(cert_url)
     if cert_pem is None:

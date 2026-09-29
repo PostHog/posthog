@@ -65,7 +65,7 @@ def _coerce_datetime(value: Any) -> datetime | None:
     if isinstance(value, str):
         try:
             parsed = parser.parse(value)
-        except (ValueError, OverflowError):
+        except ValueError, OverflowError:
             return None
         return parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed.astimezone(UTC)
     return None

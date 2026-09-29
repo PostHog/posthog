@@ -36,7 +36,7 @@ class WizardObservability:
         if event is not None:
             try:
                 event()
-            except (DatabaseError, ValueError):
+            except DatabaseError, ValueError:
                 logger.exception(event_error or f"{name}_event_failed", extra=context)
 
         if level is not None:

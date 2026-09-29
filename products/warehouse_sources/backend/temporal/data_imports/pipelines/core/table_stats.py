@@ -92,7 +92,7 @@ def _column_payload_bytes(col: pa.ChunkedArray) -> int:
     # Fixed-width primitives expose bit_width; variable-length / other nested types raise -> 0.
     try:
         bit_width = col_type.bit_width
-    except (ValueError, AttributeError):
+    except ValueError, AttributeError:
         return 0
     return col_length * (bit_width // 8)
 

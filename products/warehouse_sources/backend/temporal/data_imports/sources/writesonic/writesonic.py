@@ -54,7 +54,7 @@ def _parse_retry_after(value: Optional[str]) -> Optional[float]:
         pass
     try:
         retry_dt = parsedate_to_datetime(value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
     if retry_dt.tzinfo is None:
         retry_dt = retry_dt.replace(tzinfo=UTC)

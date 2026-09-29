@@ -4461,7 +4461,7 @@ def _dismiss_action_value(payload: dict) -> dict | None:
         return None
     try:
         value = json.loads(action.get("value", ""))
-    except (json.JSONDecodeError, TypeError):
+    except json.JSONDecodeError, TypeError:
         return None
     return value if isinstance(value, dict) else None
 
@@ -4610,7 +4610,7 @@ def _parse_insight_alert_snooze_value(value: str) -> tuple[uuid.UUID, str] | Non
         return None
     try:
         alert_uuid = uuid.UUID(alert_uuid_str)
-    except (ValueError, AttributeError, TypeError):
+    except ValueError, AttributeError, TypeError:
         return None
     return alert_uuid, duration
 
@@ -4628,14 +4628,14 @@ def _parse_insight_alert_snooze_action(action: dict) -> tuple[uuid.UUID, str | N
             return None
         try:
             alert_uuid = uuid.UUID(block_id[len(INSIGHT_ALERT_SNOOZE_BLOCK_ID_PREFIX) :])
-        except (ValueError, AttributeError, TypeError):
+        except ValueError, AttributeError, TypeError:
             return None
         selected = action.get("selected_date_time")
         if not isinstance(selected, int):
             return None
         try:
             until = datetime.fromtimestamp(selected, tz=UTC)
-        except (OverflowError, OSError, ValueError):
+        except OverflowError, OSError, ValueError:
             return None
         return alert_uuid, None, until
 
@@ -4654,7 +4654,7 @@ def _snooze_modal_alert_uuid(view: dict) -> uuid.UUID | None:
     try:
         meta = json.loads(view.get("private_metadata", "") or "{}")
         return uuid.UUID(meta.get("alert_id"))
-    except (json.JSONDecodeError, TypeError, ValueError, AttributeError):
+    except json.JSONDecodeError, TypeError, ValueError, AttributeError:
         return None
 
 
@@ -4826,7 +4826,7 @@ def _handle_insight_alert_snooze_modal_submit(payload: dict) -> HttpResponse:
     try:
         meta = json.loads(view.get("private_metadata", "") or "{}")
         alert_uuid = uuid.UUID(meta.get("alert_id"))
-    except (json.JSONDecodeError, TypeError, ValueError, AttributeError):
+    except json.JSONDecodeError, TypeError, ValueError, AttributeError:
         return HttpResponse(status=200)
 
     values = view.get("state", {}).get("values", {})

@@ -116,7 +116,7 @@ def unauthorized_installation_ids(team_id: int, user_id: int, candidate_ids: Ite
     for c in candidates:
         try:
             parsed[c] = uuid.UUID(c)
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             parsed[c] = None
     owned = {
         str(r)

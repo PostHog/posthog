@@ -136,6 +136,6 @@ def _parse_labels(raw: Any) -> list[str]:
         return []
     try:
         parsed = json.loads(raw)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return []
     return [str(item) for item in parsed] if isinstance(parsed, list) else []

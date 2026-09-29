@@ -434,7 +434,7 @@ def _format_special_block(block: dict) -> str | None:
         if not tool_input and "partial_json" in block:
             try:
                 tool_input = json.loads(block["partial_json"])
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 pass
 
         return format_single_tool_call(tool_name, tool_input)

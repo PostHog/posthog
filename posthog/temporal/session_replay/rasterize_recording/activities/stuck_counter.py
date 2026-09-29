@@ -82,7 +82,7 @@ def read_stuck_session_ids(
             continue
         try:
             count = int(val)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             continue
         if count >= threshold:
             stuck.add(sid)

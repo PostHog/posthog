@@ -53,5 +53,5 @@ def parse_lookup_row(row: list[Any]) -> tuple[float, int, int, str] | None:
     duration_ms, rows_read, bytes_read, query_id = row
     try:
         return float(duration_ms), int(rows_read), int(bytes_read), str(query_id)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None

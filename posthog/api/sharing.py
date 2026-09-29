@@ -911,7 +911,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                 asset, self._token_purpose = asset_for_token(token)
                 if asset:
                     return asset
-            except (ExportedAsset.DoesNotExist, jwt.InvalidTokenError):
+            except ExportedAsset.DoesNotExist, jwt.InvalidTokenError:
                 raise NotFound()
 
         # Path based access (SharingConfiguration only)
@@ -1018,7 +1018,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             try:
                 raw_cache_keys = json.loads(cache_keys_param)
                 export_cache_keys = {int(k): v for k, v in raw_cache_keys.items()}
-            except (json.JSONDecodeError, ValueError, TypeError):
+            except json.JSONDecodeError, ValueError, TypeError:
                 logger.warning(
                     "export_cache_keys_parse_error",
                     cache_keys_param=cache_keys_param,
@@ -1212,7 +1212,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                     timestamp = float(timestamp)
                     if timestamp < 0:  # Negative timestamps don't make sense
                         timestamp = 0
-                except (ValueError, TypeError):
+                except ValueError, TypeError:
                     timestamp = 0  # Default to start if invalid
 
             # Create a SessionRecording object for the replay

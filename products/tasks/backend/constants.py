@@ -108,7 +108,7 @@ def _decode_vm_sandbox_payload(payload: object) -> object:
     if isinstance(payload, str):
         try:
             return json.loads(payload)
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             return None
     return payload
 

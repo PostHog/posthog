@@ -136,7 +136,7 @@ def _serialize_progress(progress: WebAnalyticsAchievementProgress) -> dict[str, 
 def _stage_name(track_key: str, stage: int) -> str:
     try:
         track = TRACKS[TrackKey(track_key)]
-    except (ValueError, KeyError):
+    except ValueError, KeyError:
         return ""
     return track.stages[stage - 1].name if 1 <= stage <= len(track.stages) else ""
 

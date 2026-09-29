@@ -226,7 +226,7 @@ def _tracked_typescript(repo_root: Path) -> list[str]:
     command = ["git", "ls-files", "-z", "--", "services/mcp", "products"]
     try:
         listing = subprocess.run(command, cwd=repo_root, check=True, capture_output=True, text=True)
-    except (OSError, subprocess.CalledProcessError):
+    except OSError, subprocess.CalledProcessError:
         return sorted(
             path.relative_to(repo_root).as_posix()
             for root in ("services/mcp", "products")

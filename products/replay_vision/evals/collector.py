@@ -162,7 +162,7 @@ def _load_periods(raw: Any) -> list[dict[str, Any]]:
         return []
     try:
         parsed = json.loads(raw)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return []
     return parsed if isinstance(parsed, list) else []
 

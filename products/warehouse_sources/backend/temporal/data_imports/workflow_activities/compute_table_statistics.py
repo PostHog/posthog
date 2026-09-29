@@ -297,7 +297,7 @@ def _parse_stored_value(delta_type: Any, text: str) -> Any:
             return datetime.fromisoformat(text)
         if delta_type.startswith("decimal("):
             return Decimal(text)
-    except (ValueError, ArithmeticError):
+    except ValueError, ArithmeticError:
         raise _UnparseableValue(f"cannot parse stored value as {delta_type}") from None
     raise TypeError(f"no stored representation for {delta_type}")
 
@@ -334,7 +334,7 @@ def _parse_log_value(delta_type: Any, value: Any) -> Any:
             # raise a spurious InvalidOperation on quantize even though it fits the column's type.
             with localcontext(prec=precision):
                 return Decimal(value).quantize(Decimal(1).scaleb(-scale))
-    except (ValueError, ArithmeticError):
+    except ValueError, ArithmeticError:
         raise _UnparseableValue(f"cannot parse log value as {delta_type}") from None
     raise TypeError(f"no log representation for {delta_type}")
 
@@ -587,7 +587,7 @@ def compute_table_statistics_sync(team_id: int, schema_id: uuid.UUID) -> dict[st
     try:
         for column_name, stat in stats_by_column.items():
             _upsert_statistics(team, table, column_name, row_count, stat, delta_version, basis)
-    except (OperationalError, InterfaceError):
+    except OperationalError, InterfaceError:
         # The Delta-log read above can run long enough for the Postgres connection opened by the
         # earlier metadata queries (team/schema/existing-stats) to go stale — server restart, proxy
         # idle-close — before these writes run. Django only clears a stale connection at thread

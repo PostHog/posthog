@@ -193,7 +193,7 @@ class FunnelPersonsStepBreakdownMixin(BaseParamMixin):
 
         try:
             return json.loads(raw)
-        except (TypeError, json.decoder.JSONDecodeError):
+        except TypeError, json.decoder.JSONDecodeError:
             return raw
 
     @include_dict

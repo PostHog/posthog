@@ -164,7 +164,7 @@ def get_float_field_paths(session: requests.Session, base_url: str, index: str) 
         response = session.get(f"{base_url}/{quote(index)}/_mapping", timeout=REQUEST_TIMEOUT_SECONDS)
         response.raise_for_status()
         body = response.json()
-    except (requests.exceptions.RequestException, requests.exceptions.JSONDecodeError, ValueError):
+    except requests.exceptions.RequestException, requests.exceptions.JSONDecodeError, ValueError:
         return set()
 
     paths: set[str] = set()

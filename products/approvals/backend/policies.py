@@ -230,7 +230,7 @@ class PolicyEngine:
                 try:
                     if compare_fn(after_value, threshold):
                         return True
-                except (TypeError, ValueError):
+                except TypeError, ValueError:
                     pass
 
         return False
@@ -274,7 +274,7 @@ class PolicyEngine:
                     delta = after_val - before_val
                     if compare_fn(delta, threshold):
                         return True
-                except (TypeError, ValueError):
+                except TypeError, ValueError:
                     pass
 
         return False

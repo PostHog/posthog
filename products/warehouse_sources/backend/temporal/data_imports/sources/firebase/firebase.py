@@ -204,7 +204,7 @@ def mint_access_token(session: requests.Session, credentials: FirebaseCredential
     # token that has already expired. Only a missing or unreadable value falls back.
     try:
         expires_in = int(body["expires_in"])
-    except (KeyError, TypeError, ValueError):
+    except KeyError, TypeError, ValueError:
         expires_in = JWT_ASSERTION_LIFETIME_SECONDS
     return str(token), expires_in
 
@@ -333,12 +333,12 @@ def decode_firestore_value(value: Any) -> Any:
         # Firestore encodes int64 as a JSON string to survive JavaScript's number range.
         try:
             return int(value["integerValue"])
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             return None
     if "doubleValue" in value:
         try:
             return float(value["doubleValue"])
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             return None
     for key in ("timestampValue", "stringValue", "bytesValue", "referenceValue"):
         if key in value:

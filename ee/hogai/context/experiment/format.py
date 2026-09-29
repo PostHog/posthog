@@ -8,7 +8,7 @@ def _safe_mean(sum_value: Any, number_of_samples: Any) -> float | None:
         return None
     try:
         return float(sum_value) / float(number_of_samples)
-    except (TypeError, ValueError, ZeroDivisionError):
+    except TypeError, ValueError, ZeroDivisionError:
         return None
 
 
@@ -17,7 +17,7 @@ def _format_number(value: Any) -> str:
         return "N/A"
     try:
         num = float(value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return str(value)
     if num.is_integer() and abs(num) < 1e15:
         return str(int(num))

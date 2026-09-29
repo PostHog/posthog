@@ -1409,7 +1409,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
                         date_from=date_range.date_from,
                         date_to=cursor_ts.isoformat(),
                     )
-            except (KeyError, ValueError, json.JSONDecodeError):
+            except KeyError, ValueError, json.JSONDecodeError:
                 pass  # Invalid cursor format, continue with original date range
 
         requested_limit = min(query_data.get("limit", 1000), 2000)
@@ -1875,7 +1875,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
 
         try:
             dateRange = self.get_model(json.loads(request.GET.get("dateRange", "{}")), DateRange)
-        except (json.JSONDecodeError, ValidationError, ValueError):
+        except json.JSONDecodeError, ValidationError, ValueError:
             # Default to last hour if dateRange is malformed
             dateRange = DateRange(date_from="-1h")
         # Flat params let clients that cannot send a JSON query param (the generated frontend client) scope the window.
@@ -1888,7 +1888,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             serviceNames = []
         try:
             filterGroup = self.get_model(json.loads(request.GET.get("filterGroup", "{}")), PropertyGroupFilter)
-        except (json.JSONDecodeError, ValidationError, ValueError, ParseError):
+        except json.JSONDecodeError, ValidationError, ValueError, ParseError:
             filterGroup = None
 
         attributeType = request.GET.get("attribute_type", "log")
@@ -1962,7 +1962,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
 
             try:
                 dateRange = self.get_model(json.loads(request.GET.get("dateRange", "{}")), DateRange)
-            except (json.JSONDecodeError, ValidationError, ValueError):
+            except json.JSONDecodeError, ValidationError, ValueError:
                 # Default to last hour if dateRange is malformed
                 dateRange = DateRange(date_from="-1h")
 
@@ -1972,7 +1972,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
                 serviceNames = []
             try:
                 filterGroup = self.get_model(json.loads(request.GET.get("filterGroup", "{}")), PropertyGroupFilter)
-            except (json.JSONDecodeError, ValidationError, ValueError, ParseError):
+            except json.JSONDecodeError, ValidationError, ValueError, ParseError:
                 filterGroup = None
 
             attributeType = request.GET.get("attribute_type", "log")

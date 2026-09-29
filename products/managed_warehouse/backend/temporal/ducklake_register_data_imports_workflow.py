@@ -856,7 +856,7 @@ def _cleanup_registration_tables(conn: psycopg.Connection, schema_name: str, tab
             try:
                 _drop_registration_table(conn, schema_name, table_name)
                 break
-            except (psycopg.OperationalError, psycopg.InterfaceError):
+            except psycopg.OperationalError, psycopg.InterfaceError:
                 LOGGER.warning(
                     "Aborted DuckLake registration cleanup on a broken connection; the workflow cleanup finalizer will retry",
                     table_name=f"{schema_name}.{table_name}",

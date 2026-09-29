@@ -71,7 +71,7 @@ def _resolve_corpus_dir() -> Path:
             check=True,
             timeout=2,
         )
-    except (FileNotFoundError, subprocess.SubprocessError):
+    except FileNotFoundError, subprocess.SubprocessError:
         return here / "parser_pbt_corpus" / hypothesis.__version__
     common_dir = Path(result.stdout.strip())
     if not common_dir.is_absolute():

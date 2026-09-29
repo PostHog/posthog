@@ -92,7 +92,7 @@ def _parse_team_id(raw: bytes | str) -> int | None:
     """Members are written by Rust as the stringified team id; tolerate bytes/str."""
     try:
         return int(raw.decode() if isinstance(raw, bytes) else raw)
-    except (ValueError, AttributeError):
+    except ValueError, AttributeError:
         return None
 
 

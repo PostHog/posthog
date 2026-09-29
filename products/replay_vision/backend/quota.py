@@ -51,7 +51,7 @@ def _parse_org_credit_limit_overrides(raw: str) -> dict[str, int]:
         parsed = json.loads(raw)
         if not isinstance(parsed, dict):
             raise ValueError(f"expected an object, got {type(parsed).__name__}")
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         logger.exception("replay_vision.malformed_org_credit_limit_overrides")
         return {}
 
@@ -65,7 +65,7 @@ def _parse_org_credit_limit_overrides(raw: str) -> dict[str, int]:
                 raise ValueError(f"credit limit must be a number, got {limit!r}")
             # A negative cap would read as "already over", so the worst a typo can do is block the org.
             overrides[key] = max(0, int(limit))
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             logger.exception("replay_vision.invalid_org_credit_limit_override", org_id=str(org_id))
     if overrides:
         logger.info("replay_vision.org_credit_limit_overrides_applied", org_ids=sorted(overrides))

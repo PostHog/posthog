@@ -340,7 +340,7 @@ def parse_created_by_ids(value: Any) -> list[int]:
         if text.startswith("["):
             try:
                 value = json.loads(text)
-            except (json.JSONDecodeError, ValueError, RecursionError):
+            except json.JSONDecodeError, ValueError, RecursionError:
                 # Looks like a JSON list but doesn't parse — treat as no valid IDs
                 # rather than comma-splitting, which would half-apply malformed input
                 # (e.g. "[1,2" -> ["[1", "2"] -> silently filters by user 2).
@@ -354,7 +354,7 @@ def parse_created_by_ids(value: Any) -> list[int]:
     for item in value:
         try:
             ids.append(int(item))
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             continue
     return ids
 
@@ -1905,7 +1905,7 @@ class FeatureFlagSerializer(
             return
         try:
             body = getattr(request, "body", b"")
-        except (AttributeError, RawPostDataException):
+        except AttributeError, RawPostDataException:
             # A caller that already consumed the stream, or a request shim with no bytes at
             # all. Direct Python callers pass a parsed dict and cannot carry a duplicate key.
             return
@@ -2466,7 +2466,7 @@ class FeatureFlagSerializer(
                 continue
             try:
                 flag.delete()
-            except (deletion.RestrictedError, deletion.ProtectedError):
+            except deletion.RestrictedError, deletion.ProtectedError:
                 self._raise_if_key_reuse_blocked(flag)
                 flag.key = flag.tombstoned_key()
                 flag.save(update_fields=["key"])
@@ -3068,7 +3068,7 @@ class GroupsJSONField(serializers.CharField):
             if not isinstance(parsed, dict):
                 raise serializers.ValidationError("groups must be a JSON object")
             return parsed
-        except (json.JSONDecodeError, ValueError):
+        except json.JSONDecodeError, ValueError:
             raise serializers.ValidationError("Invalid JSON in groups parameter")
 
 
@@ -5362,7 +5362,7 @@ class FeatureFlagViewSet(
                     )
                     if excluded_keys:
                         queryset = queryset.exclude(key__in=excluded_keys)
-                except (json.JSONDecodeError, TypeError):
+                except json.JSONDecodeError, TypeError:
                     pass
             elif key == "tags":
                 try:
@@ -5370,7 +5370,7 @@ class FeatureFlagViewSet(
                     tags = value if isinstance(value, list) else json.loads(value) if isinstance(value, str) else []
                     if tags:
                         queryset = queryset.filter(tagged_items__tag__name__in=tags).distinct()
-                except (json.JSONDecodeError, TypeError):
+                except json.JSONDecodeError, TypeError:
                     pass
             elif key == "excluded_tags":
                 try:
@@ -5385,7 +5385,7 @@ class FeatureFlagViewSet(
                             team__project_id=self.project_id, tagged_items__tag__name__in=excluded_tags
                         ).values("pk")
                         queryset = queryset.exclude(pk__in=flags_with_excluded_tags)
-                except (json.JSONDecodeError, TypeError):
+                except json.JSONDecodeError, TypeError:
                     pass
             elif key == "has_evaluation_contexts":
                 queryset = queryset.annotate(eval_tag_count=Count("flag_evaluation_contexts"))

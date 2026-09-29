@@ -63,7 +63,7 @@ class MultitenantOIDCAuth(OpenIdConnectAuth):
                 .select_related("organization")
                 .get(id=config_id, organization_id=organization_id)
             )
-        except (IdentityProviderConfig.DoesNotExist, ValidationError, ValueError):
+        except IdentityProviderConfig.DoesNotExist, ValidationError, ValueError:
             raise AuthFailed(self, "OIDC configuration is not available.")
         if not config.has_oidc or not config.organization.is_feature_available(AvailableFeature.OIDC):
             raise AuthFailed(self, "OIDC is not available for this organization.")

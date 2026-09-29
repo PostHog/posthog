@@ -339,7 +339,7 @@ def _parse_report(raw: Any) -> dict[str, Any] | None:
         return None
     try:
         parsed = json.loads(raw)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
     return parsed if isinstance(parsed, dict) else None
 

@@ -2242,7 +2242,7 @@ class LoopTrigger(TeamScopedRootMixin):
             github_integration_id = config.get("github_integration_id")
             try:
                 self.github_integration_id = int(github_integration_id) if github_integration_id is not None else None
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 self.github_integration_id = None
             repository = config.get("repository")
             self.repository = repository.strip() if isinstance(repository, str) and repository.strip() else None
@@ -2854,7 +2854,7 @@ class TaskRun(models.Model):
                 break
             try:
                 prior_id = str(uuid.UUID(str(prior_id_raw)))
-            except (ValueError, TypeError):
+            except ValueError, TypeError:
                 break
             if prior_id in seen:
                 break
@@ -3972,7 +3972,7 @@ class SandboxEnvironment(UUIDModel):
     ) -> Optional["SandboxEnvironment"]:
         try:
             environment = cls.objects.filter(id=environment_id, team_id=team_id).first()
-        except (ValidationError, ValueError):
+        except ValidationError, ValueError:
             return None
         if environment is None:
             return None
@@ -4105,7 +4105,7 @@ class SandboxCustomImage(TeamScopedRootMixin):
     ) -> Optional["SandboxCustomImage"]:
         try:
             image = cls.objects.for_team(team_id).filter(id=image_id).first()
-        except (ValidationError, ValueError):
+        except ValidationError, ValueError:
             return None
         if image is None or not image.is_accessible_to_user(task_created_by_id):
             return None

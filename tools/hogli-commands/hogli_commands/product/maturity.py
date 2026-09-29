@@ -65,7 +65,7 @@ def _load_migration_config() -> dict:
         if config_path.exists():
             try:
                 return json.loads(config_path.read_text())
-            except (json.JSONDecodeError, KeyError):
+            except json.JSONDecodeError, KeyError:
                 continue
     return {}
 
@@ -554,7 +554,7 @@ def _build_cross_import_maps() -> tuple[dict[str, list[str]], dict[str, list[str
             text=True,
             timeout=30,
         )
-    except (subprocess.TimeoutExpired, FileNotFoundError):
+    except subprocess.TimeoutExpired, FileNotFoundError:
         return None
 
     inbound: dict[str, list[str]] = {}

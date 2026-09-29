@@ -224,7 +224,7 @@ def _active_run_ids(team_id: int, run_ids: list[str]) -> set[str]:
             )
             .values_list("id", flat=True)
         )
-    except (DjangoValidationError, ValueError):
+    except DjangoValidationError, ValueError:
         # A member that is not a uuid cannot name a run, so nothing here is active.
         return set()
     return {str(row_id) for row_id in rows}

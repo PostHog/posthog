@@ -74,7 +74,7 @@ def handle_vapi_webhook(
             interviewee_identifier=interviewee_identifier,
             received_at=received_at,
         )
-    except (OperationalError, InterfaceError):
+    except OperationalError, InterfaceError:
         # autoretry_for re-raises the original error once the retries run out, which reads like any
         # other failed attempt. The last attempt says that the report is now lost, and names the
         # call so the interview can be traced in Vapi.

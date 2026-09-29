@@ -294,7 +294,7 @@ def parse_failed_team_ids(failed_team_ids_str: str) -> list[int]:
         parsed = ast.literal_eval(failed_team_ids_str)
         if isinstance(parsed, list):
             return [int(x) for x in parsed]
-    except (ValueError, SyntaxError):
+    except ValueError, SyntaxError:
         pass
 
     return []

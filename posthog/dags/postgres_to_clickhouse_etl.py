@@ -149,7 +149,7 @@ def _normalize_filters(filters: Any) -> dict[str, Any]:
     if isinstance(filters, str):
         try:
             filters = json.loads(filters)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             return {}
     return filters if isinstance(filters, dict) else {}
 

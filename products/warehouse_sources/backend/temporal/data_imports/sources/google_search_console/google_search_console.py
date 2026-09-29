@@ -276,7 +276,7 @@ def _is_quota_error(response: requests.Response) -> bool:
         return False
     try:
         errors = response.json().get("error", {}).get("errors", [])
-    except (ValueError, AttributeError, TypeError):
+    except ValueError, AttributeError, TypeError:
         return False
     return any(e.get("domain") == "usageLimits" or e.get("reason") in QUOTA_ERROR_REASONS for e in errors)
 
@@ -286,7 +286,7 @@ def _is_daily_quota_error(response: requests.Response) -> bool:
         return False
     try:
         errors = response.json().get("error", {}).get("errors", [])
-    except (ValueError, AttributeError, TypeError):
+    except ValueError, AttributeError, TypeError:
         return False
     return any(e.get("reason") in DAILY_QUOTA_REASONS for e in errors)
 
@@ -358,7 +358,7 @@ def _query_search_analytics(
         _throttle(site_url)
         try:
             response = session.post(url, json=body)
-        except (requests.ConnectionError, requests.Timeout):
+        except requests.ConnectionError, requests.Timeout:
             # A dropped connection (RemoteDisconnected / connection reset) or a read timeout is
             # raised before any response, so the quota/5xx handling below never sees it, and the
             # tracked adapter's retry skips it because searchAnalytics.query is a POST. `Timeout`
@@ -490,7 +490,7 @@ def _as_int(value: Any) -> int:
     """Coerce an API counter to int. Google serializes int64 fields as JSON strings."""
     try:
         return int(value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return 0
 
 

@@ -54,7 +54,7 @@ def format_duration(
 
     try:
         d = float(d)
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         return ""
 
     if d < 0:

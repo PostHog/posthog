@@ -48,7 +48,7 @@ def _coerce_start_period(value: Any) -> Optional[date]:
         return value
     try:
         return dateutil_parser.parse(str(value), default=datetime(1, 1, 1)).date()
-    except (ValueError, OverflowError):
+    except ValueError, OverflowError:
         return None
 
 

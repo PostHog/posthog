@@ -232,7 +232,7 @@ def replace_incoming_edges(
         for dependency_name in dependency_names:
             try:
                 source = resolve_dependency_to_node(dependency_name, team, database, dag)
-            except (UnknownParentError, Node.DoesNotExist):
+            except UnknownParentError, Node.DoesNotExist:
                 if on_unresolved == "raise":
                     raise
                 logger.warning(

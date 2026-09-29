@@ -12,7 +12,7 @@ def stderr_to_wizard_error_code(stderr: str) -> str | None:
 
         try:
             payload = json.loads(value.removeprefix(WIZARD_ERROR_OUTPUT_PREFIX).strip())
-        except (json.JSONDecodeError, TypeError):
+        except json.JSONDecodeError, TypeError:
             return None
 
         if not isinstance(payload, dict):

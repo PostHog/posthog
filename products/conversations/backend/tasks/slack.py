@@ -396,7 +396,7 @@ def _post_ticket_link(
         return
     try:
         number = int(ticket_number) if ticket_number is not None else 0
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         number = 0
     try:
         client = get_slack_client(team)
@@ -474,7 +474,7 @@ def _handle_supporthog_interactivity(
         action_id = action.get("action_id")
         try:
             value = json.loads(action.get("value") or "{}")
-        except (json.JSONDecodeError, TypeError):
+        except json.JSONDecodeError, TypeError:
             value = {}
 
         if action_id == TICKET_VIEW_ACTION:
@@ -740,7 +740,7 @@ def _retry_after_seconds(exc: Exception) -> int | None:
         return None
     try:
         return int(float(str(raw)))
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
 
 

@@ -178,7 +178,7 @@ class ExportedAssetSerializer(UserAccessControlSerializerMixin, serializers.Mode
                     if override_limit <= 0:
                         raise ValueError("Limit must be positive")
                     team_limit = max(team_limit, override_limit)
-                except (ValueError, TypeError):
+                except ValueError, TypeError:
                     logger.warning(
                         "invalid_full_video_exports_limit",
                         team_id=team.id,

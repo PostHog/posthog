@@ -642,7 +642,7 @@ def _revive_json_encoded_attr(value: Any) -> Any:
 def _to_serializable_prop_value(value: Any) -> NotebookPropValue | object:
     try:
         serialized = json.dumps(value, allow_nan=False, ensure_ascii=False, separators=(",", ":"))
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return _SERIALIZATION_OMIT
     return json.loads(serialized)
 

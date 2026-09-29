@@ -215,7 +215,7 @@ def _is_numeric(value: object) -> bool:
     try:
         float(value)  # type: ignore[arg-type]
         return True
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         return False
 
 

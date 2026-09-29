@@ -78,7 +78,7 @@ def _resume_page(resume: SalesloftResumeConfig) -> Optional[int]:
         if pages:
             try:
                 return int(pages[0])
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 return None
     return None
 

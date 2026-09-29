@@ -363,7 +363,7 @@ def get_recalculation_by_id(experiment: Experiment, recalculation_id: str) -> Ex
     """
     try:
         uuid_value = UUID(recalculation_id)
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         return None
     with team_scope(experiment.team_id, canonical=True):
         return ExperimentMetricsRecalculation.objects.filter(

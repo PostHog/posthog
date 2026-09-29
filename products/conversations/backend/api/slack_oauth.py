@@ -213,7 +213,7 @@ def support_slack_oauth_callback(request: HttpRequest) -> HttpResponse:
     try:
         user = User.objects.get(id=user_id)
         team = Team.objects.get(id=team_id)
-    except (User.DoesNotExist, Team.DoesNotExist):
+    except User.DoesNotExist, Team.DoesNotExist:
         return _error_response(next_path, "team_or_user_not_found", 404)
 
     if not OrganizationMembership.objects.filter(user_id=user.id, organization_id=team.organization_id).exists():

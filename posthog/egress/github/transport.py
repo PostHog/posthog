@@ -73,7 +73,7 @@ def raise_if_github_rate_limited(response: requests.Response) -> None:
             return None
         try:
             return int(val)
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             return None
 
     reset_at = _int_header("x-ratelimit-reset")

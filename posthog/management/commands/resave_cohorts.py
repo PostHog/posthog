@@ -452,7 +452,7 @@ class Command(BaseCommand):
                             if value.get("type") == "cohort" and value.get("value"):
                                 try:
                                     referenced_ids.add(int(value["value"]))
-                                except (ValueError, TypeError):
+                                except ValueError, TypeError:
                                     pass
                             # Recursively check nested groups
                             if "values" in value:

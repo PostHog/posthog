@@ -741,7 +741,7 @@ class WebAuthnCredentialViewSet(viewsets.ViewSet):
 
         try:
             pk_str = str(pk)
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             return Response(
                 {"error": "Invalid credential ID."},
                 status=status.HTTP_400_BAD_REQUEST,

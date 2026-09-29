@@ -563,7 +563,7 @@ def fetcher_for_team(
     """
     try:
         integration = _covering_integration(team_id, repository, priority=priority)
-    except (EgressBudgetExhausted, GitHubRateLimitError):
+    except EgressBudgetExhausted, GitHubRateLimitError:
         # The probe is optional enrichment for a caller that already handles an unresolved answer,
         # so a spent budget must degrade rather than raise past it. Nothing is cached: the next
         # call has to probe again once the budget refills.

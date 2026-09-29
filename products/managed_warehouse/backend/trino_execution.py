@@ -57,7 +57,7 @@ async def run_trino_model(
     try:
         async with asyncio.timeout(query_seconds):
             return await asyncio.shield(task)
-    except (asyncio.CancelledError, TimeoutError):
+    except asyncio.CancelledError, TimeoutError:
         control.cancel()
         while not task.done():
             try:

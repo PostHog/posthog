@@ -117,7 +117,7 @@ async def iter_tracked_files(limit: int) -> AsyncIterator[TrackedFile | None]:
                 payload = json.loads(value)
                 workflow_id = payload["workflow_id"]
                 uploaded_at = datetime.fromisoformat(payload["uploaded_at"])
-            except (json.JSONDecodeError, KeyError, TypeError, ValueError):
+            except json.JSONDecodeError, KeyError, TypeError, ValueError:
                 logger.exception(
                     "replay_vision.gemini_cleanup_sweep.invalid_value",
                     gemini_file_name=fn,

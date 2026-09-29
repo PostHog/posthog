@@ -57,13 +57,13 @@ def heartbeat_account_presence(
     for raw_user_id, raw_profile in zip(active_user_ids, profiles):
         try:
             user_id = int(raw_user_id)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             continue
         if user_id == viewer.user_id or raw_profile is None:
             continue
         try:
             profile = json.loads(raw_profile)
-        except (json.JSONDecodeError, UnicodeDecodeError):
+        except json.JSONDecodeError, UnicodeDecodeError:
             continue
         display_name = profile.get("display_name") if isinstance(profile, dict) else None
         if isinstance(display_name, str):
@@ -93,7 +93,7 @@ def list_account_presence(*, team_id: int, account_ids: list[str]) -> dict[str, 
             for user_id in active_user_ids:
                 try:
                     profile_locations.append((account_id, int(user_id)))
-                except (TypeError, ValueError):
+                except TypeError, ValueError:
                     continue
         profiles = redis_client.mget(
             [keys_by_account_id[account_id].get_profile_key(user_id) for account_id, user_id in profile_locations]
@@ -108,7 +108,7 @@ def list_account_presence(*, team_id: int, account_ids: list[str]) -> dict[str, 
             continue
         try:
             profile = json.loads(raw_profile)
-        except (json.JSONDecodeError, UnicodeDecodeError):
+        except json.JSONDecodeError, UnicodeDecodeError:
             continue
         display_name = profile.get("display_name") if isinstance(profile, dict) else None
         if isinstance(display_name, str):

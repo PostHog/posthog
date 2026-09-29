@@ -780,7 +780,7 @@ class OrganizationActivityLogPermission(BasePermission):
     def has_permission(self, request: Request, view) -> bool:
         try:
             organization = view.organization
-        except (Organization.DoesNotExist, ValueError):
+        except Organization.DoesNotExist, ValueError:
             return False
 
         try:

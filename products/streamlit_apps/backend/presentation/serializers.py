@@ -150,7 +150,7 @@ class CreateVersionFromSourceInputSerializer(DataclassSerializer):
         for path, content in value.items():
             try:
                 base64.b64decode(content, validate=True)
-            except (binascii.Error, ValueError):
+            except binascii.Error, ValueError:
                 raise serializers.ValidationError({path: "Content must be standard base64 text."}) from None
         return value
 

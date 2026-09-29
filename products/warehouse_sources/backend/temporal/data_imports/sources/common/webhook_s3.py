@@ -118,7 +118,7 @@ class WebhookSourceManager:
             # the downstream transformer must see all of them together to dedupe across the batch.
             try:
                 merged = pa.concat_tables(tables, promote_options="permissive")
-            except (pa.ArrowTypeError, pa.ArrowInvalid):
+            except pa.ArrowTypeError, pa.ArrowInvalid:
                 # Each file's table is typed independently, so one payload field can infer as
                 # different, non-promotable types across files (e.g. a number that arrives quoted in
                 # one delivery and bare in another — string vs int64), which concat can't reconcile.

@@ -841,7 +841,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
                 return queryset.get(id=lookup_value)
             except Ticket.DoesNotExist:
                 raise Http404("Ticket not found")
-        except (ValueError, AttributeError):
+        except ValueError, AttributeError:
             # Not a UUID - try as ticket_number (integer)
             try:
                 ticket_num = int(lookup_value)
@@ -849,7 +849,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
                     return queryset.get(ticket_number=ticket_num)
                 except Ticket.DoesNotExist:
                     raise Http404("Ticket not found")
-            except (ValueError, TypeError):
+            except ValueError, TypeError:
                 # Neither UUID nor integer
                 raise Http404("Ticket not found")
 
@@ -1516,7 +1516,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
 
         try:
             uuid.UUID(str(message_id))
-        except (ValueError, TypeError, AttributeError):
+        except ValueError, TypeError, AttributeError:
             return None, Response(
                 {"detail": "Note not found.", "error_type": "note_not_found"},
                 status=drf_status.HTTP_404_NOT_FOUND,
@@ -2058,7 +2058,7 @@ def validate_assignee(assignee: object) -> TicketAssignee | None:
     elif assignee["type"] == "role":
         try:
             uuid.UUID(str(assignee["id"]))
-        except (ValueError, AttributeError):
+        except ValueError, AttributeError:
             raise serializers.ValidationError({"assignee": "role id must be a valid UUID"})
 
     return cast(TicketAssignee, assignee)

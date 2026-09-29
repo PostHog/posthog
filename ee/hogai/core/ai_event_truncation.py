@@ -54,7 +54,7 @@ def byte_size(obj: Any) -> int:
     """Serialized UTF-8 byte size, mirroring how the SDK Consumer measures an event."""
     try:
         return len(json.dumps(obj, default=str).encode())
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         # Unserializable here would also fail in the SDK; treat as oversized so it gets truncated.
         return COMBINED_EVENT_CEILING * 2
 

@@ -88,7 +88,7 @@ class TenjinSource(ResumableSource[TenjinSourceConfig, TenjinResumeConfig]):
             return True, None
         except TenjinCredentialsError as e:
             return False, str(e)
-        except (TenjinRetryableError, requests.RequestException):
+        except TenjinRetryableError, requests.RequestException:
             # A rate-limit, 5xx, or network blip isn't a bad credential. Don't mislabel it.
             return (
                 False,

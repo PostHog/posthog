@@ -121,7 +121,7 @@ def _tokens_from_parts(access_token: str, refresh_token: str, id_token: str | No
     if isinstance(exp, int | float) and not isinstance(exp, bool):
         try:
             expires_at = datetime.fromtimestamp(exp, tz=UTC)
-        except (OverflowError, OSError, ValueError):
+        except OverflowError, OSError, ValueError:
             pass
 
     email = None

@@ -439,7 +439,7 @@ def release_quota_cancelled_implementation(*, team_id: int, task_id: str) -> lis
             ):
                 try:
                     content = json.loads(artefact.content)
-                except (TypeError, ValueError):
+                except TypeError, ValueError:
                     continue
                 if content.get("product") == SIGNALS_PRODUCT and content.get("type") == TASK_RUN_TYPE_IMPLEMENTATION:
                     artefact.delete()

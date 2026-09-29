@@ -57,7 +57,7 @@ class FlagValueViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
         try:
             flag_id_int = int(flag_id)
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             return response.Response({"error": "Invalid flag ID - must be a valid integer"}, status=400)
 
         try:

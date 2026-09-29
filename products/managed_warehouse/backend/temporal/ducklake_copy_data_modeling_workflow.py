@@ -308,7 +308,7 @@ def verify_ducklake_copy_activity(inputs: DuckLakeCopyActivityInputs) -> list[Du
                 raw_value = row[0]
                 try:
                     observed = float(raw_value)
-                except (TypeError, ValueError):
+                except TypeError, ValueError:
                     logger.warning(
                         "DuckLake verification query returned a non-numeric value",
                         check=query.name,

@@ -22,7 +22,7 @@ def derive_window_days(time_value: object, time_interval: object) -> int:
         return 0
     try:
         normalized_time_value = max(0, int(time_value))
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return 0
     return normalized_time_value * _INTERVAL_DAYS.get(time_interval, 0)
 

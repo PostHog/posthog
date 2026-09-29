@@ -46,7 +46,7 @@ def _workflow_id_from_request(request: Request) -> str | None:
         return None
     try:
         uuid.UUID(hog_flow_id)
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         return None
     return hog_flow_id
 
@@ -149,7 +149,7 @@ class ExternalAccountUpdateSerializer(serializers.Serializer):
             raise serializers.ValidationError({field: "Assignee id must be a user id"})
         try:
             return int(raw_id)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             raise serializers.ValidationError({field: "Assignee id must be a user id"})
 
 

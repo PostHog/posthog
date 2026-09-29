@@ -235,7 +235,7 @@ RATE_LIMIT_RETRIES = 5
 def _retry_after_seconds(headers: Mapping[str, str]) -> Optional[float]:
     try:
         return float(headers["retry-after"])
-    except (KeyError, ValueError):
+    except KeyError, ValueError:
         return None
 
 
@@ -368,7 +368,7 @@ def _coerce_incremental_cursor(value: Any) -> Optional[int]:
         return int(value)
     try:
         return int(value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
 
 

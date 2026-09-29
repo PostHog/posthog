@@ -492,7 +492,7 @@ class DatabricksClient:
                         return None
 
                     return await asyncio.to_thread(cursor.fetchall)
-            except (asyncio.CancelledError, TimeoutError):
+            except asyncio.CancelledError, TimeoutError:
                 # Abort server-side so that:
                 #   a) the user's warehouse doesn't keep running work nobody's waiting for
                 #   b) we cancel the running thread (otherwise, we could potentially run into
@@ -562,7 +562,7 @@ class DatabricksClient:
                 self.logger.debug("Finished fetching query results")
 
                 return results
-            except (asyncio.CancelledError, TimeoutError):
+            except asyncio.CancelledError, TimeoutError:
                 # Abort server-side so that:
                 #   a) the user's warehouse doesn't keep running work nobody's waiting for
                 #   b) we cancel the running thread (otherwise, we could potentially run into
@@ -787,7 +787,7 @@ class DatabricksClient:
                     except AttributeError:
                         # depending on the table column mapping mode, this could also be returned via a different attribute
                         column_names = [row.COLUMN_NAME for row in results]
-            except (asyncio.CancelledError, TimeoutError):
+            except asyncio.CancelledError, TimeoutError:
                 # Abort server-side so that:
                 #   a) the user's warehouse doesn't keep running work nobody's waiting for
                 #   b) we cancel the running thread (otherwise, we could potentially run into

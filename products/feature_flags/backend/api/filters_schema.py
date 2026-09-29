@@ -262,7 +262,7 @@ class FlagPayloadsField(serializers.DictField):
                     normalized[key] = json.dumps(value, allow_nan=False)
             except json.JSONDecodeError:
                 errors.append(f"Payload for key '{key}' is not valid JSON.")
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 errors.append(f"Payload for key '{key}' is not valid strict JSON (NaN/Infinity not allowed).")
         if errors:
             # Flat (not keyed by payload key) so the audit's rule id stays stable instead of

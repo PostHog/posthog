@@ -233,7 +233,7 @@ def read_completed_listing_proof(schema: ExternalDataSchema) -> dt.datetime | No
             continue
         try:
             stamped = dt.datetime.fromisoformat(listed_at)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             continue
         if stamped.tzinfo is None:
             continue
@@ -618,7 +618,7 @@ class ReplayFilter:
                 target = self._content_schema.field(name).type
                 try:
                     column = column.cast(target)
-                except (pa.ArrowInvalid, pa.ArrowNotImplementedError):
+                except pa.ArrowInvalid, pa.ArrowNotImplementedError:
                     parsed = _parse_timestamps(column, target)
                     if parsed is None:
                         stringly.add(name)
@@ -641,7 +641,7 @@ def _parse_timestamps(column: pa.ChunkedArray, target: pa.DataType) -> pa.Chunke
         return None
     try:
         return pa.chunked_array([pa.array(parsed, type=target)])
-    except (pa.ArrowInvalid, pa.ArrowNotImplementedError, pa.ArrowTypeError):
+    except pa.ArrowInvalid, pa.ArrowNotImplementedError, pa.ArrowTypeError:
         return None
 
 

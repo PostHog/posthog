@@ -58,7 +58,7 @@ class JSONTolerantListField(serializers.ListField):
             if candidate.startswith("[") and candidate.endswith("]"):
                 try:
                     parsed = json.loads(candidate)
-                except (json.JSONDecodeError, ValueError):
+                except json.JSONDecodeError, ValueError:
                     return value
                 if isinstance(parsed, list):
                     return parsed

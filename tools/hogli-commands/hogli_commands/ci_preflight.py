@@ -337,7 +337,7 @@ def _project_python_ready() -> bool:
             capture_output=True,
             timeout=10,
         )
-    except (OSError, subprocess.TimeoutExpired):
+    except OSError, subprocess.TimeoutExpired:
         return False
     return probe.returncode == 0
 
@@ -490,7 +490,7 @@ def _git_run(*args: str, timeout: float = 15.0) -> subprocess.CompletedProcess[s
     """Run a git command in the repo; None on OS error or timeout."""
     try:
         return subprocess.run(["git", "-C", str(REPO_ROOT), *args], capture_output=True, text=True, timeout=timeout)
-    except (OSError, subprocess.SubprocessError):
+    except OSError, subprocess.SubprocessError:
         return None
 
 

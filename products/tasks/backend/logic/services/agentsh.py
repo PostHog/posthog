@@ -56,7 +56,7 @@ def _hostname_from_url(url: str | None) -> str | None:
         return None
     try:
         return urlparse(url).hostname
-    except (ValueError, AttributeError):
+    except ValueError, AttributeError:
         return None
 
 
@@ -66,7 +66,7 @@ def _port_from_url(url: str | None) -> int | None:
     try:
         parsed = urlparse(url)
         port = parsed.port
-    except (ValueError, AttributeError):
+    except ValueError, AttributeError:
         return None
     if port is not None:
         return port

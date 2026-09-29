@@ -59,7 +59,7 @@ def to_unix_timestamp(value: Any) -> int | None:
     if isinstance(value, str) and value.strip():
         try:
             parsed = parser.parse(value)
-        except (ValueError, OverflowError):
+        except ValueError, OverflowError:
             return None
         if parsed.tzinfo is None:
             parsed = parsed.replace(tzinfo=UTC)

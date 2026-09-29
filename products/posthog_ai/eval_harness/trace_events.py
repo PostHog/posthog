@@ -30,7 +30,7 @@ def _parse_iso_timestamp(ts: str) -> datetime | None:
         return None
     try:
         return datetime.fromisoformat(ts.replace("Z", "+00:00"))
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         return None
 
 

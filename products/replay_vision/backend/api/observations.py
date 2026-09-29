@@ -914,7 +914,7 @@ class ReplayObservationViewSet(
             return cached
         try:
             scanner_id = uuid.UUID(self.kwargs["parent_lookup_scanner_id"])
-        except (KeyError, ValueError):
+        except KeyError, ValueError:
             raise NotFound()
         scanner = scanner_for_reading_observations(self.team_id, scanner_id)
         if scanner is None:
@@ -1045,7 +1045,7 @@ class ReplayObservationViewSet(
         recent_days_raw = request.query_params.get("recent_days")
         try:
             recent_days = int(recent_days_raw) if recent_days_raw is not None else 14
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             recent_days = 14
         payload = compute_observation_stats(scanner, queryset, recent_days=recent_days)
         return Response(payload)

@@ -221,7 +221,7 @@ def generate_cohort_filter_bytecode(filter_data: dict, team: Team) -> CohortFilt
             # Type narrowing: cohort_id is not None at this point, and should be int
             try:
                 cohort_id_int = int(cohort_id)
-            except (ValueError, TypeError):
+            except ValueError, TypeError:
                 return CohortFilterBytecodeResult()
             try:
                 referenced_cohort = Cohort.objects.get(team__project_id=team.project_id, id=cohort_id_int)
@@ -2334,7 +2334,7 @@ def _batch_evaluate_flag_page_with_retries(
                 cursor=cursor,
                 limit=limit,
             )
-        except (FlagVersionConflictError, PropertyMatchingVersionConflictError):
+        except FlagVersionConflictError, PropertyMatchingVersionConflictError:
             # Permanent: the pinned evaluation inputs changed; retrying the same page cannot help.
             raise
         except requests.RequestException as err:

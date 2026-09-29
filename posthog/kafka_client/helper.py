@@ -24,7 +24,7 @@ def _cleanup_ssl_files():
             try:
                 f.close()
                 os.unlink(f.name)
-            except (OSError, FileNotFoundError):
+            except OSError, FileNotFoundError:
                 pass
         _ssl_files = None
 

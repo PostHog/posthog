@@ -361,7 +361,7 @@ def readable_ad_accounts(client: AppleSearchAdsClient, api_version: str) -> Opti
         payload = client.request_json(
             request.method, request.path, params=request.params, body=request.body, requires_context=False
         )
-    except (requests.RequestException, ValueError):
+    except requests.RequestException, ValueError:
         return None
 
     accounts: list[AppleAdAccount] = []

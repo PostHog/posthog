@@ -270,7 +270,7 @@ def validate_config(
                 field_key = field.name
             try:
                 _convert_value(field_meta.converter, d[field_key], field.name)
-            except (ValueError, TypeError):
+            except ValueError, TypeError:
                 errors.append(f"Field '{field.name}' has an invalid value")
 
     return len(errors) == 0, errors

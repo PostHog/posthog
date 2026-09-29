@@ -99,7 +99,7 @@ def _millis_to_iso(value: Any) -> Any:
         return value
     try:
         millis = int(value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return value
     return datetime.fromtimestamp(millis / 1000.0, tz=UTC).isoformat(timespec="microseconds")
 
@@ -452,7 +452,7 @@ def _oldest_window_value(rows: list[dict[str, Any]], fan_out: DagsterCloudFanOut
         if fan_out.window_unit == "millis_string":
             return str(min(int(value) for value in present))
         return str(min(float(value) for value in present))
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
 
 

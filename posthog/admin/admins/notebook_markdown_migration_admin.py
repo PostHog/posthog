@@ -89,7 +89,7 @@ def _parse_team_id(raw_team_id: Any) -> int | None:
         return None
     try:
         return int(raw_team_id)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         raise ValueError("Team id must be an integer")
 
 
@@ -98,7 +98,7 @@ def _parse_batch_size(raw_batch_size: Any) -> int | None:
         return DEFAULT_NOTEBOOK_MIGRATION_BATCH_SIZE
     try:
         batch_size = int(raw_batch_size)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         raise ValueError("Batch size must be an integer")
     if batch_size < 1:
         raise ValueError("Batch size must be at least 1")

@@ -73,7 +73,7 @@ def presence_sse_frame(fields: dict[bytes, bytes], *, stream_key: str, stream_id
     """Presence frames deliberately omit the `id:` line so they never disturb Last-Event-ID."""
     try:
         data = json.loads(fields[_DATA_KEY])
-    except (json.JSONDecodeError, KeyError):
+    except json.JSONDecodeError, KeyError:
         logger.warning("notebook_collab_invalid_payload", stream_key=stream_key, stream_id=stream_id)
         return None
     if data.get("type") != PRESENCE_EVENT_TYPE:

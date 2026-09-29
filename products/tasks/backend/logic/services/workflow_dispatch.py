@@ -425,7 +425,7 @@ def mark_dead(dispatch_id: Any, instance_id: str, error: str, reason: str = "pay
         if dispatch.dispatch_kind == TaskWorkflowDispatch.Kind.RESTART:
             try:
                 _, snapshot = parse_restart_payload(dispatch.payload)
-            except (KeyError, TypeError, ValueError):
+            except KeyError, TypeError, ValueError:
                 from products.tasks.backend.temporal.client import _terminalize_unstarted_task_run  # noqa: PLC0415
 
                 transaction.on_commit(lambda: _terminalize_unstarted_task_run(str(run.id), error[:2000]))

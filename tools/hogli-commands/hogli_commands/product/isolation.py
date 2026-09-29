@@ -246,7 +246,7 @@ def _importlinter_ignore_entries(pyproject_text: str | None = None) -> list[str]
         pyproject_text = pyproject.read_text()
     try:
         contracts = tomllib.loads(pyproject_text)["tool"]["importlinter"]["contracts"]
-    except (tomllib.TOMLDecodeError, KeyError):
+    except tomllib.TOMLDecodeError, KeyError:
         return []
     return [entry for contract in contracts for entry in contract.get("ignore_imports", [])]
 

@@ -181,7 +181,7 @@ class PostHogTestClient:
                         if col == "properties" and isinstance(value, str):
                             try:
                                 value = json.loads(value)
-                            except (json.JSONDecodeError, TypeError):
+                            except json.JSONDecodeError, TypeError:
                                 pass
                         event[col] = value
                 results.append(event)

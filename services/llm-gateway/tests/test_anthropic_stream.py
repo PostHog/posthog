@@ -108,7 +108,7 @@ def test_litellm_anthropic_streams_do_not_share_event_queues() -> None:
                 continue
             try:
                 event = next(wrapper)
-            except (StopIteration, StopAsyncIteration):
+            except StopIteration, StopAsyncIteration:
                 completed[index] = True
                 continue
             assert isinstance(event, dict)

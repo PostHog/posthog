@@ -100,7 +100,7 @@ def _start_date(should_use_incremental_field: bool, db_incremental_field_last_va
         if isinstance(last_value, str):
             try:
                 last_value = parser.parse(last_value)
-            except (ValueError, OverflowError):
+            except ValueError, OverflowError:
                 last_value = None
         as_datetime = coerce_datetime_to_utc(last_value)
         if as_datetime is not None:

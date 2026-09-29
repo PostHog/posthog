@@ -83,7 +83,7 @@ class WizardRunArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 self._run_id(),
                 self._artifact_id(),
             )
-        except (WizardRunArtifactNotFoundError, WizardRunNotFoundError):
+        except WizardRunArtifactNotFoundError, WizardRunNotFoundError:
             raise NotFound("No git diff artifact was found for this Wizard run.")
         except WizardRunArtifactTooLargeError:
             raise WizardRunArtifactTooLarge from None

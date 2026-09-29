@@ -863,7 +863,7 @@ def _get_file_download_for_run(
     try:
         file_download_id = uuid.UUID(file_id_or_index)  # type: ignore[arg-type]
 
-    except (ValueError, TypeError, AttributeError):
+    except ValueError, TypeError, AttributeError:
         file_downloads_query = BatchExportFileDownload.objects.filter(
             batch_export_run=batch_export_run, team=batch_export_run.batch_export_on_demand.team
         ).order_by("key")
@@ -871,7 +871,7 @@ def _get_file_download_for_run(
 
         try:
             index = int(file_id_or_index) if file_id_or_index is not None else 0
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             raise ValidationError(f"Invalid file id or index: '{file_id_or_index}'")
 
         if index < 0 or index >= len(file_downloads):

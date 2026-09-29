@@ -296,7 +296,7 @@ class CheckRunReader:
                 )
             ]
             runs = [run for run in runs if run.depot_workflow is not None]
-        except (OSError, http.client.HTTPException, KeyError, TypeError, ValueError, AttributeError):
+        except OSError, http.client.HTTPException, KeyError, TypeError, ValueError, AttributeError:
             sys.stdout.write("::warning::check-runs API read failed\n")
             return None
         # One page's ETag cannot validate the other pages of a paginated response.

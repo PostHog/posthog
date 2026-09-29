@@ -319,7 +319,7 @@ def _coerce_int(value: object, default: int) -> int:
         return default
     try:
         return int(value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return default
 
 
@@ -1109,7 +1109,7 @@ def replace_loop_skill_bundles(
     for bundle in bundles:
         try:
             content_bytes = base64.b64decode(bundle["content_base64"], validate=True)
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             raise LoopValidationError(f"Skill bundle for '{bundle['skill_name']}' is not valid base64.")
         if len(content_bytes) > MAX_LOOP_SKILL_BUNDLE_SIZE_BYTES:
             raise LoopValidationError(
@@ -1461,7 +1461,7 @@ def _decode_run_cursor(cursor: str) -> tuple[datetime, UUID] | None:
     try:
         payload = json.loads(base64.urlsafe_b64decode(cursor.encode("utf-8")).decode("utf-8"))
         return datetime.fromisoformat(payload["created_at"]), UUID(payload["id"])
-    except (ValueError, KeyError, TypeError):
+    except ValueError, KeyError, TypeError:
         return None
 
 

@@ -76,7 +76,7 @@ def _as_utc_datetime(value: Any) -> datetime | None:
             # dateutil handles Bitbucket's nanosecond fractions (e.g. pipelines'
             # "2024-05-21T01:50:36.611482242Z"), which fromisoformat may not.
             return _as_utc_datetime(dateutil_parser.parse(value))
-        except (ValueError, TypeError, OverflowError):
+        except ValueError, TypeError, OverflowError:
             return None
     return None
 
@@ -429,7 +429,7 @@ def _parent_precedes_bookmark(order: str, value: Any, bookmark: str) -> bool:
     if order == "id_asc":
         try:
             return int(value) < int(bookmark)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             return False
 
     parsed = _as_utc_datetime(value)

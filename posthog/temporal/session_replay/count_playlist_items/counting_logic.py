@@ -170,7 +170,7 @@ def parse_expiry(expiry: str | None) -> datetime | None:
         if parsed.tzinfo is None:
             parsed = timezone.make_aware(parsed)
         return parsed
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         return None
 
 

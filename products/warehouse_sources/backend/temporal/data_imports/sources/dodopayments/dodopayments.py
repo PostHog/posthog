@@ -51,7 +51,7 @@ def to_iso8601(value: Any) -> Optional[str]:
     elif isinstance(value, int | float):
         try:
             parsed = datetime.fromtimestamp(value, tz=UTC)
-        except (OverflowError, OSError, ValueError):
+        except OverflowError, OSError, ValueError:
             return None
     elif isinstance(value, str):
         try:

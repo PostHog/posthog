@@ -1575,7 +1575,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if raw_limit is not None:
             try:
                 limit = max(1, min(int(raw_limit), self.CHECKS_MAX_LIMIT))
-            except (ValueError, TypeError):
+            except ValueError, TypeError:
                 limit = self.CHECKS_DEFAULT_LIMIT
         else:
             limit = self.CHECKS_MAX_LIMIT if has_date_filter else self.CHECKS_DEFAULT_LIMIT
@@ -1584,7 +1584,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if raw_offset is not None:
             try:
                 offset = max(0, int(raw_offset))
-            except (ValueError, TypeError):
+            except ValueError, TypeError:
                 offset = 0
         else:
             offset = 0

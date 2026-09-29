@@ -282,7 +282,7 @@ def _coerce_datetime(value: Any) -> datetime | None:
     if isinstance(value, str):
         try:
             parsed = dateutil_parser.parse(value)
-        except (ValueError, OverflowError):
+        except ValueError, OverflowError:
             return None
         return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
     return None

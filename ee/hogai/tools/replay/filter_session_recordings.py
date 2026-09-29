@@ -322,7 +322,7 @@ class FilterSessionRecordingsTool(MaxTool):
                 else:
                     dt = datetime.fromisoformat(start_time.replace("Z", "+00:00"))
                 parts.append(f"Started: {dt.strftime('%Y-%m-%d %H:%M:%S UTC')}")
-            except (ValueError, AttributeError):
+            except ValueError, AttributeError:
                 parts.append(f"Started: {start_time}")
 
         # Duration

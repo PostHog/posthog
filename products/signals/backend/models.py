@@ -1424,7 +1424,7 @@ class SignalReportArtefact(UUIDModel):
         for content in rows.values_list("content", flat=True).iterator(chunk_size=20):
             try:
                 parsed = json.loads(content)
-            except (json.JSONDecodeError, TypeError, ValueError):
+            except json.JSONDecodeError, TypeError, ValueError:
                 continue
             if not isinstance(parsed, dict):
                 continue

@@ -99,7 +99,7 @@ def coordinate_catalog_publication(
                 socket_connect_timeout=_CATALOG_PUBLICATION_REDIS_TIMEOUT_SECONDS,
             )
             marker_exists = bool(redis_client.get(marker_key))
-    except (redis.exceptions.RedisError, ImproperlyConfigured):
+    except redis.exceptions.RedisError, ImproperlyConfigured:
         logger.warning("hogql_catalog_publication_redis_unavailable", exc_info=True)
         publish_catalog()
         return measured_check_catalog()

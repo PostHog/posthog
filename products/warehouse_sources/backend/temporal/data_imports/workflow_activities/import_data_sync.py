@@ -957,8 +957,6 @@ async def _run(
         use_v3 = models.job.pipeline_version == ExternalDataJob.PipelineVersion.V3
 
         if use_v3:
-            from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3 import PipelineV3
-
             logger.info("Running V3 pipeline (persisted job.pipeline_version is V3)")
             pipeline: PipelineV3 | PipelineNonDLT = v3_pipeline_class(source_response)(
                 source_response,

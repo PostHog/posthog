@@ -1618,7 +1618,7 @@ async def _latest_reviewers_content(report_id: str) -> tuple[list[ReviewerConten
     editor_user_id = artefact.created_by_id
     try:
         data = json.loads(artefact.content)
-    except (json.JSONDecodeError, ValueError):
+    except json.JSONDecodeError, ValueError:
         return [], editor_user_id
     if not isinstance(data, list):
         return [], editor_user_id

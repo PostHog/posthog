@@ -199,7 +199,7 @@ class EtsyClient:
             opened_at = self.request(f"/shops/{shop_id}").get("created_timestamp")
             try:
                 self._shop_opened_at = int(opened_at) if opened_at is not None else None
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 self._shop_opened_at = None
             self._shop_opened_at_resolved = True
         return self._shop_opened_at
@@ -448,7 +448,7 @@ def _window_start(should_use_incremental_field: bool, db_incremental_field_last_
         return ETSY_HISTORY_START
     try:
         return max(int(db_incremental_field_last_value), ETSY_HISTORY_START)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return ETSY_HISTORY_START
 
 

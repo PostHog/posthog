@@ -143,7 +143,7 @@ async def _safety_filter(input: SafetyFilterInput) -> SafetyFilterOutput:
         parsed = json_module.loads(strip_json_fence(content))
         result = SafetyFilterResult.model_validate(parsed)
         return SafetyFilterOutput(safe=result.safe, threat_type=result.threat_type, explanation=result.explanation)
-    except (json_module.JSONDecodeError, ValueError, TypeError, AttributeError):
+    except json_module.JSONDecodeError, ValueError, TypeError, AttributeError:
         logger.warning("support_reply_safety_parse_failed", raw=str(content)[:200])
         return SafetyFilterOutput(
             safe=False,

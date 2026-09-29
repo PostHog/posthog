@@ -39,7 +39,7 @@ async def _drain(generator, max_events: int):
     try:
         for _ in range(max_events):
             events.append(await anext(generator))
-    except (_StopStream, StopAsyncIteration):
+    except _StopStream, StopAsyncIteration:
         pass
     finally:
         # Close the generator so its `async with` runs cleanup (closes the

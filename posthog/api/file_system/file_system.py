@@ -676,7 +676,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         """
         try:
             limit = int(request.query_params.get("limit", FileSystemsLimitOffsetPagination.default_limit))
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             limit = FileSystemsLimitOffsetPagination.default_limit
         limit = max(1, min(limit, 1000))
 

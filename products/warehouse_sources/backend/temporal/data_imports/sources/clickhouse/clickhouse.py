@@ -1544,7 +1544,7 @@ def _native_column_to_arrow(
         return _ticks_to_timestamp(values, datetime64_precision, field.type)
     try:
         return pa.array(values, type=field.type)
-    except (pa.ArrowInvalid, pa.ArrowTypeError):
+    except pa.ArrowInvalid, pa.ArrowTypeError:
         # Types that `_build_select_list` does not cast with toString() but `to_arrow_field` maps to
         # string (geo types, AggregateFunction states, ...) decode to Python tuples, lists or numbers.
         if not pa.types.is_string(field.type):

@@ -38,7 +38,7 @@ def _replace_binary_content(data: Any) -> Any:
         case str() if "b'\\x" in data or 'b"\\x' in data:
             try:
                 return _replace_binary_content(ast.literal_eval(data))
-            except (ValueError, SyntaxError):
+            except ValueError, SyntaxError:
                 return data
         case str():
             return data
@@ -120,7 +120,7 @@ def _apply_owned_event_properties(
     if raw_team_id is not None:
         try:
             properties["team_id"] = int(raw_team_id)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             if team_id is not None:
                 properties["team_id"] = team_id
             else:

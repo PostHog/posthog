@@ -297,6 +297,6 @@ def validate_credentials(access_token: str, base_url: str) -> tuple[bool, str | 
 
     try:
         message = response.json().get("error", {}).get("message")
-    except (ValueError, AttributeError):
+    except ValueError, AttributeError:
         message = None
     return False, message or f"SurveyMonkey API returned status {response.status_code}"

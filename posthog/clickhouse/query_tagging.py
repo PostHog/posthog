@@ -627,7 +627,7 @@ def get_query_tags() -> QueryTags:
 def get_query_tag_value(key: str) -> Optional[Any]:
     try:
         return getattr(get_query_tags(), key)
-    except (AttributeError, KeyError):
+    except AttributeError, KeyError:
         return None
 
 

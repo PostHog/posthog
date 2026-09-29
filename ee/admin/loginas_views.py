@@ -70,7 +70,7 @@ def upgrade_impersonation(request):
     try:
         data = json.loads(request.body)
         reason = data.get("reason", "").strip()
-    except (json.JSONDecodeError, AttributeError):
+    except json.JSONDecodeError, AttributeError:
         reason = ""
 
     if not reason:

@@ -60,7 +60,7 @@ class BillingPeriodResolver:
             data = response.json()
             if not isinstance(data, dict):
                 raise ValueError("Billing period response must be an object")
-        except (httpx.HTTPError, ValueError):
+        except httpx.HTTPError, ValueError:
             logger.warning("billing_period_fetch_failed", team_id=team_id, exc_info=True)
             return None
 
