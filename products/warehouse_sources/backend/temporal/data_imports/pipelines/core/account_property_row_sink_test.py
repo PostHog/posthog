@@ -1,7 +1,7 @@
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
 from django.conf import settings
 from django.db import OperationalError
@@ -29,6 +29,7 @@ _MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.co
 def _sink() -> AccountPropertyRowSink:
     logger = MagicMock()
     logger.adebug = AsyncMock()
+    logger.awarning = AsyncMock()
     return AccountPropertyRowSink(
         team_id=7,
         binding=saved_query_binding("019f0000-0000-7000-8000-000000000001"),
@@ -156,6 +157,69 @@ async def test_stages_an_exact_delta_snapshot_after_materialization() -> None:
     stage_chunk.assert_awaited_once()
     assert stage_chunk.await_args is not None
     assert stage_chunk.await_args.args[1].to_pydict() == table.to_pydict()
+
+
+@pytest.mark.asyncio
+async def test_stage_delta_snapshot_falls_back_to_latest_version_after_a_vacuum_race() -> None:
+    # The pinned delta_version can sit queued behind the staging child workflow for hours. If the
+    # same view materializes again in the meantime, its vacuum can reclaim that version's files
+    # before we read them (AWS NO_SUCH_KEY). Staging must recover by re-reading whatever is
+    # committed now instead of failing the whole sync.
+    sink = _sink()
+    fresh_table = pa.table({"organization_id": ["org-1"], "mrr": [100]})
+    fresh_output = pa.BufferOutputStream()
+    pq.write_table(fresh_table, fresh_output)
+
+    vacuumed_delta_table = MagicMock()
+    vacuumed_delta_table.file_uris.return_value = ["s3://data-warehouse/dlt/vacuumed.parquet"]
+    current_delta_table = MagicMock()
+    current_delta_table.file_uris.return_value = ["s3://data-warehouse/dlt/current.parquet"]
+
+    def _open_delta_table(table_uri, version, storage_options):
+        return vacuumed_delta_table if version == 7 else current_delta_table
+
+    def _open_input_file(path):
+        if path == "data-warehouse/dlt/vacuumed.parquet":
+            raise OSError(
+                "AWS Error NO_SUCH_KEY during GetObject operation: The specified key does not "
+                "exist. (Request ID: TESTREQUESTID)"
+            )
+        return pa.BufferReader(fresh_output.getvalue())
+
+    filesystem = MagicMock()
+    filesystem.open_input_file.side_effect = _open_input_file
+
+    with (
+        patch.object(
+            sink,
+            "_get_projection",
+            new=AsyncMock(
+                return_value=[
+                    AccountPropertySourceProjection(
+                        key_column="organization_id",
+                        columns=frozenset({"organization_id", "mrr"}),
+                    )
+                ]
+            ),
+        ),
+        patch.object(sink, "clear", new=AsyncMock()) as clear,
+        patch.object(sink, "stage_chunk", new=AsyncMock()) as stage_chunk,
+        patch.object(sink, "_get_fs", return_value=filesystem),
+        patch(f"{_MODULE}.deltalake.DeltaTable", side_effect=_open_delta_table) as open_delta,
+        patch(f"{_MODULE}.delta_storage_options", return_value={"region_name": "us-east-1"}),
+    ):
+        staged = await sink.stage_delta_snapshot("s3://data-warehouse/dlt/table", 7)
+
+    assert staged is True
+    assert clear.await_count == 2
+    sink.logger.awarning.assert_awaited_once()
+    assert open_delta.call_args_list == [
+        call("s3://data-warehouse/dlt/table", version=7, storage_options={"region_name": "us-east-1"}),
+        call("s3://data-warehouse/dlt/table", version=None, storage_options={"region_name": "us-east-1"}),
+    ]
+    stage_chunk.assert_awaited_once()
+    assert stage_chunk.await_args is not None
+    assert stage_chunk.await_args.args[1].to_pydict() == fresh_table.to_pydict()
 
 
 @pytest.mark.asyncio
