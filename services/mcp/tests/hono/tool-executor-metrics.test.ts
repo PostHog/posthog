@@ -39,7 +39,7 @@ vi.mock('@/resources', () => ({
 import { z } from 'zod'
 
 import { ApiClient } from '@/api/client'
-import { trackToolCall } from '@/hono/analytics'
+import { trackExecuteSqlGeneration, trackToolCall, trackToolSpan } from '@/hono/analytics'
 import { InstructionsBuilder } from '@/hono/instructions'
 import type { ResolvedState } from '@/hono/request-state-resolver'
 import { ToolCatalog } from '@/hono/tool-catalog'
@@ -95,6 +95,8 @@ describe('ToolExecutor metrics', () => {
         mockToolDurationStartTimer.mockClear()
         mockToolErrorsInc.mockClear()
         mockTrackToolCall.mockClear()
+        vi.mocked(trackExecuteSqlGeneration).mockClear()
+        vi.mocked(trackToolSpan).mockClear()
 
         catalog = new ToolCatalog()
         await catalog.warmup()
@@ -152,6 +154,15 @@ describe('ToolExecutor metrics', () => {
             const properties = trackToolCallExtras(tool)
             expect(properties).toMatchObject({ $mcp_error_type: type, $mcp_error_code: code })
             expect(JSON.stringify(properties)).not.toContain('private caller query')
+            const errorMetadata = {
+                isError: true,
+                errorMessage: `Tool failed: ${code} (retry: adjusted)`,
+            }
+            expect(trackToolSpan).toHaveBeenCalledWith(tool, state, expect.objectContaining(errorMetadata))
+            if (tool === 'execute-sql') {
+                expect(trackExecuteSqlGeneration).toHaveBeenCalledOnce()
+                expect(vi.mocked(trackExecuteSqlGeneration).mock.calls[0]?.[3]).toMatchObject(errorMetadata)
+            }
         }
     )
 

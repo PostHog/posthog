@@ -492,6 +492,7 @@ export class ToolExecutor {
                 this.servedToolDescription(tool.name)
             )
 
+            const errorMessage = extractErrorMessage(error)
             if (tool.name === EXECUTE_SQL_TOOL_NAME) {
                 void trackExecuteSqlGeneration(
                     tool.name,
@@ -500,7 +501,7 @@ export class ToolExecutor {
                     {
                         durationMs: Date.now() - startMs,
                         isError: true,
-                        errorMessage: error instanceof Error ? error.message : String(error),
+                        errorMessage,
                     },
                     analyticsMeta
                 )
@@ -509,7 +510,7 @@ export class ToolExecutor {
             void trackToolSpan(tool.name, state, {
                 durationMs: Date.now() - startMs,
                 isError: true,
-                errorMessage: error instanceof Error ? error.message : String(error),
+                errorMessage,
                 input: validation.data,
             })
 
@@ -703,6 +704,9 @@ export class ToolExecutor {
             if (!properties.validation_error) {
                 toolCallDurationSeconds.observe({ tool: toolName, status }, properties.duration_ms / 1000)
             }
+            const errorMessage = properties.validation_error
+                ? properties.error_message
+                : extractErrorMessage(properties.error)
             if (toolName === EXECUTE_SQL_TOOL_NAME && properties.input) {
                 void trackExecuteSqlGeneration(
                     toolName,
@@ -711,7 +715,7 @@ export class ToolExecutor {
                     {
                         durationMs: properties.duration_ms,
                         isError: !properties.success,
-                        errorMessage: properties.error_message,
+                        errorMessage,
                     },
                     analyticsMeta
                 )
@@ -719,7 +723,7 @@ export class ToolExecutor {
             void trackToolSpan(toolName, state, {
                 durationMs: properties.duration_ms,
                 isError: !properties.success,
-                errorMessage: properties.error_message,
+                errorMessage,
                 input: properties.input,
                 output: properties.output,
             })

@@ -68,10 +68,7 @@ class MCPToolErrorDetails(BaseModel):
 
     @classmethod
     def _classify_query_error(cls, cause: Exception) -> "MCPToolErrorDetails | None":
-        # Query-size failures share ClickHouse's syntax-error code. Normalize them
-        # before the input-error fallback so live and replayed failures agree.
-        query_error = wrap_clickhouse_query_error(cause)
-        if isinstance(query_error, (ClickHouseEstimatedQueryExecutionTimeTooLong, ClickHouseQuerySizeExceeded)):
+        if isinstance(cause, (ClickHouseEstimatedQueryExecutionTimeTooLong, ClickHouseQuerySizeExceeded)):
             return cls(type="api_5xx", code=MCPToolErrorCode.QUERY_LIMIT_EXCEEDED, retry_strategy="adjusted")
         category = classify_query_error(cause)
         if category == QueryErrorCategory.RATE_LIMITED:
@@ -92,6 +89,9 @@ class MCPToolErrorDetails(BaseModel):
 
     @classmethod
     def _classify_exception(cls, cause: Exception) -> "MCPToolErrorDetails | None":
+        # Raw ClickHouse errors and their typed wrappers must give the same
+        # recovery advice, including per-query limits versus cluster pressure.
+        cause = wrap_clickhouse_query_error(cause)
         if isinstance(
             cause, (MaxToolAccessDeniedError, UserAccessControlError, TableAccessDeniedError, PermissionDenied)
         ):
