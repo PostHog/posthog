@@ -38,6 +38,7 @@ from products.error_tracking.backend.facade.query_utils import (
     build_sparkline,
     build_top_in_app_frame,
     compact_dict,
+    dedupe_repeated_stacktraces,
     extract_latest_release,
     get_page_info,
     map_context_event_properties,
@@ -268,10 +269,12 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         include_stacktrace = "stacktrace" in includes or "code_variables" in includes
         only_app_frames = cast(bool, params.get("onlyAppFrames", True))
         include_code_variables = "code_variables" in includes
-        results = [
-            map_event_row(row, columns, include_stacktrace, only_app_frames, include_code_variables)
-            for row in raw_results[:limit]
-        ]
+        results = dedupe_repeated_stacktraces(
+            [
+                map_event_row(row, columns, include_stacktrace, only_app_frames, include_code_variables)
+                for row in raw_results[:limit]
+            ]
+        )
         has_more, next_offset = get_page_info(data, limit, offset)
         payload: dict[str, object] = {"results": results, "hasMore": has_more, "limit": limit, "offset": offset}
         if next_offset is not None:

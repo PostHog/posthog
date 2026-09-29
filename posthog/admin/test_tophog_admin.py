@@ -93,7 +93,8 @@ class TestTopHogAdminHelpers(BaseTest):
     @parameterized.expand(
         [
             ("known_names_mapped", ["sessionreplay", "analytics"], ["analytics", "session_recordings"]),
-            ("unknown_names_dropped", ["heatmaps", "ai"], []),
+            ("heatmaps_and_ai_mapped", ["heatmaps", "ai"], ["ai", "heatmaps"]),
+            ("unknown_names_dropped", ["unknown"], []),
         ]
     )
     def test_map_pipelines(self, _name, tophog_pipelines, expected):
@@ -113,8 +114,8 @@ class TestTopHogAdminHelpers(BaseTest):
             ),
             ("pipeline_covered", {}, {}, ["analytics"], True),
             ("pipeline_disjoint", {"pipelines": ["errortracking"]}, {}, ["analytics"], False),
-            ("unmapped_pipeline_never_covered", {}, {}, ["ai"], False),
-            ("partially_unmapped_never_covered", {}, {}, ["analytics", "ai"], False),
+            ("unmapped_pipeline_never_covered", {}, {}, ["unknown"], False),
+            ("partially_unmapped_never_covered", {}, {}, ["analytics", "unknown"], False),
             ("partial_pipeline_coverage_not_covered", {}, {}, ["analytics", "sessionreplay"], False),
             (
                 "full_pipeline_coverage",

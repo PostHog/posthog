@@ -194,13 +194,22 @@ def _build_snapshot_image_tables(run: Run, repo: Repo) -> str:
     return "\n\n".join(sections)
 
 
+_EXTENSION_URL = "https://github.com/PostHog/visual-review-extension"
+
+_EXTENSION_FOOTER = (
+    f'<sub><i>Install the <a href="{_EXTENSION_URL}">Visual Review Chrome extension</a> '
+    "to see visual review results at the top of your pull requests.</i></sub>"
+)
+
+
 def _build_review_prompt_body(run: Run, repo: Repo) -> str:
     """Build the markdown body of the PR comment that asks for a visual review."""
     return (
         "👋 **Visual changes detected** for this PR.\n\n"
         f"[Review and approve in PostHog Visual Review]({_run_url(run, repo)})\n\n"
         "If these changes are unexpected, they may be caused by a flaky test or a "
-        "broken snapshot on master. Don't approve — rerun the job or wait for a fix."
+        "broken snapshot on master. Don't approve — rerun the job or wait for a fix.\n\n"
+        f"{_EXTENSION_FOOTER}"
     )
 
 
@@ -253,6 +262,7 @@ def _build_approval_comment_body(run: Run, repo: Repo, approver: _Approver | Non
         tables = _build_snapshot_image_tables(run, repo)
         if tables:
             sections.append(tables)
+    sections.append(_EXTENSION_FOOTER)
 
     return "\n\n".join(sections) + "\n"
 

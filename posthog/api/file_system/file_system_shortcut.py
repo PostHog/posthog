@@ -14,7 +14,7 @@ from posthog.api.file_system.access_levels import FileSystemAccessLevelSerialize
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import User
 from posthog.models.file_system.constants import DEFAULT_SURFACE, surface_q
-from posthog.models.file_system.file_system_shortcut import FileSystemShortcut
+from posthog.models.file_system.file_system_shortcut import FileSystemShortcut, lock_user_shortcuts
 
 
 class FileSystemShortcutSerializer(FileSystemAccessLevelSerializerMixin, serializers.ModelSerializer):
@@ -53,21 +53,24 @@ class FileSystemShortcutSerializer(FileSystemAccessLevelSerializerMixin, seriali
     def create(self, validated_data: dict[str, Any], *args: Any, **kwargs: Any) -> FileSystemShortcut:
         request = self.context["request"]
         team = self.context["get_team"]()
-        # Place new shortcuts at the end of the user's current order so they don't jump
-        # ahead of items the user has explicitly reordered.
-        last_order = (
-            FileSystemShortcut.objects.filter(team=team, user=request.user)
-            .order_by("-order")
-            .values_list("order", flat=True)
-            .first()
-        )
-        validated_data.setdefault("order", (last_order or 0) + 1)
-        file_system_shortcut = FileSystemShortcut.objects.create(
-            team=team,
-            user=request.user,
-            surface=self.context.get("file_system_surface", DEFAULT_SURFACE),
-            **validated_data,
-        )
+        with transaction.atomic():
+            # Two stars added at once would otherwise read the same last order and share it.
+            lock_user_shortcuts(team.pk, request.user.pk)
+            # Place new shortcuts at the end of the user's current order so they don't jump
+            # ahead of items the user has explicitly reordered.
+            last_order = (
+                FileSystemShortcut.objects.filter(team=team, user=request.user)
+                .order_by("-order")
+                .values_list("order", flat=True)
+                .first()
+            )
+            validated_data.setdefault("order", (last_order or 0) + 1)
+            file_system_shortcut = FileSystemShortcut.objects.create(
+                team=team,
+                user=request.user,
+                surface=self.context.get("file_system_surface", DEFAULT_SURFACE),
+                **validated_data,
+            )
         return file_system_shortcut
 
 
@@ -76,6 +79,48 @@ class FileSystemShortcutReorderSerializer(serializers.Serializer):
         child=serializers.UUIDField(),
         allow_empty=False,
         help_text="IDs of the current user's shortcuts in the desired display order.",
+    )
+
+
+class FileSystemShortcutBulkItemSerializer(serializers.Serializer):
+    path = serializers.CharField(help_text="Display path of the shortcut in the sidebar.")
+    type = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        max_length=100,
+        help_text="Type of the linked item (e.g. 'folder', 'insight'), or blank.",
+    )
+    ref = serializers.CharField(
+        required=False,
+        allow_null=True,
+        default=None,
+        max_length=4000,
+        help_text="Reference to the linked item, scoped to its type. Null for href-only shortcuts.",
+    )
+    href = serializers.CharField(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text="Destination URL the shortcut opens. Null when the shortcut points at an item by ref.",
+    )
+
+
+class FileSystemShortcutBulkUpdateSerializer(serializers.Serializer):
+    add = serializers.ListField(
+        child=FileSystemShortcutBulkItemSerializer(),
+        required=False,
+        default=list,
+        max_length=500,
+        help_text="Shortcuts to create, appended to the end of the current order in the given sequence. "
+        "An item identical to a shortcut the user already has is skipped.",
+    )
+    remove_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        required=False,
+        default=list,
+        max_length=500,
+        help_text="IDs of the current user's shortcuts to delete.",
     )
 
 
@@ -144,6 +189,60 @@ class FileSystemShortcutViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     default=0,
                 )
             )
+
+        refreshed = self.filter_queryset(self.get_queryset())
+        return Response(self.get_serializer(refreshed, many=True).data)
+
+    @extend_schema(
+        request=FileSystemShortcutBulkUpdateSerializer,
+        responses={200: OpenApiResponse(response=FileSystemShortcutSerializer(many=True))},
+        description="Create and delete several of the current user's shortcuts in one transaction, then return "
+        "the full shortcut list in display order. Any unknown ID in `remove_ids` rejects the whole request.",
+    )
+    @action(detail=False, methods=["post"], url_path="bulk_update", pagination_class=None)
+    def bulk_update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        serializer = FileSystemShortcutBulkUpdateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        items: list[dict[str, Any]] = serializer.validated_data["add"]
+        remove_ids = {str(uuid) for uuid in serializer.validated_data["remove_ids"]}
+
+        user = cast(User, request.user)
+        user_shortcuts_qs = FileSystemShortcut.objects.filter(
+            surface_q(self.file_system_surface), team=self.team, user=user
+        )
+        with transaction.atomic():
+            # Overlapping saves would otherwise read the same list and add duplicates or reuse an order.
+            lock_user_shortcuts(self.team.pk, user.pk)
+            existing = list(user_shortcuts_qs.values_list("id", "path", "type", "ref", "href", "order"))
+            unknown = sorted(remove_ids - {str(row[0]) for row in existing})
+            if unknown:
+                return Response(
+                    {"detail": "Unknown shortcut ids", "unknown_ids": unknown},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            kept = [row for row in existing if str(row[0]) not in remove_ids]
+            seen = {(path, kind or "", ref, href) for _, path, kind, ref, href, _ in kept}
+            next_order = max((row[5] for row in kept), default=0) + 1
+            to_create: list[FileSystemShortcut] = []
+            for item in items:
+                key = (item["path"], item["type"], item["ref"], item["href"])
+                if key in seen:
+                    continue
+                seen.add(key)
+                to_create.append(
+                    FileSystemShortcut(
+                        team=self.team,
+                        user=user,
+                        surface=self.file_system_surface,
+                        order=next_order + len(to_create),
+                        **item,
+                    )
+                )
+
+            if remove_ids:
+                user_shortcuts_qs.filter(id__in=remove_ids).delete()
+            FileSystemShortcut.objects.bulk_create(to_create)
 
         refreshed = self.filter_queryset(self.get_queryset())
         return Response(self.get_serializer(refreshed, many=True).data)
