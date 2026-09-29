@@ -93,7 +93,7 @@ export interface todayShellLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         routePane: (location: { hash: string; pathname: string; search: string }) => TodayRailPane | null
         activePane: (pickedPane: TodayRailPane | null, routePane: TodayRailPane | null) => TodayRailPane
-        leftNavWidth: (sidebarOpen: boolean, sidebarWidth: 312) => number
+        leftNavWidth: (sidebarOpen: boolean, sidebarWidth: number) => number
     }
 }
 

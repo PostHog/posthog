@@ -18,7 +18,7 @@ export function TodaySpacesSidebar(): JSX.Element {
         spacesUnavailable,
         expandedSpaceIds,
         spaceTasks,
-        spaceTasksLoading,
+        loadingSpaceIds,
         recentChats,
         conversationHistoryLoading,
     } = useValues(todaySpacesLogic)
@@ -73,7 +73,7 @@ export function TodaySpacesSidebar(): JSX.Element {
                                 />
                                 {expanded &&
                                     (tasks === undefined ? (
-                                        spaceTasksLoading ? (
+                                        loadingSpaceIds.includes(space.id) ? (
                                             <div className="TodayPane__state TodayPane__state--nested">
                                                 <Spinner />
                                             </div>

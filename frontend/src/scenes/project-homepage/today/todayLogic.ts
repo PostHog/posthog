@@ -194,6 +194,7 @@ export const todayLogic = kea<todayLogicType>([
                     }
                     // The same filter as the Inbox's actionable view, ranked by priority, so Today shows
                     // the reports most worth acting on first.
+                    // nosemgrep: prefer-codegen-api-namespaced-signals -- Today passes reports to the Inbox's helpers, which take the handwritten SignalReport. The generated report type is wider (string status and priority, read-only arrays), so this call moves to generated types together with the Inbox.
                     const response = await api.signalReports.list({
                         status: 'ready,pending_input',
                         actionability: 'immediately_actionable,requires_human_input',

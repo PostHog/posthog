@@ -2,7 +2,7 @@ import { MakeLogicType, actions, connect, kea, path, reducers, selectors } from 
 
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getProductAccessDisabledReason } from 'lib/utils/accessControlUtils'
-import { TOOL_FILE_SYSTEM_TYPES } from 'scenes/library/libraryLogic'
+import { TOOL_FILE_SYSTEM_TYPES } from 'scenes/library/libraryUtils'
 
 import { fileSystemTypes, getTreeItemsMetadata, getTreeItemsProducts } from '~/products'
 import { FileSystemImport } from '~/queries/schema/schema-general'

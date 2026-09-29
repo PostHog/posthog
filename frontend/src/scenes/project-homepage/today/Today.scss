@@ -1,6 +1,7 @@
 // The Today layout keeps its own "paper" palette. Colours that also appear on tinted surfaces stay literal,
-// the rest switch with the app theme.
-.Today {
+// the rest switch with the app theme. The app layout shares it so the page behind the rail matches.
+.Today,
+.TodayAppLayout {
     --today-ink: #151515;
     --today-muted: #8d8d88;
     --today-faint: #a3a39e;
@@ -27,11 +28,6 @@
     --today-ease-nudge: cubic-bezier(0.2, 0.8, 0.2, 1);
     --today-card-shadow: 0 1px 2px #00000008, 0 12px 32px -24px #00000059;
 
-    font-family: var(--font-sans);
-    color: var(--today-ink);
-    background: var(--today-paper);
-    -webkit-font-smoothing: antialiased;
-
     [theme='dark'] & {
         --today-ink: #f1f1ee;
         --today-muted: #a6a6a0;
@@ -54,6 +50,13 @@
         --today-pill: #262624;
         --today-pill-border: #333331;
     }
+}
+
+.Today {
+    font-family: var(--font-sans);
+    color: var(--today-ink);
+    background: var(--today-paper);
+    -webkit-font-smoothing: antialiased;
 }
 
 .Today__label {
@@ -134,7 +137,7 @@
     min-height: 0;
     padding: 0 4px 24px;
     overflow-y: auto;
-    scrollbar-color: #d4d4ce transparent;
+    scrollbar-color: var(--today-input-border) transparent;
     scrollbar-width: thin;
 }
 

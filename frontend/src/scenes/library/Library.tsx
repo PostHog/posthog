@@ -2,7 +2,9 @@ import { useActions, useValues } from 'kea'
 
 import { LemonBanner, LemonButton, LemonInput, LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
 
+import { NotFound } from 'lib/components/NotFound'
 import { TZLabel } from 'lib/components/TZLabel'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
@@ -11,7 +13,8 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { FileSystemEntry, FileSystemIconType } from '~/queries/schema/schema-general'
 
 import { LibraryCreateButton } from './LibraryCreateButton'
-import { baseObjectType, libraryLogic, libraryObjectHref, libraryObjectName } from './libraryLogic'
+import { libraryLogic } from './libraryLogic'
+import { baseObjectType, libraryObjectHref, libraryObjectName } from './libraryUtils'
 
 export const scene: SceneExport = {
     component: Library,
@@ -20,6 +23,12 @@ export const scene: SceneExport = {
 
 /** Saved objects across the project, filtered by the type in the URL. */
 export function Library(): JSX.Element {
+    const libraryEnabled = useFeatureFlag('TODAY_RAIL_NAV')
+    // The page ships behind the Today navigation, so without the flag `/library` stays a missing page.
+    return libraryEnabled ? <LibraryContent /> : <NotFound object="page" />
+}
+
+function LibraryContent(): JSX.Element {
     const { objectType, objectTypeByValue, visibleObjects, objectsLoading, loadFailed, search, hasMore } =
         useValues(libraryLogic)
     const { setSearch, loadObjects, loadMoreObjects } = useActions(libraryLogic)

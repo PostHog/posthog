@@ -1,9 +1,5 @@
 .TodayAppLayout {
-    background: #f7f7f5;
-
-    [theme='dark'] & {
-        background: #161615;
-    }
+    background: var(--today-paper);
 }
 
 .TodayShell {
@@ -46,7 +42,7 @@
     padding: 0 4px 24px;
     margin-top: 6px;
     overflow-y: auto;
-    scrollbar-color: #d4d4ce transparent;
+    scrollbar-color: var(--today-input-border) transparent;
     scrollbar-width: thin;
 }
 

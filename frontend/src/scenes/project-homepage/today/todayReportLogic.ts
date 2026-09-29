@@ -3,12 +3,11 @@ import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
-import type { SignalNode } from 'scenes/debug/signals/types'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { signalsReportsSignalsRetrieve } from 'products/signals/frontend/generated/api'
-import { ReportChartApi } from 'products/signals/frontend/generated/api.schemas'
+import { ReportChartApi, SignalNodeApi } from 'products/signals/frontend/generated/api.schemas'
 import { SignalReport } from 'products/signals/frontend/inbox/types'
 import { ChartPlacements, resolveChartPlacements } from 'products/signals/frontend/inbox/utils/chartPlacement'
 
@@ -27,10 +26,10 @@ export interface todayReportLogicValues {
     fullReport: SignalReport | null
     fullReportLoading: boolean
     reportFailed: boolean
-    reportSignals: SignalNode[] | null
+    reportSignals: SignalNodeApi[] | null
     reportSignalsLoading: boolean
     reportUrl: string
-    signals: SignalNode[]
+    signals: SignalNodeApi[]
     trailingCharts: ReportChartApi[]
 }
 
@@ -60,10 +59,10 @@ export interface todayReportLogicActions {
         errorObject?: any
     }
     loadReportSignalsSuccess: (
-        reportSignals: SignalNode[],
+        reportSignals: SignalNodeApi[],
         payload?: any
     ) => {
-        reportSignals: SignalNode[]
+        reportSignals: SignalNodeApi[]
         payload?: any
     }
 }
@@ -72,10 +71,14 @@ export interface todayReportLogicActions {
 export interface todayReportLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        currentReport: (fullReport: SignalReport | null, reports: SignalReport[]) => SignalReport | null
+        currentReport: (
+            fullReport: SignalReport | null,
+            reports: SignalReport[],
+            reportFailed: boolean
+        ) => SignalReport | null
         chartPlacements: (currentReport: SignalReport | null) => ChartPlacements
         trailingCharts: (currentReport: SignalReport | null, chartPlacements: ChartPlacements) => ReportChartApi[]
-        signals: (reportSignals: SignalNode[] | null) => SignalNode[]
+        signals: (reportSignals: SignalNodeApi[] | null) => SignalNodeApi[]
     }
 }
 
@@ -103,14 +106,15 @@ export const todayReportLogic = kea<todayReportLogicType>([
                         }
                         return report
                     }
+                    // nosemgrep: prefer-codegen-api-namespaced-signals -- Today passes reports to the Inbox's helpers, which take the handwritten SignalReport. The generated report type is wider (string status and priority, read-only arrays), so this call moves to generated types together with the Inbox.
                     return await api.signalReports.get(props.reportId)
                 },
             },
         ],
         reportSignals: [
-            null as SignalNode[] | null,
+            null as SignalNodeApi[] | null,
             {
-                loadReportSignals: async (): Promise<SignalNode[]> => {
+                loadReportSignals: async (): Promise<SignalNodeApi[]> => {
                     if (isSampleReportId(props.reportId)) {
                         return sampleSignals(props.reportId)
                     }
@@ -128,10 +132,11 @@ export const todayReportLogic = kea<todayReportLogicType>([
     }),
     selectors(({ props }) => ({
         // The list row renders at once, and the full report replaces it when it arrives with its charts.
+        // A failed load shows its error instead, so the page never passes off the list row as the report.
         currentReport: [
-            (s) => [s.fullReport, s.reports],
-            (fullReport: SignalReport | null, reports: SignalReport[]): SignalReport | null =>
-                fullReport ?? reports.find((report) => report.id === props.reportId) ?? null,
+            (s) => [s.fullReport, s.reports, s.reportFailed],
+            (fullReport: SignalReport | null, reports: SignalReport[], reportFailed: boolean): SignalReport | null =>
+                reportFailed ? null : (fullReport ?? reports.find((report) => report.id === props.reportId) ?? null),
         ],
         chartPlacements: [
             (s) => [s.currentReport],
@@ -149,7 +154,7 @@ export const todayReportLogic = kea<todayReportLogicType>([
         // The API returns signals oldest first, and the newest one is the most useful to read first.
         signals: [
             (s) => [s.reportSignals],
-            (reportSignals: SignalNode[] | null): SignalNode[] =>
+            (reportSignals: SignalNodeApi[] | null): SignalNodeApi[] =>
                 [...(reportSignals ?? [])].sort(
                     (first, second) => new Date(second.timestamp).getTime() - new Date(first.timestamp).getTime()
                 ),

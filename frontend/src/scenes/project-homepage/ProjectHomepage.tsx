@@ -1,6 +1,7 @@
 import './ProjectHomepage.scss'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { useValues } from 'kea'
+
 import { projectHomepageLogic } from 'scenes/project-homepage/projectHomepageLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 
@@ -13,6 +14,6 @@ export const scene: SceneExport = {
 }
 
 export function ProjectHomepage(): JSX.Element {
-    const todayEnabled = useFeatureFlag('TODAY_RAIL_NAV')
-    return <div className="flex-1 min-h-0">{todayEnabled ? <TodayHome /> : <AiFirstHomepage />}</div>
+    const { todayHomeEnabled } = useValues(projectHomepageLogic)
+    return <div className="flex-1 min-h-0">{todayHomeEnabled ? <TodayHome /> : <AiFirstHomepage />}</div>
 }
