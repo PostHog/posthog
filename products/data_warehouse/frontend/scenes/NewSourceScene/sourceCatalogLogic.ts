@@ -6,13 +6,14 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS, FeatureFlagKey } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { createFuse } from 'lib/utils/fuseSearch'
 import { objectsEqual } from 'lib/utils/objects'
 import { getSourceDisplayStatus } from 'scenes/data-pipelines/utils/nonHogFunctionTemplatesLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { HogFunctionTemplateStatus } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, HogFunctionTemplateStatus } from '~/types'
 
 import {
     DataWarehouseSourceCategoryApi,
@@ -196,6 +197,15 @@ export type sourceCatalogLogicType = MakeLogicType<
     SourceCatalogLogicProps,
     sourceCatalogLogicMeta
 >
+
+// Event sources open the hog function editor, and hog functions have no resource-level access
+// control, so the warehouse source permission doesn't apply to them.
+export function catalogItemAccessDisabledReason(item: CatalogItem): string | null {
+    if (item.url.startsWith(urls.hogFunctionNew(''))) {
+        return null
+    }
+    return getAccessControlDisabledReason(AccessControlResourceType.ExternalDataSource, AccessControlLevel.Editor)
+}
 
 // Fuse matches the whole search term as one pattern, so an extra word buries a term that would
 // match on its own: "csv" finds every file-storage connector, "csv files" finds nothing. Retry the

@@ -4,13 +4,13 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { ExternalDataSource } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, AppContext, ExternalDataSource } from '~/types'
 
 import type { SourceConfigResponseApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 import { sourcesDataLogic } from '../../../shared/logics/sourcesDataLogic'
 import { availableSourcesLogic } from '../availableSourcesLogic'
-import { sourceCatalogLogic } from '../sourceCatalogLogic'
+import { catalogItemAccessDisabledReason, sourceCatalogLogic } from '../sourceCatalogLogic'
 
 const AVAILABLE_SOURCES: Record<string, SourceConfigResponseApi> = {
     // Featured, so it must lead the browse list even though `Stripe` sorts after `Mango`.
@@ -261,4 +261,34 @@ describe('sourceCatalogLogic', () => {
 
         unmountRestricted()
     })
+
+    it.each([
+        { warehouseAccess: AccessControlLevel.Viewer, stripeBlocked: true },
+        { warehouseAccess: AccessControlLevel.Editor, stripeBlocked: false },
+    ])(
+        'gates warehouse tiles, not the incoming webhook, on $warehouseAccess warehouse source access',
+        ({ warehouseAccess, stripeBlocked }) => {
+            const appContextBefore = window.POSTHOG_APP_CONTEXT
+            window.POSTHOG_APP_CONTEXT = {
+                ...window.POSTHOG_APP_CONTEXT,
+                resource_access_control: {
+                    ...window.POSTHOG_APP_CONTEXT?.resource_access_control,
+                    [AccessControlResourceType.ExternalDataSource]: warehouseAccess,
+                },
+            } as AppContext
+            try {
+                const logic = sourceCatalogLogic()
+                featureFlagLogic.mount()
+                featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.CDP_HOG_SOURCES], {
+                    [FEATURE_FLAGS.CDP_HOG_SOURCES]: true,
+                })
+                const byName = Object.fromEntries(logic.values.catalogItems.map((item) => [item.name, item]))
+
+                expect(catalogItemAccessDisabledReason(byName['event-webhook'])).toBeNull()
+                expect(!!catalogItemAccessDisabledReason(byName.Stripe)).toBe(stripeBlocked)
+            } finally {
+                window.POSTHOG_APP_CONTEXT = appContextBefore
+            }
+        }
+    )
 })

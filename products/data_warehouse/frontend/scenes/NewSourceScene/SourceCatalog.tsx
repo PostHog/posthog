@@ -15,7 +15,7 @@ import { ExternalDataSourceTypeEnumApi } from 'products/warehouse_sources/fronte
 import { SourceIcon } from '../../shared/components/SourceIcon'
 import { SourceReleaseTag } from '../../shared/components/SourceReleaseTag'
 import { WarehouseWizardHint } from '../../shared/components/WarehouseWizardHint'
-import { CatalogItem, sourceCatalogLogic } from './sourceCatalogLogic'
+import { CatalogItem, catalogItemAccessDisabledReason, sourceCatalogLogic } from './sourceCatalogLogic'
 
 // Horizontal card: logo on the left, name/status/action stacked on the right. `min-h` (not a fixed
 // height) so a wrapped name plus the "Notify me" button can never clip.
@@ -34,12 +34,10 @@ export interface SourceCatalogProps {
 // equality check) and the callbacks are kea actions.
 const SourceTile = memo(function SourceTile({
     item,
-    accessDisabledReason,
     onNotify,
     onSelect,
 }: {
     item: CatalogItem
-    accessDisabledReason: string | null
     onNotify: (item: CatalogItem) => void
     onSelect: (item: CatalogItem) => void
 }): JSX.Element {
@@ -90,6 +88,7 @@ const SourceTile = memo(function SourceTile({
         )
     }
 
+    const accessDisabledReason = catalogItemAccessDisabledReason(item)
     if (accessDisabledReason) {
         return (
             <Tooltip title={accessDisabledReason}>
@@ -227,7 +226,6 @@ export function SourceCatalog({ allowedSources }: SourceCatalogProps): JSX.Eleme
                         <SourceTile
                             key={item.name}
                             item={item}
-                            accessDisabledReason={accessDisabledReason}
                             onNotify={registerInterest}
                             onSelect={selectSourceType}
                         />
