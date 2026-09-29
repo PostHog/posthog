@@ -402,6 +402,7 @@ class TestMarketingAnalyticsActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert warm.call_args.kwargs["query"]["dateRange"] == source.dateRange.model_dump(exclude_none=True)
 
     @parameterized.expand([("fresh", False), ("stale", True)])
+    @time_machine.travel(datetime.now(UTC), tick=False)
     def test_precomputed_people_only_schedule_refresh_when_stale(self, _name: str, stale: bool) -> None:
         person = create_person(team=self.team, distinct_ids=["precomputed-buyer"])
         self._session_and_conversion("precomputed-buyer", "winter-sale", "google")
