@@ -23,11 +23,13 @@ from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import Feature, tags_context
 from posthog.event_usage import get_event_source
+from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.renderers import SafeJSONRenderer
 
 from ee.hogai.mcp_tool import MCPToolResult, mcp_tool_registry
 from ee.hogai.tool_errors import MaxToolError
+from ee.hogai.tools.docs_search_shadow import fetch_inkeep_with_shadow
 from ee.hogai.tools.search import format_inkeep_docs_response
 
 logger = get_logger(__name__)
@@ -107,7 +109,7 @@ class MCPToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         client = AsyncOpenAI(base_url="https://api.inkeep.com/v1/", api_key=settings.INKEEP_API_KEY)
 
         try:
-            content = async_to_sync(_run_inkeep_docs_search)(client, query)
+            content = async_to_sync(_run_inkeep_docs_search)(client, query, self.team)
         except Exception as e:
             logger.exception("Error running docs_search", extra={"error": str(e)})
             capture_exception(e, properties={"tag": "mcp", "tool_name": "docs_search"})
@@ -188,11 +190,20 @@ class MCPToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         return Response({"success": True, **result.model_dump(exclude_none=True)})
 
 
-async def _run_inkeep_docs_search(client: AsyncOpenAI, query: str) -> str:
+async def _fetch_inkeep_payload(client: AsyncOpenAI, query: str) -> dict | None:
     response = await client.chat.completions.create(
         model="inkeep-rag",
         messages=[{"role": "user", "content": query}],
     )
     raw = response.choices[0].message.content if response.choices else None
-    payload = json.loads(raw) if raw else None
+    return json.loads(raw) if raw else None
+
+
+async def _run_inkeep_docs_search(client: AsyncOpenAI, query: str, team: Team) -> str:
+    payload = await fetch_inkeep_with_shadow(
+        team=team,
+        query=query,
+        fetch_inkeep=lambda: _fetch_inkeep_payload(client, query),
+        surface="mcp",
+    )
     return format_inkeep_docs_response(payload, include_system_reminder=False)

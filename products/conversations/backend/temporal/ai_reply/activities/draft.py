@@ -144,6 +144,7 @@ def _hydrate_chunks(team_id: int, chunk_ids: list[str]) -> list[dict[str, Any]]:
             "source_name": r.source_name,
             "source_type": r.source_type,
             "is_generated": r.is_generated,
+            "url": r.url,
         }
         for r in results
     ]
@@ -161,10 +162,17 @@ def format_knowledge_chunks(chunks: list[dict[str, Any]]) -> str:
     if not chunks:
         return "(none)"
     visible = chunks[:20]
-    rendered = "\n\n".join(
-        (f"{_chunk_label(c)} [chunk_id={c['chunk_id']}] ({c['document_title']} > {c['heading_path']})\n{c['content']}")
-        for c in visible
-    )
+    rendered_chunks: list[str] = []
+    for chunk in visible:
+        header = (
+            f"{_chunk_label(chunk)} [chunk_id={chunk['chunk_id']}] "
+            f"({chunk['document_title']} > {chunk['heading_path']})"
+        )
+        url = chunk.get("url")
+        if url:
+            header = f"{header}\nURL: {url}"
+        rendered_chunks.append(f"{header}\n{chunk['content']}")
+    rendered = "\n\n".join(rendered_chunks)
     if any(c.get("is_generated") for c in visible):
         return f"{LEARNED_CHUNK_NOTE}\n\n{rendered}"
     return rendered

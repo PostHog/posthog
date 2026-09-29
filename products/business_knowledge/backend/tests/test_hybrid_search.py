@@ -109,6 +109,14 @@ class TestHybridSearch(BaseTest):
                 KnowledgeChunk.objects.filter(source_id=source.id).order_by("ordinal").values_list("id", flat=True)
             )
 
+    def test_search_result_includes_document_url(self) -> None:
+        source = self._ready_source_with_chunks(["The refund policy states thirty day returns."])
+        page = "https://example.com/docs/refunds"
+        with team_scope(self.team.id, canonical=True):
+            KnowledgeDocument.objects.filter(source_id=source.id).update(url=page)
+        results = search_knowledge(self.team.id, "refund policy", use_semantic=False)
+        assert results[0].url == page
+
     def test_use_semantic_false_is_pure_fts(self) -> None:
         self._ready_source_with_chunks(["The refund policy states thirty day returns."])
         results_kw = search_knowledge(self.team.id, "refund policy", use_semantic=False)

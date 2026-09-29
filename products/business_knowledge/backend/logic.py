@@ -6,6 +6,7 @@ All ORM access, chunking, quota enforcement, and search queries.
 
 import re
 import uuid
+import asyncio
 import datetime
 from collections import defaultdict
 from dataclasses import dataclass
@@ -29,7 +30,7 @@ from django.utils import timezone
 import structlog
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from posthog.api.embedding_worker import generate_embedding
+from posthog.api.embedding_worker import async_generate_embedding, generate_embedding
 from posthog.dataclasses import frozen
 from posthog.helpers.full_text_search import process_query
 from posthog.models.organization import OrganizationMembership
@@ -39,6 +40,7 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.ph_client import feature_enabled_or_false
 from posthog.security.url_validation import is_url_allowed
+from posthog.sync import database_sync_to_async
 
 from ee.hogai.llm import MaxChatAnthropic
 
@@ -49,6 +51,7 @@ from .constants import (
     BK_EMBEDDING_DOCUMENT_TYPE,
     BK_EMBEDDING_MODEL,
     BK_EMBEDDING_PRODUCT,
+    BK_QUERY_EMBEDDING_TIMEOUT,
     BK_RERANK_MODEL,
     BK_RERANK_SNIPPET_CHARS,
     BK_RRF_K,
@@ -2196,6 +2199,7 @@ def get_always_on_context(team_id: int) -> "list[KnowledgeSearchResult]":
             "source__source_type",
             "source__is_generated",
             "document__title",
+            "document__url",
         )
         .order_by("source_id", "document_id", "ordinal")
     )
@@ -2220,6 +2224,22 @@ def has_feature_flag(team: Team) -> bool:
         return True
     return feature_enabled_or_false(
         "product-business-knowledge",
+        str(team.organization_id),
+        groups={"organization": str(team.organization_id)},
+        group_properties={"organization": {"id": str(team.organization_id)}},
+        send_feature_flag_events=False,
+    )
+
+
+DOCS_SHADOW_FLAG = "business-knowledge-docs-shadow"
+
+
+def has_docs_shadow_feature_flag(team: Team) -> bool:
+    """Org-keyed, same as `has_feature_flag`. Off in DEBUG so local docs search does not shadow."""
+    if settings.DEBUG:
+        return False
+    return feature_enabled_or_false(
+        DOCS_SHADOW_FLAG,
         str(team.organization_id),
         groups={"organization": str(team.organization_id)},
         group_properties={"organization": {"id": str(team.organization_id)}},
@@ -2401,6 +2421,7 @@ class KnowledgeSearchResult:
     ordinal: int
     content: str
     is_generated: bool = False
+    url: str = ""
 
 
 def _result_from_chunk(chunk: KnowledgeChunk) -> KnowledgeSearchResult:
@@ -2415,6 +2436,7 @@ def _result_from_chunk(chunk: KnowledgeChunk) -> KnowledgeSearchResult:
         ordinal=chunk.ordinal,
         content=chunk.content,
         is_generated=bool(chunk.source.is_generated),
+        url=chunk.document.url,
     )
 
 
@@ -2515,6 +2537,7 @@ def search_knowledge(
             "source__source_type",
             "source__is_generated",
             "document__title",
+            "document__url",
         )
     )
 
@@ -2533,9 +2556,8 @@ def search_knowledge_for_team(
     Sync orchestration of hybrid BK search: embed the query, then call
     ``search_knowledge``. Falls back to FTS-only on any embedding failure.
 
-    Used by the DRF search endpoint (sync view). The async PHAI tool path
-    uses ``async_generate_embedding`` directly — they share ``search_knowledge``
-    as the common layer, not this wrapper.
+    Used by the DRF search endpoint (sync view). The async path is
+    ``async_search_knowledge_for_team``. Both share ``search_knowledge``.
     """
     embedding: list[float] | None = None
     try:
@@ -2543,6 +2565,31 @@ def search_knowledge_for_team(
     except Exception:
         logger.warning("bk_query_embedding_failed", team_id=team.id, exc_info=True)
     return search_knowledge(team.id, query, limit=limit, use_semantic=embedding is not None, query_embedding=embedding)
+
+
+async def async_search_knowledge_for_team(
+    team: Team,
+    query: str,
+    *,
+    limit: int = 10,
+) -> list[KnowledgeSearchResult]:
+    """Async hybrid search. Embedding failure or timeout falls back to full-text search."""
+    embedding: list[float] | None = None
+    try:
+        response = await asyncio.wait_for(
+            async_generate_embedding(team, query, model=BK_EMBEDDING_MODEL),
+            timeout=BK_QUERY_EMBEDDING_TIMEOUT,
+        )
+        embedding = response.embedding
+    except Exception:
+        logger.warning("bk_query_embedding_failed", team_id=team.id, exc_info=True)
+    return await database_sync_to_async(search_knowledge, thread_sensitive=False)(
+        team.id,
+        query,
+        limit=limit,
+        use_semantic=embedding is not None,
+        query_embedding=embedding,
+    )
 
 
 _RERANK_CHUNK_ID_PATTERN = re.compile(
@@ -2693,6 +2740,7 @@ def get_document_window(
             "source__source_type",
             "source__is_generated",
             "document__title",
+            "document__url",
         )
         .order_by("ordinal")
     )
@@ -2730,6 +2778,7 @@ def get_chunks_by_ids(team_id: int, chunk_ids: list[UUID]) -> list[KnowledgeSear
             "source__source_type",
             "source__is_generated",
             "document__title",
+            "document__url",
         )
     )
     by_id = {c.id: c for c in chunks}

@@ -307,6 +307,11 @@ def _host_serialized_batches(
     return batches
 
 
+# A 5000-page crawl at a few concurrent fetches does not finish in 10 minutes.
+_CRAWL_ACTIVITY_TIMEOUT = timedelta(minutes=60)
+_CRAWL_HEARTBEAT_TIMEOUT = timedelta(minutes=5)
+
+
 @activity.defn
 async def refresh_knowledge_source_activity(inputs: RefreshSourceInputs) -> dict[str, Any]:
     """
@@ -317,16 +322,22 @@ async def refresh_knowledge_source_activity(inputs: RefreshSourceInputs) -> dict
     Temporal doesn't retry them. Unexpected exceptions propagate for retry.
     """
     log = logger.bind(team_id=inputs.team_id, source_id=inputs.source_id)
-    try:
-        await database_sync_to_async(logic.refresh_source, thread_sensitive=False)(
-            source_id=UUID(inputs.source_id), team_id=inputs.team_id
-        )
-    except logic.SourceBusyError:
-        return {"status": "skipped", "reason": "busy"}
-    except (logic.InvalidUrlError, logic.UrlFetchFailedError, logic.EmptyContentError, logic.QuotaExceededError) as exc:
-        log.info("business_knowledge.refresh.recorded_failure", error_type=type(exc).__name__)
-        return {"status": "error", "reason": type(exc).__name__}
-    return {"status": "ok"}
+    async with Heartbeater():
+        try:
+            await database_sync_to_async(logic.refresh_source, thread_sensitive=False)(
+                source_id=UUID(inputs.source_id), team_id=inputs.team_id
+            )
+        except logic.SourceBusyError:
+            return {"status": "skipped", "reason": "busy"}
+        except (
+            logic.InvalidUrlError,
+            logic.UrlFetchFailedError,
+            logic.EmptyContentError,
+            logic.QuotaExceededError,
+        ) as exc:
+            log.info("business_knowledge.refresh.recorded_failure", error_type=type(exc).__name__)
+            return {"status": "error", "reason": type(exc).__name__}
+        return {"status": "ok"}
 
 
 @activity.defn
@@ -336,14 +347,20 @@ async def execute_refresh_knowledge_source_activity(inputs: RefreshSourceInputs)
     PROCESSING. Used by the ad-hoc refresh workflow (user clicks "Re-fetch").
     """
     log = logger.bind(team_id=inputs.team_id, source_id=inputs.source_id)
-    try:
-        await database_sync_to_async(logic.execute_refresh_source, thread_sensitive=False)(
-            source_id=UUID(inputs.source_id), team_id=inputs.team_id
-        )
-    except (logic.InvalidUrlError, logic.UrlFetchFailedError, logic.EmptyContentError, logic.QuotaExceededError) as exc:
-        log.info("business_knowledge.refresh.recorded_failure", error_type=type(exc).__name__)
-        return {"status": "error", "reason": type(exc).__name__}
-    return {"status": "ok"}
+    async with Heartbeater():
+        try:
+            await database_sync_to_async(logic.execute_refresh_source, thread_sensitive=False)(
+                source_id=UUID(inputs.source_id), team_id=inputs.team_id
+            )
+        except (
+            logic.InvalidUrlError,
+            logic.UrlFetchFailedError,
+            logic.EmptyContentError,
+            logic.QuotaExceededError,
+        ) as exc:
+            log.info("business_knowledge.refresh.recorded_failure", error_type=type(exc).__name__)
+            return {"status": "error", "reason": type(exc).__name__}
+        return {"status": "ok"}
 
 
 @activity.defn
@@ -357,14 +374,20 @@ async def ingest_knowledge_source_activity(inputs: IngestSourceInputs) -> dict[s
     doesn't retry them. Unexpected exceptions propagate for retry.
     """
     log = logger.bind(team_id=inputs.team_id, source_id=inputs.source_id)
-    try:
-        await database_sync_to_async(logic.ingest_source, thread_sensitive=False)(
-            source_id=UUID(inputs.source_id), team_id=inputs.team_id
-        )
-    except (logic.InvalidUrlError, logic.UrlFetchFailedError, logic.EmptyContentError, logic.QuotaExceededError) as exc:
-        log.info("business_knowledge.ingest.recorded_failure", error_type=type(exc).__name__)
-        return {"status": "error", "reason": type(exc).__name__}
-    return {"status": "ok"}
+    async with Heartbeater():
+        try:
+            await database_sync_to_async(logic.ingest_source, thread_sensitive=False)(
+                source_id=UUID(inputs.source_id), team_id=inputs.team_id
+            )
+        except (
+            logic.InvalidUrlError,
+            logic.UrlFetchFailedError,
+            logic.EmptyContentError,
+            logic.QuotaExceededError,
+        ) as exc:
+            log.info("business_knowledge.ingest.recorded_failure", error_type=type(exc).__name__)
+            return {"status": "error", "reason": type(exc).__name__}
+        return {"status": "ok"}
 
 
 @workflow.defn(name="business-knowledge-ingest-source")
@@ -374,7 +397,8 @@ class BusinessKnowledgeIngestSourceWorkflow(PostHogWorkflow):
         return await workflow.execute_activity(
             ingest_knowledge_source_activity,
             inputs,
-            start_to_close_timeout=timedelta(minutes=10),
+            start_to_close_timeout=_CRAWL_ACTIVITY_TIMEOUT,
+            heartbeat_timeout=_CRAWL_HEARTBEAT_TIMEOUT,
             retry_policy=RetryPolicy(maximum_attempts=2),
         )
 
@@ -393,7 +417,8 @@ class BusinessKnowledgeRefreshSourceWorkflow(PostHogWorkflow):
         return await workflow.execute_activity(
             execute_refresh_knowledge_source_activity,
             inputs,
-            start_to_close_timeout=timedelta(minutes=10),
+            start_to_close_timeout=_CRAWL_ACTIVITY_TIMEOUT,
+            heartbeat_timeout=_CRAWL_HEARTBEAT_TIMEOUT,
             retry_policy=RetryPolicy(maximum_attempts=2),
         )
 
@@ -429,7 +454,8 @@ class BusinessKnowledgeRefreshCoordinatorWorkflow(PostHogWorkflow):
                     workflow.execute_activity(
                         refresh_knowledge_source_activity,
                         inputs,
-                        start_to_close_timeout=timedelta(minutes=10),
+                        start_to_close_timeout=_CRAWL_ACTIVITY_TIMEOUT,
+                        heartbeat_timeout=_CRAWL_HEARTBEAT_TIMEOUT,
                         retry_policy=RetryPolicy(maximum_attempts=2),
                     )
                     for inputs in batch

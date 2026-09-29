@@ -31,6 +31,7 @@ from defusedxml.ElementTree import ParseError as DefusedParseError
 from .constants import (
     CRAWL_HARD_MAX_DEPTH,
     DEFAULT_CRAWL_MAX_DEPTH,
+    DEFAULT_MAX_PAGES,
     HARD_DISCOVER_CAP,
     PREFETCH_CACHE_MAX_BYTES,
     URL_BOT_NAME,
@@ -69,13 +70,17 @@ class CrawlConfig:
     include_globs: tuple[str, ...] = ()
     exclude_globs: tuple[str, ...] = ()
     max_depth: int = DEFAULT_CRAWL_MAX_DEPTH
-    max_pages: int = 50
+    max_pages: int = DEFAULT_MAX_PAGES
 
 
 # --- Sitemap discovery -------------------------------------------------------
 
 
 _SITEMAP_NS = {"sm": "http://www.sitemaps.org/schemas/sitemap/0.9"}
+# Docs sites nest sitemap indexes (a root index, then section indexes, then pages).
+# One level of unfurling drops every page under the second index. Three covers
+# that layout and still stops an unbounded index tree.
+_SITEMAP_INDEX_DEPTH = 3
 
 
 def _http_get_text(url: str, *, max_bytes: int = URL_MAX_BYTES) -> str:
@@ -128,12 +133,12 @@ def _parse_sitemap_xml(xml_text: str) -> tuple[list[str], list[str]]:
     return urls, subs
 
 
-def _discover_sitemap(entry_url: str, *, config: CrawlConfig) -> list[str]:
+def _discover_sitemap(entry_url: str, *, config: CrawlConfig) -> list[str]:  # noqa: ARG001 — page cap is applied in discover()
     """
     Fetch the sitemap at `entry_url` (or `<origin>/sitemap.xml` if the user
-    gave us an HTML page), follow one level of sitemap-index children, and
-    return the flat URL list (unfiltered, uncapped — filter/cap happens in
-    `discover()`).
+    gave us an HTML page), follow nested sitemap indexes up to
+    `_SITEMAP_INDEX_DEPTH`, and return the flat URL list (unfiltered — filter
+    and the page cap happen in `discover()`).
     """
 
     # If the user gave us a page URL, try sitemap.xml at the origin root.
@@ -144,24 +149,39 @@ def _discover_sitemap(entry_url: str, *, config: CrawlConfig) -> list[str]:
     else:
         candidate = entry_url
 
-    xml_text = _http_get_text(candidate)
-    urls, subs = _parse_sitemap_xml(xml_text)
+    urls: list[str] = []
+    seen_sitemaps: set[str] = set()
+    # (sitemap url, index depth). The entry document is depth 0.
+    pending: deque[tuple[str, int]] = deque([(candidate, 0)])
+    queued: set[str] = {candidate}
+    attempts = 0
 
-    # One level of sitemap-index unfurling. A huge site usually has nested
-    # indexes (products, docs, blog). Deeper nesting is rare; we cap at 1 to
-    # keep the total network IO bounded on discover.
-    for sub in subs[: min(config.max_pages, HARD_DISCOVER_CAP)]:
-        if len(urls) >= HARD_DISCOVER_CAP:
-            break
-        try:
-            child = _http_get_text(sub)
-            child_urls, _ = _parse_sitemap_xml(child)
-            urls.extend(child_urls)
-        except DiscoverError:
-            # A broken child sitemap shouldn't tank the whole discover.
-            # Log and move on.
-            logger.info("business_knowledge.discover.sitemap_child_failed", sub=sub)
+    while pending and len(urls) < HARD_DISCOVER_CAP and attempts < HARD_DISCOVER_CAP:
+        current, depth = pending.popleft()
+        if current in seen_sitemaps or depth > _SITEMAP_INDEX_DEPTH:
             continue
+        seen_sitemaps.add(current)
+        attempts += 1
+        try:
+            xml_text = _http_get_text(current)
+            page_urls, subs = _parse_sitemap_xml(xml_text)
+        except DiscoverError:
+            if depth == 0:
+                raise
+            logger.info("business_knowledge.discover.sitemap_child_failed", sub=current)
+            continue
+        remaining = HARD_DISCOVER_CAP - len(urls)
+        urls.extend(page_urls[:remaining])
+        if depth < _SITEMAP_INDEX_DEPTH:
+            # One index can list far more children than the cap. Queuing them all
+            # would hold that list in memory and then fetch past the cap.
+            for sub in subs:
+                if attempts + len(pending) >= HARD_DISCOVER_CAP:
+                    break
+                if sub in seen_sitemaps or sub in queued:
+                    continue
+                queued.add(sub)
+                pending.append((sub, depth + 1))
     return urls
 
 

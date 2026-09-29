@@ -93,6 +93,73 @@ class TestDiscoverSitemap(BaseTest):
             "https://example.com/3",
         ]
 
+    def test_unfurls_nested_sitemap_indexes(self) -> None:
+        # Three index levels yield the page. The sitemap past that is not fetched.
+        root = _sitemap_index_xml(["https://example.com/section.xml"])
+        section = _sitemap_index_xml(["https://example.com/pages.xml"])
+        pages = _sitemap_index_xml(["https://example.com/leaf.xml", "https://example.com/more-index.xml"])
+        leaf = _sitemap_xml(["https://example.com/docs/start"])
+        more_index = _sitemap_index_xml(["https://example.com/too-deep.xml"])
+        documents = {
+            "https://example.com/sitemap.xml": root,
+            "https://example.com/section.xml": section,
+            "https://example.com/pages.xml": pages,
+            "https://example.com/leaf.xml": leaf,
+            "https://example.com/more-index.xml": more_index,
+        }
+        fetched: list[str] = []
+
+        def _fake_fetch(url: str, max_bytes: int = 0) -> str:
+            fetched.append(url)
+            try:
+                return documents[url]
+            except KeyError as exc:
+                raise AssertionError(f"unexpected discover fetch: {url}") from exc
+
+        with patch.object(discover, "_http_get_text", side_effect=_fake_fetch):
+            urls = discover.discover(
+                "sitemap",
+                "https://example.com/sitemap.xml",
+                discover.CrawlConfig(max_pages=10),
+            ).urls
+        assert urls == ["https://example.com/docs/start"]
+        assert "https://example.com/more-index.xml" in fetched
+        assert "https://example.com/too-deep.xml" not in fetched
+
+    def test_stops_at_the_discover_cap(self) -> None:
+        sitemap = _sitemap_xml([f"https://example.com/{i}" for i in range(10)])
+        with (
+            patch.object(discover, "_http_get_text", return_value=sitemap),
+            patch.object(discover, "HARD_DISCOVER_CAP", 3),
+        ):
+            urls = discover.discover(
+                "sitemap",
+                "https://example.com/sitemap.xml",
+                discover.CrawlConfig(max_pages=10),
+            ).urls
+        assert urls == ["https://example.com/0", "https://example.com/1", "https://example.com/2"]
+
+    def test_sitemap_index_fetches_stop_at_the_discover_cap(self) -> None:
+        children = [f"https://example.com/{i}.xml" for i in range(5)]
+        index = _sitemap_index_xml(children)
+        page = _sitemap_xml(["https://example.com/docs"])
+
+        def _fake_fetch(url: str, max_bytes: int = 0) -> str:
+            if url == "https://example.com/sitemap.xml":
+                return index
+            return page
+
+        with (
+            patch.object(discover, "_http_get_text", side_effect=_fake_fetch) as fetch,
+            patch.object(discover, "HARD_DISCOVER_CAP", 3),
+        ):
+            discover.discover(
+                "sitemap",
+                "https://example.com/sitemap.xml",
+                discover.CrawlConfig(max_pages=10),
+            )
+        assert fetch.call_count == 3
+
     def test_applies_glob_filters(self) -> None:
         sitemap = _sitemap_xml(
             [
