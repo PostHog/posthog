@@ -25,6 +25,8 @@ jest.mock('./generated/api', () => ({
 
 const mockList = autoresearchList as jest.Mock
 
+type Settle = { resolve: (value: unknown) => void; reject: (reason: unknown) => void }
+
 describe('autoresearchLogic', () => {
     beforeEach(() => {
         jest.clearAllMocks()
@@ -70,18 +72,27 @@ describe('autoresearchLogic', () => {
         expect(mockList).toHaveBeenLastCalledWith(expect.any(String), { offset: 2 })
     })
 
-    it('keeps the newer list when an older load finishes last', async () => {
-        let resolveOlder: (value: unknown) => void = () => {}
+    it.each([
+        ['succeeds', (settle: Settle) => settle.resolve({ results: [{ id: 'old' }], next: null })],
+        ['fails', (settle: Settle) => settle.reject(new Error('network down'))],
+    ])('keeps the newer list when an older load %s last', async (_, finishOlder) => {
+        const settle = {} as Settle
         mockList
-            .mockReturnValueOnce(new Promise((resolve) => (resolveOlder = resolve)))
+            .mockReturnValueOnce(
+                new Promise((resolve, reject) => {
+                    settle.resolve = resolve
+                    settle.reject = reject
+                })
+            )
             .mockResolvedValueOnce({ results: [{ id: 'new' }], next: null })
         const logic = autoresearchLogic()
         logic.mount()
         logic.actions.loadPipelines()
         await expectLogic(logic).toDispatchActions(['loadPipelinesSuccess'])
-        resolveOlder({ results: [{ id: 'old' }], next: null })
+        finishOlder(settle)
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.pipelines.map((p) => p.id)).toEqual(['new'])
+        expect(logic.values.pipelinesLoadFailed).toBe(false)
     })
 
     it.each([

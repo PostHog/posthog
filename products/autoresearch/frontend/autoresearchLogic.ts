@@ -34,6 +34,13 @@ export interface autoresearchLogicActions {
     setDetectedStatus: (status: ProductSetupStatus) => {
         status: ProductSetupStatus
     } // productSetupStatusLogic
+    loadCurrentTeamSuccess: (
+        currentTeam: null | import('~/types').TeamPublicType,
+        payload?: any
+    ) => {
+        currentTeam: null | import('~/types').TeamPublicType
+        payload?: any
+    } // teamLogic
     deletePipeline: (
         id: string,
         name: string
@@ -82,7 +89,12 @@ export const autoresearchLogic = kea<autoresearchLogicType>([
             productSetupStatusLogic({ productKey: ProductKey.AUTORESEARCH }),
             ['status as setupStatus'],
         ],
-        actions: [productSetupStatusLogic({ productKey: ProductKey.AUTORESEARCH }), ['setDetectedStatus']],
+        actions: [
+            productSetupStatusLogic({ productKey: ProductKey.AUTORESEARCH }),
+            ['setDetectedStatus'],
+            teamLogic,
+            ['loadCurrentTeamSuccess'],
+        ],
     })),
     actions({
         deletePipeline: (id: string, name: string) => ({ id, name }),
@@ -120,10 +132,16 @@ export const autoresearchLogic = kea<autoresearchLogicType>([
                     // The endpoint pages at 100 rows. Follow every page so a team with more models sees all of them.
                     const pipelines: AutoresearchPipelineApi[] = []
                     for (;;) {
-                        const response = await autoresearchList(String(values.currentTeamId), {
-                            offset: pipelines.length,
-                        })
-                        // Stop here when a newer load started, so this one cannot publish an older list.
+                        let response
+                        try {
+                            response = await autoresearchList(String(values.currentTeamId), {
+                                offset: pipelines.length,
+                            })
+                        } catch (error) {
+                            breakpoint()
+                            throw error
+                        }
+                        // Stop here when a newer load started, so this one cannot publish an older list or error.
                         breakpoint()
                         pipelines.push(...response.results)
                         if (!response.next || response.results.length === 0) {
@@ -138,7 +156,14 @@ export const autoresearchLogic = kea<autoresearchLogicType>([
         // Detection for the scene empty-state gate: this is a creation-first product,
         // so "set up" simply means at least one pipeline exists.
         loadPipelinesSuccess: ({ pipelines }: { pipelines: AutoresearchPipelineApi[] }) => {
+            // With no team yet the loader returns an empty list that says nothing about setup.
+            if (!values.currentTeamId) {
+                return
+            }
             actions.setDetectedStatus(pipelines.length > 0 ? 'has-data' : 'needs-setup')
+        },
+        loadCurrentTeamSuccess: () => {
+            actions.loadPipelines()
         },
         loadPipelinesFailure: () => {
             posthog.capture('autoresearch model list load failed')

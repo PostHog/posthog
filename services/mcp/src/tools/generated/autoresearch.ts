@@ -11,10 +11,7 @@ const AutoresearchCreateSchema = () => {
     return AutoresearchCreateBody
 }
 
-const autoresearchCreate = (): ToolBase<
-    ReturnType<typeof AutoresearchCreateSchema>,
-    WithPostHogUrl<Schemas.AutoresearchPipeline>
-> => ({
+const autoresearchCreate = (): ToolBase<ReturnType<typeof AutoresearchCreateSchema>, Schemas.AutoresearchPipeline> => ({
     name: 'autoresearch-create',
     schema: AutoresearchCreateSchema(),
     handler: async (context: Context, params: z.infer<ReturnType<typeof AutoresearchCreateSchema>>) => {
@@ -64,7 +61,7 @@ const autoresearchCreate = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/autoresearch/`,
             body,
         })
-        return await withPostHogUrl(context, result, `/autoresearch/${result.id}`)
+        return result
     },
 })
 
@@ -247,7 +244,7 @@ const AutoresearchRetrieveSchema = () => {
 
 const autoresearchRetrieve = (): ToolBase<
     ReturnType<typeof AutoresearchRetrieveSchema>,
-    WithPostHogUrl<Schemas.AutoresearchPipeline>
+    Schemas.AutoresearchPipeline
 > => ({
     name: 'autoresearch-retrieve',
     schema: AutoresearchRetrieveSchema(),
@@ -258,7 +255,7 @@ const autoresearchRetrieve = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/autoresearch/${encodeURIComponent(String(params.id))}/`,
         })
         const filtered = omitResponseFields(result, ['created_by']) as typeof result
-        return await withPostHogUrl(context, filtered, `/autoresearch/${filtered.id}`)
+        return filtered
     },
 })
 

@@ -33,7 +33,6 @@ tools:
             readOnly: false
             destructive: false
             idempotent: false
-        enrich_url: '{id}'
         title: Create a pipeline
         description: >
             Create a new autoresearch prediction pipeline. Always call autoresearch-validate-create first — this
@@ -220,7 +219,6 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
-        enrich_url: '{id}'
         title: Get pipeline
         description: >
             Get full details for a specific autoresearch pipeline by ID, including population definitions, training

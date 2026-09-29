@@ -128,7 +128,13 @@ export function AutoresearchScene(): JSX.Element {
                                     icon={<IconTrash />}
                                     status="danger"
                                     loading={mutating}
-                                    disabledReason={mutating ? 'Another change is still saving' : undefined}
+                                    disabledReason={
+                                        mutating
+                                            ? 'Another change is still saving'
+                                            : record.status === 'bootstrapping'
+                                              ? 'Wait for the first training run to finish'
+                                              : undefined
+                                    }
                                     onClick={() => {
                                         LemonDialog.open({
                                             title: `Delete "${record.name}"?`,
