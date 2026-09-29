@@ -23,7 +23,9 @@ import type {
     ExperimentHoldoutsListParams,
     ExperimentInSessionExposureApi,
     ExperimentMatchingIdsResponseApi,
-    ExperimentMetricsRecalculationApi,
+    ExperimentMetricsRecalculationJobApi,
+    ExperimentMetricsRecalculationLatestApi,
+    ExperimentMetricsRecalculationRunApi,
     ExperimentSavedMetricApi,
     ExperimentSavedMetricsListParams,
     ExperimentSessionBucketRequestApi,
@@ -753,13 +755,16 @@ export const experimentsMetricsRecalculationCreate = async (
     id: number,
     recalculateMetricsRequestApi?: RecalculateMetricsRequestApi,
     options?: RequestInit
-): Promise<ExperimentMetricsRecalculationApi> => {
-    return apiMutator<ExperimentMetricsRecalculationApi>(getExperimentsMetricsRecalculationCreateUrl(projectId, id), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(recalculateMetricsRequestApi),
-    })
+): Promise<ExperimentMetricsRecalculationJobApi> => {
+    return apiMutator<ExperimentMetricsRecalculationJobApi>(
+        getExperimentsMetricsRecalculationCreateUrl(projectId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(recalculateMetricsRequestApi),
+        }
+    )
 }
 
 export const getExperimentsMetricsRecalculationRetrieveUrl = (
@@ -782,8 +787,8 @@ export const experimentsMetricsRecalculationRetrieve = async (
     id: number,
     recalculationId: string,
     options?: RequestInit
-): Promise<ExperimentMetricsRecalculationApi> => {
-    return apiMutator<ExperimentMetricsRecalculationApi>(
+): Promise<ExperimentMetricsRecalculationRunApi> => {
+    return apiMutator<ExperimentMetricsRecalculationRunApi>(
         getExperimentsMetricsRecalculationRetrieveUrl(projectId, id, recalculationId),
         {
             ...options,
@@ -807,8 +812,8 @@ export const experimentsMetricsRecalculationLatestRetrieve = async (
     projectId: string,
     id: number,
     options?: RequestInit
-): Promise<ExperimentMetricsRecalculationApi> => {
-    return apiMutator<ExperimentMetricsRecalculationApi>(
+): Promise<ExperimentMetricsRecalculationLatestApi> => {
+    return apiMutator<ExperimentMetricsRecalculationLatestApi>(
         getExperimentsMetricsRecalculationLatestRetrieveUrl(projectId, id),
         {
             ...options,
