@@ -62,9 +62,10 @@ def _create_data_modeling_job(
     with transaction.atomic():
         # A move to another DAG refuses while a job of this query is Running, and holds this lock
         # across that check. Taking it here, around the placement read and the insert both, is
-        # what stops a job from being created against a placement the move has already left: the
-        # rest of this materialization loads the node by team, node and DAG, so it would find
-        # nothing -- including the activity that records the failure, leaving the job Running.
+        # what stops a job from being created against a placement the move has already left. The
+        # rest of this materialization loads the node by team, node and DAG, so such a job would
+        # find nothing, and that includes the activity which records the failure, so the job row
+        # would stay Running with nothing left to close it.
         lock_dag(inputs.team_id, uuid.UUID(inputs.dag_id))
         node = Node.objects.prefetch_related("saved_query").get(
             id=inputs.node_id, team_id=inputs.team_id, dag_id=inputs.dag_id

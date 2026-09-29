@@ -1,3 +1,4 @@
+import time
 import threading
 from typing import Any
 
@@ -17,16 +18,32 @@ from products.data_modeling.backend.facade.models import DAG, DataModelingJob, D
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db(transaction=True)]
 
-# Long enough that a move which is not blocked finishes inside it, short enough that the blocked
-# case does not slow the suite down.
-BLOCKED_MOVE_WINDOW_SECONDS = 2
+BLOCKED_DEADLINE_SECONDS = 30
+
+
+def wait_until_another_backend_waits_on_a_lock() -> bool:
+    """Whether some other connection is parked on a lock this test database can grant.
+
+    Polled rather than slept on, so the wait ends as soon as the other thread reaches its lock
+    instead of after a guessed interval. `pg_locks` is read rather than `pg_stat_activity`
+    because the caller polls from inside an open transaction, and Postgres caches the backend
+    status snapshot `pg_stat_activity` reports for the length of one. A transaction the waiter
+    is queued behind is recorded with no database of its own, so both rows count.
+    """
+    deadline = time.monotonic() + BLOCKED_DEADLINE_SECONDS
+    while time.monotonic() < deadline:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT count(*) FROM pg_locks WHERE NOT granted AND pid <> pg_backend_pid() "
+                "AND (database IS NULL OR database = (SELECT oid FROM pg_database WHERE datname = current_database()))"
+            )
+            if cursor.fetchone()[0] > 0:
+                return True
+        time.sleep(0.05)
+    return False
 
 
 async def test_a_move_cannot_land_between_a_job_reading_a_placement_and_inserting_it(ateam, adag, anode, asaved_query):
-    """The move refuses while a job of this query is Running, so job creation has to hold the DAG
-    lock across its placement read and its insert. Otherwise the move's check runs before the job
-    row exists, the move commits, and the job is left pointing at a DAG the node has left -- which
-    every later activity of that run, including the one that records failure, cannot find."""
     destination = await database_sync_to_async(DAG.objects.create)(team=ateam, name="destination")
     refusals: list[str] = []
 
@@ -44,11 +61,13 @@ async def test_a_move_cannot_land_between_a_job_reading_a_placement_and_insertin
     movers: list[threading.Thread] = []
 
     def create_after_a_move_tries_to_land(*args: Any, **kwargs: Any) -> Any:
+        # Between the placement read and this insert is the window where a move whose Running
+        # check ran before the job row existed could still commit, leaving the job pointing at a
+        # DAG the node has left.
         mover = threading.Thread(target=move_on_another_connection)
         mover.start()
-        mover.join(timeout=BLOCKED_MOVE_WINDOW_SECONDS)
         movers.append(mover)
-        assert mover.is_alive(), "the move was not held off by the job's DAG lock"
+        assert wait_until_another_backend_waits_on_a_lock(), "the move was not held off by the job's DAG lock"
         return real_create(*args, **kwargs)
 
     inputs = CreateDataModelingJobInputs(team_id=ateam.pk, node_id=str(anode.id), dag_id=str(adag.id))
@@ -56,7 +75,7 @@ async def test_a_move_cannot_land_between_a_job_reading_a_placement_and_insertin
         created = await _create_data_modeling_job(inputs, "test-workflow-id", "test-run-id")
 
     assert len(movers) == 1
-    movers[0].join(timeout=30)
+    movers[0].join(timeout=BLOCKED_DEADLINE_SECONDS)
     assert not movers[0].is_alive()
 
     assert refusals == ["materializing"]

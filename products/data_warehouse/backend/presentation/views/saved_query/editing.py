@@ -487,8 +487,14 @@ class DataWarehouseSavedQuerySerializer(
 
         with transaction.atomic():
             try:
+                # `FOR NO KEY UPDATE`, not `FOR UPDATE`: this lock is held across a DAG lock, and
+                # `FOR UPDATE` conflicts with the `KEY SHARE` lock a concurrent materialization
+                # takes on this row for its job's foreign key, which deadlocks the two. It still
+                # blocks every other writer of the row, which is all the lost-update check needs.
                 locked_instance = (
-                    DataWarehouseSavedQuery.objects.select_for_update().exclude(deleted=True).get(pk=instance.pk)
+                    DataWarehouseSavedQuery.objects.select_for_update(no_key=True)
+                    .exclude(deleted=True)
+                    .get(pk=instance.pk)
                 )
             except DataWarehouseSavedQuery.DoesNotExist:
                 raise exceptions.NotFound("Not found.")

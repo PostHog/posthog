@@ -1,3 +1,4 @@
+import time
 import threading
 from typing import Any
 
@@ -9,9 +10,29 @@ from django.db import connection
 from products.data_modeling.backend.facade import api as modeling_api
 from products.data_modeling.backend.facade.models import DAG, DataWarehouseSavedQuery, Node
 
-# Long enough that a move which is not blocked finishes inside it, short enough that the blocked
-# case does not slow the suite down.
-BLOCKED_MOVE_WINDOW_SECONDS = 2
+BLOCKED_DEADLINE_SECONDS = 30
+
+
+def wait_until_another_backend_waits_on_a_lock() -> bool:
+    """Whether some other connection is parked on a lock this test database can grant.
+
+    Polled rather than slept on, so the wait ends as soon as the other thread reaches its lock
+    instead of after a guessed interval. `pg_locks` is read rather than `pg_stat_activity`
+    because the caller polls from inside an open transaction, and Postgres caches the backend
+    status snapshot `pg_stat_activity` reports for the length of one. A transaction the waiter
+    is queued behind is recorded with no database of its own, so both rows count.
+    """
+    deadline = time.monotonic() + BLOCKED_DEADLINE_SECONDS
+    while time.monotonic() < deadline:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT count(*) FROM pg_locks WHERE NOT granted AND pid <> pg_backend_pid() "
+                "AND (database IS NULL OR database = (SELECT oid FROM pg_database WHERE datname = current_database()))"
+            )
+            if cursor.fetchone()[0] > 0:
+                return True
+        time.sleep(0.05)
+    return False
 
 
 class TestSavedQueryDagMoveConcurrency(NonAtomicAPIBaseTest):
@@ -55,9 +76,11 @@ class TestSavedQueryDagMoveConcurrency(NonAtomicAPIBaseTest):
             # and `get_or_create` would answer with a second node there.
             mover = threading.Thread(target=move_on_another_connection)
             mover.start()
-            mover.join(timeout=BLOCKED_MOVE_WINDOW_SECONDS)
             movers.append(mover)
-            self.assertTrue(mover.is_alive(), "the move was not held off by the request's row lock")
+            self.assertTrue(
+                wait_until_another_backend_waits_on_a_lock(),
+                "the move was not held off by the request's row lock",
+            )
             return real_sync(*args, **kwargs)
 
         with patch(
@@ -74,7 +97,7 @@ class TestSavedQueryDagMoveConcurrency(NonAtomicAPIBaseTest):
 
         self.assertEqual(response.status_code, 200, response.content)
         self.assertEqual(len(movers), 1)
-        movers[0].join(timeout=30)
+        movers[0].join(timeout=BLOCKED_DEADLINE_SECONDS)
         self.assertFalse(movers[0].is_alive())
 
         nodes = list(Node.objects.filter(team=self.team, saved_query_id=view["id"]))

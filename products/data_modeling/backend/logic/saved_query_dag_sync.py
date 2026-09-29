@@ -553,11 +553,18 @@ def move_saved_query_to_dag(team_id: int, saved_query_id: UUID, dag_id: UUID) ->
     The saved-query row lock is held too, because a query edit picks the DAG to sync into from its
     own read of the node. Without it that edit can choose the DAG this move is leaving and then
     `get_or_create` a second node there, which later moves refuse as `multiple_placements`.
+
+    That row lock is `FOR NO KEY UPDATE`, which is what makes it safe to hold alongside a DAG
+    lock. `FOR UPDATE` conflicts with the `KEY SHARE` lock Postgres takes on this row for the
+    foreign key of every job and node insert, so a materialization holding the DAG lock and
+    inserting its job row would deadlock against this transaction waiting for that same DAG.
     """
     from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
     with transaction.atomic():
-        saved_query = DataWarehouseSavedQuery.objects.select_for_update().get(team_id=team_id, id=saved_query_id)
+        saved_query = DataWarehouseSavedQuery.objects.select_for_update(no_key=True).get(
+            team_id=team_id, id=saved_query_id
+        )
         dag = DAG.objects.get(team_id=team_id, id=dag_id)
         placements = Node.objects.filter(team_id=team_id, saved_query=saved_query)
         held = {dag.id} | {node.dag_id for node in placements if node.dag_id is not None}
