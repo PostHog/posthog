@@ -2,7 +2,7 @@ use std::io;
 use std::ops::Not;
 
 use chrono::{DateTime, SecondsFormat, Utc};
-use common_types::{CapturedEventHeaders, HasEventName};
+use common_types::{CapturedEventHeaders, HasEventName, COOKIELESS_SENTINEL_VALUE};
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use serde_json::Value;
@@ -23,6 +23,7 @@ impl io::Write for StringWriter<'_> {
     }
 }
 
+use super::constants::{DETAIL_COOKIELESS_MODE_REQUIRED, DETAIL_INVALID_OPTIONS};
 use crate::ordering::{person_ordering, OrderingGuarantee};
 use crate::v1::context::RequestContext;
 use crate::v1::sinks::event::Event as SinkEvent;
@@ -65,9 +66,22 @@ pub struct Batch {
     pub created_at: String,
     #[serde(default)]
     pub historical_migration: bool,
-    #[serde(default)]
+    /// Read like a boolean option, so an unreadable value means "not set"
+    /// instead of failing the whole batch.
+    #[serde(default, deserialize_with = "deserialize_lenient_flag")]
     pub capture_internal: Option<bool>,
     pub batch: Vec<Event>,
+}
+
+fn deserialize_lenient_flag<'de, D>(deserializer: D) -> Result<Option<bool>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = Value::deserialize(deserializer)?;
+    Ok(match coerce_bool(&value) {
+        Parsed::Set(flag) => Some(flag),
+        Parsed::Unset | Parsed::Invalid => None,
+    })
 }
 
 #[derive(Debug, Default, Clone, Deserialize, Serialize)]
@@ -88,101 +102,218 @@ pub struct Options {
 #[serde(transparent)]
 pub struct RawOptions(pub Value);
 
-/// Error produced when `RawOptions::validate` cannot coerce one or more fields.
-/// Carries the offending field names for logging; the wire/metric tag is the
-/// static `DETAIL_INVALID_OPTIONS` constant applied at the drop site.
-#[derive(Debug)]
-pub struct OptionsError {
-    pub invalid_fields: Vec<&'static str>,
+/// An option key capture reads, validates and forwards. Capture ignores every
+/// other key.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExpectedOption {
+    CookielessMode,
+    DisableSkewCorrection,
+    ProcessPersonProfile,
+    ProductTourId,
 }
 
-impl RawOptions {
-    /// Validate and coerce raw JSON into typed Options.
-    ///
-    /// - Null/absent -> Ok(default)
-    /// - Object -> coerce each known key, ignore unknown, collect invalid fields
-    /// - Non-object -> Err with no field names
-    pub fn validate(&self) -> Result<Options, OptionsError> {
-        match &self.0 {
-            Value::Null => Ok(Options::default()),
-            Value::Object(map) => {
-                let mut opts = Options::default();
-                let mut invalid_fields: Vec<&'static str> = Vec::new();
+impl ExpectedOption {
+    /// The order capture checks keys in, which is also the order it reports them in.
+    const ALL: [Self; 4] = [
+        Self::CookielessMode,
+        Self::DisableSkewCorrection,
+        Self::ProcessPersonProfile,
+        Self::ProductTourId,
+    ];
 
-                if let Some(v) = map.get("cookieless_mode") {
-                    if !v.is_null() {
-                        match coerce_bool(v) {
-                            Some(b) => opts.cookieless_mode = Some(b),
-                            None => invalid_fields.push("cookieless_mode"),
-                        }
-                    }
-                }
-                if let Some(v) = map.get("disable_skew_correction") {
-                    if !v.is_null() {
-                        match coerce_bool(v) {
-                            Some(b) => opts.disable_skew_correction = Some(b),
-                            None => invalid_fields.push("disable_skew_correction"),
-                        }
-                    }
-                }
-                if let Some(v) = map.get("process_person_profile") {
-                    if !v.is_null() {
-                        match coerce_bool(v) {
-                            Some(b) => opts.process_person_profile = Some(b),
-                            None => invalid_fields.push("process_person_profile"),
-                        }
-                    }
-                }
-                if let Some(v) = map.get("product_tour_id") {
-                    if !v.is_null() {
-                        match coerce_string(v) {
-                            Some(s) => opts.product_tour_id = Some(s),
-                            None => invalid_fields.push("product_tour_id"),
-                        }
-                    }
-                }
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::CookielessMode => "cookieless_mode",
+            Self::DisableSkewCorrection => "disable_skew_correction",
+            Self::ProcessPersonProfile => "process_person_profile",
+            Self::ProductTourId => "product_tour_id",
+        }
+    }
 
-                if invalid_fields.is_empty() {
-                    Ok(opts)
-                } else {
-                    Err(OptionsError { invalid_fields })
-                }
-            }
-            _ => Err(OptionsError {
-                invalid_fields: Vec::new(),
-            }),
+    fn bit(self) -> u8 {
+        1 << self as u8
+    }
+}
+
+/// A set of expected option keys. It holds each key at most once and lists
+/// them in `ExpectedOption::ALL` order, so unions across a batch stay bounded.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct OptionKeys(u8);
+
+impl OptionKeys {
+    pub fn of(key: ExpectedOption) -> Self {
+        Self(key.bit())
+    }
+
+    fn insert(&mut self, key: ExpectedOption) {
+        self.0 |= key.bit();
+    }
+
+    pub fn union(self, other: Self) -> Self {
+        Self(self.0 | other.0)
+    }
+
+    pub fn is_empty(self) -> bool {
+        self.0 == 0
+    }
+
+    pub fn names(self) -> impl Iterator<Item = &'static str> {
+        ExpectedOption::ALL
+            .into_iter()
+            .filter(move |key| self.0 & key.bit() != 0)
+            .map(ExpectedOption::as_str)
+    }
+}
+
+/// Why `RawOptions::validate_for` rejected an event's options. The event is
+/// dropped either way.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OptionsError {
+    /// Expected keys whose values capture cannot read. Empty when `options`
+    /// is not a JSON object.
+    InvalidValues(OptionKeys),
+    /// The distinct_id is the cookieless placeholder but `cookieless_mode` is
+    /// not true.
+    CookielessModeRequired,
+}
+
+impl OptionsError {
+    /// The per-event `details` tag, which also labels the malformed-event metric.
+    pub fn detail(self) -> &'static str {
+        match self {
+            Self::InvalidValues(_) => DETAIL_INVALID_OPTIONS,
+            Self::CookielessModeRequired => DETAIL_COOKIELESS_MODE_REQUIRED,
+        }
+    }
+
+    /// The expected keys to name in logs and in the ingestion warning.
+    pub fn failed_keys(self) -> OptionKeys {
+        match self {
+            Self::InvalidValues(keys) => keys,
+            Self::CookielessModeRequired => OptionKeys::of(ExpectedOption::CookielessMode),
         }
     }
 }
 
-/// Coerce a JSON value to bool with conservative rules:
-/// - native bool passes through
-/// - strings "true"/"false"/"1"/"0" (trimmed, case-insensitive)
-/// - any nonzero number -> true, 0 -> false
-fn coerce_bool(v: &Value) -> Option<bool> {
-    match v {
-        Value::Bool(b) => Some(*b),
-        Value::String(s) => match s.trim().to_ascii_lowercase().as_str() {
-            "true" | "1" => Some(true),
-            "false" | "0" => Some(false),
-            _ => None,
-        },
-        Value::Number(n) => n.as_f64().map(|f| f != 0.0),
-        _ => None,
+impl RawOptions {
+    /// Validate the options of an event with this (already trimmed) distinct_id.
+    /// An unreadable value wins over the placeholder check.
+    pub fn validate_for(&self, distinct_id: &str) -> Result<Options, OptionsError> {
+        let options = self.validate()?;
+        // Ingestion replaces the placeholder with a per-visitor id only when
+        // cookieless mode is on. Without it, every visitor of the project
+        // merges into one person and one hot partition.
+        if distinct_id == COOKIELESS_SENTINEL_VALUE && options.cookieless_mode != Some(true) {
+            return Err(OptionsError::CookielessModeRequired);
+        }
+        Ok(options)
+    }
+
+    fn validate(&self) -> Result<Options, OptionsError> {
+        let map = match &self.0 {
+            Value::Null => return Ok(Options::default()),
+            Value::Object(map) => map,
+            _ => return Err(OptionsError::InvalidValues(OptionKeys::default())),
+        };
+
+        let mut invalid = OptionKeys::default();
+        let options = Options {
+            cookieless_mode: read_option(
+                map,
+                ExpectedOption::CookielessMode,
+                coerce_bool,
+                &mut invalid,
+            ),
+            disable_skew_correction: read_option(
+                map,
+                ExpectedOption::DisableSkewCorrection,
+                coerce_bool,
+                &mut invalid,
+            ),
+            process_person_profile: read_option(
+                map,
+                ExpectedOption::ProcessPersonProfile,
+                coerce_bool,
+                &mut invalid,
+            ),
+            product_tour_id: read_option(
+                map,
+                ExpectedOption::ProductTourId,
+                coerce_product_tour_id,
+                &mut invalid,
+            ),
+        };
+
+        if invalid.is_empty() {
+            Ok(options)
+        } else {
+            Err(OptionsError::InvalidValues(invalid))
+        }
     }
 }
 
-/// Coerce a JSON value to string:
-/// - native string passes through
-/// - integer number -> its decimal string representation
-fn coerce_string(v: &Value) -> Option<String> {
+/// The result of reading one expected option value.
+enum Parsed<T> {
+    Set(T),
+    Unset,
+    Invalid,
+}
+
+fn read_option<T>(
+    map: &serde_json::Map<String, Value>,
+    key: ExpectedOption,
+    parse: fn(&Value) -> Parsed<T>,
+    invalid: &mut OptionKeys,
+) -> Option<T> {
+    match map.get(key.as_str()).map_or(Parsed::Unset, parse) {
+        Parsed::Set(value) => Some(value),
+        Parsed::Unset => None,
+        Parsed::Invalid => {
+            invalid.insert(key);
+            None
+        }
+    }
+}
+
+/// Read a boolean leniently: booleans, numbers (zero is off), on/off words and
+/// numeric strings. `null` and blank strings mean "not set".
+fn coerce_bool(v: &Value) -> Parsed<bool> {
     match v {
-        Value::String(s) => Some(s.clone()),
+        Value::Null => Parsed::Unset,
+        Value::Bool(b) => Parsed::Set(*b),
         Value::Number(n) => n
-            .as_i64()
-            .map(|i| i.to_string())
-            .or_else(|| n.as_u64().map(|u| u.to_string())),
-        _ => None,
+            .as_f64()
+            .map_or(Parsed::Invalid, |f| Parsed::Set(f != 0.0)),
+        Value::String(s) => parse_bool_str(s),
+        Value::Array(_) | Value::Object(_) => Parsed::Invalid,
+    }
+}
+
+fn parse_bool_str(raw: &str) -> Parsed<bool> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Parsed::Unset;
+    }
+    match trimmed.to_ascii_lowercase().as_str() {
+        "true" | "t" | "yes" | "y" | "on" => Parsed::Set(true),
+        "false" | "f" | "no" | "n" | "off" => Parsed::Set(false),
+        // Rust's float parser also accepts "inf" and "nan", which are not numbers
+        // a sender means as a flag.
+        other => match other.parse::<f64>() {
+            Ok(f) if f.is_finite() => Parsed::Set(f != 0.0),
+            _ => Parsed::Invalid,
+        },
+    }
+}
+
+/// `product_tour_id` must be a string, forwarded unchanged. A blank string
+/// means "not set".
+fn coerce_product_tour_id(v: &Value) -> Parsed<String> {
+    match v {
+        Value::Null => Parsed::Unset,
+        Value::String(s) if s.trim().is_empty() => Parsed::Unset,
+        Value::String(s) => Parsed::Set(s.clone()),
+        _ => Parsed::Invalid,
     }
 }
 
@@ -230,6 +361,23 @@ pub struct WrappedEvent {
     /// Set by the gateway-provenance step when a valid signature was verified;
     /// read by the quota shim to exempt the event from the llm_events limiter.
     pub is_gateway_verified: bool,
+}
+
+impl WrappedEvent {
+    /// The expected option keys that made validation drop this event, empty for
+    /// any other outcome. Recomputed from the options because only dropped
+    /// events need it.
+    pub fn failed_option_keys(&self) -> OptionKeys {
+        match self.details {
+            Some(DETAIL_INVALID_OPTIONS | DETAIL_COOKIELESS_MODE_REQUIRED) => self
+                .event
+                .options
+                .validate_for(&self.event.distinct_id)
+                .err()
+                .map_or_else(OptionKeys::default, OptionsError::failed_keys),
+            _ => OptionKeys::default(),
+        }
+    }
 }
 
 impl SinkEvent for WrappedEvent {
@@ -894,6 +1042,12 @@ mod tests {
 
     // --- RawOptions::validate coercion matrix ---
 
+    fn invalid(keys: &[ExpectedOption]) -> OptionsError {
+        OptionsError::InvalidValues(keys.iter().fold(OptionKeys::default(), |acc, key| {
+            acc.union(OptionKeys::of(*key))
+        }))
+    }
+
     #[test]
     fn raw_options_null_validates_to_defaults() {
         let raw = RawOptions::default();
@@ -917,14 +1071,32 @@ mod tests {
     #[case::native_false(serde_json::json!(false), Some(false))]
     #[case::str_true(serde_json::json!("true"), Some(true))]
     #[case::str_false(serde_json::json!("false"), Some(false))]
+    #[case::str_t(serde_json::json!("t"), Some(true))]
+    #[case::str_f(serde_json::json!("f"), Some(false))]
+    #[case::str_yes(serde_json::json!("yes"), Some(true))]
+    #[case::str_no(serde_json::json!("no"), Some(false))]
+    #[case::str_y(serde_json::json!("y"), Some(true))]
+    #[case::str_n(serde_json::json!("n"), Some(false))]
+    #[case::str_on(serde_json::json!("on"), Some(true))]
+    #[case::str_off(serde_json::json!("off"), Some(false))]
     #[case::str_one(serde_json::json!("1"), Some(true))]
     #[case::str_zero(serde_json::json!("0"), Some(false))]
     #[case::str_uppercase(serde_json::json!("FALSE"), Some(false))]
+    #[case::str_mixed_case(serde_json::json!("Yes"), Some(true))]
     #[case::str_padded(serde_json::json!("  true  "), Some(true))]
+    #[case::str_float_one(serde_json::json!("1.0"), Some(true))]
+    #[case::str_float_zero(serde_json::json!("0.0"), Some(false))]
+    #[case::str_negative_zero(serde_json::json!("-0"), Some(false))]
+    #[case::str_negative(serde_json::json!("-1"), Some(true))]
     #[case::num_one(serde_json::json!(1), Some(true))]
     #[case::num_zero(serde_json::json!(0), Some(false))]
+    #[case::num_float_zero(serde_json::json!(0.0), Some(false))]
+    #[case::num_float(serde_json::json!(1.5), Some(true))]
     #[case::num_large(serde_json::json!(42), Some(true))]
     #[case::num_negative(serde_json::json!(-1), Some(true))]
+    #[case::null_is_unset(serde_json::json!(null), None)]
+    #[case::empty_is_unset(serde_json::json!(""), None)]
+    #[case::blank_is_unset(serde_json::json!("   "), None)]
     fn raw_options_bool_coercion_valid(
         #[case] input: serde_json::Value,
         #[case] expected: Option<bool>,
@@ -936,13 +1108,16 @@ mod tests {
     #[rstest::rstest]
     #[case::array(serde_json::json!([1, 2, 3]))]
     #[case::object(serde_json::json!({"nested": true}))]
-    #[case::yes(serde_json::json!("yes"))]
-    #[case::off(serde_json::json!("off"))]
-    #[case::empty_string(serde_json::json!(""))]
+    #[case::junk_word(serde_json::json!("maybe"))]
+    #[case::redaction_placeholder(serde_json::json!("[Filtered]"))]
+    #[case::nan_word(serde_json::json!("nan"))]
+    #[case::inf_word(serde_json::json!("inf"))]
     fn raw_options_bool_uncoercible(#[case] input: serde_json::Value) {
         let raw = RawOptions(serde_json::json!({ "cookieless_mode": input }));
-        let err = raw.validate().unwrap_err();
-        assert_eq!(err.invalid_fields, vec!["cookieless_mode"]);
+        assert_eq!(
+            raw.validate().unwrap_err(),
+            invalid(&[ExpectedOption::CookielessMode])
+        );
     }
 
     #[test]
@@ -950,7 +1125,7 @@ mod tests {
         let raw = RawOptions(serde_json::json!({
             "cookieless_mode": "true",
             "disable_skew_correction": 0,
-            "process_person_profile": false
+            "process_person_profile": "no"
         }));
         let opts = raw.validate().unwrap();
         assert_eq!(opts.cookieless_mode, Some(true));
@@ -960,8 +1135,10 @@ mod tests {
 
     #[rstest::rstest]
     #[case::string(serde_json::json!("tour-123"), Some("tour-123"))]
-    #[case::integer(serde_json::json!(999), Some("999"))]
-    #[case::negative_integer(serde_json::json!(-5), Some("-5"))]
+    #[case::padded_kept_unchanged(serde_json::json!(" tour-123 "), Some(" tour-123 "))]
+    #[case::null_is_unset(serde_json::json!(null), None)]
+    #[case::empty_is_unset(serde_json::json!(""), None)]
+    #[case::blank_is_unset(serde_json::json!("  "), None)]
     fn raw_options_product_tour_id_coercion_valid(
         #[case] input: serde_json::Value,
         #[case] expected: Option<&str>,
@@ -971,35 +1148,64 @@ mod tests {
     }
 
     #[rstest::rstest]
-    #[case::object(serde_json::json!({"nested": true}))]
-    #[case::array(serde_json::json!(["a"]))]
-    #[case::bool(serde_json::json!(true))]
+    #[case::integer(serde_json::json!(999))]
+    #[case::negative_integer(serde_json::json!(-5))]
     #[case::float(serde_json::json!(1.5))]
+    #[case::bool(serde_json::json!(true))]
+    #[case::array(serde_json::json!(["a"]))]
+    #[case::object(serde_json::json!({"nested": true}))]
     fn raw_options_product_tour_id_uncoercible(#[case] input: serde_json::Value) {
         let raw = RawOptions(serde_json::json!({ "product_tour_id": input }));
-        let err = raw.validate().unwrap_err();
-        assert_eq!(err.invalid_fields, vec!["product_tour_id"]);
+        assert_eq!(
+            raw.validate().unwrap_err(),
+            invalid(&[ExpectedOption::ProductTourId])
+        );
     }
 
     #[test]
-    fn raw_options_multiple_invalid_fields_collected() {
+    fn raw_options_invalid_keys_reported_once_in_check_order() {
         let raw = RawOptions(serde_json::json!({
-            "cookieless_mode": {"bad": true},
+            "product_tour_id": 7,
             "disable_skew_correction": [false],
-            "product_tour_id": "valid-string",
+            "cookieless_mode": {"bad": true},
             "process_person_profile": null
         }));
         let err = raw.validate().unwrap_err();
-        assert!(err.invalid_fields.contains(&"cookieless_mode"));
-        assert!(err.invalid_fields.contains(&"disable_skew_correction"));
-        assert!(!err.invalid_fields.contains(&"product_tour_id"));
+        assert_eq!(err.detail(), "invalid_options");
+        assert_eq!(
+            err.failed_keys().names().collect::<Vec<_>>(),
+            vec![
+                "cookieless_mode",
+                "disable_skew_correction",
+                "product_tour_id"
+            ]
+        );
+    }
+
+    #[test]
+    fn option_keys_union_is_deduplicated_and_ordered() {
+        let first = OptionKeys::of(ExpectedOption::ProductTourId)
+            .union(OptionKeys::of(ExpectedOption::CookielessMode));
+        let second = OptionKeys::of(ExpectedOption::CookielessMode)
+            .union(OptionKeys::of(ExpectedOption::ProcessPersonProfile))
+            .union(OptionKeys::of(ExpectedOption::DisableSkewCorrection));
+        assert_eq!(
+            first.union(second).names().collect::<Vec<_>>(),
+            vec![
+                "cookieless_mode",
+                "disable_skew_correction",
+                "process_person_profile",
+                "product_tour_id"
+            ]
+        );
     }
 
     #[test]
     fn raw_options_non_object_value_returns_error() {
         let raw = RawOptions(serde_json::json!("just a string"));
         let err = raw.validate().unwrap_err();
-        assert!(err.invalid_fields.is_empty());
+        assert_eq!(err.detail(), "invalid_options");
+        assert!(err.failed_keys().is_empty());
     }
 
     #[test]
@@ -1010,17 +1216,6 @@ mod tests {
         }));
         let opts = raw.validate().unwrap();
         assert_eq!(opts.cookieless_mode, Some(true));
-    }
-
-    #[test]
-    fn raw_options_null_field_treated_as_absent() {
-        let raw = RawOptions(serde_json::json!({
-            "cookieless_mode": null,
-            "disable_skew_correction": true
-        }));
-        let opts = raw.validate().unwrap();
-        assert_eq!(opts.cookieless_mode, None);
-        assert_eq!(opts.disable_skew_correction, Some(true));
     }
 
     #[test]
@@ -1037,10 +1232,71 @@ mod tests {
         }"#;
         let batch: Batch = serde_json::from_str(json).unwrap();
         assert_eq!(batch.batch.len(), 1);
-        // 999 coerces to true (nonzero), "banana" does not coerce
         let err = batch.batch[0].options.validate().unwrap_err();
-        assert!(err.invalid_fields.contains(&"cookieless_mode"));
-        assert!(!err.invalid_fields.contains(&"disable_skew_correction"));
+        assert_eq!(err, invalid(&[ExpectedOption::CookielessMode]));
+    }
+
+    // --- RawOptions::validate_for: the cookieless placeholder rule ---
+
+    #[rstest::rstest]
+    #[case::placeholder_with_true("$posthog_cookieless", serde_json::json!({"cookieless_mode": true}), Ok(()))]
+    #[case::placeholder_with_yes("$posthog_cookieless", serde_json::json!({"cookieless_mode": "yes"}), Ok(()))]
+    #[case::placeholder_with_one("$posthog_cookieless", serde_json::json!({"cookieless_mode": 1}), Ok(()))]
+    #[case::placeholder_without_options("$posthog_cookieless", serde_json::json!(null), Err(OptionsError::CookielessModeRequired))]
+    #[case::placeholder_empty_options("$posthog_cookieless", serde_json::json!({}), Err(OptionsError::CookielessModeRequired))]
+    #[case::placeholder_null_option("$posthog_cookieless", serde_json::json!({"cookieless_mode": null}), Err(OptionsError::CookielessModeRequired))]
+    #[case::placeholder_blank_option("$posthog_cookieless", serde_json::json!({"cookieless_mode": ""}), Err(OptionsError::CookielessModeRequired))]
+    #[case::placeholder_false("$posthog_cookieless", serde_json::json!({"cookieless_mode": false}), Err(OptionsError::CookielessModeRequired))]
+    #[case::placeholder_no("$posthog_cookieless", serde_json::json!({"cookieless_mode": "no"}), Err(OptionsError::CookielessModeRequired))]
+    #[case::bad_value_wins("$posthog_cookieless", serde_json::json!({"cookieless_mode": "maybe"}), Err(invalid(&[ExpectedOption::CookielessMode])))]
+    #[case::other_bad_value_wins("$posthog_cookieless", serde_json::json!({"cookieless_mode": true, "product_tour_id": 5}), Err(invalid(&[ExpectedOption::ProductTourId])))]
+    #[case::real_id_without_options("user-1", serde_json::json!(null), Ok(()))]
+    #[case::uppercase_is_not_placeholder("$POSTHOG_COOKIELESS", serde_json::json!(null), Ok(()))]
+    #[case::suffix_is_not_placeholder("$posthog_cookieless_1", serde_json::json!(null), Ok(()))]
+    fn raw_options_validate_for_placeholder(
+        #[case] distinct_id: &str,
+        #[case] options: serde_json::Value,
+        #[case] expected: Result<(), OptionsError>,
+    ) {
+        let result = RawOptions(options).validate_for(distinct_id).map(|_| ());
+        assert_eq!(result, expected);
+    }
+
+    #[rstest::rstest]
+    #[case::invalid_values(invalid(&[ExpectedOption::ProcessPersonProfile]), "invalid_options", vec!["process_person_profile"])]
+    #[case::cookieless_mode_required(OptionsError::CookielessModeRequired, "cookieless_mode_required", vec!["cookieless_mode"])]
+    fn options_error_detail_and_failed_keys(
+        #[case] err: OptionsError,
+        #[case] detail: &str,
+        #[case] keys: Vec<&str>,
+    ) {
+        assert_eq!(err.detail(), detail);
+        assert_eq!(err.failed_keys().names().collect::<Vec<_>>(), keys);
+    }
+
+    #[rstest::rstest]
+    #[case::native_true(serde_json::json!(true), Some(true))]
+    #[case::native_false(serde_json::json!(false), Some(false))]
+    #[case::str_true(serde_json::json!("true"), Some(true))]
+    #[case::str_yes(serde_json::json!("yes"), Some(true))]
+    #[case::num_one(serde_json::json!(1), Some(true))]
+    #[case::str_zero(serde_json::json!("0"), Some(false))]
+    #[case::null(serde_json::json!(null), None)]
+    #[case::empty(serde_json::json!(""), None)]
+    #[case::junk(serde_json::json!("maybe"), None)]
+    #[case::object(serde_json::json!({"x": 1}), None)]
+    #[case::array(serde_json::json!([true]), None)]
+    fn parse_batch_capture_internal_is_lenient(
+        #[case] flag: serde_json::Value,
+        #[case] expected: Option<bool>,
+    ) {
+        let json = serde_json::json!({
+            "created_at": "2026-03-19T14:30:00.000Z",
+            "capture_internal": flag,
+            "batch": []
+        });
+        let batch: Batch = serde_json::from_value(json).unwrap();
+        assert_eq!(batch.capture_internal, expected);
     }
 
     // --- SinkEvent impl for WrappedEvent ---

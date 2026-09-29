@@ -10,6 +10,10 @@ use serde_json::Value;
 use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 use uuid::Uuid;
 
+/// The distinct_id web SDKs send for every cookieless visitor. Ingestion replaces
+/// it with a per-visitor id only when the event has cookieless mode on.
+pub const COOKIELESS_SENTINEL_VALUE: &str = "$posthog_cookieless";
+
 /// Trait for types that have an event name, used by quota limiting
 pub trait HasEventName {
     fn event_name(&self) -> &str;

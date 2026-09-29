@@ -69,6 +69,10 @@ impl WarningType {
             "invalid_event_timestamp" => Some(Self::InvalidEventTimestamp),
             "malformed_event_properties" => Some(Self::MalformedEventProperties),
             "invalid_options" => Some(Self::InvalidOptions),
+            // v1 drops an event whose distinct_id is the cookieless placeholder
+            // without `cookieless_mode: true`. It is an options mistake, so it
+            // shares the `invalid_options` warning instead of adding a type.
+            "cookieless_mode_required" => Some(Self::InvalidOptions),
             "empty_batch" => Some(Self::EmptyBatch),
             "invalid_batch" => Some(Self::InvalidBatch),
             "missing_event_uuid" => Some(Self::MissingEventUuid),
@@ -160,5 +164,12 @@ mod tests {
             None,
             "tag {tag:?} must not emit"
         );
+    }
+
+    #[rstest]
+    #[case::ai_event_too_big("ai_event_too_big", WarningType::MessageSizeTooLarge)]
+    #[case::cookieless_mode_required("cookieless_mode_required", WarningType::InvalidOptions)]
+    fn from_tag_maps_aliases_to_existing_types(#[case] tag: &str, #[case] expected: WarningType) {
+        assert_eq!(WarningType::from_tag(tag), Some(expected));
     }
 }
