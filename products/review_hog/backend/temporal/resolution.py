@@ -270,11 +270,18 @@ def _prepare_run(input: ResolveThreadsInput) -> _PreparedRun | ResolutionRunResu
     redeliver: list[tuple[ReviewThread, ThreadVerdictArtefact]] = []
     skipped = 0
     for thread in threads:
-        action = classify_thread(thread, verdicts.get(thread.thread_id))
+        verdict = verdicts.get(thread.thread_id)
+        if verdict is not None:
+            # Before classifying, not after: `classify_thread` asks `should_resolve`, which refuses a
+            # fix with no trust decision, so a legacy row whose reply landed and whose resolve did
+            # not would classify as SKIP and never reach a path that could fill the decision in.
+            verdict = _with_backfilled_ask_trust(input, report_id, thread, verdict)
+        action = classify_thread(thread, verdict)
         if action == ThreadAction.TRIAGE:
             triage.append(thread)
         elif action == ThreadAction.SIDE_EFFECTS:
-            redeliver.append((thread, verdicts[thread.thread_id]))
+            assert verdict is not None  # classify_thread only returns SIDE_EFFECTS for a verdict
+            redeliver.append((thread, verdict))
         else:
             skipped += 1
 
@@ -334,6 +341,29 @@ def _prepare_run(input: ResolveThreadsInput) -> _PreparedRun | ResolutionRunResu
         integration_row_id=github.integration.id,
         queue_state_at_start=queue_state,
     )
+
+
+def _with_backfilled_ask_trust(
+    input: ResolveThreadsInput, report_id: str, thread: ReviewThread, verdict: ThreadVerdictArtefact
+) -> ThreadVerdictArtefact:
+    """Decide the author-permission gate for a verdict that predates it, from the live thread.
+
+    Delivery and `should_resolve` both read `ask_trusted is not True`, so a row written before the
+    gate existed would otherwise deliver with a could-not-clear caveat and never resolve, however
+    trusted its asker was. The thread is in hand here and the gate is a pure function of its opening
+    comment, so the decision is simply made now and persisted, which also stops the row being legacy
+    on the next run.
+
+    Runs for EVERY thread carrying a verdict, ahead of the pre-filter, because the state that needs
+    it most is the one the pre-filter would drop: a fix whose reply landed and whose resolve did not
+    reads as settled once `should_resolve` refuses it, so a backfill downstream of the classification
+    would never see it and the thread would stay open forever.
+    """
+    if verdict.ask_trusted is not None:
+        return verdict
+    updated = verdict.model_copy(update={"ask_trusted": thread.ask_is_trusted})
+    persist_thread_verdict(team_id=input.team_id, report_id=report_id, verdict=updated)
+    return updated
 
 
 def _append_resolution_run(
@@ -477,7 +507,10 @@ def _deliver_side_effects(
     reply with a visible could-not-confirm caveat instead of the commit link and never auto-resolves
     (persisted as `commit_verified=False`); the thread stays open for a human. A proven commit is
     then checked against the hard-floor path backstop: one touching CI/CODEOWNERS/dependency files
-    delivers a human-review warning instead of the link and never auto-resolves either. Only a
+    delivers a human-review warning instead of the link and never auto-resolves either. A fix on a
+    thread the author-permission gate has not positively cleared (`ask_trusted is not True`) gets
+    that treatment whatever the commit proves: without a trust decision the outcome is never
+    presented as settled, and a row predating the gate carries no decision at all. Only a
     verified commit gets a `commit` artefact (the schema records pushed commits only), appended
     right after the verification persists so it happens exactly once per verdict.
     The reply lands first (the outcome must be readable even if resolving then fails); the watermark
@@ -539,7 +572,13 @@ def _deliver_side_effects(
     if not updated.reply_posted:
         body = _fold_overlong_reply(_normalize_reply_divider(updated.reply), thread_id=updated.thread_id)
         if updated.outcome == ThreadOutcome.FIXED.value and updated.commit_sha:
-            if updated.commit_restricted:
+            if updated.ask_trusted is not True:
+                body += (
+                    "\n\n⚠️ This thread was opened by someone without write access to this repository, so "
+                    "ReviewHog cannot change code in response to it. A human needs to review the commit on "
+                    "the branch before trusting it. The thread stays open."
+                )
+            elif updated.commit_restricted:
                 body += (
                     "\n\n⚠️ This fix commit touches protected files (CI workflows, CODEOWNERS, or dependency "
                     "files). A human needs to review the commit on the branch before trusting it. "
@@ -863,12 +902,22 @@ def _persist_turn_verdict_row(
         path=thread.path,
         author_login=thread.author_login,
         author_is_bot=thread.author_is_bot,
+        ask_trusted=thread.ask_is_trusted,
         reasoning=resolution.reasoning,
         reply=resolution.reply,
         commit_sha=resolution.commit_sha,
         verification=resolution.verification,
         latest_comment_id=thread.latest_comment_id,
     )
+    if resolution.outcome == ThreadOutcome.FIXED and not verdict.ask_trusted:
+        # The prompt's hard floor says a thread the gate refused gets no code. A fix here means the
+        # turn crossed it, so it is worth an error even though delivery already refuses the claim.
+        logger.error(
+            "Turn returned a fix for thread %s, whose ask came from %r without repository standing; "
+            "the fix will not be presented as settled",
+            thread.thread_id,
+            thread.author_login,
+        )
     persist_thread_verdict(team_id=input.team_id, report_id=report_id, verdict=verdict)
     return verdict
 
