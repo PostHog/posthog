@@ -112,7 +112,7 @@ export const autoresearchLogic = kea<autoresearchLogicType>([
         pipelines: [
             [] as AutoresearchPipelineApi[],
             {
-                loadPipelines: async () => {
+                loadPipelines: async (_, breakpoint) => {
                     if (!values.currentTeamId) {
                         return []
                     }
@@ -122,6 +122,8 @@ export const autoresearchLogic = kea<autoresearchLogicType>([
                         const response = await autoresearchList(String(values.currentTeamId), {
                             offset: pipelines.length,
                         })
+                        // Stop here when a newer load started, so this one cannot publish an older list.
+                        breakpoint()
                         pipelines.push(...response.results)
                         if (!response.next || response.results.length === 0) {
                             return pipelines

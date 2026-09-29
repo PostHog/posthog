@@ -70,6 +70,20 @@ describe('autoresearchLogic', () => {
         expect(mockList).toHaveBeenLastCalledWith(expect.any(String), { offset: 2 })
     })
 
+    it('keeps the newer list when an older load finishes last', async () => {
+        let resolveOlder: (value: unknown) => void = () => {}
+        mockList
+            .mockReturnValueOnce(new Promise((resolve) => (resolveOlder = resolve)))
+            .mockResolvedValueOnce({ results: [{ id: 'new' }], next: null })
+        const logic = autoresearchLogic()
+        logic.mount()
+        logic.actions.loadPipelines()
+        await expectLogic(logic).toDispatchActions(['loadPipelinesSuccess'])
+        resolveOlder({ results: [{ id: 'old' }], next: null })
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.pipelines.map((p) => p.id)).toEqual(['new'])
+    })
+
     it.each([
         ['deletePipeline', autoresearchDestroy],
         ['pausePipeline', autoresearchPauseCreate],
