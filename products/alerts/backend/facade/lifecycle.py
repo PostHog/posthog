@@ -177,6 +177,10 @@ class ControlPlaneOutcome:
 
 Outcome = AlertCheckOutcome | ControlPlaneOutcome
 
+# States that mean the alert is inside a firing. PENDING_RESOLVE is one: the condition has
+# cleared but the resolution is not announced yet, so the firing has not ended.
+FIRING_STATES = (AlertState.FIRING, AlertState.PENDING_RESOLVE)
+
 
 def _stay(snapshot: AlertSnapshot) -> AlertCheckOutcome:
     return AlertCheckOutcome(
@@ -208,15 +212,6 @@ def _muted(outcome: AlertCheckOutcome) -> AlertCheckOutcome:
     )
 
 
-def _snoozed_is_held_firing(policy: AlertPolicy) -> bool:
-    """Whether SNOOZED means a firing held rather than an alert at rest.
-
-    `clear_check_ends_snooze` parks a breached alert in SNOOZED, so the state names the mute and
-    the firing underneath it continues.
-    """
-    return policy.clear_check_ends_snooze
-
-
 def decide_firing_started_at(
     snapshot: AlertSnapshot, outcome: Outcome, now: datetime, *, policy: AlertPolicy
 ) -> datetime | None:
@@ -230,15 +225,16 @@ def decide_firing_started_at(
     parks in SNOOZED and resumes firing afterwards, which is one firing rather than two, and a
     caller reading only the two state strings cannot tell.
     """
-    held = _snoozed_is_held_firing(policy)
+    held_firing = policy.clear_check_ends_snooze and snapshot.state == AlertState.SNOOZED
     if outcome.new_state == AlertState.SNOOZED:
-        return snapshot.firing_started_at if held else None
-    if outcome.new_state != AlertState.FIRING:
+        return snapshot.firing_started_at if policy.clear_check_ends_snooze else None
+    if outcome.new_state not in FIRING_STATES:
         return None
-    continues = snapshot.state == AlertState.FIRING or (held and snapshot.state == AlertState.SNOOZED)
+    if snapshot.state not in FIRING_STATES and not held_firing:
+        return now
     # A row that was already firing before this field existed has no start to continue, so the
     # first check after that stamps one rather than leaving it null for the life of the firing.
-    return snapshot.firing_started_at or now if continues else now
+    return snapshot.firing_started_at or now
 
 
 def evaluate_alert_check(
@@ -330,7 +326,7 @@ def evaluate_alert_check(
         else:
             new_state = AlertState.NOT_FIRING
 
-    elif effective_state in (AlertState.FIRING, AlertState.PENDING_RESOLVE):
+    elif effective_state in FIRING_STATES:
         if breached:
             new_state = AlertState.FIRING
             if policy.renotify_while_firing:

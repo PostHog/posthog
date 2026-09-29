@@ -377,6 +377,17 @@ class TestFiringStart:
             ("parked", SNOOZE_UNTIL_CLEAR, AlertState.FIRING, STARTED, AlertState.SNOOZED, STARTED),
             ("resumed", SNOOZE_UNTIL_CLEAR, AlertState.SNOOZED, STARTED, AlertState.FIRING, STARTED),
             ("snoozed_at_rest", LOGS_ALERT_POLICY, AlertState.FIRING, STARTED, AlertState.SNOOZED, None),
+            # PENDING_RESOLVE is inside the firing: the condition cleared and the resolution is
+            # not announced yet, so neither leaving nor entering it starts a second firing.
+            ("awaiting_resolve", LOGS_ALERT_POLICY, AlertState.FIRING, STARTED, AlertState.PENDING_RESOLVE, STARTED),
+            (
+                "refired_while_awaiting",
+                LOGS_ALERT_POLICY,
+                AlertState.PENDING_RESOLVE,
+                STARTED,
+                AlertState.FIRING,
+                STARTED,
+            ),
         ]
     )
     def test_when_a_firing_starts_and_ends(
