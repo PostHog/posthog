@@ -233,6 +233,40 @@ describe("SessionConfigState", () => {
     ).toBe(true);
   });
 
+  it.each([
+    ["the default listed model", true, "gpt-5.5"],
+    ["the first listed model when none is the default", false, "gpt-5.4"],
+  ])(
+    "without gateway models, swaps an unlisted model for %s",
+    (_name, markDefault, expected) => {
+      const config = new SessionConfigState("gpt-6-sol", "max");
+
+      config.loadModels([
+        { id: "codex-auto-review", hidden: true },
+        { id: "gpt-5.4", displayName: "GPT-5.4" },
+        { id: "gpt-5.5", displayName: "GPT-5.5", isDefault: markDefault },
+      ]);
+      config.setOption("model", "gpt-6-sol");
+
+      expect(config.collaborationModeForTurn().settings).toEqual({
+        model: expected,
+      });
+    },
+  );
+
+  it("without gateway models, keeps a listed model and still accepts listed switches", () => {
+    const config = new SessionConfigState("codex-auto-review");
+
+    config.loadModels([
+      { id: "codex-auto-review", hidden: true },
+      { id: "gpt-5.5", isDefault: true },
+    ]);
+    expect(config.model).toBe("codex-auto-review");
+
+    config.setOption("model", "gpt-5.5");
+    expect(config.model).toBe("gpt-5.5");
+  });
+
   it("keeps gateway models when the app-server model list fails", () => {
     const config = new SessionConfigState("gpt-5.5", undefined, [
       { id: "gpt-5.5", allowed: true },

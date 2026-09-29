@@ -229,6 +229,7 @@ export interface RawModel {
   model?: string;
   displayName?: string;
   hidden?: boolean;
+  isDefault?: boolean;
   supportedReasoningEfforts?: Array<{ reasoningEffort?: string } | string>;
 }
 
@@ -259,6 +260,9 @@ export class SessionConfigState {
   private _options: SessionConfigOption[] = [];
   private readonly gatewayModels?: ReadonlyArray<ModelInfo>;
   private readonly allowedModelIds?: ReadonlySet<string>;
+  // Without gateway models (own ChatGPT subscription), the account's
+  // `model/list` is the only source of which models can run.
+  private liveModelIds?: ReadonlySet<string>;
 
   constructor(
     model: string,
@@ -304,10 +308,7 @@ export class SessionConfigState {
   ): { modeChanged: boolean } {
     let modeChanged = false;
     if (typeof value === "string") {
-      if (
-        configId === "model" &&
-        (!this.gatewayModels || this.allowedModelIds?.has(value))
-      ) {
+      if (configId === "model" && this.canRun(value)) {
         this._model = value;
         this.reconcileEffortForModel();
       } else if (configId === "effort") this._effort = value;
@@ -318,6 +319,11 @@ export class SessionConfigState {
     }
     this.rebuild();
     return { modeChanged };
+  }
+
+  private canRun(model: string): boolean {
+    if (this.gatewayModels) return this.allowedModelIds?.has(model) ?? false;
+    return !this.liveModelIds || this.liveModelIds.has(model);
   }
 
   /**
@@ -360,6 +366,7 @@ export class SessionConfigState {
       }));
     } else {
       this.models = liveModels;
+      this.reconcileModelWithLiveList(rawModels);
     }
     const current = rawModels.find(
       (m) => m.id === this._model || m.model === this._model,
@@ -371,6 +378,22 @@ export class SessionConfigState {
       ? liveEfforts
       : getReasoningEffortOptions(this._model).map((o) => o.value);
     this.rebuild();
+  }
+
+  /** Swap a model the account's `model/list` omits for its default, so the first turn cannot fail. */
+  private reconcileModelWithLiveList(rawModels: RawModel[]): void {
+    const ids = rawModels
+      .flatMap((m) => [m.id, m.model])
+      .filter((id): id is string => typeof id === "string");
+    if (ids.length === 0) return;
+    this.liveModelIds = new Set(ids);
+    if (this.liveModelIds.has(this._model)) return;
+    const visible = rawModels.filter((m) => !m.hidden);
+    const fallback = visible.find((m) => m.isDefault) ?? visible[0];
+    const fallbackId = fallback?.id ?? fallback?.model;
+    if (!fallbackId) return;
+    this._model = fallbackId;
+    this._effort = undefined;
   }
 
   /** Reset the model/effort lists (model/list failed); keeps the current model. */
