@@ -11,8 +11,8 @@ from posthog.uuidt import UUIDT
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
 
-CANCEL_PROXY = "products.workflows.backend.api.hog_flow.cancel_hog_flow_invocations"
-CANCEL_BATCH_PROXY = "products.workflows.backend.api.hog_flow.cancel_hog_flow_batch_job"
+CANCEL_PROXY = "products.workflows.backend.presentation.views.hog_flow.cancel_hog_flow_invocations"
+CANCEL_BATCH_PROXY = "products.workflows.backend.presentation.views.hog_flow.cancel_hog_flow_batch_job"
 BATCH_DISPATCH = (
     "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
 )

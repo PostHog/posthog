@@ -18,7 +18,7 @@ from products.workflows.backend.models import HogFlow
 
 SECRET = "test-workflow-scout-run-jwt"
 SCOUT = "signals-scout-error-tracking"
-_START_SCOUT = "products.workflows.backend.api.workflow_scout_runs.start_workflow_scout_run"
+_START_SCOUT = "products.workflows.backend.presentation.views.workflow_scout_runs.start_workflow_scout_run"
 
 
 def _token(
