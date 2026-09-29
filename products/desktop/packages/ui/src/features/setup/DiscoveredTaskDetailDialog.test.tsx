@@ -33,26 +33,15 @@ function staleFlagTask(): DiscoveredTask {
 }
 
 describe("DiscoveredTaskDetailDialog", () => {
-  it("starts the stale-flag task with the assessment prompt, not a cleanup verdict", async () => {
+  it("forwards the built assessment prompt whole, instead of rebuilding one", async () => {
     const user = userEvent.setup();
-    render(
-      <DiscoveredTaskDetailDialog task={staleFlagTask()} onClose={vi.fn()} />,
-    );
+    const task = staleFlagTask();
+    render(<DiscoveredTaskDetailDialog task={task} onClose={vi.fn()} />);
 
     await user.click(screen.getByText("Implement as new task"));
 
     expect(openTaskInput).toHaveBeenCalledTimes(1);
     const { initialPrompt } = openTaskInput.mock.calls[0][0];
-
-    expect(initialPrompt.startsWith("/cleaning-up-stale-feature-flags")).toBe(
-      true,
-    );
-    expect(initialPrompt).toContain('"legacy-banner"');
-    expect(initialPrompt).toContain("- src/a.ts:4 (isFeatureEnabled)");
-    expect(initialPrompt).toContain("Before you edit any code:");
-    expect(initialPrompt).toContain("Do not change the flag in PostHog.");
-    expect(initialPrompt).not.toMatch(
-      /winning branch|inline the |remove the flag/i,
-    );
+    expect(initialPrompt).toBe(task.prompt);
   });
 });
