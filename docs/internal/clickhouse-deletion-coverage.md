@@ -245,6 +245,12 @@ A target that leaves the capability unset strands its rows permanently, because 
 That is the accepted cost for `sharded_events_json`, which is exempt on purpose.
 Rows a merge stranded before `sharded_flag_evaluations` joined the squash age out with their partition.
 
+`flag_evaluations_backfill_job` (`posthog/dags/flag_evaluations_backfill.py`) is a second producer.
+It copies `person_id` from `sharded_events`, so its rows meet the same parity.
+It leaves `inserted_at` to the column default, which is the event `timestamp`, so every copied row sits inside the `inserted_at` bound of any request made after its event.
+Before each day it waits while a `squash_person_overrides`, `deletes_job` or data deletion request run is queued or executing.
+A day copied during one of them can read a row before the job rewrites it and insert it after the job sweeps `sharded_flag_evaluations`, which keeps what the job removed.
+
 ## Related, and deliberately unchanged
 
 `_fetch_stats` counts only the events tables. It feeds `AUTO_APPROVE_MAX_EVENTS`, a cost heuristic rather than a completeness claim, so a request auto-approved as small may move somewhat more rows than measured.

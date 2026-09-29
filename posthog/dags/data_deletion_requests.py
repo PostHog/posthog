@@ -1727,7 +1727,7 @@ def data_deletion_request_person_removal():
 # Pickup sensor: scans for APPROVED requests and launches jobs (max 1 at a time)
 # ---------------------------------------------------------------------------
 
-_DELETION_JOB_NAMES = [
+DELETION_JOB_NAMES = [
     data_deletion_request_event_removal.name,
     data_deletion_request_hogql_event_removal.name,
     data_deletion_request_property_removal.name,
@@ -1758,7 +1758,7 @@ def data_deletion_request_pickup_sensor(context: dagster.SensorEvaluationContext
         dagster.DagsterRunStatus.STARTED,
     ]
     active_count = 0
-    for job_name in _DELETION_JOB_NAMES:
+    for job_name in DELETION_JOB_NAMES:
         active_count += len(
             context.instance.get_run_records(
                 dagster.RunsFilter(job_name=job_name, statuses=active_statuses),

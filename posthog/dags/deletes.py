@@ -26,7 +26,7 @@ from posthog.clickhouse.cluster import (
     wait_for_mutations_on_shards,
 )
 from posthog.clickhouse.plugin_log_entries import PLUGIN_LOG_ENTRIES_TABLE
-from posthog.dags.common import JobOwners
+from posthog.dags.common import JobOwners, describe_active_runs
 from posthog.dags.common.dictionaries import Dictionary
 from posthog.dags.common.staged_dictionary import (
     StagedDictionary,
@@ -409,16 +409,12 @@ def ensure_no_concurrent_deletes_run(context: dagster.OpExecutionContext) -> Non
     between its check and the sensor launching this run, so the launched run checks again here.
     This covers direct launchpad starts as well.
     """
-    blockers: list[str] = []
-    for job_name in (context.job_name, squash_person_overrides.name):
-        records = context.instance.get_run_records(
-            dagster.RunsFilter(job_name=job_name, statuses=_EXECUTING_RUN_STATUSES)
-        )
-        blockers.extend(
-            f"{job_name} run {record.dagster_run.run_id}"
-            for record in records
-            if record.dagster_run.run_id != context.run_id
-        )
+    blockers = describe_active_runs(
+        context.instance,
+        (context.job_name, squash_person_overrides.name),
+        statuses=_EXECUTING_RUN_STATUSES,
+        exclude_run_id=context.run_id,
+    )
     if blockers:
         raise dagster.Failure(
             description="This run yields to: " + "; ".join(blockers) + ". "
@@ -1213,16 +1209,6 @@ def run_deletes_after_squash(context):
     )
 
 
-# Everything that means a deletes_job or squash run is active or imminent. Unlike the in-job
-# guard, QUEUED and NOT_STARTED count too: the question here is whether launching another run
-# would collide, not which of two started runs came first.
-_ACTIVE_RUN_STATUSES = [
-    dagster.DagsterRunStatus.QUEUED,
-    dagster.DagsterRunStatus.NOT_STARTED,
-    *_EXECUTING_RUN_STATUSES,
-]
-
-
 @dagster.op
 def ensure_deletes_job_can_start(context: dagster.OpExecutionContext) -> None:
     """Fail when launching deletes_job now would collide with an active or imminent run.
@@ -1232,14 +1218,13 @@ def ensure_deletes_job_can_start(context: dagster.OpExecutionContext) -> None:
     motion and will launch deletes_job itself on success, so starting one by hand now would race
     it. Another manual trigger means someone else already asked for a run.
     """
-    blockers: list[str] = []
-    for job_name in (deletes_job.name, squash_person_overrides.name, context.job_name):
-        records = context.instance.get_run_records(dagster.RunsFilter(job_name=job_name, statuses=_ACTIVE_RUN_STATUSES))
-        blockers.extend(
-            f"{job_name} run {record.dagster_run.run_id}"
-            for record in records
-            if record.dagster_run.run_id != context.run_id
-        )
+    # Unlike the in-job guard, queued and not-started runs count here. This check asks whether
+    # launching another run would collide, not which of two started runs came first.
+    blockers = describe_active_runs(
+        context.instance,
+        (deletes_job.name, squash_person_overrides.name, context.job_name),
+        exclude_run_id=context.run_id,
+    )
     if blockers:
         raise dagster.Failure(
             description="deletes_job cannot start while these runs are active: "

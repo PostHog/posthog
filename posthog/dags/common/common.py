@@ -1,4 +1,4 @@
-from collections.abc import Callable
+from collections.abc import Callable, Iterable, Sequence
 from contextlib import suppress
 from datetime import datetime, timedelta
 from functools import wraps
@@ -52,6 +52,36 @@ def settings_with_log_comment(
     qt = query_tagging.get_query_tags()
     qt.with_dagster(dagster_tags(context))
     return {"log_comment": qt.to_json()}
+
+
+# A run in one of these statuses is running, or it will start without anyone acting. CANCELING
+# counts because a ClickHouse mutation the run issued keeps applying on the server after the run stops.
+ACTIVE_RUN_STATUSES = (
+    dagster.DagsterRunStatus.QUEUED,
+    dagster.DagsterRunStatus.NOT_STARTED,
+    dagster.DagsterRunStatus.STARTING,
+    dagster.DagsterRunStatus.STARTED,
+    dagster.DagsterRunStatus.CANCELING,
+)
+
+
+def describe_active_runs(
+    instance: dagster.DagsterInstance,
+    job_names: Iterable[str],
+    *,
+    exclude_run_id: str,
+    statuses: Sequence[dagster.DagsterRunStatus] = ACTIVE_RUN_STATUSES,
+) -> list[str]:
+    """Describe each run of these jobs that is in one of the statuses, except the excluded run."""
+    blockers: list[str] = []
+    for job_name in job_names:
+        records = instance.get_run_records(dagster.RunsFilter(job_name=job_name, statuses=list(statuses)))
+        blockers.extend(
+            f"{job_name} run {record.dagster_run.run_id}"
+            for record in records
+            if record.dagster_run.run_id != exclude_run_id
+        )
+    return blockers
 
 
 def check_for_concurrent_runs(
