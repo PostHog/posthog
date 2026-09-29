@@ -1,4 +1,5 @@
 import asyncio
+import datetime as dt
 from contextlib import contextmanager
 
 from django.conf import settings
@@ -22,6 +23,9 @@ def start_test_worker(temporal: TemporalClient):
         task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
         workflows=WORKFLOWS,
         activities=ACTIVITIES,
+        # The worker stops after the last test that needs it. Cancellation tests leave mocked
+        # activities that never finish, so a grace period only delays the shutdown.
+        graceful_shutdown_timeout=dt.timedelta(0),
     ):
         yield
 
