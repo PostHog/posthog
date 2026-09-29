@@ -38,6 +38,7 @@ from posthog.dataclasses import frozen
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.deletion_targets import (
     COVERAGE_DOC,
+    DEFAULT_DELETION_TARGETS,
     PERSONAL_DATA_TARGETS,
     DeletionTarget,
     _any_node_has,
@@ -46,7 +47,7 @@ from posthog.models.deletion_targets import (
     sweep_clusters,
 )
 from posthog.models.event.deletion import events_data_tables
-from posthog.models.event.sql import EVENTS_DATA_TABLE, EVENTS_JSON_DATA_TABLE
+from posthog.models.event.sql import EVENTS_DATA_TABLE
 from posthog.models.group.sql import GROUPS_TABLE
 from posthog.models.person.sql import (
     PERSON_DISTINCT_ID2_TABLE,
@@ -106,9 +107,11 @@ class DeleteConfig(dagster.Config):
 # A run that resolves it inconsistently is worse than one that never tries: it creates the
 # dictionary on a cluster it may not mutate, and reports an erasure that did not happen. Rows the
 # table holds stay readable meanwhile, which is the cost this accepts; see COVERAGE_DOC.
-# Remove it from the default to sweep the table again. `skip_targets: []` in run config does the
-# same for one run, without a deploy.
-_DEFAULT_SKIP_TARGETS = [EVENTS_JSON_DATA_TABLE]
+# Add it back to DEFAULT_DELETION_TARGETS to sweep and verify the table again. `skip_targets: []`
+# in run config sweeps it for one run, without a deploy.
+_DEFAULT_SKIP_TARGETS = [
+    target.data_table for target in PERSONAL_DATA_TARGETS if target not in DEFAULT_DELETION_TARGETS
+]
 
 
 class SweepTargetsConfig(dagster.Config):
