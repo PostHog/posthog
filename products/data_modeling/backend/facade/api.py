@@ -21,6 +21,7 @@ _LAZY = {
     "NodeMoveError": "logic.saved_query_dag_sync",
     "blocked_lineage_node_id": "logic.saved_query_dag_sync",
     "delete_node_from_dag": "logic.saved_query_dag_sync",
+    "lock_dag": "logic.saved_query_dag_sync",
     "move_saved_query_to_dag": "logic.saved_query_dag_sync",
     "describe_dependents": "logic.saved_query_dag_sync",
     "promote_view_nodes_to_matview": "logic.saved_query_dag_sync",

@@ -182,11 +182,14 @@ class ManagedDAGError(Exception):
     pass
 
 
-def _lock_dag(team_id: int, dag_id: UUID) -> None:
+def lock_dag(team_id: int, dag_id: UUID) -> None:
     """Serialize against every other writer of this DAG's edges.
 
     The same key `Edge._detect_cycles` takes, so an edge write and a node delete cannot interleave.
     Callers holding more than one DAG take them in a fixed order, so two of them cannot deadlock.
+
+    Materialization takes it too, on the job-start side, so a job cannot be created against a
+    placement a move has already left behind.
     """
     with connection.cursor() as cursor:
         cursor.execute("SELECT pg_advisory_xact_lock(%s, hashtext(%s))", [team_id, str(dag_id)])
@@ -214,7 +217,7 @@ def replace_incoming_edges(
     """
     unresolved: list[str] = []
     with transaction.atomic():
-        _lock_dag(team.pk, dag.id)
+        lock_dag(team.pk, dag.id)
         Node.objects.select_for_update().filter(pk=target.pk).first()
         Edge.objects.filter(team=team, target=target).delete()
         for dependency_name in dependency_names:
@@ -478,7 +481,7 @@ def delete_node_from_dag(saved_query: "DataWarehouseSavedQuery") -> None:
         # check below and the delete that would cascade its edge away.
         dags = sorted({node.dag for node in nodes if node.dag is not None}, key=lambda dag: str(dag.id))
         for dag in dags:
-            _lock_dag(saved_query.team_id, dag.id)
+            lock_dag(saved_query.team_id, dag.id)
 
         query_dependents = [
             Dependent(
@@ -525,19 +528,23 @@ def move_saved_query_to_dag(team_id: int, saved_query_id: UUID, dag_id: UUID) ->
 
     A move is refused while a materialization runs. Its activities load the node by team, node
     and DAG, so the move makes the remaining ones stop finding it -- including the activity that
-    records the failure, which leaves the job row Running with nothing to close it. A job that
-    starts between the check and the move is still possible; serializing those needs a lock on
-    the job-start side.
+    records the failure, which leaves the job row Running with nothing to close it. Job creation
+    takes the same DAG lock and re-reads the node in its DAG, so a job that starts between the
+    check and the move cannot slip past.
+
+    The saved-query row lock is held too, because a query edit picks the DAG to sync into from its
+    own read of the node. Without it that edit can choose the DAG this move is leaving and then
+    `get_or_create` a second node there, which later moves refuse as `multiple_placements`.
     """
     from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
     with transaction.atomic():
-        saved_query = DataWarehouseSavedQuery.objects.get(team_id=team_id, id=saved_query_id)
+        saved_query = DataWarehouseSavedQuery.objects.select_for_update().get(team_id=team_id, id=saved_query_id)
         dag = DAG.objects.get(team_id=team_id, id=dag_id)
         placements = Node.objects.filter(team_id=team_id, saved_query=saved_query)
         held = {dag.id} | {node.dag_id for node in placements if node.dag_id is not None}
         for held_dag_id in sorted(held, key=str):
-            _lock_dag(team_id, held_dag_id)
+            lock_dag(team_id, held_dag_id)
 
         nodes = list(placements.select_related("dag"))
         if len(nodes) > 1:
