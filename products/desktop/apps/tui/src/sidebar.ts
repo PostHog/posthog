@@ -182,3 +182,31 @@ export function activateRow(
       return layout;
   }
 }
+
+// Moving through the sidebar shows each chat in place while focus stays on the list.
+export function previewRow(layout: LayoutState, row: SidebarRow): LayoutState {
+  const next = activateRow(layout, row);
+  return next === "viewMore" || next === layout
+    ? layout
+    : { ...next, focus: "sidebar" };
+}
+
+// Identifies a row across re-renders, so the cursor follows the task rather than its position.
+export function selectionKey(row: SidebarRow | undefined): string | null {
+  switch (row?.kind) {
+    case "task":
+      return row.taskId ? `task:${row.taskId}` : `pane:${row.paneId}`;
+    case "workspace":
+      return `workspace:${row.workspaceId}`;
+    case "viewMore":
+      return "viewMore";
+    default:
+      return null;
+  }
+}
+
+export function cursorIndex(rows: SidebarRow[], key: string | null): number {
+  const found =
+    key === null ? -1 : rows.findIndex((row) => selectionKey(row) === key);
+  return found >= 0 ? found : firstSelectable(rows);
+}

@@ -1,7 +1,7 @@
 import { initTheme } from "@earendil-works/pi-coding-agent";
 import { stripTerminalSequences } from "@earendil-works/pi-tui";
 import { beforeAll, describe, expect, it } from "vitest";
-import { Composer, isAppKey } from "./composer";
+import { Composer, isAppKey, isTyping } from "./composer";
 
 describe("isAppKey", () => {
   it.each([
@@ -20,6 +20,21 @@ describe("isAppKey", () => {
     ["kitty Shift+Enter", "\x1b[13;2u", false],
   ])("%s", (_, sequence, expected) => {
     expect(isAppKey(sequence)).toBe(expected);
+  });
+});
+
+describe("isTyping", () => {
+  it.each([
+    ["a letter", "h", true],
+    ["a kitty-encoded letter", "\x1b[104u", true],
+    ["a space", " ", true],
+    ["a paste", "\x1b[200~hello\x1b[201~", true],
+    ["an arrow", "\x1b[B", false],
+    ["Enter", "\r", false],
+    ["Escape", "\x1b", false],
+    ["Tab", "\t", false],
+  ])("%s", (_, sequence, expected) => {
+    expect(isTyping(sequence)).toBe(expected);
   });
 });
 
@@ -56,5 +71,15 @@ describe("Composer", () => {
         .render(30, true)
         .map((line) => stripTerminalSequences(line).trim()),
     ).not.toContain("hi");
+  });
+
+  it("draws its cursor only while its pane has focus", () => {
+    const composer = new Composer(
+      () => {},
+      () => {},
+    );
+    composer.handleInput("x");
+    expect(composer.render(30, true).join("")).toContain("\x1b[7m");
+    expect(composer.render(30, false).join("")).not.toContain("\x1b[7m");
   });
 });

@@ -122,7 +122,7 @@ export function Sidebar({
           key={rowKey(row, index)}
           marginTop={row.kind === "heading" && index > 0 ? 1 : 0}
         >
-          <Text dimColor={!focused}>
+          <Text dimColor={!focused} wrap="truncate-end">
             <Row row={row} selected={highlighted(row, index)} />
           </Text>
         </Box>
