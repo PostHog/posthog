@@ -231,7 +231,7 @@ def _build_user_content(
     return "\n".join(lines)
 
 
-def _gemini_client() -> GeminiClient | GatewayGeminiClient:
+def _gemini_client(team_id: int) -> GeminiClient | GatewayGeminiClient:
     # The generate endpoint runs inline in a web worker, so a hung provider call must time out.
     try:
         return replay_gemini_client(
@@ -243,6 +243,7 @@ def _gemini_client() -> GeminiClient | GatewayGeminiClient:
                 http_options={"timeout": _MODEL_CALL_TIMEOUT_MS},
             ),
             timeout_ms=_MODEL_CALL_TIMEOUT_MS,
+            team_id=team_id,
         )
     except Exception as e:
         # A missing or malformed API key raises at construction. Wrap it so the API returns
@@ -265,7 +266,7 @@ def _parse_llm_output(text: str) -> dict[str, Any]:
 def _generate(
     *, user_content: str, team_id: int, distinct_id: str, system_prompt: str, output_schema: dict[str, Any]
 ) -> dict[str, Any]:
-    client = _gemini_client()
+    client = _gemini_client(team_id)
     config = GenerateContentConfig(
         system_instruction=system_prompt,
         response_mime_type="application/json",
@@ -434,7 +435,7 @@ def _generate_agentic(
 ) -> dict[str, Any]:
     """Tool-loop generation: the model may inspect rated sessions before rewriting, then a final tool-free
     turn forces the structured answer, mirroring the scanner's own tool loop."""
-    client = _gemini_client()
+    client = _gemini_client(scanner.team_id)
     deadline = time.monotonic() + budget_s
     agent_system_prompt = system_prompt + _AGENT_SYSTEM_ADDENDUM
     tool_config = GenerateContentConfig(

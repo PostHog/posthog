@@ -418,6 +418,7 @@ def _generate(*, user_content: str, team_id: int, distinct_id: str) -> _LlmQueri
                 http_options={"timeout": _MODEL_CALL_TIMEOUT_MS},
             ),
             timeout_ms=_MODEL_CALL_TIMEOUT_MS,
+            team_id=team_id,
         )
     except Exception as e:
         raise SuggestionError("model client unavailable") from e

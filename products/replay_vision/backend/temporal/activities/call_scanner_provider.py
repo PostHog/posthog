@@ -571,7 +571,7 @@ async def _run_mission(
     client: Any
     cache_client: GoogleGenAIClient | None = None
     if inline_video:
-        routed = replay_gemini_client(direct_client, properties=properties)
+        routed = replay_gemini_client(direct_client, team_id=team_id, properties=properties)
         client = routed.aio if isinstance(routed, GatewayGeminiClient) else routed
     else:
         client = direct_client()

@@ -13,11 +13,11 @@ from google.genai import (
 )
 from temporalio import activity
 
-from posthog.llm.gateway_client import resolve_ai_gateway_config
 from posthog.temporal.common.heartbeat import Heartbeater
 
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.replay_vision.backend.consent import is_ai_data_processing_approved
+from products.replay_vision.backend.gemini_client import replay_gateway_enabled
 from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.errors import ConsentWithdrawnError, FailureKind, ScannerFailureError
 from products.replay_vision.backend.temporal.gemini import (
@@ -76,7 +76,7 @@ async def _upload_video(inputs: UploadVideoToGeminiInputs) -> UploadedVideo:
     video_bytes = await read_asset_video_bytes(asset)
     # The gateway serves no Files API, so the scan sends the bytes inline. A video over the inline bound uploads
     # directly, because the gateway rejects every turn that carries it.
-    if resolve_ai_gateway_config() is not None:
+    if replay_gateway_enabled(asset.team_id):
         if len(video_bytes) <= MAX_INLINE_VIDEO_BYTES:
             return UploadedVideo(file_uri="", mime_type=asset.export_format, gemini_file_name="", inline_video=True)
         logger.warning(

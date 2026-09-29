@@ -607,6 +607,7 @@ def _generate(
                 http_options={"timeout": _MODEL_CALL_TIMEOUT_MS},
             ),
             timeout_ms=_MODEL_CALL_TIMEOUT_MS,
+            team_id=team_id,
         )
     except Exception as e:
         # A missing or malformed API key raises at construction. Wrap it so the API returns

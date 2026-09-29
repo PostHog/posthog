@@ -3487,6 +3487,7 @@ class TestUploadedFileNotActive:
         asset = await ExportedAsset.objects.acreate(team=team, export_format="video/mp4", content=b"mp4-bytes")
         with (
             override_settings(AI_GATEWAY_URL="https://ai-gateway.example/v1", AI_GATEWAY_API_KEY="phs_test"),
+            patch("products.replay_vision.backend.gemini_client.feature_enabled_or_false", return_value=True),
             patch(
                 "products.replay_vision.backend.temporal.activities.upload_video_to_gemini.RawGenAIClient"
             ) as mock_client,
@@ -3501,6 +3502,28 @@ class TestUploadedFileNotActive:
         assert uploaded.mime_type == "video/mp4"
 
     @pytest.mark.asyncio
+    async def test_flag_off_uploads_even_with_the_gateway_configured(self) -> None:
+        team = await sync_to_async(self._team)()
+        asset = await ExportedAsset.objects.acreate(team=team, export_format="video/mp4", content=b"mp4-bytes")
+        module = "products.replay_vision.backend.temporal.activities.upload_video_to_gemini"
+        active = types.File(
+            name="files/abc", uri="https://files/abc", mime_type="video/mp4", state=types.FileState.ACTIVE
+        )
+        with (
+            override_settings(AI_GATEWAY_URL="https://ai-gateway.example/v1", AI_GATEWAY_API_KEY="phs_test"),
+            patch("products.replay_vision.backend.gemini_client.feature_enabled_or_false", return_value=False),
+            patch(f"{module}.RawGenAIClient") as mock_client,
+            patch(f"{module}.track_uploaded_file", AsyncMock()),
+        ):
+            mock_client.return_value.files.upload.return_value = active
+            uploaded = await ActivityEnvironment().run(
+                upload_video_to_gemini_activity, UploadVideoToGeminiInputs(asset_id=asset.id)
+            )
+
+        mock_client.return_value.files.upload.assert_called_once()
+        assert uploaded.inline_video is False
+
+    @pytest.mark.asyncio
     async def test_gateway_mode_uploads_a_video_too_large_to_send_inline(self) -> None:
         team = await sync_to_async(self._team)()
         asset = await ExportedAsset.objects.acreate(team=team, export_format="video/mp4", content=b"mp4-bytes")
@@ -3510,6 +3533,7 @@ class TestUploadedFileNotActive:
         )
         with (
             override_settings(AI_GATEWAY_URL="https://ai-gateway.example/v1", AI_GATEWAY_API_KEY="phs_test"),
+            patch("products.replay_vision.backend.gemini_client.feature_enabled_or_false", return_value=True),
             patch(f"{module}.MAX_INLINE_VIDEO_BYTES", len(b"mp4-bytes") - 1),
             patch(f"{module}.RawGenAIClient") as mock_client,
             patch(f"{module}.track_uploaded_file", AsyncMock()),

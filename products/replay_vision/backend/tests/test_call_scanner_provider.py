@@ -18,7 +18,7 @@ from temporalio.testing import ActivityEnvironment
 
 from posthog.dataclasses import frozen
 
-from products.replay_vision.backend.gemini_client import _GatewayModels
+from products.replay_vision.backend.gemini_client import _AsyncGatewayModels
 from products.replay_vision.backend.models.replay_scanner import ScannerType
 from products.replay_vision.backend.temporal.activities.call_scanner_provider import (
     _maybe_create_video_cache,
@@ -185,7 +185,7 @@ def _attribution_snapshot() -> MagicMock:
     return snapshot
 
 
-async def _mission_client(*, inline_video: bool) -> tuple[Any, MagicMock, MagicMock, AsyncMock]:
+async def _mission_client(*, inline_video: bool, flag_on: bool = True) -> tuple[Any, MagicMock, MagicMock, AsyncMock]:
     scanner = MagicMock()
     scanner.mission_steps.return_value = []
     scanner.assemble.return_value = (MagicMock(), [])
@@ -194,6 +194,7 @@ async def _mission_client(*, inline_video: bool) -> tuple[Any, MagicMock, MagicM
     with (
         override_settings(AI_GATEWAY_URL="https://ai-gateway.example/v1", AI_GATEWAY_API_KEY="phs_test"),
         patch("posthog.llm.gateway_client.genai.Client"),
+        patch("products.replay_vision.backend.gemini_client.feature_enabled_or_false", return_value=flag_on),
         patch(f"{_MODULE}.genai.AsyncClient") as direct_cls,
         patch(f"{_MODULE}.GoogleGenAIClient") as cache_cls,
         patch(f"{_MODULE}._maybe_create_video_cache", new=create_cache),
@@ -218,8 +219,17 @@ async def _mission_client(*, inline_video: bool) -> tuple[Any, MagicMock, MagicM
 async def test_inline_video_scans_through_the_gateway_without_a_cache() -> None:
     client, direct_cls, cache_cls, create_cache = await _mission_client(inline_video=True)
 
-    assert isinstance(client.models, _GatewayModels)
+    assert isinstance(client.models, _AsyncGatewayModels)
     direct_cls.assert_not_called()
+    cache_cls.assert_not_called()
+    create_cache.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_inline_video_scans_directly_when_the_team_flag_is_off() -> None:
+    client, direct_cls, cache_cls, create_cache = await _mission_client(inline_video=True, flag_on=False)
+
+    assert client is direct_cls.return_value
     cache_cls.assert_not_called()
     create_cache.assert_not_called()
 

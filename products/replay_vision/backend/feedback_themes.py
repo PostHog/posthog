@@ -105,6 +105,7 @@ def _summarize(*, comments: list[str], team_id: int, distinct_id: str) -> _LlmFe
             http_options={"timeout": _MODEL_CALL_TIMEOUT_MS},
         ),
         timeout_ms=_MODEL_CALL_TIMEOUT_MS,
+        team_id=team_id,
     )
     lines = [f"Feedback comments on sessions the scanner scored wrong ({len(comments)}):"]
     for number, comment in enumerate(comments, start=1):
