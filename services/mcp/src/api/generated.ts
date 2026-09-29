@@ -939,6 +939,28 @@ export namespace Schemas {
       readonly email: string;
     }
 
+    export interface AccountAuditConflict {
+      /** Why this audit did not start. */
+      detail: string;
+      /** Earliest next admission time. */
+      next_available_at?: string;
+    }
+
+    export interface AccountAuditStartRequest {
+      /** Organization that owns the target team. */
+      organization_id: string;
+      /**
+         * Target team ID.
+         * @minimum 1
+         */
+      team_id: number;
+    }
+
+    export interface AccountAuditStartResponse {
+      /** Started account audit workflow ID. */
+      workflow_id: string;
+    }
+
     /**
      * Metadata for one message a channel summary covered — never the message text.
      */

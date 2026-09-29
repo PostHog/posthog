@@ -7,6 +7,28 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface AccountAuditStartRequestApi {
+    /** Organization that owns the target team. */
+    organization_id: string
+    /**
+     * Target team ID.
+     * @minimum 1
+     */
+    team_id: number
+}
+
+export interface AccountAuditStartResponseApi {
+    /** Started account audit workflow ID. */
+    workflow_id: string
+}
+
+export interface AccountAuditConflictApi {
+    /** Why this audit did not start. */
+    detail: string
+    /** Earliest next admission time. */
+    next_available_at?: string
+}
+
 export interface ActivateRequestApi {
     /** Prompt config id to activate for its label. */
     config_id: string

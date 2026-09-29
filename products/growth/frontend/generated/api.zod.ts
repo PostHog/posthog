@@ -9,6 +9,11 @@
  */
 import * as zod from 'zod'
 
+export const GrowthAccountAuditsStartCreateBody = /* @__PURE__ */ zod.object({
+    organization_id: zod.uuid().describe('Organization that owns the target team.'),
+    team_id: zod.number().min(1).describe('Target team ID.'),
+})
+
 /**
  * Staff-only, unscoped API for the enrichment AI enrichment: browse labels and their prompt
  * config versions, test-run a draft config against recently archived orgs, save a new

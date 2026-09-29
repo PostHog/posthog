@@ -9,6 +9,8 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    AccountAuditStartRequestApi,
+    AccountAuditStartResponseApi,
     ActivateRequestApi,
     ConfigListResponseApi,
     ConfigVersionApi,
@@ -34,6 +36,22 @@ import type {
     SdkHealthReportApi,
     SdkHealthReportRetrieveParams,
 } from './api.schemas'
+
+export const getGrowthAccountAuditsStartCreateUrl = () => {
+    return `/api/growth_account_audits/start/`
+}
+
+export const growthAccountAuditsStartCreate = async (
+    accountAuditStartRequestApi: AccountAuditStartRequestApi,
+    options?: RequestInit
+): Promise<AccountAuditStartResponseApi> => {
+    return apiMutator<AccountAuditStartResponseApi>(getGrowthAccountAuditsStartCreateUrl(), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(accountAuditStartRequestApi),
+    })
+}
 
 export const getGrowthAiEnrichmentActivateCreateUrl = () => {
     return `/api/growth_ai_enrichment/activate/`
