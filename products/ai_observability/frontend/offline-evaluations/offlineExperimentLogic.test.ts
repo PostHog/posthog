@@ -154,4 +154,11 @@ describe('offlineExperimentLogic', () => {
             ).toContain(expectedMessage)
         }
     )
+
+    it.each([
+        [new Headers({ 'Retry-After': '30' }), 'Too many requests. Try again in 30s.'],
+        [undefined, 'Too many requests. Try again later.'],
+    ])('tells a rate-limited user when to try again', (headers, expectedMessage) => {
+        expect(offlineCompletionError(new ApiError('Throttled', 429, headers))).toBe(expectedMessage)
+    })
 })

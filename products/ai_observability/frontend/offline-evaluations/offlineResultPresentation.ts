@@ -42,7 +42,7 @@ export function offlineReadError(error: unknown, fallback: string): string {
             return error.detail || 'You do not have access to this data.'
         }
         if (error.status === 429) {
-            return `Too many requests. Try again${error.formattedRetryAfter ? ` in ${error.formattedRetryAfter}` : ' shortly'}.`
+            return `Too many requests. Try again ${error.formattedRetryAfter ?? 'later'}.`
         }
         return error.detail || fallback
     }
