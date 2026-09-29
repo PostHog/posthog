@@ -872,6 +872,20 @@ export const sceneLogic = kea<sceneLogicType>([
                     return
                 }
 
+                const { currentOrganizationBlockPage, isPathOpenWhileBlocked } = organizationLogic.values
+                if (currentOrganizationBlockPage) {
+                    // Decide the block here. A redirect from a `locationChanged` listener does not hold,
+                    // because this route handler still opens the scene of the original URL after that
+                    // listener runs. The onboarding and project-creation redirects below stay off: they
+                    // only lead to pages that are closed while blocked, so they loop against the block page.
+                    if (isPathOpenWhileBlocked(router.values.location.pathname)) {
+                        actions.loadScene(sceneId, sceneKey, params, method)
+                    } else {
+                        router.actions.replace(currentOrganizationBlockPage)
+                    }
+                    return
+                }
+
                 if (sceneId !== Scene.InviteSignup) {
                     // Redirect to org/project creation if there's no org/project respectively, unless using invite
                     if (organizationLogic.values.isCurrentOrganizationUnavailable) {

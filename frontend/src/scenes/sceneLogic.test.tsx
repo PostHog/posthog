@@ -1,4 +1,4 @@
-import { MOCK_USER_UUID } from 'lib/api.mock'
+import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_PROJECT, MOCK_DEFAULT_TEAM, MOCK_USER_UUID } from 'lib/api.mock'
 
 import { kea, path } from 'kea'
 import { router } from 'kea-router'
@@ -16,7 +16,14 @@ import { urls } from 'scenes/urls'
 import * as exporterViewLogic from '~/exporter/exporterViewLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { AccessControlLevel, AccessControlResourceType, ActivityTab, type AppContext } from '~/types'
+import {
+    AccessControlLevel,
+    AccessControlResourceType,
+    ActivityTab,
+    type AppContext,
+    type OrganizationType,
+    type TeamType,
+} from '~/types'
 
 import { sceneLogic } from './sceneLogic'
 import type { testLogicType } from './sceneLogic.testType'
@@ -38,6 +45,8 @@ const testScenes: Record<string, () => any> = {
     [Scene.Billing]: sceneImport,
     [Scene.DataManagement]: sceneImport,
     [Scene.OrganizationCreateFirst]: sceneImport,
+    [Scene.OrganizationDeactivated]: sceneImport,
+    [Scene.OrganizationPendingDeletion]: sceneImport,
     [Scene.PasswordResetComplete]: sceneImport,
     [Scene.ProjectCreateFirst]: sceneImport,
     [Scene.Settings]: sceneImport,
@@ -600,5 +609,67 @@ describe('sceneLogic', () => {
                 expect(router.values.hashParams).toEqual(expectedHash)
             }
         )
+    })
+
+    describe('a blocked organization', () => {
+        let priorAppContext: AppContext | undefined
+
+        beforeEach(() => {
+            priorAppContext = window.POSTHOG_APP_CONTEXT
+        })
+
+        afterEach(() => {
+            window.POSTHOG_APP_CONTEXT = priorAppContext as AppContext
+        })
+
+        const notOnboarded: Partial<TeamType> = {
+            ingested_event: false,
+            completed_snippet_onboarding: false,
+            has_completed_onboarding_for: {},
+        }
+
+        it.each([
+            [
+                'keeps a deactivated member on the block page after a client-side link',
+                { is_active: false },
+                {},
+                urls.eventDefinitions(),
+                urls.organizationDeactivated(),
+                Scene.OrganizationDeactivated,
+            ],
+            [
+                'opens billing for a deactivated member',
+                { is_active: false },
+                {},
+                urls.organizationBilling(),
+                urls.organizationBilling(),
+                Scene.Billing,
+            ],
+            [
+                'keeps a pending-deletion member off onboarding when the project has no events',
+                { is_pending_deletion: true },
+                notOnboarded,
+                urls.eventDefinitions(),
+                urls.organizationPendingDeletion(),
+                Scene.OrganizationPendingDeletion,
+            ],
+        ])('%s', async (_name, organization, team, target, expectedRoute, expectedScene) => {
+            logic.unmount()
+            initKeaTests(true, { ...MOCK_DEFAULT_TEAM, ...team }, MOCK_DEFAULT_PROJECT, {
+                ...MOCK_DEFAULT_ORGANIZATION,
+                teams: [MOCK_DEFAULT_TEAM],
+                ...organization,
+            } as OrganizationType)
+            await expectLogic(teamLogic).toDispatchActions(['loadCurrentTeamSuccess'])
+            featureFlagLogic.mount()
+            logic = sceneLogic.build({ scenes: testScenes })
+            logic.mount()
+
+            router.actions.push(target)
+            await expectLogic(logic).delay(1)
+
+            expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(expectedRoute)
+            expect(logic.values.sceneId).toEqual(expectedScene)
+        })
     })
 })
