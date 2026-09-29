@@ -945,8 +945,10 @@ class ClickHousePrinter(BasePrinter):
         return isinstance(left_type, ast.DecimalType) and isinstance(right_type, ast.DecimalType)
 
     def visit_call(self, node: ast.Call):
-        if node.name.lower() == "promptjev":
-            raise QueryError("promptJev must run through the HogQL query executor. It cannot be embedded in SQL.")
+        if node.name.lower() == "__preview_promptjev":
+            raise QueryError(
+                "__preview_promptJev must run through the HogQL query executor. It cannot be embedded in SQL."
+            )
         serialized = self._serialize_to_json_string_call(node)
         if serialized is not None:
             return serialized

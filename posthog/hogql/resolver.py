@@ -1987,12 +1987,12 @@ class Resolver(CloningVisitor):
     def visit_call(self, node: ast.Call):
         """Visit function calls."""
 
-        if node.name.lower() == "promptjev":
+        if node.name.lower() == "__preview_promptjev":
             spec = PromptJevCall.parse(node)
             node = clone_expr(node, clear_types=True)
             node.args[0] = self.visit(spec.input)
             node.type = ast.CallType(
-                name="promptJev",
+                name="__preview_promptJev",
                 arg_types=[],
                 return_type=constant_type_from_runtime_type(parse_clickhouse_type(spec.clickhouse_type)),
             )

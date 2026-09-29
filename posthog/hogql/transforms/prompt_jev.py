@@ -6,8 +6,6 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from typing import TYPE_CHECKING, cast
 
-from django.conf import settings
-
 from posthog.schema import HogQLQueryResponse
 
 from posthog.hogql import ast
@@ -100,7 +98,7 @@ class PromptJevRunner:
         assert self.client is not None
         remaining = self.deadline - time.monotonic()
         if remaining <= 0:
-            raise QueryError("promptJev exceeded its time limit. Select fewer rows and try again.")
+            raise QueryError("__preview_promptJev exceeded its time limit. Select fewer rows and try again.")
         questions: dict[str, Question] = {}
         state: dict[str, str] = {}
         for i, text in enumerate(texts):
@@ -133,14 +131,14 @@ class PromptJevRunner:
             if value is None:
                 continue
             if not isinstance(value, str):
-                raise QueryError("promptJev input must be text. Use toString(input) to convert it.")
+                raise QueryError("__preview_promptJev input must be text. Use toString(input) to convert it.")
             if len(value.encode()) > MAX_INPUT_BYTES:
-                raise QueryError("promptJev input exceeds 8 KiB. Shorten each input before classifying it.")
+                raise QueryError("__preview_promptJev input exceeds 8 KiB. Shorten each input before classifying it.")
             if _DecisionKey(question=question_key, text=value) not in self.cache:
                 missing[value] = None
         self.input_bytes += sum(len(text.encode()) for text in missing)
         if len(self.cache) + len(missing) > MAX_ROWS or self.input_bytes > MAX_TOTAL_BYTES:
-            raise QueryError("promptJev exceeds the query budget. Select fewer or shorter inputs.")
+            raise QueryError("__preview_promptJev exceeds the query budget. Select fewer or shorter inputs.")
         if missing and self.client is None:
             try:
                 self.client = build_system_one_client(
@@ -184,7 +182,7 @@ class _AliasReferences(TraversingVisitor):
 
     def visit_field(self, node: ast.Field) -> None:
         if node.chain and node.chain[0] in self.aliases:
-            raise QueryError("Read promptJev result aliases from an outer query.")
+            raise QueryError("Read __preview_promptJev result aliases from an outer query.")
 
 
 class PromptJevPlanner(CloningVisitor):
@@ -227,26 +225,30 @@ class PromptJevPlanner(CloningVisitor):
                 or query.limit_percent
                 or query.limit_with_ties
             ):
-                raise QueryError("Apply grouping, sorting, and DISTINCT in a query outside the promptJev SELECT.")
+                raise QueryError(
+                    "Apply grouping, sorting, and DISTINCT in a query outside the __preview_promptJev SELECT."
+                )
             specs: dict[int, PromptJevCall] = {}
             aliases: set[str] = set()
             for i, column in enumerate(query.select):
                 if (
                     isinstance(column, ast.Alias)
                     and isinstance(column.expr, ast.Call)
-                    and column.expr.name.lower() == "promptjev"
+                    and column.expr.name.lower() == "__preview_promptjev"
                 ):
                     specs[i] = PromptJevCall.parse(column.expr)
                     aliases.add(column.alias)
                 elif isinstance(column, ast.Field) and "*" in column.chain:
-                    raise QueryError("List columns explicitly in a promptJev SELECT instead of using '*'.")
+                    raise QueryError("List columns explicitly in a __preview_promptJev SELECT instead of using '*'.")
             if len(specs) != len(local.calls):
-                raise QueryError("Use promptJev as a named SELECT column, then read it from an outer query.")
+                raise QueryError("Use __preview_promptJev as a named SELECT column, then read it from an outer query.")
             source = clone_expr(query)
             for i, spec in specs.items():
                 source.select[i] = ast.Alias(alias=cast(ast.Alias, query.select[i]).alias, expr=clone_expr(spec.input))
             if PromptJevFinder.contains(source):
-                raise QueryError("Use promptJev only in SELECT columns. Filter its results in an outer query.")
+                raise QueryError(
+                    "Use __preview_promptJev only in SELECT columns. Filter its results in an outer query."
+                )
             _AliasReferences(aliases).visit(source)
             if source.limit is None:
                 source.limit = ast.Constant(value=MAX_ROWS + 1)
@@ -255,16 +257,16 @@ class PromptJevPlanner(CloningVisitor):
                 or type(source.limit.value) is not int
                 or not 0 <= source.limit.value <= MAX_ROWS
             ):
-                raise QueryError(f"promptJev LIMIT must be an integer literal between 0 and {MAX_ROWS}.")
+                raise QueryError(f"__preview_promptJev LIMIT must be an integer literal between 0 and {MAX_ROWS}.")
             response = self.execute(source)
             if response.error:
                 raise QueryError(response.error)
             rows: list[list[object]] = [list(row) for row in response.results or []]
             if len(rows) > MAX_ROWS:
-                raise QueryError(f"promptJev reads at most {MAX_ROWS} rows. Add a LIMIT to its SELECT.")
+                raise QueryError(f"__preview_promptJev reads at most {MAX_ROWS} rows. Add a LIMIT to its SELECT.")
             names = response.columns or []
             if len(names) != len(query.select) or len(set(names)) != len(names):
-                raise QueryError("Give each column in the promptJev SELECT a unique name.")
+                raise QueryError("Give each column in the __preview_promptJev SELECT a unique name.")
             structure = [(str(name), str(kind)) for name, kind in response.types or []]
             for i, spec in specs.items():
                 values = self.runner.evaluate(spec, [row[i] for row in rows])
@@ -283,11 +285,6 @@ class PromptJevPlanner(CloningVisitor):
 
     def visit_call(self, node: ast.Call) -> ast.Call:
         # Binding validates every call, including ones whose SELECT has no rows.
-        if node.name.lower() == "promptjev":
+        if node.name.lower() == "__preview_promptjev":
             PromptJevCall.parse(node)
         return cast(ast.Call, super().visit_call(node))
-
-
-def validate_prompt_jev_enabled() -> None:
-    if not settings.HOGQL_PROMPT_JEV_ENABLED:
-        raise QueryError("promptJev is disabled. Ask your administrator to enable HOGQL_PROMPT_JEV_ENABLED.")
