@@ -1,6 +1,5 @@
 import uuid
 
-import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, snapshot_clickhouse_queries
 
 from posthog.schema import VectorSearchQuery
@@ -123,7 +122,6 @@ class TestVectorSearchQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(response.results), 1)
         self.assertEqual(response.results[0].id, id2)
 
-    @pytest.mark.flaky(reruns=2)
     def test_vector_search_selects_max_version(self):
         query = VectorSearchQuery(embedding=[2, 4])
         id = str(uuid.uuid4())
