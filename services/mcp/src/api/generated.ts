@@ -43064,6 +43064,57 @@ export namespace Schemas {
       custom_properties: ExternalAccountCustomProperties;
     }
 
+    /**
+     * Typed properties for a new account: website_domain, external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link), email_domains and known_emails. Unknown keys are rejected. Ignored when the account already exists.
+     * @nullable
+     */
+    export type ExternalAccountCreateProperties = {
+      /**
+         * Primary company website hostname used for account identity and logo lookup.
+         * @nullable
+         */
+      website_domain?: string | null;
+      /** Email domains owned by this account's company, used to match inbound touchpoints to the account. */
+      email_domains?: string[];
+      /** Individual email addresses pinned to this account, matched before the domain fallback. */
+      known_emails?: string[];
+      /** @nullable */
+      stripe_customer_id?: string | null;
+      /** @nullable */
+      hubspot_deal_id?: string | null;
+      /** @nullable */
+      billing_id?: string | null;
+      /** @nullable */
+      sfdc_id?: string | null;
+      /** @nullable */
+      zendesk_id?: string | null;
+      /** @nullable */
+      slack_channel_id?: string | null;
+      /** @nullable */
+      usage_dashboard_link?: string | null;
+      /** @nullable */
+      metabase_link?: string | null;
+    } | null | null;
+
+    export interface ExternalAccountCreate {
+      /**
+         * External ID (group key) for the account. An account with this ID already existing is a no-op. Without a `name`, the account name is derived from the matching group's `name` property, falling back to this ID.
+         * @maxLength 400
+         */
+      external_id: string;
+      /**
+         * Name for a new account. Ignored when the account already exists. Blank means no name.
+         * @maxLength 400
+         * @nullable
+         */
+      name?: string | null;
+      /**
+         * Typed properties for a new account: website_domain, external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link), email_domains and known_emails. Unknown keys are rejected. Ignored when the account already exists.
+         * @nullable
+         */
+      properties?: ExternalAccountCreateProperties;
+    }
+
     export interface ExternalAccountError {
       /** What went wrong with the request. */
       error: string;
@@ -107492,6 +107543,8 @@ export namespace Schemas {
      */
     external_id: string;
     };
+
+    export type CustomerAnalyticsExternalAccountCreate400 = { [key: string]: unknown };
 
     export type CustomerAnalyticsExternalAccountsRetrieveParams = {
     /**

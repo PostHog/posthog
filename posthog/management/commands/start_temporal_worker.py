@@ -283,9 +283,9 @@ from products.signals.backend.emission.temporal_settings import (
 )
 from products.signals.backend.temporal import (
     ACTIVITIES as SIGNALS_PRODUCT_ACTIVITIES,
+    SELF_DRIVING_ACTIVITIES,
+    SELF_DRIVING_WORKFLOWS,
     WORKFLOWS as SIGNALS_PRODUCT_WORKFLOWS,
-    InboxRankingScoringWorkflow,
-    score_inbox_reports_activity,
 )
 from products.stamphog.backend.facade.temporal import (
     ACTIVITIES as STAMPHOG_ACTIVITIES,
@@ -580,12 +580,10 @@ _task_queue_specs = [
         AUTORESEARCH_WORKFLOWS,
         AUTORESEARCH_ACTIVITIES,
     ),
-    # The ranking sweep also stays on the signals spec above until every environment runs a
-    # self-driving fleet. Specs that share a queue name combine, so the default adds nothing.
     (
         settings.SELF_DRIVING_TASK_QUEUE,
-        [InboxRankingScoringWorkflow],
-        [score_inbox_reports_activity],
+        SELF_DRIVING_WORKFLOWS,
+        SELF_DRIVING_ACTIVITIES,
     ),
     (
         settings.STAMPHOG_TASK_QUEUE,
