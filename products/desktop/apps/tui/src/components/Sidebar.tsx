@@ -5,6 +5,9 @@ import { Spinner } from "./Spinner";
 
 export const SIDEBAR_WIDTH = 32;
 
+// The same brand stripes phrocs draws in its header (tools/phrocs/internal/palette).
+const BRAND_STRIPES = ["#1D4AFF", "#F04438", "#F7A501", "#151515"];
+
 const INDICATOR_COLORS: Record<Exclude<Indicator, "working">, string> = {
   alive: "green",
   failed: "red",
@@ -33,7 +36,16 @@ function Row({
 }): ReactElement {
   switch (row.kind) {
     case "heading":
-      return <Text bold>{row.label}</Text>;
+      return (
+        <Text>
+          {BRAND_STRIPES.map((color) => (
+            <Text key={color} backgroundColor={color}>
+              {" "}
+            </Text>
+          ))}
+          <Text bold> PostHog</Text>
+        </Text>
+      );
     case "workspace":
       return (
         <Text wrap="truncate-end">
