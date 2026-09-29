@@ -33,8 +33,25 @@ export function ChatHeader({ showNewChat = true, task }: ChatHeaderProps) {
       <View style={{ flex: 1 }} pointerEvents="none" />
       {showNewChat ? (
         <Glass interactive style={styles.pair}>
+          <Pressable
+            onPress={() => router.replace("/(drawer)")}
+            hitSlop={8}
+            style={({ pressed }) => [
+              styles.pairButton,
+              pressed && { opacity: 0.6 },
+            ]}
+          >
+            <Host matchContents>
+              <Image
+                systemName="square.and.pencil"
+                size={18}
+                color={colors.ink}
+              />
+            </Host>
+          </Pressable>
           {task ? (
             <>
+              <View style={styles.divider} />
               <Host matchContents>
                 <Menu
                   label={
@@ -56,25 +73,8 @@ export function ChatHeader({ showNewChat = true, task }: ChatHeaderProps) {
                   />
                 </Menu>
               </Host>
-              <View style={styles.divider} />
             </>
           ) : null}
-          <Pressable
-            onPress={() => router.replace("/(drawer)")}
-            hitSlop={8}
-            style={({ pressed }) => [
-              styles.pairButton,
-              pressed && { opacity: 0.6 },
-            ]}
-          >
-            <Host matchContents>
-              <Image
-                systemName="square.and.pencil"
-                size={18}
-                color={colors.ink}
-              />
-            </Host>
-          </Pressable>
         </Glass>
       ) : null}
     </View>
