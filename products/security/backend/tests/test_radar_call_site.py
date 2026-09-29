@@ -1,4 +1,4 @@
-from posthog.test.base import BaseTest
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
@@ -7,7 +7,7 @@ from posthog.workos_radar import RadarVerdict, _decide_outcome, add_radar_bypass
 from products.security.backend.tests.helpers import exempt_rule, seed_rules
 
 
-class TestRadarCallSite(BaseTest):
+class TestRadarCallSite(SimpleTestCase):
     @parameterized.expand([(RadarVerdict.BLOCK,), (RadarVerdict.CHALLENGE,)])
     def test_exempt_address_bypasses(self, verdict: RadarVerdict) -> None:
         seed_rules(exempt_rule(targetType="email_domain", targetValue="partner.example", scope="signup_risk"))
