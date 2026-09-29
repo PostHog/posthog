@@ -2,7 +2,7 @@ import json
 import uuid
 import logging
 from collections import defaultdict
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from contextlib import ExitStack, contextmanager
 from datetime import datetime, timedelta
 from typing import Any, cast
@@ -2045,7 +2045,7 @@ class SignalReportRefund(TeamScopedRootMixin, UUIDModel):
         ]
 
 
-def signal_report_action_choices() -> list[tuple[str, str]]:
+def signal_report_action_choices() -> Sequence[tuple[str, str | Promise]]:
     return SignalReportAction.ActionType.choices
 
 

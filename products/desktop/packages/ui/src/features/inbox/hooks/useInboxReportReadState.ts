@@ -33,10 +33,11 @@ export function useInboxReportReadState(reportId: string): {
     },
   );
   const { mutate } = useAuthenticatedMutation(
-    (client, read: boolean) => client.getReportReadStates([reportId], read),
+    (client, { read }: { read: boolean; previous: boolean }) =>
+      client.getReportReadStates([reportId], read),
     {
       scope: { id: JSON.stringify(queryKey) },
-      onMutate: async (read) => {
+      onMutate: async ({ read }) => {
         await queryClient.cancelQueries({ queryKey });
         const previous = queryClient.getQueryData<boolean>(queryKey);
         queryClient.setQueryData(queryKey, read);
@@ -46,8 +47,9 @@ export function useInboxReportReadState(reportId: string): {
         queryClient.setQueryData(queryKey, states[reportId]);
         if (key) setStoredRead(key, states[reportId]);
       },
-      onError: (_error, _read, context) => {
+      onError: (_error, { previous }, context) => {
         queryClient.setQueryData(queryKey, context?.previous ?? false);
+        if (key) setStoredRead(key, previous);
         void queryClient.invalidateQueries({ queryKey });
         toast.error("Could not sync report read state. Try again.");
       },
@@ -60,9 +62,14 @@ export function useInboxReportReadState(reportId: string): {
   const setStoredRead = useInboxReportReadStore((state) => state.setRead);
   const setRead = useCallback(
     (read: boolean) => {
-      if (key !== null) mutate(read);
+      if (key === null) return;
+      // The local copy updates first so the list reacts before the server answers.
+      const previous =
+        useInboxReportReadStore.getState().readByKey[key] === true;
+      setStoredRead(key, read);
+      mutate({ read, previous });
     },
-    [key, mutate],
+    [key, mutate, setStoredRead],
   );
   const enabled = key !== null && hasHydrated;
   return { isUnread: enabled && !(synced.data ?? isRead), enabled, setRead };

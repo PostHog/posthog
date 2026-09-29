@@ -6224,6 +6224,14 @@ def _visible_task_qs(team_id: int, user_id: int | None, *, bypass_visibility: bo
     return qs
 
 
+def task_review(team_id: int, task_id: str, user_id: int, page: int) -> dict:
+    from products.tasks.backend.logic.task_review import (  # noqa: PLC0415 — keep GitHub integration deps off the api import path
+        task_review as build_task_review,
+    )
+
+    return build_task_review(team_id, task_id, user_id, page)
+
+
 def get_task_detail(
     task_id: str | UUID, team_id: int, user_id: int | None, *, bypass_visibility: bool = False
 ) -> contracts.TaskDetailDTO | None:

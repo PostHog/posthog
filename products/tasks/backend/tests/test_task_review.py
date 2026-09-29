@@ -20,7 +20,7 @@ class TestTaskReview(APIBaseTest):
             repository="example/repo",
             github_integration=self.integration,
         )
-        self.run = TaskRun.objects.create(
+        self.task_run = TaskRun.objects.create(
             task=self.task,
             team=self.team,
             status="completed",
@@ -30,8 +30,8 @@ class TestTaskReview(APIBaseTest):
     def test_owner_and_repository_are_required(self):
         with self.assertRaises(NotFound):
             task_review(self.team.id, str(self.task.id), self.user.id + 1, 1)
-        self.run.output = {"pr_url": "https://github.com/example/other/pull/1"}
-        self.run.save()
+        self.task_run.output = {"pr_url": "https://github.com/example/other/pull/1"}
+        self.task_run.save()
         with self.assertRaises(PermissionDenied):
             task_review(self.team.id, str(self.task.id), self.user.id, 1)
 
