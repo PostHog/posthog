@@ -8124,8 +8124,9 @@ class TestGetEnforcedUniqueKeys:
                 "CREATE UNIQUE INDEX ON uk_partial (id) WHERE active",
                 "CREATE TABLE uk_expression (email text)",
                 "CREATE UNIQUE INDEX ON uk_expression (lower(email))",
-                "CREATE TABLE uk_covering (a int, b int, c int)",
+                "CREATE TABLE uk_covering (a int NOT NULL, b int NOT NULL, c int)",
                 "CREATE UNIQUE INDEX ON uk_covering (a, b) INCLUDE (c)",
+                "CREATE TABLE uk_nullable (id int PRIMARY KEY, code text UNIQUE)",
             ):
                 cursor.execute(ddl)
             django_connection.ensure_connection()
@@ -8140,6 +8141,7 @@ class TestGetEnforcedUniqueKeys:
                     "uk_partial",
                     "uk_expression",
                     "uk_covering",
+                    "uk_nullable",
                 ],
             )
 
@@ -8147,6 +8149,7 @@ class TestGetEnforcedUniqueKeys:
             "uk_plain_pk": [frozenset({"id"})],
             "uk_pk_and_deferrable_unique": [frozenset({"id"})],
             "uk_covering": [frozenset({"a", "b"})],
+            "uk_nullable": [frozenset({"id"})],
         }
 
 

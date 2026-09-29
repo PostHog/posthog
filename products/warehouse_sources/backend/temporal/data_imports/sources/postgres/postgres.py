@@ -1025,15 +1025,16 @@ def get_enforced_unique_keys(
     """Column sets of each table's unique indexes that Postgres enforces on every row as it is written.
 
     A deferrable constraint is checked only at the end of the statement or transaction, a partial index
-    leaves the rows outside its predicate free, and an expression index constrains no plain column. Those
-    are left out, so a set returned here can never be held by two rows at once.
+    leaves the rows outside its predicate free, and an expression index constrains no plain column. A
+    nullable key column lets any number of rows hold NULL there. Those are left out, so a set returned
+    here can never be held by two rows at once.
     """
     if not table_names:
         return {}
     with conn.cursor() as cur:
         cur.execute(
             """
-            SELECT c.relname, i.indexrelid, a.attname
+            SELECT c.relname, array_agg(a.attname::text)
             FROM pg_index i
             JOIN pg_class c ON c.oid = i.indrelid
             JOIN pg_namespace n ON n.oid = c.relnamespace
@@ -1046,15 +1047,14 @@ def get_enforced_unique_keys(
               AND i.indexprs IS NULL
               AND n.nspname = %s
               AND c.relname = ANY(%s)
+            GROUP BY c.relname, i.indexrelid
+            HAVING bool_and(a.attnotnull)
             """,
             (schema, table_names),
         )
-        columns_by_index: dict[tuple[str, int], set[str]] = {}
-        for table, index_id, column in cur:
-            columns_by_index.setdefault((table, index_id), set()).add(column)
-    keys: dict[str, list[frozenset[str]]] = {}
-    for (table, _index_id), columns in columns_by_index.items():
-        keys.setdefault(table, []).append(frozenset(columns))
+        keys: dict[str, list[frozenset[str]]] = {}
+        for table, columns in cur:
+            keys.setdefault(table, []).append(frozenset(columns))
     return keys
 
 
