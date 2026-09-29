@@ -3,7 +3,10 @@ import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 import { MessageRejected, SendingPausedException, TooManyRequestsException } from '@aws-sdk/client-sesv2'
 
 import { createExampleInvocation, insertIntegration } from '~/cdp/_tests/fixtures'
-import { CyclotronInvocationQueueParametersEmailType } from '~/cdp/schema/cyclotron'
+import {
+    CyclotronInvocationQueueParametersEmailSchema,
+    CyclotronInvocationQueueParametersEmailType,
+} from '~/cdp/schema/cyclotron'
 import { CyclotronJobInvocationHogFunction } from '~/cdp/types'
 import { createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { closeHub, createHub } from '~/common/utils/db/hub'
@@ -1350,22 +1353,23 @@ describe('EmailService', () => {
             ])
         })
 
-        it('should send plaintext-only email when html is empty', async () => {
+        it.each([
+            ['text only', { html: '', text: 'Hello, this is a plain text email.' }, ['Text']],
+            ['html only, no text', { html: '<p>Hello</p>', text: undefined }, ['Html']],
+            ['html only, empty text', { html: '<p>Hello</p>', text: '' }, ['Html']],
+        ])('sends only the parts that have content: %s', async (_name, content, expectedParts) => {
             sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
             invocation.hogFunction.metadata = { message_category_type: 'transactional' }
-            invocation.queueParameters = createEmailParams({
-                from: { integrationId: 1 },
-                html: '',
-                text: 'Hello, this is a plain text email.',
-            })
+            invocation.queueParameters = CyclotronInvocationQueueParametersEmailSchema.parse(
+                createEmailParams({ from: { integrationId: 1 }, ...content })
+            )
             const result = await service.executeSendEmail(invocation)
             expect(result.error).toBeUndefined()
             const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
-            expect(sentCommand.input.Content.Simple.Body.Text).toEqual({
-                Data: 'Hello, this is a plain text email.',
-                Charset: 'UTF-8',
-            })
-            expect(sentCommand.input.Content.Simple.Body.Html).toBeUndefined()
+            expect(Object.keys(sentCommand.input.Content.Simple.Body)).toEqual(expectedParts)
+            if (content.text) {
+                expect(sentCommand.input.Content.Simple.Body.Text).toEqual({ Data: content.text, Charset: 'UTF-8' })
+            }
         })
 
         it('should not include preheader span if not in params', async () => {

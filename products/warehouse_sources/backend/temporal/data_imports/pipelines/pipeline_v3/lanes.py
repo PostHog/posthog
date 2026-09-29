@@ -262,9 +262,8 @@ class LanedPipelineV3(PipelineV3[ResumableData]):
             batch_result = await asyncio.to_thread(writer.s3_batch_writer.write_batch, lane_table, batch_index)
             writer.batch_results.append(batch_result)
             # Only the primary lane is the schema's own job, which an append retry resumes by cursor.
-            writer.pg_producer.send_batch_notification(
+            writer.pg_producer.hold_batch(
                 batch_result,
-                is_final_batch=False,
                 cumulative_row_count=writer.row_count,
                 incremental_last_value=incremental_last_value if index == 0 else None,
             )
@@ -289,19 +288,21 @@ class LanedPipelineV3(PipelineV3[ResumableData]):
                 continue
             lane_schema_path = await asyncio.to_thread(writer.s3_batch_writer.write_schema)
             schema_path = schema_path or lane_schema_path
-            writer.pg_producer.send_batch_notification(
+            writer.pg_producer.send_final_batch(
                 writer.batch_results[-1],
-                is_final_batch=True,
                 total_batches=len(writer.batch_results),
                 total_rows=writer.row_count,
                 data_folder=writer.s3_batch_writer.get_data_folder(),
                 schema_path=lane_schema_path,
-                cumulative_row_count=writer.row_count,
             )
             if writer.job is not None:
                 self._final_sent_job_ids.add(str(writer.job.id))
                 await self._record_companion_rows(writer)
         return schema_path
+
+    def _release_held_batches(self) -> None:
+        for writer in self._lane_writers:
+            writer.pg_producer.release_held_batch()
 
     async def _record_companion_rows(self, writer: _LaneWriter) -> None:
         """Count what a companion wrote onto its own job, as the workflow does for the first."""

@@ -310,11 +310,8 @@ class PipelineV3(Generic[ResumableData]):
         batch_result = await asyncio.to_thread(self._s3_batch_writer.write_batch, pa_table, batch_index)
         self._batch_results.append(batch_result)
 
-        self._pg_producer.send_batch_notification(
-            batch_result,
-            is_final_batch=False,
-            cumulative_row_count=row_count,
-            incremental_last_value=incremental_last_value,
+        self._pg_producer.hold_batch(
+            batch_result, cumulative_row_count=row_count, incremental_last_value=incremental_last_value
         )
         return pa_table.num_rows
 
@@ -328,18 +325,18 @@ class PipelineV3(Generic[ResumableData]):
     async def _send_final_batches(self, total_batches: int, row_count: int) -> str | None:
         schema_path = await asyncio.to_thread(self._s3_batch_writer.write_schema)
 
-        final_batch = self._batch_results[-1]
-
-        self._pg_producer.send_batch_notification(
-            final_batch,
-            is_final_batch=True,
+        self._pg_producer.send_final_batch(
+            self._batch_results[-1],
             total_batches=total_batches,
             total_rows=row_count,
             data_folder=self._s3_batch_writer.get_data_folder(),
             schema_path=schema_path,
-            cumulative_row_count=row_count,
         )
         return schema_path
+
+    def _release_held_batches(self) -> None:
+        """Put every held queue row into the queue now, as a non-final row."""
+        self._pg_producer.release_held_batch()
 
     def _mark_first_ever_sync(self) -> None:
         self._pg_producer.is_first_ever_sync = True
@@ -376,8 +373,14 @@ class PipelineV3(Generic[ResumableData]):
         self._pg_producer.close()
 
     async def _commit_resume_state(self) -> None:
-        if self._resumable_source_manager is not None:
-            await asyncio.to_thread(self._resumable_source_manager.commit)
+        if self._resumable_source_manager is None:
+            return
+        if self._resumable_source_manager.has_staged_state():
+            # The cursor about to commit says every row yielded before it is loadable. A batch whose
+            # queue row is still held is not, so a crash between the commit and the next insert
+            # would resume past rows the loader never hears about.
+            self._release_held_batches()
+        await asyncio.to_thread(self._resumable_source_manager.commit)
 
     async def run(self) -> PipelineResult:
         pa_memory_pool = pa.default_memory_pool()
@@ -573,6 +576,12 @@ class PipelineV3(Generic[ResumableData]):
         except Exception:
             status = "error"
             self._logger.exception("V3 Pipeline: Extraction failed")
+            # Same queue state a failed run has always left: every staged batch has a row, so an
+            # incremental run's loadable tail can still drain (see `_drainable_after_failure`).
+            try:
+                self._release_held_batches()
+            except Exception:
+                self._logger.exception("V3 Pipeline: Failed to enqueue the held batch after the extraction error")
             raise
         finally:
             duration = time.perf_counter() - start_time

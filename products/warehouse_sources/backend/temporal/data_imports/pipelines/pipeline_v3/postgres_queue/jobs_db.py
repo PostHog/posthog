@@ -17,6 +17,9 @@ from __future__ import annotations
 
 import json
 import time
+import threading
+from collections.abc import Iterator
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
@@ -88,6 +91,11 @@ TAKEOVER_STALE_THRESHOLD_SECONDS = 6 * 60 * 60
 # window, which is already far past any sane alert threshold.
 FRESHNESS_WINDOW_SECONDS = 48 * 60 * 60
 FRESHNESS_WINDOW = f"{FRESHNESS_WINDOW_SECONDS} seconds"
+
+# How many of the deepest (team_id, schema_id) groups the depth probe's
+# concentration share covers. Small enough that a near-1 share means a handful
+# of tenants own the queue, large enough that one bursty tenant does not.
+DEPTH_TOP_GROUPS = 5
 
 
 class _Unset:
@@ -424,6 +432,85 @@ def _orphaned_candidate_runs_sql() -> str:
     """
 
 
+def _queue_depth_sql() -> str:
+    """Queue depth and how it is spread over (team_id, schema_id) groups, in one scan.
+
+    The claimable set is the same as ``sb_claimable_idx`` covers: 'pending' or
+    'waiting_retry' inside ``CLAIM_ELIGIBILITY_INTERVAL``. The per-run and
+    per-group gates below are not filters on that scan. The scan is aggregated
+    into runs first, so the failed-run probe costs one ``sb_run_gate_idx``
+    descent per run, and then into groups, so the executing probe costs one
+    ``sb_schema_busy_idx`` descent per group. Both probes keep
+    ``PARTITION_PRUNING_INTERVAL`` because they must see every row that still
+    exists, the same as the claim query's gates.
+
+    ``batches`` per group keeps every claimable row, so the depth total stays
+    what the claim query could scan. ``live_batches`` drops the runs that hold a
+    failed batch: the claim query refuses those, so they are neither waiting for
+    a slot nor waiting behind their group. Without that split a leaked run reads
+    as capacity demand forever, which is the same distortion that made the age
+    gauge exclude them.
+
+    Split out from its caller so the plan-shape test can EXPLAIN exactly what
+    runs, the way :func:`_state_claim_candidates_sql` is pinned.
+    """
+    return f"""
+        WITH claimable_runs AS (
+            SELECT b.team_id, b.schema_id, b.run_uuid, count(*) AS batches
+            FROM {BATCH_TABLE} b
+            WHERE b.created_at > now() - interval '{CLAIM_ELIGIBILITY_INTERVAL}'
+              AND b.latest_state IN ('pending', 'waiting_retry')
+            GROUP BY b.team_id, b.schema_id, b.run_uuid
+        ),
+        gated_runs AS (
+            SELECT
+                r.team_id,
+                r.schema_id,
+                r.batches,
+                EXISTS (
+                    SELECT 1
+                    FROM {BATCH_TABLE} b_failed
+                    WHERE b_failed.run_uuid = r.run_uuid
+                      AND b_failed.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                      AND b_failed.latest_state = 'failed'
+                ) AS blocked
+            FROM claimable_runs r
+        ),
+        groups AS (
+            SELECT
+                g.team_id,
+                g.schema_id,
+                sum(g.batches) AS batches,
+                coalesce(sum(g.batches) FILTER (WHERE NOT g.blocked), 0) AS live_batches
+            FROM gated_runs g
+            GROUP BY g.team_id, g.schema_id
+        ),
+        ranked AS (
+            SELECT
+                g.batches,
+                g.live_batches,
+                EXISTS (
+                    SELECT 1
+                    FROM {BATCH_TABLE} b_busy
+                    WHERE b_busy.team_id = g.team_id
+                      AND b_busy.schema_id = g.schema_id
+                      AND b_busy.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                      AND b_busy.latest_state = 'executing'
+                ) AS executing,
+                row_number() OVER (ORDER BY g.live_batches DESC) AS depth_rank
+            FROM groups g
+        )
+        SELECT
+            coalesce(sum(batches), 0) AS claimable_batches,
+            count(*) FILTER (WHERE live_batches > 0) AS claimable_groups,
+            coalesce(sum(live_batches), 0) AS live_batches,
+            coalesce(sum(live_batches) FILTER (WHERE depth_rank <= %(top_groups)s), 0) AS top_groups_batches,
+            coalesce(sum(live_batches) FILTER (WHERE NOT executing), 0) AS slot_waiting_batches,
+            coalesce(sum(live_batches) FILTER (WHERE executing), 0) AS serialized_batches
+        FROM ranked
+    """
+
+
 def _stranded_candidate_runs_sql() -> str:
     """Candidate selection for the stranded-run sweep: aggregate first, then gate per run.
 
@@ -709,6 +796,130 @@ class QueueFreshness:
     oldest_age_seconds: float | None
     blocked_batches: int
     backlogged_groups: int
+
+
+@dataclass(frozen=True, slots=True)
+class QueueDepth:
+    """What one depth probe reads off the claimable set.
+
+    The total alone cannot tell a few (team_id, schema_id) groups draining one
+    batch at a time from a fleet that has run out of loader slots: the loader
+    serializes each group by design, so a deep queue with idle slots is normal
+    when the depth sits in a handful of groups. The other four numbers separate
+    those two readings.
+    """
+
+    claimable_batches: int
+    claimable_groups: int
+    # 0..1 share of those batches held by the DEPTH_TOP_GROUPS deepest groups; 0 when empty.
+    top_groups_claimable_share: float
+    # Batches whose group has nothing executing: they start as soon as a slot frees.
+    slot_waiting_batches: int
+    # Batches whose group already has a batch executing: they wait for their own group.
+    serialized_batches: int
+
+
+# Idle sync connections kept per queue DB for the worker-thread lease checks. Sized to the loader's
+# group concurrency: every in-flight batch checks its lease a few times, and each check used to dial
+# a fresh connection.
+SYNC_POOL_MAX_IDLE = 16
+
+
+class _SyncConnectionPool:
+    """A small pool of autocommit connections for callers that run outside the event loop.
+
+    Connections are handed out LIFO so the warm ones stay in use and are checked for liveness on
+    the way out; one the server dropped while idle is closed instead of reused. Callers that hit an
+    error mid-query discard the connection through `discard`, since the pool cannot tell a broken
+    session from a healthy one until it fails.
+    """
+
+    def __init__(self, database_url: str, *, connect_timeout_seconds: int, max_idle: int = SYNC_POOL_MAX_IDLE) -> None:
+        self._database_url = database_url
+        self._connect_timeout_seconds = connect_timeout_seconds
+        self._max_idle = max_idle
+        self._lock = threading.Lock()
+        self._idle: list[psycopg.Connection[Any]] = []
+
+    def _checkout(self) -> psycopg.Connection[Any]:
+        while True:
+            with self._lock:
+                conn = self._idle.pop() if self._idle else None
+            if conn is None:
+                return psycopg.connect(
+                    self._database_url, autocommit=True, connect_timeout=self._connect_timeout_seconds
+                )
+            if not conn.closed and not conn.broken:
+                return conn
+            self._close_quietly(conn)
+
+    def _checkin(self, conn: psycopg.Connection[Any]) -> None:
+        if conn.closed or conn.broken:
+            self._close_quietly(conn)
+            return
+        with self._lock:
+            if len(self._idle) < self._max_idle:
+                self._idle.append(conn)
+                return
+        self._close_quietly(conn)
+
+    def discard(self, conn: psycopg.Connection[Any]) -> None:
+        """Take `conn` out of circulation: the caller saw it fail and nothing should reuse it."""
+        with self._lock:
+            if conn in self._idle:
+                self._idle.remove(conn)
+        self._close_quietly(conn)
+
+    @contextmanager
+    def connection(self) -> Iterator[psycopg.Connection[Any]]:
+        conn = self._checkout()
+        try:
+            yield conn
+        finally:
+            if not conn.closed:
+                self._checkin(conn)
+
+    @property
+    def idle_count(self) -> int:
+        with self._lock:
+            return len(self._idle)
+
+    @staticmethod
+    def _close_quietly(conn: psycopg.Connection[Any]) -> None:
+        with suppress(Exception):
+            conn.close()
+
+
+_SYNC_POOLS: dict[tuple[str, int], _SyncConnectionPool] = {}
+_SYNC_POOLS_LOCK = threading.Lock()
+
+
+def _sync_connection_pool(database_url: str, connect_timeout_seconds: int) -> _SyncConnectionPool:
+    key = (database_url, connect_timeout_seconds)
+    with _SYNC_POOLS_LOCK:
+        pool = _SYNC_POOLS.get(key)
+        if pool is None:
+            pool = _SyncConnectionPool(database_url, connect_timeout_seconds=connect_timeout_seconds)
+            _SYNC_POOLS[key] = pool
+        return pool
+
+
+def _lease_is_held(conn: psycopg.Connection[Any], *, team_id: int, schema_id: str, owner_token: str) -> bool:
+    with conn.cursor() as cur:
+        cur.execute(
+            f"""
+            SELECT EXISTS (
+                SELECT 1 FROM {LEASE_TABLE}
+                WHERE team_id = %(team_id)s
+                  AND schema_id = %(schema_id)s
+                  AND owner_token = %(owner)s
+                  AND expires_at > now()
+            )
+            """,
+            {"team_id": team_id, "schema_id": schema_id, "owner": owner_token},
+        )
+        row = cur.fetchone()
+        return bool(row and row[0])
 
 
 class BatchQueue:
@@ -1136,24 +1347,23 @@ class BatchQueue:
         owner_token: str,
         connect_timeout_seconds: int = 10,
     ) -> bool:
-        """Sync counterpart of verify_advisory_lock: the Delta write runs in a worker thread
-        that can't share the group's async connection, so use a short-lived sync one."""
-        with psycopg.connect(database_url, autocommit=True, connect_timeout=connect_timeout_seconds) as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    f"""
-                    SELECT EXISTS (
-                        SELECT 1 FROM {LEASE_TABLE}
-                        WHERE team_id = %(team_id)s
-                          AND schema_id = %(schema_id)s
-                          AND owner_token = %(owner)s
-                          AND expires_at > now()
-                    )
-                    """,
-                    {"team_id": team_id, "schema_id": schema_id, "owner": owner_token},
-                )
-                row = cur.fetchone()
-                return bool(row and row[0])
+        """Sync counterpart of verify_advisory_lock: the Delta write runs in a worker thread that
+        can't share the group's async connection, so it borrows one from a small sync pool.
+
+        A connection the queue DB dropped while idle (a pooler cull, a failover) surfaces as an
+        OperationalError on first use; that connection is discarded and the query runs once more
+        on a fresh one, so a stale pool entry cannot read as a lost lease.
+        """
+        pool = _sync_connection_pool(database_url, connect_timeout_seconds)
+        for attempt in (1, 2):
+            with pool.connection() as conn:
+                try:
+                    return _lease_is_held(conn, team_id=team_id, schema_id=schema_id, owner_token=owner_token)
+                except psycopg.OperationalError:
+                    pool.discard(conn)
+                    if attempt == 2:
+                        raise
+        raise AssertionError("unreachable")
 
     @staticmethod
     async def get_stale_executing(
@@ -1650,28 +1860,40 @@ class BatchQueue:
         )
 
     @staticmethod
-    async def get_claimable_batch_count(conn: psycopg.AsyncConnection[Any]) -> int:
-        """How many batches are state-eligible for claiming right now (queue depth).
+    async def get_queue_depth(conn: psycopg.AsyncConnection[Any]) -> QueueDepth:
+        """How many batches are state-eligible for claiming right now, and where they sit.
 
-        The depth companion to :meth:`get_queue_freshness`:
-        the claim's per-run, schema-busy, and lease gates are deliberately not
-        applied (they need per-row probes; this must stay one cheap partial-index
-        scan), and neither is the retry-backoff gate (it needs the fleet's backoff
-        config, and this probe stays parameter-free), so the count reads slightly
-        high. Bounded by ``CLAIM_ELIGIBILITY_INTERVAL`` to match what the claim
-        query can see.
+        The depth companion to :meth:`get_queue_freshness`. ``claimable_batches``
+        applies none of the claim's per-run, schema-busy, or lease gates (those
+        need per-row probes, and this must stay one partial-index scan), nor the
+        retry-backoff gate (it needs the fleet's backoff config, and this probe
+        stays parameter-free), so the count reads slightly high. Bounded by
+        ``CLAIM_ELIGIBILITY_INTERVAL`` to match what the claim query can see.
+
+        The other four fields exclude batches whose run holds a failed batch, the
+        same population :meth:`get_queue_freshness` reports as ``blocked_batches``,
+        so ``slot_waiting_batches + serialized_batches`` is the depth minus those.
+        See :func:`_queue_depth_sql` for why.
         """
         async with conn.cursor() as cur:
-            await cur.execute(
-                f"""
-                SELECT count(*)
-                FROM {BATCH_TABLE} b
-                WHERE b.created_at > now() - interval '{CLAIM_ELIGIBILITY_INTERVAL}'
-                  AND b.latest_state IN ('pending', 'waiting_retry')
-                """
-            )
+            await cur.execute(_queue_depth_sql(), {"top_groups": DEPTH_TOP_GROUPS})
             row = await cur.fetchone()
-        return int(row[0]) if row else 0
+        if row is None:
+            return QueueDepth(
+                claimable_batches=0,
+                claimable_groups=0,
+                top_groups_claimable_share=0.0,
+                slot_waiting_batches=0,
+                serialized_batches=0,
+            )
+        live_batches = int(row[2])
+        return QueueDepth(
+            claimable_batches=int(row[0]),
+            claimable_groups=int(row[1]),
+            top_groups_claimable_share=int(row[3]) / live_batches if live_batches else 0.0,
+            slot_waiting_batches=int(row[4]),
+            serialized_batches=int(row[5]),
+        )
 
     @staticmethod
     def get_oldest_non_terminal_batch_age_seconds(
