@@ -649,7 +649,7 @@ export const getWebAnalyticsAchievementsRecordVisitUrl = (projectId: string) => 
 }
 
 /**
- * Idempotently records that the requesting user opened Web analytics today (team-local date) and schedules a debounced achievement recompute. Intended to be called once per session.
+ * Idempotently records that the requesting user opened Web analytics today (team-local date) and refreshes the user's per-user achievement tracks. Intended to be called once per session.
  * @summary Record a Web analytics visit
  */
 export const webAnalyticsAchievementsRecordVisit = async (

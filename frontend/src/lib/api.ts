@@ -5032,6 +5032,9 @@ const api = {
         ): Promise<SignalReportArtefactResponse> {
             return await new ApiRequest().signalReport(id).withAction('artefacts').withQueryString(params).get()
         },
+        async activateMeasurement(id: SignalReport['id'], artefactId: string): Promise<void> {
+            await new ApiRequest().signalReport(id).withAction(`artefacts/${artefactId}/activate`).create()
+        },
         async delete(id: SignalReport['id']): Promise<void> {
             await new ApiRequest().signalReport(id).delete()
         },
