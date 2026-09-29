@@ -13,7 +13,7 @@ from rest_framework.exceptions import ValidationError as DRFValidationError
 from posthog.models import Team
 from posthog.models.integration import GitLabIntegrationError, Integration
 
-from products.access_control.backend.models.role import Role
+from products.access_control.backend.facade.testing import add_role_member, create_role
 from products.error_tracking.backend.facade import api, contracts
 from products.error_tracking.backend.models import (
     ErrorTrackingExternalReference,
@@ -470,14 +470,14 @@ class TestErrorTrackingFacadeAPI(BaseTest):
             assignment = ErrorTrackingIssueAssignment.objects.create(issue=issue, team=self.team, user=self.user)
             expected_user_id = self.user.id
         else:
-            role = Role.objects.create(name=f"Role for {assignment_kind}", organization=self.organization)
+            role_id = create_role(organization_id=self.organization.id, name=f"Role for {assignment_kind}")
             if assignment_kind == "role_assignment_with_member":
-                role.members.add(self.user)
+                add_role_member(role_id=role_id, user_id=self.user.id)
                 expected_role_member_user_ids = [self.user.id]
 
-            assignment = ErrorTrackingIssueAssignment.objects.create(issue=issue, team=self.team, role=role)
+            assignment = ErrorTrackingIssueAssignment.objects.create(issue=issue, team=self.team, role_id=role_id)
             expected_user_id = None
-            expected_role_id = role.id
+            expected_role_id = role_id
 
         result = api.get_issue_assignment_for_notification(assignment_id=assignment.id)
 
