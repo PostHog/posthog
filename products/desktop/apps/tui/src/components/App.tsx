@@ -51,7 +51,7 @@ import {
 } from "../sidebar";
 import type { WorkList } from "../work";
 import { Pane } from "./Pane";
-import { Sidebar } from "./Sidebar";
+import { HEADER_GAP, Sidebar } from "./Sidebar";
 
 const PAGE_SIZE = 10;
 const REFRESH_MS = 10_000;
@@ -345,7 +345,8 @@ export function App({
   const onClick = (click: Click): void => {
     const sidebar = sidebarBox.current && boxOf(sidebarBox.current);
     if (sidebar && hitTest(click, [["sidebar", sidebar]])) {
-      const index = click.row - sidebar.top;
+      const onScreen = click.row - sidebar.top;
+      const index = onScreen === 0 ? 0 : Math.max(0, onScreen - HEADER_GAP);
       if (moveSelection(rows, index - 1, 1) === index) activate(index);
       else setLayout(focusSidebar);
       return;
