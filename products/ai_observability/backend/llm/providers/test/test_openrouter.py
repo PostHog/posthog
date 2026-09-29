@@ -149,19 +149,13 @@ class TestOpenRouterNonChatModels:
                 "typesafe/jev-1.13",
                 UnsupportedModelError,
             ),
-            ("empty_reply_on_decision_model", MagicMock(parsed=None), "typesafe/jev-1.13", UnsupportedModelError),
             ("error_on_chat_model", ModelNotFoundError("openai/gpt-4o"), "openai/gpt-4o", ModelNotFoundError),
         ]
     )
     def test_complete_maps_failures_of_non_chat_models(self, _name, outcome, model, expected):
         request = MagicMock(model=model)
         with (
-            patch.object(
-                OpenAIAdapter,
-                "complete",
-                side_effect=outcome if isinstance(outcome, Exception) else None,
-                return_value=outcome,
-            ),
+            patch.object(OpenAIAdapter, "complete", side_effect=outcome),
             patch(
                 "products.ai_observability.backend.llm.providers.openrouter._non_chat_model_ids",
                 return_value=frozenset({"typesafe/jev-1.13"}),

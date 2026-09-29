@@ -92,16 +92,12 @@ class OpenRouterAdapter(OpenAIAdapter):
     ) -> CompletionResponse:
         # Read the catalogue only on the failure path, so successful calls pay no extra latency.
         try:
-            response = super().complete(request, api_key, analytics, base_url=OPENROUTER_BASE_URL)
+            return super().complete(request, api_key, analytics, base_url=OPENROUTER_BASE_URL)
         except Exception as e:
             # A non-chat model fails in several shapes (a 400, a 404, unreadable output).
             if is_non_chat_model(request.model):
                 raise UnsupportedModelError(request.model) from e
             raise
-        # It can also answer with an empty reply instead of an error.
-        if request.response_format and response.parsed is None and is_non_chat_model(request.model):
-            raise UnsupportedModelError(request.model)
-        return response
 
     def stream(
         self,
