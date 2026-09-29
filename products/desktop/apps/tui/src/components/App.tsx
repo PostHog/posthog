@@ -723,8 +723,9 @@ export function App({
     );
   };
 
+  // A spare row under everything keeps bottom composers off the window's edge.
   return (
-    <Box flexGrow={1}>
+    <Box flexGrow={1} paddingBottom={1}>
       <Sidebar
         boxRef={sidebarBox}
         notice={notice}
