@@ -769,6 +769,7 @@ class ReviewPRWorkflow:
                         review_url=publish_result.review_url if publish_result is not None else None,
                         resolved_from=acting.resolved_from,
                         review_mode=inputs.review_mode,
+                        celebrate_clean_reviews=acting.celebrate_clean_reviews,
                     ),
                     start_to_close_timeout=_QUICK_TIMEOUT,
                     retry_policy=_RETRY,

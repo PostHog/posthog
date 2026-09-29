@@ -64,6 +64,7 @@ from products.replay_vision.backend.models.replay_observation_media import Repla
 from products.replay_vision.backend.models.replay_observation_view import ReplayObservationView
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerOrigin, ScannerType
 from products.replay_vision.backend.observation_formatting import summarize_observation
+from products.replay_vision.backend.prompt_questions import question_for_snapshot
 from products.replay_vision.backend.scanner_access import (
     accessible_observations,
     can_read_targeted_experiment,
@@ -358,6 +359,23 @@ class ReplayObservationSerializer(serializers.ModelSerializer):
             if media.asset.content_location
         ]
 
+    prompt_question = serializers.SerializerMethodField(
+        help_text=(
+            "The scanner's prompt condensed into the one question it answers about a session. Null when the "
+            "prompt has changed since this observation was scanned, since the question then describes a "
+            "different prompt; read `scanner_snapshot.scanner_config.prompt` instead."
+        ),
+    )
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_prompt_question(self, obj: ReplayObservation) -> str | None:
+        # Annotated by `hydrate_for_serialization`; a queryset that skipped it just has no question.
+        return question_for_snapshot(
+            snapshot_config=(obj.scanner_snapshot or {}).get("scanner_config"),
+            question=getattr(obj, "scanner_prompt_question", "") or "",
+            source=getattr(obj, "scanner_prompt_question_source", "") or "",
+        )
+
     summary_line = serializers.SerializerMethodField(
         help_text=(
             "One line of plain text saying what the scanner found: its verdict, score, tags or title, then its "
@@ -383,6 +401,7 @@ class ReplayObservationSerializer(serializers.ModelSerializer):
             "workflow_id",
             "scanner_snapshot",
             "scanner_result",
+            "prompt_question",
             "triggered_by",
             "triggered_by_user",
             "backfill_id",

@@ -101,7 +101,11 @@ from products.signals.backend.billing import (
 from products.signals.backend.dismissal_notes import forward_dismissal_note
 from products.signals.backend.facade.api import emit_signal
 from products.signals.backend.feedback_notes import forward_feedback_note
-from products.signals.backend.impact_measurement_plans import can_append_measurement_plan, latest_measurement_plans
+from products.signals.backend.impact_measurement_plans import (
+    can_append_measurement_plan,
+    latest_measurement_plans,
+    validate_authored_measurement_plan,
+)
 from products.signals.backend.implementation_pr import (
     fetch_implementation_prs_for_reports,
     implementation_pr_report_filter,
@@ -4883,10 +4887,15 @@ class SignalReportArtefactViewSet(
                 {"error": f"content does not match the '{artefact_type}' schema: {e}"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        if isinstance(parsed_content, ImpactMeasurementPlan) and parsed_content.activated:
-            return Response(
-                {"error": "Activate a measurement with its approval action."}, status=status.HTTP_400_BAD_REQUEST
-            )
+        if isinstance(parsed_content, ImpactMeasurementPlan):
+            if parsed_content.activated:
+                return Response(
+                    {"error": "Activate a measurement with its approval action."}, status=status.HTTP_400_BAD_REQUEST
+                )
+            try:
+                validate_authored_measurement_plan(parsed_content)
+            except ValueError as error:
+                return Response({"error": str(error)}, status=status.HTTP_400_BAD_REQUEST)
         if isinstance(parsed_content, ChannelAssignment):
             self._validate_channel_assignment(parsed_content, request)
         with transaction.atomic():
