@@ -371,6 +371,26 @@ class TestComputeTableStatisticsSync:
                 "2023-12-31 23:00:00+00:00",
                 "2024-06-01 12:30:00.000123+00:00",
             ),
+            (
+                "timestamp_logged_without_an_offset",
+                "timestamp",
+                "2024-01-01 00:00:00+00:00",
+                "2024-02-01 00:00:00+00:00",
+                "2023-12-31T23:00:00",
+                "2024-06-01T12:30:00.000123",
+                "2023-12-31 23:00:00+00:00",
+                "2024-06-01 12:30:00.000123+00:00",
+            ),
+            (
+                "timestamp_ntz_logged_with_an_offset",
+                "timestamp_ntz",
+                "2024-01-01 00:00:00",
+                "2024-02-01 00:00:00",
+                "2023-12-31T23:00:00Z",
+                "2024-06-01T12:30:00Z",
+                "2023-12-31 23:00:00",
+                "2024-06-01 12:30:00",
+            ),
             ("decimal", "decimal(10,2)", "1.50", "9.99", 0.5, 12.5, "0.50", "12.50"),
         ]
     )
@@ -388,6 +408,8 @@ class TestComputeTableStatisticsSync:
         # The stored bound is `str()` of the typed value the Add-action scan yields; the commit log
         # carries the same value in JSON form. A fold that compared the two as text, or stored the
         # log's spelling, would drift from what the next full scan writes.
+        # A timestamp is the one type whose two sides can disagree on spelling the offset, which
+        # made the fold compare a naive datetime with an aware one and abandon itself.
         team = self._team()
         schema, table, _ = self._schema_table_job(team)
         self._stored(team, table, min_value=stored_min, max_value=stored_max)
