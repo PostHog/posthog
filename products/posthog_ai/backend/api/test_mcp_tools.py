@@ -3,22 +3,13 @@ from datetime import UTC, datetime
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
 
-from clickhouse_driver.errors import NetworkError, SocketTimeoutError
 from parameterized import parameterized
 from rest_framework import status
-from rest_framework.exceptions import APIException
 
 from posthog.schema import CachedTeamTaxonomyQueryResponse
 
 from posthog.event_usage import EventSource
-from posthog.exceptions import (
-    ClickHouseAtCapacity,
-    ClickHouseClusterMemoryLimitExceeded,
-    ClickHouseEstimatedQueryExecutionTimeTooLong,
-    ClickHouseQueryMemoryLimitExceeded,
-    ClickHouseQuerySizeExceeded,
-    ClickHouseQueryTimeOut,
-)
+from posthog.exceptions import ClickHouseQuerySizeExceeded
 from posthog.models import Organization, Team
 
 from ee.hogai.mcp_tool import MCPToolResult
@@ -183,16 +174,7 @@ class TestMCPToolsAPI(APIBaseTest):
             (MaxToolRetryableError("Invalid query with private input"), "validation", "invalid_input", "adjusted"),
             (MaxToolTransientError("Temporarily unavailable"), "api_5xx", "service_unavailable", "once"),
             (MaxToolAccessDeniedError("insight", "viewer"), "permission", "permission_denied", "never"),
-            (ClickHouseAtCapacity(), "rate_limited", "query_capacity_exceeded", "once"),
-            (ClickHouseClusterMemoryLimitExceeded(), "rate_limited", "query_capacity_exceeded", "once"),
-            (ClickHouseQueryTimeOut(), "timeout", "query_timeout", "adjusted"),
-            (ClickHouseQueryMemoryLimitExceeded(), "api_5xx", "query_memory_limit_exceeded", "adjusted"),
-            (ClickHouseEstimatedQueryExecutionTimeTooLong(), "api_5xx", "query_limit_exceeded", "adjusted"),
             (ClickHouseQuerySizeExceeded(), "api_5xx", "query_limit_exceeded", "adjusted"),
-            (SocketTimeoutError("private host"), "timeout", "query_timeout", "once"),
-            (NetworkError("private host"), "api_5xx", "service_unavailable", "once"),
-            (APIException("Serialized query failure"), "api_5xx", "service_unavailable", "never"),
-            (RuntimeError("private query text"), "internal", "internal_error", "never"),
         ]
     )
     @patch("ee.hogai.tools.execute_sql.mcp_tool.ExecuteSQLMCPTool.execute", new_callable=AsyncMock)

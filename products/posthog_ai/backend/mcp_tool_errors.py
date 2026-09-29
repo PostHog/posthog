@@ -67,48 +67,57 @@ class MCPToolErrorDetails(BaseModel):
 
     @classmethod
     def from_exception(cls, error: Exception) -> "MCPToolErrorDetails":
-        chain: list[Exception] = []
-        current: BaseException | None = error
-        while isinstance(current, Exception) and current not in chain:
-            chain.append(current)
-            current = current.__cause__ or (None if current.__suppress_context__ else current.__context__)
-
+        chain = _exception_chain(error)
         # Query helpers wrap typed failures to add agent-facing context. Classify the
         # original cause first so a service failure cannot become an input error.
         for cause in reversed(chain):
-            if isinstance(
-                cause, (MaxToolAccessDeniedError, UserAccessControlError, TableAccessDeniedError, PermissionDenied)
-            ):
-                return cls(type="permission", code=MCPToolErrorCode.PERMISSION_DENIED, retry_strategy="never")
-            if isinstance(cause, ClickHouseQueryTimeOut):
-                return cls(type="timeout", code=MCPToolErrorCode.QUERY_TIMEOUT, retry_strategy="adjusted")
-            if isinstance(cause, (TimeoutError, SocketTimeoutError)) or (
-                isinstance(cause, OperationalError) and is_query_canceled(cause)
-            ):
-                return cls(type="timeout", code=MCPToolErrorCode.QUERY_TIMEOUT, retry_strategy="once")
-            # Query-size failures share ClickHouse's syntax-error code. Normalize them
-            # before the input-error fallback so live and replayed failures agree.
-            query_error = wrap_clickhouse_query_error(cause)
-            if isinstance(query_error, (ClickHouseEstimatedQueryExecutionTimeTooLong, ClickHouseQuerySizeExceeded)):
-                return cls(type="api_5xx", code=MCPToolErrorCode.QUERY_LIMIT_EXCEEDED, retry_strategy="adjusted")
-            category = classify_query_error(cause)
-            if category == QueryErrorCategory.RATE_LIMITED:
-                return cls(type="rate_limited", code=MCPToolErrorCode.QUERY_CAPACITY_EXCEEDED, retry_strategy="once")
-            if isinstance(cause, ClickHouseQueryMemoryLimitExceeded):
-                return cls(type="api_5xx", code=MCPToolErrorCode.QUERY_MEMORY_LIMIT_EXCEEDED, retry_strategy="adjusted")
-            if category == QueryErrorCategory.USER_ERROR or isinstance(cause, PydanticOutputParserException):
-                return cls(type="validation", code=MCPToolErrorCode.INVALID_INPUT, retry_strategy="adjusted")
-            if isinstance(cause, (MaxToolTransientError, NetworkError)):
-                return cls(type="api_5xx", code=MCPToolErrorCode.SERVICE_UNAVAILABLE, retry_strategy="once")
-            if isinstance(cause, APIException):
-                if cause.status_code == 429:
-                    return cls(
-                        type="rate_limited", code=MCPToolErrorCode.QUERY_CAPACITY_EXCEEDED, retry_strategy="once"
-                    )
-                if 400 <= cause.status_code < 500:
-                    return cls(type="validation", code=MCPToolErrorCode.INVALID_INPUT, retry_strategy="adjusted")
-                return cls(type="api_5xx", code=MCPToolErrorCode.SERVICE_UNAVAILABLE, retry_strategy="never")
+            details = cls._classify_exception(cause)
+            if details is not None:
+                return details
             if isinstance(cause, MaxToolRetryableError) and cause is chain[-1]:
                 return cls(type="validation", code=MCPToolErrorCode.INVALID_INPUT, retry_strategy="adjusted")
 
         return cls(type="internal", code=MCPToolErrorCode.INTERNAL_ERROR, retry_strategy="never")
+
+    @classmethod
+    def _classify_exception(cls, cause: Exception) -> "MCPToolErrorDetails | None":
+        if isinstance(
+            cause, (MaxToolAccessDeniedError, UserAccessControlError, TableAccessDeniedError, PermissionDenied)
+        ):
+            return cls(type="permission", code=MCPToolErrorCode.PERMISSION_DENIED, retry_strategy="never")
+        if isinstance(cause, ClickHouseQueryTimeOut):
+            return cls(type="timeout", code=MCPToolErrorCode.QUERY_TIMEOUT, retry_strategy="adjusted")
+        if isinstance(cause, (TimeoutError, SocketTimeoutError)) or (
+            isinstance(cause, OperationalError) and is_query_canceled(cause)
+        ):
+            return cls(type="timeout", code=MCPToolErrorCode.QUERY_TIMEOUT, retry_strategy="once")
+        # Query-size failures share ClickHouse's syntax-error code. Normalize them
+        # before the input-error fallback so live and replayed failures agree.
+        query_error = wrap_clickhouse_query_error(cause)
+        if isinstance(query_error, (ClickHouseEstimatedQueryExecutionTimeTooLong, ClickHouseQuerySizeExceeded)):
+            return cls(type="api_5xx", code=MCPToolErrorCode.QUERY_LIMIT_EXCEEDED, retry_strategy="adjusted")
+        category = classify_query_error(cause)
+        if category == QueryErrorCategory.RATE_LIMITED:
+            return cls(type="rate_limited", code=MCPToolErrorCode.QUERY_CAPACITY_EXCEEDED, retry_strategy="once")
+        if isinstance(cause, ClickHouseQueryMemoryLimitExceeded):
+            return cls(type="api_5xx", code=MCPToolErrorCode.QUERY_MEMORY_LIMIT_EXCEEDED, retry_strategy="adjusted")
+        if category == QueryErrorCategory.USER_ERROR or isinstance(cause, PydanticOutputParserException):
+            return cls(type="validation", code=MCPToolErrorCode.INVALID_INPUT, retry_strategy="adjusted")
+        if isinstance(cause, (MaxToolTransientError, NetworkError)):
+            return cls(type="api_5xx", code=MCPToolErrorCode.SERVICE_UNAVAILABLE, retry_strategy="once")
+        if isinstance(cause, APIException):
+            if cause.status_code == 429:
+                return cls(type="rate_limited", code=MCPToolErrorCode.QUERY_CAPACITY_EXCEEDED, retry_strategy="once")
+            if 400 <= cause.status_code < 500:
+                return cls(type="validation", code=MCPToolErrorCode.INVALID_INPUT, retry_strategy="adjusted")
+            return cls(type="api_5xx", code=MCPToolErrorCode.SERVICE_UNAVAILABLE, retry_strategy="never")
+        return None
+
+
+def _exception_chain(error: Exception) -> list[Exception]:
+    chain: list[Exception] = []
+    current: BaseException | None = error
+    while isinstance(current, Exception) and current not in chain:
+        chain.append(current)
+        current = current.__cause__ or (None if current.__suppress_context__ else current.__context__)
+    return chain
