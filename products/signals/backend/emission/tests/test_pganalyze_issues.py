@@ -1,10 +1,19 @@
+from types import SimpleNamespace
+
 import pytest
+from posthog.test.base import BaseTest
+from unittest.mock import patch
+
+from posthog.hogql import ast
 
 from products.signals.backend.emission.pganalyze_issues import (
     EXTRA_FIELDS,
     PGANALYZE_ISSUES_CONFIG,
     pganalyze_issue_emitter,
+    pganalyze_issue_record_fetcher,
 )
+from products.signals.backend.emission.tests.conftest import MOCK_PGANALYZE_ISSUE_RECORD
+from products.signals.backend.models import SignalEmissionRecord
 
 
 class TestPgAnalyzeIssueEmitter:
@@ -105,6 +114,60 @@ class TestPgAnalyzeIssuesConfig:
     def test_emitter_is_pganalyze_issue_emitter(self):
         assert PGANALYZE_ISSUES_CONFIG.emitter is pganalyze_issue_emitter
 
+    def test_uses_deduping_fetcher(self):
+        assert PGANALYZE_ISSUES_CONFIG.record_fetcher is pganalyze_issue_record_fetcher
+
     def test_source_product_and_type(self):
         assert PGANALYZE_ISSUES_CONFIG.source_product == "pganalyze"
         assert PGANALYZE_ISSUES_CONFIG.source_type == "issue"
+
+
+class FakeIssuesTable:
+    def __init__(self, issue_ids: list[str]) -> None:
+        self.rows = [{**MOCK_PGANALYZE_ISSUE_RECORD, "id": issue_id} for issue_id in issue_ids]
+
+    def execute(self, query: ast.SelectQuery, **kwargs) -> SimpleNamespace:
+        columns = [field.chain[-1] for field in query.select]
+        rows = self.rows
+        if isinstance(query.where, ast.CompareOperation) and isinstance(query.where.right, ast.Tuple):
+            wanted = {expr.value for expr in query.where.right.exprs}
+            rows = [row for row in rows if row["id"] in wanted]
+        limit = query.limit.value if query.limit is not None else len(rows)
+        return SimpleNamespace(columns=columns, results=[[row[c] for c in columns] for row in rows[:limit]])
+
+
+@pytest.mark.django_db
+class TestPgAnalyzeIssueRecordFetcher(BaseTest):
+    context = {"table_name": "pganalyze.issues", "last_synced_at": "2026-04-20T06:00:00+00:00"}
+
+    def _sync(self, table: FakeIssuesTable, max_records: int = 200) -> list[str]:
+        config = PGANALYZE_ISSUES_CONFIG.model_copy(update={"max_records": max_records})
+        with (
+            patch("products.signals.backend.emission.fetchers.data_warehouse.execute_hogql_query", table.execute),
+            patch("products.signals.backend.emission.pganalyze_issues.execute_hogql_query", table.execute),
+        ):
+            return [row["id"] for row in pganalyze_issue_record_fetcher(self.team, config, self.context)]
+
+    def test_open_issue_emits_once_across_syncs(self):
+        table = FakeIssuesTable(["issue_1", "issue_2"])
+
+        assert self._sync(table) == ["issue_1", "issue_2"]
+        assert self._sync(table) == []
+        assert SignalEmissionRecord.objects.filter(team=self.team, source_product="pganalyze").count() == 2
+
+    def test_only_new_issue_emits_next_to_open_ones(self):
+        self._sync(FakeIssuesTable(["issue_1", "issue_2"]))
+
+        assert self._sync(FakeIssuesTable(["issue_1", "issue_2", "issue_3"])) == ["issue_3"]
+
+    def test_backlog_larger_than_max_records_drains_over_syncs(self):
+        table = FakeIssuesTable([f"issue_{i}" for i in range(5)])
+
+        first = self._sync(table, max_records=2)
+        second = self._sync(table, max_records=2)
+        third = self._sync(table, max_records=2)
+
+        assert len(first) == len(second) == 2
+        assert len(third) == 1
+        assert sorted(first + second + third) == [f"issue_{i}" for i in range(5)]
+        assert self._sync(table, max_records=2) == []
