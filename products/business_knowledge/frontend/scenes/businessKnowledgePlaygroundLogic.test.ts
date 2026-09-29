@@ -4,9 +4,16 @@ import { expectLogic } from 'kea-test-utils'
 import { ApiError } from 'lib/api'
 import { urls } from 'scenes/urls'
 
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { initKeaTests } from '~/test/init'
 
-import { askPlaygroundChat, createPlaygroundChat, getPlaygroundChat, listPlaygroundChats } from '../api'
+import {
+    askPlaygroundChat,
+    createPlaygroundChat,
+    getPlaygroundChat,
+    listPlaygroundChats,
+    PLAYGROUND_CHAT_PAGE_SIZE,
+} from '../api'
 import type {
     PaginatedPlaygroundChatListListApi,
     PlaygroundChatApi,
@@ -16,6 +23,7 @@ import type {
 import { businessKnowledgePlaygroundLogic } from './businessKnowledgePlaygroundLogic'
 
 jest.mock('../api', () => ({
+    PLAYGROUND_CHAT_PAGE_SIZE: 100,
     listPlaygroundChats: jest.fn(),
     createPlaygroundChat: jest.fn(),
     getPlaygroundChat: jest.fn(),
@@ -103,6 +111,7 @@ describe('businessKnowledgePlaygroundLogic', () => {
 
     afterEach(() => {
         logic?.unmount()
+        resumeKeaLoadersErrors()
     })
 
     it('opens a saved chat from the URL', async () => {
@@ -299,25 +308,39 @@ describe('businessKnowledgePlaygroundLogic', () => {
 
     it('loads older chats without losing them when the first page refreshes', async () => {
         await expectLogic(logic).toDispatchActions(['loadChatsSuccess'])
-        const older = { ...listed, id: 'chat-2', title: 'Older question' }
-        mockedList.mockResolvedValueOnce(listPage([listed], '/chats/?offset=1'))
+        const recent = Array.from({ length: PLAYGROUND_CHAT_PAGE_SIZE }, (_, index) => ({
+            ...listed,
+            id: index === 0 ? listed.id : `chat-${index + 1}`,
+        }))
+        const older = { ...listed, id: 'chat-101', title: 'Older question' }
+        mockedList.mockResolvedValueOnce(listPage(recent, '/chats/?offset=100'))
         await expectLogic(logic, () => logic.actions.loadChats()).toDispatchActions(['loadChatsSuccess'])
+
+        silenceKeaLoadersErrors()
+        mockedList.mockRejectedValueOnce(new Error('network error'))
+        logic.actions.loadMoreChats()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.nextChatsOffset).toBe(100)
+        expect(logic.values.loadingMoreChats).toBe(false)
+        expect(logic.values.moreChatsError).toContain("Couldn't load older chats")
+        resumeKeaLoadersErrors()
+
         mockedList.mockResolvedValueOnce(listPage([older]))
-        await expectLogic(logic, () => logic.actions.loadMoreChats()).toDispatchActions(['appendOlderChats'])
+        await expectLogic(logic, () => logic.actions.loadMoreChats()).toDispatchActions(['loadMoreChatsSuccess'])
 
-        expect(mockedList).toHaveBeenLastCalledWith(1)
-        expect(logic.values.chatGroups.flatMap((group) => group.chats).map((chat) => chat.id)).toEqual([
-            'chat-1',
-            'chat-2',
-        ])
+        expect(mockedList).toHaveBeenLastCalledWith(100)
+        expect(logic.values.chatGroups.flatMap((group) => group.chats)).toHaveLength(101)
+        expect(logic.values.chatGroups.flatMap((group) => group.chats).at(-1)?.id).toBe('chat-101')
         expect(logic.values.nextChatsOffset).toBeNull()
+        expect(logic.values.moreChatsError).toBeNull()
 
-        mockedList.mockResolvedValueOnce(listPage([{ ...listed, title: 'Updated question' }], '/chats/?offset=1'))
+        mockedList.mockResolvedValueOnce(
+            listPage([{ ...listed, title: 'Updated question' }, ...recent.slice(1)], '/chats/?offset=100')
+        )
         await expectLogic(logic, () => logic.actions.loadChats()).toDispatchActions(['loadChatsSuccess'])
-        expect(logic.values.chatGroups.flatMap((group) => group.chats).map((chat) => chat.title)).toEqual([
-            'Updated question',
-            'Older question',
-        ])
+        expect(logic.values.chats).toHaveLength(101)
+        expect(logic.values.chats[0].title).toBe('Updated question')
+        expect(logic.values.chats.at(-1)?.title).toBe('Older question')
     })
 
     it('refreshes the chat list until no chat has an answer running', async () => {

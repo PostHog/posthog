@@ -30,6 +30,8 @@ import type {
 
 export type { KnowledgeSourceApi as KnowledgeSourceDTOApi }
 
+export const PLAYGROUND_CHAT_PAGE_SIZE = 100
+
 // TODO: replace with generated types once the backend exposes URL source serializers
 export type RefreshIntervalValue = 'manual' | '1h' | '6h' | '24h' | '7d'
 export type RefreshIntervalOption = { value: RefreshIntervalValue; label: string }
@@ -134,7 +136,10 @@ export async function deleteSource(id: string): Promise<void> {
 }
 
 export async function listPlaygroundChats(offset: number = 0): Promise<PaginatedPlaygroundChatListListApi> {
-    return await businessKnowledgePlaygroundChatsList(String(getCurrentTeamId()), { offset })
+    return await businessKnowledgePlaygroundChatsList(String(getCurrentTeamId()), {
+        limit: PLAYGROUND_CHAT_PAGE_SIZE,
+        offset,
+    })
 }
 
 export async function createPlaygroundChat(): Promise<PlaygroundChatApi> {

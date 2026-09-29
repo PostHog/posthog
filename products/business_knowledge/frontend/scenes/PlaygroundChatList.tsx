@@ -152,7 +152,7 @@ export function PlaygroundChatList(): JSX.Element {
                         center
                         loading={loadingMoreChats}
                         disabledReason={chatsLoading ? 'Wait for chats to load' : undefined}
-                        onClick={loadMoreChats}
+                        onClick={() => loadMoreChats()}
                     >
                         Load more chats
                     </LemonButton>
