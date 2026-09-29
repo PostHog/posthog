@@ -216,7 +216,7 @@ def cancel_backfill(team_id: int, backfill_id: str | UUID) -> int:
     )
 
 
-def _report_backfill_finished(
+def report_backfill_finished(
     team_id: int, backfill_id: str, *, status: str | None = None, stop_reason: str | None = None
 ) -> None:
     """Never raises, because a lost analytics event must not fail the activity that ends the run."""
@@ -258,7 +258,7 @@ def _report_backfill_finished(
 
 def _fail_backfill(inputs: EvaluationBackfillInputs) -> None:
     if cancel_backfill(inputs.team_id, inputs.backfill_id):
-        _report_backfill_finished(inputs.team_id, inputs.backfill_id, status="failed")
+        report_backfill_finished(inputs.team_id, inputs.backfill_id, status="failed")
 
 
 @temporalio.activity.defn
@@ -292,7 +292,7 @@ def _prepare_backfill_tick(inputs: EvaluationBackfillInputs) -> PrepareTickOutpu
                 if not evaluation.enabled
                 else "unsupported_evaluation_type"
             )
-            _report_backfill_finished(inputs.team_id, inputs.backfill_id, status="stopped", stop_reason=stop_reason)
+            report_backfill_finished(inputs.team_id, inputs.backfill_id, status="stopped", stop_reason=stop_reason)
         return PrepareTickOutput(action=TickAction.FINISHED)
 
     return PrepareTickOutput(
@@ -471,7 +471,7 @@ def _is_last_measure_attempt() -> bool:
 
 @temporalio.activity.defn
 async def measure_evaluation_backfill_remainder_activity(inputs: MeasureRemainderInputs) -> None:
-    report = database_sync_to_async(_report_backfill_finished, thread_sensitive=False)
+    report = database_sync_to_async(report_backfill_finished, thread_sensitive=False)
     try:
         await database_sync_to_async(_measure_backfill_remainder, thread_sensitive=False)(inputs)
     except Exception:

@@ -48,6 +48,7 @@ from posthog.temporal.ai_observability.evaluation_backfill import (
     EvaluationBackfillInputs,
     backfill_workflow_id,
     cancel_backfill,
+    report_backfill_finished,
     settle_horizon,
 )
 from posthog.temporal.ai_observability.run_aggregate_evaluation import INGESTION_LAG_MARGIN_SECONDS
@@ -536,7 +537,10 @@ class EvaluationBackfillViewSet(
             team_id=self.team_id,
             workflow_id=workflow_id,
         )
-        cancel_backfill(self.team_id, backfill.pk)
+        if cancel_backfill(self.team_id, backfill.pk):
+            report_backfill_finished(
+                self.team_id, str(backfill.pk), status="failed", stop_reason="workflow_not_running"
+            )
         return False
 
     def _probe_reads_alive(self, backfill: EvaluationBackfill, workflow_id: str) -> bool:

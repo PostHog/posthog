@@ -189,6 +189,21 @@ describe('evaluationBackfillsLogic', () => {
         ])
     })
 
+    it('reports a click on Start with the count the user saw', async () => {
+        const capture = jest.spyOn(posthog, 'capture').mockImplementation()
+        await mountAndSettle()
+        logic.actions.requestEstimateSuccess(estimate({ total_units: 7 }))
+
+        logic.actions.startClicked()
+
+        expect(capture.mock.calls.filter(([event]) => event === 'llma evaluation backfill start clicked')).toEqual([
+            [
+                'llma evaluation backfill start clicked',
+                { evaluation_id: EVALUATION_ID, units_to_evaluate: 7, rerun_existing: false },
+            ],
+        ])
+    })
+
     it('debounces estimate requests and drops a stale response', async () => {
         jest.useFakeTimers()
         try {

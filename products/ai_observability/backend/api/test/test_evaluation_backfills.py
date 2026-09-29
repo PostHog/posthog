@@ -296,12 +296,21 @@ class TestEvaluationBackfillsApi(APIBaseTest):
         connect.return_value = _temporal_client(workflow_status, describe_error)
         stale = self._stale_backfill()
 
-        response = self.client.post(f"{self.url}/", _body(), format="json")
+        with patch("posthog.temporal.ai_observability.evaluation_backfill.ph_background_capture") as capture:
+            response = self.client.post(f"{self.url}/", _body(), format="json")
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         stale.refresh_from_db()
         assert stale.status == EvaluationBackfillStatus.CANCELLED
         assert stale.finished_at is not None
+        finished = [
+            call.kwargs["properties"]
+            for call in capture.return_value.call_args_list
+            if call.kwargs["event"] == "llma evaluation backfill finished"
+        ]
+        assert [(event["backfill_id"], event["status"], event["stop_reason"]) for event in finished] == [
+            (str(stale.pk), "failed", "workflow_not_running")
+        ]
 
     @patch(f"{API_MODULE}.count_backfill_candidates", return_value=_scope(7))
     @patch(f"{API_MODULE}.sync_connect")
