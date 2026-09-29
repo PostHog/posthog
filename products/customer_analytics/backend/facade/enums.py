@@ -8,7 +8,7 @@ class AccountPropertyPinKind(str, Enum):
     RELATIONSHIP = "relationship"
 
 
-class AccountViewVisibility(models.TextChoices):
+class AccountViewVisibility(LabeledStrEnum):
     PRIVATE = "private", "Personal"
     TEAM = "team", "Team"
 
