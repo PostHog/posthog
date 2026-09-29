@@ -1,6 +1,7 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { LemonInputSelectOption } from 'lib/lemon-ui/LemonInputSelect'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -237,6 +238,9 @@ export interface stamphogSceneLogicActions {
             state: string
         }
     }
+    triggerLabelEditStarted: (id: string) => {
+        id: string
+    }
     updateRepoConfig: (
         id: string,
         patch: PatchedStamphogRepoConfigWriteApi
@@ -289,6 +293,7 @@ export const stamphogSceneLogic = kea<stamphogSceneLogicType>([
         // payload from its first parameter, and every `loadRepoConfigs()` call would stop compiling.
         loadRepoConfigs: true,
         updateRepoConfig: (id: string, patch: PatchedStamphogRepoConfigWriteApi) => ({ id, patch }),
+        triggerLabelEditStarted: (id: string) => ({ id }),
         repoUpdateDone: (id: string) => ({ id }),
         repoConfigUpdated: (config: StamphogRepoConfigApi) => ({ config }),
         setRepoSearch: (search: string) => ({ search }),
@@ -559,11 +564,23 @@ export const stamphogSceneLogic = kea<stamphogSceneLogicType>([
                 actions.repoConfigUpdated(
                     await stamphogRepoConfigsPartialUpdate(String(values.currentProjectId), id, patch)
                 )
+                // The event names are frozen: insights on settings usage break if one is renamed. The label
+                // text is left out because it is free text a team typed.
+                posthog.capture('stamphog repo settings updated', {
+                    repo_config_id: id,
+                    fields: Object.keys(patch),
+                    review_mode: patch.review_mode,
+                    enabled: patch.enabled,
+                    digest_enabled: patch.digest_enabled,
+                })
             } catch {
                 lemonToast.error('Failed to update repository')
             } finally {
                 actions.repoUpdateDone(id)
             }
+        },
+        triggerLabelEditStarted: ({ id }) => {
+            posthog.capture('stamphog trigger label edit started', { repo_config_id: id })
         },
         setAvailableSearch: async ({ search }, breakpoint) => {
             await breakpoint(AVAILABLE_SEARCH_DEBOUNCE_MS)
