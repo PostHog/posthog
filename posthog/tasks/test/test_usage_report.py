@@ -1590,14 +1590,11 @@ class TestHogQLUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTa
 class TestQueryUsageReportSQL:
     @patch("posthog.tasks.usage_report.sync_execute")
     def test_execute_split_query_splits_correctly(self, mock_sync_execute: MagicMock) -> None:
-        """Test that _execute_split_query correctly splits the time period and combines results."""
         team_id = 1
         begin = datetime(2023, 1, 1)
         end = datetime(2023, 1, 2)
-        # Mock the sync_execute to return test data
         mock_sync_execute.side_effect = [[(team_id, 5)], [(team_id, 5)]]
 
-        # Test with 2 splits
         query_template = """
             SELECT team_id, count(1) as count
             FROM events
@@ -1613,9 +1610,7 @@ class TestQueryUsageReportSQL:
             num_splits=2,
         )
 
-        # Verify sync_execute was called twice with different time ranges
         assert mock_sync_execute.call_count == 2
-        # First call should use the first half of the time range
         first_call_args = mock_sync_execute.call_args_list[0][0]
         first_call_kwargs = mock_sync_execute.call_args_list[0].kwargs
         assert first_call_args[1]["begin"] == begin
@@ -1623,28 +1618,23 @@ class TestQueryUsageReportSQL:
         mid_point = begin + (end - begin) / 2
         assert first_call_args[1]["end"] == mid_point
 
-        # Second call should use the second half of the time range
         second_call_args = mock_sync_execute.call_args_list[1][0]
         second_call_kwargs = mock_sync_execute.call_args_list[1].kwargs
         assert second_call_args[1]["begin"] == mid_point
         assert second_call_kwargs["ch_user"] == ClickHouseUser.BILLING
         assert second_call_args[1]["end"] == end
-        # Result should combine both splits (5 + 5 = 10)
         assert result == [(team_id, 10)]
 
     @patch("posthog.tasks.usage_report.sync_execute")
     def test_execute_split_query_with_custom_combiner(self, mock_sync_execute: MagicMock) -> None:
-        """Test that _execute_split_query works with a custom result combiner function."""
         team_id = 1
         begin = datetime(2023, 1, 1)
         end = datetime(2023, 1, 2)
-        # Mock the sync_execute to return test data for event metrics
         mock_sync_execute.side_effect = [
-            [(team_id, "web_events", 3)],  # First split
-            [(team_id, "web_events", 2), (team_id, "mobile_events", 1)],  # Second split
+            [(team_id, "web_events", 3)],
+            [(team_id, "web_events", 2), (team_id, "mobile_events", 1)],
         ]
 
-        # Define a custom combiner function similar to what we use in get_all_event_metrics_in_period
         def custom_combiner(results_list: list) -> dict[str, list[tuple[int, int]]]:
             metrics: dict[str, dict[int, int]] = {
                 "web_events": {},
@@ -1676,7 +1666,6 @@ class TestQueryUsageReportSQL:
             combine_results_func=custom_combiner,
         )
 
-        # Verify the custom combiner worked correctly
         assert result["web_events"] == [(team_id, 5)]
         assert result["mobile_events"] == [(team_id, 1)]
 
