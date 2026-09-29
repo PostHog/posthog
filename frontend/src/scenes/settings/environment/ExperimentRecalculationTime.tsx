@@ -50,7 +50,8 @@ export function ExperimentRecalculationTime(): JSX.Element {
     const commonDisabledReason = restrictedReason || (experimentsConfigLoading ? 'Loading...' : undefined)
 
     const handleTimeChange = (index: number, value: string): void => {
-        const newTimes = [...times]
+        // Base on savedTimes: with the flag off, a second saved time is hidden but must survive the edit
+        const newTimes = [...savedTimes]
         newTimes[index] = utcTimeStringFromUtcHour(parseInt(value, 10))
         updateExperimentsConfig({ experiment_recalculation_times: newTimes })
     }
@@ -67,7 +68,7 @@ export function ExperimentRecalculationTime(): JSX.Element {
     }
 
     const optionsForIndex = (index: number): LemonSelectOption<string>[] => {
-        const otherTime = times.length > 1 ? times[1 - index] : null
+        const otherTime = savedTimes.length > 1 ? savedTimes[1 - index] : null
         const otherUtcHour = otherTime !== null ? utcHourFromTimeString(otherTime) : null
         return Array.from({ length: 24 }, (_, utcHour) => {
             const tooClose =
