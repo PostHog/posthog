@@ -12,7 +12,7 @@ from products.warehouse_sources.backend.types import IncrementalField, Increment
 DEFAULT_PAGE_SIZE = 100
 
 
-@dataclass
+@dataclass(frozen=True)
 class FrontEndpointConfig:
     name: str
     path: str

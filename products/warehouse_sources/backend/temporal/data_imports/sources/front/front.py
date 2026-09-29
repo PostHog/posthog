@@ -1,5 +1,5 @@
 import dataclasses
-from collections.abc import Iterable
+from collections.abc import AsyncIterable, Callable, Iterable
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional, cast
 
@@ -21,7 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse, TDataType
 from products.warehouse_sources.backend.temporal.data_imports.sources.front.settings import (
     FRONT_ENDPOINTS,
     FrontEndpointConfig,
@@ -33,7 +33,7 @@ FRONT_NEXT_URL_PATH = "_pagination.next"
 MAX_RETRIES = 6
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class FrontResumeConfig:
     # Top-level endpoints resume from the absolute next-page link Front hands back.
     next_url: Optional[str] = None
@@ -143,7 +143,11 @@ def _endpoint_extra() -> Endpoint:
     }
 
 
-def _source_response(config: FrontEndpointConfig, items: Any, column_hints: Any = None) -> SourceResponse:
+def _source_response(
+    config: FrontEndpointConfig,
+    items: Callable[[], Iterable[Any] | AsyncIterable[Any]],
+    column_hints: dict[str, TDataType | None] | None = None,
+) -> SourceResponse:
     return SourceResponse(
         name=config.name,
         items=items,
