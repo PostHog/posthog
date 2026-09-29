@@ -68,8 +68,8 @@ tools:
         param_overrides:
             payload_mode:
                 description: >
-                    'preview' (the default) returns a bounded payload for each row. 'full' returns every payload in
-                    full and can make a small page very large. Prefer health-issues-get for one issue's full payload.
+                    'preview' (the default) returns a bounded payload for each row. 'full' returns every payload in full
+                    and can make a small page very large. Prefer health-issues-get for one issue's full payload.
                 default: preview
     health-issues-partial-update:
         operation: health_issues_partial_update
