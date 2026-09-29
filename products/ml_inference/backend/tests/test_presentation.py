@@ -1,7 +1,7 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 from rest_framework import status
@@ -94,6 +94,28 @@ class TestDecideRequestValidation(SimpleTestCase):
 class TestDecideEndpoint(APIBaseTest):
     def _url(self) -> str:
         return f"/api/projects/{self.team.id}/ml_inference/decisions/decide/"
+
+    @parameterized.expand([(False, "US"), (False, "EU"), (True, None)])
+    def test_requires_current_organization_consent_before_calling_the_model(
+        self, debug: bool, deployment: str | None
+    ) -> None:
+        with (
+            override_settings(DEBUG=debug, CLOUD_DEPLOYMENT=deployment),
+            patch("products.ml_inference.backend.logic.decisions.posthoganalytics.feature_enabled", return_value=True),
+            patch("products.ml_inference.backend.logic.decisions.decide") as decide,
+        ):
+            decide.return_value = DecisionResult(
+                model="test", answers={"urgent": NoulAnswer(probability=0.9)}, input_tokens=1
+            )
+            for consent in (None, False, True, False):
+                self.organization.is_ai_data_processing_approved = consent
+                self.organization.save(update_fields=["is_ai_data_processing_approved"])
+                decide.reset_mock()
+
+                response = self.client.post(self._url(), {"state": "text", "questions": QUESTIONS}, format="json")
+
+                assert response.status_code == (status.HTTP_200_OK if consent else status.HTTP_404_NOT_FOUND)
+                assert decide.call_count == int(bool(consent))
 
     @patch("products.ml_inference.backend.presentation.views.api.decide")
     def test_returns_typed_answers(self, decide) -> None:

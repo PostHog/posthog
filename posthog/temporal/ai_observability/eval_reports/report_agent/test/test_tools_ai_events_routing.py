@@ -8,6 +8,7 @@ other query sites in `tools.py` deliberately stay on `events` directly via
 rationale).
 """
 
+import json
 from typing import cast
 
 from posthog.test.base import BaseTest
@@ -140,9 +141,18 @@ class TestGetGenerationDetailRoutesThroughResolver(BaseTest):
             ]
         )
         # Non-resolver path returns eval rows.
-        mock_events.return_value = MagicMock(results=[])
+        mock_events.return_value = MagicMock(
+            results=[["eval-1", "categorical", None, None, None, "This run was skipped", False, None, [], True]]
+        )
 
-        _get_detail_fn(state=_state(self.team.id), generation_id=_VALID_GEN_ID)
+        result = json.loads(_get_detail_fn(state=_state(self.team.id), generation_id=_VALID_GEN_ID))
+
+        assert result["eval_results"][0]["outcome"] == "skipped"
+        eval_query = cast(ast.SelectQuery, mock_events.call_args.kwargs["query"])
+        skipped = cast(ast.Alias, eval_query.select[-1])
+        assert skipped.alias == "skipped"
+        assert isinstance(skipped.expr, ast.Field)
+        assert skipped.expr.chain == ["properties", "$ai_evaluation_skipped"]
 
         # Heavy path went through the resolver.
         assert mock_resolver.call_count == 1
