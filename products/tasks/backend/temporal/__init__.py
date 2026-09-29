@@ -11,6 +11,7 @@ from .create_snapshot.activities import (
     setup_repository as snapshot_setup_repository,
 )
 from .create_snapshot.workflow import CreateSnapshotForRepositoryWorkflow
+from .gateway_usage import TaskRunGatewayUsageWorkflow, reconcile_gateway_usage
 from .loops import RunLoopWorkflow, run_loop_trigger_activity
 from .process_task.activities import (
     await_agent_server_ready,
@@ -67,6 +68,7 @@ from .process_task.workflow import ProcessTaskWorkflow
 from .slack_relay import PostHogCodeAgentRelayWorkflow, relay_slack_message
 
 WORKFLOWS = [
+    TaskRunGatewayUsageWorkflow,
     ProcessTaskWorkflow,
     SlackAgentDesignRelayWorkflow,
     CreateSnapshotForRepositoryWorkflow,
@@ -77,6 +79,7 @@ WORKFLOWS = [
 ]
 
 ACTIVITIES = [
+    reconcile_gateway_usage,
     # process_task activities
     get_task_processing_context,
     prepare_sandbox_for_repository,
