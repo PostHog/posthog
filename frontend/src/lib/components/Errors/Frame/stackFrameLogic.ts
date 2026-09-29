@@ -83,7 +83,7 @@ export const stackFrameLogic = kea<stackFrameLogicType>([
         loadForSymbolSet: (symbolSetId: ErrorTrackingSymbolSet['id']) => ({ symbolSetId }),
     }),
 
-    loaders(({ values }) => ({
+    loaders(({ values, isMounted }) => ({
         stackFrameRecords: [
             {} as KeyedStackFrameRecords,
             {
@@ -94,11 +94,17 @@ export const stackFrameLogic = kea<stackFrameLogicType>([
                         return values.stackFrameRecords
                     }
                     const { results } = await api.errorTracking.stackFrames(rawIds)
-
+                    // The view can unmount during the request, and kea throws on a read of unmounted state
+                    if (!isMounted()) {
+                        return {}
+                    }
                     return mapStackFrameRecords(results, values.stackFrameRecords)
                 },
                 loadForSymbolSet: async ({ symbolSetId }) => {
                     const { results } = await api.errorTracking.symbolSetStackFrames(symbolSetId)
+                    if (!isMounted()) {
+                        return {}
+                    }
                     return mapStackFrameRecords(results, values.stackFrameRecords)
                 },
             },
