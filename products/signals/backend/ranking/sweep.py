@@ -218,11 +218,13 @@ def reports_due_for_scoring(
 
 def score_inbox_reports(limit: int | None = None) -> ScoreInboxReportsResult:
     if not settings.INBOX_RANKING_SCORING_ENABLED:
+        logger.info("inbox_ranking_sweep_skipped", skipped_reason="disabled")
         return ScoreInboxReportsResult(skipped_reason="disabled")
     deadline = time.monotonic() + _TIME_BUDGET.total_seconds()
     # A served model that does not load raises here and aborts the run.
     serving = load_serving_set()
     if serving is None:
+        logger.info("inbox_ranking_sweep_skipped", skipped_reason="no manifest")
         return ScoreInboxReportsResult(skipped_reason="no manifest")
     manifest_version = serving.manifest.manifest_version
     now = timezone.now()
@@ -235,6 +237,13 @@ def score_inbox_reports(limit: int | None = None) -> ScoreInboxReportsResult:
     ids_by_team: dict[int, list[str]] = defaultdict(list)
     for candidate in candidates:
         ids_by_team[candidate.team_id].append(candidate.report_id)
+    # A pass that the worker kills logs no finish, so the start log is the only trace of it.
+    logger.info(
+        "inbox_ranking_sweep_started",
+        candidates=len(candidates),
+        teams=len(ids_by_team),
+        manifest_version=manifest_version,
+    )
 
     scored = no_vector = failed_teams = deferred_teams = 0
     with ph_scoped_capture() as capture:
@@ -253,6 +262,9 @@ def score_inbox_reports(limit: int | None = None) -> ScoreInboxReportsResult:
                 logger.exception("inbox_ranking_sweep_team_failed", team_id=team_id)
                 failed_teams += 1
                 continue
+            finally:
+                # Send the events of each team when it ends, so a killed pass keeps the events of the teams it persisted.
+                capture.flush()
             scored += sum(1 for outcome in outcomes if outcome.score is not None)
             no_vector += sum(1 for outcome in outcomes if outcome.reason == scorer.NO_VECTOR)
 
