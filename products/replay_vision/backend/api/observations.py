@@ -39,7 +39,7 @@ from posthog.api.streaming import sse_streaming_response
 from posthog.event_usage import report_user_action
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.permissions import is_scout_sandbox_request
+from posthog.permissions import is_scout_sandbox_request, is_service_auth
 from posthog.rate_limit import ReplayVisionSearchBurstRateThrottle, ReplayVisionSearchSustainedRateThrottle
 from posthog.renderers import ServerSentEventRenderer
 from posthog.session_recordings.models.session_recording import SessionRecording
@@ -991,11 +991,14 @@ class ReplayObservationViewSet(
             )
         # The first 48 bits of a UUIDv7 are its creation time in milliseconds.
         millisecond = parsed.int >> 80
-        candidates = list(
-            self.get_queryset()
-            .filter(id__gte=uuid.UUID(int=millisecond << 80), id__lte=uuid.UUID(int=((millisecond + 1) << 80) - 1))
-            .values_list("id", flat=True)[: self.NOT_FOUND_SUGGESTION_LIMIT]
+        same_millisecond = self.get_queryset().filter(
+            id__gte=uuid.UUID(int=millisecond << 80), id__lte=uuid.UUID(int=((millisecond + 1) << 80) - 1)
         )
+        # A detail read skips the list's access filter and checks the one object instead, so apply the
+        # list's filter here: never name a row the caller could not list.
+        if not is_service_auth(self.request):
+            same_millisecond = self.user_access_control.filter_queryset_by_access_level(same_millisecond)
+        candidates = list(same_millisecond.values_list("id", flat=True)[: self.NOT_FOUND_SUGGESTION_LIMIT])
         if candidates:
             return (
                 "No observation has this id. Observations created in the same millisecond: "
