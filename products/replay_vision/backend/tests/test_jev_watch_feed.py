@@ -19,12 +19,10 @@ from products.ml_inference.backend.facade.contracts import (
 )
 from products.replay_vision.backend.jev_watch_feed import (
     WINDOW_CHUNK_SIZE,
-    WindowJudgment,
     judge_scanner_window,
     load_watch_ranks,
     rank_watch_feed_by_jev,
     store_watch_ranks,
-    stored_watch_rank_fingerprint,
     watch_feed_ranker,
 )
 from products.replay_vision.backend.models.replay_observation import (
@@ -123,16 +121,31 @@ class TestJudgeScannerWindow(SimpleTestCase):
         assert judgment.probabilities == {}
         assert judgment.failed_chunks == 1
 
-    def test_rows_without_prose_are_not_sent(self) -> None:
+    def test_rows_without_prose_are_reported_instead_of_sent(self) -> None:
+        no_output, no_result = uuid4(), uuid4()
         rows = [
             _prose_row(uuid4(), "summary"),
-            {"id": uuid4(), "scanner_result": {"model_output": {}, "signals_count": 0}},
-            {"id": uuid4(), "scanner_result": None},
+            {"id": no_output, "scanner_result": {"model_output": {}, "signals_count": 0}},
+            {"id": no_result, "scanner_result": None},
         ]
         with patch(_API) as api:
             api.decide_when_available.side_effect = _answer_every_question(0.5)
             judgment = judge_scanner_window(1, uuid4(), rows)
         assert len(judgment.probabilities) == 1
+        assert set(judgment.skipped_no_prose) == {str(no_output), str(no_result)}
+
+    def test_context_rows_enter_the_state_without_questions(self) -> None:
+        rows = [_prose_row(uuid4(), f"new {index}") for index in range(3)]
+        context_rows = [_prose_row(uuid4(), f"old {index}") for index in range(40)]
+        with patch(_API) as api:
+            api.decide_when_available.side_effect = _answer_every_question(0.5)
+            judgment = judge_scanner_window(1, uuid4(), rows, context_rows)
+        request = api.decide_when_available.call_args.args[0]
+        # A quiet hour's small batch is still judged against the scanner's routine, and the state
+        # never exceeds one chunk's size.
+        assert len(request.questions) == 3
+        assert len(request.state["observations"]) == WINDOW_CHUNK_SIZE
+        assert len(judgment.probabilities) == 3
 
     def test_long_prose_is_clipped_before_it_enters_the_request(self) -> None:
         rows = [_prose_row(uuid4(), "x" * 100_000)]
@@ -208,29 +221,16 @@ class TestRankWatchFeedByJev(SimpleTestCase):
         assert ranked[4].reason == {"kind": "recent"}
 
 
-def _judgment(probabilities: dict[str, float]) -> WindowJudgment:
-    return WindowJudgment(
-        probabilities=probabilities,
-        model="jevk5-fp8-0.2",
-        chunks=1,
-        failed_chunks=0,
-        input_tokens=10,
-        estimated_cost_usd=0.0,
-    )
-
-
 class TestWatchRankCache(SimpleTestCase):
     def test_stored_ranks_round_trip_and_malformed_values_are_dropped_or_clamped(self) -> None:
         team_id = 990_001
         scanner_id, other_scanner_id, missing_scanner_id = uuid4(), uuid4(), uuid4()
-        store_watch_ranks(team_id, scanner_id, _judgment({"obs-a": 0.9, "obs-b": 7.0}), "fp-a")
-        store_watch_ranks(team_id, other_scanner_id, _judgment({"obs-c": 0.4}), "fp-b")
+        store_watch_ranks(team_id, scanner_id, {"obs-a": 0.9, "obs-b": 7.0}, "jevk5-fp8-0.2")
+        store_watch_ranks(team_id, other_scanner_id, {"obs-c": 0.4}, "jevk5-fp8-0.2")
         loaded = load_watch_ranks(team_id, [scanner_id, other_scanner_id, missing_scanner_id])
         assert loaded == {"obs-a": 0.9, "obs-b": 1.0, "obs-c": 0.4}
         # Another team's cache never leaks in.
         assert load_watch_ranks(team_id + 1, [scanner_id]) == {}
-        assert stored_watch_rank_fingerprint(team_id, scanner_id) == "fp-a"
-        assert stored_watch_rank_fingerprint(team_id, missing_scanner_id) is None
 
 
 class TestJevWatchRankSweep(BaseTest):
@@ -303,7 +303,28 @@ class TestJevWatchRankSweep(BaseTest):
 
         with patch(flag, return_value="jev-shadow"), patch(region, return_value=True), patch(_API) as api:
             result = async_to_sync(_judge_watch_ranks)(JevWatchRankSweepInputs())
-        # The window did not change, so the second run keeps the cache without a Jev call.
+        # Every row is judged already, so the second run keeps the cache without a Jev call.
         api.decide_when_available.assert_not_called()
         assert result.scanners_skipped_unchanged == 1
         assert load_watch_ranks(self.team.id, [scanner.id]) == {str(first.id): 0.7, str(second.id): 0.7}
+
+        third = self._succeeded_observation(scanner, "s3", "The user deleted the whole workspace.")
+        with (
+            patch(flag, return_value="jev-shadow"),
+            patch(region, return_value=True),
+            patch(_API) as api,
+            patch("posthoganalytics.capture"),
+        ):
+            api.decide_when_available.side_effect = _answer_every_question(0.9)
+            result = async_to_sync(_judge_watch_ranks)(JevWatchRankSweepInputs())
+        # Only the new row is judged, with the already-judged rows in the state as context, and the
+        # earlier judgments survive the merge.
+        request = api.decide_when_available.call_args.args[0]
+        assert len(request.questions) == 1
+        assert len(request.state["observations"]) == 3
+        assert result.observations_judged == 1
+        assert load_watch_ranks(self.team.id, [scanner.id]) == {
+            str(first.id): 0.7,
+            str(second.id): 0.7,
+            str(third.id): 0.9,
+        }
