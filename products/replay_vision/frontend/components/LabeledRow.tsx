@@ -5,10 +5,13 @@ import { Tooltip } from '@posthog/lemon-ui'
 export function LabeledRow({
     label,
     tooltip,
+    aside,
     children,
 }: {
     label: string
     tooltip?: string
+    /** Sits on the label's line, for a qualifier of the value such as the model's confidence. */
+    aside?: React.ReactNode
     children: React.ReactNode
 }): JSX.Element {
     return (
@@ -20,6 +23,7 @@ export function LabeledRow({
                         <IconInfo className="text-sm" />
                     </Tooltip>
                 )}
+                {aside && <span className="ml-1">{aside}</span>}
             </div>
             <div className="text-sm min-w-0">{children}</div>
         </div>
