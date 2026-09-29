@@ -100,6 +100,8 @@ function componentFor(line: TranscriptLine): Component {
       );
     case "notice":
       return new Text(DIM(line.text), 1, 0);
+    case "actions":
+      return new Text("", 0, 0);
   }
 }
 
@@ -118,9 +120,11 @@ export class ChatView {
       notice = null,
     }: { hasOlder?: boolean; notice?: ChatNotice | null } = {},
   ): void {
-    this.items = lines.flatMap((line, index) => {
+    // Offered actions show in the pane's picker, not in the scrollback.
+    const shown = lines.filter((line) => line.kind !== "actions");
+    this.items = shown.flatMap((line, index) => {
       const item = { id: line.id, component: new Trimmed(componentFor(line)) };
-      return needsGap(lines[index - 1], line)
+      return needsGap(shown[index - 1], line)
         ? [{ id: `${line.id}:gap`, component: new Spacer(1) }, item]
         : [item];
     });

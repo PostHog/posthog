@@ -1,6 +1,7 @@
 import type { Task } from "@posthog/shared";
 import { Box, Text, useAnimation, useBoxMetrics } from "ink";
 import { type ReactElement, useEffect, useMemo, useRef, useState } from "react";
+import { type ActionsLine, canRun, openActions } from "../actions";
 import type { ChatView } from "../chatView";
 import type { Composer } from "../composer";
 import {
@@ -45,6 +46,8 @@ export function Pane({
   chat,
   composer,
   pending,
+  onOffer,
+  picker,
   focused,
 }: {
   title: string;
@@ -55,6 +58,8 @@ export function Pane({
   composer: Composer;
   // A message just sent from this pane that the run has not echoed yet.
   pending: string | null;
+  onOffer: (offer: ActionsLine | null) => void;
+  picker: { index: number; dismissed: Set<string> };
   focused: boolean;
 }): ReactElement {
   const body = useRef(null);
@@ -113,7 +118,14 @@ export function Pane({
   const run = task?.latest_run;
 
   const composerLines = width > 0 ? composer.render(width, focused) : [];
-  const chatHeight = height - composerLines.length - (view.error ? 1 : 0);
+  const offer = openActions(lines);
+  useEffect(() => {
+    onOffer(offer);
+  });
+  const pickerOpen = offer !== null && !picker.dismissed.has(offer.id);
+  const pickerRows = pickerOpen ? offer.actions.length + 1 : 0;
+  const chatHeight =
+    height - composerLines.length - pickerRows - (view.error ? 1 : 0);
 
   let content: ReactElement;
   if (!paneTaskId && !pending)
@@ -158,6 +170,26 @@ export function Pane({
         >
           {content}
         </Box>
+        {pickerOpen &&
+          offer.actions.map((action, index) => {
+            const selected = focused && index === picker.index;
+            return (
+              <Text
+                key={`${offer.id}:${action.label}`}
+                wrap="truncate-end"
+                dimColor={!canRun(action)}
+              >
+                {selected ? "› " : "  "}
+                <Text inverse={selected}>{action.label}</Text>
+                {!canRun(action) && " (PostHog Desktop only)"}
+              </Text>
+            );
+          })}
+        {pickerOpen && (
+          <Text dimColor wrap="truncate-end">
+            ↑↓ choose · Enter open · Esc dismiss
+          </Text>
+        )}
         {composerLines.map((line, index) => (
           // biome-ignore lint/suspicious/noArrayIndexKey: rows are positions on screen
           <Text key={`composer-${index}`} wrap="truncate-end">

@@ -142,6 +142,43 @@ describe("transcriptFrom bookkeeping", () => {
   });
 });
 
+describe("transcriptFrom actions", () => {
+  it("turns a show_actions call into an actions line and drops calls it cannot read", () => {
+    const actions = [
+      {
+        kind: "compose",
+        label: "Try again in a new task",
+        prompt: "Add tracing",
+      },
+    ];
+    const entries = [
+      ...PI_LOG.slice(0, 2),
+      piEvent(3, {
+        type: "tool_call_started",
+        toolCall: {
+          id: "x1",
+          title: "mcp_posthog_code_tools_show_actions",
+          status: "failed",
+          rawInput: { actions: [] },
+        },
+      }),
+      piEvent(4, {
+        type: "tool_call_started",
+        toolCall: {
+          id: "x2",
+          title: "mcp_posthog_code_tools_show_actions",
+          status: "completed",
+          rawInput: { actions },
+        },
+      }),
+    ];
+    const lines = transcriptFrom("pi", entries).lines;
+
+    expect(lines.map((line) => line.kind)).toEqual(["user", "actions"]);
+    expect(lines[1]).toMatchObject({ kind: "actions", actions });
+  });
+});
+
 describe("transcriptFrom turn state", () => {
   it.each([
     ["mid-turn", PI_LOG.slice(0, -1), true],
