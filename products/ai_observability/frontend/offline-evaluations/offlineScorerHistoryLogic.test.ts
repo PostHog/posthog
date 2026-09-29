@@ -1,10 +1,12 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { dayjs } from 'lib/dayjs'
+
 import { initKeaTests } from '~/test/init'
 
 import * as api from '../generated/api'
-import { offlineScorerHistoryLogic } from './offlineScorerHistoryLogic'
+import { offlineScorerHistoryLogic, offlineScorerHistoryUrl } from './offlineScorerHistoryLogic'
 import { OFFLINE_STORY_DEFINITION, OFFLINE_STORY_VERSION, makeOfflineHistoryPoint } from './offlineScoreTrends.fixtures'
 
 jest.mock('../generated/api', () => ({
@@ -76,6 +78,31 @@ describe('offlineScorerHistoryLogic', () => {
             jest.mocked(api.aiObservabilityOfflineScorersHistoryList).mock.calls.at(-1)?.[2]?.scorer_version_ids
         ).toBe('older-version')
     })
+
+    it.each([
+        ['uploading', 5],
+        ['failed', 45],
+        ['completed', 45],
+    ] as const)(
+        'includes %s experiments started %i days ago when opened from their scorer link',
+        async (status, age) => {
+            const startedAt = dayjs().subtract(age, 'day').toISOString()
+            router.actions.push(
+                offlineScorerHistoryUrl(
+                    { id: OFFLINE_STORY_VERSION.id, definition_id: OFFLINE_STORY_DEFINITION.id },
+                    { status, started_at: startedAt },
+                    'UTC'
+                )
+            )
+            const logic = offlineScorerHistoryLogic({ scorerId: OFFLINE_STORY_DEFINITION.id, teamId: 1 })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            const query = jest.mocked(api.aiObservabilityOfflineScorersHistoryList).mock.calls.at(-1)?.[2]
+            expect(query?.scorer_version_ids).toBe(OFFLINE_STORY_VERSION.id)
+            expect(query?.statuses?.split(',')).toContain(status)
+            expect(dayjs(query?.date_from).isAfter(startedAt)).toBe(false)
+        }
+    )
 
     it('keeps a newer history response when a superseded request rejects', async () => {
         const logic = offlineScorerHistoryLogic({ scorerId: OFFLINE_STORY_DEFINITION.id, teamId: 1 })

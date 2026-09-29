@@ -1,11 +1,11 @@
 import { useActions, useValues } from 'kea'
-import { combineUrl } from 'kea-router'
 
 import { IconArrowLeft, IconRefresh } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonModal, LemonSkeleton, LemonTable, Link } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { TZLabel } from 'lib/components/TZLabel'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
@@ -16,6 +16,7 @@ import { OfflineExperimentStatus } from './OfflineExperimentStatus'
 import { OfflineItemInspector } from './OfflineItemInspector'
 import { OfflineItemMatrix } from './OfflineItemMatrix'
 import { offlineRunSourceLabel } from './offlineOverviewState'
+import { offlineScorerHistoryUrl } from './offlineScorerHistoryLogic'
 import { formatOfflineScore } from './offlineScoreTrends'
 
 export function OfflineExperimentContent(props: OfflineExperimentLogicProps): JSX.Element {
@@ -35,6 +36,7 @@ export function OfflineExperimentContent(props: OfflineExperimentLogicProps): JS
     } = useValues(logic)
     const { refresh, showCompletion, hideCompletion, completeOfflineExperiment, openItem, closeItem } =
         useActions(logic)
+    const { timezone } = useValues(teamLogic)
     return (
         <div className="flex flex-col gap-4 min-w-0">
             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -176,14 +178,7 @@ export function OfflineExperimentContent(props: OfflineExperimentLogicProps): JS
                                 render: (_, summary: OfflineScorerSummaryApi) => (
                                     <Link
                                         className="break-words"
-                                        to={
-                                            combineUrl(
-                                                urls.aiObservabilityOfflineScorerHistory(summary.scorer.definition_id),
-                                                {
-                                                    version: summary.scorer.id,
-                                                }
-                                            ).url
-                                        }
+                                        to={offlineScorerHistoryUrl(summary.scorer, experiment, timezone)}
                                     >{`${summary.scorer.name} v${summary.scorer.version}`}</Link>
                                 ),
                             },
