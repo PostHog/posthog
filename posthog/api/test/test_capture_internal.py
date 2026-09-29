@@ -1254,22 +1254,30 @@ class TestBatchChunking(SimpleTestCase):
         batch_sizes = sorted(len(c["json"]["batch"]) for c in spy.calls)
         assert batch_sizes == [50, 200, 200]
 
+    @parameterized.expand(
+        [
+            ("transport_error_caller_uuids", RequestsConnectionError("connection refused"), True),
+            ("transport_error_generated_uuids", RequestsConnectionError("connection refused"), False),
+            ("worker_exception_caller_uuids", TypeError("Object of type set is not JSON serializable"), True),
+            ("worker_exception_generated_uuids", TypeError("Object of type set is not JSON serializable"), False),
+        ]
+    )
     @patch("posthog.api.capture.CAPTURE_INTERNAL_BATCH_CHUNK_SIZE", 200)
     @patch("posthog.api.capture.CAPTURE_INTERNAL_MAX_WORKERS", 8)
     @patch("posthog.api.capture.internal_requests_session")
-    def test_partial_chunk_failure_preserves_successful_chunks(self, mock_session_fn: MagicMock) -> None:
+    def test_partial_chunk_failure_preserves_successful_chunks(
+        self, _name: str, failure: Exception, with_uuids: bool, mock_session_fn: MagicMock
+    ) -> None:
         events = _make_batch(400)
-        chunk1_uuids = [e["event_uuid"] for e in events[:200]]
-        lock = threading.Lock()
+        if not with_uuids:
+            for ev in events:
+                del ev["event_uuid"]
 
         def spy_post(url: str, **kwargs: Any) -> MockResponse:
-            with lock:
-                pass
-            batch_uuids = [e["uuid"] for e in kwargs["json"]["batch"]]
-            if set(batch_uuids) & set(chunk1_uuids):
-                return MockResponse(body=_ok_results(*batch_uuids))
-            else:
-                raise RequestsConnectionError("connection refused")
+            batch = kwargs["json"]["batch"]
+            if any(e["properties"]["url"].endswith("/page/0") for e in batch):
+                return MockResponse(body=_ok_results(*[e["uuid"] for e in batch]))
+            raise failure
 
         mock_session = MagicMock()
         mock_session.post.side_effect = spy_post
@@ -1278,9 +1286,18 @@ class TestBatchChunking(SimpleTestCase):
 
         result = capture_batch_internal(events=events, token="tok", event_source="partial")
 
-        assert not result.succeeded()
-        assert len(result.ok) == 200
         assert result.error is not None
+        assert result.error["error"] == "partial_request_failure"
+        assert len(result.ok) == 200
+        assert len(result.unaccounted) == 200
+        assert set(result.ok).isdisjoint(result.unaccounted)
+        assert all(result.results[uid] == {"result": "unaccounted"} for uid in result.unaccounted)
+        if with_uuids:
+            assert set(result.unaccounted) == {e["event_uuid"] for e in events[200:]}
+        else:
+            assert all("uuid" not in e for e in events)
+        with self.assertRaisesRegex(CaptureInternalError, "200 events acked, 200 unaccounted"):
+            result.raise_for_status()
 
     @patch("posthog.api.capture.CAPTURE_INTERNAL_BATCH_CHUNK_SIZE", 200)
     @patch("posthog.api.capture.CAPTURE_INTERNAL_MAX_WORKERS", 8)

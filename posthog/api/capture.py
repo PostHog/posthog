@@ -705,6 +705,13 @@ def _merge_results(chunk_results: list[CaptureInternalResult]) -> CaptureInterna
     return merged
 
 
+def _with_event_uuid(ev: dict[str, Any]) -> dict[str, Any]:
+    """Return ``ev`` with a uuid. It copies ``ev`` when it generates one, so the caller's dict is not changed."""
+    if ev.get("event_uuid") or ev.get("uuid"):
+        return ev
+    return {**ev, "uuid": str(uuid4())}
+
+
 def _submit_chunks(
     *,
     lanes: list[tuple[list[dict[str, Any]], bool]],
@@ -743,6 +750,9 @@ def _submit_chunks(
     if len(chunks) == 1:
         return _submit_chunk(*chunks[0])
 
+    # A chunk whose worker raises must still report its events, so fix every uuid before fan-out.
+    chunks = [([_with_event_uuid(ev) for ev in chunk_events], ai_lane) for chunk_events, ai_lane in chunks]
+
     logger.info(
         "capture_batch_internal_chunked",
         event_source=event_source,
@@ -771,10 +781,13 @@ def _submit_chunks(
                     error=str(exc),
                 )
                 error = {"error": "chunk_exception", "error_description": str(exc)}
+                chunk_uuids = [ev.get("event_uuid") or ev["uuid"] for ev in chunks[chunk_idx][0]]
                 chunk_results.append(
                     CaptureInternalResult(
                         status_code=0,
+                        results={uid: {"result": "unaccounted"} for uid in chunk_uuids},
                         error=error,
+                        unaccounted=chunk_uuids,
                         request_failures=[
                             RequestFailure(
                                 lane=_lane_label(ai_lane),
