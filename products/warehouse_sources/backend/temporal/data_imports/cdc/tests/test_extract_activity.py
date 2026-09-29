@@ -1,5 +1,5 @@
 import uuid
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator, Mapping
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
@@ -1506,10 +1506,10 @@ class _ScriptedReader:
     def get_decoder_key_columns(self, table):
         return []
 
-    def get_enforced_unique_keys(self, schema, tables):
+    def get_enforced_unique_keys(self, schema: str, tables: list[str]) -> dict[str, list[frozenset[str]]]:
         return {}
 
-    def set_key_change_columns(self, columns_by_table):
+    def set_key_change_columns(self, columns_by_table: Mapping[str, Iterable[str]]) -> None:
         pass
 
     def clear_truncated_tables(self):
