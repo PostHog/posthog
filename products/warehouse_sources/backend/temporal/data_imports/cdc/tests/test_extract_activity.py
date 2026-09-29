@@ -54,7 +54,7 @@ def _make_event(
     table: str = "users",
     position: str = "0/100",
     columns: dict | None = None,
-    previous_values: dict | None = None,
+    previous_values: dict[str, object] | None = None,
 ) -> ChangeEvent:
     return ChangeEvent(
         operation=op,
@@ -1789,8 +1789,12 @@ class TestBufferedIngressCapture:
         ]
     )
     def test_an_update_that_changes_the_key_removes_the_old_key(
-        self, _name, primary_key, previous_values, expected_rows
-    ):
+        self,
+        _name: str,
+        primary_key: list[str],
+        previous_values: dict[str, object],
+        expected_rows: list[tuple[str, int, int | None]],
+    ) -> None:
         source = _make_source()
         schema = _make_schema("users", cdc_mode="streaming", source=source)
         schema.sync_type_config["primary_key_columns"] = primary_key

@@ -219,7 +219,13 @@ class TestPgOutputDecoder:
             ("no_old_tuple", b"K", None, None),
         ]
     )
-    def test_update_with_old_key(self, _name, old_marker, old_values, expected_previous):
+    def test_update_with_old_key(
+        self,
+        _name: str,
+        old_marker: bytes,
+        old_values: list[tuple[str, str] | None] | None,
+        expected_previous: dict[str, object] | None,
+    ) -> None:
         decoder = PgOutputDecoder()
         columns = [("id", _OID_INT4, -1), ("name", _OID_TEXT, -1)]
         decoder.decode_message(_make_relation(1, "public", "users", columns, key_columns={"id"}), "0/100")
@@ -335,8 +341,13 @@ class TestPgOutputDecoder:
         ]
     )
     def test_unchanged_toast_filled_only_from_a_real_old_value(
-        self, _name, old_marker, old_big_text, expected_filled, expected_omitted
-    ):
+        self,
+        _name: str,
+        old_marker: bytes,
+        old_big_text: tuple[str, str] | None,
+        expected_filled: dict[str, str],
+        expected_omitted: set[str],
+    ) -> None:
         decoder = PgOutputDecoder()
         columns = [("id", _OID_INT4, -1), ("big_text", _OID_TEXT, -1)]
         decoder.decode_message(_make_relation(1, "public", "users", columns, key_columns={"id"}), "0/100")
