@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from django.db import router, transaction
-from django.db.models import Case, Max, OuterRef, QuerySet, Subquery, When
+from django.db.models import Case, Max, OuterRef, Q, QuerySet, Subquery, When
 from django.db.models.functions import Greatest
 from django.utils.timezone import now
 
@@ -62,21 +62,19 @@ def _record_insight_views(
 ) -> None:
     if not last_viewed_at_by_insight_id:
         return
-    database = router.db_for_write(InsightViewed)
-    views = InsightViewed.objects.using(database)
     rows = sorted(last_viewed_at_by_insight_id.items())
     # Ignoring conflicts works with both uniqueness layouts; the update sees a concurrent winning insert.
-    with transaction.atomic(using=database):
-        views.bulk_create(
+    with transaction.atomic(using=router.db_for_write(InsightViewed)):
+        InsightViewed.objects.bulk_create(
             [
                 InsightViewed(team_id=team_id, user_id=user_id, insight_id=insight_id, last_viewed_at=viewed_at)
                 for insight_id, viewed_at in rows
             ],
             ignore_conflicts=True,
         )
-        views.filter(
-            team_id=team_id,
-            user_id=user_id,
+        InsightViewed.objects.filter(
+            Q(team_id__isnull=True) if team_id is None else Q(team_id=team_id),
+            Q(user_id__isnull=True) if user_id is None else Q(user_id=user_id),
             insight_id__in=last_viewed_at_by_insight_id,
             source="",
             dashboard_id__isnull=True,
