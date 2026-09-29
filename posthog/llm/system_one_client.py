@@ -58,12 +58,15 @@ class GatewaySystemOneClient:
     model: str
     timeout: float
 
-    def decide(self, *, state: JsonValue, questions: Mapping[str, Question]) -> SystemOneResult:
+    def _validate_questions(self, questions: Mapping[str, Question]) -> None:
         if not 1 <= len(questions) <= GATEWAY_MAX_QUESTIONS:
             raise ValueError(f"A System One request needs between 1 and {GATEWAY_MAX_QUESTIONS} questions")
         for question_id, question in questions.items():
             if isinstance(question, ChoiceQuestion) and len(question.criteria) > GATEWAY_MAX_CHOICE_OPTIONS:
                 raise ValueError(f"{question_id!r} has more than {GATEWAY_MAX_CHOICE_OPTIONS} options")
+
+    def decide(self, *, state: JsonValue, questions: Mapping[str, Question]) -> SystemOneResult:
+        self._validate_questions(questions)
         try:
             with httpx.Client(trust_env=False, timeout=self.timeout) as client:
                 response = client.post(
@@ -73,6 +76,22 @@ class GatewaySystemOneClient:
                 )
         except httpx.HTTPError as exc:
             raise SystemOneRequestFailed(f"The ai-gateway was not reached: {exc.__class__.__name__}") from exc
+        return self._parse_response(response, questions)
+
+    async def adecide(self, *, state: JsonValue, questions: Mapping[str, Question]) -> SystemOneResult:
+        self._validate_questions(questions)
+        try:
+            async with httpx.AsyncClient(trust_env=False, timeout=self.timeout) as client:
+                response = await client.post(
+                    self.url,
+                    json=build_system_one_body(state=state, questions=questions, model=self.model),
+                    headers={**self.headers, "Authorization": f"Bearer {self.api_key}"},
+                )
+        except httpx.HTTPError as exc:
+            raise SystemOneRequestFailed(f"The ai-gateway was not reached: {exc.__class__.__name__}") from exc
+        return self._parse_response(response, questions)
+
+    def _parse_response(self, response: httpx.Response, questions: Mapping[str, Question]) -> SystemOneResult:
         if response.status_code != 200:
             # The error body can echo the state, so it stays out of the exception that gets logged.
             raise SystemOneRequestFailed(

@@ -1,10 +1,14 @@
 import json
 import time
 import uuid
+import asyncio
 from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from typing import TYPE_CHECKING, cast
+
+from django.conf import settings
+
+from asgiref.sync import async_to_sync
 
 from posthog.schema import HogQLQueryResponse
 
@@ -25,10 +29,13 @@ from posthog.llm.system_one import (
     SystemOneNotConfigured,
     SystemOneRequestFailed,
 )
-from posthog.llm.system_one_client import SystemOneClient, build_system_one_client
+from posthog.llm.system_one_client import GatewaySystemOneClient, build_system_one_client
+from posthog.ph_client import feature_enabled_or_false
 
 if TYPE_CHECKING:
     from posthog.hogql.context import HogQLContext
+
+    from posthog.models.team import Team
 
 MAX_ROWS = 1000
 MAX_INPUT_BYTES = 8192
@@ -92,9 +99,9 @@ class PromptJevRunner:
         self.cache: dict[_DecisionKey, object] = {}
         self.input_bytes = 0
         self.deadline = time.monotonic() + 60
-        self.client: SystemOneClient | None = None
+        self.client: GatewaySystemOneClient | None = None
 
-    def _batch(self, spec: PromptJevCall, texts: list[str]) -> dict[str, object]:
+    async def _batch(self, spec: PromptJevCall, texts: list[str]) -> dict[str, object]:
         assert self.client is not None
         remaining = self.deadline - time.monotonic()
         if remaining <= 0:
@@ -112,7 +119,7 @@ class PromptJevRunner:
                 },
             )
         try:
-            result = replace(self.client, timeout=min(remaining, 30)).decide(state=state, questions=questions)
+            result = await replace(self.client, timeout=min(remaining, 30)).adecide(state=state, questions=questions)
         except SystemOneRequestFailed as error:
             raise QueryError("Jev could not evaluate this query. Try again or select fewer rows.") from error
         decisions: dict[str, object] = {}
@@ -123,6 +130,25 @@ class PromptJevRunner:
             elif isinstance(answer, ChoiceAnswer):
                 decisions[text] = (answer.choice, list(answer.probabilities.items()), answer.confidence)
         return decisions
+
+    async def _batches(self, spec: PromptJevCall, batches: list[list[str]]) -> list[dict[str, object]]:
+        semaphore = asyncio.Semaphore(4)
+
+        async def evaluate_batch(batch: list[str]) -> dict[str, object]:
+            async with semaphore:
+                return await self._batch(spec, batch)
+
+        tasks: list[asyncio.Task[dict[str, object]]] = []
+        try:
+            async with asyncio.timeout(max(0, self.deadline - time.monotonic())):
+                tasks = [asyncio.create_task(evaluate_batch(batch)) for batch in batches]
+                return await asyncio.gather(*tasks)
+        except TimeoutError as error:
+            raise QueryError("__preview_promptJev exceeded its time limit. Select fewer rows and try again.") from error
+        finally:
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
 
     def evaluate(self, spec: PromptJevCall, values: list[object]) -> list[object]:
         question_key = json.dumps(spec.question.to_json(), sort_keys=True)
@@ -141,12 +167,14 @@ class PromptJevRunner:
             raise QueryError("__preview_promptJev exceeds the query budget. Select fewer or shorter inputs.")
         if missing and self.client is None:
             try:
-                self.client = build_system_one_client(
+                client = build_system_one_client(
                     model=MODEL,
                     ai_product="hogql_prompt_jev",
                     distinct_id=self.distinct_id,
                     properties={"team_id": str(self.team_id)},
                 )
+                assert isinstance(client, GatewaySystemOneClient)
+                self.client = client
             except SystemOneNotConfigured as error:
                 raise QueryError(
                     "Jev is not configured. Set AI_GATEWAY_URL and AI_GATEWAY_API_KEY on the server."
@@ -160,8 +188,8 @@ class PromptJevRunner:
                 batch_bytes = 0
             batches[-1].append(text)
             batch_bytes += size
-        with ThreadPoolExecutor(max_workers=4) as pool:
-            for decisions in pool.map(lambda batch: self._batch(spec, batch), batches):
+        if batches:
+            for decisions in async_to_sync(self._batches)(spec, batches):
                 for text, decision in decisions.items():
                     self.cache[_DecisionKey(question=question_key, text=text)] = decision
         null: object = (None, [], None) if isinstance(spec.question, ChoiceQuestion) else None
@@ -288,3 +316,22 @@ class PromptJevPlanner(CloningVisitor):
         if node.name.lower() == "__preview_promptjev":
             PromptJevCall.parse(node)
         return cast(ast.Call, super().visit_call(node))
+
+
+def validate_prompt_jev_access(team: "Team") -> None:
+    if settings.CLICKHOUSE_USE_HTTP or team.pk in settings.CLICKHOUSE_USE_HTTP_PER_TEAM:
+        raise QueryError(
+            "__preview_promptJev requires the native ClickHouse connection. Ask your administrator to configure it."
+        )
+    if not feature_enabled_or_false(
+        "hogql-prompt-jev",
+        str(team.uuid),
+        groups={"organization": str(team.organization_id), "project": str(team.pk)},
+        group_properties={
+            "organization": {"id": str(team.organization_id)},
+            "project": {"id": str(team.pk)},
+        },
+        only_evaluate_locally=True,
+        send_feature_flag_events=False,
+    ):
+        raise QueryError("__preview_promptJev is not enabled for this project. Contact support to request access.")

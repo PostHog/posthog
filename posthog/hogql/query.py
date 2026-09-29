@@ -708,8 +708,10 @@ class HogQLQueryExecutor:
         from posthog.hogql.transforms.prompt_jev import (  # noqa: PLC0415 -- keep the optional model clients off ordinary query imports
             PromptJevPlanner,
             PromptJevRunner,
+            validate_prompt_jev_access,
         )
 
+        validate_prompt_jev_access(self.team)
         self._prompt_jev_tables = []
 
         def execute_source(query: ast.SelectQuery) -> HogQLQueryResponse:
