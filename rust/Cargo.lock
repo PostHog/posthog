@@ -2965,6 +2965,7 @@ dependencies = [
  "common-types",
  "governor",
  "metrics",
+ "metrics-util",
  "rdkafka",
  "rstest",
  "serde_json",
