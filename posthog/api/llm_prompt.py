@@ -69,7 +69,12 @@ from posthog.event_usage import report_team_action, report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models import User
 from posthog.permissions import AccessControlPermission
-from posthog.rate_limit import BurstRateThrottle, LLMPromptPublishBurstRateThrottle, SustainedRateThrottle
+from posthog.rate_limit import (
+    BurstRateThrottle,
+    LLMPromptFetchRateThrottle,
+    LLMPromptPublishBurstRateThrottle,
+    SustainedRateThrottle,
+)
 from posthog.storage.llm_prompt_cache import get_prompt_by_name_from_cache
 
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
@@ -109,8 +114,10 @@ class LLMPromptViewSet(
     def get_throttles(self):
         if self.action == "update_by_name":
             return [LLMPromptPublishBurstRateThrottle(), BurstRateThrottle(), SustainedRateThrottle()]
-        if self.action in ["get_by_name", "resolve_by_name"]:
-            return [BurstRateThrottle(), SustainedRateThrottle()]
+        # SDK read paths (get_all() hits list) get a dedicated per-minute budget, so a
+        # polling fleet cannot exhaust the shared sustained budget for the whole API key.
+        if self.action in ["list", "get_by_name", "resolve_by_name"]:
+            return [LLMPromptFetchRateThrottle()]
 
         return super().get_throttles()
 
