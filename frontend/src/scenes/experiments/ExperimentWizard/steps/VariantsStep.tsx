@@ -120,7 +120,7 @@ export function VariantsStep(): JSX.Element {
     return (
         <div className="space-y-6">
             <div>
-                <h3 className="text-lg font-semibold">Who sees which variant?</h3>
+                <h3 className="text-lg font-semibold">How will the experiment roll out?</h3>
             </div>
             {linkedFeatureFlag ? (
                 <ReadOnlyVariantsStep flag={linkedFeatureFlag} />
