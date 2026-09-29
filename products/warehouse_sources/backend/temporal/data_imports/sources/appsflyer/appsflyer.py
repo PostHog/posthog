@@ -52,6 +52,8 @@ MAX_RETRY_ATTEMPTS = 5
 CHUNK_SIZE = 5000
 # Pull the report CSV off the wire in 64 KiB reads.
 REPORT_CHUNK_BYTES = 1 << 16
+# Keep AppsFlyer's rejection reason short enough to read in a setup error.
+MAX_REJECTION_REASON_CHARS = 300
 
 
 @frozen
@@ -113,7 +115,24 @@ def _validate_app_id(app_id: str) -> str:
     app_id = app_id.strip()
     if not re.fullmatch(r"[a-zA-Z0-9._-]+", app_id):
         raise ValueError(f"Invalid AppsFlyer app id: {app_id}")
+    # AppsFlyer names iOS apps "id<App Store number>", but users often paste the bare number.
+    # An Android package name always contains a letter, so a digits-only id is always iOS.
+    if app_id.isdecimal():
+        return f"id{app_id}"
     return app_id
+
+
+def _rejection_reason(response: requests.Response, api_token: str) -> str | None:
+    """Return AppsFlyer's own reason for a rejected request, or None when the body has no plain text."""
+    reason = " ".join(response.text.split())
+    if not reason or reason.startswith("<"):
+        return None
+    return reason.replace(api_token, "[redacted]")[:MAX_REJECTION_REASON_CHARS]
+
+
+def _credentials_error(message: str, response: requests.Response, api_token: str) -> AppsFlyerCredentialsError:
+    reason = _rejection_reason(response, api_token)
+    return AppsFlyerCredentialsError(f"{message} AppsFlyer said: {reason}" if reason else message)
 
 
 def _normalize_header(header: str) -> str:
@@ -287,22 +306,31 @@ def validate_credentials(api_token: str, app_id: str) -> bool:
     # 401 is an auth failure (bad token); 403/404 mean the token is fine but the app id or
     # subscription is wrong — surface which one so the user isn't left guessing.
     if response.status_code == 401:
-        raise AppsFlyerCredentialsError(
+        raise _credentials_error(
             "AppsFlyer rejected the API token. Check that you pasted a valid API token (V2) from "
-            "your account's Security center → AppsFlyer API tokens."
+            "your account's Security center → AppsFlyer API tokens.",
+            response,
+            api_token,
         )
     if response.status_code == 403:
-        raise AppsFlyerCredentialsError(
-            "AppsFlyer denied access. Check that your account's subscription includes the aggregate "
-            "Pull API and that the app id is correct."
+        raise _credentials_error(
+            "AppsFlyer denied access to this app. Check that the API token (V2) belongs to an admin or to "
+            "a user with access to this app, that the app id matches the dashboard (e.g. 'id123456789' for "
+            "iOS), and that your AppsFlyer plan includes the aggregate Pull API.",
+            response,
+            api_token,
         )
     if response.status_code == 404:
-        raise AppsFlyerCredentialsError("AppsFlyer couldn't find an app with that app id. Please check the app id.")
+        raise _credentials_error(
+            "AppsFlyer couldn't find an app with that app id. Please check the app id.", response, api_token
+        )
     # Any other status is unexpected (e.g. a 400 from a malformed request) — surface the real
     # code rather than blaming the token or app id, which sends users debugging the wrong thing.
-    raise AppsFlyerCredentialsError(
+    raise _credentials_error(
         f"AppsFlyer returned an unexpected response (HTTP {response.status_code}) while validating credentials. "
-        "If your app id and API token (V2) look correct, please try again shortly or contact support."
+        "If your app id and API token (V2) look correct, please try again shortly or contact support.",
+        response,
+        api_token,
     )
 
 
