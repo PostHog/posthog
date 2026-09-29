@@ -727,6 +727,13 @@ export const ExportsCreateBody = /* @__PURE__ */ zod
     })
     .describe("Standard ExportedAsset serializer that doesn't return content.")
 
+/**
+ * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
+ *
+ * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
+ * decorator on serializer methods and converts them into the same responses the viewset path
+ * produces (see decorators._result_to_response), so both paths share one contract.
+ */
 export const fileSystemCreateBodyTypeMax = 100
 
 export const fileSystemCreateBodyRefMax = 100
@@ -740,6 +747,13 @@ export const FileSystemCreateBody = /* @__PURE__ */ zod.object({
     shortcut: zod.boolean().nullish(),
 })
 
+/**
+ * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
+ *
+ * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
+ * decorator on serializer methods and converts them into the same responses the viewset path
+ * produces (see decorators._result_to_response), so both paths share one contract.
+ */
 export const fileSystemUpdateBodyTypeMax = 100
 
 export const fileSystemUpdateBodyRefMax = 100
@@ -753,6 +767,13 @@ export const FileSystemUpdateBody = /* @__PURE__ */ zod.object({
     shortcut: zod.boolean().nullish(),
 })
 
+/**
+ * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
+ *
+ * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
+ * decorator on serializer methods and converts them into the same responses the viewset path
+ * produces (see decorators._result_to_response), so both paths share one contract.
+ */
 export const fileSystemPartialUpdateBodyTypeMax = 100
 
 export const fileSystemPartialUpdateBodyRefMax = 100
@@ -782,6 +803,13 @@ export const FileSystemCountCreateBody = /* @__PURE__ */ zod.object({
     shortcut: zod.boolean().nullish(),
 })
 
+/**
+ * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
+ *
+ * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
+ * decorator on serializer methods and converts them into the same responses the viewset path
+ * produces (see decorators._result_to_response), so both paths share one contract.
+ */
 export const fileSystemLinkCreateBodyTypeMax = 100
 
 export const fileSystemLinkCreateBodyRefMax = 100
@@ -795,6 +823,13 @@ export const FileSystemLinkCreateBody = /* @__PURE__ */ zod.object({
     shortcut: zod.boolean().nullish(),
 })
 
+/**
+ * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
+ *
+ * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
+ * decorator on serializer methods and converts them into the same responses the viewset path
+ * produces (see decorators._result_to_response), so both paths share one contract.
+ */
 export const fileSystemMoveCreateBodyTypeMax = 100
 
 export const fileSystemMoveCreateBodyRefMax = 100
@@ -824,6 +859,13 @@ export const FileSystemCountByPathCreateBody = /* @__PURE__ */ zod.object({
     shortcut: zod.boolean().nullish(),
 })
 
+/**
+ * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
+ *
+ * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
+ * decorator on serializer methods and converts them into the same responses the viewset path
+ * produces (see decorators._result_to_response), so both paths share one contract.
+ */
 export const fileSystemLogViewCreateBodyTypeMax = 100
 
 export const fileSystemLogViewCreateBodyRefMax = 100
@@ -837,6 +879,13 @@ export const FileSystemLogViewCreateBody = /* @__PURE__ */ zod.object({
     shortcut: zod.boolean().nullish(),
 })
 
+/**
+ * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
+ *
+ * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
+ * decorator on serializer methods and converts them into the same responses the viewset path
+ * produces (see decorators._result_to_response), so both paths share one contract.
+ */
 export const fileSystemUndoDeleteCreateBodyTypeMax = 100
 
 export const fileSystemUndoDeleteCreateBodyRefMax = 100

@@ -1725,6 +1725,13 @@ export const getFileSystemListUrl = (projectId: string, params?: FileSystemListP
         : `/api/projects/${projectId}/file_system/`
 }
 
+/**
+ * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
+ *
+ * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
+ * decorator on serializer methods and converts them into the same responses the viewset path
+ * produces (see decorators._result_to_response), so both paths share one contract.
+ */
 export const fileSystemList = async (
     projectId: string,
     params?: FileSystemListParams,
@@ -1740,6 +1747,13 @@ export const getFileSystemCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/file_system/`
 }
 
+/**
+ * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
+ *
+ * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
+ * decorator on serializer methods and converts them into the same responses the viewset path
+ * produces (see decorators._result_to_response), so both paths share one contract.
+ */
 export const fileSystemCreate = async (
     projectId: string,
     fileSystemApi: NonReadonly<FileSystemApi>,
@@ -1757,6 +1771,13 @@ export const getFileSystemRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/file_system/${id}/`
 }
 
+/**
+ * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
+ *
+ * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
+ * decorator on serializer methods and converts them into the same responses the viewset path
+ * produces (see decorators._result_to_response), so both paths share one contract.
+ */
 export const fileSystemRetrieve = async (
     projectId: string,
     id: string,
@@ -1772,6 +1793,13 @@ export const getFileSystemUpdateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/file_system/${id}/`
 }
 
+/**
+ * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
+ *
+ * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
+ * decorator on serializer methods and converts them into the same responses the viewset path
+ * produces (see decorators._result_to_response), so both paths share one contract.
+ */
 export const fileSystemUpdate = async (
     projectId: string,
     id: string,
@@ -1790,6 +1818,13 @@ export const getFileSystemPartialUpdateUrl = (projectId: string, id: string) => 
     return `/api/projects/${projectId}/file_system/${id}/`
 }
 
+/**
+ * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
+ *
+ * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
+ * decorator on serializer methods and converts them into the same responses the viewset path
+ * produces (see decorators._result_to_response), so both paths share one contract.
+ */
 export const fileSystemPartialUpdate = async (
     projectId: string,
     id: string,
@@ -1820,6 +1855,13 @@ export const getFileSystemDestroyUrl = (projectId: string, id: string, params?: 
         : `/api/projects/${projectId}/file_system/${id}/`
 }
 
+/**
+ * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
+ *
+ * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
+ * decorator on serializer methods and converts them into the same responses the viewset path
+ * produces (see decorators._result_to_response), so both paths share one contract.
+ */
 export const fileSystemDestroy = async (
     projectId: string,
     id: string,
@@ -1857,6 +1899,13 @@ export const getFileSystemLinkCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/file_system/${id}/link/`
 }
 
+/**
+ * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
+ *
+ * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
+ * decorator on serializer methods and converts them into the same responses the viewset path
+ * produces (see decorators._result_to_response), so both paths share one contract.
+ */
 export const fileSystemLinkCreate = async (
     projectId: string,
     id: string,
@@ -1875,6 +1924,13 @@ export const getFileSystemMoveCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/file_system/${id}/move/`
 }
 
+/**
+ * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
+ *
+ * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
+ * decorator on serializer methods and converts them into the same responses the viewset path
+ * produces (see decorators._result_to_response), so both paths share one contract.
+ */
 export const fileSystemMoveCreate = async (
     projectId: string,
     id: string,
@@ -1913,6 +1969,13 @@ export const getFileSystemHomeFolderCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/file_system/home_folder/`
 }
 
+/**
+ * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
+ *
+ * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
+ * decorator on serializer methods and converts them into the same responses the viewset path
+ * produces (see decorators._result_to_response), so both paths share one contract.
+ */
 export const fileSystemHomeFolderCreate = async (
     projectId: string,
     options?: RequestInit
@@ -1927,6 +1990,13 @@ export const getFileSystemLogViewRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/file_system/log_view/`
 }
 
+/**
+ * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
+ *
+ * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
+ * decorator on serializer methods and converts them into the same responses the viewset path
+ * produces (see decorators._result_to_response), so both paths share one contract.
+ */
 export const fileSystemLogViewRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getFileSystemLogViewRetrieveUrl(projectId), {
         ...options,
@@ -1938,6 +2008,13 @@ export const getFileSystemLogViewCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/file_system/log_view/`
 }
 
+/**
+ * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
+ *
+ * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
+ * decorator on serializer methods and converts them into the same responses the viewset path
+ * produces (see decorators._result_to_response), so both paths share one contract.
+ */
 export const fileSystemLogViewCreate = async (
     projectId: string,
     fileSystemApi: NonReadonly<FileSystemApi>,
@@ -1955,6 +2032,13 @@ export const getFileSystemUndoDeleteCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/file_system/undo_delete/`
 }
 
+/**
+ * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
+ *
+ * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
+ * decorator on serializer methods and converts them into the same responses the viewset path
+ * produces (see decorators._result_to_response), so both paths share one contract.
+ */
 export const fileSystemUndoDeleteCreate = async (
     projectId: string,
     fileSystemApi: NonReadonly<FileSystemApi>,
@@ -1972,6 +2056,13 @@ export const getFileSystemUnfiledRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/file_system/unfiled/`
 }
 
+/**
+ * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
+ *
+ * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
+ * decorator on serializer methods and converts them into the same responses the viewset path
+ * produces (see decorators._result_to_response), so both paths share one contract.
+ */
 export const fileSystemUnfiledRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getFileSystemUnfiledRetrieveUrl(projectId), {
         ...options,
