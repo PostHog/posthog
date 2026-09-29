@@ -100,10 +100,10 @@ class TestSavedScoutJudgment(SimpleTestCase):
         self.assertEqual(result.output_sha256, content_hash(self.output))
         self.assertEqual(result.rubric_sha256, content_hash(criteria))
         self.assertEqual(result.reference_sha256, content_hash(self.references))
-        self.assertEqual(
-            RubricJudgment.model_validate(result.model_dump(exclude={"transcript_references"})).transcript_references,
-            {},
-        )
+        legacy = RubricJudgment.model_validate(result.model_dump(exclude={"transcript_references", "model_attempts"}))
+        self.assertEqual(legacy.transcript_references, {})
+        self.assertEqual(legacy.model_attempts, [])
+        self.assertEqual(len(result.model_attempts), 1)
         ask.assert_awaited_once()
         prompt = ask.call_args.args[0]
         self.assertIn("complete invented transcript ending", prompt)
@@ -121,6 +121,7 @@ class TestSavedScoutJudgment(SimpleTestCase):
             "contradiction",
             "truncated",
             "model_error",
+            "timeout",
             "empty_rationale",
         ]
     )
@@ -148,7 +149,8 @@ class TestSavedScoutJudgment(SimpleTestCase):
                 requested_model="invented-model",
                 text="not json" if failure == "invalid_json" else json.dumps({"criteria": rows}),
                 finish_reason=finish_reason,
-                error="Synthetic provider error" if failure == "model_error" else None,
+                error="Synthetic provider error" if failure in ("model_error", "timeout") else None,
+                error_type="TimeoutError" if failure == "timeout" else None,
             )
         )
 
@@ -159,6 +161,80 @@ class TestSavedScoutJudgment(SimpleTestCase):
         self.assertEqual([row.score for row in result.criteria], [None, None])
         self.assertIsNotNone(result.model_response)
         self.assertEqual(result.execution_status, "completed")
+        expected_attempts = 1 if failure in ("model_error", "timeout", "truncated") else 2
+        self.assertEqual(ask.await_count, expected_attempts)
+        self.assertEqual(len(result.model_attempts), expected_attempts)
+        self.assertEqual(result.model_response, result.model_attempts[-1].response)
+
+    async def test_corrects_all_validation_errors_once_with_unchanged_evidence_and_retained_attempts(self) -> None:
+        invalid = verdict("first")
+        invalid["evidence"] = [
+            {"source": "output", "pointer": "/missing", "quote": "Invented report"},
+            {"source": "output", "pointer": "/summary", "quote": "Fabricated quotation"},
+        ]
+        first = RubricModelResponse(
+            requested_model="invented-model",
+            text=json.dumps({"criteria": [invalid, verdict("first"), verdict("unexpected")]}),
+            finish_reason="stop",
+        )
+        corrected = RubricModelResponse(
+            requested_model="invented-model",
+            text=json.dumps({"criteria": [verdict("first"), verdict("second")]}),
+            finish_reason="stop",
+        )
+        ask = AsyncMock(side_effect=[first, corrected])
+        original = copy.deepcopy(self.output)
+
+        result = await judge_rubric(self.output, [criterion("first"), criterion("second")], self.references, ask)
+
+        self.assertIsNone(result.error)
+        self.assertEqual([row.status for row in result.criteria], ["pass", "pass"])
+        self.assertEqual(ask.await_count, 2)
+        self.assertEqual([attempt.response for attempt in result.model_attempts], [first, corrected])
+        self.assertEqual(result.model_response, corrected)
+        issues = result.model_attempts[0].validation_errors
+        self.assertEqual(len(issues), 5)
+        for diagnostic in ("Missing", "Unexpected", "Duplicate", "/missing", "not literal"):
+            self.assertTrue(any(diagnostic in issue for issue in issues), diagnostic)
+        self.assertEqual(result.model_attempts[1].validation_errors, [])
+        prompts = [call.args[0] for call in ask.await_args_list]
+        self.assertEqual(prompts[0].rsplit("\n", 1)[1], prompts[1].rsplit("\n", 1)[1])
+        correction = json.loads(prompts[1].rsplit("\n", 2)[1])
+        self.assertEqual(correction, {"previous_response": first.text, "validation_errors": issues})
+        self.assertEqual(result.request_prompt, prompts[1])
+        self.assertEqual(result.input_bytes, result.model_attempts[1].input_bytes)
+        self.assertEqual(result.input_tokens, result.model_attempts[1].input_tokens)
+        self.assertEqual(self.output, original)
+
+    @parameterized.expand(["bytes", "tokens"])
+    async def test_correction_obeys_input_guards_without_a_second_model_call(self, limit: str) -> None:
+        valid = RubricModelResponse(
+            requested_model="invented-model", text=json.dumps({"criteria": [verdict("check")]}), finish_reason="stop"
+        )
+        baseline = await judge_rubric(self.output, [criterion("check")], self.references, AsyncMock(return_value=valid))
+        assert baseline.input_tokens is not None
+        invalid = verdict("check")
+        invalid["evidence"] = [{"source": "output", "pointer": "/missing", "quote": "Invented report"}]
+        response = valid.model_copy(update={"text": json.dumps({"criteria": [invalid]})})
+        ask = AsyncMock(return_value=response)
+
+        result = await judge_rubric(
+            self.output,
+            [criterion("check")],
+            self.references,
+            ask,
+            max_input_bytes=baseline.input_bytes if limit == "bytes" else 100_000,
+            max_input_tokens=baseline.input_tokens if limit == "tokens" else 20_000,
+        )
+
+        ask.assert_awaited_once()
+        self.assertEqual(len(result.model_attempts), 1)
+        self.assertEqual(result.model_response, response)
+        self.assertTrue(result.model_attempts[0].validation_errors)
+        self.assertEqual(result.criteria[0].status, "error")
+        self.assertIsNone(result.criteria[0].score)
+        self.assertIn("no evidence was truncated", result.error or "")
+        self.assertEqual(result.request_prompt.rsplit("\n", 1)[1], baseline.request_prompt.rsplit("\n", 1)[1])
 
     @parameterized.expand(
         [

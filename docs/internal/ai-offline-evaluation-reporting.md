@@ -128,10 +128,14 @@ Missing historical evidence does not become a failed criterion; a failed model r
 The aggregate rubric score is omitted when any enabled criterion remains unknown or errored.
 Detailed private judgment files remain available, including original responses and recorded usage.
 Judging requests a strict JSON schema and records the requested format; local schema and literal-citation checks still validate the response.
+Completed responses that fail validation receive at most one correction request with the same complete evidence.
+Each request obeys the input budget, and artifacts retain every response and its validation errors.
+Provider and incomplete-response errors stop judging without a correction request.
 Dollar costs remain unknown when the model route does not provide them.
 
 Judging uses the retained transcript and state, not fresh project queries or an exhaustive answer key.
 An exact evidence quote establishes where text came from, not that its claim is correct.
+Valid citations also do not establish that the judge interpreted a criterion correctly; compare decisions with examples reviewed by a person.
 Valid JSONL transcripts are decoded and keyed by their original entry numbers so citations can locate literal tool text.
 Quotes and newlines remain intact.
 Repeated large transcript strings refer to their first exact occurrence; all entries and their positions remain available.

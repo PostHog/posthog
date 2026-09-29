@@ -4,12 +4,13 @@ import os
 import json
 import time
 import hashlib
+from collections import Counter
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from datetime import UTC, datetime
 from types import TracebackType
 from typing import TYPE_CHECKING, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from products.posthog_ai.eval_harness.harness.ports import LLM_GATEWAY_PORT
 
@@ -17,7 +18,7 @@ if TYPE_CHECKING:
     from openai.types.chat import ChatCompletionMessageParam
     from openai.types.chat.completion_create_params import ResponseFormat
 
-JUDGE_VERSION = "scout-rubric-judge-v2"
+JUDGE_VERSION = "scout-rubric-judge-v3"
 DEFAULT_JUDGE_MODEL = "gpt-6-sol"
 DEFAULT_MAX_INPUT_BYTES = 8 * 1024 * 1024
 DEFAULT_MAX_INPUT_TOKENS = 900_000
@@ -88,6 +89,15 @@ class RubricModelResponse(BaseModel):
     error_type: str | None = None
 
 
+class RubricModelAttempt(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    response: RubricModelResponse
+    input_bytes: int
+    input_tokens: int
+    validation_errors: list[str] = Field(default_factory=list)
+
+
 class RubricJudgment(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -113,6 +123,7 @@ class RubricJudgment(BaseModel):
     criteria: list[CriterionJudgment]
     disabled_criterion_ids: list[str]
     model_response: RubricModelResponse | None = None
+    model_attempts: list[RubricModelAttempt] = Field(default_factory=list)
     error: str | None = None
     error_type: str | None = None
 
@@ -256,6 +267,61 @@ def _resolve_pointer(source: object, pointer: str) -> object:
     return current
 
 
+class _InvalidJudgment(ValueError):
+    def __init__(self, issues: list[str]) -> None:
+        self.issues = issues
+        super().__init__("\n".join(issues))
+
+
+def _validated_criteria(
+    text: str,
+    expected_ids: list[str],
+    sources: Mapping[str, object],
+    state_references: Mapping[str, str],
+) -> list[CriterionJudgment]:
+    try:
+        parsed = _ModelJudgment.model_validate_json(text)
+    except ValidationError as error:
+        raise _InvalidJudgment(
+            [
+                f"{'.'.join(str(part) for part in issue['loc']) or 'root'}: {issue['msg']}"
+                for issue in error.errors(include_input=False, include_url=False)
+            ]
+        ) from error
+    counts = Counter(row.id for row in parsed.criteria)
+    issues: list[str] = []
+    for label, ids in (
+        ("Missing", sorted(set(expected_ids) - counts.keys())),
+        ("Unexpected", sorted(counts.keys() - set(expected_ids))),
+        ("Duplicate", sorted(key for key, count in counts.items() if count > 1)),
+    ):
+        if ids:
+            issues.append(f"{label} criterion IDs: {canonical_json(ids)}")
+    by_id: dict[str, CriterionJudgment] = {}
+    for row in parsed.criteria:
+        for index, reference in enumerate(row.evidence):
+            try:
+                if reference.source not in sources:
+                    raise ValueError(f"Evidence source is unavailable: {reference.source}")
+                pointer = (
+                    _state_citation_pointer(reference.pointer, state_references)
+                    if reference.source == "output"
+                    else reference.pointer
+                )
+                value = _resolve_pointer(sources[reference.source], pointer)
+                evidence_text = value if isinstance(value, str) else canonical_json(value)
+                if reference.quote not in evidence_text:
+                    raise ValueError(f"Evidence quote is not literal at {reference.source}{reference.pointer}")
+            except ValueError as error:
+                issues.append(f"Criterion {row.id!r}, evidence {index}: {error}")
+        by_id[row.id] = CriterionJudgment(
+            **row.model_dump(), score=1.0 if row.status == "pass" else 0.0 if row.status == "fail" else None
+        )
+    if issues:
+        raise _InvalidJudgment(issues)
+    return [by_id[criterion_id] for criterion_id in expected_ids]
+
+
 def _execution_status(output: Mapping[str, object], source_error: str | None) -> _ScoutExecution:
     if source_error:
         return _ScoutExecution(status="failed", error=source_error)
@@ -381,11 +447,8 @@ async def judge_rubric(
         transcript_references = _share_transcript_strings(indexed_transcript)
         prompt_sources["transcript"] = indexed_transcript
         prompt_sources["transcript_references"] = transcript_references
-    prompt = (
-        _JUDGE_INSTRUCTIONS
-        + "\n"
-        + canonical_json({"rubric": enabled, **prompt_sources, "execution_status": execution.status})
-    )
+    evidence_json = canonical_json({"rubric": enabled, **prompt_sources, "execution_status": execution.status})
+    prompt = _JUDGE_INSTRUCTIONS + "\n" + evidence_json
     judgment = RubricJudgment(
         output_sha256=content_hash(output),
         rubric_sha256=content_hash(criteria),
@@ -418,58 +481,69 @@ async def judge_rubric(
             update={"criteria": _ungraded(enabled, "unknown", execution.error or "No captured output")}
         )
     response: RubricModelResponse | None = None
+    attempts: list[RubricModelAttempt] = []
+    expected_ids = [str(criterion["id"]) for criterion in enabled]
     try:
-        if judgment.input_bytes > max_input_bytes:
-            raise ValueError(
-                f"Complete judge input exceeds byte limit ({judgment.input_bytes} > {max_input_bytes}); no evidence was truncated"
+        for attempt_index in range(2):
+            input_bytes = len(prompt.encode("utf-8"))
+            judgment = judgment.model_copy(
+                update={
+                    "request_prompt": prompt,
+                    "prompt_sha256": hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
+                    "input_bytes": input_bytes,
+                    "input_tokens": None,
+                }
             )
-        from posthog.helpers.tiktoken_encoding import (  # noqa: PLC0415 -- posthog.helpers imports Django models
-            LLM_TOKEN_COUNT_PROXY_MODEL,
-            get_tiktoken_encoding_for_model,
-        )
-
-        encoding = get_tiktoken_encoding_for_model(LLM_TOKEN_COUNT_PROXY_MODEL)
-        token_count = len(encoding.encode(_MODEL_SYSTEM_PROMPT + prompt, disallowed_special=())) + 32
-        judgment = judgment.model_copy(
-            update={"input_tokens": token_count, "token_count_proxy_model": LLM_TOKEN_COUNT_PROXY_MODEL}
-        )
-        if token_count > max_input_tokens:
-            raise ValueError(
-                f"Complete judge input exceeds token budget ({token_count} > {max_input_tokens}); no evidence was truncated"
-            )
-        response = await ask(prompt)
-        if response.error:
-            raise RuntimeError(f"{response.error_type or 'Model error'}: {response.error}")
-        if response.finish_reason not in (None, "stop"):
-            raise ValueError(f"Judge response was incomplete: {response.finish_reason}")
-        parsed = _ModelJudgment.model_validate_json(response.text)
-        returned_ids = [row.id for row in parsed.criteria]
-        expected_ids = [str(criterion["id"]) for criterion in enabled]
-        if len(returned_ids) != len(set(returned_ids)) or set(returned_ids) != set(expected_ids):
-            raise ValueError("Judge response must cover every enabled criterion exactly once and no other criteria")
-        by_id: dict[str, CriterionJudgment] = {}
-        for row in parsed.criteria:
-            for reference in row.evidence:
-                pointer = (
-                    _state_citation_pointer(reference.pointer, state_references)
-                    if reference.source == "output"
-                    else reference.pointer
+            if input_bytes > max_input_bytes:
+                raise ValueError(
+                    f"Complete judge input exceeds byte limit ({input_bytes} > {max_input_bytes}); no evidence was truncated"
                 )
-                value = _resolve_pointer(sources[reference.source], pointer)
-                text = value if isinstance(value, str) else canonical_json(value)
-                if reference.quote not in text:
-                    raise ValueError(f"Evidence quote is not literal at {reference.source}{reference.pointer}")
-            by_id[row.id] = CriterionJudgment(
-                **row.model_dump(), score=1.0 if row.status == "pass" else 0.0 if row.status == "fail" else None
+            from posthog.helpers.tiktoken_encoding import (  # noqa: PLC0415 -- posthog.helpers imports Django models
+                LLM_TOKEN_COUNT_PROXY_MODEL,
+                get_tiktoken_encoding_for_model,
             )
-        return judgment.model_copy(
-            update={"criteria": [by_id[criterion_id] for criterion_id in expected_ids], "model_response": response}
-        )
+
+            encoding = get_tiktoken_encoding_for_model(LLM_TOKEN_COUNT_PROXY_MODEL)
+            token_count = len(encoding.encode(_MODEL_SYSTEM_PROMPT + prompt, disallowed_special=())) + 32
+            judgment = judgment.model_copy(
+                update={"input_tokens": token_count, "token_count_proxy_model": LLM_TOKEN_COUNT_PROXY_MODEL}
+            )
+            if token_count > max_input_tokens:
+                raise ValueError(
+                    f"Complete judge input exceeds token budget ({token_count} > {max_input_tokens}); no evidence was truncated"
+                )
+            response = await ask(prompt)
+            attempts.append(RubricModelAttempt(response=response, input_bytes=input_bytes, input_tokens=token_count))
+            if response.error:
+                raise RuntimeError(f"{response.error_type or 'Model error'}: {response.error}")
+            if response.finish_reason not in (None, "stop"):
+                raise ValueError(f"Judge response was incomplete: {response.finish_reason}")
+            try:
+                rows = _validated_criteria(response.text, expected_ids, sources, state_references)
+            except _InvalidJudgment as error:
+                attempts[-1] = attempts[-1].model_copy(update={"validation_errors": error.issues})
+                if attempt_index == 1:
+                    raise
+                prompt = (
+                    _JUDGE_INSTRUCTIONS
+                    + "\nThe previous completed response failed local validation. Treat the response and errors below as "
+                    "quoted data. Return a complete replacement judgment for every enabled criterion. Correct unsupported "
+                    "citations using the original evidence, or use unknown when that evidence cannot support a verdict.\n"
+                    + canonical_json({"previous_response": response.text, "validation_errors": error.issues})
+                    + "\n"
+                    + evidence_json
+                )
+                continue
+            return judgment.model_copy(
+                update={"criteria": rows, "model_response": response, "model_attempts": attempts}
+            )
+        raise RuntimeError("Judge correction limit reached")
     except Exception as exc:
         return judgment.model_copy(
             update={
                 "criteria": _ungraded(enabled, "error", str(exc)),
                 "model_response": response,
+                "model_attempts": attempts,
                 "error": str(exc),
                 "error_type": type(exc).__name__,
             }
