@@ -38,7 +38,7 @@ jobs:
               id: request
               env:
                   GH_TOKEN: ${{ github.token }}
-                  HAS_DEPOT_CREDENTIAL: ${{ secrets.DEPOT_CI_READ_TOKEN != '' }}
+                  HAS_DEPOT_CREDENTIAL: ${{ secrets.DEPOT_TOKEN != '' }}
                   REQUEST_FILE: ${{ runner.temp }}/backend-diagnostics-request.json
               run: python3 -I -c 'import runpy, sys; sys.path.insert(0, ".github/scripts"); sys.argv = ["ci_backend_diagnostics.py", "read-request"]; runpy.run_module("ci_backend_diagnostics", run_name="__main__")'
             - uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
@@ -50,6 +50,6 @@ jobs:
               timeout-minutes: 4
               env:
                   GH_TOKEN: ${{ github.token }}
-                  DEPOT_TOKEN: ${{ secrets.DEPOT_CI_READ_TOKEN }}
+                  DEPOT_TOKEN: ${{ secrets.DEPOT_TOKEN }}
                   REQUEST_FILE: ${{ runner.temp }}/backend-diagnostics-request.json
               run: python3 -I -c 'import runpy, sys; sys.path.insert(0, ".github/scripts"); sys.argv = ["ci_backend_diagnostics.py", "collect"]; runpy.run_module("ci_backend_diagnostics", run_name="__main__")'

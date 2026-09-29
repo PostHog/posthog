@@ -417,6 +417,8 @@ def test_collector_workflow_is_isolated_from_pr_execution() -> None:
     assert not any(step.get("uses", "").startswith("./") for step in steps)
     credentialed = [s for s in steps if "DEPOT_TOKEN" in s.get("env", {})]
     assert len(credentialed) == 1
+    assert steps[1]["env"]["HAS_DEPOT_CREDENTIAL"] == "${{ secrets.DEPOT_TOKEN != '' }}"
+    assert credentialed[0]["env"]["DEPOT_TOKEN"] == "${{ secrets.DEPOT_TOKEN }}"
     assert credentialed[0]["if"] == "steps.request.outputs.ready == 'true'"
     assert credentialed[0]["timeout-minutes"] == 4
     assert "runpy.run_module" in credentialed[0]["run"]

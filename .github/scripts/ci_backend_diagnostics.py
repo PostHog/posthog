@@ -388,7 +388,7 @@ def collect(depot: Depot, event: Event, workflow: str) -> list[str]:
 def read_request(github: GitHub, trigger: dict[str, Any], destination: Path) -> None:
     run_id, attempt = trigger["id"], trigger["run_attempt"]
     if os.environ.get("HAS_DEPOT_CREDENTIAL") != "true":
-        publish(["Diagnostics unavailable: DEPOT_CI_READ_TOKEN is not available to the trusted GitHub collector."])
+        publish(["Diagnostics unavailable: DEPOT_TOKEN is not available to the trusted GitHub collector."])
         return
     run = github.read(f"actions/runs/{run_id}")
     if run["run_attempt"] != attempt or run["status"] != "completed":
