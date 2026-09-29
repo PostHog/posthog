@@ -3,7 +3,8 @@ import '@testing-library/jest-dom'
 import { type RenderResult, cleanup, render, screen, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
-import { MAX_EXPERIMENT_VARIANTS } from 'lib/constants'
+import { FEATURE_FLAGS, MAX_EXPERIMENT_VARIANTS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -399,6 +400,61 @@ describe('VariantsPanelCreateFeatureFlag', () => {
 
             const checkbox = screen.getByRole('checkbox') as HTMLInputElement
             expect(checkbox.checked).toBe(false)
+        })
+
+        it('asks it as a yes/no question in the test arm of the persist question experiment', async () => {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.EXPERIMENT_WIZARD_PERSIST_QUESTION], {
+                [FEATURE_FLAGS.EXPERIMENT_WIZARD_PERSIST_QUESTION]: 'test',
+            })
+            renderComponent(defaultExperiment)
+
+            expect(screen.getByText(/before and after they log in/)).toBeInTheDocument()
+            expect(screen.queryByRole('checkbox')).not.toBeInTheDocument()
+
+            await userEvent.click(screen.getByText('Yes'))
+
+            expect(mockOnChange).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    ensure_experience_continuity: true,
+                })
+            )
+        })
+
+        it('picks no answer until someone chooses, in the test arm of the persist question experiment', async () => {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.EXPERIMENT_WIZARD_PERSIST_QUESTION], {
+                [FEATURE_FLAGS.EXPERIMENT_WIZARD_PERSIST_QUESTION]: 'test',
+            })
+            const { container } = renderComponent(defaultExperiment)
+
+            expect(container.querySelector('.LemonSegmentedButton__option--selected')).toBeNull()
+
+            // Other edits leave the persistence choice unset, so the question stays unanswered
+            await userEvent.click(screen.getByText('Add variant'))
+            expect(mockOnChange).toHaveBeenLastCalledWith(
+                expect.objectContaining({ ensure_experience_continuity: undefined })
+            )
+        })
+
+        it('shows No once it has been chosen, in the test arm of the persist question experiment', () => {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.EXPERIMENT_WIZARD_PERSIST_QUESTION], {
+                [FEATURE_FLAGS.EXPERIMENT_WIZARD_PERSIST_QUESTION]: 'test',
+            })
+            const { container } = renderComponent({
+                ...defaultExperiment,
+                feature_flag_config: { ...defaultExperiment.feature_flag_config, ensure_experience_continuity: false },
+            })
+
+            expect(container.querySelector('.LemonSegmentedButton__option--selected')).toHaveTextContent('No')
+        })
+
+        it('keeps the checkbox in the control arm of the persist question experiment', () => {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.EXPERIMENT_WIZARD_PERSIST_QUESTION], {
+                [FEATURE_FLAGS.EXPERIMENT_WIZARD_PERSIST_QUESTION]: 'control',
+            })
+            renderComponent(defaultExperiment)
+
+            expect(screen.getByRole('checkbox')).toBeInTheDocument()
+            expect(screen.queryByText(/before and after they log in/)).not.toBeInTheDocument()
         })
     })
 

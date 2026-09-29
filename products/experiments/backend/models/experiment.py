@@ -288,6 +288,8 @@ class Experiment(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMixi
             "experiment_id": self.id,
             "experiment_name": self.name,
             "feature_flag_key": self.get_feature_flag_key(),
+            # "Persist flag across authentication steps" on the experiment's flag
+            "persist_across_authentication": bool(self.feature_flag.ensure_experience_continuity),
             "type": self.type,
             "status": self.status or self.computed_status,
             "metrics_count": len(self.metrics or []),

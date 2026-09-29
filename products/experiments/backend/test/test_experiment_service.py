@@ -2304,6 +2304,15 @@ class TestExperimentService(APIBaseTest):
         assert metadata["variants_with_notes_count"] == 0
         assert metadata["variants_with_screenshots_count"] == 0
 
+    def test_analytics_metadata_reports_flag_persistence(self):
+        experiment = self._create_draft_experiment()
+        assert experiment.get_analytics_metadata()["persist_across_authentication"] is False
+
+        experiment.feature_flag.ensure_experience_continuity = True
+        experiment.feature_flag.save()
+
+        assert experiment.get_analytics_metadata()["persist_across_authentication"] is True
+
     @parameterized.expand(
         [
             ("name", {"name": "Renamed experiment"}, "name"),
