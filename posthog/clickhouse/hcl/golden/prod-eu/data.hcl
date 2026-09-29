@@ -3717,6 +3717,9 @@ database "posthog" {
     column "state" {
       type = "LowCardinality(String)"
     }
+    column "firing_started_at" {
+      type = "Nullable(DateTime64(6, 'UTC'))"
+    }
     column "value" {
       type = "Nullable(Float64)"
     }
