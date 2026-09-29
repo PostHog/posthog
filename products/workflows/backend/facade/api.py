@@ -1,3 +1,4 @@
+from collections.abc import Iterable
 from typing import Any
 from uuid import UUID
 
@@ -7,7 +8,46 @@ from posthog.helpers.full_text_search import build_rank
 from posthog.ingress.contracts import WebhookDelivery
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.workflows.backend.facade.contracts import (
+    RecentWorkflow,
+    TierDecision,
+    WorkflowActivitySummary,
+    WorkflowSummary,
+)
 from products.workflows.backend.models import HogFlow
+from products.workflows.backend.services.email_sending_controls import (
+    ensure_workflows_config,
+    get_email_sending_state,
+    set_email_sending_tier,
+    suspend_email_sending,
+    unsuspend_email_sending,
+)
+from products.workflows.backend.services.integration_usage import get_active_hog_flows_using_integration
+from products.workflows.backend.services.template_input_usage import (
+    filter_hog_flow_references_by_access_level,
+    get_hog_flows_referencing_template_input_keys,
+)
+from products.workflows.backend.utils.email_sending_tiers import (
+    MIN_EMAIL_SENDING_TIER,
+    get_email_sending_tier_limits,
+    max_email_sending_tier,
+)
+from products.workflows.backend.utils.rrule_utils import compute_next_occurrences, validate_rrule
+
+__all__ = [
+    "MIN_EMAIL_SENDING_TIER",
+    "compute_next_occurrences",
+    "ensure_workflows_config",
+    "filter_hog_flow_references_by_access_level",
+    "get_email_sending_state",
+    "get_email_sending_tier_limits",
+    "get_hog_flows_referencing_template_input_keys",
+    "max_email_sending_tier",
+    "set_email_sending_tier",
+    "suspend_email_sending",
+    "unsuspend_email_sending",
+    "validate_rrule",
+]
 
 
 class WorkflowNotFound(Exception):
@@ -126,3 +166,106 @@ def set_workflow_enabled(*, team_id: int, user_id: int, workflow_id: UUID, enabl
             hog_flow.status = target
             hog_flow.save(update_fields=["status", "updated_at"])
     return str(hog_flow.status)
+
+
+def get_workflow_names(*, team_id: int, workflow_ids: Iterable[str]) -> dict[str, str]:
+    """Names keyed by the workflow id as a string. Deleted workflows are left out."""
+    return {
+        str(pk): (name or "")
+        for pk, name in HogFlow.objects.filter(team_id=team_id, id__in=list(workflow_ids)).values_list("id", "name")
+    }
+
+
+def has_active_workflows(*, team_id: int) -> bool:
+    return HogFlow.objects.filter(team_id=team_id, status=HogFlow.State.ACTIVE).exists()
+
+
+def has_active_workflow_for_warehouse_table(*, team_id: int, trigger_source: str, table_name: str) -> bool:
+    return HogFlow.objects.filter(
+        team_id=team_id,
+        status=HogFlow.State.ACTIVE,
+        trigger__type=trigger_source,
+        trigger__table_name=table_name,
+    ).exists()
+
+
+def get_workflow_activity_summary(*, team_id: int, recent_limit: int) -> WorkflowActivitySummary:
+    """Total and non-archived workflow counts, plus the most recently updated workflows."""
+    qs = HogFlow.objects.filter(team_id=team_id)
+    recent = qs.order_by("-updated_at")[:recent_limit].values("id", "name", "status", "updated_at")
+    return WorkflowActivitySummary(
+        total_count=qs.count(),
+        active_count=qs.exclude(status=HogFlow.State.ARCHIVED).count(),
+        recent=tuple(
+            RecentWorkflow(
+                id=str(row["id"]), name=row["name"] or "", status=row["status"], updated_at=row["updated_at"]
+            )
+            for row in recent
+        ),
+    )
+
+
+def get_active_workflows_using_integration(*, team_id: int, integration_id: int) -> list[WorkflowSummary]:
+    return [
+        WorkflowSummary(id=str(flow.id), name=flow.name or "", status=flow.status)
+        for flow in get_active_hog_flows_using_integration(team_id=team_id, integration_id=integration_id)
+    ]
+
+
+def recompute_email_sending_tier(team_id: int) -> TierDecision | None:
+    # Deferred to keep the ClickHouse metrics client off the facade import path.
+    from products.workflows.backend.services.email_sending_tier import (  # noqa: PLC0415
+        recompute_email_sending_tier_for_team,
+    )
+
+    return recompute_email_sending_tier_for_team(team_id)
+
+
+# The provider helpers look the provider class up on the providers package at call time, which
+# also keeps boto3 and the Twilio client off the facade import path.
+
+
+def create_ses_email_domain(
+    domain: str, *, mail_from_subdomain: str, team_id: int, org_team_ids: Iterable[int] | None = None
+) -> None:
+    from products.workflows.backend import providers  # noqa: PLC0415
+
+    providers.SESProvider().create_email_domain(
+        domain, mail_from_subdomain=mail_from_subdomain, team_id=team_id, org_team_ids=org_team_ids
+    )
+
+
+def update_ses_mail_from_subdomain(domain: str, *, mail_from_subdomain: str) -> None:
+    from products.workflows.backend import providers  # noqa: PLC0415
+
+    providers.SESProvider().update_mail_from_subdomain(domain, mail_from_subdomain=mail_from_subdomain)
+
+
+def verify_ses_email_domain(domain: str, *, mail_from_subdomain: str, team_id: int) -> dict[str, Any]:
+    from products.workflows.backend import providers  # noqa: PLC0415
+
+    return providers.SESProvider().verify_email_domain(domain, mail_from_subdomain=mail_from_subdomain, team_id=team_id)
+
+
+def delete_ses_identity(identity: str) -> None:
+    from products.workflows.backend import providers  # noqa: PLC0415
+
+    providers.SESProvider().delete_identity(identity)
+
+
+def get_maildev_mock_dns_records() -> list[dict[str, Any]]:
+    from products.workflows.backend import providers  # noqa: PLC0415
+
+    return providers.MAILDEV_MOCK_DNS_RECORDS
+
+
+def get_twilio_phone_numbers(*, account_sid: str, auth_token: str) -> list[dict]:
+    from products.workflows.backend import providers  # noqa: PLC0415
+
+    return providers.TwilioProvider(account_sid=account_sid, auth_token=auth_token).get_phone_numbers()
+
+
+def get_twilio_account_info(*, account_sid: str, auth_token: str) -> dict:
+    from products.workflows.backend import providers  # noqa: PLC0415
+
+    return providers.TwilioProvider(account_sid=account_sid, auth_token=auth_token).get_account_info()
