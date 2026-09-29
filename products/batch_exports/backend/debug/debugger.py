@@ -298,6 +298,7 @@ class BatchExportsDebugger:
                 schema=self.batch_export.schema,
                 filters=self.batch_export.filters,
                 hogql_query=self.batch_export.hogql_query,
+                hogql_modifiers=self.batch_export.hogql_modifiers,
             ),
             integration_id=self.batch_export.destination.integration_id,
             **destination_config,

@@ -26,6 +26,7 @@ from posthog.rate_limit import (
     AIObservabilityBackfillEstimateSustainedThrottle,
     AIObservabilityBackfillEstimateThrottle,
 )
+from posthog.temporal.ai_observability.run_aggregate_evaluation import INGESTION_LAG_MARGIN_SECONDS
 from posthog.temporal.ai_observability.run_session_evaluation import AI_EVENTS_RETENTION_DAYS
 
 from products.access_control.backend.models.access_control import AccessControl
@@ -374,14 +375,15 @@ class TestEvaluationBackfillsApi(APIBaseTest):
 
         estimate = self.client.post(f"{self.url}/estimate/", body, format="json")
         assert estimate.status_code == status.HTTP_200_OK, estimate.json()
-        assert abs(datetime.fromisoformat(estimate.json()["window_end"]) - now) < timedelta(seconds=5)
+        expected_end = now - timedelta(seconds=INGESTION_LAG_MARGIN_SECONDS)
+        assert abs(datetime.fromisoformat(estimate.json()["window_end"]) - expected_end) < timedelta(seconds=5)
         expected_start = now - timedelta(days=AI_EVENTS_RETENTION_DAYS)
         assert abs(datetime.fromisoformat(estimate.json()["window_start"]) - expected_start) < timedelta(seconds=5)
 
         created = self.client.post(f"{self.url}/", body, format="json")
         assert created.status_code == status.HTTP_201_CREATED, created.json()
         row = EvaluationBackfill.objects.unscoped().get(pk=created.json()["id"])
-        assert abs(row.window_end - now) < timedelta(seconds=5)
+        assert abs(row.window_end - expected_end) < timedelta(seconds=5)
         assert abs(row.window_start - expected_start) < timedelta(seconds=5)
 
     @parameterized.expand(
@@ -419,14 +421,16 @@ class TestEvaluationBackfillsApi(APIBaseTest):
 
     @patch(f"{API_MODULE}.count_backfill_candidates", return_value=_scope(3))
     @patch(f"{API_MODULE}.sync_connect")
-    def test_a_generation_backfill_reaches_up_to_now(self, connect, _count):
+    def test_a_generation_backfill_stops_short_of_the_ai_events_lag(self, connect, _count):
         connect.return_value = _temporal_client()
-        now = timezone.now()
+        margin = timedelta(seconds=INGESTION_LAG_MARGIN_SECONDS)
+        before = timezone.now()
 
         estimate = self.client.post(f"{self.url}/estimate/", _body(), format="json")
 
+        after = timezone.now()
         assert estimate.status_code == status.HTTP_200_OK, estimate.json()
-        assert abs(datetime.fromisoformat(estimate.json()["window_end"]) - now) < timedelta(seconds=30)
+        assert before - margin <= datetime.fromisoformat(estimate.json()["window_end"]) <= after - margin
 
     @patch(f"{API_MODULE}.count_backfill_candidates", return_value=_scope(3))
     @patch(f"{API_MODULE}.sync_connect")

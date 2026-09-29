@@ -8498,6 +8498,7 @@ export const VALID_NATIVE_MARKETING_SOURCES = [
     'AppleSearchAds',
     'OpenAIAds',
     'AmazonAds',
+    'RoktAds',
 ] as const
 
 export type NativeMarketingSource = (typeof VALID_NATIVE_MARKETING_SOURCES)[number]
@@ -8697,11 +8698,21 @@ export const MARKETING_INTEGRATION_CONFIGS = {
         defaultSources: ['amazon', 'amazon_ads'] as const,
         primarySource: 'amazon',
     },
+    RoktAds: {
+        sourceType: 'RoktAds' as const,
+        nameField: 'campaign_name',
+        idField: 'campaign_id',
+        campaignTableName: 'CampaignPerformance',
+        statsTableName: 'CampaignPerformance',
+        defaultSources: ['rokt', 'rokt_ads'] as const,
+        primarySource: 'rokt',
+    },
 } as const
 
 export type MarketingIntegrationConfig = (typeof MARKETING_INTEGRATION_CONFIGS)[NativeMarketingSource]
 
 export type AmazonAdsDefaultSources = (typeof MARKETING_INTEGRATION_CONFIGS)['AmazonAds']['defaultSources'][number]
+export type RoktAdsDefaultSources = (typeof MARKETING_INTEGRATION_CONFIGS)['RoktAds']['defaultSources'][number]
 export type AppleSearchAdsDefaultSources =
     (typeof MARKETING_INTEGRATION_CONFIGS)['AppleSearchAds']['defaultSources'][number]
 export type OpenAIAdsDefaultSources = (typeof MARKETING_INTEGRATION_CONFIGS)['OpenAIAds']['defaultSources'][number]
@@ -9006,6 +9017,8 @@ export interface SidebarConfiguration {
     items?: SidebarItemsConfiguration
     /** Row density of the sidebar. */
     density?: SidebarDensity
+    /** True once the user saved or dismissed the setup that moves their custom products to starred products in the simple sidebar. */
+    starred_products_setup_completed?: boolean
     [key: string]: unknown
 }
 

@@ -6,6 +6,7 @@ use std::sync::Arc;
 use deltalake::{DeltaTable, DeltaTableBuilder};
 
 use crate::errors::{Error, Result};
+use crate::prefetch::{CheckpointCache, CheckpointPrefetchLogStore};
 use crate::store::MultipartLogStore;
 
 /// How data-file uploads are performed.
@@ -45,13 +46,36 @@ impl MultipartConfig {
 
 /// Open and load a Delta table from `uri` with the given delta-rs `storage_options`
 /// (the same keys the Python package accepts; the dict passes through unchanged).
+///
+/// The load reads its checkpoint through the prefetch wrapper (see [`crate::prefetch`])
+/// and releases the prefetched bytes before returning, so the table costs no more memory
+/// than a plain load once it is open.
 pub async fn open_table(uri: &str, storage_options: HashMap<String, String>) -> Result<DeltaTable> {
+    let (table, prefetch) = open_table_prefetched(uri, storage_options).await?;
+    prefetch.clear();
+    Ok(table)
+}
+
+/// [`open_table`] that also hands back the checkpoint cache the table's stores serve
+/// from, still holding the checkpoint bytes read by this load. The caller clears it once
+/// it is done and can clear it again after each later load through the same table.
+pub async fn open_table_prefetched(
+    uri: &str,
+    storage_options: HashMap<String, String>,
+) -> Result<(DeltaTable, Arc<CheckpointCache>)> {
     let url = deltalake::ensure_table_uri(uri)
         .map_err(|e| Error::NotFound(format!("invalid table uri {uri}: {e}")))?;
-    Ok(DeltaTableBuilder::from_url(url)?
+    let built = DeltaTableBuilder::from_url(url)?
         .with_storage_options(storage_options)
-        .load()
-        .await?)
+        .build()?;
+    let cache = Arc::new(CheckpointCache::from_env());
+    let log_store = Arc::new(CheckpointPrefetchLogStore::new(
+        built.log_store(),
+        cache.clone(),
+    ));
+    let mut table = DeltaTable::new(log_store, built.config.clone());
+    table.load().await?;
+    Ok((table, cache))
 }
 
 /// Open a table whose data-file uploads go through the multipart-aware store wrapper

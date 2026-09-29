@@ -126,6 +126,7 @@ import { IncrementalConfigFields } from './IncrementalConfigFields'
 import { findInnermostSelectAtOffset } from './multiQueryUtils'
 import { LARGE_SCAN_ROWS, estimatedTables } from './output-pane-tabs/queryScanSummary'
 import { OutputTab, outputPaneLogic } from './outputPaneLogic'
+import { findSelectionProblem } from './saveCandidateProblems'
 import { resolveSaveCandidates as resolveSaveCandidatesPure, SaveTargetCycler } from './SaveTargetCycler'
 import { SQLEditorMode, isEmbeddedSQLEditorMode } from './sqlEditorModes'
 import {
@@ -2278,6 +2279,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 const selectedRef = {
                     current: candidates.queries[candidates.initialIndex],
                 }
+                const selectionProblem = await findSelectionProblem(candidates, values.sendRawQueryEnabled)
 
                 // Checked once as the dialog opens rather than on every keystroke: it only depends
                 // on the SQL being saved, which cannot change while the dialog is up. A failure
@@ -2330,6 +2332,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     title: 'Save as view',
                     showErrorsOnTouch: true,
                     initialValues: {
+                        saveTarget: candidates.initialIndex,
                         viewName: values.activeTab?.name || '',
                         folderId: null,
                         isTest: false,
@@ -2347,6 +2350,17 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                             </div>
                         ) : (
                             <>
+                                <LemonField name="saveTarget">
+                                    {({ onChange }) => (
+                                        <SaveTargetCycler
+                                            candidates={candidates}
+                                            onChange={(query, index) => {
+                                                selectedRef.current = query
+                                                onChange(index)
+                                            }}
+                                        />
+                                    )}
+                                </LemonField>
                                 <LemonField name="viewName" label="Name">
                                     <LemonInput
                                         data-attr="sql-editor-input-save-view-name"
@@ -2420,15 +2434,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                                         </>
                                     )}
                                 </LemonField>
-                                <SaveTargetCycler
-                                    candidates={candidates}
-                                    onChange={(q) => {
-                                        selectedRef.current = q
-                                    }}
-                                />
                             </>
                         ),
                     errors: {
+                        saveTarget: () => selectionProblem ?? undefined,
                         viewName: validateSavedQueryName,
                         incrementalKey: (key, { incrementalEnabled, materializeAfterSave: materialize }) =>
                             incrementalEnabled && materialize && !key ? 'Select the incremental column' : undefined,
@@ -2707,14 +2716,27 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 const selectedRef = {
                     current: candidates.queries[candidates.initialIndex],
                 }
+                const selectionProblem = await findSelectionProblem(candidates, values.sendRawQueryEnabled)
                 LemonDialog.openForm({
                     title: 'Save as endpoint',
                     initialValues: {
+                        saveTarget: candidates.initialIndex,
                         name: '',
                         description: '',
                     },
                     content: (
                         <>
+                            <LemonField name="saveTarget">
+                                {({ onChange }) => (
+                                    <SaveTargetCycler
+                                        candidates={candidates}
+                                        onChange={(query, index) => {
+                                            selectedRef.current = query
+                                            onChange(index)
+                                        }}
+                                    />
+                                )}
+                            </LemonField>
                             <LemonField name="name">
                                 <LemonInput
                                     data-attr="endpoint-name"
@@ -2728,15 +2750,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                                     placeholder="Please enter a description (optional)"
                                 />
                             </LemonField>
-                            <SaveTargetCycler
-                                candidates={candidates}
-                                onChange={(q) => {
-                                    selectedRef.current = q
-                                }}
-                            />
                         </>
                     ),
                     errors: {
+                        saveTarget: () => selectionProblem ?? undefined,
                         name: (name) => validateEndpointName(name?.trim() || ''),
                     },
                     onSubmit: async ({ name, description }) =>
@@ -2765,9 +2782,11 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             saveAsMetric: async () => {
                 const candidates = resolveSaveCandidates()
                 const selectedRef = { current: candidates.queries[candidates.initialIndex] }
+                const selectionProblem = await findSelectionProblem(candidates, values.sendRawQueryEnabled)
                 LemonDialog.openForm({
                     title: 'Save as metric',
                     initialValues: {
+                        saveTarget: candidates.initialIndex,
                         name: '',
                         display_name: '',
                         description: '',
@@ -2776,6 +2795,17 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     },
                     content: (
                         <>
+                            <LemonField name="saveTarget">
+                                {({ onChange }) => (
+                                    <SaveTargetCycler
+                                        candidates={candidates}
+                                        onChange={(query, index) => {
+                                            selectedRef.current = query
+                                            onChange(index)
+                                        }}
+                                    />
+                                )}
+                            </LemonField>
                             <LemonField name="name" label={METRIC_FIELD_COPY.name.label}>
                                 <LemonInput placeholder={METRIC_FIELD_COPY.name.placeholder} autoFocus />
                             </LemonField>
@@ -2797,15 +2827,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                             <LemonField name="unit" label={METRIC_FIELD_COPY.unit.label} className="mt-2">
                                 <LemonInput placeholder={METRIC_FIELD_COPY.unit.placeholder} />
                             </LemonField>
-                            <SaveTargetCycler
-                                candidates={candidates}
-                                onChange={(q) => {
-                                    selectedRef.current = q
-                                }}
-                            />
                         </>
                     ),
                     errors: {
+                        saveTarget: () => selectionProblem ?? undefined,
                         name: (name) => validateMetricName(name?.trim() || ''),
                         description: (description) =>
                             !description?.trim() ? 'Add a description' : validateMetricDescription(description.trim()),
