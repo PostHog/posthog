@@ -68,7 +68,13 @@ export function PipelineStatTiles(): JSX.Element {
                     // otherwise wrap out of the tile.
                     value={humanFriendlyLargeNumber(rowsStats?.total_rows ?? 0)}
                     exact={humanFriendlyNumber(rowsStats?.total_rows ?? 0)}
-                    sub={rowsStats?.billing_available ? undefined : 'Billing is unavailable, so this may be behind'}
+                    // Only once the answer is in: a null `rowsStats` is still loading, and
+                    // reading it as "unavailable" put a warning under a spinner.
+                    sub={
+                        rowsStats && !rowsStats.billing_available
+                            ? 'Billing is unavailable, so this may be behind'
+                            : undefined
+                    }
                     loading={rowsStatsLoading && rowsStats === null}
                 />
                 <StatTile

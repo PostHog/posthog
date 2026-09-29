@@ -1908,6 +1908,7 @@ class SignalReportCheckSerializer(serializers.ModelSerializer):
             "expires_at",
             "last_run_at",
             "last_outcome",
+            "last_outcome_reason",
             "dispatched_at",
             "consecutive_errors",
             "created_at",
@@ -1941,6 +1942,13 @@ class SignalReportCheckSerializer(serializers.ModelSerializer):
             "expires_at": {"help_text": "Horizon after which the check retires without running again."},
             "last_run_at": {"help_text": "When the check last ran; null before its first run."},
             "last_outcome": {"help_text": "Verdict of the most recent run."},
+            "last_outcome_reason": {
+                "help_text": (
+                    "Why the most recent run could not settle the claim. Set only when `last_outcome` is "
+                    "`inconclusive`: `awaiting_data`, `unmeasurable`, `needs_manual_verification`, or "
+                    "`no_fix_to_measure`."
+                )
+            },
             "dispatched_at": {
                 "help_text": (
                     "When the `agent` check's scout run started, cleared as soon as a verdict is recorded. "
