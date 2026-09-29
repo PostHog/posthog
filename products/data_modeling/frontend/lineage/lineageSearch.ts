@@ -99,12 +99,20 @@ export function matchNodesByName(nodes: DataModelingNode[], term: string): DataM
     if (!needle) {
         return []
     }
-    return nodes
-        .filter((node) => node.name.toLowerCase().includes(needle))
-        .sort((a, b) => {
-            const exact = Number(b.name.toLowerCase() === needle) - Number(a.name.toLowerCase() === needle)
-            return exact !== 0 ? exact : a.name.length - b.name.length
-        })
+    // Lowercase each name once. The comparator runs O(n log n) times, so lowercasing inside it
+    // allocates two strings per comparison, and a plain search matches on every keystroke.
+    const matches: { node: DataModelingNode; lowerName: string }[] = []
+    for (const node of nodes) {
+        const lowerName = node.name.toLowerCase()
+        if (lowerName.includes(needle)) {
+            matches.push({ node, lowerName })
+        }
+    }
+    matches.sort((a, b) => {
+        const exact = Number(b.lowerName === needle) - Number(a.lowerName === needle)
+        return exact !== 0 ? exact : a.node.name.length - b.node.name.length
+    })
+    return matches.map((match) => match.node)
 }
 
 /**

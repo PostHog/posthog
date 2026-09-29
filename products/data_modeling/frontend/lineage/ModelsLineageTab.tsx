@@ -38,6 +38,7 @@ export function ModelsLineageTab(): JSX.Element {
         searchResults,
         showSearchResults,
         selectedSearchResult,
+        searchResultAnnouncement,
         searchFocusRequest,
         focusNodeIds,
         visibleNodes,
@@ -82,8 +83,9 @@ export function ModelsLineageTab(): JSX.Element {
                             (event.key === 'ArrowUp' || event.key === 'ArrowDown')
                         ) {
                             event.preventDefault()
+                            // Focus stays in the input here, so there is nothing to restore. Calling
+                            // focusSearchInput would move the caret away from where the user put it.
                             moveSearchResult(event.key === 'ArrowUp' ? 'previous' : 'next', false)
-                            focusSearchInput()
                         } else if (event.key === 'Enter' && selectedSearchResult) {
                             event.preventDefault()
                             focusSearchResult(selectedSearchResult.id, 'keyboard')
@@ -125,7 +127,10 @@ export function ModelsLineageTab(): JSX.Element {
                 )}
             </div>
             <div className="relative h-[calc(100vh-20rem)] min-h-[400px] w-full border rounded bg-bg-light overflow-hidden">
-                {showSearchResults && !nodesLoading && (
+                <span className="sr-only" aria-live="polite">
+                    {searchResultAnnouncement}
+                </span>
+                {showSearchResults && (
                     <LineageSearchResults
                         results={searchResults}
                         selectedResultId={selectedSearchResult?.id}

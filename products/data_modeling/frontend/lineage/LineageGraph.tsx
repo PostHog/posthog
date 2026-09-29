@@ -73,6 +73,8 @@ function LineageGraphContent(props: LineageGraphProps): JSX.Element {
         if (!viewportInitialized || !focusNodeIds || !layout) {
             return
         }
+        // An empty focusNodeIds means the search was cleared, so fit the whole graph again rather
+        // than leave the viewport where the last selector zoomed it.
         const nodes = focusNodeIds.size > 0 ? layout.nodes.filter((node) => focusNodeIds.has(node.id)) : layout.nodes
         if (nodes.length > 0) {
             void fitView({

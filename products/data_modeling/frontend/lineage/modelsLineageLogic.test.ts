@@ -158,6 +158,21 @@ describe('modelsLineageLogic', () => {
         })
     })
 
+    it('hides the result panel while the edges it needs are still loading', async () => {
+        logic.actions.setSearchTerm('+website_leads')
+        logic.actions.setDebouncedSearchTerm('+website_leads')
+
+        await expectLogic(logic).toMatchValues({ showSearchResults: true })
+
+        lineageDataLogic.actions.loadEdges()
+
+        expectLogic(logic).toMatchValues({
+            edgesLoading: true,
+            showSearchResults: false,
+            searchResultAnnouncement: '',
+        })
+    })
+
     it('cycles through and focuses models in a lineage selector', async () => {
         logic.actions.setSearchTerm('+website_leads')
         logic.actions.setDebouncedSearchTerm('+website_leads')

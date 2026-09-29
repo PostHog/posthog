@@ -9,7 +9,6 @@ import {
     ParsedLineageSearch,
     edgesWithinNodes,
     matchNodesByName,
-    nodeIdsForLineageSearch,
     orderedNodesForLineageSearch,
     parseLineageSearch,
 } from './lineageSearch'
@@ -37,9 +36,11 @@ export interface modelsLineageLogicValues {
     parsedSearchTerm: ParsedLineageSearch
     parsedSearch: ParsedLineageSearch
     lineageSearchAnchor: DataModelingNode | null
+    orderedLineageNodes: DataModelingNode[] | null
     searchResults: DataModelingNode[]
     showSearchResults: boolean
     selectedSearchResult: DataModelingNode | null
+    searchResultAnnouncement: string
     highlightedNodeIds: Set<string>
     focusNodeIds: Set<string> | null
     visibleNodes: DataModelingNode[]
@@ -184,27 +185,36 @@ export const modelsLineageLogic = kea<modelsLineageLogicType>([
                 parsedSearchTerm.mode === 'search' ? null : (matchNodesByName(nodes, parsedSearchTerm.term)[0] ?? null),
         ],
 
+        // Both the result list and the graph need the lineage cone. Walking it once here keeps the
+        // adjacency maps and the BFS from being built twice for every settled selector search.
+        orderedLineageNodes: [
+            (s) => [s.nodes, s.edges, s.parsedSearch],
+            (
+                nodes: DataModelingNode[],
+                edges: DataModelingEdge[],
+                parsedSearch: ParsedLineageSearch
+            ): DataModelingNode[] | null => orderedNodesForLineageSearch(nodes, edges, parsedSearch),
+        ],
+
         // Plain name matching is cheap, so keep its results in step with typing. Lineage selectors
         // wait for the debounce because they prune and lay out the graph again.
         searchResults: [
             (s) => [
                 s.nodes,
-                s.edges,
                 s.typeFilter,
                 s.parsedSearchTerm,
-                s.parsedSearch,
                 s.searchTerm,
                 s.debouncedSearchTerm,
+                s.orderedLineageNodes,
                 s.visibleNodes,
             ],
             (
                 nodes: DataModelingNode[],
-                edges: DataModelingEdge[],
                 typeFilter: DataModelingNodeType[],
                 parsedSearchTerm: ParsedLineageSearch,
-                parsedSearch: ParsedLineageSearch,
                 searchTerm: string,
                 debouncedSearchTerm: string,
+                orderedLineageNodes: DataModelingNode[] | null,
                 visibleNodes: DataModelingNode[]
             ): DataModelingNode[] => {
                 if (parsedSearchTerm.mode === 'search') {
@@ -218,23 +228,53 @@ export const modelsLineageLogic = kea<modelsLineageLogicType>([
                     return []
                 }
                 const visibleNodeIds = new Set(visibleNodes.map((node) => node.id))
-                return (orderedNodesForLineageSearch(nodes, edges, parsedSearch) ?? []).filter((node) =>
-                    visibleNodeIds.has(node.id)
-                )
+                return (orderedLineageNodes ?? []).filter((node) => visibleNodeIds.has(node.id))
             },
         ],
 
         showSearchResults: [
-            (s) => [s.parsedSearchTerm, s.searchTerm, s.debouncedSearchTerm],
-            (parsedSearchTerm: ParsedLineageSearch, searchTerm: string, debouncedSearchTerm: string): boolean =>
-                parsedSearchTerm.term.length > 0 &&
-                (parsedSearchTerm.mode === 'search' || searchTerm === debouncedSearchTerm),
+            (s) => [s.parsedSearchTerm, s.searchTerm, s.debouncedSearchTerm, s.nodesLoading, s.edgesLoading],
+            (
+                parsedSearchTerm: ParsedLineageSearch,
+                searchTerm: string,
+                debouncedSearchTerm: string,
+                nodesLoading: boolean,
+                edgesLoading: boolean
+            ): boolean => {
+                if (parsedSearchTerm.term.length === 0 || nodesLoading) {
+                    return false
+                }
+                // Nodes and edges load in parallel. Only the lineage selectors walk edges, so a
+                // plain name search can list results while the edge pages are still arriving. A
+                // selector that ran now would report an empty cone as a real answer.
+                return parsedSearchTerm.mode === 'search' || (searchTerm === debouncedSearchTerm && !edgesLoading)
+            },
         ],
 
         selectedSearchResult: [
             (s) => [s.searchResults, s.selectedSearchResultId],
             (searchResults: DataModelingNode[], selectedSearchResultId: string | null): DataModelingNode | null =>
                 searchResults.find((node) => node.id === selectedSearchResultId) ?? searchResults[0] ?? null,
+        ],
+
+        // Read by a live region that stays mounted, so a screen reader announces the first search
+        // too. A region inserted with its text already set is not announced.
+        searchResultAnnouncement: [
+            (s) => [s.showSearchResults, s.searchResults, s.selectedSearchResult],
+            (
+                showSearchResults: boolean,
+                searchResults: DataModelingNode[],
+                selectedSearchResult: DataModelingNode | null
+            ): string => {
+                if (!showSearchResults) {
+                    return ''
+                }
+                if (!selectedSearchResult) {
+                    return 'No matching models'
+                }
+                const position = searchResults.findIndex((node) => node.id === selectedSearchResult.id) + 1
+                return `${selectedSearchResult.name}, result ${position} of ${searchResults.length}`
+            },
         ],
 
         highlightedNodeIds: [
@@ -244,17 +284,16 @@ export const modelsLineageLogic = kea<modelsLineageLogicType>([
         ],
 
         visibleNodes: [
-            (s) => [s.nodes, s.edges, s.parsedSearch, s.typeFilter],
+            (s) => [s.nodes, s.orderedLineageNodes, s.typeFilter],
             (
                 nodes: DataModelingNode[],
-                edges: DataModelingEdge[],
-                parsedSearch: ParsedLineageSearch,
+                orderedLineageNodes: DataModelingNode[] | null,
                 typeFilter: DataModelingNodeType[]
             ): DataModelingNode[] => {
                 let kept = nodes
 
-                const reached = nodeIdsForLineageSearch(nodes, edges, parsedSearch)
-                if (reached) {
+                if (orderedLineageNodes) {
+                    const reached = new Set(orderedLineageNodes.map((node) => node.id))
                     kept = kept.filter((node) => reached.has(node.id))
                 }
 
