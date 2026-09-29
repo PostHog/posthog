@@ -308,6 +308,171 @@ export const OfflineExperimentRunSourceEnumApi = {
     Scheduled: 'scheduled',
 } as const
 
+/**
+ * * `uploading` - Uploading
+ * * `completed` - Completed
+ * * `failed` - Failed
+ */
+export type OfflineExperimentStatusEnumApi =
+    (typeof OfflineExperimentStatusEnumApi)[keyof typeof OfflineExperimentStatusEnumApi]
+
+export const OfflineExperimentStatusEnumApi = {
+    Uploading: 'uploading',
+    Completed: 'completed',
+    Failed: 'failed',
+} as const
+
+export interface OfflineExperimentReadApi {
+    /** Stable experiment UUID. */
+    id: string
+    /** Experiment name. */
+    name: string
+    /** Execution source.
+     *
+     * * `ci` - CI
+     * * `local` - Local
+     * * `scheduled` - Scheduled */
+    run_source: OfflineExperimentRunSourceEnumApi | null
+    /** Upload lifecycle state.
+     *
+     * * `uploading` - Uploading
+     * * `completed` - Completed
+     * * `failed` - Failed */
+    status: OfflineExperimentStatusEnumApi
+    /** Caller-supplied execution time. */
+    started_at: string
+    /** First server acceptance time. */
+    created_at: string
+    /**
+     * Server closure time, or null while uploading.
+     * @nullable
+     */
+    finished_at: string | null
+    /**
+     * Declared expected items, when supplied.
+     * @nullable
+     */
+    expected_item_count: number | null
+    /**
+     * Declared expected results across all scorers.
+     * @nullable
+     */
+    expected_result_count: number | null
+    /** Observed items, including items without a selected scorer result. */
+    accepted_item_count: number
+    /**
+     * Results visible to this caller; unavailable without scorer-read scope.
+     * @nullable
+     */
+    visible_result_count: number | null
+    /**
+     * Distinct visible scorer definitions.
+     * @nullable
+     */
+    visible_scorer_definition_count: number | null
+    /**
+     * Distinct visible scorer versions.
+     * @nullable
+     */
+    visible_scorer_version_count: number | null
+    /** authorized for visible-result counts, or unavailable without scorer-read scope. */
+    result_count_scope: string
+    /**
+     * Durable suite identifier.
+     * @nullable
+     */
+    suite_key: string | null
+    /**
+     * Dataset provider or source.
+     * @nullable
+     */
+    dataset_source: string | null
+    /**
+     * Durable dataset identifier.
+     * @nullable
+     */
+    dataset_identifier: string | null
+    /**
+     * Durable dataset revision identifier.
+     * @nullable
+     */
+    dataset_revision_identifier: string | null
+    /**
+     * Optional hosted revision navigation reference.
+     * @nullable
+     */
+    dataset_revision_id: string | null
+    /**
+     * Application revision under evaluation.
+     * @nullable
+     */
+    application_version: string | null
+    /**
+     * Model revision under evaluation.
+     * @nullable
+     */
+    model_version: string | null
+    /**
+     * Prompt revision under evaluation.
+     * @nullable
+     */
+    prompt_version: string | null
+}
+
+export interface OfflineExperimentPageApi {
+    /** Total authorized rows matching the filters, independent of this page. */
+    count: number
+    /**
+     * Continuation cursor, or null after the final page.
+     * @nullable
+     */
+    next_cursor: string | null
+    /** Experiment page. */
+    results: OfflineExperimentReadApi[]
+}
+
+export interface OfflineEvaluationValidationErrorApi {
+    /** Stable validation error code. */
+    code: string
+    /** Explanation of the invalid value. */
+    detail: string
+    /**
+     * Invalid field path, with dot-separated fields and zero-based batch indexes.
+     * @nullable
+     */
+    attr: string | null
+}
+
+export interface OfflineEvaluationErrorApi {
+    /** Error category for standard API errors. */
+    type?: string
+    /** Stable error code. */
+    code: string
+    /** Explanation of the rejected request. */
+    detail: string
+    /**
+     * Invalid field, including batch entry index.
+     * @nullable
+     */
+    attr?: string | null
+    /**
+     * Declared item count.
+     * @nullable
+     */
+    expected_item_count?: number | null
+    /**
+     * Declared result count.
+     * @nullable
+     */
+    expected_result_count?: number | null
+    /** Accepted items at failed completion. */
+    accepted_item_count?: number
+    /** Accepted results at failed completion. */
+    accepted_result_count?: number
+    /** All validation errors found in the request. */
+    errors?: OfflineEvaluationValidationErrorApi[]
+}
+
 export interface ExperimentSubmissionApi {
     /** Caller-generated experiment UUID. Reuse it for exact retries. */
     id: string
@@ -387,20 +552,6 @@ export interface ExperimentSubmissionApi {
     prompt_version?: string | null
 }
 
-/**
- * * `uploading` - Uploading
- * * `completed` - Completed
- * * `failed` - Failed
- */
-export type OfflineExperimentStatusEnumApi =
-    (typeof OfflineExperimentStatusEnumApi)[keyof typeof OfflineExperimentStatusEnumApi]
-
-export const OfflineExperimentStatusEnumApi = {
-    Uploading: 'uploading',
-    Completed: 'completed',
-    Failed: 'failed',
-} as const
-
 export interface ExperimentReceiptApi {
     /** Stable experiment UUID supplied at creation. */
     id: string
@@ -437,46 +588,257 @@ export interface ExperimentReceiptApi {
     accepted_result_count: number
 }
 
-export interface OfflineEvaluationValidationErrorApi {
-    /** Stable validation error code. */
-    code: string
-    /** Explanation of the invalid value. */
-    detail: string
+/**
+ * * `not_provided` - Not provided
+ * * `available` - Available
+ * * `expired` - Expired
+ */
+export type PayloadStateEnumApi = (typeof PayloadStateEnumApi)[keyof typeof PayloadStateEnumApi]
+
+export const PayloadStateEnumApi = {
+    NotProvided: 'not_provided',
+    Available: 'available',
+    Expired: 'expired',
+} as const
+
+/**
+ * * `ok` - OK
+ * * `error` - Error
+ * * `skipped` - Skipped
+ * * `not_applicable` - Not applicable
+ */
+export type OfflineEvaluationResultStatusEnumApi =
+    (typeof OfflineEvaluationResultStatusEnumApi)[keyof typeof OfflineEvaluationResultStatusEnumApi]
+
+export const OfflineEvaluationResultStatusEnumApi = {
+    Ok: 'ok',
+    Error: 'error',
+    Skipped: 'skipped',
+    NotApplicable: 'not_applicable',
+} as const
+
+export interface OfflineResultCellApi {
+    /** Stable result UUID. */
+    id: string
+    /** Item evaluated by this result. */
+    item_id: string
+    /** Evaluation outcome.
+     *
+     * * `ok` - OK
+     * * `error` - Error
+     * * `skipped` - Skipped
+     * * `not_applicable` - Not applicable */
+    status: OfflineEvaluationResultStatusEnumApi
+    /** Typed score for ok outcomes; null for other outcomes. */
+    value: number | boolean | string[] | null
     /**
-     * Invalid field path, with dot-separated fields and zero-based batch indexes.
+     * Optional evaluator error code.
      * @nullable
      */
-    attr: string | null
+    error_code: string | null
+    /**
+     * Optional evaluator trace navigation reference.
+     * @nullable
+     */
+    evaluator_trace_id: string | null
+    /**
+     * Caller-supplied evaluation time.
+     * @nullable
+     */
+    evaluated_at: string | null
+    /** Original server acceptance time. */
+    accepted_at: string
+    /** Result payload storage state.
+     *
+     * * `not_provided` - Not provided
+     * * `available` - Available
+     * * `expired` - Expired */
+    payload_state: PayloadStateEnumApi
+    /**
+     * Payload retention deadline; cleanup is not yet enabled.
+     * @nullable
+     */
+    payload_expires_at: string | null
+    /** Exact scorer-version UUID in the item page's scorer_versions list. */
+    scorer_version_id: string
 }
 
-export interface OfflineEvaluationErrorApi {
-    /** Error category for standard API errors. */
-    type?: string
-    /** Stable error code. */
-    code: string
-    /** Explanation of the rejected request. */
-    detail: string
+export interface OfflineItemReadApi {
+    /** Stable item UUID. */
+    id: string
+    /** Owning experiment UUID. */
+    experiment_id: string
     /**
-     * Invalid field, including batch entry index.
+     * Optional stable case identifier.
      * @nullable
      */
-    attr?: string | null
+    case_key: string | null
     /**
-     * Declared item count.
+     * Optional trial identifier within a case.
      * @nullable
      */
-    expected_item_count?: number | null
+    trial: string | null
     /**
-     * Declared result count.
+     * Durable dataset item identifier.
      * @nullable
      */
-    expected_result_count?: number | null
-    /** Accepted items at failed completion. */
-    accepted_item_count?: number
-    /** Accepted results at failed completion. */
-    accepted_result_count?: number
-    /** All validation errors found in the request. */
-    errors?: OfflineEvaluationValidationErrorApi[]
+    dataset_item_identifier: string | null
+    /**
+     * Durable dataset item-version identifier.
+     * @nullable
+     */
+    dataset_item_version_identifier: string | null
+    /**
+     * Optional hosted item-version navigation reference.
+     * @nullable
+     */
+    dataset_item_version_id: string | null
+    /**
+     * Optional application trace navigation reference.
+     * @nullable
+     */
+    application_trace_id: string | null
+    /** Original server acceptance time. */
+    accepted_at: string
+    /** Item payload storage state.
+     *
+     * * `not_provided` - Not provided
+     * * `available` - Available
+     * * `expired` - Expired */
+    payload_state: PayloadStateEnumApi
+    /**
+     * Payload retention deadline; cleanup is not yet enabled.
+     * @nullable
+     */
+    payload_expires_at: string | null
+    /** Cells for explicitly selected scorer versions; empty when none selected. */
+    results: OfflineResultCellApi[]
+}
+
+/**
+ * * `categorical` - categorical
+ * * `numeric` - numeric
+ * * `boolean` - boolean
+ */
+export type ScoreDefinitionKindEnumApi = (typeof ScoreDefinitionKindEnumApi)[keyof typeof ScoreDefinitionKindEnumApi]
+
+export const ScoreDefinitionKindEnumApi = {
+    Categorical: 'categorical',
+    Numeric: 'numeric',
+    Boolean: 'boolean',
+} as const
+
+export interface CategoricalScoreOptionApi {
+    /**
+     * Stable option key. Use lowercase letters, numbers, underscores, or hyphens.
+     * @maxLength 128
+     */
+    key: string
+    /**
+     * Human-readable option label.
+     * @maxLength 256
+     */
+    label: string
+}
+
+/**
+ * * `single` - single
+ * * `multiple` - multiple
+ */
+export type SelectionModeEnumApi = (typeof SelectionModeEnumApi)[keyof typeof SelectionModeEnumApi]
+
+export const SelectionModeEnumApi = {
+    Single: 'single',
+    Multiple: 'multiple',
+} as const
+
+export interface CategoricalScoreDefinitionConfigApi {
+    /** Ordered categorical options available to the scorer. */
+    options: CategoricalScoreOptionApi[]
+    /** Whether reviewers can select one option or multiple options. Defaults to `single`.
+     *
+     * * `single` - single
+     * * `multiple` - multiple */
+    selection_mode?: SelectionModeEnumApi
+    /**
+     * Optional minimum number of options that can be selected when `selection_mode` is `multiple`.
+     * @minimum 1
+     * @nullable
+     */
+    min_selections?: number | null
+    /**
+     * Optional maximum number of options that can be selected when `selection_mode` is `multiple`.
+     * @minimum 1
+     * @nullable
+     */
+    max_selections?: number | null
+}
+
+export interface NumericScoreDefinitionConfigApi {
+    /**
+     * Optional inclusive minimum score.
+     * @nullable
+     */
+    min?: number | null
+    /**
+     * Optional inclusive maximum score.
+     * @nullable
+     */
+    max?: number | null
+    /**
+     * Optional increment step for numeric input, for example 1 or 0.5.
+     * @nullable
+     */
+    step?: number | null
+}
+
+export interface BooleanScoreDefinitionConfigApi {
+    /** Optional label for a true value. */
+    true_label?: string
+    /** Optional label for a false value. */
+    false_label?: string
+}
+
+export type ScoreDefinitionConfigApi =
+    | CategoricalScoreDefinitionConfigApi
+    | NumericScoreDefinitionConfigApi
+    | BooleanScoreDefinitionConfigApi
+
+export interface OfflineScorerVersionReadApi {
+    /** Exact immutable scorer-version UUID. */
+    id: string
+    /** Stable scorer definition UUID. */
+    definition_id: string
+    /** Version number within the definition. */
+    version: number
+    /** Scorer value kind.
+     *
+     * * `categorical` - categorical
+     * * `numeric` - numeric
+     * * `boolean` - boolean */
+    kind: ScoreDefinitionKindEnumApi
+    /** Current scorer display name. */
+    name: string
+    /** Current scorer description. */
+    description: string
+    /** Whether the scorer is archived. */
+    archived: boolean
+    /** Pinned immutable configuration used to interpret these results. */
+    config: ScoreDefinitionConfigApi
+}
+
+export interface OfflineItemPageApi {
+    /** Total authorized rows matching the filters, independent of this page. */
+    count: number
+    /**
+     * Continuation cursor, or null after the final page.
+     * @nullable
+     */
+    next_cursor: string | null
+    /** Item page. */
+    results: OfflineItemReadApi[]
+    /** Selected scorer versions, each returned once, including versions with no results. */
+    scorer_versions: OfflineScorerVersionReadApi[]
 }
 
 export type OfflineExperimentItemPayloadInputApiInput =
@@ -514,6 +876,200 @@ export interface OfflineExperimentItemPayloadInputApi {
     expected_output?: OfflineExperimentItemPayloadInputApiExpectedOutput
     /** @nullable */
     metadata?: OfflineExperimentItemPayloadInputApiMetadata
+}
+
+export interface OfflineItemPayloadReadApi {
+    /** Owning item UUID. */
+    id: string
+    /** Durable payload storage state.
+     *
+     * * `not_provided` - Not provided
+     * * `available` - Available
+     * * `expired` - Expired */
+    payload_state: PayloadStateEnumApi
+    /**
+     * Payload retention deadline.
+     * @nullable
+     */
+    payload_expires_at: string | null
+    /** Whether the stored payload is currently available. */
+    available: boolean
+    /** Stored item payload, preserving omitted properties and JSON null; null if unavailable. */
+    data: OfflineExperimentItemPayloadInputApi | null
+}
+
+export interface OfflineResultReadApi {
+    /** Stable result UUID. */
+    id: string
+    /** Item evaluated by this result. */
+    item_id: string
+    /** Evaluation outcome.
+     *
+     * * `ok` - OK
+     * * `error` - Error
+     * * `skipped` - Skipped
+     * * `not_applicable` - Not applicable */
+    status: OfflineEvaluationResultStatusEnumApi
+    /** Typed score for ok outcomes; null for other outcomes. */
+    value: number | boolean | string[] | null
+    /**
+     * Optional evaluator error code.
+     * @nullable
+     */
+    error_code: string | null
+    /**
+     * Optional evaluator trace navigation reference.
+     * @nullable
+     */
+    evaluator_trace_id: string | null
+    /**
+     * Caller-supplied evaluation time.
+     * @nullable
+     */
+    evaluated_at: string | null
+    /** Original server acceptance time. */
+    accepted_at: string
+    /** Result payload storage state.
+     *
+     * * `not_provided` - Not provided
+     * * `available` - Available
+     * * `expired` - Expired */
+    payload_state: PayloadStateEnumApi
+    /**
+     * Payload retention deadline; cleanup is not yet enabled.
+     * @nullable
+     */
+    payload_expires_at: string | null
+    /** Pinned scorer version. */
+    scorer: OfflineScorerVersionReadApi
+}
+
+export interface OfflineResultPageApi {
+    /** Total authorized rows matching the filters, independent of this page. */
+    count: number
+    /**
+     * Continuation cursor, or null after the final page.
+     * @nullable
+     */
+    next_cursor: string | null
+    /** Result page. */
+    results: OfflineResultReadApi[]
+}
+
+/**
+ * @nullable
+ */
+export type OfflineEvaluationResultPayloadInputApiMetadata = { [key: string]: unknown } | null
+
+export interface OfflineEvaluationResultPayloadInputApi {
+    /** @nullable */
+    reasoning?: string | null
+    /** @nullable */
+    error_message?: string | null
+    /** @nullable */
+    metadata?: OfflineEvaluationResultPayloadInputApiMetadata
+}
+
+export interface OfflineResultPayloadReadApi {
+    /** Owning result UUID. */
+    id: string
+    /** Durable payload storage state.
+     *
+     * * `not_provided` - Not provided
+     * * `available` - Available
+     * * `expired` - Expired */
+    payload_state: PayloadStateEnumApi
+    /**
+     * Payload retention deadline.
+     * @nullable
+     */
+    payload_expires_at: string | null
+    /** Whether the stored payload is currently available. */
+    available: boolean
+    /** Stored reasoning/error payload; null if unavailable. */
+    data: OfflineEvaluationResultPayloadInputApi | null
+}
+
+export interface OfflineStatusCountsApi {
+    /** Successful results. */
+    ok: number
+    /** Evaluator errors. */
+    error: number
+    /** Skipped evaluations. */
+    skipped: number
+    /** Not-applicable evaluations. */
+    not_applicable: number
+}
+
+export interface OfflineCategorySummaryApi {
+    /** Category key from the pinned configuration. */
+    key: string
+    /** Successful results selecting this category. */
+    count: number
+    /**
+     * Selection count divided by successful result count; null with no successes.
+     * @nullable
+     */
+    rate: number | null
+    /** Category label from the pinned configuration. */
+    label: string
+}
+
+export interface OfflineScorerSummaryApi {
+    /** Exact scorer version summarized. */
+    scorer: OfflineScorerVersionReadApi
+    /** All observed experiment items, independent of scorer selection or item pagination. */
+    observed_item_count: number
+    /** Submitted results for this scorer version, across all statuses. */
+    result_count: number
+    /** Counts for each submitted outcome. */
+    status_counts: OfflineStatusCountsApi
+    /** Observed items without a result for this version; not the number of all intended missing items. */
+    missing_result_count: number
+    /** Distinct non-null case keys in observed items. */
+    distinct_case_count: number
+    /** Observed items with case keys. */
+    items_with_case_key_count: number
+    /** Observed items without case keys. */
+    items_without_case_key_count: number
+    /** Observed items with trial identifiers. */
+    trial_item_count: number
+    /** Distinct case/trial identities; trial-only items remain independent. */
+    distinct_trial_count: number
+    /**
+     * Numeric mean of successful scores only; null for other kinds or no successes.
+     * @nullable
+     */
+    mean: number | null
+    /**
+     * Successful boolean true results; null for other kinds.
+     * @nullable
+     */
+    true_count: number | null
+    /**
+     * Successful boolean false results; null for other kinds.
+     * @nullable
+     */
+    false_count: number | null
+    /**
+     * Boolean true fraction among successes; null with no successes or for other kinds.
+     * @nullable
+     */
+    true_rate: number | null
+    /** Pinned categorical distribution; multiselect rates may sum above one. */
+    categories: OfflineCategorySummaryApi[]
+}
+
+export interface OfflineSummaryPageApi {
+    /** Total authorized rows matching the filters, independent of this page. */
+    count: number
+    /**
+     * Continuation cursor, or null after the final page.
+     * @nullable
+     */
+    next_cursor: string | null
+    /** Scorer-version summary page; each group includes all matching results. */
+    results: OfflineScorerSummaryApi[]
 }
 
 export interface ItemSubmissionApi {
@@ -556,36 +1112,6 @@ export interface ItemSubmissionApi {
     application_trace_id?: string | null
     /** Optional input/output payload, up to 1 MiB and 32 JSON levels. Omission, {} and null properties differ. */
     payload?: OfflineExperimentItemPayloadInputApi
-}
-
-/**
- * * `ok` - OK
- * * `error` - Error
- * * `skipped` - Skipped
- * * `not_applicable` - Not applicable
- */
-export type OfflineEvaluationResultStatusEnumApi =
-    (typeof OfflineEvaluationResultStatusEnumApi)[keyof typeof OfflineEvaluationResultStatusEnumApi]
-
-export const OfflineEvaluationResultStatusEnumApi = {
-    Ok: 'ok',
-    Error: 'error',
-    Skipped: 'skipped',
-    NotApplicable: 'not_applicable',
-} as const
-
-/**
- * @nullable
- */
-export type OfflineEvaluationResultPayloadInputApiMetadata = { [key: string]: unknown } | null
-
-export interface OfflineEvaluationResultPayloadInputApi {
-    /** @nullable */
-    reasoning?: string | null
-    /** @nullable */
-    error_message?: string | null
-    /** @nullable */
-    metadata?: OfflineEvaluationResultPayloadInputApiMetadata
 }
 
 export interface ResultSubmissionApi {
@@ -664,6 +1190,25 @@ export interface UploadReceiptApi {
     items: ItemReceiptApi[]
     /** Acknowledgments in the submitted result order. */
     results: ResultReceiptApi[]
+}
+
+export interface OfflineHistoryPointApi {
+    /** Experiment execution and cohort context. */
+    experiment: OfflineExperimentReadApi
+    /** Complete summary for one experiment and scorer version. */
+    summary: OfflineScorerSummaryApi
+}
+
+export interface OfflineHistoryPageApi {
+    /** Total authorized rows matching the filters, independent of this page. */
+    count: number
+    /**
+     * Continuation cursor, or null after the final page.
+     * @nullable
+     */
+    next_cursor: string | null
+    /** Experiment/scorer-version history page. */
+    results: OfflineHistoryPointApi[]
 }
 
 export type DatasetJSONValueApi = { [key: string]: unknown } | unknown[] | string | number | boolean
@@ -1189,6 +1734,7 @@ export const EvaluationTypeEnumApi = {
 /**
  * * `boolean` - Boolean (Pass/Fail)
  * * `numeric` - Numeric
+ * * `categorical` - Categorical
  * * `sentiment` - Sentiment
  */
 export type OutputTypeEnumApi = (typeof OutputTypeEnumApi)[keyof typeof OutputTypeEnumApi]
@@ -1196,7 +1742,19 @@ export type OutputTypeEnumApi = (typeof OutputTypeEnumApi)[keyof typeof OutputTy
 export const OutputTypeEnumApi = {
     Boolean: 'boolean',
     Numeric: 'numeric',
+    Categorical: 'categorical',
     Sentiment: 'sentiment',
+} as const
+
+/**
+ * Select one category or multiple categories. Multiple selection allows an empty result. Defaults to single.
+ */
+export type EvaluationApiOutputConfigSelectionMode =
+    (typeof EvaluationApiOutputConfigSelectionMode)[keyof typeof EvaluationApiOutputConfigSelectionMode]
+
+export const EvaluationApiOutputConfigSelectionMode = {
+    Single: 'single',
+    Multiple: 'multiple',
 } as const
 
 export type EvaluationConditionApiPropertiesItem = { [key: string]: unknown }
@@ -1289,7 +1847,7 @@ export type EvaluationApiEvaluationConfig =
       }
     | {
           /**
-           * Hog source code. Must return a boolean or a finite number matching output_type, or null for allowed N/A. Output settings determine which boolean counts as a failure.
+           * Hog source code. Return a boolean, finite number, or category keys matching output_type. Categorical single selection accepts one key or a one-item list; multiple selection accepts a list, including []. Return null only for allowed N/A. Output settings determine which boolean counts as a failure.
            * @minLength 1
            */
           source: string
@@ -1299,24 +1857,45 @@ export type EvaluationApiEvaluationConfig =
           source?: 'user_messages'
       }
 
-/**
- * Optional numeric passing rule. Null removes the rule; historical scores use the current rule.
- * @nullable
- */
-export type EvaluationApiOutputConfigPassingRule = {
-    /** Pass at or above (gte), or at or below (lte), the threshold. */
-    operator: 'gte' | 'lte'
-    /** Finite passing threshold within any configured score bounds. */
-    threshold: number
-} | null
+export type EvaluationApiOutputConfigOptionsItem = {
+    /**
+     * Stable category key.
+     * @minLength 1
+     * @maxLength 128
+     * @pattern ^[a-z0-9]+(?:[_-][a-z0-9]+)*$
+     */
+    key: string
+    /**
+     * Category display label.
+     * @minLength 1
+     * @maxLength 256
+     */
+    label: string
+}
 
 /**
- * Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': only min/max/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. Do not send true_is_failure for numeric output. For 'sentiment': {}.
+ * Optional numeric or categorical passing rule. Null removes the rule; historical results use the current rule.
+ */
+export type EvaluationApiOutputConfigPassingRule =
+    | {
+          /** Pass at or above (gte), or at or below (lte), the threshold. */
+          operator: 'gte' | 'lte'
+          /** Finite passing threshold within any configured score bounds. */
+          threshold: number
+      }
+    | {
+          /** Passing category keys. With keys selected, results must be non-empty and contain only these keys. If no passing keys are selected, only an empty result passes. */
+          categories: string[]
+      }
+    | null
+
+/**
+ * Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': only min/max/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. For 'categorical': options [{key, label}], selection_mode (single or multiple), allows_na, and optional passing_rule {categories: [key]}. Do not send true_is_failure for numeric or categorical output. For 'sentiment': {}.
  */
 export type EvaluationApiOutputConfig = {
     /** Whether the evaluation can return N/A for non-applicable generations. */
     allows_na?: boolean
-    /** Boolean output only. Omit for numeric and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
+    /** Boolean output only. Omit for numeric, categorical, and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
     true_is_failure?: boolean
     /**
      * Inclusive minimum numeric score. Omit for no lower bound.
@@ -1336,9 +1915,14 @@ export type EvaluationApiOutputConfig = {
      */
     step?: number | null
     /**
-     * Optional numeric passing rule. Null removes the rule; historical scores use the current rule.
-     * @nullable
+     * Categorical output options. Keys identify stored results; labels are displayed to users.
+     * @minItems 1
+     * @maxItems 100
      */
+    options?: EvaluationApiOutputConfigOptionsItem[]
+    /** Select one category or multiple categories. Multiple selection allows an empty result. Defaults to single. */
+    selection_mode?: EvaluationApiOutputConfigSelectionMode
+    /** Optional numeric or categorical passing rule. Null removes the rule; historical results use the current rule. */
     passing_rule?: EvaluationApiOutputConfigPassingRule
 }
 
@@ -1407,13 +1991,14 @@ export interface EvaluationApi {
     evaluation_type: EvaluationTypeEnumApi
     /** Configuration dict. For 'llm_judge': {prompt}; for 'hog': {source}; for 'sentiment': {source: 'user_messages'}. */
     evaluation_config?: EvaluationApiEvaluationConfig
-    /** Output format: 'boolean', 'numeric' for a finite score, or 'sentiment' for sentiment analysis.
+    /** Output format: 'boolean', 'numeric' for a finite score, 'categorical' for category keys, or 'sentiment' for sentiment analysis.
      *
      * * `boolean` - Boolean (Pass/Fail)
      * * `numeric` - Numeric
+     * * `categorical` - Categorical
      * * `sentiment` - Sentiment */
     output_type: OutputTypeEnumApi
-    /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': only min/max/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. Do not send true_is_failure for numeric output. For 'sentiment': {}. */
+    /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': only min/max/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. For 'categorical': options [{key, label}], selection_mode (single or multiple), allows_na, and optional passing_rule {categories: [key]}. Do not send true_is_failure for numeric or categorical output. For 'sentiment': {}. */
     output_config?: EvaluationApiOutputConfig
     /** Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads. */
     conditions?: EvaluationConditionApi[]
@@ -1498,12 +2083,14 @@ export interface EvaluationBackfillApi {
     readonly conditions: readonly EvaluationBackfillConditionApi[]
     /** Whether units with an existing result are evaluated again. */
     readonly rerun_existing: boolean
-    /** Units matched at creation; the ceiling on dispatched_count. */
+    /** Units matched at creation. Units that land in the window later can take dispatched_count and skipped_count past it. */
     readonly total_count: number
     /** Units the backfill has started an evaluation for so far. */
     readonly dispatched_count: number
     /** Units the live path had already covered, so nothing was dispatched. */
     readonly skipped_count: number
+    /** Units whose evaluation failed to start. They have no result and count toward remaining_count. */
+    readonly failed_count: number
     /**
      * Units still holding no result when the run finished, counted at that moment. Zero means the window is covered, whoever graded it.
      * @nullable
@@ -1570,7 +2157,7 @@ export type PatchedEvaluationApiEvaluationConfig =
       }
     | {
           /**
-           * Hog source code. Must return a boolean or a finite number matching output_type, or null for allowed N/A. Output settings determine which boolean counts as a failure.
+           * Hog source code. Return a boolean, finite number, or category keys matching output_type. Categorical single selection accepts one key or a one-item list; multiple selection accepts a list, including []. Return null only for allowed N/A. Output settings determine which boolean counts as a failure.
            * @minLength 1
            */
           source: string
@@ -1580,24 +2167,56 @@ export type PatchedEvaluationApiEvaluationConfig =
           source?: 'user_messages'
       }
 
-/**
- * Optional numeric passing rule. Null removes the rule; historical scores use the current rule.
- * @nullable
- */
-export type PatchedEvaluationApiOutputConfigPassingRule = {
-    /** Pass at or above (gte), or at or below (lte), the threshold. */
-    operator: 'gte' | 'lte'
-    /** Finite passing threshold within any configured score bounds. */
-    threshold: number
-} | null
+export type PatchedEvaluationApiOutputConfigOptionsItem = {
+    /**
+     * Stable category key.
+     * @minLength 1
+     * @maxLength 128
+     * @pattern ^[a-z0-9]+(?:[_-][a-z0-9]+)*$
+     */
+    key: string
+    /**
+     * Category display label.
+     * @minLength 1
+     * @maxLength 256
+     */
+    label: string
+}
 
 /**
- * Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': only min/max/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. Do not send true_is_failure for numeric output. For 'sentiment': {}.
+ * Select one category or multiple categories. Multiple selection allows an empty result. Defaults to single.
+ */
+export type PatchedEvaluationApiOutputConfigSelectionMode =
+    (typeof PatchedEvaluationApiOutputConfigSelectionMode)[keyof typeof PatchedEvaluationApiOutputConfigSelectionMode]
+
+export const PatchedEvaluationApiOutputConfigSelectionMode = {
+    Single: 'single',
+    Multiple: 'multiple',
+} as const
+
+/**
+ * Optional numeric or categorical passing rule. Null removes the rule; historical results use the current rule.
+ */
+export type PatchedEvaluationApiOutputConfigPassingRule =
+    | {
+          /** Pass at or above (gte), or at or below (lte), the threshold. */
+          operator: 'gte' | 'lte'
+          /** Finite passing threshold within any configured score bounds. */
+          threshold: number
+      }
+    | {
+          /** Passing category keys. With keys selected, results must be non-empty and contain only these keys. If no passing keys are selected, only an empty result passes. */
+          categories: string[]
+      }
+    | null
+
+/**
+ * Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': only min/max/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. For 'categorical': options [{key, label}], selection_mode (single or multiple), allows_na, and optional passing_rule {categories: [key]}. Do not send true_is_failure for numeric or categorical output. For 'sentiment': {}.
  */
 export type PatchedEvaluationApiOutputConfig = {
     /** Whether the evaluation can return N/A for non-applicable generations. */
     allows_na?: boolean
-    /** Boolean output only. Omit for numeric and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
+    /** Boolean output only. Omit for numeric, categorical, and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
     true_is_failure?: boolean
     /**
      * Inclusive minimum numeric score. Omit for no lower bound.
@@ -1617,9 +2236,14 @@ export type PatchedEvaluationApiOutputConfig = {
      */
     step?: number | null
     /**
-     * Optional numeric passing rule. Null removes the rule; historical scores use the current rule.
-     * @nullable
+     * Categorical output options. Keys identify stored results; labels are displayed to users.
+     * @minItems 1
+     * @maxItems 100
      */
+    options?: PatchedEvaluationApiOutputConfigOptionsItem[]
+    /** Select one category or multiple categories. Multiple selection allows an empty result. Defaults to single. */
+    selection_mode?: PatchedEvaluationApiOutputConfigSelectionMode
+    /** Optional numeric or categorical passing rule. Null removes the rule; historical results use the current rule. */
     passing_rule?: PatchedEvaluationApiOutputConfigPassingRule
 }
 
@@ -1688,13 +2312,14 @@ export interface PatchedEvaluationApi {
     evaluation_type?: EvaluationTypeEnumApi
     /** Configuration dict. For 'llm_judge': {prompt}; for 'hog': {source}; for 'sentiment': {source: 'user_messages'}. */
     evaluation_config?: PatchedEvaluationApiEvaluationConfig
-    /** Output format: 'boolean', 'numeric' for a finite score, or 'sentiment' for sentiment analysis.
+    /** Output format: 'boolean', 'numeric' for a finite score, 'categorical' for category keys, or 'sentiment' for sentiment analysis.
      *
      * * `boolean` - Boolean (Pass/Fail)
      * * `numeric` - Numeric
+     * * `categorical` - Categorical
      * * `sentiment` - Sentiment */
     output_type?: OutputTypeEnumApi
-    /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': only min/max/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. Do not send true_is_failure for numeric output. For 'sentiment': {}. */
+    /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': only min/max/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. For 'categorical': options [{key, label}], selection_mode (single or multiple), allows_na, and optional passing_rule {categories: [key]}. Do not send true_is_failure for numeric or categorical output. For 'sentiment': {}. */
     output_config?: PatchedEvaluationApiOutputConfig
     /** Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads. */
     conditions?: EvaluationConditionApi[]
@@ -1721,24 +2346,56 @@ export interface PatchedEvaluationApi {
     readonly user_access_level?: string | null
 }
 
-/**
- * Optional numeric passing rule. Null removes the rule; historical scores use the current rule.
- * @nullable
- */
-export type TestHogRequestApiOutputConfigPassingRule = {
-    /** Pass at or above (gte), or at or below (lte), the threshold. */
-    operator: 'gte' | 'lte'
-    /** Finite passing threshold within any configured score bounds. */
-    threshold: number
-} | null
+export type TestHogRequestApiOutputConfigOptionsItem = {
+    /**
+     * Stable category key.
+     * @minLength 1
+     * @maxLength 128
+     * @pattern ^[a-z0-9]+(?:[_-][a-z0-9]+)*$
+     */
+    key: string
+    /**
+     * Category display label.
+     * @minLength 1
+     * @maxLength 256
+     */
+    label: string
+}
 
 /**
- * Output settings used to validate the preview, including numeric bounds and allows_na.
+ * Select one category or multiple categories. Multiple selection allows an empty result. Defaults to single.
+ */
+export type TestHogRequestApiOutputConfigSelectionMode =
+    (typeof TestHogRequestApiOutputConfigSelectionMode)[keyof typeof TestHogRequestApiOutputConfigSelectionMode]
+
+export const TestHogRequestApiOutputConfigSelectionMode = {
+    Single: 'single',
+    Multiple: 'multiple',
+} as const
+
+/**
+ * Optional numeric or categorical passing rule. Null removes the rule; historical results use the current rule.
+ */
+export type TestHogRequestApiOutputConfigPassingRule =
+    | {
+          /** Pass at or above (gte), or at or below (lte), the threshold. */
+          operator: 'gte' | 'lte'
+          /** Finite passing threshold within any configured score bounds. */
+          threshold: number
+      }
+    | {
+          /** Passing category keys. With keys selected, results must be non-empty and contain only these keys. If no passing keys are selected, only an empty result passes. */
+          categories: string[]
+      }
+    | null
+
+/**
+ * Output settings used to validate the preview, including bounds, categories, and allows_na.
  */
 export type TestHogRequestApiOutputConfig = {
     /** Whether the evaluation can return N/A for non-applicable generations. */
     allows_na?: boolean
-    /** Boolean output only. Omit for numeric and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
+    /** Boolean output only. Omit for numeric, categorical, and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
     true_is_failure?: boolean
     /**
      * Inclusive minimum numeric score. Omit for no lower bound.
@@ -1758,9 +2415,14 @@ export type TestHogRequestApiOutputConfig = {
      */
     step?: number | null
     /**
-     * Optional numeric passing rule. Null removes the rule; historical scores use the current rule.
-     * @nullable
+     * Categorical output options. Keys identify stored results; labels are displayed to users.
+     * @minItems 1
+     * @maxItems 100
      */
+    options?: TestHogRequestApiOutputConfigOptionsItem[]
+    /** Select one category or multiple categories. Multiple selection allows an empty result. Defaults to single. */
+    selection_mode?: TestHogRequestApiOutputConfigSelectionMode
+    /** Optional numeric or categorical passing rule. Null removes the rule; historical results use the current rule. */
     passing_rule?: TestHogRequestApiOutputConfigPassingRule
 }
 
@@ -1769,6 +2431,7 @@ export type TestHogRequestApiConditionsItem = { [key: string]: unknown }
 /**
  * * `boolean` - Boolean (Pass/Fail)
  * * `numeric` - Numeric
+ * * `categorical` - Categorical
  */
 export type HogEvaluationOutputTypeEnumApi =
     (typeof HogEvaluationOutputTypeEnumApi)[keyof typeof HogEvaluationOutputTypeEnumApi]
@@ -1776,6 +2439,7 @@ export type HogEvaluationOutputTypeEnumApi =
 export const HogEvaluationOutputTypeEnumApi = {
     Boolean: 'boolean',
     Numeric: 'numeric',
+    Categorical: 'categorical',
 } as const
 
 export interface TestHogTargetConfigApi {
@@ -1794,15 +2458,16 @@ export interface TestHogTargetConfigApi {
 }
 
 export interface TestHogRequestApi {
-    /** Expected output: boolean or numeric. Sentiment is not supported by Hog.
+    /** Expected output: boolean, numeric, or categorical. Sentiment is not supported by Hog.
      *
      * * `boolean` - Boolean (Pass/Fail)
-     * * `numeric` - Numeric */
+     * * `numeric` - Numeric
+     * * `categorical` - Categorical */
     output_type?: HogEvaluationOutputTypeEnumApi
-    /** Output settings used to validate the preview, including numeric bounds and allows_na. */
+    /** Output settings used to validate the preview, including bounds, categories, and allows_na. */
     output_config?: TestHogRequestApiOutputConfig
     /**
-     * Hog source code to test. Must return a boolean or a finite number matching output_type, or null for allowed N/A. Output settings determine which boolean counts as a failure.
+     * Hog source code to test. Return a boolean, finite number, or category keys matching output_type. Categorical single selection accepts one key or a one-item list; multiple selection accepts a list, including []. Return null only for allowed N/A. Output settings determine which boolean counts as a failure.
      * @minLength 1
      */
     source: string
@@ -1827,6 +2492,11 @@ export interface TestHogRequestApi {
 }
 
 export interface TestHogResultItemApi {
+    /**
+     * Selected category keys. An empty list is an applicable result; null means no categorical result was produced.
+     * @nullable
+     */
+    categories?: string[] | null
     /**
      * Raw numeric score, or null when no numeric score was produced.
      * @nullable
@@ -2399,23 +3069,55 @@ export const GenerationStatusEnumApi = {
 } as const
 
 /**
- * Optional numeric passing rule. Null removes the rule; historical scores use the current rule.
- * @nullable
+ * Select one category or multiple categories. Multiple selection allows an empty result. Defaults to single.
  */
-export type EvaluationReportMetricsApiOutputConfigPassingRule = {
-    /** Pass at or above (gte), or at or below (lte), the threshold. */
-    operator: 'gte' | 'lte'
-    /** Finite passing threshold within any configured score bounds. */
-    threshold: number
-} | null
+export type EvaluationReportMetricsApiOutputConfigSelectionMode =
+    (typeof EvaluationReportMetricsApiOutputConfigSelectionMode)[keyof typeof EvaluationReportMetricsApiOutputConfigSelectionMode]
+
+export const EvaluationReportMetricsApiOutputConfigSelectionMode = {
+    Single: 'single',
+    Multiple: 'multiple',
+} as const
+
+export type EvaluationReportMetricsApiOutputConfigOptionsItem = {
+    /**
+     * Stable category key.
+     * @minLength 1
+     * @maxLength 128
+     * @pattern ^[a-z0-9]+(?:[_-][a-z0-9]+)*$
+     */
+    key: string
+    /**
+     * Category display label.
+     * @minLength 1
+     * @maxLength 256
+     */
+    label: string
+}
 
 /**
- * Numeric score configuration and passing rule used for both report periods.
+ * Optional numeric or categorical passing rule. Null removes the rule; historical results use the current rule.
+ */
+export type EvaluationReportMetricsApiOutputConfigPassingRule =
+    | {
+          /** Pass at or above (gte), or at or below (lte), the threshold. */
+          operator: 'gte' | 'lte'
+          /** Finite passing threshold within any configured score bounds. */
+          threshold: number
+      }
+    | {
+          /** Passing category keys. With keys selected, results must be non-empty and contain only these keys. If no passing keys are selected, only an empty result passes. */
+          categories: string[]
+      }
+    | null
+
+/**
+ * Output configuration and passing rule used for both report periods.
  */
 export type EvaluationReportMetricsApiOutputConfig = {
     /** Whether the evaluation can return N/A for non-applicable generations. */
     allows_na?: boolean
-    /** Boolean output only. Omit for numeric and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
+    /** Boolean output only. Omit for numeric, categorical, and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
     true_is_failure?: boolean
     /**
      * Inclusive minimum numeric score. Omit for no lower bound.
@@ -2435,9 +3137,14 @@ export type EvaluationReportMetricsApiOutputConfig = {
      */
     step?: number | null
     /**
-     * Optional numeric passing rule. Null removes the rule; historical scores use the current rule.
-     * @nullable
+     * Categorical output options. Keys identify stored results; labels are displayed to users.
+     * @minItems 1
+     * @maxItems 100
      */
+    options?: EvaluationReportMetricsApiOutputConfigOptionsItem[]
+    /** Select one category or multiple categories. Multiple selection allows an empty result. Defaults to single. */
+    selection_mode?: EvaluationReportMetricsApiOutputConfigSelectionMode
+    /** Optional numeric or categorical passing rule. Null removes the rule; historical results use the current rule. */
     passing_rule?: EvaluationReportMetricsApiOutputConfigPassingRule
 }
 
@@ -2464,12 +3171,13 @@ export type EvaluationReportMetricsApiPreviousResultCounts = { [key: string]: nu
 export type EvaluationReportMetricsApiPreviousResultRates = { [key: string]: number } | null
 
 export interface EvaluationReportMetricsApi {
-    /** Numeric score configuration and passing rule used for both report periods. */
+    /** Output configuration and passing rule used for both report periods. */
     output_config?: EvaluationReportMetricsApiOutputConfig
     /** Evaluation result type. Stored metrics without this field represent boolean evaluations.
      *
      * * `boolean` - Boolean (Pass/Fail)
      * * `numeric` - Numeric
+     * * `categorical` - Categorical
      * * `sentiment` - Sentiment */
     output_type?: OutputTypeEnumApi
     /** Number of evaluation results in the report period. */
@@ -2498,12 +3206,12 @@ export interface EvaluationReportMetricsApi {
      */
     previous_result_rates?: EvaluationReportMetricsApiPreviousResultRates
     /**
-     * Boolean or numeric pass percentage, excluding N/A results. Null when no numeric scores were produced.
+     * Pass percentage excluding N/A. With no applicable results, numeric and categorical reports return null; boolean reports return 0.
      * @nullable
      */
     pass_rate?: number | null
     /**
-     * Boolean or numeric pass percentage for the previous period, or null when unavailable.
+     * Pass percentage for boolean, numeric, or categorical results in the previous period, or null when unavailable.
      * @nullable
      */
     previous_pass_rate?: number | null
@@ -2804,95 +3512,6 @@ export interface PatchedReviewQueueUpdateApi {
     name?: string
 }
 
-/**
- * * `categorical` - categorical
- * * `numeric` - numeric
- * * `boolean` - boolean
- */
-export type ScoreDefinitionKindEnumApi = (typeof ScoreDefinitionKindEnumApi)[keyof typeof ScoreDefinitionKindEnumApi]
-
-export const ScoreDefinitionKindEnumApi = {
-    Categorical: 'categorical',
-    Numeric: 'numeric',
-    Boolean: 'boolean',
-} as const
-
-export interface CategoricalScoreOptionApi {
-    /**
-     * Stable option key. Use lowercase letters, numbers, underscores, or hyphens.
-     * @maxLength 128
-     */
-    key: string
-    /**
-     * Human-readable option label.
-     * @maxLength 256
-     */
-    label: string
-}
-
-/**
- * * `single` - single
- * * `multiple` - multiple
- */
-export type SelectionModeEnumApi = (typeof SelectionModeEnumApi)[keyof typeof SelectionModeEnumApi]
-
-export const SelectionModeEnumApi = {
-    Single: 'single',
-    Multiple: 'multiple',
-} as const
-
-export interface CategoricalScoreDefinitionConfigApi {
-    /** Ordered categorical options available to the scorer. */
-    options: CategoricalScoreOptionApi[]
-    /** Whether reviewers can select one option or multiple options. Defaults to `single`.
-     *
-     * * `single` - single
-     * * `multiple` - multiple */
-    selection_mode?: SelectionModeEnumApi
-    /**
-     * Optional minimum number of options that can be selected when `selection_mode` is `multiple`.
-     * @minimum 1
-     * @nullable
-     */
-    min_selections?: number | null
-    /**
-     * Optional maximum number of options that can be selected when `selection_mode` is `multiple`.
-     * @minimum 1
-     * @nullable
-     */
-    max_selections?: number | null
-}
-
-export interface NumericScoreDefinitionConfigApi {
-    /**
-     * Optional inclusive minimum score.
-     * @nullable
-     */
-    min?: number | null
-    /**
-     * Optional inclusive maximum score.
-     * @nullable
-     */
-    max?: number | null
-    /**
-     * Optional increment step for numeric input, for example 1 or 0.5.
-     * @nullable
-     */
-    step?: number | null
-}
-
-export interface BooleanScoreDefinitionConfigApi {
-    /** Optional label for a true value. */
-    true_label?: string
-    /** Optional label for a false value. */
-    false_label?: string
-}
-
-export type ScoreDefinitionConfigApi =
-    | CategoricalScoreDefinitionConfigApi
-    | NumericScoreDefinitionConfigApi
-    | BooleanScoreDefinitionConfigApi
-
 export interface ScoreDefinitionApi {
     readonly id: string
     readonly name: string
@@ -2971,6 +3590,39 @@ export interface ScoreDefinitionNewVersionApi {
      * @minimum 1
      */
     base_version?: number
+}
+
+export interface ScoreDefinitionVersionApi {
+    /** UUID identifying this exact immutable version. */
+    readonly id: string
+    /** Scorer definition that owns this version. */
+    readonly definition_id: string
+    /** Immutable version number within this scorer. */
+    readonly version: number
+    /** Scorer value kind.
+     *
+     * * `categorical` - categorical
+     * * `numeric` - numeric
+     * * `boolean` - boolean */
+    readonly kind: ScoreDefinitionKindEnumApi
+    /** Immutable configuration for this exact version. */
+    readonly config: ScoreDefinitionConfigApi
+    /** Time this version was created. */
+    readonly created_at: string
+    /** User who created this version. */
+    readonly created_by: UserBasicApi | null
+}
+
+export interface ScoreDefinitionVersionPageApi {
+    /** Total immutable versions for this scorer. */
+    count: number
+    /**
+     * Continuation cursor, or null on the last page.
+     * @nullable
+     */
+    next_cursor: string | null
+    /** Versions on this page, newest first. */
+    results: ScoreDefinitionVersionApi[]
 }
 
 /**
@@ -3884,6 +4536,259 @@ export type AiObservabilityInstrumentationChecklistRetrieveParams = {
     refresh?: boolean
 }
 
+export type AiObservabilityOfflineExperimentsListParams = {
+    /**
+     * Exact application revision.
+     * @minLength 1
+     * @maxLength 255
+     */
+    application_version?: string
+    /**
+     * Continuation cursor returned by the previous page.
+     * @minLength 1
+     * @maxLength 2048
+     */
+    cursor?: string
+    /**
+     * Exact durable dataset identifier.
+     * @minLength 1
+     * @maxLength 255
+     */
+    dataset_identifier?: string
+    /**
+     * Exact durable dataset revision identifier.
+     * @minLength 1
+     * @maxLength 255
+     */
+    dataset_revision_identifier?: string
+    /**
+     * Exact dataset source.
+     * @minLength 1
+     * @maxLength 255
+     */
+    dataset_source?: string
+    /**
+     * Inclusive execution start time, in ISO 8601 format.
+     */
+    date_from?: string
+    /**
+     * Exclusive execution end time, in ISO 8601 format.
+     */
+    date_to?: string
+    /**
+     * Page size, from 1 to 100. Defaults to 50.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
+    /**
+     * Exact model revision.
+     * @minLength 1
+     * @maxLength 255
+     */
+    model_version?: string
+    /**
+     * Exact prompt revision.
+     * @minLength 1
+     * @maxLength 255
+     */
+    prompt_version?: string
+    /**
+     * Filter ci, local, scheduled, or not_specified for omitted run source.
+     * @minLength 1
+     * @maxLength 16
+     */
+    run_source?: string
+    /**
+     * Restrict results to this scorer definition.
+     */
+    scorer_definition_id?: string
+    /**
+     * Comma-separated list of at most 20 distinct scorer-version UUIDs.
+     * @minLength 1
+     * @maxLength 739
+     */
+    scorer_version_ids?: string
+    /**
+     * Search experiment names.
+     * @minLength 1
+     * @maxLength 400
+     */
+    search?: string
+    /**
+     * Comma-separated uploading, completed, or failed states. History defaults to completed; lists include all.
+     * @minLength 1
+     * @maxLength 32
+     */
+    statuses?: string
+    /**
+     * Exact evaluation suite identifier.
+     * @minLength 1
+     * @maxLength 255
+     */
+    suite_key?: string
+}
+
+export type AiObservabilityOfflineExperimentsItemsListParams = {
+    /**
+     * Continuation cursor returned by the previous page.
+     * @minLength 1
+     * @maxLength 2048
+     */
+    cursor?: string
+    /**
+     * Page size, from 1 to 100. Defaults to 50.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
+    /**
+     * Comma-separated list of at most 20 distinct scorer-version UUIDs.
+     * @minLength 1
+     * @maxLength 739
+     */
+    scorer_version_ids?: string
+}
+
+export type AiObservabilityOfflineExperimentsItemsResultsListParams = {
+    /**
+     * Continuation cursor returned by the previous page.
+     * @minLength 1
+     * @maxLength 2048
+     */
+    cursor?: string
+    /**
+     * Page size, from 1 to 100. Defaults to 50.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
+    /**
+     * Restrict results to this scorer definition.
+     */
+    scorer_definition_id?: string
+    /**
+     * Comma-separated list of at most 20 distinct scorer-version UUIDs.
+     * @minLength 1
+     * @maxLength 739
+     */
+    scorer_version_ids?: string
+}
+
+export type AiObservabilityOfflineExperimentsScorerSummariesListParams = {
+    /**
+     * Continuation cursor returned by the previous page.
+     * @minLength 1
+     * @maxLength 2048
+     */
+    cursor?: string
+    /**
+     * Page size, from 1 to 100. Defaults to 50.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
+    /**
+     * Restrict results to this scorer definition.
+     */
+    scorer_definition_id?: string
+    /**
+     * Comma-separated list of at most 20 distinct scorer-version UUIDs.
+     * @minLength 1
+     * @maxLength 739
+     */
+    scorer_version_ids?: string
+}
+
+export type AiObservabilityOfflineScorersHistoryListParams = {
+    /**
+     * Exact application revision.
+     * @minLength 1
+     * @maxLength 255
+     */
+    application_version?: string
+    /**
+     * Continuation cursor returned by the previous page.
+     * @minLength 1
+     * @maxLength 2048
+     */
+    cursor?: string
+    /**
+     * Exact durable dataset identifier.
+     * @minLength 1
+     * @maxLength 255
+     */
+    dataset_identifier?: string
+    /**
+     * Exact durable dataset revision identifier.
+     * @minLength 1
+     * @maxLength 255
+     */
+    dataset_revision_identifier?: string
+    /**
+     * Exact dataset source.
+     * @minLength 1
+     * @maxLength 255
+     */
+    dataset_source?: string
+    /**
+     * Inclusive execution start time, in ISO 8601 format.
+     */
+    date_from?: string
+    /**
+     * Exclusive execution end time, in ISO 8601 format.
+     */
+    date_to?: string
+    /**
+     * Page size, from 1 to 100. Defaults to 50.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
+    /**
+     * Exact model revision.
+     * @minLength 1
+     * @maxLength 255
+     */
+    model_version?: string
+    /**
+     * Exact prompt revision.
+     * @minLength 1
+     * @maxLength 255
+     */
+    prompt_version?: string
+    /**
+     * Filter ci, local, scheduled, or not_specified for omitted run source.
+     * @minLength 1
+     * @maxLength 16
+     */
+    run_source?: string
+    /**
+     * Comma-separated list of at most 20 distinct scorer-version UUIDs.
+     * @minLength 1
+     * @maxLength 739
+     */
+    scorer_version_ids?: string
+    /**
+     * Search experiment names.
+     * @minLength 1
+     * @maxLength 400
+     */
+    search?: string
+    /**
+     * Comma-separated uploading, completed, or failed states. History defaults to completed; lists include all.
+     * @minLength 1
+     * @maxLength 32
+     */
+    statuses?: string
+    /**
+     * Exact evaluation suite identifier.
+     * @minLength 1
+     * @maxLength 255
+     */
+    suite_key?: string
+}
+
 export type DatasetItemsListParams = {
     /**
      * Return archived items instead of active items.
@@ -4247,6 +5152,21 @@ export type LlmAnalyticsScoreDefinitionsListParams = {
      * Search scorers by name or description.
      */
     search?: string
+}
+
+export type LlmAnalyticsScoreDefinitionsVersionsListParams = {
+    /**
+     * Continuation cursor from the prior page.
+     * @minLength 1
+     * @maxLength 2048
+     */
+    cursor?: string
+    /**
+     * Maximum versions to return.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
 }
 
 export type LlmAnalyticsSummarizationCreate400 = { [key: string]: unknown }

@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-09-25 20:01:43 UTC
+// Generated at: 2026-09-28 20:02:09 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -75,7 +75,6 @@ export type CanonicalProvider =
     | 'digitalocean'
     | 'fireworks'
     | 'fireworks-fast'
-    | 'fireworks-fast-us'
     | 'fireworks-us'
     | 'friendli'
     | 'gmicloud-bf16'
@@ -109,7 +108,6 @@ export type CanonicalProvider =
     | 'io-net-fp8'
     | 'ionstream'
     | 'ionstream-fp8'
-    | 'krea-fp8'
     | 'liquid-fp8'
     | 'makora'
     | 'makora-fp4'
@@ -134,9 +132,13 @@ export type CanonicalProvider =
     | 'moonshotai-int4'
     | 'moonshotai-mxfp4'
     | 'morph'
+    | 'morph-bf16'
+    | 'morph-fp8'
     | 'near-ai-fp8'
     | 'nebius-fp4'
     | 'nebius-fp8'
+    | 'nex-agi-bf16'
+    | 'nex-agi-fp8'
     | 'nextbit-bf16'
     | 'nextbit-fp8'
     | 'nextbit-int4'
@@ -171,6 +173,7 @@ export type CanonicalProvider =
     | 'relace-bf16'
     | 'relace-fp4'
     | 'relace-fp8'
+    | 'relace-mxfp4'
     | 'sail-research-fp4'
     | 'sail-research-fp8'
     | 'sail-research-us'
@@ -204,6 +207,7 @@ export type CanonicalProvider =
     | 'xai-priority'
     | 'xai-zdr'
     | 'xai-zdr-priority'
+    | 'xai-zdr-us'
     | 'xiaomi-fp8'
     | 'z-ai'
     | 'z-ai-fp4'

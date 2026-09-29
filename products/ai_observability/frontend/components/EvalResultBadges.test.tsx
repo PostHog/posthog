@@ -63,6 +63,35 @@ describe('EvalResultBadges', () => {
         expect(getEvaluationResultDisplay(makeRun({ result_type: 'numeric', score })).label).toBe(label)
     })
 
+    it.each([
+        [[], true, ['resolved'], 'danger', 'No categories'],
+        [['resolved'], true, ['resolved'], 'success', 'Resolved'],
+        [['resolved', 'incorrect'], true, ['resolved'], 'danger', 'Resolved, incorrect'],
+        [[], true, [], 'success', 'No categories'],
+        [['resolved'], true, [], 'danger', 'Resolved'],
+        [[], true, null, 'none', 'No categories'],
+        [null, false, ['resolved'], 'muted', 'N/A'],
+        [null, false, [], 'muted', 'N/A'],
+    ] as const)(
+        'renders categorical results %s without confusing empty selections and N/A',
+        (categories, applicable, passingCategories, type, label) => {
+            expect(
+                getEvaluationResultDisplay(
+                    makeRun({
+                        result_type: 'categorical',
+                        result: null,
+                        categories: categories ? [...categories] : null,
+                        applicable,
+                    }),
+                    {
+                        passingRule: passingCategories ? { categories: [...passingCategories] } : null,
+                        categoryOptions: [{ key: 'resolved', label: 'Resolved' }],
+                    }
+                )
+            ).toMatchObject({ type, label })
+        }
+    )
+
     describe('getEvalSummaries', () => {
         it('returns empty array for empty input', () => {
             expect(getEvalSummaries([])).toEqual([])

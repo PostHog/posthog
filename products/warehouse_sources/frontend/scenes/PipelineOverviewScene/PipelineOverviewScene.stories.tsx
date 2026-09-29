@@ -32,6 +32,8 @@ const UNHEALTHY = {
             url: '/data-management/sources/2',
         },
         {
+            // Kept deliberately: the endpoint answers for the whole warehouse, and this row must
+            // not appear in the rendered scene.
             id: '3',
             name: 'account_activity',
             type: 'materialized_view',
@@ -97,6 +99,56 @@ const FAILED_RUNS = {
     ],
 }
 
+// The synced-sources table is the real one from the sources page, so the stories have to answer
+// the endpoints it loads for itself.
+const SOURCES = {
+    count: 2,
+    results: [
+        {
+            id: '1',
+            source_type: 'Stripe',
+            prefix: null,
+            status: 'Running',
+            access_method: 'warehouse',
+            last_run_at: '2026-09-25T08:00:00Z',
+            schemas: [
+                { id: 's1', name: 'charges', should_sync: true, status: 'Running' },
+                { id: 's2', name: 'customers', should_sync: true, status: 'Completed' },
+            ],
+        },
+        {
+            id: '2',
+            source_type: 'Postgres',
+            prefix: 'billing_',
+            status: 'Error',
+            access_method: 'warehouse',
+            last_run_at: '2026-09-24T02:00:00Z',
+            schemas: [{ id: 's3', name: 'public.invoices', should_sync: true, status: 'Failed' }],
+        },
+    ],
+}
+
+// `loadAppMetricsTimeSeries` reads each row as [labels, breakdown, values], so the destination
+// chart needs the raw HogQL shape rather than the parsed one.
+const DAYS = ['2026-09-22', '2026-09-23', '2026-09-24', '2026-09-25', '2026-09-26', '2026-09-27', '2026-09-28']
+
+const ROWS_QUERY = {
+    results: [
+        [DAYS, 'dest-1', [120000, 98000, 141000, 132000, 87000, 155000, 149000]],
+        [DAYS, 'dest-2', [41000, 38000, 52000, 47000, 12000, 61000, 58000]],
+        // A schema-keyed row. `rows_for` emits one per run and it must not become a series.
+        [DAYS, '019df4a8-f218-0000-3c14-14195257f2fb', [161000, 136000, 193000, 179000, 99000, 216000, 207000]],
+    ],
+}
+
+const DESTINATIONS = {
+    count: 2,
+    results: [
+        { id: 'dest-1', name: 'PostHog warehouse', type: 'PostHogWarehouse' },
+        { id: 'dest-2', name: 'Analytics Postgres', type: 'Postgres' },
+    ],
+}
+
 function mocks(health: Record<string, unknown>, runs: Record<string, unknown>): ReturnType<typeof mswDecorator> {
     return mswDecorator({
         get: {
@@ -104,6 +156,12 @@ function mocks(health: Record<string, unknown>, runs: Record<string, unknown>): 
             '/api/projects/:team_id/data_warehouse/total_rows_stats': ROWS_STATS,
             '/api/projects/:team_id/data_warehouse/data_health_issues': health,
             '/api/projects/:team_id/data_warehouse/completed_activity': runs,
+            '/api/projects/:team_id/external_data_sources': SOURCES,
+            '/api/projects/:team_id/external_data_sources/wizard': {},
+            '/api/projects/:team_id/external_data_destinations': DESTINATIONS,
+        },
+        post: {
+            '/api/projects/:team_id/query/:query_kind/': ROWS_QUERY,
         },
     })
 }

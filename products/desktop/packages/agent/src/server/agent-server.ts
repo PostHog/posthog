@@ -76,6 +76,7 @@ import {
   type InProcessAcpConnection,
 } from "../adapters/acp-connection";
 import { setAlwaysAskMcpServers } from "../adapters/claude/mcp/tool-metadata";
+import type { InitializationPhase } from "../adapters/claude/session/initialization";
 import {
   getSessionJsonlPath,
   hydrateSessionJsonl,
@@ -575,6 +576,7 @@ export class AgentServer {
     typeof createAcpConnection
   > | null = null;
   private initializationFailureCode: string | undefined;
+  private initializationPhase: InitializationPhase | undefined;
   private initializingSseController: SseController | null = null;
   private initializingTelemetry: OtelRunTelemetry | undefined;
   private pendingEvents: Record<string, unknown>[] = [];
@@ -792,6 +794,7 @@ export class AgentServer {
         status: "ok",
         hasSession: !!this.session,
         readiness: boot.state,
+        initializationPhase: this.initializationPhase,
         failureCode: this.initializationFailureCode,
         bootMs: this.sessionReadyBootMs,
         sessionInitMs: this.sessionInitMs,
@@ -5042,6 +5045,13 @@ export class AgentServer {
         method: string,
         params: Record<string, unknown>,
       ) => {
+        if (
+          method === POSTHOG_NOTIFICATIONS.STATUS &&
+          (params.status === "sdk_initialization" ||
+            params.status === "setup_hooks")
+        ) {
+          this.initializationPhase = params.status;
+        }
         this.logger.debug("Extension notification", { method, params });
       },
       sessionUpdate: async (params: {
