@@ -13,6 +13,7 @@ import {
     PersonPropertyFilter,
     Team,
 } from '../types'
+import type { HogErrorClass } from './utils/hog-error-classification'
 
 export type HogBytecode = any[]
 
@@ -305,6 +306,8 @@ export type InvocationBuildFailure = {
     sourceKind: 'hog_function' | 'hog_flow'
     step: DeadLetterStep
     error: string
+    /** Who has to act on it. Only our own classes are worth parking, see HogErrorClass. */
+    errorClass?: HogErrorClass
 }
 
 export interface HogFunctionTiming {

@@ -6,6 +6,7 @@ import { logger } from '~/common/utils/logger'
 import type { CdpOutputs } from '../../cdp-services'
 import type { CdpEventsDlqOutput } from '../../outputs/outputs'
 import type { DeadLetterStep, HogFunctionInvocationGlobals, InvocationBuildFailure } from '../../types'
+import type { HogErrorClass } from '../../utils/hog-error-classification'
 
 /** In memory only. What leaves is the original event bytes plus string headers. */
 type PendingFailure = {
@@ -14,7 +15,19 @@ type PendingFailure = {
     sourceKind?: 'hog_function' | 'hog_flow'
     step: DeadLetterStep
     error: string
+    errorClass?: HogErrorClass
 }
+
+/**
+ * Only these can be fixed by us, so only these are worth a replay. A replay reproduces the
+ * owner's classes unchanged: the event still lacks the property, the program still exhausts its
+ * budget. `legacy` is bytecode with no stamp, so whose fault it is cannot be established.
+ */
+const PARKED_CLASSES: ReadonlySet<HogErrorClass> = new Set<HogErrorClass>(['drift', 'bug', 'platform'])
+
+/** A step that runs no VM produces no class, and those failures are ours by construction. */
+const isOurs = (failure: { errorClass?: HogErrorClass }): boolean =>
+    failure.errorClass === undefined || PARKED_CLASSES.has(failure.errorClass)
 
 export type CdpDlqOutput = CdpEventsDlqOutput
 
@@ -22,6 +35,12 @@ const counterDeadLetterMessages = new Counter({
     name: 'cdp_dead_letter_messages_total',
     help: 'An event was parked on a CDP dead-letter topic',
     labelNames: ['output', 'step'],
+})
+
+const counterFailuresByClass = new Counter({
+    name: 'cdp_dead_letter_build_failures_total',
+    help: 'A build failure the dead-letter service saw, by class and whether it was parked',
+    labelNames: ['step', 'class', 'parked'],
 })
 
 const counterDeadLetterProduceFailures = new Counter({
@@ -124,7 +143,16 @@ export class CdpDeadLetterService implements InvocationFailureSink {
         if (!this.config.CDP_DLQ_ENABLED || !failures.length) {
             return
         }
-        this.failures.push({ globals, failures })
+        const ours = failures.filter(isOurs)
+        for (const failure of failures) {
+            counterFailuresByClass
+                .labels({ step: failure.step, class: failure.errorClass ?? 'unknown', parked: String(isOurs(failure)) })
+                .inc()
+        }
+        if (!ours.length) {
+            return
+        }
+        this.failures.push({ globals, failures: ours })
     }
 
     /**
@@ -259,6 +287,7 @@ export class CdpDeadLetterService implements InvocationFailureSink {
                 // when they open the topic and need to know what failed, for whom, and where it
                 // came from, without deserializing the bodies.
                 dlq_reason: truncate(group[0].error, MAX_REASON_BYTES),
+                dlq_class: group[0].errorClass ?? '',
                 dlq_timestamp: new Date().toISOString(),
                 dlq_team_id: teamId === null ? '' : String(teamId),
                 dlq_topic: message.topic,

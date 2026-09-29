@@ -94,6 +94,7 @@ export async function buildHogFunctionInvocations(
                 sourceKind: 'hog_function',
                 step: 'filter',
                 error: String(filterResults.error),
+                errorClass: filterResults.errorClass,
             })
         }
 
@@ -121,11 +122,17 @@ export async function buildHogFunctionInvocations(
 
             return createInvocation(globalsWithInputs, hogFunction)
         } catch (error) {
+            const errorClass = classifyHogError(error, {
+                bytecodeContract: bytecodeContractOf(error),
+                runtimeContract: currentRuntimeContractHash(),
+            })
+
             buildFailures.push({
                 sourceId: hogFunction.id,
                 sourceKind: 'hog_function',
                 step: 'inputs',
                 error: error.message,
+                errorClass,
             })
 
             logs.push({
@@ -144,13 +151,7 @@ export async function buildHogFunctionInvocations(
                 ),
             })
 
-            hogFunctionInputsErrors.inc({
-                type: hogFunction.type,
-                class: classifyHogError(error, {
-                    bytecodeContract: bytecodeContractOf(error),
-                    runtimeContract: currentRuntimeContractHash(),
-                }),
-            })
+            hogFunctionInputsErrors.inc({ type: hogFunction.type, class: errorClass })
 
             metrics.push({
                 team_id: hogFunction.team_id,

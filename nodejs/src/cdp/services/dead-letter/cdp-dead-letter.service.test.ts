@@ -66,6 +66,7 @@ describe('CdpDeadLetterService', () => {
                 token: 'phc_abc',
                 dlq_step: 'inputs',
                 dlq_reason: 'Invalid arguments',
+                dlq_class: '',
                 dlq_timestamp: expect.any(String),
                 dlq_topic: 'clickhouse_events_json',
                 dlq_partition: '3',
@@ -77,6 +78,36 @@ describe('CdpDeadLetterService', () => {
                 dlq_kinds: 'hog_function',
             },
         })
+    })
+
+    it('parks only the failures we can fix, and says which class parked them', async () => {
+        // The owner's classes would fill the queue with events no rebuild can change.
+        const service = createService()
+        service.recordBuildFailures(defaultGlobals, [
+            failure({ sourceId: 'ours', errorClass: 'drift' }),
+            failure({ sourceId: 'theirs', errorClass: 'data' }),
+            failure({ sourceId: 'timed-out', errorClass: 'limit' }),
+            failure({ sourceId: 'unstamped', errorClass: 'legacy' }),
+        ])
+
+        await service.produceForBatch([message('event-1')])
+
+        expect(produce).toHaveBeenCalledTimes(1)
+        expect(produce).toHaveBeenCalledWith(
+            CDP_EVENTS_DLQ_OUTPUT,
+            expect.objectContaining({
+                headers: expect.objectContaining({ dlq_hog_function_ids: 'ours', dlq_class: 'drift' }),
+            })
+        )
+    })
+
+    it('parks nothing when every failure belongs to the owner', async () => {
+        const service = createService()
+        service.recordBuildFailures(defaultGlobals, [failure({ errorClass: 'data' }), failure({ errorClass: 'limit' })])
+
+        await service.produceForBatch([message('event-1')])
+
+        expect(produce).not.toHaveBeenCalled()
     })
 
     it('writes one record per event and step, naming every source that failed at that step', async () => {
