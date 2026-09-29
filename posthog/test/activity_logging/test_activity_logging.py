@@ -465,24 +465,25 @@ class TestBearerAuthenticationReplacesSessionActor(BaseTest):
         self, credential_type: str
     ) -> tuple[BaseAuthentication, HttpRequest, User | None, str | None]:
         factory = APIRequestFactory()
+
+        def bearer(token: str) -> HttpRequest:
+            return factory.get("/", headers={"Authorization": f"Bearer {token}"})
+
         if credential_type == "project_secret_key":
             psak, token = create_project_secret_api_key(self.team, scopes=["endpoint:read"])
-            request = factory.get("/", headers={"Authorization": f"Bearer {token}"})
-            return ProjectSecretAPIKeyAuthentication(), request, None, psak.id
+            return ProjectSecretAPIKeyAuthentication(), bearer(token), None, psak.id
         if credential_type == "personal_api_key":
             token = generate_random_token_personal()
             pak = PersonalAPIKey.objects.create(
                 label="pak", user=self.user, secure_value=hash_key_value(token), scopes=["*"]
             )
-            request = factory.get("/", headers={"Authorization": f"Bearer {token}"})
-            return PersonalAPIKeyAuthentication(), request, self.user, pak.id
+            return PersonalAPIKeyAuthentication(), bearer(token), self.user, pak.id
         if credential_type == "service_jwt":
             token = _ServiceJWTAuthentication.purpose.mint({"team_id": self.team.id})
-            request = factory.get("/", headers={"Authorization": f"Bearer {token}"})
-            return _ServiceJWTAuthentication(), request, None, PosthogJwtAudience.RECORDING_API.value
+            return _ServiceJWTAuthentication(), bearer(token), None, PosthogJwtAudience.RECORDING_API.value
         if credential_type == "sharing_access_token":
             sharing_configuration = SharingConfiguration.objects.create(team=self.team, enabled=True)
-            request = factory.get("/", {"sharing_access_token": sharing_configuration.access_token})
+            request = factory.get(f"/?sharing_access_token={sharing_configuration.access_token}")
             return SharingAccessTokenAuthentication(), request, None, str(sharing_configuration.id)
         if credential_type == "sharing_password":
             sharing_configuration = SharingConfiguration.objects.create(
@@ -492,8 +493,7 @@ class TestBearerAuthenticationReplacesSessionActor(BaseTest):
                 sharing_configuration=sharing_configuration, created_by=self.user, password_hash="unused"
             )
             token = sharing_configuration.generate_password_protected_token(share_password)
-            request = factory.get("/", headers={"Authorization": f"Bearer {token}"})
-            return SharingPasswordProtectedAuthentication(), request, None, str(share_password.id)
+            return SharingPasswordProtectedAuthentication(), bearer(token), None, str(share_password.id)
         request = factory.get("/", headers={"X-Internal-Api-Secret": "activity-log-test-internal-secret"})
         return InternalAPIAuthentication(), request, None, None
 
