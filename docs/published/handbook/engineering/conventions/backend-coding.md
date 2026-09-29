@@ -110,6 +110,8 @@ Earning the coverage doesn't earn a new test function.
 Default to extending the existing test with a parameterized case, and write a standalone one only when you can say why extending doesn't work: different setup, a different unit, or nothing relevant exists.
 Extend to remove duplication, not to save setup time, since a parameterized case still runs `setUp` for itself.
 Fold in variations of the same behavior, and don't attach unrelated assertions to a test that already passes.
+In the PR's "How did you test this code?" section, name the distinct regression and closest existing test for each group of new or changed tests.
+If existing coverage suffices or a new test would not help, explain that instead.
 
 #### Weight tests down the pyramid
 
