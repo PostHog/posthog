@@ -40,7 +40,10 @@ _TICKET_FANOUT = DependentEndpointConfig(
 )
 
 
-@dataclass
+# Mutable by choice: instances flow into `build_dependent_resource`'s
+# `endpoint_configs: Mapping[str, FanoutEndpointLike]`, and mypy treats a frozen dataclass's
+# fields as read-only, which is incompatible with that Protocol's plain attributes.
+@dataclass(frozen=False)
 class FreshserviceEndpointConfig:
     name: str
     path: str
