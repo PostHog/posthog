@@ -20,7 +20,6 @@ from posthog.temporal.mcp_analytics.intent_clustering.constants import (
 )
 
 from products.mcp_analytics.backend import intent_generation
-from products.mcp_analytics.backend.facade.contracts import MCP_ANALYTICS_INTENT_ROUTING_FEATURE_FLAG
 from products.mcp_analytics.backend.models import MCPAnalyticsSubmission, MCPIntentClusterSnapshot, MCPSession
 from products.mcp_analytics.backend.presentation.serializers import (
     MCP_SESSION_LIST_DEFAULT_LIMIT,
@@ -77,7 +76,6 @@ def _tool_blob(tool: str, cluster_ids: list[int]) -> dict:
 
 
 class TestMCPAnalyticsPresentation(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest):
-    # The mcp-analytics feature flag is enabled for the whole test by the mixin's setUp.
     @parameterized.expand(
         [
             ("feedback_create", "post", "feedback/", {"goal": "understand usage", "feedback": "Need clearer results"}),
@@ -103,25 +101,32 @@ class TestMCPAnalyticsPresentation(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest
 
     @parameterized.expand(
         [
-            ("feedback_create", "post", "feedback/", {"goal": "understand usage", "feedback": "Need clearer results"}),
+            (
+                "feedback_create",
+                "post",
+                "feedback/",
+                {"goal": "understand usage", "feedback": "Need clearer results"},
+                status.HTTP_201_CREATED,
+            ),
             (
                 "missing_capability_create",
                 "post",
                 "missing_capabilities/",
                 {"goal": "debug surveys", "missing_capability": "Need an eligibility explainer"},
+                status.HTTP_201_CREATED,
             ),
-            ("feedback_list", "get", "feedback/", None),
-            ("missing_capability_list", "get", "missing_capabilities/", None),
+            ("feedback_list", "get", "feedback/", None, status.HTTP_200_OK),
+            ("missing_capability_list", "get", "missing_capabilities/", None, status.HTTP_200_OK),
         ]
     )
-    def test_endpoints_require_feature_flag(
-        self, _name: str, method: str, path: str, payload: dict[str, str] | None
+    def test_endpoints_do_not_require_any_feature_flag(
+        self, _name: str, method: str, path: str, payload: dict[str, str] | None, expected_status: int
     ) -> None:
         with patch("posthoganalytics.feature_enabled", return_value=False):
             request = getattr(self.client, method)
             response = request(f"/api/environments/{self.team.id}/mcp_analytics/{path}", payload, format="json")
 
-        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.status_code == expected_status
 
     def test_create_feedback_submission(self) -> None:
         response = self.client.post(
@@ -244,11 +249,7 @@ class TestMCPAnalyticsPresentation(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest
         ]
     )
     def test_intent_clusters_require_intent_routing_feature_flag(self, _name: str, method: str, path: str) -> None:
-        def only_product_flag_enabled(flag_key: str, *args: object, **kwargs: object) -> bool:
-            assert flag_key in {"mcp-analytics", MCP_ANALYTICS_INTENT_ROUTING_FEATURE_FLAG}
-            return flag_key == "mcp-analytics"
-
-        with patch("posthoganalytics.feature_enabled", side_effect=only_product_flag_enabled):
+        with patch("posthoganalytics.feature_enabled", return_value=False):
             request = getattr(self.client, method)
             response = request(f"/api/environments/{self.team.id}/mcp_analytics/{path}", {}, format="json")
 
@@ -631,7 +632,6 @@ class TestMCPAnalyticsPresentation(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest
 
 
 class TestMCPSessionIntentEndpoint(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest):
-    # The mcp-analytics feature flag is enabled for the whole test by the mixin's setUp.
     def _url(self, session_id: str) -> str:
         return f"/api/environments/{self.team.id}/mcp_analytics/sessions/{session_id}/generate_intent/"
 
@@ -640,17 +640,11 @@ class TestMCPSessionIntentEndpoint(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest
         response = self.client.post(self._url("abc"))
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
-    def test_requires_feature_flag(self) -> None:
-        with patch("posthoganalytics.feature_enabled", return_value=False):
-            response = self.client.post(self._url("abc"))
-        assert response.status_code == status.HTTP_403_FORBIDDEN
-
     def test_returns_cached_intent_in_response_shape(self) -> None:
         session_id = "session-123"
         MCPSession.objects.create(team=self.team, session_id=session_id, intent="A persisted summary.")
 
-        with patch("posthoganalytics.feature_enabled", return_value=True):
-            response = self.client.post(self._url(session_id))
+        response = self.client.post(self._url(session_id))
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {"session_id": session_id, "intent": "A persisted summary."}
@@ -659,7 +653,6 @@ class TestMCPSessionIntentEndpoint(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest
         session_id = "session-fresh"
         # Mock the two primitives so the endpoint path runs without ClickHouse or a real LLM call.
         with (
-            patch("posthoganalytics.feature_enabled", return_value=True),
             patch.object(intent_generation, "fetch_session_intents", return_value=["check the funnel"]),
             patch.object(intent_generation, "summarize_intents", return_value="Generated summary."),
         ):
@@ -672,7 +665,6 @@ class TestMCPSessionIntentEndpoint(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest
     def test_returns_503_when_generation_unavailable(self) -> None:
         session_id = "session-unavailable"
         with (
-            patch("posthoganalytics.feature_enabled", return_value=True),
             patch.object(intent_generation, "fetch_session_intents", return_value=["check the funnel"]),
             patch.object(
                 intent_generation,
@@ -709,15 +701,14 @@ class TestMCPSessionToolCallsEndpoint(_MCPAnalyticsTeamScopedTestMixin, Clickhou
                 properties={"$session_id": session_id, "$mcp_tool_name": tool},
             )
 
-        with patch("posthoganalytics.feature_enabled", return_value=True):
-            listed = self.client.get(f"/api/environments/{self.team.id}/mcp_analytics/sessions/", {"date_from": "-7d"})
-            assert listed.status_code == status.HTTP_200_OK
-            session = next(s for s in listed.json()["results"] if s["session_id"] == session_id)
-            # Hand the serialized session_start straight back, exactly as the UI does.
-            response = self.client.get(
-                f"/api/environments/{self.team.id}/mcp_analytics/sessions/{session_id}/tool_calls/",
-                {"date_from": session["session_start"]},
-            )
+        listed = self.client.get(f"/api/environments/{self.team.id}/mcp_analytics/sessions/", {"date_from": "-7d"})
+        assert listed.status_code == status.HTTP_200_OK
+        session = next(s for s in listed.json()["results"] if s["session_id"] == session_id)
+        # Hand the serialized session_start straight back, exactly as the UI does.
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/mcp_analytics/sessions/{session_id}/tool_calls/",
+            {"date_from": session["session_start"]},
+        )
 
         assert response.status_code == status.HTTP_200_OK
         # The first event sits at exactly session_start; a `timestamp >= session_start` bound must
@@ -887,15 +878,13 @@ class TestMCPSessionToolCallsQuerySerializer(SimpleTestCase):
 
 
 class TestMCPAnalyticsCrossTeamIsolation(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest):
-    """Team A must never reach Team B's submissions. Now that the submission endpoints are
-    reachable by anyone inside the mcp-analytics flag (no longer staff-only), pin the tenant
-    boundary: another team's rows never appear in this team's list, and a user who is not a
+    """Team A must never reach Team B's submissions. The submission endpoints are reachable by
+    every project, so pin the tenant boundary: another team's rows never appear in this team's list, and a user who is not a
     member of another team's org is denied when hitting that team's URL.
     """
 
     def setUp(self) -> None:
         super().setUp()
-        # The mcp-analytics feature flag is enabled for the whole test by the mixin's setUp.
         # A team in a different organization that self.user is NOT a member of.
         self.other_org = Organization.objects.create(name="other-org")
         self.other_team = Team.objects.create(organization=self.other_org, name="other-team")

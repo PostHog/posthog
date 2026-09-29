@@ -1,8 +1,24 @@
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, Mock, patch
 
+from parameterized import parameterized
+
 from posthog.hogql.database.database import Database
-from posthog.hogql.database.models import IntegerDatabaseField
+from posthog.hogql.database.models import (
+    BooleanDatabaseField,
+    DatabaseField,
+    DateDatabaseField,
+    DateTimeDatabaseField,
+    DecimalDatabaseField,
+    FloatArrayDatabaseField,
+    FloatDatabaseField,
+    IntegerDatabaseField,
+    MapStringDatabaseField,
+    StringArrayDatabaseField,
+    StringDatabaseField,
+    StringJSONDatabaseField,
+    UUIDDatabaseField,
+)
 
 from products.data_modeling.backend.facade.managed_viewset_hooks import (
     ProvidedView,
@@ -99,6 +115,43 @@ class TestManagedViewSetProviders(BaseTest):
         self.assertEqual(mock_sync_saved_query_to_dag.call_count, len(views))
         dag_databases = [call.kwargs["database"] for call in mock_sync_saved_query_to_dag.call_args_list]
         self.assertTrue(all(database is dag_databases[0] for database in dag_databases))
+
+    @parameterized.expand(
+        [
+            (field_class.__name__, field_class)
+            for field_class in (
+                BooleanDatabaseField,
+                DateDatabaseField,
+                DateTimeDatabaseField,
+                DecimalDatabaseField,
+                FloatArrayDatabaseField,
+                FloatDatabaseField,
+                IntegerDatabaseField,
+                MapStringDatabaseField,
+                StringArrayDatabaseField,
+                StringDatabaseField,
+                StringJSONDatabaseField,
+                UUIDDatabaseField,
+            )
+        ]
+    )
+    @patch(SCHEDULE_MATERIALIZATION)
+    def test_synced_view_field_types_read_back(
+        self, _name: str, field_class: type[DatabaseField], _mock_schedule: Mock
+    ) -> None:
+        fake_view = ProvidedView(
+            name="fake_provider_view",
+            query="SELECT 1 AS id, 1 AS value",
+            fields={"id": IntegerDatabaseField(name="id"), "value": field_class(name="value")},
+            materialized=False,
+        )
+        with patch.dict(_expected_views_providers, clear=True):
+            register_expected_views_provider(KIND, lambda team: [fake_view])
+            viewset = self._viewset()
+            viewset.sync_views()
+
+        view = next(v for v in self._views(viewset) if v.name == fake_view.name)
+        self.assertIsInstance(view.hogql_definition().fields["value"], field_class)
 
     @patch(SCHEDULE_MATERIALIZATION)
     def test_sync_views_is_idempotent(self, _):

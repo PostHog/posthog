@@ -17,6 +17,9 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
     TOAST_OMITTED_COLUMN,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.batch_consumer import (
+    CoalescingDeclined,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor import (
     _apply_partitioning,
     _enrich_cdc_rows,
@@ -28,6 +31,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     _run_post_load_for_already_processed_batch,
     _trigger_post_import_workflow,
     process_message,
+    process_messages,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.test_mocks import mock_delta_table
 
@@ -263,12 +267,10 @@ class TestProcessMessageOwnershipGate:
     @patch(f"{_PROCESSOR}.Scd2DeltaWriter")
     @patch(f"{_PROCESSOR}.DeltaTableRef")
     @patch(f"{_PROCESSOR}.ExternalDataJob")
-    @patch(f"{_PROCESSOR}.s3fs")
     @patch(f"{_PROCESSOR}.close_old_connections")
     def test_lost_ownership_blocks_delta_write(
         self,
         _close: MagicMock,
-        _s3fs: MagicMock,
         mock_job_model: MagicMock,
         mock_helper_cls: MagicMock,
         mock_scd2_cls: MagicMock,
@@ -296,12 +298,10 @@ class TestProcessMessageOwnershipGate:
     @patch(f"{_PROCESSOR}.is_batch_already_processed", return_value=True)
     @patch(f"{_PROCESSOR}.DeltaTableRef")
     @patch(f"{_PROCESSOR}.ExternalDataJob")
-    @patch(f"{_PROCESSOR}.s3fs")
     @patch(f"{_PROCESSOR}.close_old_connections")
     def test_lost_ownership_blocks_final_batch_completion(
         self,
         _close: MagicMock,
-        _s3fs: MagicMock,
         mock_job_model: MagicMock,
         _helper_cls: MagicMock,
         _already: MagicMock,
@@ -326,12 +326,10 @@ class TestProcessMessageOwnershipGate:
     @patch(f"{_PROCESSOR}.is_batch_already_processed", return_value=True)
     @patch(f"{_PROCESSOR}.DeltaTableRef")
     @patch(f"{_PROCESSOR}.ExternalDataJob")
-    @patch(f"{_PROCESSOR}.s3fs")
     @patch(f"{_PROCESSOR}.close_old_connections")
     def test_ownership_lost_during_post_load_blocks_completion(
         self,
         _close: MagicMock,
-        _s3fs: MagicMock,
         mock_job_model: MagicMock,
         _helper_cls: MagicMock,
         _already: MagicMock,
@@ -361,12 +359,10 @@ class TestProcessMessageOwnershipGate:
     @patch(f"{_PROCESSOR}.is_batch_already_processed", return_value=True)
     @patch(f"{_PROCESSOR}.DeltaTableRef")
     @patch(f"{_PROCESSOR}.ExternalDataJob")
-    @patch(f"{_PROCESSOR}.s3fs")
     @patch(f"{_PROCESSOR}.close_old_connections")
     def test_ownership_loss_is_not_counted_as_load_failure(
         self,
         _close: MagicMock,
-        _s3fs: MagicMock,
         mock_job_model: MagicMock,
         _helper_cls: MagicMock,
         _already: MagicMock,
@@ -501,12 +497,10 @@ class TestRedeliveredFinalBatchPostLoad:
     @patch(f"{_PROCESSOR}.read_parquet", return_value=pa.table({"id": [1]}))
     @patch(f"{_PROCESSOR}.DeltaTableRef")
     @patch(f"{_PROCESSOR}.ExternalDataJob")
-    @patch(f"{_PROCESSOR}.s3fs")
     def test_forwards_the_batch_write_mode(
         self,
         _case: str,
         cdc_write_mode: str | None,
-        _s3fs: MagicMock,
         mock_job_model: MagicMock,
         mock_helper_cls: MagicMock,
         _read: MagicMock,
@@ -529,6 +523,226 @@ class TestRedeliveredFinalBatchPostLoad:
         assert mock_post_load.await_args.kwargs["cdc_write_mode"] == cdc_write_mode
 
 
+class TestPostWriteHandleReads:
+    # `DeltaWriter.write` can return a handle one deltalite commit behind the log. Column names and
+    # types survive that lag, a file list does not: partial data loading must read its file list
+    # through the ref, which catches the handle up, and a plain batch must not pay that read.
+
+    @parameterized.expand([("plain_batch", False, 1), ("partial_data_loading", True, 2)])
+    @patch(f"{_PROCESSOR}.posthoganalytics")
+    @patch(f"{_PROCESSOR}.mark_batch_as_processed")
+    @patch(f"{_PROCESSOR}._handle_partial_data_loading", new_callable=AsyncMock)
+    @patch(f"{_PROCESSOR}.supports_partial_data_loading", return_value=True)
+    @patch(f"{_PROCESSOR}.read_parquet", return_value=pa.table({"id": [1]}))
+    @patch(f"{_PROCESSOR}.is_batch_already_processed", return_value=False)
+    @patch(f"{_PROCESSOR}.DeltaWriter")
+    @patch(f"{_PROCESSOR}.DeltaTableRef")
+    @patch(f"{_PROCESSOR}.ExternalDataJob")
+    def test_file_list_readers_go_through_the_ref(
+        self,
+        _case: str,
+        is_first_ever_sync: bool,
+        expected_handle_reads: int,
+        mock_job_model: MagicMock,
+        mock_helper_cls: MagicMock,
+        mock_writer_cls: MagicMock,
+        _already: MagicMock,
+        _read: MagicMock,
+        _supports: MagicMock,
+        mock_partial: AsyncMock,
+        _mark: MagicMock,
+        _analytics: MagicMock,
+    ) -> None:
+        returned = MagicMock()
+        returned.schema.return_value = pa.schema([_COL_ID])
+        current = MagicMock()
+        current.schema.return_value = pa.schema([_COL_ID])
+        current.file_uris.return_value = []
+        helper = mock_helper_cls.return_value
+        helper.get_delta_table = AsyncMock(return_value=current)
+        mock_writer_cls.return_value.write = AsyncMock(return_value=returned)
+        mock_job_model.objects.prefetch_related.return_value.get.return_value = MagicMock()
+
+        process_message(_message(batch_index=1, is_first_ever_sync=is_first_ever_sync))
+
+        # One read opens the table before the write; only a file-list reader adds a second.
+        assert helper.get_delta_table.await_count == expected_handle_reads
+        assert mock_partial.await_args is not None
+        assert mock_partial.await_args.kwargs["delta_table"] is (current if is_first_ever_sync else returned)
+
+
+class TestFinalDataBatch:
+    # The run's last data row is its own final marker, so one delivery writes the batch and runs
+    # post-load. The write must be marked as soon as it commits: a post-load failure otherwise
+    # leaves the retry with no fast way to know the merge already happened.
+
+    @patch(f"{_PROCESSOR}.posthoganalytics")
+    @patch(f"{_PROCESSOR}.mark_batch_as_processed")
+    @patch(f"{_PROCESSOR}._mark_job_completed")
+    @patch(
+        f"{_PROCESSOR}.run_post_load_operations", new_callable=AsyncMock, side_effect=RuntimeError("compaction died")
+    )
+    @patch(f"{_PROCESSOR}.read_parquet", return_value=pa.table({"id": [1]}))
+    @patch(f"{_PROCESSOR}.is_batch_already_processed", return_value=False)
+    @patch(f"{_PROCESSOR}.DeltaWriter")
+    @patch(f"{_PROCESSOR}.DeltaTableRef")
+    @patch(f"{_PROCESSOR}.ExternalDataJob")
+    def test_a_post_load_failure_leaves_the_write_marked_processed(
+        self,
+        mock_job_model: MagicMock,
+        mock_helper_cls: MagicMock,
+        mock_writer_cls: MagicMock,
+        _already: MagicMock,
+        _read: MagicMock,
+        _post_load: AsyncMock,
+        mock_mark_completed: MagicMock,
+        mock_mark_processed: MagicMock,
+        _analytics: MagicMock,
+    ) -> None:
+        delta_table = MagicMock()
+        delta_table.schema.return_value = pa.schema([pa.field("id", pa.int64())])
+        delta_table.file_uris.return_value = []
+        mock_helper_cls.return_value.get_delta_table = AsyncMock(return_value=None)
+        mock_writer_cls.return_value.write = AsyncMock(return_value=delta_table)
+        mock_job_model.objects.prefetch_related.return_value.get.return_value = MagicMock()
+
+        with pytest.raises(RuntimeError, match="compaction died"):
+            process_message(_message(is_final_batch=True, batch_index=4, run_uuid="run-9"))
+
+        mock_writer_cls.return_value.write.assert_awaited_once()
+        mock_mark_processed.assert_called_once_with(1, "schema-1", "run-9", 4)
+        mock_mark_completed.assert_not_called()
+
+
+def _set_messages(count: int, *, sync_type: str = "full_refresh", final: bool = True) -> list[dict[str, Any]]:
+    return [
+        _message(
+            batch_index=index,
+            s3_path=f"s3://bucket/{index}.parquet",
+            sync_type=sync_type,
+            is_final_batch=final and index == count - 1,
+            total_batches=count if final and index == count - 1 else None,
+            total_rows=6 if final and index == count - 1 else None,
+            row_count=index + 1,
+        )
+        for index in range(count)
+    ]
+
+
+class TestProcessMessages:
+    """Several consecutive batches of one run loaded as one write. The write must carry every member,
+    or a redelivery of one of them merges its rows a second time."""
+
+    @patch(f"{_PROCESSOR}.posthoganalytics")
+    @patch(f"{_PROCESSOR}.mark_batch_as_processed")
+    @patch(f"{_PROCESSOR}._trigger_post_import_workflow")
+    @patch(f"{_PROCESSOR}._trigger_ducklake_register_data_imports")
+    @patch(f"{_PROCESSOR}._mark_job_completed")
+    @patch(f"{_PROCESSOR}.run_post_load_operations", new_callable=AsyncMock, return_value="folder")
+    @patch(f"{_PROCESSOR}.read_parquet")
+    @patch(f"{_PROCESSOR}.is_batch_already_processed", return_value=False)
+    @patch(f"{_PROCESSOR}.DeltaWriter")
+    @patch(f"{_PROCESSOR}.DeltaTableRef")
+    @patch(f"{_PROCESSOR}.ExternalDataJob")
+    def test_a_set_starting_at_batch_zero_overwrites_with_the_union_and_finishes_the_run(
+        self,
+        mock_job_model: MagicMock,
+        mock_helper_cls: MagicMock,
+        mock_writer_cls: MagicMock,
+        _already: MagicMock,
+        mock_read: MagicMock,
+        mock_post_load: AsyncMock,
+        mock_mark_completed: MagicMock,
+        _ducklake: MagicMock,
+        mock_trigger: MagicMock,
+        mock_mark_processed: MagicMock,
+        _analytics: MagicMock,
+    ) -> None:
+        mock_read.side_effect = lambda path: pa.table({"id": list(range(int(path[-9]) + 1))})
+        delta_table = MagicMock()
+        delta_table.schema.return_value = pa.schema([pa.field("id", pa.int64())])
+        delta_table.file_uris.return_value = []
+        mock_helper_cls.return_value.get_delta_table = AsyncMock(return_value=None)
+        mock_writer_cls.return_value.write = AsyncMock(return_value=delta_table)
+        mock_job_model.objects.prefetch_related.return_value.get.return_value = MagicMock()
+
+        process_messages(_set_messages(3))
+
+        write = mock_writer_cls.return_value.write
+        write.assert_awaited_once()
+        assert write.await_args.kwargs["data"].num_rows == 6
+        assert write.await_args.kwargs["should_overwrite_table"] is True
+        assert write.await_args.kwargs["commit_metadata"] == {
+            "run_uuid": "run-1",
+            "batch_index": "0",
+            "batch_indexes": "0,1,2",
+        }
+        assert [call.args[3] for call in mock_mark_processed.call_args_list] == [0, 1, 2]
+        mock_post_load.assert_awaited_once()
+        assert mock_post_load.await_args is not None
+        assert mock_post_load.await_args.kwargs["row_count"] == 6
+        mock_mark_completed.assert_called_once()
+        mock_trigger.assert_called_once()
+
+    @patch(f"{_PROCESSOR}.posthoganalytics")
+    @patch(f"{_PROCESSOR}.read_parquet")
+    @patch(f"{_PROCESSOR}.is_batch_already_processed", side_effect=[False, True, False])
+    @patch(f"{_PROCESSOR}.DeltaWriter")
+    @patch(f"{_PROCESSOR}.DeltaTableRef")
+    @patch(f"{_PROCESSOR}.ExternalDataJob")
+    def test_a_member_that_already_landed_declines_the_set_before_any_read_or_write(
+        self,
+        mock_job_model: MagicMock,
+        _helper_cls: MagicMock,
+        mock_writer_cls: MagicMock,
+        _already: MagicMock,
+        mock_read: MagicMock,
+        _analytics: MagicMock,
+    ) -> None:
+        mock_job_model.objects.prefetch_related.return_value.get.return_value = MagicMock()
+
+        with pytest.raises(CoalescingDeclined):
+            process_messages(_set_messages(3))
+
+        mock_read.assert_not_called()
+        mock_writer_cls.return_value.write.assert_not_called()
+
+    @patch(f"{_PROCESSOR}.posthoganalytics")
+    @patch(f"{_PROCESSOR}.read_parquet")
+    @patch(f"{_PROCESSOR}.is_batch_already_processed", return_value=False)
+    @patch(f"{_PROCESSOR}.DeltaWriter")
+    @patch(f"{_PROCESSOR}.DeltaTableRef")
+    @patch(f"{_PROCESSOR}.ExternalDataJob")
+    def test_members_whose_schemas_do_not_concatenate_decline_the_set(
+        self,
+        mock_job_model: MagicMock,
+        _helper_cls: MagicMock,
+        mock_writer_cls: MagicMock,
+        _already: MagicMock,
+        mock_read: MagicMock,
+        _analytics: MagicMock,
+    ) -> None:
+        mock_read.side_effect = [pa.table({"id": [1]}), pa.table({"id": ["a"]})]
+        mock_job_model.objects.prefetch_related.return_value.get.return_value = MagicMock()
+
+        with pytest.raises(CoalescingDeclined):
+            process_messages(_set_messages(2))
+
+        mock_writer_cls.return_value.write.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("different_runs", [{"batch_index": 0}, {"batch_index": 1, "run_uuid": "run-2"}]),
+            ("gap_in_indexes", [{"batch_index": 0}, {"batch_index": 2}]),
+        ]
+    )
+    def test_a_set_that_is_not_one_consecutive_run_is_declined(
+        self, _case: str, overrides: list[dict[str, Any]]
+    ) -> None:
+        with pytest.raises(CoalescingDeclined):
+            process_messages([_message(**o) for o in overrides])
+
+
 class TestPostImportTrigger:
     """The V3 hand-off to `data-import-post-import`: without it the load-dependent
     post-import steps (signals, enrichment, statistics, table size, DuckLake copy)
@@ -545,10 +759,8 @@ class TestPostImportTrigger:
     @patch(f"{_PROCESSOR}.DeltaWriter")
     @patch(f"{_PROCESSOR}.DeltaTableRef")
     @patch(f"{_PROCESSOR}.ExternalDataJob")
-    @patch(f"{_PROCESSOR}.s3fs")
     def test_final_batch_triggers_post_import_once(
         self,
-        _s3fs: MagicMock,
         mock_job_model: MagicMock,
         mock_helper_cls: MagicMock,
         mock_writer_cls: MagicMock,
@@ -581,10 +793,8 @@ class TestPostImportTrigger:
     @patch(f"{_PROCESSOR}.is_batch_already_processed", return_value=True)
     @patch(f"{_PROCESSOR}.DeltaTableRef")
     @patch(f"{_PROCESSOR}.ExternalDataJob")
-    @patch(f"{_PROCESSOR}.s3fs")
     def test_redelivered_final_batch_triggers_post_import(
         self,
-        _s3fs: MagicMock,
         mock_job_model: MagicMock,
         _helper_cls: MagicMock,
         _already: MagicMock,
@@ -1058,3 +1268,74 @@ class TestReadExistingRowsByFirstPk:
             result = _read_existing_rows_by_first_pk(delta_table, "id", components)
 
             assert set(result.column("id").to_pylist()) == set(expected_ids)
+
+
+class TestBatchPhaseReports:
+    @patch(f"{_PROCESSOR}.report_phase")
+    @patch(f"{_PROCESSOR}.posthoganalytics")
+    @patch(f"{_PROCESSOR}._trigger_post_import_workflow")
+    @patch(f"{_PROCESSOR}.mark_batch_as_processed")
+    @patch(f"{_PROCESSOR}._mark_job_completed")
+    @patch(f"{_PROCESSOR}.run_post_load_operations", new_callable=AsyncMock, return_value=None)
+    @patch(f"{_PROCESSOR}.read_parquet", return_value=pa.table({"id": [1]}))
+    @patch(f"{_PROCESSOR}.is_batch_already_processed", return_value=False)
+    @patch(f"{_PROCESSOR}.DeltaWriter")
+    @patch(f"{_PROCESSOR}.DeltaTableRef")
+    @patch(f"{_PROCESSOR}.ExternalDataJob")
+    def test_a_fresh_final_batch_reports_each_phase_in_order(
+        self,
+        mock_job_model: MagicMock,
+        mock_helper_cls: MagicMock,
+        mock_writer_cls: MagicMock,
+        _already: MagicMock,
+        _read: MagicMock,
+        _post_load: AsyncMock,
+        _mark_completed: MagicMock,
+        _mark_processed: MagicMock,
+        _trigger: MagicMock,
+        _analytics: MagicMock,
+        mock_report_phase: MagicMock,
+    ) -> None:
+        delta_table = MagicMock()
+        delta_table.schema.return_value = pa.schema([pa.field("id", pa.int64())])
+        delta_table.file_uris.return_value = []
+        mock_helper_cls.return_value.get_delta_table = AsyncMock(return_value=None)
+        mock_writer_cls.return_value.write = AsyncMock(return_value=delta_table)
+        mock_job_model.objects.prefetch_related.return_value.get.return_value = MagicMock()
+
+        process_message(_message(is_final_batch=True, batch_index=4, run_uuid="run-9"))
+
+        assert [call.args[0] for call in mock_report_phase.call_args_list] == [
+            "deliver",
+            "read",
+            "write",
+            "post_load",
+            "finalize",
+        ]
+
+    @patch(f"{_PROCESSOR}.report_phase")
+    @patch(f"{_PROCESSOR}.posthoganalytics")
+    @patch(f"{_PROCESSOR}._trigger_post_import_workflow")
+    @patch(f"{_PROCESSOR}._mark_job_completed")
+    @patch(f"{_PROCESSOR}._run_post_load_for_already_processed_batch", return_value=None)
+    @patch(f"{_PROCESSOR}.is_batch_already_processed", return_value=True)
+    @patch(f"{_PROCESSOR}.DeltaTableRef")
+    @patch(f"{_PROCESSOR}.ExternalDataJob")
+    @patch(f"{_PROCESSOR}.close_old_connections")
+    def test_a_redelivered_final_batch_reports_post_load_and_finalize_only(
+        self,
+        _close: MagicMock,
+        mock_job_model: MagicMock,
+        _helper_cls: MagicMock,
+        _already: MagicMock,
+        _post_load: MagicMock,
+        _mark_completed: MagicMock,
+        _trigger: MagicMock,
+        _analytics: MagicMock,
+        mock_report_phase: MagicMock,
+    ) -> None:
+        mock_job_model.objects.prefetch_related.return_value.get.return_value = MagicMock()
+
+        process_message(_message(is_final_batch=True))
+
+        assert [call.args[0] for call in mock_report_phase.call_args_list] == ["deliver", "post_load", "finalize"]

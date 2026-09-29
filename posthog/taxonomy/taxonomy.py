@@ -131,7 +131,7 @@ SESSION_PROPERTIES_ALSO_INCLUDED_IN_EVENTS = {
     *SESSION_INITIAL_PROPERTIES_ADAPTED_FROM_EVENTS,
 }
 
-# IF UPDATING THIS, ALSO RUN `pnpm run taxonomy:build` to update core-filter-definitions-by-group.json
+# IF UPDATING THIS, ALSO RUN `hogli build:projections` to update core-filter-definitions-by-group.json
 CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
     "events": {
         # in front end this key is the empty string
@@ -852,6 +852,45 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "examples": ["100"],
             "system": True,
             "ignored_in_assistant": True,
+            "used_for_debug": True,
+        },
+        "$sdk_debug_pending_queue_size": {
+            "label": "Pending queue size",
+            "description": "Useful for debugging. The depth of the mobile SDK's single disk-backed event queue, which handles both normal batching and retry backoff. Mobile SDKs report this instead of the retry queue size.",
+            "examples": ["100"],
+            "system": True,
+            "ignored_in_assistant": True,
+            "used_for_debug": True,
+        },
+        "$sdk_debug_replay_flush_hold_reason": {
+            "label": "Replay flush hold reason",
+            "description": "Why session replay is holding its buffer instead of flushing. Mobile SDKs attach it only while the recording status is buffering.",
+            "examples": [
+                "awaiting_remote_config",
+                "below_minimum_duration",
+                "no_interaction_since_recording_started",
+                "no_interaction_since_session_rotated",
+            ],
+            "type": "String",
+            "used_for_debug": True,
+        },
+        "$sdk_debug_replay_capture_mode": {
+            "label": "Replay capture mode",
+            "description": "How the mobile SDK captures the screen for session replay.",
+            "examples": ["screenshot", "wireframe"],
+            "type": "String",
+            "used_for_debug": True,
+        },
+        "$sdk_debug_replay_throttle_delay_ms": {
+            "label": "Replay throttle delay (ms)",
+            "description": "The configured session replay throttle delay in milliseconds on mobile SDKs.",
+            "examples": [1000],
+            "type": "Numeric",
+            "used_for_debug": True,
+        },
+        "$sdk_debug_replay_pending_trigger_conditions": {
+            "label": "Replay pending trigger conditions",
+            "description": "The configured recording trigger conditions that are not yet satisfied, such as a linked flag or an event trigger.",
             "used_for_debug": True,
         },
         "$last_posthog_reset": {
@@ -2506,6 +2545,27 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "AI Evaluation Result (LLM)",
             "description": "The boolean verdict of the evaluation (true = pass, false = fail).",
             "examples": [True, False],
+        },
+        "$ai_evaluation_categorical_result": {
+            "label": "AI evaluation categorical result",
+            "description": "The category keys returned by an online evaluation. An empty list is an applicable result with no matching categories.",
+            "examples": ['["resolved"]', '["fast", "reliable"]', "[]"],
+        },
+        "$ai_evaluation_numeric_result": {
+            "label": "AI evaluation numeric result",
+            "description": "The raw numeric score returned by an online evaluation.",
+            "examples": [0, 0.75, 10],
+            "type": "Numeric",
+        },
+        "$ai_evaluation_numeric_result_min": {
+            "label": "AI evaluation numeric result minimum",
+            "description": "The configured minimum score for an online evaluation.",
+            "type": "Numeric",
+        },
+        "$ai_evaluation_numeric_result_max": {
+            "label": "AI evaluation numeric result maximum",
+            "description": "The configured maximum score for an online evaluation.",
+            "type": "Numeric",
         },
         "$ai_evaluation_reasoning": {
             "label": "AI Evaluation Reasoning (LLM)",

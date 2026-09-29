@@ -77,6 +77,7 @@ describe('AddWidgetModal', () => {
         expect(screen.getByText('Error tracking', { selector: 'h5' })).toBeInTheDocument()
         expect(screen.getByLabelText('Top issues')).toBeInTheDocument()
         expect(screen.getByText(/Ranked list of the most impactful error tracking issues/i)).toBeInTheDocument()
+        expect(screen.queryByText('Notebook widget')).not.toBeInTheDocument()
     })
 
     it('shows alphabetized badges for each widget product section', () => {

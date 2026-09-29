@@ -31,11 +31,11 @@ from posthog.comment.formatting import (
 from posthog.egress.slack.client import SlackWebClient as WebClient
 from posthog.event_usage import groups, report_team_action
 from posthog.exceptions_capture import capture_exception
-from posthog.helpers.slack_identity import resolve_posthog_user_for_slack, resolve_slack_user
 from posthog.models.comment import Comment
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.ph_client import ph_scoped_capture
+from posthog.slack.identity import resolve_posthog_user_for_slack, resolve_slack_user
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 

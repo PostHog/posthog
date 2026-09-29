@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -221,6 +222,13 @@ def _baseline_lines(*names: str) -> str:
     return "".join(f"{name} {_FIXTURE_ROUTES[name]}\n" for name in names)
 
 
+# A base ref where `hogFlows` never existed.
+API_TS_FIXTURE_WITHOUT_HOGFLOWS = API_TS_FIXTURE.replace(
+    "    public hogFlows(): ApiRequest {\n        return this.environmentsDetail().addPathComponent('hog_flows')\n    }\n\n",
+    "",
+)
+
+
 class TestApiRequestResolver:
     @parameterized.expand(
         [
@@ -406,12 +414,12 @@ class TestBaselineFixModes:
         assert read_baseline(tmp_path) == {"hogFlows projects/{}/hog_flows"}
         assert runner.invoke(cmd_lint_api_ratchet, []).exit_code == 1
 
-    def test_update_warns_that_it_grandfathers_new_debt(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_update_warns_when_it_grows_the_baseline(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         _write_repo(tmp_path, baseline=_baseline_lines("hogFlows"))
         monkeypatch.setattr(api_ratchet, "REPO_ROOT", tmp_path)
         result = runner.invoke(cmd_lint_api_ratchet, ["--update-baseline"])
         assert result.exit_code == 0
-        assert "grandfathers new debt" in result.output
+        assert "grew the baseline" in result.output
         assert runner.invoke(cmd_lint_api_ratchet, []).exit_code == 0
 
 
@@ -612,3 +620,73 @@ class TestCommand:
             "propertyDefinitions projects/{}/property_definitions",
             "organizationMembers organizations/{}/members",
         }
+
+
+class TestExposedBuilders:
+    def _run(self, monkeypatch: pytest.MonkeyPatch, root: Path, base_source: str | None) -> Result:
+        monkeypatch.setattr(api_ratchet, "REPO_ROOT", root)
+        if base_source is None:
+            monkeypatch.delenv(api_ratchet.API_RATCHET_BASE_ENV, raising=False)
+        else:
+            monkeypatch.setenv(api_ratchet.API_RATCHET_BASE_ENV, "HEAD^1")
+            monkeypatch.setattr(api_ratchet, "_read_base_api_ts", lambda repo_root, ref: base_source)
+        return runner.invoke(cmd_lint_api_ratchet, [])
+
+    def test_a_builder_the_base_already_had_fails_with_the_command_that_records_it(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _write_repo(
+            tmp_path,
+            baseline=_baseline_lines("signalReport", "signalReports", "propertyDefinitions", "organizationMembers"),
+        )
+
+        result = self._run(monkeypatch, tmp_path, API_TS_FIXTURE)
+
+        assert result.exit_code == 1
+        assert "hogFlows" in result.output
+        assert "already existed" in result.output
+        assert "--update-baseline --write-semgrep" in result.output
+        assert "duplicate a generated client" not in result.output
+        # The named command is the whole fix.
+        assert runner.invoke(cmd_lint_api_ratchet, ["--update-baseline", "--write-semgrep"]).exit_code == 0
+        assert self._run(monkeypatch, tmp_path, API_TS_FIXTURE).exit_code == 0
+
+    def test_a_builder_missing_from_the_base_is_still_new_debt(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _write_repo(
+            tmp_path,
+            baseline=_baseline_lines("signalReport", "signalReports", "propertyDefinitions", "organizationMembers"),
+        )
+        result = self._run(monkeypatch, tmp_path, API_TS_FIXTURE_WITHOUT_HOGFLOWS)
+        assert result.exit_code == 1
+        assert "duplicate a generated client" in result.output
+        assert "already existed" not in result.output
+
+    def test_without_the_env_var_the_check_stays_strict(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        _write_repo(
+            tmp_path,
+            baseline=_baseline_lines("signalReport", "signalReports", "propertyDefinitions", "organizationMembers"),
+        )
+        result = self._run(monkeypatch, tmp_path, None)
+        assert result.exit_code == 1
+        assert "duplicate a generated client" in result.output
+        assert "already existed" not in result.output
+
+    def test_an_unreadable_base_ref_falls_back_to_strict_with_a_warning(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _write_repo(
+            tmp_path,
+            baseline=_baseline_lines("signalReport", "signalReports", "propertyDefinitions", "organizationMembers"),
+        )
+        monkeypatch.setattr(api_ratchet, "REPO_ROOT", tmp_path)
+        monkeypatch.setenv(api_ratchet.API_RATCHET_BASE_ENV, "HEAD^1")
+        monkeypatch.setattr(api_ratchet, "_read_base_api_ts", lambda repo_root, ref: None)
+        result = runner.invoke(cmd_lint_api_ratchet, [])
+        assert result.exit_code == 1
+        assert "could not be read" in result.output
+        assert "hogFlows" in result.output
+        # The warning must not corrupt the machine-readable report.
+        report = json.loads(CliRunner(mix_stderr=False).invoke(cmd_lint_api_ratchet, ["--json"]).stdout)
+        assert report["exposed"] == []

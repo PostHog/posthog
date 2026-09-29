@@ -72,6 +72,7 @@ from products.slack_app.backend.services.integration_resolver import (
     pick_a_project_message,
     resolve_from_candidates,
     resolve_user_for_workspace,
+    unresolved_user_properties,
     user_resolution_failure_reply,
 )
 from products.slack_app.backend.services.slack_app_home import (
@@ -2403,6 +2404,7 @@ def route_posthog_code_event_to_relevant_region(
                     reason=f"user_unresolved:{resolution.failure_reason or 'unknown'}",
                     replied=False,
                     integration=untagged_followup_mapping.integration,
+                    **unresolved_user_properties(resolution, untagged_followup_mapping.integration),
                 )
                 return ROUTE_HANDLED_LOCALLY
             # Keep the failure reply out of the channel in an unapproved
@@ -2438,6 +2440,7 @@ def route_posthog_code_event_to_relevant_region(
                 replied=replied,
                 integration=probe,
                 posthog_user=attributed_user,
+                **unresolved_user_properties(resolution, probe),
             )
             return ROUTE_HANDLED_LOCALLY
 
@@ -3210,6 +3213,8 @@ def _post_untagged_followup_prompt(
         timeout=PICKER_TOKEN_MAX_AGE_SECONDS,
     )
 
+    home_tab_url = app_home_url(integration)
+    home_tab_label = f"<{home_tab_url}|PostHog app Home tab>" if home_tab_url else "PostHog app Home tab"
     blocks: list[dict[str, Any]] = [
         {
             "type": "section",
@@ -3218,7 +3223,7 @@ def _post_untagged_followup_prompt(
                 "type": "mrkdwn",
                 "text": (
                     "I'm working in this thread. Want me to pick up your message? "
-                    "Only you can see this — nothing happens unless you say so."
+                    "Only you can see this, and I won't reply or start work unless you say so."
                 ),
             },
         },
@@ -3239,6 +3244,12 @@ def _post_untagged_followup_prompt(
                     "text": {"type": "plain_text", "text": "No thanks"},
                     "value": context_token,
                 },
+            ],
+        },
+        {
+            "type": "context",
+            "elements": [
+                {"type": "mrkdwn", "text": f"In the {home_tab_label} you can set what happens in threads you start."}
             ],
         },
     ]

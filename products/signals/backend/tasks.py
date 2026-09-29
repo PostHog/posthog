@@ -293,7 +293,7 @@ def deliver_scout_slack_thread_replies(
     """Continue a rate-limited report thread without holding or retrying the lead-message worker."""
     team = Team.objects.only("project_id").get(id=team_id)
     integration = _slack_integration_for_project(integration_id=integration_id, project_id=team.project_id)
-    slack = SlackIntegration(integration)
+    slack = SlackIntegration(integration, source="signals_scout")
     channel_id = _slack_channel_id(channel)
 
     def _schedule_retry(
@@ -644,6 +644,29 @@ def assign_reviewers_on_implementation_pr(team_id: int, report_id: str, pr_url: 
     reports its own failures and this never retries: the next pull request event queues it again.
     """
     assign_reviewers_to_pull_request(team_id=team_id, report_id=report_id, pr_url=pr_url)
+
+
+@shared_task(
+    name="products.signals.backend.tasks.start_dependent_stack_layers",
+    ignore_result=True,
+    max_retries=3,
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    soft_time_limit=210,
+    time_limit=240,
+)
+@with_team_scope()
+def start_dependent_stack_layers(team_id: int, report_id: str) -> None:
+    """Start the stack layers that wait on this report, now that it has a pull request.
+
+    Runs on a worker because auto-start creates tasks and must not hold up the pull request sync
+    that queued it. A failed layer start retries with backoff, because the next pull request event
+    on the report may come only at merge, when the layer can no longer stack. A retry skips the
+    layers that already started.
+    """
+    from products.signals.backend.stack_plan import start_dependent_layers  # noqa: PLC0415
+
+    start_dependent_layers(team_id=team_id, report_id=report_id)
 
 
 @shared_task(
