@@ -133,7 +133,17 @@ async function main(): Promise<void> {
         namespace: config.temporalNamespace,
         taskQueue: config.taskQueue,
         activities: createActivities(pool, playerHtml),
-        maxConcurrentActivityTaskExecutions: config.maxConcurrentActivities,
+        // A render's memory grows for minutes after pickup, so a fixed slot count keeps taking work on a
+        // pod that is already near its limit. The tuner stops taking work above these targets, and the
+        // ramp throttle gives each new render time to show its memory before the next slot opens.
+        tuner: {
+            tunerOptions: { targetMemoryUsage: 0.7, targetCpuUsage: 0.9 },
+            activityTaskSlotOptions: {
+                minimumSlots: 1,
+                maximumSlots: config.maxConcurrentActivities,
+                rampThrottle: '10s',
+            },
+        },
         dataConverter: config.secretKey
             ? { payloadCodecs: [new EncryptionCodec(config.secretKey, config.fallbackKeys)] }
             : undefined,

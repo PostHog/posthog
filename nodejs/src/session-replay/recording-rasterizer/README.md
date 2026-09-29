@@ -68,15 +68,15 @@ and starts the container with volume mounts for fast iteration.
 
 Key environment variables (see `config.ts` for full list):
 
-| Variable                    | Default | Description                                           |
-| --------------------------- | ------- | ----------------------------------------------------- |
-| `SCREENSHOT_FORMAT`         | `jpeg`  | Screenshot format for frame capture (`jpeg` or `png`) |
-| `SCREENSHOT_JPEG_QUALITY`   | `80`    | JPEG quality (1-100), only used when format is `jpeg` |
-| `MAX_CONCURRENT_ACTIVITIES` | `4`     | Max parallel recording activities                     |
-| `BROWSER_RECYCLE_AFTER`     | `100`   | Recycle Chromium after N page uses                    |
-| `MAX_IDLE_BROWSERS`         | `2`     | Warm Chromiums kept alive; extras close on release    |
-| `CAPTURE_BROWSER_LOGS`      | `0`     | Forward browser console/error logs to worker logger   |
-| `ENABLE_PLAYER_CSP`         | `1`     | Script-locking CSP on the player page (`0` disables)  |
+| Variable                    | Default | Description                                             |
+| --------------------------- | ------- | ------------------------------------------------------- |
+| `SCREENSHOT_FORMAT`         | `jpeg`  | Screenshot format for frame capture (`jpeg` or `png`)   |
+| `SCREENSHOT_JPEG_QUALITY`   | `80`    | JPEG quality (1-100), only used when format is `jpeg`   |
+| `MAX_CONCURRENT_ACTIVITIES` | `4`     | Max parallel activities; fewer above 70% memory/90% CPU |
+| `BROWSER_RECYCLE_AFTER`     | `100`   | Recycle Chromium after N page uses                      |
+| `MAX_IDLE_BROWSERS`         | `2`     | Warm Chromiums kept alive; extras close on release      |
+| `CAPTURE_BROWSER_LOGS`      | `0`     | Forward browser console/error logs to worker logger     |
+| `ENABLE_PLAYER_CSP`         | `1`     | Script-locking CSP on the player page (`0` disables)    |
 
 Egress from the browser and the S3 client is routed through the proxy in `HTTPS_PROXY`/`HTTP_PROXY`.
 In production a missing proxy URL is a startup error; `RASTERIZER_USE_PROXY=false` explicitly disables containment.
