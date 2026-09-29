@@ -1,5 +1,7 @@
+import io
 import json
 from datetime import UTC, date, datetime
+from http.client import HTTPResponse
 from typing import Any
 
 import pytest
@@ -50,6 +52,22 @@ def _page(items: Any, next_cursor: str | None = None, has_more: bool = False) ->
     return _response(
         {"status": "success", "data": items, "pagination": {"nextCursor": next_cursor, "hasMore": has_more}}
     )
+
+
+class _FakeSocket:
+    def __init__(self, raw: bytes) -> None:
+        self._raw = raw
+
+    def makefile(self, *_args: Any, **_kwargs: Any) -> io.BytesIO:
+        return io.BytesIO(self._raw)
+
+
+def _wire_response(status_code: int, body: bytes) -> HTTPResponse:
+    # What urllib3 reads off the socket, so the session's real retry policy runs against it.
+    raw = f"HTTP/1.1 {status_code} X\r\nContent-Type: application/json\r\nContent-Length: {len(body)}\r\n\r\n"
+    response = HTTPResponse(_FakeSocket(raw.encode() + body))  # type: ignore[arg-type]
+    response.begin()
+    return response
 
 
 def _make_manager(resume_state: CalComResumeConfig | None = None) -> mock.MagicMock:
@@ -673,6 +691,22 @@ class TestBookingAttendees:
             yielded.extend(row["bookingUid"] for row in page)
 
         assert saved_at == [["bk1"]]
+
+    @parameterized.expand([("recovers_within_the_retry_budget", 5, True), ("fails_after_the_retry_budget", 7, False)])
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_rate_limited_attendee_fetch(
+        self, _name: str, rate_limited_attempts: int, recovers: bool, MockClientSession
+    ) -> None:
+        _wire(MockClientSession.return_value, [_page([self.BOOKING])])
+        wire_responses = [_wire_response(429, b"{}") for _ in range(rate_limited_attempts)]
+        wire_responses.append(_wire_response(200, b'{"data": [{"id": 5}]}'))
+
+        with mock.patch("urllib3.connectionpool.HTTPConnectionPool._make_request", side_effect=wire_responses):
+            if recovers:
+                assert [row["id"] for row in _rows(_source(BOOKING_ATTENDEES_ENDPOINT))] == [5]
+            else:
+                with pytest.raises(requests.HTTPError, match="429"):
+                    _rows(_source(BOOKING_ATTENDEES_ENDPOINT))
 
     @mock.patch(CLIENT_SESSION_PATCH)
     @mock.patch(CAL_COM_SESSION_PATCH)

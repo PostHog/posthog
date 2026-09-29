@@ -16,6 +16,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cal_com.se
     endpoint_requires_organization,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import (
+    CLOUDFLARE_TRANSIENT_STATUSES,
+    BoundedRetry,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.request_pacer import RequestPacer
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
     rest_api_resource,
@@ -43,6 +48,20 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 DEFAULT_PROBE_PATH = "/me"
 DEFAULT_REGION = "us"
 REQUEST_TIMEOUT_SECONDS = 30
+
+# Cal.com limits an API key to 120 requests per minute. The attendees table sends one request per
+# booking, so it stays below that rate and leaves headroom for the bookings listing.
+ATTENDEE_REQUESTS_PER_SECOND = 1.5
+
+# The default policy gives up after about one second of backoff, which is too short for a
+# per-minute window. These waits add up to about a minute, and a Retry-After header wins.
+ATTENDEE_RETRY = BoundedRetry(
+    total=6,
+    backoff_factor=2,
+    status_forcelist=(429, 500, 502, 503, 504, *CLOUDFLARE_TRANSIENT_STATUSES),
+    allowed_methods=frozenset(["GET"]),
+    raise_on_status=False,
+)
 
 # Seed for the afterCreatedAt/afterUpdatedAt filters before a table has a watermark.
 EPOCH_INCREMENTAL_VALUE = "1970-01-01T00:00:00.000Z"
@@ -392,7 +411,8 @@ def _booking_attendees_items(
     )
 
     # capture=False for the same reason as `_client_config`: attendee rows are contact details.
-    session = make_tracked_session(redact_values=(api_key,), capture=False)
+    session = make_tracked_session(redact_values=(api_key,), capture=False, retry=ATTENDEE_RETRY)
+    pacer = RequestPacer(ATTENDEE_REQUESTS_PER_SECOND)
     headers = {**_headers(config), "Authorization": f"Bearer {api_key}"}
     base_url = _host(region)
 
@@ -402,6 +422,7 @@ def _booking_attendees_items(
             uid = booking.get("uid")
             if uid is None:
                 continue
+            pacer.wait_turn()
             response = session.get(
                 f"{base_url}/bookings/{quote(str(uid), safe='')}/attendees",
                 headers=headers,
