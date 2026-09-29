@@ -137,11 +137,14 @@ async function main(): Promise<void> {
         // pod that is already near its limit. The tuner stops taking work above these targets, and the
         // ramp throttle gives each new render time to show its memory before the next slot opens.
         tuner: {
-            tunerOptions: { targetMemoryUsage: 0.7, targetCpuUsage: 0.9 },
+            tunerOptions: {
+                targetMemoryUsage: config.tunerTargetMemoryUsage,
+                targetCpuUsage: config.tunerTargetCpuUsage,
+            },
             activityTaskSlotOptions: {
                 minimumSlots: 1,
                 maximumSlots: config.maxConcurrentActivities,
-                rampThrottle: '10s',
+                rampThrottle: config.tunerRampThrottleMs,
             },
         },
         dataConverter: config.secretKey
