@@ -99,6 +99,22 @@ describe('LemonMenu', () => {
         })
     })
 
+    it('moves focus past a closed submenu trigger to the next item', async () => {
+        render(
+            <LemonMenu items={[{ label: 'Change view', items: [{ label: 'Summary' }] }, { label: 'Export' }]}>
+                <LemonButton>More actions</LemonButton>
+            </LemonMenu>
+        )
+
+        await userEvent.click(screen.getByText('More actions'))
+        const changeView = (await screen.findByText('Change view')).closest('button')!
+        await userEvent.keyboard('{ArrowDown}')
+        expect(changeView).toHaveFocus()
+        await userEvent.keyboard('{ArrowDown}')
+        expect(screen.getByText('Export').closest('button')).toHaveFocus()
+        expect(screen.queryByText('Summary')).not.toBeInTheDocument()
+    })
+
     it('navigates portal items after opening and reopening a menu', async () => {
         render(
             <div>

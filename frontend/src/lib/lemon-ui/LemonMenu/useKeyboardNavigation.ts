@@ -38,6 +38,10 @@ export function useKeyboardNavigation<R extends HTMLElement = HTMLElement, I ext
                 return
             }
             if (e.target === referenceRef.current) {
+                // A closed menu has no mounted items, so leave the key to the parent menu or the page.
+                if (!itemsRef.current.some((item) => item.current)) {
+                    return
+                }
                 focusedItemIndexRef.current = activeItemIndex
             }
             if (e.key === 'ArrowDown') {
