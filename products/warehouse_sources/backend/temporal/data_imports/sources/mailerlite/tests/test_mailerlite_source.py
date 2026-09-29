@@ -32,22 +32,20 @@ def _config() -> MailerLiteSourceConfig:
 
 class TestMailerLiteSourceClass:
     @pytest.mark.parametrize(
-        ("valid", "expected_ok"),
-        [(True, True), (False, False)],
+        "probe_result",
+        [(True, None), (False, "probe rejected the key")],
     )
-    def test_validate_credentials(self, valid: bool, expected_ok: bool) -> None:
+    def test_validate_credentials_passes_the_probe_result_through(self, probe_result: tuple[bool, str | None]) -> None:
         with patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.mailerlite.source.validate_mailerlite_credentials",
-            return_value=valid,
+            return_value=probe_result,
         ):
-            ok, error = MailerLiteSource().validate_credentials(_config(), team_id=1)
-            assert ok is expected_ok
-            assert (error is None) is expected_ok
+            assert MailerLiteSource().validate_credentials(_config(), team_id=1) == probe_result
 
     def test_validate_credentials_uses_schema_path(self) -> None:
         with patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.mailerlite.source.validate_mailerlite_credentials",
-            return_value=True,
+            return_value=(True, None),
         ) as mock_validate:
             MailerLiteSource().validate_credentials(_config(), team_id=1, schema_name="groups")
             assert mock_validate.call_args.args == ("test-key", "/groups")
