@@ -1,4 +1,5 @@
 import json
+import math
 import time
 import uuid
 import asyncio
@@ -100,6 +101,10 @@ class PromptJevRunner:
         self.input_bytes = 0
         self.deadline = time.monotonic() + 60
         self.client: GatewaySystemOneClient | None = None
+
+    def source_timeout(self) -> int:
+        # Source scans share the inference deadline. ClickHouse takes max_execution_time in whole seconds, and 0 disables it.
+        return max(1, math.ceil(self.deadline - time.monotonic()))
 
     async def _batch(self, spec: PromptJevCall, texts: list[str]) -> dict[str, object]:
         assert self.client is not None

@@ -713,22 +713,23 @@ class HogQLQueryExecutor:
 
         validate_prompt_jev_access(self.team)
         self._prompt_jev_tables = []
+        runner = PromptJevRunner(team_id=self.team.pk, distinct_id=self.user.distinct_id if self.user else None)
 
         def execute_source(query: ast.SelectQuery) -> HogQLQueryResponse:
+            settings = get_default_hogql_global_settings(self.team.pk, self.settings)
+            timeout = runner.source_timeout()
+            settings.max_execution_time = min(settings.max_execution_time or timeout, timeout)
             executor = dataclasses.replace(
                 self,
                 query=query,
+                settings=settings,
                 context=dataclasses.replace(self.context, limit_top_select=False),
-                limit_context=LimitContext.SAVED_QUERY,
+                limit_context=LimitContext.QUERY,
             )
             executor._prompt_jev_tables = self._prompt_jev_tables
             return executor.execute()
 
-        planner = PromptJevPlanner(
-            execute=execute_source,
-            runner=PromptJevRunner(team_id=self.team.pk, distinct_id=self.user.distinct_id if self.user else None),
-            tables=self._prompt_jev_tables,
-        )
+        planner = PromptJevPlanner(execute=execute_source, runner=runner, tables=self._prompt_jev_tables)
         with self.timings.measure("__preview_promptJev"):
             self.select_query = planner.visit(self.select_query)
         if PromptJevFinder.contains(self.select_query):

@@ -1,3 +1,4 @@
+import re
 import json
 import time
 import asyncio
@@ -17,6 +18,7 @@ from posthog.hogql.parser import parse_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.transforms.prompt_jev import PromptJevRunner
 
+from posthog.clickhouse.client import sync_execute
 from posthog.models.team import Team
 
 
@@ -128,6 +130,7 @@ class TestPromptJev(SimpleTestCase):
         assert isinstance(node, ast.Call)
         runner = PromptJevRunner(team_id=1, distinct_id=None)
         runner.deadline = time.monotonic() - 1
+        self.assertEqual(runner.source_timeout(), 1)
         with patch("httpx.AsyncClient.post") as post, self.assertRaisesRegex(QueryError, "time limit"):
             runner.evaluate(PromptJevCall.parse(node), ["refund"])
         post.assert_not_called()
@@ -233,6 +236,20 @@ class TestPromptJevQuery(ClickhouseTestMixin, APIBaseTest):
             response = execute_hogql_query(query, self.team, user=self.user)
         self.assertEqual(response.results, [(1,)])
         post.assert_not_called()
+
+    def test_source_scan_stays_within_the_inference_deadline(self) -> None:
+        with (
+            patch("httpx.AsyncClient.post", side_effect=gateway_response),
+            patch("posthog.hogql.query.sync_execute", wraps=sync_execute) as execute,
+        ):
+            execute_hogql_query("SELECT __preview_promptJev('refund', 'Refund?') AS p", self.team, user=self.user)
+        timeouts = [
+            int(seconds)
+            for call in execute.call_args_list
+            for seconds in re.findall(r"max_execution_time=(\d+)", call.args[0])
+        ]
+        self.assertEqual(len(timeouts), 2)
+        self.assertLessEqual(max(timeouts), 60)
 
     @parameterized.expand(
         [
