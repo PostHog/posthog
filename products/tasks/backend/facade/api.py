@@ -1682,7 +1682,9 @@ def collect_task_run_state_metrics(
             with_status=False,
         ),
         terminal_recently=_gauge_rows(
-            TaskRun.objects.filter(status__in=terminal_statuses, updated_at__gte=window_start)
+            TaskRun.objects.filter(status__in=terminal_statuses)
+            .annotate(terminal_at=Coalesce(F("completed_at"), F("updated_at"), output_field=DateTimeField()))
+            .filter(terminal_at__gte=window_start)
             .values("status", "environment", "origin_product")
             .annotate(count=Count("id")),
             "count",
