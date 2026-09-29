@@ -151,6 +151,8 @@ _WILDCARD_SOURCES = frozenset({"https://*.posthog.com", "https://*.i.posthog.com
 # The wildcard app policy and the admin policy report as v=2, through the default endpoint above. Reports
 # tagged v=3 came from a report-only shadow of the narrowed policy, so reusing 3 would mix the two in one query.
 NARROWED_APP_POLICY_REPORT_VERSION = "4"
+# Reports tagged v=5 come from a report-only policy that holds only img-src, without `https:`.
+IMG_SRC_SHADOW_REPORT_VERSION = "5"
 
 
 def narrowed_app_policy(csp_parts: list[str], replacements: dict[str, list[str]]) -> list[str]:
@@ -167,6 +169,16 @@ def narrowed_app_policy(csp_parts: list[str], replacements: dict[str, list[str]]
             part = " ".join([name, *(s for s in sources if s not in _WILDCARD_SOURCES), *replacements[name]])
         narrowed.append(part)
     return narrowed
+
+
+def img_src_shadow_policy(csp_parts: list[str]) -> list[str]:
+    """The app policy's img-src without its `https:` scheme source, to send as a report-only policy of its own.
+
+    `https:` admits an image from any host, so the named hosts beside it never decide a load. Without
+    it, each image from an unnamed host reports, which lists the hosts to name, and the images users
+    supply, before `https:` can go. The policy names no other directive, so it restricts nothing else.
+    """
+    return [" ".join(s for s in part.split() if s != "https:") for part in csp_parts if part.split()[0] == "img-src"]
 
 
 class CSPMiddleware:
@@ -352,7 +364,8 @@ class CSPMiddleware:
                 #
                 # The named origins below are the set we actually load images from, and `https:`
                 # makes them redundant. They stay so that removing `https:` is a one-line change
-                # rather than an archaeology exercise.
+                # rather than an archaeology exercise. On cloud, the v=5 report-only policy below
+                # reports each image that only `https:` admits.
                 #
                 # Do not promote this to an enforced header as-is. An open `img-src` is an
                 # exfiltration channel: an attacker who injects markup but cannot run script still
@@ -448,6 +461,19 @@ class CSPMiddleware:
                 response.headers["Reporting-Endpoints"] = f'default="{report_endpoint}"'
             header_name = app_csp_header_name(request)
             response.headers[header_name] = "; ".join(csp_parts)
+            if narrowed:
+                shadow_params = {"v": IMG_SRC_SHADOW_REPORT_VERSION}
+                if distinct_id:
+                    shadow_params["distinct_id"] = distinct_id
+                shadow_uri = csp_report_endpoint(**shadow_params)
+                if shadow_uri:
+                    # One header can carry several policies separated by commas, and the browser checks
+                    # each on its own. On a report-only document the shadow joins the app policy there.
+                    shadow = "; ".join([*img_src_shadow_policy(csp_parts), f"report-uri {shadow_uri}"])
+                    reported = response.headers.get("Content-Security-Policy-Report-Only")
+                    response.headers["Content-Security-Policy-Report-Only"] = (
+                        f"{reported}, {shadow}" if reported else shadow
+                    )
             if header_name == "Content-Security-Policy-Report-Only" and not is_embeddable_document(request.path):
                 # Django owns this header. A responseHeadersPolicy on the Contour ingress replaces
                 # it, and with it the enforced app policy above, so the ingress must not set one.
