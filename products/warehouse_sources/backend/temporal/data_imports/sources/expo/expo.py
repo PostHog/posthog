@@ -21,7 +21,7 @@ class ExpoAPIError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class ExpoResumeConfig:
     offset: int
 
@@ -68,11 +68,13 @@ def validate_credentials(access_token: str, project_id: str) -> tuple[bool, Opti
 
     try:
         # A valid token still needs access to this specific project, so probe one row.
-        _run_query(
+        project_data = _run_query(
             session,
             build_query("builds"),
             {"appId": project_id, "offset": 0, "limit": 1},
         )
+        if (project_data.get("app") or {}).get("byId") is None:
+            raise ExpoAPIError("Expo project not found")
     except (ExpoAPIError, requests.HTTPError):
         return False, (
             "Expo could not read this project. Check the project ID, and that the token's account owns it. "
@@ -102,7 +104,9 @@ def get_rows(
 
     while True:
         data = _run_query(session, query, {"appId": project_id, "offset": offset, "limit": PAGE_SIZE})
-        app = (data.get("app") or {}).get("byId") or {}
+        app = (data.get("app") or {}).get("byId")
+        if app is None:
+            raise ExpoAPIError("Expo project not found or inaccessible")
         items = app.get(config.collection) or []
 
         if items:

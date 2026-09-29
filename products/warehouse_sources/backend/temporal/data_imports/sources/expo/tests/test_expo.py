@@ -78,17 +78,22 @@ class TestExpoTransport:
             with pytest.raises(ExpoAPIError, match="Entity not authorized"):
                 list(get_rows("token", "app", "builds", mock.MagicMock(), _manager()))
 
-    def test_a_missing_project_yields_nothing_rather_than_raising(self) -> None:
+    def test_a_missing_project_stops_the_sync(self) -> None:
         session = mock.MagicMock()
         session.post.return_value = _response({"data": {"app": {"byId": None}}})
 
         with mock.patch(f"{_MODULE}._get_session", return_value=session):
-            assert list(get_rows("token", "app", "builds", mock.MagicMock(), _manager())) == []
+            with pytest.raises(ExpoAPIError, match="project not found"):
+                list(get_rows("token", "app", "builds", mock.MagicMock(), _manager()))
 
     @pytest.mark.parametrize("endpoint", sorted(EXPO_ENDPOINTS))
     def test_each_query_reads_its_own_collection(self, endpoint: str) -> None:
         query = build_query(endpoint)
-        assert f"{EXPO_ENDPOINTS[endpoint].collection}(offset: $offset, limit: $limit)" in query
+        assert f"{EXPO_ENDPOINTS[endpoint].collection}(" in query
+        assert "offset: $offset, limit: $limit" in query
+
+    def test_the_submissions_query_includes_its_required_filter(self) -> None:
+        assert "submissions(filter: {}, offset: $offset, limit: $limit)" in build_query("submissions")
 
 
 class TestExpoCredentials:
@@ -112,11 +117,18 @@ class TestExpoCredentials:
         assert valid is False
         assert message is not None and "access token" in message
 
-    def test_a_valid_token_without_project_access_names_the_project(self) -> None:
+    @pytest.mark.parametrize(
+        "project_response",
+        [
+            {"errors": [{"message": "Entity not authorized"}]},
+            {"data": {"app": {"byId": None}}},
+        ],
+    )
+    def test_a_valid_token_without_project_access_names_the_project(self, project_response: dict[str, Any]) -> None:
         session = mock.MagicMock()
         session.post.side_effect = [
             _response({"data": {"viewer": {"id": "u1"}}}),
-            _response({"errors": [{"message": "Entity not authorized"}]}),
+            _response(project_response),
         ]
 
         with mock.patch(f"{_MODULE}._get_session", return_value=session):

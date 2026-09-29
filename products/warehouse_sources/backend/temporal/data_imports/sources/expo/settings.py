@@ -104,12 +104,15 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {}
 
 def build_query(endpoint: str) -> str:
     config = EXPO_ENDPOINTS[endpoint]
+    collection_arguments = (
+        "filter: {}, offset: $offset, limit: $limit" if endpoint == "submissions" else "offset: $offset, limit: $limit"
+    )
     return f"""
 query PostHogExpo{config.collection.title()}($appId: String!, $offset: Int!, $limit: Int!) {{
   app {{
     byId(appId: $appId) {{
       id
-      {config.collection}(offset: $offset, limit: $limit) {{
+      {config.collection}({collection_arguments}) {{
 {config.fields}
       }}
     }}
