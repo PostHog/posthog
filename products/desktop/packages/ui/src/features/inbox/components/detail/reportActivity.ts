@@ -14,7 +14,11 @@ const ROUTINE_PIPELINE_ARTEFACTS = new Set([
 export function selectUsefulReportActivity(
   artefacts: AnySignalReportArtefact[],
 ): AnySignalReportArtefact[] {
+  // A malformed plan degrades to a preview that the expected-impact section
+  // skips, so keep it here rather than let it vanish from both.
   return artefacts.filter(
-    (artefact) => !ROUTINE_PIPELINE_ARTEFACTS.has(artefact.type),
+    (artefact) =>
+      (artefact.type === "impact_measurement_plan" && artefact.degraded) ||
+      !ROUTINE_PIPELINE_ARTEFACTS.has(artefact.type),
   );
 }
