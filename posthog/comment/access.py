@@ -4,7 +4,13 @@ from posthog.models.comment.comment import CANVAS_COMMENT_SCOPES
 
 
 def task_comment_target_is_accessible(
-    *, team_id: int, user_id: int | None, task_id: str | UUID | None, scope: str, item_id: str | None
+    *,
+    team_id: int,
+    user_id: int | None,
+    task_id: str | UUID | None,
+    scope: str,
+    item_id: str | None,
+    sandbox: bool = False,
 ) -> bool:
     if scope not in CANVAS_COMMENT_SCOPES:
         if not task_id:
@@ -39,4 +45,5 @@ def task_comment_target_is_accessible(
         user_id=user_id,
         canvas_id=item_id,
         task_id=parsed_task_id,
+        sandbox=sandbox,
     )

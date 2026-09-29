@@ -531,6 +531,55 @@ class TestComments(APIBaseTest, QueryMatchingTest):
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
+    @parameterized.expand(
+        [
+            ("sandbox_on_teammate_canvas", True, False, False),
+            ("sandbox_on_own_canvas", True, True, True),
+            ("session_on_teammate_canvas", False, False, True),
+        ]
+    )
+    def test_private_canvas_comments_limit_sandbox_tokens_like_the_canvas_api(
+        self, _name: str, sandbox: bool, own_canvas: bool, visible: bool
+    ) -> None:
+        teammate = User.objects.create_and_join(self.organization, "canvas-teammate@posthog.com", None)
+        channel = (
+            apps.get_model("tasks", "Channel")
+            .objects.unscoped()
+            .create(team=self.team, name="shared-private-space", channel_type="private", created_by=teammate)
+        )
+        membership_model = apps.get_model("tasks", "ChannelMembership")
+        membership_model.objects.unscoped().bulk_create(
+            [
+                membership_model(team=self.team, channel=channel, user=self.user),
+                membership_model(team=self.team, channel=channel, user=teammate),
+            ]
+        )
+        canvas = (
+            apps.get_model("canvas", "Canvas")
+            .objects.unscoped()
+            .create(
+                team=self.team,
+                channel=channel,
+                name="Private canvas",
+                created_by=self.user if own_canvas else teammate,
+            )
+        )
+        root = Comment.objects.create(
+            team=self.team,
+            created_by=teammate,
+            scope="desktop_canvas",
+            item_id=str(canvas.id),
+            item_context={"anchor": {"kind": "document"}},
+            content="Private feedback",
+        )
+        client = self._sandbox_task_comment_client(self._task_artifact_target().id) if sandbox else self.client
+
+        listed = client.get(f"/api/projects/{self.team.id}/comments?scope=canvas&item_id={canvas.id}")
+        detail = client.get(f"/api/projects/{self.team.id}/comments/{root.id}")
+
+        assert [row["id"] for row in listed.json()["results"]] == ([str(root.id)] if visible else [])
+        assert detail.status_code == (status.HTTP_200_OK if visible else status.HTTP_404_NOT_FOUND)
+
     @parameterized.expand([("public_space", "public", True), ("another_users_personal_space", "personal", False)])
     def test_task_comments_include_canvas_comments_only_from_visible_spaces(
         self, _name: str, channel_type: str, visible: bool
