@@ -50,6 +50,7 @@ export interface businessKnowledgePlaygroundLogicValues {
     chatLoading: boolean
     chatSearch: string
     chats: PlaygroundChatListApi[]
+    chatsError: string | null
     chatsLoading: boolean
     deletingChatId: string | null
     loadingMoreChats: boolean
@@ -225,6 +226,14 @@ export const businessKnowledgePlaygroundLogic = kea<businessKnowledgePlaygroundL
         ],
     })),
     reducers({
+        chatsError: [
+            null as string | null,
+            {
+                loadChats: () => null,
+                loadChatsFailure: (_, { error, errorObject }) =>
+                    errorDetail(errorObject ?? error, "Couldn't load chats. Try again."),
+            },
+        ],
         nextChatsOffset: [
             null as number | null,
             { loadChats: () => null, setNextChatsOffset: (_, { offset }) => offset },

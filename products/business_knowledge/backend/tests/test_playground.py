@@ -155,6 +155,14 @@ class TestPlaygroundChatAPI(APIBaseTest):
         assert sorted(listed) == sorted(chat["id"] for chat in chats)
         assert second_page["next"] is None
 
+        PlaygroundChat.objects.unscoped().bulk_create(
+            [PlaygroundChat(team=self.team, created_by=self.user, title="Another chat") for _ in range(101)]
+        )
+        capped_page = self.client.get(self.url, {"limit": 1000}).json()
+        assert capped_page["count"] == 104
+        assert len(capped_page["results"]) == 100
+        assert capped_page["next"] is not None
+
     def test_delete_keeps_the_sandbox_task(self, _ff, _workflow) -> None:
         chat = self._create_chat()
         asked = self.client.post(f"{self.url}{chat['id']}/ask/", {"question": "Can I get a refund?"}, format="json")

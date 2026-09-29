@@ -343,6 +343,21 @@ describe('businessKnowledgePlaygroundLogic', () => {
         expect(logic.values.chats.at(-1)?.title).toBe('Older question')
     })
 
+    it('shows a first-page failure and clears it when the retry starts', async () => {
+        await expectLogic(logic).toDispatchActions(['loadChatsSuccess'])
+        silenceKeaLoadersErrors()
+        mockedList.mockRejectedValueOnce(new Error('network error'))
+        logic.actions.loadChats()
+        await expectLogic(logic).toDispatchActions(['loadChatsFailure'])
+        expect(logic.values.chatsError).toContain("Couldn't load chats")
+        expect(logic.values.chats).toEqual([])
+
+        mockedList.mockResolvedValueOnce(listPage([listed]))
+        await expectLogic(logic, () => logic.actions.loadChats()).toDispatchActions(['loadChatsSuccess'])
+        expect(logic.values.chatsError).toBeNull()
+        expect(logic.values.chats).toEqual([listed])
+    })
+
     it('refreshes the chat list until no chat has an answer running', async () => {
         await expectLogic(logic).toDispatchActions(['loadChatsSuccess'])
         jest.useFakeTimers()
