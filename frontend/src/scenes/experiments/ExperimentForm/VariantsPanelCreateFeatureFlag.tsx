@@ -97,7 +97,7 @@ export const VariantsPanelCreateFeatureFlag = ({
 
     // Unset until someone chooses. Other edits pass it through unset, so the persist question can tell. An unset
     // value saves the team's default, which is what's shown here.
-    const ensureExperienceContinuityChoice = experiment.feature_flag_config?.ensure_experience_continuity
+    const ensureExperienceContinuityChoice = experiment.feature_flag_config?.ensure_experience_continuity ?? undefined
     const ensureExperienceContinuity =
         ensureExperienceContinuityChoice ?? currentTeam?.flags_persistence_default ?? false
 
