@@ -38,7 +38,6 @@ class TestAccountAuditStartAPI(APIBaseTest):
         self.secret = f"whsec_{base64.b64encode(b'a' * 32).decode()}"
         self.credential = AccountAuditCredential.objects.create(
             owner=self.user,
-            workflow_id=uuid4(),
             signing_secret=self.secret,
         )
         self.url = "/api/growth_account_audits/start/"
@@ -419,7 +418,7 @@ class TestAccountAuditStartAPI(APIBaseTest):
 
     def test_preserves_historic_admissions_when_an_owner_or_credential_is_deleted(self) -> None:
         owner = User.objects.create_user(email="audit-owner@example.com", password=None, first_name="Audit")
-        credential = AccountAuditCredential.objects.create(owner=owner, workflow_id=uuid4(), signing_secret=self.secret)
+        credential = AccountAuditCredential.objects.create(owner=owner, signing_secret=self.secret)
         admission = AccountAuditAdmission.objects.unscoped().create(
             credential=credential,
             task_run_id=uuid4(),

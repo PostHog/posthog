@@ -39,9 +39,8 @@ from products.growth.backend.product_push.service import cancel_campaigns, get_e
 class AccountAuditCredentialForm(forms.ModelForm):
     class Meta:
         model = AccountAuditCredential
-        fields = ("owner", "workflow_id", "is_active")
+        fields = ("owner", "is_active")
         help_texts = {
-            "workflow_id": "Optional reference to a workflow in either region. This does not restrict where the credential can be used.",
             "is_active": "Disable to revoke access. To rotate, configure the workflow with a new credential before disabling this one.",
         }
 
@@ -59,19 +58,19 @@ class AccountAuditCredentialForm(forms.ModelForm):
 class AccountAuditCredentialAdmin(admin.ModelAdmin):
     form = AccountAuditCredentialForm
     raw_id_fields = ("owner",)
-    list_display = ("public_key_id", "owner", "workflow_id", "is_active", "created_at")
+    list_display = ("public_key_id", "owner", "is_active", "created_at")
     list_filter = ("is_active",)
     list_select_related = ("owner",)
-    search_fields = ("public_key_id", "workflow_id", "owner__email")
+    search_fields = ("public_key_id", "owner__email")
     actions = None
 
     def get_fields(self, request: HttpRequest, obj: AccountAuditCredential | None = None) -> tuple[str, ...]:
         if obj is None:
-            return ("owner", "workflow_id", "is_active")
-        return ("public_key_id", "owner", "workflow_id", "is_active", "created_at")
+            return ("owner", "is_active")
+        return ("public_key_id", "owner", "is_active", "created_at")
 
     def get_readonly_fields(self, request: HttpRequest, obj: AccountAuditCredential | None = None) -> tuple[str, ...]:
-        return ("public_key_id", "owner", "workflow_id", "created_at") if obj else ()
+        return ("public_key_id", "owner", "created_at") if obj else ()
 
     def has_delete_permission(self, request: HttpRequest, obj: AccountAuditCredential | None = None) -> bool:
         return False

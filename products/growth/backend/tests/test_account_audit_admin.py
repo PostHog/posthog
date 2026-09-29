@@ -1,5 +1,4 @@
 import base64
-from uuid import uuid4
 
 from posthog.test.base import BaseTest
 
@@ -19,15 +18,13 @@ class TestAccountAuditCredentialAdmin(BaseTest):
         self.user.save(update_fields=["is_staff"])
         self.client.force_login(self.user)
         self.add_url = reverse("admin:growth_accountauditcredential_add")
-        self.add_data = {"owner": self.user.pk, "workflow_id": "", "is_active": "on"}
+        self.add_data = {"owner": self.user.pk, "is_active": "on"}
 
-    @parameterized.expand([("us", "https://us.posthog.com", False), ("eu", "https://eu.posthog.com", True)])
+    @parameterized.expand([("us", "https://us.posthog.com"), ("eu", "https://eu.posthog.com")])
     def test_admin_provisions_once_then_allows_overlap_and_revocation_without_exposing_secret(
-        self, _region: str, site_url: str, workflow_reference: bool
+        self, _region: str, site_url: str
     ) -> None:
         self.enterContext(self.settings(SITE_URL=site_url))
-        workflow_id = uuid4() if workflow_reference else None
-        self.add_data["workflow_id"] = str(workflow_id) if workflow_id else ""
         response = self.client.post(self.add_url, self.add_data)
         self.assertEqual(response.status_code, 200)
         credential = AccountAuditCredential.objects.get()
@@ -49,14 +46,11 @@ class TestAccountAuditCredentialAdmin(BaseTest):
         credential.refresh_from_db()
         self.assertTrue(credential.is_active)
 
-        response = self.client.post(
-            change_url, {"owner": "", "workflow_id": str(uuid4()), "signing_secret": "replacement"}
-        )
+        response = self.client.post(change_url, {"owner": "", "signing_secret": "replacement"})
         self.assertEqual(response.status_code, 302)
         credential.refresh_from_db()
         self.assertFalse(credential.is_active)
         self.assertEqual(credential.owner_id, self.user.pk)
-        self.assertEqual(credential.workflow_id, workflow_id)
         self.assertEqual(credential.signing_secret, secret)
         replacement.refresh_from_db()
         self.assertTrue(replacement.is_active)
