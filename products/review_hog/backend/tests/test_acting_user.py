@@ -232,7 +232,7 @@ class TestResolveActingUser(BaseTest):
 
     def test_override_by_a_different_mapped_user_still_follows_the_authors_media_preference(self) -> None:
         # A teammate triggering a review from the UI supplies themselves as override_user_id while the
-        # PR author is a distinct mapped user — this must load the author's own opt-out rather than
+        # PR author is a distinct mapped user, so this must load the author's own opt-out rather than
         # falling through to the built-in default the way an unmapped author would.
         teammate = self._create_user("teammate@posthog.com")
         UserSocialAuth.objects.create(user=teammate, provider="github", uid="gh-2", extra_data={"login": "teammate"})

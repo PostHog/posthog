@@ -722,7 +722,7 @@ def _resolve_acting_user(input: ResolveActingUserInput) -> ResolveActingUserResu
     if input.report_id is not None:
         ReviewReport.objects.for_team(input.team_id).filter(id=input.report_id).update(acting_user_id=acting_user_id)
     # celebrate_clean_reviews follows the author, who can differ from the acting user on an
-    # override run — load both rows in one query instead of a second round trip below.
+    # override run, so load both rows in one query instead of a second round trip below.
     extra_settings_ids = [author_user_id] if author_user_id is not None and author_user_id != acting_user_id else []
     settings_by_user = ReviewUserSettings.load_many(input.team_id, [acting_user_id, *extra_settings_ids])
     settings = settings_by_user[acting_user_id]
@@ -747,7 +747,7 @@ def _resolve_acting_user(input: ResolveActingUserInput) -> ResolveActingUserResu
         resolve_comments=settings.resolve_comments if resolved_from in ("author", "override") else True,
         # Unlike the switches above, this one follows the AUTHOR, not the requester: its copy scopes
         # it to "your pull requests". A teammate-triggered override still honors the mapped author's
-        # own preference — only an unmapped author falls back to the default.
+        # own preference. Only an unmapped author falls back to the default.
         celebrate_clean_reviews=(
             settings.celebrate_clean_reviews
             if resolved_from == "author" or (resolved_from == "override" and acting_user_id == author_user_id)
