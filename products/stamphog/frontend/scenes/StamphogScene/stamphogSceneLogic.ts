@@ -93,6 +93,7 @@ export interface stamphogSceneLogicValues {
     stamphogAccessLevel: AccessControlLevel | undefined
     syncResult: StamphogSyncInstallationResponseApi | null
     syncResultLoading: boolean
+    triggerLabelFieldResets: Record<string, number>
     updatingRepoIds: string[]
 }
 
@@ -183,6 +184,9 @@ export interface stamphogSceneLogicActions {
         config: StamphogRepoConfigApi
     }
     repoUpdateDone: (id: string) => {
+        id: string
+    }
+    resetTriggerLabelField: (id: string) => {
         id: string
     }
     setAvailableSearch: (search: string) => {
@@ -294,6 +298,7 @@ export const stamphogSceneLogic = kea<stamphogSceneLogicType>([
         loadRepoConfigs: true,
         updateRepoConfig: (id: string, patch: PatchedStamphogRepoConfigWriteApi) => ({ id, patch }),
         triggerLabelEditStarted: (id: string) => ({ id }),
+        resetTriggerLabelField: (id: string) => ({ id }),
         repoUpdateDone: (id: string) => ({ id }),
         repoConfigUpdated: (config: StamphogRepoConfigApi) => ({ config }),
         setRepoSearch: (search: string) => ({ search }),
@@ -395,6 +400,13 @@ export const stamphogSceneLogic = kea<stamphogSceneLogicType>([
             {
                 updateRepoConfig: (state, { id }) => (state.includes(id) ? state : [...state, id]),
                 repoUpdateDone: (state, { id }) => state.filter((x) => x !== id),
+            },
+        ],
+        // The label editor keeps a draft it did not save on screen, so a bumped count remounts it from the stored label.
+        triggerLabelFieldResets: [
+            {} as Record<string, number>,
+            {
+                resetTriggerLabelField: (state, { id }) => ({ ...state, [id]: (state[id] ?? 0) + 1 }),
             },
         ],
         repoConfigs: {
@@ -575,6 +587,9 @@ export const stamphogSceneLogic = kea<stamphogSceneLogicType>([
                 })
             } catch {
                 lemonToast.error('Failed to update repository')
+                if ('trigger_label' in patch) {
+                    actions.resetTriggerLabelField(id)
+                }
             } finally {
                 actions.repoUpdateDone(id)
             }

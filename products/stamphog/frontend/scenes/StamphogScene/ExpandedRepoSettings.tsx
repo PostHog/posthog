@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
 
 import { LemonSelect, LemonSwitch, Tooltip } from '@posthog/lemon-ui'
 
@@ -36,9 +35,10 @@ function TriggerSettings({
     repo: StamphogRepoConfigApi
     updatingReason?: string
 }): JSX.Element {
-    const { updateRepoConfig, triggerLabelEditStarted } = useActions(stamphogSceneLogic)
-    const disabledReason = managerDisabledReason(toAccessControlLevel(repo.user_access_level)) ?? updatingReason
-    const [labelFieldResets, setLabelFieldResets] = useState(0)
+    const { triggerLabelFieldResets } = useValues(stamphogSceneLogic)
+    const { updateRepoConfig, triggerLabelEditStarted, resetTriggerLabelField } = useActions(stamphogSceneLogic)
+    const accessReason = managerDisabledReason(toAccessControlLevel(repo.user_access_level))
+    const disabledReason = accessReason ?? updatingReason
 
     const saveTriggerLabel = (value: string): void => {
         const trimmed = value.trim()
@@ -47,8 +47,7 @@ function TriggerSettings({
             updateRepoConfig(repo.id, { trigger_label: trimmed })
             return
         }
-        // EditableField keeps showing a draft it did not save, so remount it to show the stored label again.
-        setLabelFieldResets((count) => count + 1)
+        resetTriggerLabelField(repo.id)
     }
 
     return (
@@ -66,8 +65,9 @@ function TriggerSettings({
             />
             {repo.review_mode === ReviewModeEnumApi.Label &&
                 // EditableField has no disabled state, so a member who cannot change the label reads it as text.
-                (disabledReason ? (
-                    <Tooltip title={disabledReason}>
+                // An in-flight update elsewhere in the row must not swap the editor out and drop its draft.
+                (accessReason ? (
+                    <Tooltip title={accessReason}>
                         <span className="font-mono text-xs" data-attr="stamphog-repo-trigger-label">
                             {repo.trigger_label}
                         </span>
@@ -76,7 +76,7 @@ function TriggerSettings({
                     // A changed label silently stops reviews on pull requests that carry the old one, so a
                     // change takes the pencil and an explicit save, never a stray blur.
                     <EditableField
-                        key={labelFieldResets}
+                        key={triggerLabelFieldResets[repo.id] ?? 0}
                         name="trigger_label"
                         value={repo.trigger_label ?? ''}
                         placeholder="Trigger label"
