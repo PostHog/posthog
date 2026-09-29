@@ -18,7 +18,7 @@ import {
     getScopeGatedTools,
     type ScopeGatedTool,
 } from '@/tools/toolDefinitions'
-import type { Context, Tool, Env, ZodObjectAny } from '@/tools/types'
+import type { Context, Env, PinnedActiveContext, Tool, ZodObjectAny } from '@/tools/types'
 
 import { McpSessionRedisStore } from './cache/McpSessionRedisStore'
 import type { RedisLike } from './cache/RedisCache'
@@ -134,18 +134,16 @@ export class RequestStateResolver {
         const reqCtx = new RequestContext(this.redis, this.env, props, requestContext)
 
         const { features, tools, organizationId, projectId, readOnly } = props
-        await this.applyPinnedContext(reqCtx, { organizationId, projectId })
+        const pinned = await this.resolvePinnedContext(reqCtx, { organizationId, projectId })
+        reqCtx.setPinnedContext(pinned)
 
         // Start Redis reads only when Promise.all can observe their timeout rejections.
-        // Read the active project back from the token cache (the source every tool
-        // resolves through) rather than the request pin, so an in-session switch wins.
         const [context, sessionContext, storedProjectId] = await Promise.all([
             reqCtx.getContext(),
             this.resolveSessionContext(requestContext),
-            reqCtx.tokenCache.get('projectId'),
+            pinned?.projectId ? undefined : reqCtx.tokenCache.get('projectId'),
         ])
-        const cachedProjectId = storedProjectId || projectId
-        if (!cachedProjectId) {
+        if (!pinned?.projectId && !storedProjectId) {
             await context.stateManager.setDefaultOrganizationAndProject()
         }
         const clientContext = getEffectiveMCPClientContext(requestContext, sessionContext)
@@ -261,40 +259,36 @@ export class RequestStateResolver {
     }
 
     /**
-     * Apply an org/project pinned via request params to the token-scoped active
-     * context every tool resolves through.
+     * Resolve the org and project that a request pinned via request params into
+     * the request-scoped context every tool resolves through.
      *
      * A pin sets the session's default active context, not a per-request hard
      * lock: `switch-project` stays available on a project pin (the documented
      * cross-org flow depends on it), so a switch made mid-session must survive
-     * the client resending the same static pin on every request. The token cache
-     * is shared by every concurrent session on the same credential, though, so
-     * the pin can't simply be written once and left alone either — two sessions
-     * pinned to different projects would bleed into each other. Instead each
-     * request re-asserts its own session's effective context: the session's
-     * recorded switch (see `Context.setSessionActiveContext`) when one exists,
-     * otherwise the pin. A genuinely changed pin retargets the session and
-     * discards the recorded switch.
+     * the client resending the same static pin on every request. The effective
+     * context is the session's recorded switch (see
+     * `Context.setSessionActiveContext`) when one exists, otherwise the pin. A
+     * genuinely changed pin retargets the session and discards the recorded switch.
      *
-     * Without an MCP session id there is no cross-request session state, so the
-     * pin is applied unconditionally as before.
+     * The result never goes into the token cache. Every concurrent session on the
+     * same credential shares that cache, so a pin written there would revert a
+     * switch and leak into the other sessions.
+     *
+     * Without an MCP session id nothing records a switch across requests, so the
+     * pin wins on every request and the switch tools refuse to switch.
      */
-    private async applyPinnedContext(
+    private async resolvePinnedContext(
         reqCtx: RequestContext,
-        pinned: { organizationId?: string | undefined; projectId?: string | undefined }
-    ): Promise<void> {
-        const { organizationId, projectId } = pinned
+        pin: { organizationId?: string | undefined; projectId?: string | undefined }
+    ): Promise<PinnedActiveContext | undefined> {
+        const { organizationId, projectId } = pin
         if (!organizationId && !projectId) {
-            return
+            return undefined
         }
 
         const sessionCache = reqCtx.sessionScopedCache
         if (!sessionCache) {
-            await reqCtx.tokenCache.setMany({
-                ...(organizationId ? { orgId: organizationId } : {}),
-                ...(projectId ? { projectId } : {}),
-            })
-            return
+            return { pin, sessionScoped: false, orgId: organizationId, projectId }
         }
 
         const [appliedPinOrg, appliedPinProject, activeOrg, activeProject] = await Promise.all([
@@ -330,12 +324,12 @@ export class RequestStateResolver {
             ])
         }
 
-        const orgId = overrideOrg ?? organizationId
-        const effectiveProjectId = overrideProject ?? projectId
-        await reqCtx.tokenCache.setMany({
-            ...(orgId ? { orgId } : {}),
-            ...(effectiveProjectId ? { projectId: effectiveProjectId } : {}),
-        })
+        return {
+            pin,
+            sessionScoped: true,
+            orgId: overrideOrg ?? organizationId,
+            projectId: overrideProject ?? projectId,
+        }
     }
 
     private async resolveSessionContext(requestContext: MCPRequestContext): Promise<MCPSessionContext | null> {

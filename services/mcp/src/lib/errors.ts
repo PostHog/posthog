@@ -84,6 +84,33 @@ function formatMissingOrganizationContextMessage(): string {
     )
 }
 
+/**
+ * Thrown by `switch-project` and `switch-organization` when the request pins the
+ * context and carries no MCP session id. Nothing records the switch across
+ * requests, so the next request applies the pin again. Failing here tells the
+ * agent the truth instead of a success that the next call silently reverts.
+ */
+export class PinnedContextSwitchError extends Error {
+    constructor(pinned: { organizationId?: string | undefined; projectId?: string | undefined }) {
+        super(formatPinnedContextSwitchMessage(pinned))
+        this.name = 'PinnedContextSwitchError'
+    }
+}
+
+function formatPinnedContextSwitchMessage(pinned: {
+    organizationId?: string | undefined
+    projectId?: string | undefined
+}): string {
+    const target = pinned.projectId ? `project \`${pinned.projectId}\`` : `organization \`${pinned.organizationId}\``
+    return (
+        `This connection pins ${target} on every request and sends no MCP session id, so a switch cannot persist. ` +
+        'The next tool call would run against the pinned context again, so the switch was not applied.' +
+        '\n\n' +
+        `Keep working in the pinned ${pinned.projectId ? 'project' : 'organization'}, or ask the user to change the pin in the MCP client configuration ` +
+        '(the `project_id` / `organization_id` URL parameters or the `x-posthog-project-id` / `x-posthog-organization-id` headers).'
+    )
+}
+
 export interface PostHogValidationErrorOptions {
     detail: string
     attr: string | undefined
@@ -498,6 +525,7 @@ export function handleToolError(error: any, tool?: string, distinctId?: string, 
     if (
         error instanceof MissingProjectContextError ||
         error instanceof MissingOrganizationContextError ||
+        error instanceof PinnedContextSwitchError ||
         error instanceof ToolInputValidationError ||
         error instanceof ExecCommandError
     ) {
