@@ -155,21 +155,31 @@ class PromptJevRunner:
                 task.cancel()
             await asyncio.gather(*tasks, return_exceptions=True)
 
+    def check_budget(self, columns: list[tuple[PromptJevCall, list[object]]]) -> dict[_DecisionKey, None]:
+        missing: dict[_DecisionKey, None] = {}
+        for spec, values in columns:
+            question_key = json.dumps(spec.question.to_json(), sort_keys=True)
+            for value in values:
+                if value is None:
+                    continue
+                if not isinstance(value, str):
+                    raise QueryError("__preview_promptJev input must be text. Use toString(input) to convert it.")
+                if len(value.encode()) > MAX_INPUT_BYTES:
+                    raise QueryError(
+                        "__preview_promptJev input exceeds 8 KiB. Shorten each input before classifying it."
+                    )
+                key = _DecisionKey(question=question_key, text=value)
+                if key not in self.cache:
+                    missing[key] = None
+        input_bytes = self.input_bytes + sum(len(key.text.encode()) for key in missing)
+        if len(self.cache) + len(missing) > MAX_ROWS or input_bytes > MAX_TOTAL_BYTES:
+            raise QueryError("__preview_promptJev exceeds the query budget. Select fewer or shorter inputs.")
+        return missing
+
     def evaluate(self, spec: PromptJevCall, values: list[object]) -> list[object]:
         question_key = json.dumps(spec.question.to_json(), sort_keys=True)
-        missing: dict[str, None] = {}
-        for value in values:
-            if value is None:
-                continue
-            if not isinstance(value, str):
-                raise QueryError("__preview_promptJev input must be text. Use toString(input) to convert it.")
-            if len(value.encode()) > MAX_INPUT_BYTES:
-                raise QueryError("__preview_promptJev input exceeds 8 KiB. Shorten each input before classifying it.")
-            if _DecisionKey(question=question_key, text=value) not in self.cache:
-                missing[value] = None
+        missing = [key.text for key in self.check_budget([(spec, values)])]
         self.input_bytes += sum(len(text.encode()) for text in missing)
-        if len(self.cache) + len(missing) > MAX_ROWS or self.input_bytes > MAX_TOTAL_BYTES:
-            raise QueryError("__preview_promptJev exceeds the query budget. Select fewer or shorter inputs.")
         if missing and self.client is None:
             try:
                 client = build_system_one_client(
@@ -328,8 +338,10 @@ class PromptJevPlanner(CloningVisitor):
             if len(names) != len(query.select) or len(set(names)) != len(names):
                 raise QueryError("Give each column in the __preview_promptJev SELECT a unique name.")
             structure = [(str(name), str(kind)) for name, kind in response.types or []]
+            inputs = {i: [row[i] for row in rows] for i in specs}
+            self.runner.check_budget([(spec, inputs[i]) for i, spec in specs.items()])
             for i, spec in specs.items():
-                values = self.runner.evaluate(spec, [row[i] for row in rows])
+                values = self.runner.evaluate(spec, inputs[i])
                 for row, value in zip(rows, values):
                     row[i] = value
                 structure[i] = (names[i], spec.clickhouse_type)
