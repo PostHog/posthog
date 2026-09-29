@@ -1,4 +1,6 @@
 import json
+import base64
+import binascii
 from collections.abc import Iterator
 from typing import Any
 from urllib.parse import urljoin, urlparse
@@ -47,6 +49,9 @@ MCP_METHOD_HEADER = "Mcp-Method"
 MCP_NAME_HEADER = "Mcp-Name"
 # Methods whose `Mcp-Name` header mirrors a params field.
 NAME_HEADER_PARAM = {"tools/call": "name", "prompts/get": "name", "resources/read": "uri"}
+# Clients wrap a value that is not header-safe in this Base64 sentinel.
+BASE64_HEADER_PREFIX = "=?base64?"
+BASE64_HEADER_SUFFIX = "?="
 
 
 def _normalized_origin(url: str) -> tuple[str, str, int | None] | None:
@@ -490,6 +495,16 @@ def enforce_tool_approval(
     return HttpResponse(json.dumps(blocked), content_type="application/json", status=200)
 
 
+def _decode_mcp_header_value(value: str) -> str | None:
+    if not (value.startswith(BASE64_HEADER_PREFIX) and value.endswith(BASE64_HEADER_SUFFIX)):
+        return value
+    encoded = value[len(BASE64_HEADER_PREFIX) : -len(BASE64_HEADER_SUFFIX)]
+    try:
+        return base64.b64decode(encoded, validate=True).decode("utf-8")
+    except (binascii.Error, UnicodeDecodeError):
+        return None
+
+
 def _mcp_protocol_headers(request_headers: Any, data: dict[str, Any] | list[Any]) -> dict[str, str]:
     """The client's MCP protocol headers that are safe to send upstream.
 
@@ -513,8 +528,9 @@ def _mcp_protocol_headers(request_headers: Any, data: dict[str, Any] | list[Any]
     name_param = NAME_HEADER_PARAM.get(method)
     params = data.get("params")
     name = params.get(name_param) if name_param and isinstance(params, dict) else None
-    if isinstance(name, str) and request_headers.get(MCP_NAME_HEADER) == name:
-        headers[MCP_NAME_HEADER] = name
+    name_header = request_headers.get(MCP_NAME_HEADER)
+    if isinstance(name, str) and name_header and _decode_mcp_header_value(name_header) == name:
+        headers[MCP_NAME_HEADER] = name_header
     return headers
 
 

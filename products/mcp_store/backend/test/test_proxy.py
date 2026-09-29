@@ -271,6 +271,18 @@ class TestMCPProxyEndpoint(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 {"mcp-protocol-version": "2026-07-28", "mcp-method": "tools/call"},
             ),
             (
+                "base64_encoded_name_that_matches_body",
+                {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "search"}},
+                {"mcp-protocol-version": "2026-07-28", "mcp-method": "tools/call", "mcp-name": "=?base64?c2VhcmNo?="},
+                {"mcp-protocol-version": "2026-07-28", "mcp-method": "tools/call", "mcp-name": "=?base64?c2VhcmNo?="},
+            ),
+            (
+                "base64_encoded_name_that_does_not_match_body",
+                {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "search"}},
+                {"mcp-protocol-version": "2026-07-28", "mcp-method": "tools/call", "mcp-name": "=?base64?ZGVsZXRl?="},
+                {"mcp-protocol-version": "2026-07-28", "mcp-method": "tools/call"},
+            ),
+            (
                 "method_that_does_not_match_body",
                 {"jsonrpc": "2.0", "id": 1, "method": "tools/list"},
                 {"mcp-protocol-version": "2026-07-28", "mcp-method": "server/discover"},
