@@ -1243,6 +1243,7 @@ class SignalReportArtefact(UUIDModel):
         IMPLEMENTATION_REPLACEMENT = "implementation_replacement"
         IMPLEMENTATION_HANDOVER = "implementation_handover"
         RANKING_SCORE = "ranking_score"
+        IMPACT_MEASUREMENT_PLAN = "impact_measurement_plan"
 
     # Every artefact is an append-only, point-in-time log entry — nothing is mutated in place by
     # the producers. The two sets below classify *what an entry means*, not how it is written:
@@ -1302,6 +1303,7 @@ class SignalReportArtefact(UUIDModel):
             ArtefactType.CHECK_SCHEDULED,
             ArtefactType.CHECK_EXPIRED,
             ArtefactType.CHECK_CANCELLED,
+            ArtefactType.IMPACT_MEASUREMENT_PLAN,
         }
     )
 
@@ -1847,6 +1849,8 @@ class SignalReportArtefact(UUIDModel):
 
         Editing the latest `suggested_reviewers` row changes the report's canonical reviewers,
         so it re-evaluates auto-start the same way appending a new reviewers row does."""
+        if self.type == self.ArtefactType.IMPACT_MEASUREMENT_PLAN:
+            raise ArtefactContentValidationError("Append a new measurement version instead of editing one.")
         parsed = parse_artefact_content(self.type, content)
         # The `task` FK is the association and is creation-time only; an edit must not let
         # content.task_id drift away from it.

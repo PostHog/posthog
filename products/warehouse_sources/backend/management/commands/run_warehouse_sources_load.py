@@ -21,6 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.load import (
     process_batch,
+    process_batches,
 )
 from products.warehouse_sources_queue.backend.models import SourceBatch
 
@@ -89,6 +90,7 @@ async def _run_consumer(
     consumer = BatchConsumer(
         config=config,
         process_batch=process_batch,
+        process_batches=process_batches,
         health_reporter=health_reporter,
         claim_sync_types=claim_sync_types,
         claim_exclude_sync_types=claim_exclude_sync_types,

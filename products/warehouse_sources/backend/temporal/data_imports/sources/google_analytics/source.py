@@ -72,6 +72,16 @@ class GoogleAnalyticsSource(ResumableSource[GoogleAnalyticsSourceConfig, GoogleA
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
+            # `_run_report` raises this verbatim for any runReport response that isn't quota
+            # exhaustion or a 5xx — GA4 rejected the request itself (e.g. an invalid custom
+            # report dimension/metric name, or an incompatible dimension/metric combination),
+            # so retrying replays the identical request and fails identically every time.
+            "400 Client Error: Bad Request for url: https://analyticsdata.googleapis.com": (
+                "Google Analytics rejected this report request as invalid. This is usually caused by "
+                "a custom report dimension or metric name — GA4 API names are camelCase (e.g. "
+                "'bounceRate', not 'bounce_rate'). Check your custom report configuration against the "
+                "GA4 Data API schema, then try again."
+            ),
             "401 Client Error": "Your Google Analytics connection is invalid or expired. Please reconnect your account.",
             "403 Client Error": "PostHog is not authorized to read this Google Analytics property. Please make sure the connected Google account has access to the property.",
             "ACCESS_TOKEN_SCOPE_INSUFFICIENT": "Insufficient permissions. Please reconnect your Google Analytics account with the required scopes.",

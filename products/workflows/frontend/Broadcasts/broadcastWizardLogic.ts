@@ -47,6 +47,7 @@ import {
     stateToRRule,
 } from '../Workflows/hogflows/steps/components/rrule-helpers'
 import { ResourceSaveQueue } from '../Workflows/resourceSaveQueue'
+import { confirmArchiveBroadcast, confirmDeleteBroadcast, restoreBroadcast } from './broadcastLifecycle'
 import {
     BroadcastStatus,
     StoppableBroadcast,
@@ -188,10 +189,16 @@ export interface broadcastWizardLogicActions {
         base: HogFlowApi | null
         broadcast: HogFlowApi
     }
+    archiveBroadcast: () => {
+        value: true
+    }
     collapseRun: (runId: string) => {
         runId: string
     }
     continueStep: () => {
+        value: true
+    }
+    deleteBroadcast: () => {
         value: true
     }
     draftAutosaved: (broadcast: HogFlowApi) => {
@@ -276,6 +283,9 @@ export interface broadcastWizardLogicActions {
         value: true
     }
     replayDeferredEdit: () => {
+        value: true
+    }
+    restoreBroadcast: () => {
         value: true
     }
     saveBroadcastFinished: (broadcast: HogFlowApi | null) => {
@@ -467,6 +477,9 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         moveToDraft: true,
         moveToDraftFinished: true,
         duplicateBroadcast: true,
+        archiveBroadcast: true,
+        restoreBroadcast: true,
+        deleteBroadcast: true,
         duplicateBroadcastFinished: true,
     }),
 
@@ -937,15 +950,15 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             (s) => [s.name],
             (name: string): Breadcrumb[] => [
                 {
-                    key: Scene.Workflows,
+                    key: Scene.Broadcasts,
                     name: 'Broadcasts',
                     path: urls.broadcasts(),
-                    iconType: 'workflows',
+                    iconType: 'broadcasts',
                 },
                 {
                     key: [Scene.Broadcast, name],
                     name,
-                    iconType: 'workflows',
+                    iconType: 'broadcasts',
                 },
             ],
         ],
@@ -1362,6 +1375,23 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 )
             }
             actions.moveToDraftFinished()
+        },
+        archiveBroadcast: () => {
+            if (values.currentProjectId && values.broadcast) {
+                confirmArchiveBroadcast(String(values.currentProjectId), values.broadcast, actions.loadBroadcast)
+            }
+        },
+        restoreBroadcast: async () => {
+            if (values.currentProjectId && values.broadcast) {
+                await restoreBroadcast(String(values.currentProjectId), values.broadcast, actions.loadBroadcast)
+            }
+        },
+        deleteBroadcast: () => {
+            if (values.currentProjectId && values.broadcast) {
+                confirmDeleteBroadcast(String(values.currentProjectId), values.broadcast, () =>
+                    router.actions.push(urls.broadcasts())
+                )
+            }
         },
         duplicateBroadcast: async () => {
             if (!values.currentProjectId) {
