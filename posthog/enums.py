@@ -14,6 +14,9 @@ so a conversion from TextChoices changes no migration and no OpenAPI schema.
 posthog/openapi/enum_names.py derives the OpenAPI component name from the class name, the same way
 it does for a Choices class.
 
+This module imports nothing from Django, which is what the facade contract rule checks. Importing
+it still runs posthog/__init__.py, which loads Celery and Django, the same as posthog.dataclasses.
+
 Django special-cases only its own Choices classes, so two rules differ from TextChoices:
 
 - Pass ``X.choices`` to ``choices=`` on a model field or a DRF field. Django rejects the class.
