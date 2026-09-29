@@ -3108,7 +3108,7 @@ Note: The stable docs page lists ~230 endpoints; PostHog exposes 21. None of the
 
 ## Finnhub — **thin**
 
-Today (15): `basic_financials`, `company_news`, `company_profile`, `country`, `earnings_calendar`, `earnings_surprises`, `financials_reported`, `insider_transactions`, `ipo_calendar`, `market_news`, `quote`, `recommendation_trends`, `sec_filings`, `stock_candles`, `stock_symbols`
+Today (19): `basic_financials`, `company_news`, `company_profile`, `country`, `dividends`, `earnings_calendar`, `earnings_surprises`, `economic_calendar`, `financials_reported`, `index_constituents`, `insider_transactions`, `ipo_calendar`, `market_news`, `peers`, `quote`, `recommendation_trends`, `sec_filings`, `stock_candles`, `stock_symbols`
 
 Diffed against: <https://finnhub.io/static/swagger.json>
 
@@ -3116,14 +3116,14 @@ Diffed against: <https://finnhub.io/static/swagger.json>
 - [x] `/stock/candle` — historical OHLCV bars, the backbone of any price time-series analysis (quote is a point-in-time snapshot only) (high)
 - [x] `/stock/filings` — SEC filing index per symbol, the join key from company to disclosure documents (high)
 - [x] `/stock/insider-transactions` — insider buy/sell transaction rows, a headline alt-data signal (high)
-- [ ] `/stock/dividend` — dividend history transactions; nothing in the current table set carries payouts (high)
-- [ ] `/stock/peers` — lookup table resolving each synced symbol to its comparable set for benchmarking (high)
+- [x] `/stock/dividend` — dividend history transactions; nothing in the current table set carries payouts (high) — added as `dividends`, one row per payout, incremental on the ex-dividend date
+- [x] `/stock/peers` — lookup table resolving each synced symbol to its comparable set for benchmarking (high) — added as `peers`, one row per (symbol, peer)
 - [ ] `/stock/price-target` — analyst price targets, a natural companion to recommendation_trends which is already synced (medium)
 - [ ] `/stock/upgrade-downgrade` — individual analyst rating change events behind the aggregated recommendation trends (medium)
 - [ ] `/stock/eps-estimate (plus revenue-estimate, ebitda-estimate, ebit-estimate)` — forward consensus estimates to pair with the already-synced earnings surprises (medium)
 - [ ] `/stock/split` — split events needed to adjust any price or per-share series (medium)
-- [ ] `/index/constituents` — lookup table mapping indices to member symbols, enabling index-level roll-ups of synced symbols (medium)
-- [ ] `/calendar/economic` — macro event calendar; earnings and IPO calendars are already synced but the economic one is not (medium)
+- [x] `/index/constituents` — lookup table mapping indices to member symbols, enabling index-level roll-ups of synced symbols (medium) — added as `index_constituents`, fanned out over a new indices field
+- [x] `/calendar/economic` — macro event calendar; earnings and IPO calendars are already synced but the economic one is not (medium) — added as `economic_calendar`, full refresh over a rolling past+future window
 
 Note: Finnhub's public swagger exposes ~115 GET resources; PostHog syncs 11. Ownership (/stock/ownership, /stock/fund-ownership, /institutional/ownership), transcripts (/stock/transcripts/list), ETF/mutual-fund holdings, historical market cap and revenue breakdowns are also absent but ranked below the 12 above.
 
@@ -3272,14 +3272,14 @@ Note: Machine-readable OpenAPI at /swagger-api-v3.yaml enumerates 26 resources; 
 
 ## Flowlu — **thin**
 
-Today (13): `accounts`, `agile_issues`, `agile_sprints`, `customer_payments`, `estimates`, `invoices`, `leads`, `pipelines`, `products`, `projects`, `tasks`, `timesheets`, `transactions`
+Today (17): `accounts`, `agile_issues`, `agile_sprints`, `customer_payments`, `estimates`, `invoice_items`, `invoices`, `leads`, `pipeline_stages`, `pipelines`, `products`, `project_stages`, `projects`, `tasks`, `timelogs`, `timesheets`, `transactions`
 
 Diffed against: <https://www.flowlu.com/api/json/openapien.json>
 
-- [ ] `/crm/pipeline_stage/list` — lookup resolving the stage ID on every lead; we sync pipelines but not their stages (high)
-- [ ] `/fin/invoice_item/list` — invoice line items - revenue by product/service instead of invoice totals only (high)
-- [ ] `/timetracker/timelogs/list` — individual time log entries behind the timesheet rollups already synced (high)
-- [ ] `/st/stages/list` — lookup resolving project stage IDs on the projects table (high)
+- [x] `/crm/pipeline_stage/list` — lookup resolving the stage ID on every lead; we sync pipelines but not their stages (high) — added as `pipeline_stages`
+- [x] `/fin/invoice_item/list` — invoice line items - revenue by product/service instead of invoice totals only (high) — added as `invoice_items`
+- [x] `/timetracker/timelogs/list` — individual time log entries behind the timesheet rollups already synced (high) — added as `timelogs`
+- [x] `/st/stages/list` — lookup resolving project stage IDs on the projects table (high) — added as `project_stages` (Flowlu has three separate stage entities; `/agile/stages` and `/task/stages` remain open)
 - [ ] `/crm/source/list` — lookup resolving lead source IDs - core attribution dimension (high)
 - [ ] `/agile/stages/list` — lookup resolving the workflow stage on agile_issues (high)
 - [ ] `/task/stages/list` — lookup resolving task workflow stage IDs (medium)
@@ -3289,7 +3289,7 @@ Diffed against: <https://www.flowlu.com/api/json/openapien.json>
 - [ ] `/fin/organization/list` — lookup resolving the billing organization on invoices/transactions (medium)
 - [ ] `/crm/loss_reason/list` — lookup resolving loss reason IDs on closed-lost leads (medium)
 
-Note: developers.flowlu.com is the API host, not docs (returns 404/api-key errors). The real spec is the ReDoc document at https://www.flowlu.com/api/json/openapien.json: 608 paths, 124 of them `/list` collections. PostHog exposes 13, so this is a small fraction - other untouched clusters include knowledgebase/\*, businessprocess/\*, telephony/calls, im/\* (chat threads and messages), products/pricelist_item and company/absences.
+Note: developers.flowlu.com is the API host, not docs (returns 404/api-key errors). The real spec is the ReDoc document at https://www.flowlu.com/api/json/openapien.json: 608 paths, 124 of them `/list` collections. PostHog exposes 17, so this is a small fraction - other untouched clusters include knowledgebase/\*, businessprocess/\*, telephony/calls, im/\* (chat threads and messages), products/pricelist_item and company/absences.
 
 ## FlyIo — gaps
 
@@ -3355,14 +3355,14 @@ Note: There is no top-level GET /v2/conversations list - conversations are only 
 
 ## Freshdesk — gaps
 
-Today (14): `agents`, `business_hours`, `canned_response_folders`, `companies`, `contacts`, `groups`, `products`, `roles`, `satisfaction_ratings`, `skills`, `sla_policies`, `ticket_fields`, `tickets`, `time_entries`
+Today (20): `agents`, `business_hours`, `canned_response_folders`, `canned_responses`, `companies`, `contact_fields`, `contacts`, `conversations`, `groups`, `products`, `roles`, `satisfaction_ratings`, `skills`, `sla_policies`, `solution_articles`, `solution_categories`, `solution_folders`, `ticket_fields`, `tickets`, `time_entries`
 
 Diffed against: <https://developers.freshdesk.com/api/>
 
-- [ ] `/api/v2/tickets/{id}/conversations` — ticket replies and notes - the actual support conversation behind every ticket row we sync (high)
-- [ ] `/api/v2/contact_fields` — lookup resolving custom contact field IDs and their dropdown choices (high)
-- [ ] `/api/v2/canned_response_folders/{id}/responses` — the canned responses themselves; only their folders are synced today (high)
-- [ ] `/api/v2/solutions/categories (+ /categories/{id}/folders, /folders/{id}/articles)` — knowledge base hierarchy and article stats (hits, thumbs up/down) for deflection analysis (high)
+- [x] `/api/v2/tickets/{id}/conversations` — ticket replies and notes - the actual support conversation behind every ticket row we sync (high)
+- [x] `/api/v2/contact_fields` — lookup resolving custom contact field IDs and their dropdown choices (high)
+- [x] `/api/v2/canned_response_folders/{id}/responses` — the canned responses themselves; only their folders are synced today (high)
+- [x] `/api/v2/solutions/categories (+ /categories/{id}/folders, /folders/{id}/articles)` — knowledge base hierarchy and article stats (hits, thumbs up/down) for deflection analysis (high)
 - [ ] `/api/v2/company_fields` — lookup resolving custom company field IDs and choices (medium)
 - [ ] `/api/v2/custom_objects/schemas (+ /schemas/{id}/records)` — customer-defined objects linked to tickets; schemas act as the lookup for the records (medium)
 - [ ] `/api/v2/customer-satisfaction/surveys/{survey_id}/responses` — new-style CSAT responses; only legacy satisfaction_ratings are synced (medium)
@@ -3376,14 +3376,14 @@ Note: Ticket conversations and canned responses are per-parent sub-resources, so
 
 ## Freshsales — gaps
 
-Today (9): `completed_tasks`, `contacts`, `deals`, `leads`, `open_tasks`, `past_appointments`, `sales_accounts`, `sales_activities`, `upcoming_appointments`
+Today (13): `completed_tasks`, `contacts`, `deal_pipelines`, `deal_stages`, `deals`, `leads`, `lifecycle_stages`, `open_tasks`, `owners`, `past_appointments`, `sales_accounts`, `sales_activities`, `upcoming_appointments`
 
 Diffed against: <https://developers.freshworks.com/crm/api/>
 
-- [ ] `/api/selector/owners` — user lookup - resolves owner_id on contacts, deals, accounts, tasks and activities; there is no users table today (high)
-- [ ] `/api/selector/deal_stages` — lookup resolving deal_stage_id, required for any pipeline or conversion analysis (high)
-- [ ] `/api/selector/deal_pipelines` — lookup resolving deal_pipeline_id on deals (high)
-- [ ] `/api/selector/lifecycle_stages` — lookup resolving lifecycle_stage_id on contacts and accounts (high)
+- [x] `/api/selector/owners` — user lookup - resolves owner_id on contacts, deals, accounts, tasks and activities; there is no users table today (high)
+- [x] `/api/selector/deal_stages` — lookup resolving deal_stage_id, required for any pipeline or conversion analysis (high)
+- [x] `/api/selector/deal_pipelines` — lookup resolving deal_pipeline_id on deals (high)
+- [x] `/api/selector/lifecycle_stages` — lookup resolving lifecycle_stage_id on contacts and accounts (high)
 - [ ] `/api/selector/lead_sources` — lookup resolving lead_source_id - the core attribution dimension (high)
 - [ ] `/api/selector/sales_activity_types (+ /sales_activity_outcomes)` — lookups resolving type and outcome IDs on the sales_activities already synced (high)
 - [ ] `/api/selector/contact_statuses` — lookup resolving contact_status_id (medium)
@@ -3397,15 +3397,15 @@ Note: The `/api/selector/\*` family is a set of ~18 small lookup collections (al
 
 ## Freshservice — gaps
 
-Today (17): `agent_groups`, `agent_roles`, `agents`, `asset_types`, `assets`, `changes`, `departments`, `locations`, `problems`, `products`, `purchase_orders`, `releases`, `requester_groups`, `requesters`, `software`, `tickets`, `vendors`
+Today (24): `agent_groups`, `agent_roles`, `agents`, `asset_types`, `assets`, `changes`, `contract_types`, `contracts`, `departments`, `locations`, `problems`, `products`, `purchase_orders`, `relationship_types`, `relationships`, `releases`, `requester_groups`, `requesters`, `software`, `software_installations`, `software_users`, `ticket_time_entries`, `tickets`, `vendors`
 
 Diffed against: <https://api.freshservice.com/>
 
 - [ ] `tickets/{id}/conversations` — the actual reply and note bodies on every ticket — required for any response-content or agent-activity analysis (high)
-- [ ] `tickets/{id}/time_entries` — time tracked per ticket, the basis of effort and cost-per-ticket reporting (high)
-- [ ] `contracts (+ contract_types lookup)` — asset/vendor contracts with cost and renewal dates; contract_types resolves the type ID carried on each contract (high)
-- [ ] `applications/{id}/users and /installations (software users, software installations)` — membership tables joining the software we already sync to users and devices — license utilization is impossible without them (high)
-- [ ] `assets/{id}/relationships (+ relationship_types lookup)` — the CMDB dependency graph plus the lookup that names each relationship type (high)
+- [x] `tickets/{id}/time_entries` — time tracked per ticket, the basis of effort and cost-per-ticket reporting (high)
+- [x] `contracts (+ contract_types lookup)` — asset/vendor contracts with cost and renewal dates; contract_types resolves the type ID carried on each contract (high)
+- [x] `applications/{id}/users and /installations (software users, software installations)` — membership tables joining the software we already sync to users and devices — license utilization is impossible without them (high)
+- [x] `assets/{id}/relationships (+ relationship_types lookup)` — the CMDB dependency graph plus the lookup that names each relationship type (high) — synced through the account-wide `/api/v2/relationships` listing, which returns the same edges without fanning out per asset
 - [ ] `sla_policies` — lookup that resolves the SLA policy ID on tickets into targets and escalation rules (medium)
 - [ ] `tickets/{id}/tasks (and problem/change/release tasks)` — sub-task breakdown and completion state under each ticket (medium)
 - [ ] `approvals` — account-wide approval records with approver, state and timestamps — the service-request bottleneck metric (medium)
@@ -3428,35 +3428,35 @@ Note: Frill's llms.txt lists exactly nine reference pages: announcements, announ
 
 ## Front — gaps
 
-Today (9): `accounts`, `channels`, `contacts`, `conversations`, `events`, `inboxes`, `tags`, `teammates`, `teams`
+Today (18): `accounts`, `account_custom_fields`, `channels`, `contacts`, `contact_custom_fields`, `conversations`, `conversation_comments`, `conversation_custom_fields`, `conversation_messages`, `events`, `inboxes`, `inbox_custom_fields`, `link_custom_fields`, `tags`, `teammates`, `teammate_custom_fields`, `teams`, `ticket_statuses`
 
 Diffed against: <https://raw.githubusercontent.com/frontapp/front-api-specs/main/core-api/core-api.json>
 
-- [ ] `conversations/{id}/messages` — the email/SMS message bodies themselves; conversations without messages is metadata only (high)
-- [ ] `conversations/{id}/comments` — internal team discussion on each conversation, the collaboration signal (high)
-- [ ] `company/statuses (ticket statuses)` — lookup that resolves the ticket status ID already carried on synced conversations (high)
+- [x] `conversations/{id}/messages` — the email/SMS message bodies themselves; conversations without messages is metadata only (high)
+- [x] `conversations/{id}/comments` — internal team discussion on each conversation, the collaboration signal (high)
+- [x] `company/statuses (ticket statuses)` — lookup that resolves the ticket status ID already carried on synced conversations (high)
 - [ ] `conversations/{id}/followers` — membership table linking teammates to the conversations they watch (medium)
 - [ ] `teammate_groups (+ /teammates, /teams, /inboxes members)` — org structure and membership joins for the teammates and teams already synced (medium)
 - [ ] `contact_lists (+ contacts in list)` — customer segmentation lists and their membership rows (medium)
 - [ ] `contact_groups (+ contacts in group)` — the other contact grouping dimension, needed to break conversations down by contact segment (medium)
-- [ ] `custom_fields (accounts, contacts, conversations, inboxes, teammates, links)` — lookup describing the custom field definitions whose values ride on synced records (medium)
+- [x] `custom_fields (accounts, contacts, conversations, inboxes, teammates, links)` — lookup describing the custom field definitions whose values ride on synced records (medium)
 - [ ] `links (+ links/{id}/conversations)` — external resource links attached to conversations — the join to CRM/issue trackers (medium)
 - [ ] `knowledge_bases/{id}/articles (+ categories)` — help center content for deflection and article-coverage analysis (medium)
 - [ ] `shifts (+ shifts/{id}/teammates)` — coverage schedule and who was on it, to correlate response time with staffing (low)
 - [ ] `contacts/{id}/notes` — free-text account context recorded against a contact (low)
 
-Note: Diffed against Front's published OpenAPI 3.0 spec (128 GET operations). The top-level objects are all covered, but the sub-resources under /conversations — where the actual content lives — are entirely missing.
+Note: Diffed against Front's published OpenAPI 3.0 spec (128 GET operations). The top-level objects are all covered, as are the message and comment sub-resources under /conversations where the actual content lives. The remaining gaps are membership and grouping joins. `GET /custom_fields` is deprecated in favor of `GET /contacts/custom_fields` and is not synced.
 
 ## Fulcrum — gaps
 
-Today (13): `audio`, `changesets`, `choice_lists`, `classification_sets`, `forms`, `memberships`, `photos`, `projects`, `records`, `roles`, `signatures`, `videos`, `webhooks`
+Today (17): `audio`, `audit_logs`, `changesets`, `choice_lists`, `classification_sets`, `form_history`, `forms`, `groups`, `memberships`, `photos`, `projects`, `records`, `records_history`, `roles`, `signatures`, `videos`, `webhooks`
 
 Diffed against: <https://docs.fulcrumapp.com/reference/records-intro>
 
-- [ ] `records/history (records-get-all-history)` — full version history of every record — the only way to analyze edits, corrections and field-level change over time (high)
-- [ ] `groups (+ group resources)` — lookup that resolves the group ID carried on the memberships and projects already synced (high)
-- [ ] `audit_logs` — account-wide activity trail: who did what to which form, record or membership (medium)
-- [ ] `forms/{id}/history` — form schema versions, needed to interpret older records collected under a prior form definition (medium)
+- [x] `records/history (records-get-all-history)` — full version history of every record — the only way to analyze edits, corrections and field-level change over time (high)
+- [x] `groups (+ group resources)` — lookup that resolves the group ID carried on the memberships and projects already synced (high). Synced with `associations=true`, which returns each group's member, layer, project and form ids on the group row; the per-resource `groups/{id}/{resource}` endpoint only re-lists rows the `memberships`, `projects` and `forms` tables already hold.
+- [x] `audit_logs` — account-wide activity trail: who did what to which form, record or membership (medium)
+- [x] `forms/{id}/history` — form schema versions, needed to interpret older records collected under a prior form definition (medium)
 - [ ] `sketches` — the one media type not synced alongside photos, audio, video and signatures — leaves media coverage inconsistent (low)
 - [ ] `attachments` — arbitrary file attachments linked to records, with metadata for completeness checks (low)
 - [ ] `layers` — reference data layers that records join against for spatial context (low)

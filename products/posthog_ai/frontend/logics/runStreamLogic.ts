@@ -682,6 +682,10 @@ function onlyDebugRowsFollow(state: ThreadItem[], idx: number, waitingIds: Reado
     return true
 }
 
+// The agent takes a queued or steering send up at the next turn boundary, so a placeholder that
+// outlives a second boundary has missed the window its echo could arrive in.
+const SETTLED_AFTER_TURNS = 2
+
 /** The in-progress spinner for a long-running status — retired when it completes, fails, or its boundary lands. */
 function isPendingStatus(item: ThreadItem, status: string): boolean {
     return item.type === 'status' && item.status === status && item.isComplete !== true
@@ -1502,7 +1506,7 @@ export function foldLogToThread(
     // steering send is echoed only when the agent takes it up, which is a turn later than the bubble,
     // so the pairing outlives that turn. Text is what an echo matches on, because a client echo
     // carries no id, and send order keeps repeated sends of one text apart.
-    const waitingSends: { id: string; text: string }[] = []
+    const waitingSends: { id: string; text: string; turns: number }[] = []
     // Sends this turn already paired, counted per text so the same send's second wire form takes no
     // further placeholder while a second send of that text still takes its own.
     const pairedSends = new Map<string, number>()
@@ -1584,7 +1588,8 @@ export function foldLogToThread(
         }
     }
 
-    const waitingSendIds = (): ReadonlySet<string> => new Set(waitingSends.map((send) => send.id))
+    const waitingSendIds = (): ReadonlySet<string> =>
+        new Set(waitingSends.filter((send) => send.turns < SETTLED_AFTER_TURNS).map((send) => send.id))
 
     const appendChunk = (id: string, type: ThreadItemType, delta: string): void => {
         const idx = findLastBufferIndex(items, id, type, false)
@@ -1806,7 +1811,7 @@ export function foldLogToThread(
         if (method === '_client/human_message') {
             const optimisticText = String(params.content ?? '')
             const id = pushHuman(optimisticText, optimisticAttachments(params.attachments), { atFoot: true })
-            waitingSends.push({ id, text: optimisticText })
+            waitingSends.push({ id, text: optimisticText, turns: 0 })
             continue
         }
         if (method === '_client/error') {
@@ -1835,6 +1840,7 @@ export function foldLogToThread(
                 ...(timestamp !== undefined && { startedAt: timestamp }),
             })
             pairedSends.clear()
+            waitingSends.forEach((send) => (send.turns += 1))
             continue
         }
         if (method === '_posthog/progress') {
@@ -2058,7 +2064,8 @@ export function foldLogToThread(
     }
 
     // A send the agent has not taken up sits below everything that has landed, in send order, however
-    // much arrived after the composer drew it.
+    // much arrived after the composer drew it. A settled one leaves the sink, so a send whose echo
+    // can no longer pair cannot walk the thread for the rest of the run.
     const waiting = waitingSendIds()
     if (waiting.size > 0) {
         items = [...items.filter((item) => !waiting.has(item.id)), ...items.filter((item) => waiting.has(item.id))]
