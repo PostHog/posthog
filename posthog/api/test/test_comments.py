@@ -730,6 +730,21 @@ class TestComments(APIBaseTest, QueryMatchingTest):
         assert not ActivityLog.objects.filter(
             team_id=self.team.id, item_id__in=[str(canvas.id), created.json()["id"]]
         ).exists()
+        other_canvas = canvas_model.objects.unscoped().create(
+            team=self.team, channel=shared, name="Other canvas", created_by=author
+        )
+        root_url = f"/api/projects/{self.team.id}/comments/{created.json()['id']}"
+        reply_url = f"/api/projects/{self.team.id}/comments/{reply.json()['id']}"
+        unrelated = task_model.objects.create(
+            team=self.team, title="Unrelated task", created_by=author, channel=author_personal
+        )
+        unrelated_context = {"anchor": {"kind": "document"}, "taskId": str(unrelated.id)}
+        assert self.client.patch(root_url, {"content": "Edited after a new run"}).status_code == status.HTTP_200_OK
+        assert self.client.patch(root_url, {"item_id": str(other_canvas.id)}).status_code == status.HTTP_403_FORBIDDEN
+        assert (
+            self.client.patch(reply_url, {"item_context": unrelated_context}, format="json").status_code
+            == status.HTTP_403_FORBIDDEN
+        )
 
     def test_canvas_scope_names_are_one_protected_scope(self) -> None:
         channel_model = apps.get_model("tasks", "Channel")
@@ -2508,20 +2523,36 @@ class TestCommentTasks(APIBaseTest, QueryMatchingTest):
         response = self.client.post(f"/api/projects/{self.team.id}/comments/{comment['id']}/{endpoint}")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    def test_complete_writes_activity_log_entry(self) -> None:
-        recording_id = "01964c81-1234-5678-90ab-cdef01234567"
-        task = self._create_task({"item_id": recording_id})
-        self.client.post(f"/api/projects/{self.team.id}/comments/{task['id']}/complete")
-        self.client.post(f"/api/projects/{self.team.id}/comments/{task['id']}/reopen")
+    @parameterized.expand([("replay", False), ("canvas", True)])
+    def test_complete_writes_activity_log_entry(self, _name: str, on_canvas: bool) -> None:
+        item_id = "01964c81-1234-5678-90ab-cdef01234567"
+        data: dict[str, Any] = {"item_id": item_id}
+        if on_canvas:
+            channel = (
+                apps.get_model("tasks", "Channel")
+                .objects.unscoped()
+                .create(team=self.team, name="task-canvas-space", channel_type="public", created_by=self.user)
+            )
+            canvas = (
+                apps.get_model("canvas", "Canvas")
+                .objects.unscoped()
+                .create(team=self.team, channel=channel, name="Task canvas", created_by=self.user)
+            )
+            item_id = str(canvas.id)
+            data = {"scope": "canvas", "item_id": item_id, "item_context": {"anchor": {"kind": "document"}}}
+        task = self._create_task(data)
+        completed = self.client.post(f"/api/projects/{self.team.id}/comments/{task['id']}/complete")
+        reopened = self.client.post(f"/api/projects/{self.team.id}/comments/{task['id']}/reopen")
 
+        assert (completed.status_code, reopened.status_code) == (status.HTTP_200_OK, status.HTTP_200_OK)
         activities = list(
             ActivityLog.objects.filter(
                 team_id=self.team.id,
-                item_id=recording_id,
+                item_id=item_id,
                 activity__in=["completed task", "reopened task"],
             ).order_by("created_at")
         )
-        assert [a.activity for a in activities] == ["completed task", "reopened task"]
+        assert [a.activity for a in activities] == ([] if on_canvas else ["completed task", "reopened task"])
         assert all(a.scope == "Replay" for a in activities)
 
     @parameterized.expand(

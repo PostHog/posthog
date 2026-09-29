@@ -455,9 +455,13 @@ class CommentSerializer(serializers.ModelSerializer):
         target_context = data.get("item_context", instance.item_context if instance else None) or {}
         if target_scope in DESKTOP_COMMENT_SCOPES:
             task_id = target_item_id if target_scope == "task" else target_context.get("taskId")
-            if target_scope in CANVAS_COMMENT_SCOPES and (
-                source_comment is not None or (instance is not None and task_id == _stored_task_context_id(instance))
-            ):
+            inherits_root_link = not instance and source_comment is not None
+            keeps_stored_link = (
+                instance is not None
+                and task_id == _stored_task_context_id(instance)
+                and target_item_id == instance.item_id
+            )
+            if target_scope in CANVAS_COMMENT_SCOPES and (inherits_root_link or keeps_stored_link):
                 task_id = None
             if not task_comment_target_is_accessible(
                 team_id=self.context["get_team"]().id,
@@ -1233,6 +1237,8 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
 
     @staticmethod
     def _log_task_state_change(comment: Comment, request: Request, *, completed: bool) -> None:
+        if comment.scope in CANVAS_COMMENT_SCOPES:
+            return
         log_activity(
             organization_id=None,
             team_id=comment.team_id,
