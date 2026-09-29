@@ -170,7 +170,9 @@ async def test_a_failed_publish_skips_only_its_own_experiment():
     "succeeded,recalculations_synced,expected_status",
     [(2, 2, "published"), (2, 0, "missing"), (0, 0, None)],
 )
-def test_publish_outcome_counter_feeds_the_missing_publish_alert(succeeded, recalculations_synced, expected_status):
+def test_publish_outcome_counter_feeds_the_missing_publish_alert(
+    succeeded: int, recalculations_synced: int, expected_status: str | None
+) -> None:
     """The "missing" emission is the alert signal for runs that compute results users never see. A flipped
     condition kills the alert; emitting on runs that computed nothing floods it with false positives."""
     with (
