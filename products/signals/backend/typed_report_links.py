@@ -206,7 +206,7 @@ def capture_report_linked(
     edge: ReportEdge,
     actor_kind: str | None,
     actor_agent: str | None,
-    write_path: ReportLinkWritePath | None = None,
+    write_path: ReportLinkWritePath | None,
 ) -> None:
     """`signals_report_linked` — one event per stored link, so the share of reports that carry each
     kind of edge becomes readable.
