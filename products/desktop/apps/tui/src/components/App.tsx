@@ -15,6 +15,7 @@ import {
   type LayoutNode,
   type LayoutState,
   loadLayout,
+  type PaneNode,
   paneIds,
   panes,
   saveLayout,
@@ -210,7 +211,10 @@ export function App({
     (current ? chats.reply(current, text) : chats.start(text)).then(
       (task) => {
         setFresh((tasks) => new Map(tasks).set(task.id, task));
-        if (!current) setLayout((state) => assignTask(state, paneId, task.id));
+        if (!current) {
+          const title = task.title || text.slice(0, 80);
+          setLayout((state) => assignTask(state, paneId, task.id, title));
+        }
         setNotice(null);
       },
       (error: unknown) => {
@@ -352,9 +356,9 @@ export function App({
     };
   }, [mouse]);
 
-  const titleOf = (taskId: string | null): string => {
-    if (taskId === null) return "New chat";
-    return taskOf(taskId)?.title ?? "Loading…";
+  const titleOf = (pane: PaneNode): string => {
+    if (pane.taskId === null) return "New chat";
+    return taskOf(pane.taskId)?.title || pane.title || "Untitled";
   };
 
   const renderNode = (
@@ -373,7 +377,8 @@ export function App({
         {...dividerProps(divider)}
       >
         <Pane
-          title={titleOf(node.taskId)}
+          title={titleOf(node)}
+          paneTaskId={node.taskId}
           task={taskOf(node.taskId)}
           runs={runs}
           chat={chatFor(node.id)}

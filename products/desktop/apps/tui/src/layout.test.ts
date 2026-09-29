@@ -135,6 +135,23 @@ describe("layout", () => {
     },
   );
 
+  it("remembers the title of each opened task, including in the saved layout", () => {
+    const dir = mkdtempSync(join(tmpdir(), "tui-layout-"));
+    const path = join(dir, "layout.json");
+    let state = openTask(initialLayout(), "a", "Fix the flaky test");
+    state = assignTask(
+      splitFocused(state, "row"),
+      paneIds(activeWorkspace(state).root)[0],
+      "a",
+      "Renamed",
+    );
+    saveLayout(state, path);
+
+    expect(activeWorkspace(loadLayout(path)).root).toMatchObject({
+      children: [{ taskId: "a", title: "Renamed" }, { taskId: null }],
+    });
+  });
+
   it("restores a saved layout and falls back to a fresh one when the file is unreadable", () => {
     const dir = mkdtempSync(join(tmpdir(), "tui-layout-"));
     const path = join(dir, "layout.json");
