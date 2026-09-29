@@ -92,34 +92,6 @@ PERSON_PROPERTIES_JSON_SUBCOLUMN_DECLARED_TYPES: dict[str, str] = {
 
 PERSON_PROPERTIES_JSON_SUBCOLUMNS = PERSON_PROPERTIES_JSON_SUBCOLUMN_DECLARED_TYPES
 
-TEMPORARY_PROPERTIES_COLUMN = "temporary_properties"
-# Mirrors isTemporaryProperty in the JSONCleanPostHogEventProperties UDF: these top-level event properties are
-# stored in temporary_properties (60-day TTL from inserted_at) instead of properties.
-_TEMPORARY_EVENT_PROPERTY_ROOTS = frozenset(
-    {
-        "$set",
-        "$set_once",
-        "$unset",
-        "$group_set",
-        "$feature_flag_request_id",
-        "$debug_first_full_snapshot_timestamp",
-        "$snapshot_max_depth_exceeded",
-        "$sess_rec_flush_size",
-        "$session_recording_remote_config",
-        "$session_recording_network_payload_capture",
-        "$session_recording_canvas_recording",
-        "$replay_script_config",
-        "$sent_at",
-        "$lib_rate_limit_remaining_tokens",
-        "$lib_custom_api_host",
-    }
-)
-
-
-def is_temporary_event_property(key: str) -> bool:
-    root = key.split(".", 1)[0]
-    return root in _TEMPORARY_EVENT_PROPERTY_ROOTS or root.startswith("$sdk_debug_")
-
 
 def EVENTS_JSON_DATA_TABLE_INDEXES() -> str:
     indexes = [
