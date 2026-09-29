@@ -214,3 +214,23 @@ class ExperimentPrecomputeEnrollmentCensusInputs:
     would qualify for precomputation enrollment; it never enrolls anyone."""
 
     window_days: int = 14
+
+
+SCHEDULED_RECALCULATION_WORKFLOW_NAME = "experiment-scheduled-recalculation-workflow"
+
+
+@dataclasses.dataclass
+class ScheduledRecalculationWorkflowInputs:
+    """Input to the scheduled recalculation coordinator."""
+
+    hour: int  # 0-23, which hour's teams to process
+
+
+@frozen
+class ScheduledRecalculationStartResult:
+    """Outcome of one experiment's start attempt, for the coordinator's summary counts."""
+
+    experiment_id: int
+    started: bool
+    recalculation_id: str | None = None
+    skip_reason: str | None = None
