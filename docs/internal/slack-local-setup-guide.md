@@ -324,6 +324,27 @@ Paste a Slack channel ID into the channel picker to select that channel.
 The picker shows the channel name when the lookup succeeds, without requiring you to click outside the input.
 Click the selected channel in the list to clear the search text.
 
+### Channel search
+
+The channel ID lookup can find a channel before name search can find it.
+ID lookup asks Slack for one channel when it is not in the cached list.
+Name search uses the cached list, which can be incomplete if Slack limits the listing requests.
+An empty search result does not prove that the app lacks channel access.
+
+An incomplete listing is cached for one minute instead of one hour.
+The next listing request resumes from the saved public and private channel cursors.
+If a cursor expires, only that part of the listing starts again.
+Wait one minute, then search again to continue loading the list.
+If Slack asks for a longer wait, listing requests keep that deadline, including forced refreshes.
+You can also paste the channel ID to look up one channel directly in Slack.
+
+Only one channel listing runs at a time for each Slack workspace.
+If another listing is still running and no cached result is available, wait and retry the request.
+A reconnect uses a separate cache for the connected Slack user.
+A listing at the item cap is cached for one hour; automatic retries cannot add more channels.
+
+### Local connection
+
 The walls we actually hit and fixed:
 
 | Symptom                                                              | Cause / fix                                                                                                                                      |
