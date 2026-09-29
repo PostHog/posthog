@@ -67,17 +67,10 @@ export function ListRow({
   );
 }
 
-export function TaskRow({
-  task,
-  label,
-  onPress,
-}: {
-  task: Task;
-  label?: string;
-  onPress: () => void;
-}) {
+export function useTaskActions(task: Task | undefined) {
   const updateTask = useUpdateTask();
-  const rename = (): void =>
+  const rename = (): void => {
+    if (!task) return;
     Alert.prompt(
       "Rename",
       "Enter a new name",
@@ -95,16 +88,43 @@ export function TaskRow({
       "plain-text",
       taskTitle(task),
     );
+  };
+  const setArchived = (archived: boolean, onSuccess?: () => void): void => {
+    if (task) updateTask.mutate({ id: task.id, archived }, { onSuccess });
+  };
+  return { rename, setArchived };
+}
+
+export function TaskRow({
+  task,
+  label,
+  archived = false,
+  onPress,
+}: {
+  task: Task;
+  label?: string;
+  archived?: boolean;
+  onPress: () => void;
+}) {
+  const { rename, setArchived } = useTaskActions(task);
   return (
     <Host matchContents={{ vertical: true }}>
       <ContextMenu>
         <ContextMenu.Items>
           <Button label="Rename" systemImage="pencil" onPress={rename} />
-          <Button
-            label="Archive"
-            systemImage="archivebox"
-            onPress={() => updateTask.mutate({ id: task.id, archived: true })}
-          />
+          {archived ? (
+            <Button
+              label="Restore"
+              systemImage="arrow.uturn.backward"
+              onPress={() => setArchived(false)}
+            />
+          ) : (
+            <Button
+              label="Archive"
+              systemImage="archivebox"
+              onPress={() => setArchived(true)}
+            />
+          )}
         </ContextMenu.Items>
         <ContextMenu.Trigger>
           <RNHostView matchContents>

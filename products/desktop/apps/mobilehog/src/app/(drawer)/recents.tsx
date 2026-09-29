@@ -30,7 +30,7 @@ import { useTaskPages } from "@/lib/queries";
 import { useReports } from "@/lib/reports";
 import { colors, fonts, radius } from "@/lib/theme";
 
-type Scope = "all" | "tasks" | "reports";
+type Scope = "all" | "tasks" | "reports" | "archived";
 
 type Item =
   | { kind: "task"; id: string; time: string; task: Task }
@@ -40,6 +40,7 @@ const SCOPES = [
   { value: "all", label: "All", icon: "bubble.left.and.bubble.right" },
   { value: "tasks", label: "Tasks", icon: "bubble.left" },
   { value: "reports", label: "Self-driving", icon: "steeringwheel" },
+  { value: "archived", label: "Archived", icon: "archivebox" },
 ] as const;
 
 const HEADER_HEIGHT = 64;
@@ -62,7 +63,9 @@ export default function RecentsScreen() {
   const [query, setQuery] = useState("");
   const [scope, setScope] = useState<Scope>("all");
   const search = useDebounced(query.trim(), 250);
-  const tasks = useTaskPages(search, false);
+  const archived = scope === "archived";
+  const showReports = scope === "all" || scope === "reports";
+  const tasks = useTaskPages(search, archived);
   const reports = useReports(search);
 
   const items = useMemo(() => {
@@ -73,7 +76,7 @@ export default function RecentsScreen() {
         list.push({ kind: "task", id: task.id, time: activityAt(task), task });
       }
     }
-    if (scope !== "tasks") {
+    if (showReports) {
       for (const report of reports.data ?? []) {
         list.push({
           kind: "report",
@@ -84,11 +87,11 @@ export default function RecentsScreen() {
       }
     }
     return list.sort((a, b) => b.time.localeCompare(a.time));
-  }, [scope, tasks.data, reports.data]);
+  }, [scope, showReports, tasks.data, reports.data]);
 
   const loading =
     (scope !== "reports" && tasks.isLoading) ||
-    (scope !== "tasks" && reports.isLoading);
+    (showReports && reports.isLoading);
 
   const closeSearch = (): void => {
     setQuery("");
@@ -109,6 +112,7 @@ export default function RecentsScreen() {
             <TaskRow
               task={item.task}
               label="Task"
+              archived={archived}
               onPress={() =>
                 router.push({
                   pathname: "/(drawer)/task/[id]",
