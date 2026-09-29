@@ -11,10 +11,10 @@ source configures on the shared platform, rather than one product's own table.
 from django.db import models
 
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
-from posthog.models.utils import UUIDTModel
+from posthog.models.utils import UUIDModel
 
 
-class PlatformAlertConfiguration(TeamScopedRootMixin, UUIDTModel):
+class PlatformAlertConfiguration(TeamScopedRootMixin, UUIDModel):
     """What to evaluate, how often, and against what bound.
 
     Evaluation-level state lives here rather than on `PlatformAlert`, because a failed check
@@ -74,7 +74,7 @@ class PlatformAlertConfiguration(TeamScopedRootMixin, UUIDTModel):
         ]
 
 
-class PlatformAlert(TeamScopedRootMixin, UUIDTModel):
+class PlatformAlert(TeamScopedRootMixin, UUIDModel):
     """Runtime state for one instance of a configuration.
 
     `grouping_key` is empty until a source groups its results. The unique constraint is what
