@@ -7,6 +7,7 @@ import type {
 import * as Haptics from "expo-haptics";
 import { create } from "zustand";
 import { getClient } from "@/lib/client";
+import { currentRunConfig } from "@/lib/composer";
 import { type WatchHandle, watchRun } from "@/lib/engine";
 import { logger } from "@/lib/logger";
 import {
@@ -56,7 +57,6 @@ interface SessionState {
   sendPrompt: (
     taskId: string,
     text: string,
-    model?: string,
     localId?: string,
   ) => Promise<string | null>;
   cancelTurn: (taskId: string) => Promise<void>;
@@ -236,11 +236,7 @@ export const useSessions = create<SessionState>((set, get) => {
     );
   };
 
-  const resumeRun = async (
-    taskId: string,
-    prompt: string,
-    model?: string,
-  ): Promise<void> => {
+  const resumeRun = async (taskId: string, prompt: string): Promise<void> => {
     const session = get().sessions[taskId];
     if (!session) return;
     log.info("Sandbox gone, resuming run", {
@@ -250,7 +246,7 @@ export const useSessions = create<SessionState>((set, get) => {
     const task = await getClient().runTaskInCloud(taskId, undefined, {
       resumeFromRunId: session.runId,
       pendingUserMessage: prompt,
-      model,
+      ...currentRunConfig(),
     });
     const runId = task.latest_run?.id;
     if (!runId) throw new Error("Resume did not return a run");
@@ -333,12 +329,7 @@ export const useSessions = create<SessionState>((set, get) => {
       for (const handle of handles.values()) handle.reconnectIfDisconnected();
     },
 
-    sendPrompt: async (
-      taskId,
-      text,
-      model,
-      localId = `local-${Date.now()}`,
-    ) => {
+    sendPrompt: async (taskId, text, localId = `local-${Date.now()}`) => {
       const session = get().sessions[taskId];
       if (!session) return null;
       const echoes = new Set(session.localEchoes);
@@ -368,7 +359,7 @@ export const useSessions = create<SessionState>((set, get) => {
         if (error instanceof CloudCommandError && runIsGone(error)) {
           patch(taskId, () => ({ resuming: true }));
           try {
-            await resumeRun(taskId, text, model);
+            await resumeRun(taskId, text);
           } catch (resumeError) {
             patch(taskId, () => ({
               resuming: false,

@@ -1,8 +1,11 @@
+import {
+  formatGatewayModelName,
+  getReasoningEffortOptions,
+} from "@posthog/shared";
+import { useRouter } from "expo-router";
 import { useState } from "react";
 import {
-  ActionSheetIOS,
   ActivityIndicator,
-  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -11,13 +14,14 @@ import {
 } from "react-native";
 import { Glass } from "@/components/Glass";
 import { ArrowUpIcon, StopIcon } from "@/components/Icons";
+import { useComposer } from "@/lib/composer";
 import { useModels } from "@/lib/queries";
 import { colors, fonts, radius } from "@/lib/theme";
 
 interface ComposerProps {
   placeholder: string;
-  model: string;
-  onModelChange: (model: string) => void;
+  // Shown as a second pill when provided (null = no repository chosen).
+  repository?: string | null;
   onSend: (text: string) => void | Promise<void>;
   onStop?: () => void;
   busy?: boolean;
@@ -25,43 +29,24 @@ interface ComposerProps {
   autoFocus?: boolean;
 }
 
-function shortModelName(id: string): string {
-  return id.replace(/^claude-/, "").replace(/-/g, " ");
-}
-
 export function Composer({
   placeholder,
-  model,
-  onModelChange,
+  repository,
   onSend,
   onStop,
   busy,
   sending,
   autoFocus,
 }: ComposerProps) {
+  const router = useRouter();
   const [text, setText] = useState("");
+  const { model, adapter, reasoning } = useComposer();
   const models = useModels();
+  const found = models.data?.find((candidate) => candidate.id === model);
+  const effort = getReasoningEffortOptions(adapter, model)?.find(
+    (option) => option.value === reasoning,
+  )?.name;
   const canSend = text.trim().length > 0 && !sending;
-
-  const pickModel = (): void => {
-    const options = models.data ?? [];
-    if (options.length === 0) return;
-    if (Platform.OS !== "ios") {
-      const index = options.findIndex((candidate) => candidate.id === model);
-      onModelChange(options[(index + 1) % options.length].id);
-      return;
-    }
-    ActionSheetIOS.showActionSheetWithOptions(
-      {
-        title: "Model",
-        options: [...options.map((candidate) => candidate.id), "Cancel"],
-        cancelButtonIndex: options.length,
-      },
-      (index) => {
-        if (index < options.length) onModelChange(options[index].id);
-      },
-    );
-  };
 
   const submit = async (): Promise<void> => {
     const value = text.trim();
@@ -84,11 +69,30 @@ export function Composer({
       />
       <View style={styles.row}>
         <Pressable
-          onPress={pickModel}
+          onPress={() => router.push("/config")}
           style={({ pressed }) => [styles.pill, pressed && { opacity: 0.6 }]}
         >
-          <Text style={styles.pillText}>{shortModelName(model)}</Text>
+          <Text style={styles.pillText} numberOfLines={1}>
+            {found ? formatGatewayModelName(found) : model}
+            {effort ? <Text style={styles.pillMuted}> {effort}</Text> : null}
+          </Text>
         </Pressable>
+        {repository !== undefined ? (
+          <Pressable
+            onPress={() => router.push("/picker")}
+            style={({ pressed }) => [
+              styles.pill,
+              styles.pillWide,
+              pressed && { opacity: 0.6 },
+            ]}
+          >
+            <Text style={styles.pillText} numberOfLines={1}>
+              {repository
+                ? (repository.split("/")[1] ?? repository)
+                : "No repo"}
+            </Text>
+          </Pressable>
+        ) : null}
         <View style={{ flex: 1 }} />
         {busy && onStop ? (
           <Pressable
@@ -138,12 +142,14 @@ const styles = StyleSheet.create({
   },
   row: { flexDirection: "row", alignItems: "center", gap: 8 },
   pill: {
-    backgroundColor: "rgba(28,27,24,0.06)",
+    backgroundColor: "rgba(21,21,21,0.06)",
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: radius.pill,
   },
-  pillText: { fontFamily: fonts.monoMedium, fontSize: 12, color: colors.ink },
+  pillWide: { maxWidth: 150 },
+  pillText: { fontFamily: fonts.sansMedium, fontSize: 13, color: colors.ink },
+  pillMuted: { color: colors.inkMute },
   send: {
     width: 40,
     height: 40,
