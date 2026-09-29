@@ -20,13 +20,20 @@ VENV_DIR="$PROJECT_DIR/.flox/cache/venv"
 CACHE_FILE="$PROJECT_DIR/.flox/cache/claude-env-cache"
 FLOX_MANIFEST="$PROJECT_DIR/.flox/env/manifest.toml"
 
-# Checksum the flox manifest to auto-invalidate cache on env changes
+# Checksum the flox manifest to auto-invalidate cache on env changes.
+# On macOS md5/md5sum live in /sbin, which isn't on the PATH a SessionStart hook
+# inherits. Without them MANIFEST_HASH stays empty, the fast path below is always
+# skipped, and every session pays for a full `flox activate`.
+PATH="$PATH:/sbin:/usr/sbin"
+
 MANIFEST_HASH=""
 if [ -f "$FLOX_MANIFEST" ]; then
   if command -v md5sum &>/dev/null; then
     MANIFEST_HASH=$(md5sum "$FLOX_MANIFEST" | awk '{print $1}')
   elif command -v md5 &>/dev/null; then
     MANIFEST_HASH=$(md5 -q "$FLOX_MANIFEST")
+  elif command -v shasum &>/dev/null; then
+    MANIFEST_HASH=$(shasum "$FLOX_MANIFEST" | awk '{print $1}')
   fi
 fi
 
@@ -39,11 +46,45 @@ if [ -f "$CACHE_FILE" ] && [ -n "$MANIFEST_HASH" ]; then
   fi
 fi
 
-# Slow path: capture the flox activation environment
-FLOX_ENV_SNAPSHOT=$(flox activate --dir "$PROJECT_DIR" -- bash -c 'printenv' 2>/dev/null)
+# Slow path: capture the flox activation environment.
+#
+# `flox activate` can block forever: an activation that was started elsewhere and
+# never finished (e.g. one left blocked on a terminal's stdin) pins the shared env
+# state at "Starting", and every later activation waits on it. This hook runs at
+# SessionStart, so a hang there means Claude Code never finishes starting up.
+# Cap it and fall through to the no-op path instead of blocking the session.
+FLOX_ACTIVATE_TIMEOUT="${FLOX_ACTIVATE_TIMEOUT:-60}"
 
-if [ $? -ne 0 ] || [ -z "$FLOX_ENV_SNAPSHOT" ]; then
-  echo "Warning: flox activate failed, skipping env setup" >&2
+SNAPSHOT_FILE=$(mktemp)
+trap 'rm -f "$SNAPSHOT_FILE"' EXIT
+
+flox activate --dir "$PROJECT_DIR" -- bash -c 'printenv' >"$SNAPSHOT_FILE" 2>/dev/null &
+FLOX_PID=$!
+
+# Watchdog: kill the activation (and its children, which outlive it otherwise)
+# if it is still running when the budget runs out.
+(
+  sleep "$FLOX_ACTIVATE_TIMEOUT"
+  if kill -0 "$FLOX_PID" 2>/dev/null; then
+    pkill -P "$FLOX_PID" 2>/dev/null
+    kill -TERM "$FLOX_PID" 2>/dev/null
+    sleep 2
+    pkill -9 -P "$FLOX_PID" 2>/dev/null
+    kill -9 "$FLOX_PID" 2>/dev/null
+  fi
+) &
+WATCHDOG_PID=$!
+
+wait "$FLOX_PID" 2>/dev/null
+FLOX_RC=$?
+
+kill -TERM "$WATCHDOG_PID" 2>/dev/null
+wait "$WATCHDOG_PID" 2>/dev/null
+
+FLOX_ENV_SNAPSHOT=$(cat "$SNAPSHOT_FILE")
+
+if [ "$FLOX_RC" -ne 0 ] || [ -z "$FLOX_ENV_SNAPSHOT" ]; then
+  echo "Warning: flox activate failed or timed out after ${FLOX_ACTIVATE_TIMEOUT}s, skipping env setup" >&2
   exit 0
 fi
 
