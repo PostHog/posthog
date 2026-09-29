@@ -3,6 +3,8 @@ import '@testing-library/jest-dom'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { BindLogic } from 'kea'
 
+import { shortcutLogic } from 'lib/components/Shortcuts/shortcutLogic'
+import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -117,6 +119,36 @@ describe('DashboardHeader', () => {
 
         return { logic, loadDashboard }
     }
+
+    it('closes an open tile dialog on Escape without discarding the layout draft', () => {
+        const dashboard = makeDashboard({
+            tiles: [{ id: 1, color: null, layouts: {}, text: { body: 'Dashboard note' } }],
+        })
+        const { logic } = renderHeader({ dashboard, dashboardEditing: { filters: true, layout: true } })
+        logic.actions.updateLayouts({
+            ...logic.values.layouts,
+            sm: logic.values.layouts.sm?.map((layout) => ({ ...layout, x: layout.x + 1 })),
+        })
+        expect(shortcutLogic.values.registeredShortcuts.some(({ name }) => name === 'CancelDashboardEdit')).toBe(true)
+        act(() => logic.actions.openImageTileModal())
+        expect(shortcutLogic.values.registeredShortcuts.some(({ name }) => name === 'CancelDashboardEdit')).toBe(false)
+
+        const { unmount } = render(
+            <LemonModal isOpen onClose={() => logic.actions.closeTileModal()}>
+                <button type="button">Dialog action</button>
+            </LemonModal>
+        )
+        const dialogButton = screen.getByRole('button', { name: 'Dialog action' })
+        dialogButton.focus()
+        fireEvent.keyDown(dialogButton, { key: 'Escape', code: 'Escape' })
+
+        expect(logic.values.showImageTileModal).toBe(false)
+        expect(logic.values.dashboardEditing?.layout).toBe(true)
+        expect(logic.values.hasUnsavedLayoutChanges).toBe(true)
+
+        unmount()
+        logic.unmount()
+    })
 
     it('keeps the scene header visible while the dashboard is loading', () => {
         const { logic } = renderHeader({ dashboard: null, loading: true })

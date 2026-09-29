@@ -2162,6 +2162,55 @@ describe('dashboardLogic', () => {
                 expect(logic.values.dashboardEditing?.layout).toBe(true)
             })
 
+            it('uses the server layout for tiles without draft changes', async () => {
+                await expectLogic(logic).toFinishAllListeners()
+                const firstTile = logic.values.dashboard!.tiles[1]
+                const currentLayout = logic.values.layouts.sm!.find((layout) => layout.i === String(firstTile.id))!
+                const serverLayouts = {
+                    sm: { ...currentLayout, x: currentLayout.x + 2 },
+                } as DashboardTile['layouts']
+                const savedDashboard = {
+                    ...logic.values.dashboard!,
+                    tiles: logic.values.dashboard!.tiles.map((tile) =>
+                        tile.id === firstTile.id ? { ...tile, layouts: serverLayouts } : tile
+                    ),
+                }
+
+                await expectLogic(logic, () => dashboardsModel.actions.updateDashboardSuccess(savedDashboard))
+                    .toDispatchActions(['applyDashboardUpdate'])
+                    .toFinishAllListeners()
+
+                expect(logic.values.dashboard!.tiles[1].layouts).toEqual(serverLayouts)
+                expect(logic.values.dashboardLayouts[firstTile.id]).toEqual(serverLayouts)
+                expect(logic.values.hasUnsavedLayoutChanges).toBe(false)
+            })
+
+            it('preserves only the changed tile draft when another tile receives a server layout update', async () => {
+                await expectLogic(logic).toFinishAllListeners()
+                moveFirstTile()
+                const draftTile = logic.values.dashboard!.tiles[0]
+                const unchangedTile = logic.values.dashboard!.tiles[1]
+                const currentLayout = logic.values.layouts.sm!.find((layout) => layout.i === String(unchangedTile.id))!
+                const serverLayouts = {
+                    sm: { ...currentLayout, x: currentLayout.x + 2 },
+                } as DashboardTile['layouts']
+                const savedDashboard = {
+                    ...logic.values.dashboard!,
+                    tiles: logic.values.dashboard!.tiles.map((tile) =>
+                        tile.id === unchangedTile.id ? { ...tile, layouts: serverLayouts } : tile
+                    ),
+                }
+
+                await expectLogic(logic, () => dashboardsModel.actions.updateDashboardSuccess(savedDashboard))
+                    .toDispatchActions(['applyDashboardUpdate'])
+                    .toFinishAllListeners()
+
+                expect(logic.values.dashboard!.tiles[0].layouts).toEqual(draftTile.layouts)
+                expect(logic.values.dashboard!.tiles[1].layouts).toEqual(serverLayouts)
+                expect(logic.values.dashboardLayouts[unchangedTile.id]).toEqual(serverLayouts)
+                expect(logic.values.hasUnsavedLayoutChanges).toBe(true)
+            })
+
             it('still asks before navigating away from unsaved layout changes', async () => {
                 const confirmSpy = jest.spyOn(window, 'confirm').mockReturnValue(false)
                 try {

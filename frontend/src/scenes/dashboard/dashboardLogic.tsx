@@ -507,6 +507,9 @@ export interface dashboardLogicActions {
     clearInitialDashboardSettingsOverride: () => {
         value: true
     }
+    closeTileModal: () => {
+        value: true
+    }
     copyToDashboard: (
         tile: DashboardTile,
         fromDashboard: number,
@@ -669,9 +672,6 @@ export interface dashboardLogicActions {
         value: true
     }
     openButtonTileModal: () => {
-        value: true
-    }
-    closeTileModal: () => {
         value: true
     }
     openImageTileModal: () => {

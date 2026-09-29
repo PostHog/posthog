@@ -9,6 +9,7 @@ import { textCardConverter } from 'lib/components/Cards/TextCard/textCardMarkdow
 import { TextCardModal } from 'lib/components/Cards/TextCard/TextCardModal'
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
 import { TerraformExportModal } from 'lib/components/TerraformExporter/TerraformExportModal'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -57,7 +58,10 @@ export function DashboardModals({ dashboard }: { dashboard: DashboardType }): JS
     const shouldShowImageTileModal = showImageTileModal || selectedImageTileId !== null
     const hasMissingRouteTile = (textTileId !== null && !textRouteTile) || (buttonTileId !== null && !buttonRouteTile)
     const closeTile = (): void => {
-        if (router.values.location.pathname === urls.dashboard(dashboard.id) && !router.values.searchParams.tileType) {
+        if (
+            removeProjectIdIfPresent(router.values.location.pathname) === urls.dashboard(dashboard.id) &&
+            !router.values.searchParams.tileType
+        ) {
             closeTileModal()
         } else {
             push(urls.dashboard(dashboard.id))
