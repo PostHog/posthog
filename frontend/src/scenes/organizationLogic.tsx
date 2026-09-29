@@ -41,7 +41,6 @@ function pathLeavesCurrentOrganization(organization: OrganizationType | null, pa
     return projectId !== undefined && !teams.some((team) => String(team.id) === projectId)
 }
 
-// Bounds how long an open tab keeps working after its organization is blocked.
 const ORGANIZATION_REFRESH_INTERVAL_MS = 5 * 60 * 1000
 
 function fetchCurrentOrganization(): Promise<OrganizationType> {
@@ -411,8 +410,7 @@ export const organizationLogic = kea<organizationLogicType>([
             } catch {
                 return
             }
-            // Only a change to the block is adopted. The loader would flip `currentOrganizationLoading`,
-            // which drives the settings forms, and a new object would re-render every reader of it.
+            // Not the loader: it flips `currentOrganizationLoading`, which the settings forms read.
             const current = values.currentOrganization
             if (
                 current?.id === organization.id &&
@@ -465,10 +463,8 @@ export const organizationLogic = kea<organizationLogicType>([
         },
     })),
     afterMount(({ actions, cache }) => {
-        // The disposables plugin runs this setup again each time the tab becomes visible, so a member who
-        // returns to the tab also sees a block that landed while it was hidden. Only a run inside this
-        // mount skips the refresh, because the mount already has a fresh organization. A tab that mounts
-        // hidden runs the setup first on its first show, and that run must refresh.
+        // The plugin reruns this setup each time the tab becomes visible, which refreshes the organization.
+        // Only the run inside this mount skips it, so a tab that mounted hidden still refreshes on first show.
         let mounting = true
         cache.disposables.add(() => {
             if (!mounting) {

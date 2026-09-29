@@ -728,8 +728,6 @@ export const sceneLogic = kea<sceneLogicType>([
         ],
     }),
     listeners(({ values, actions, cache, props, selectors }) => ({
-        // An open tab learns about a block or a reactivation from a refresh, not from a navigation, so
-        // apply the same decision `openScene` makes to the page the member is on.
         [organizationLogic.actionTypes.loadCurrentOrganizationSuccess]: () => {
             if (organizationLogic.values.currentOrganizationBlockPage) {
                 leaveBlockedOrganizationPath()
