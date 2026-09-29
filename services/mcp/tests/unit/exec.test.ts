@@ -76,6 +76,35 @@ function createExec(
 }
 
 describe('exec tool', () => {
+    describe('help command', () => {
+        it('lists available commands and their argument shapes', async () => {
+            const result = await createExec().handler(mockContext, { command: 'help' })
+
+            expect(result).toContain('search <words or regex_pattern>')
+            expect(result).toContain('call [--json] [--confirm] <tool_name> <json_input>')
+            expect(result).not.toContain('learn <topic...>')
+        })
+
+        it('shows usage for one command', async () => {
+            const result = await createExec().handler(mockContext, { command: 'help search' })
+
+            expect(result).toBe('search <words or regex_pattern> — find tools by name, title, or description')
+        })
+
+        it('shows learn only when it is available', async () => {
+            const exec = createExec(undefined, undefined, { learnCatalog: new ExecLearnCatalog([], undefined) })
+
+            await expect(exec.handler(mockContext, { command: 'help learn' })).resolves.toContain('learn <topic...>')
+        })
+
+        it('directs unknown help topics to the command list', async () => {
+            await expect(createExec().handler(mockContext, { command: 'help unknown' })).rejects.toMatchObject({
+                reason: 'unknown_command',
+                message: 'Unknown command: "unknown". Run "help" to list available commands.',
+            })
+        })
+    })
+
     describe('learn command', () => {
         const guides = [
             {
