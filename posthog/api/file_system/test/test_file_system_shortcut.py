@@ -9,6 +9,7 @@ from rest_framework import status
 
 from posthog.models import User
 from posthog.models.file_system.file_system_shortcut import FileSystemShortcut
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -210,6 +211,60 @@ class TestFileSystemShortcutAPI(APIBaseTest):
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def _authenticate_with_token(self, auth: str, scopes: list[str]) -> None:
+        if auth == "personal_api_key":
+            token = self.create_personal_api_key_with_scopes(scopes)
+        else:
+            app = OAuthApplication.objects.create(
+                name="Shortcut test",
+                client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+                authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+                redirect_uris="https://example.com/callback",
+                algorithm="RS256",
+                organization=self.organization,
+                user=self.user,
+            )
+            token = OAuthAccessToken.objects.create(
+                user=self.user,
+                application=app,
+                token="pha_shortcut_test",
+                scope=" ".join(scopes),
+                expires=timezone.now() + timedelta(hours=1),
+            ).token
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+    @parameterized.expand(
+        [
+            (f"{url_path}_{auth}_{access}", url_path, auth, access)
+            for url_path in ["reorder", "bulk_update"]
+            for auth in ["personal_api_key", "oauth"]
+            for access in ["write", "read"]
+        ]
+    )
+    def test_collection_writes_with_scoped_token(self, _name: str, url_path: str, auth: str, access: str):
+        first = FileSystemShortcut.objects.create(team=self.team, path="First", type="t", user=self.user, order=0)
+        second = FileSystemShortcut.objects.create(team=self.team, path="Second", type="t", user=self.user, order=1)
+        self._authenticate_with_token(auth, [f"file_system_shortcut:{access}"])
+        payload = (
+            {"ordered_ids": [str(second.id), str(first.id)]}
+            if url_path == "reorder"
+            else {"remove_ids": [str(first.id)]}
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/file_system_shortcut/{url_path}/", payload, format="json"
+        )
+
+        if access == "read":
+            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.json())
+            expected = (1, True)
+        else:
+            self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+            expected = (0, True) if url_path == "reorder" else (1, False)
+        second.refresh_from_db()
+        self.assertEqual((second.order, FileSystemShortcut.objects.filter(id=first.id).exists()), expected)
 
 
 class TestFileSystemShortcutAccessLevels(APIBaseTest):

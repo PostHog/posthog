@@ -128,6 +128,15 @@ class FileSystemShortcutBulkUpdateSerializer(serializers.Serializer):
 class FileSystemShortcutViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     queryset = FileSystemShortcut.objects.all()
     scope_object = "file_system_shortcut"
+    scope_object_write_actions = [
+        "create",
+        "update",
+        "partial_update",
+        "patch",
+        "destroy",
+        "reorder",
+        "bulk_update",
+    ]
     serializer_class = FileSystemShortcutSerializer
     # Product surface these shortcuts serve. Subclass and override to expose a different surface
     # (e.g. "desktop") on its own route. The default surface also matches legacy NULL rows.
