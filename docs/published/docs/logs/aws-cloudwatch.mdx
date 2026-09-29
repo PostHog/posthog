@@ -251,7 +251,7 @@ Repeat step 3 for each log group you want to send.
 
 Each CloudWatch log event becomes one log in PostHog. The message is the log body, and the event keeps its original CloudWatch timestamp.
 
-These attributes are set on every log:
+These attributes describe where the log came from. They are the same for every log in a log group:
 
 | Attribute             | Value                                   |
 | --------------------- | --------------------------------------- |
@@ -260,6 +260,13 @@ These attributes are set on every log:
 | `cloud.region`        | The region the stream runs in           |
 | `aws.log.group.name`  | The log group                           |
 | `aws.log.stream.name` | The log stream                          |
+
+These describe the individual event:
+
+| Attribute                  | Value                                                      |
+| -------------------------- | ---------------------------------------------------------- |
+| `aws.log.event.id`         | The id CloudWatch gave the event                           |
+| `aws.subscription_filters` | The subscription filters that matched, separated by commas |
 
 **Service name** comes from the log group. `/aws/lambda/checkout-api` becomes `checkout-api`, `/aws/rds/instance/orders-db/postgresql` becomes `orders-db`, and `/aws/vpc/flowlogs` becomes `vpc-flow-logs`. A log group outside the AWS naming conventions keeps its full name, so `my-app-logs` stays `my-app-logs`. To set the name yourself, add a `service.name` common attribute to the Firehose stream.
 
@@ -270,7 +277,7 @@ Logs appear in the [Logs view](https://app.posthog.com/logs) within a couple of 
 ## Limits and failures
 
 - PostHog rejects a delivery above 8 MB, and Firehose writes it to the backup bucket instead of retrying. A 1 MB buffer stays well under.
-- Delivery is at-least-once. If PostHog fails part way through a batch, Firehose resends the whole batch and some lines can appear twice.
+- Delivery is at-least-once. If PostHog fails part way through a batch, Firehose resends the whole batch and some lines can appear twice. Copies of the same event share an `aws.log.event.id`, so you can tell a duplicate from two events that happen to carry the same message.
 - A record that PostHog can't decode is skipped, and the rest of the batch is still accepted.
 
 ## Troubleshooting
