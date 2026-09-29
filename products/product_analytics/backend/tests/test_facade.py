@@ -2,7 +2,7 @@ from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import time_machine
-from posthog.test.base import BaseTest
+from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import patch
 
 from django.db import connection, transaction
@@ -70,7 +70,7 @@ class TestRecordInsightView(BaseTest):
         assert InsightViewed.objects.filter(insight_id=self.insight.pk).count() == 2
 
 
-class TestInsightViewedCompatibility(BaseTest):
+class TestInsightViewedCompatibility(APIBaseTest):
     def test_context_fields_default_to_unattributed_and_history_writes_are_monotonic(self) -> None:
         from products.product_analytics.backend.facade.api import record_insight_views
 
@@ -122,6 +122,13 @@ class TestInsightViewedCompatibility(BaseTest):
             assert recent_viewers_by_insight(
                 team_id=self.team.pk, insight_ids=[insight.pk], since=earlier, max_per_insight=5
             ) == {insight.pk: [self.user]}
+            record_insight_view(insight_id=insight.pk)
+            response = self.client.get(f"/api/projects/{self.team.pk}/insights/trending")
+            assert response.status_code == 200
+            result = response.json()["results"][0]
+            assert result["id"] == insight.pk
+            assert result["view_count"] == 2
+            assert len(result["viewers"]) == 1
             transaction.set_rollback(True)
 
 
