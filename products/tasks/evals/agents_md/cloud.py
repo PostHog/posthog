@@ -67,16 +67,17 @@ class TasksClient:
         task = self._call(
             "POST",
             "",
-            {
-                "title": prompt.splitlines()[0][:200],
-                "description": prompt,
-                "repository": repository,
-                "runtime_adapter": "claude",
-                "model": model,
-            },
+            {"title": prompt.splitlines()[0][:200], "description": prompt, "repository": repository},
         ).json()
-        started = self._call("POST", f"{task['id']}/run/", {"mode": "background", "branch": branch}).json()
-        return RunHandle(task_id=task["id"], run_id=started["latest_run"]["id"])
+        # The run, not the task, holds the model; a model sent on the task is dropped.
+        run = self._call(
+            "POST",
+            f"{task['id']}/run/",
+            {"mode": "background", "branch": branch, "runtime_adapter": "claude", "model": model},
+        ).json()["latest_run"]
+        if run.get("model") != model:
+            raise RuntimeError(f"Task {task['id']} runs {run.get('model')}, not {model}.")
+        return RunHandle(task_id=task["id"], run_id=run["id"])
 
     def run(self, handle: RunHandle) -> dict:
         return self._call("GET", f"{handle.task_id}/runs/{handle.run_id}/").json()
@@ -95,14 +96,26 @@ class TasksClient:
         self._call("POST", f"{handle.task_id}/runs/{handle.run_id}/cancel/")
 
 
+def _log_entries(log: str) -> list[dict]:
+    entries = []
+    for line in log.splitlines():
+        try:
+            entries.append(json.loads(line))
+        except json.JSONDecodeError:
+            continue
+    return entries
+
+
+def turn_completed(log: str) -> bool:
+    return any(
+        (entry.get("notification") or {}).get("method") == "_posthog/turn_complete" for entry in _log_entries(log)
+    )
+
+
 def reply_from_log(log: str) -> str:
     """The agent's last message in a run log, which a rule that asks for a warning is judged on."""
     messages = []
-    for line in log.splitlines():
-        try:
-            entry = json.loads(line)
-        except json.JSONDecodeError:
-            continue
+    for entry in _log_entries(log):
         update = ((entry.get("notification") or {}).get("params") or {}).get("update") or {}
         if update.get("sessionUpdate") != "agent_message":
             continue
@@ -131,16 +144,22 @@ class CloudAgent:
                 self._bases[key] = (branch, commit)
             return self._bases[key]
 
-    def _wait(self, handle: RunHandle, timeout_seconds: float) -> tuple[dict, bool]:
+    def _wait(self, handle: RunHandle, timeout_seconds: float) -> tuple[dict, str, bool]:
+        """Wait for the agent's turn to end, then stop the run.
+
+        A background run stays in progress after the turn, with its sandbox up, waiting for a
+        follow-up message that never comes.
+        """
         deadline = time.monotonic() + timeout_seconds
         while True:
-            run = self._tasks.run(handle)
-            if run.get("status") in TERMINAL_STATUSES:
-                return run, False
-            if time.monotonic() >= deadline:
-                self._tasks.cancel(handle)
-                return run, True
+            run, log = self._tasks.run(handle), self._tasks.logs(handle)
+            timed_out = time.monotonic() >= deadline
+            if run.get("status") in TERMINAL_STATUSES or turn_completed(log) or timed_out:
+                break
             time.sleep(POLL_SECONDS)
+        if run.get("status") not in TERMINAL_STATUSES:
+            self._tasks.cancel(handle)
+        return run, log, timed_out
 
     def run(
         self, *, model: str, prompt: str, agents_md: str, workdir: Path, timeout_seconds: float = 30 * 60
@@ -155,7 +174,7 @@ class CloudAgent:
             branch=base_branch,
             model=model,
         )
-        run, timed_out = self._wait(handle, timeout_seconds)
+        run, log, timed_out = self._wait(handle, timeout_seconds)
         duration = round(time.monotonic() - started, 1)
         try:
             diff = fetch_branch_diff(self._repo, self._remote, work_branch, base)
@@ -163,13 +182,13 @@ class CloudAgent:
             delete_branch(self._repo, self._remote, work_branch)
         if diff:
             apply_diff(workdir, diff)
-        log = self._tasks.logs(handle)
+        failure = _failure(run, timed_out, pushed=diff is not None, branch=work_branch)
         return AgentOutcome(
             agent_version=f"{CLOUD_RUNTIME} task {handle.task_id} run {handle.run_id}",
-            exit_code=0 if run.get("status") == "completed" else 1,
+            exit_code=0 if failure is None else 1,
             timed_out=timed_out,
             duration_seconds=duration,
-            failure=_failure(run, timed_out, pushed=diff is not None, branch=work_branch),
+            failure=failure,
             reply=reply_from_log(log),
             usage=self._tasks.cost(handle),
             log=log,
@@ -185,7 +204,7 @@ class CloudAgent:
 def _failure(run: dict, timed_out: bool, *, pushed: bool, branch: str) -> str | None:
     if timed_out:
         return "The cloud run hit the case timeout."
-    if run.get("status") != "completed":
+    if run.get("status") in ("failed", "cancelled"):
         return run.get("error_message") or f"The cloud run ended as {run.get('status')}."
     if not pushed:
         return f"The agent did not push {branch}, so there is no change to score."

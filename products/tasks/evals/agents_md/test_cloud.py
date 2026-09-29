@@ -17,7 +17,7 @@ def git(cwd: Path, *args: str) -> str:
 
 def commit_all(cwd: Path, message: str) -> str:
     git(cwd, "add", "-A")
-    git(cwd, "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "-m", message)
+    git(cwd, "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "--no-gpg-sign", "-m", message)
     return git(cwd, "rev-parse", "HEAD")
 
 
@@ -28,6 +28,9 @@ def repo(tmp_path: Path) -> Iterator[tuple[Path, Path, str]]:
     local = tmp_path / "local"
     local.mkdir()
     git(local, "init", "-q")
+    git(local, "config", "user.name", "t")
+    git(local, "config", "user.email", "t@example.com")
+    git(local, "config", "commit.gpgsign", "false")
     (local / "AGENTS.md").write_text("- rule one\n- rule two\n")
     (local / "CLAUDE.md").symlink_to("AGENTS.md")
     (local / "app.py").write_text("x = 1\n")
@@ -48,6 +51,7 @@ def agent_log(*texts: str) -> str:
         }
         for text in texts
     ]
+    lines.append({"type": "notification", "notification": {"method": "_posthog/turn_complete", "params": {}}})
     return "\n".join(json.dumps(line) for line in lines)
 
 
@@ -57,6 +61,7 @@ class FakeTasks:
     def __init__(self, remote: Path, work: Path, agent: Callable[[Path], None] | None, status: str = "completed"):
         self.remote, self.work, self.agent, self.status = remote, work, agent, status
         self.started: dict = {}
+        self.cancelled = False
 
     def start(self, *, prompt: str, repository: str, branch: str, model: str) -> RunHandle:
         self.started = {"prompt": prompt, "repository": repository, "branch": branch, "model": model}
@@ -79,7 +84,7 @@ class FakeTasks:
         return {"total_cost_usd": 0.25}
 
     def cancel(self, handle: RunHandle) -> None:
-        pass
+        self.cancelled = True
 
 
 def edit_app(clone: Path) -> None:
@@ -90,6 +95,7 @@ def edit_app(clone: Path) -> None:
     "agent,status,failure,change",
     [
         pytest.param(edit_app, "completed", None, "+x = 2", id="pushed work"),
+        pytest.param(edit_app, "in_progress", None, "+x = 2", id="turn ended but the run waits for a reply"),
         pytest.param(None, "completed", "The agent did not push", "", id="pushed nothing"),
         pytest.param(edit_app, "failed", "sandbox died", "+x = 2", id="run failed"),
     ],
@@ -115,6 +121,7 @@ def test_cloud_run_brings_the_agent_work_into_the_local_checkout(
     assert outcome.reply == "Done. I changed app.py."
     assert outcome.usage == {"total_cost_usd": 0.25}
     assert tasks.started["model"] == "zai-org/glm-5.3"
+    assert tasks.cancelled == (status == "in_progress")
     assert git(local, "ls-remote", "--heads", "origin") == ""
 
 
@@ -150,38 +157,54 @@ def test_reply_is_the_agent_last_message(_name: str, log: str, expected: str) ->
     assert reply_from_log(log) == expected
 
 
-def test_client_creates_a_claude_task_and_starts_it_in_the_background_on_the_base_branch() -> None:
-    calls: list[tuple[str, str, dict | None]] = []
+class FakeSession:
+    """Answers the create call with a task and the run call with a run of `run_model`."""
 
-    class Session:
-        headers: dict[str, str] = {}
+    headers: dict[str, str] = {}
 
-        def request(self, method: str, url: str, json: dict | None = None, timeout: float = 0) -> "Response":
-            calls.append((method, url, json))
-            return Response({"id": "task-1"} if url.endswith("/tasks/") else {"latest_run": {"id": "run-1"}})
+    def __init__(self, run_model: str) -> None:
+        self.run_model = run_model
+        self.calls: list[tuple[str, dict | None]] = []
 
-    class Response:
-        def __init__(self, body: dict) -> None:
-            self.body = body
+    def request(self, method: str, url: str, json: dict | None = None, timeout: float = 0) -> "FakeResponse":
+        self.calls.append((url, json))
+        if url.endswith("/tasks/"):
+            return FakeResponse({"id": "task-1"})
+        return FakeResponse({"latest_run": {"id": "run-1", "model": self.run_model}})
 
-        def raise_for_status(self) -> None:
-            pass
 
-        def json(self) -> dict:
-            return self.body
+class FakeResponse:
+    def __init__(self, body: dict) -> None:
+        self.body = body
 
-    client = TasksClient("https://us.posthog.com", 2, "phx_fake", session=Session())
-    handle = client.start(prompt="Do it.", repository="PostHog/posthog", branch="base", model="moonshotai/kimi-k3")
+    def raise_for_status(self) -> None:
+        pass
 
-    assert handle == RunHandle(task_id="task-1", run_id="run-1")
-    (_, create_url, create), (_, run_url, run) = calls
-    assert create_url == "https://us.posthog.com/api/projects/2/tasks/"
-    assert create == {
-        "title": "Do it.",
-        "description": "Do it.",
-        "repository": "PostHog/posthog",
-        "runtime_adapter": "claude",
-        "model": "moonshotai/kimi-k3",
-    }
-    assert run_url == "https://us.posthog.com/api/projects/2/tasks/task-1/run/"
-    assert run == {"mode": "background", "branch": "base"}
+    def json(self) -> dict:
+        return self.body
+
+
+def start_kimi(session: FakeSession) -> RunHandle:
+    client = TasksClient("https://us.posthog.com", 2, "phx_fake", session=session)
+    return client.start(prompt="Do it.", repository="PostHog/posthog", branch="base", model="moonshotai/kimi-k3")
+
+
+def test_client_starts_a_background_claude_run_of_the_chosen_model_on_the_base_branch() -> None:
+    session = FakeSession("moonshotai/kimi-k3")
+
+    assert start_kimi(session) == RunHandle(task_id="task-1", run_id="run-1")
+    assert session.calls == [
+        (
+            "https://us.posthog.com/api/projects/2/tasks/",
+            {"title": "Do it.", "description": "Do it.", "repository": "PostHog/posthog"},
+        ),
+        (
+            "https://us.posthog.com/api/projects/2/tasks/task-1/run/",
+            {"mode": "background", "branch": "base", "runtime_adapter": "claude", "model": "moonshotai/kimi-k3"},
+        ),
+    ]
+
+
+def test_client_refuses_a_run_of_another_model() -> None:
+    with pytest.raises(RuntimeError, match="runs claude-opus-5-5, not moonshotai/kimi-k3"):
+        start_kimi(FakeSession("claude-opus-5-5"))

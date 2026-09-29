@@ -345,6 +345,11 @@ def jobs_for(
     ]
 
 
+def agent_label(runtime: str, model: str) -> str:
+    """A single path segment, since open model ids such as `zai-org/glm-5.3` contain a slash."""
+    return f"{runtime}-{model}".replace("/", "_")
+
+
 def cloud_agent(args: argparse.Namespace, ref: str) -> CloudAgent:
     api_key = os.environ.get("POSTHOG_PERSONAL_API_KEY")
     if not api_key:
@@ -368,7 +373,7 @@ def run_claims(args: argparse.Namespace, selected: list[Claim]) -> int:
     ref = resolve_ref(args.repo, args.ref)
     agents_md = agents_md_at(args.repo, ref)
     candidate_agents_md = args.candidate_agents_md.read_text() if args.candidate_agents_md else None
-    label = "matrix" if args.matrix else f"{args.runtime}-{model}"
+    label = "matrix" if args.matrix else agent_label(args.runtime, model)
     results_dir = args.results_dir / f"{datetime.now(UTC):%Y%m%dT%H%M%S}-{label}"
     results_dir.mkdir(parents=True, exist_ok=True)
     (results_dir / "current-agents.md").write_text(agents_md)
@@ -378,7 +383,7 @@ def run_claims(args: argparse.Namespace, selected: list[Claim]) -> int:
     cloud = cloud_agent(args, ref) if args.runtime == CLOUD_RUNTIME else None
 
     def run_job(item: ModelJob) -> bool:
-        name = f"{item.runtime}-{item.model}/{item.job.name}"
+        name = f"{agent_label(item.runtime, item.model)}/{item.job.name}"
         print(f"{name}: running", flush=True)
         try:
             evaluation = evaluate(
@@ -398,7 +403,7 @@ def run_claims(args: argparse.Namespace, selected: list[Claim]) -> int:
             return False
         result = evaluation.result
         write_result(
-            results_dir / f"{item.runtime}-{item.model}",
+            results_dir / agent_label(item.runtime, item.model),
             item.job.name,
             result,
             evaluation.diff,
