@@ -13481,13 +13481,9 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
             assert result["status"] == "STALE"
 
 
-# `status` is a staleness classification and `active` is the serving state, so the two disagree on
-# a disabled flag: staleness is never evaluated for it, so it stays ACTIVE while `active` is false.
-# The schema help text states that, which makes it a contract every path has to keep.
 class TestFeatureFlagServingStateContract(APIBaseTest):
     def setUp(self):
         super().setUp()
-        FeatureFlag.objects.all().delete()
         self.disabled_flag = FeatureFlag.objects.create(
             team=self.team,
             created_by=self.user,
@@ -13508,8 +13504,6 @@ class TestFeatureFlagServingStateContract(APIBaseTest):
         results = response.json()["results"]
         assert [result["key"] for result in results] == ["disabled-flag"]
         assert results[0]["active"] is False
-        # Both flags report status ACTIVE, so the enabled flag is only absent because the filter
-        # reads the `active` column.
         assert results[0]["status"] == "ACTIVE"
 
         enabled = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{self.enabled_flag.id}").json()

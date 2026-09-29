@@ -141,6 +141,7 @@ from products.feature_flags.backend.filters_validation import collect_cross_fiel
 from products.feature_flags.backend.flag_analytics import increment_request_count
 from products.feature_flags.backend.flag_limits import get_max_feature_flags_for_team
 from products.feature_flags.backend.flag_status import (
+    STALE_FLAG_THRESHOLD_DAYS,
     FeatureFlagStatusChecker,
     exclude_archived_unless_requested,
     filter_flags_by_active_param,
@@ -4080,10 +4081,10 @@ class FeatureFlagViewSet(
                 enum=["true", "false", "STALE"],
                 description=(
                     "'true' and 'false' filter on serving state, the flag's `active` column. 'STALE' "
-                    "filters on something else: it selects enabled flags that the stale filter matches. "
-                    "A flag matches when it has not been called in 30 days, or when it has never been "
-                    "called, is at least 30 days old and is rolled out to everyone. Disabled flags are "
-                    "never STALE."
+                    "selects enabled flags that the stale filter matches, so a disabled flag is never "
+                    f"STALE. A flag matches when it has not been called in {STALE_FLAG_THRESHOLD_DAYS} "
+                    f"days, or when it has never been called, is at least {STALE_FLAG_THRESHOLD_DAYS} "
+                    "days old and is rolled out to everyone."
                 ),
             ),
             OpenApiParameter(
