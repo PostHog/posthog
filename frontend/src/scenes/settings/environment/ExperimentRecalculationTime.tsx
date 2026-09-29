@@ -31,7 +31,7 @@ const localLabelFromUtcHour = (utcHour: number, projectTimezone: string): string
 
 export function ExperimentRecalculationTime(): JSX.Element {
     const { timezone: projectTimezone } = useValues(teamLogic)
-    const { experimentsConfig, experimentsConfigLoading } = useValues(experimentsConfigLogic)
+    const { experimentsConfig, experimentsConfigLoading, experimentsConfigUpdating } = useValues(experimentsConfigLogic)
     const { updateExperimentsConfig } = useActions(experimentsConfigLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -47,7 +47,9 @@ export function ExperimentRecalculationTime(): JSX.Element {
         : [DEFAULT_RECALCULATION_UTC_TIME]
     const times = allowSecondTime ? savedTimes : [savedTimes[0]]
 
-    const commonDisabledReason = restrictedReason || (experimentsConfigLoading ? 'Loading...' : undefined)
+    const commonDisabledReason =
+        restrictedReason ||
+        (experimentsConfigUpdating ? 'Saving...' : experimentsConfigLoading ? 'Loading...' : undefined)
 
     const handleTimeChange = (index: number, value: string): void => {
         // Base on savedTimes: with the flag off, a second saved time is hidden but must survive the edit
