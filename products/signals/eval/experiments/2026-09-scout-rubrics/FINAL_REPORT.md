@@ -4,6 +4,7 @@
 The focused [readability pass](#readability-pass-2026-09-29) completed 40 further generations.
 Its final eight preserved the baseline content grades and improved readability. The broader gates
 below describe the preceding prompt version; this pass did not rerun that full suite.
+Rubric generation now defaults to GPT-6 Sol at high effort. Explicit runtime overrides still apply.
 
 2026-09-28: retain the integrated two-step generator for editable rubric drafts. It passed the
 registered broad content gates, native API generation and the real browser

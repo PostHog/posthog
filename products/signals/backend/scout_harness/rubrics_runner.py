@@ -14,7 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from posthog.models.team.team import Team
 from posthog.sync import database_sync_to_async
 
-from products.signals.backend.agent_runtime import resolve_agent_runtime
+from products.signals.backend.agent_runtime import STEP_SCOUT_RUBRICS, resolve_agent_runtime
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
 from products.signals.backend.scout_harness.prompt import report_disposition_instructions
 from products.signals.backend.scout_harness.rubrics import (
@@ -368,7 +368,9 @@ async def run_rubric_generation(team_id: int, config_id: str, generation_id: str
         sandbox_env_id = await database_sync_to_async(get_or_create_signals_sandbox_env, thread_sensitive=True)(
             team.id, SIGNALS_REPORT_RESEARCH_ENV_NAME, tasks_facade.SandboxNetworkAccessLevel.TRUSTED
         )
-        runtime = await database_sync_to_async(resolve_agent_runtime, thread_sensitive=True)(team.id, "scout_rubrics")
+        runtime = await database_sync_to_async(resolve_agent_runtime, thread_sensitive=True)(
+            team.id, STEP_SCOUT_RUBRICS
+        )
         context = CustomPromptSandboxContext(
             team_id=team.id,
             user_id=user_id,

@@ -525,7 +525,10 @@ class TestScoutRubricsAPI(APIBaseTest):
             assert isinstance(context, CustomPromptSandboxContext)
             self.assertEqual(context.posthog_mcp_scopes, [])
             self.assertFalse(context.github_read_access)
-            self.assertIn(context.initial_permission_mode, ("full-access", "bypassPermissions"))
+            self.assertEqual(context.runtime_adapter, "codex")
+            self.assertEqual(context.model, "gpt-6-sol")
+            self.assertEqual(context.reasoning_effort, "high")
+            self.assertEqual(context.initial_permission_mode, "full-access")
             self.assertEqual(context.sandbox_timeout_seconds, 17 * 60)
             self.assertEqual(kwargs["mcp_gateway_server_ids"], [])
             self.assertIsNone(kwargs.get("output_schema"))
@@ -550,6 +553,7 @@ class TestScoutRubricsAPI(APIBaseTest):
 
         with (
             patch("products.signals.backend.scout_harness.rubrics_runner.RUBRIC_TEAM_ID", self.team.id),
+            patch("products.signals.backend.agent_runtime._read_flag_payload", return_value=None),
             patch(
                 "products.signals.backend.scout_harness.rubrics_runner.MultiTurnSession.start_raw", side_effect=start
             ) as start_session,

@@ -300,6 +300,7 @@ Sessions with the `scout_suggestions` origin hide the agent's `finish` tool so t
 ### Reference implementation
 
 The scout rubric generator in `products/signals/backend/scout_harness/rubrics_runner.py` proposes editable criteria in a background session.
+It defaults to GPT-6 Sol at high effort through the Codex runtime.
 The `signals-pipeline-models` payload can select its adapter, model and effort through the `scout_rubrics` step without changing regular scout runs.
 The backend supplies the description, current instructions, reference text and up to five recent run summaries in the first request.
 Rubric generation requests no project-read MCP scopes because its source context is supplied up front.
