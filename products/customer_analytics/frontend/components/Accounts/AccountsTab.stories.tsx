@@ -363,86 +363,6 @@ export const Default: Story = {
     ],
 }
 
-export const TagsEditorNarrow: Story = {
-    render: () => <App />,
-    parameters: {
-        testOptions: {
-            waitForSelector: '[data-attr="accounts-tags-cell"]',
-            viewport: { width: 800, height: 900 },
-        },
-    },
-    decorators: [
-        mswDecorator({
-            get: {
-                'api/projects/:team_id/column_configurations/': { count: 0, next: null, results: [] },
-                'api/environments/:team_id/customer_journeys/': { count: 0, next: null, previous: null, results: [] },
-                [CUSTOM_PROPERTY_DEFINITIONS_ENDPOINT]: { count: 0, next: null, previous: null, results: [] },
-            },
-            post: {
-                [QUERY_ENDPOINT]: mockAccountsTableQuery([
-                    [
-                        { name: 'Example Account', external_id: 'example-001', id: 'example-1', logo_domain: null },
-                        ['first tag', 'a long tag that exceeds the available column width', 'third tag'],
-                        0,
-                        [],
-                        [],
-                        [],
-                    ],
-                ]),
-            },
-        }),
-    ],
-    play: async ({ canvasElement }) => {
-        const tagsCell = await waitFor(
-            () => {
-                const cell = canvasElement.querySelector('[data-attr="accounts-tags-cell"]')
-                if (!cell) {
-                    throw new Error('Expected an editable tags cell')
-                }
-                return cell
-            },
-            { timeout: 30000 }
-        )
-        const tableCell = tagsCell.closest('td')
-        const table = tableCell?.closest('table')
-        if (!tableCell || !table) {
-            throw new Error('Expected an editable tags cell')
-        }
-        const header = within(table).getByRole('columnheader', { name: /Tags/ })
-        const resizeHandle = within(header).getByRole('button', { name: 'Resize column' })
-        const resizeColumn = (delta: number): void => {
-            fireEvent.mouseDown(resizeHandle, { button: 0, clientX: 280 })
-            fireEvent.mouseMove(window, { clientX: 280 + delta })
-            fireEvent.mouseUp(window)
-        }
-        if (header.getBoundingClientRect().width < 200) {
-            resizeColumn(160)
-            await waitFor(() => {
-                if (header.getBoundingClientRect().width < 200) {
-                    throw new Error('The tags column must grow before the narrow-width check')
-                }
-            })
-        }
-        const originalWidth = header.getBoundingClientRect().width
-        resizeColumn(-120)
-        await waitFor(() => {
-            if (header.getBoundingClientRect().width >= originalWidth - 50) {
-                throw new Error('The tags column must be narrower after resizing')
-            }
-        })
-        await userEvent.click(within(tagsCell as HTMLElement).getByText('Edit tags'))
-        await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
-        await waitFor(() => {
-            const editor = tagsCell.querySelector('[data-attr="new-tag-input"]')
-            const editorBounds = editor?.getBoundingClientRect()
-            const cellBounds = tableCell.getBoundingClientRect()
-            if (!editorBounds || editorBounds.left < cellBounds.left || editorBounds.right > cellBounds.right) {
-                throw new Error('The tag editor must fit inside its column')
-            }
-        })
-    },
-}
-
 const ADDITIONAL_COLUMN_DEFINITIONS: CustomPropertyDefinitionApi[] = (
     [
         { name: 'Subscription cost', display_type: 'currency' },
@@ -1114,5 +1034,85 @@ export const RowExpandedUsageNotFound: Story = {
         const canvas = within(canvasElement)
         await userEvent.click(await canvas.findByRole('tab', { name: 'Usage' }, { timeout: 15000 }))
         await canvas.findByText('No billing usage insight here', {}, { timeout: 15000 })
+    },
+}
+
+export const TagsEditorNarrow: Story = {
+    render: () => <App />,
+    parameters: {
+        testOptions: {
+            waitForSelector: '[data-attr="accounts-tags-cell"]',
+            viewport: { width: 800, height: 900 },
+        },
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                'api/projects/:team_id/column_configurations/': { count: 0, next: null, results: [] },
+                'api/environments/:team_id/customer_journeys/': { count: 0, next: null, previous: null, results: [] },
+                [CUSTOM_PROPERTY_DEFINITIONS_ENDPOINT]: { count: 0, next: null, previous: null, results: [] },
+            },
+            post: {
+                [QUERY_ENDPOINT]: mockAccountsTableQuery([
+                    [
+                        { name: 'Example Account', external_id: 'example-001', id: 'example-1', logo_domain: null },
+                        ['first tag', 'a long tag that exceeds the available column width', 'third tag'],
+                        0,
+                        [],
+                        [],
+                        [],
+                    ],
+                ]),
+            },
+        }),
+    ],
+    play: async ({ canvasElement }) => {
+        const tagsCell = await waitFor(
+            () => {
+                const cell = canvasElement.querySelector('[data-attr="accounts-tags-cell"]')
+                if (!cell) {
+                    throw new Error('Expected an editable tags cell')
+                }
+                return cell
+            },
+            { timeout: 30000 }
+        )
+        const tableCell = tagsCell.closest('td')
+        const table = tableCell?.closest('table')
+        if (!tableCell || !table) {
+            throw new Error('Expected an editable tags cell')
+        }
+        const header = within(table).getByRole('columnheader', { name: /Tags/ })
+        const resizeHandle = within(header).getByRole('button', { name: 'Resize column' })
+        const resizeColumn = (delta: number): void => {
+            fireEvent.mouseDown(resizeHandle, { button: 0, clientX: 280 })
+            fireEvent.mouseMove(window, { clientX: 280 + delta })
+            fireEvent.mouseUp(window)
+        }
+        if (header.getBoundingClientRect().width < 200) {
+            resizeColumn(160)
+            await waitFor(() => {
+                if (header.getBoundingClientRect().width < 200) {
+                    throw new Error('The tags column must grow before the narrow-width check')
+                }
+            })
+        }
+        const originalWidth = header.getBoundingClientRect().width
+        resizeColumn(-120)
+        await waitFor(() => {
+            if (header.getBoundingClientRect().width >= originalWidth - 50) {
+                throw new Error('The tags column must be narrower after resizing')
+            }
+        })
+        await userEvent.click(within(tagsCell as HTMLElement).getByText('Edit tags'))
+        await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
+        await waitFor(() => {
+            const editor = tagsCell.querySelector('[data-attr="new-tag-input"]')
+            const editorBounds = editor?.getBoundingClientRect()
+            const cellBounds = tableCell.getBoundingClientRect()
+            if (!editorBounds || editorBounds.left < cellBounds.left || editorBounds.right > cellBounds.right) {
+                throw new Error('The tag editor must fit inside its column')
+            }
+        })
     },
 }
