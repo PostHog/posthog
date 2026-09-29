@@ -12,6 +12,7 @@ SCOPE_SURFACES: dict[str, frozenset[Surface]] = {
     "signup": frozenset({Surface.SIGNUP}),
     "ai_gateway": frozenset({Surface.AI_GATEWAY}),
     "email_code": frozenset({Surface.EMAIL_CODE}),
+    "signup_risk": frozenset({Surface.SIGNUP_RISK}),
 }
 
 # The effect a rule needs to decide each surface.
@@ -20,6 +21,7 @@ SURFACE_EFFECT: dict[Surface, str] = {
     Surface.APP: "block",
     Surface.AI_GATEWAY: "block",
     Surface.EMAIL_CODE: "exempt",
+    Surface.SIGNUP_RISK: "exempt",
 }
 
 PROTECTED_DOMAIN = "posthog.com"
