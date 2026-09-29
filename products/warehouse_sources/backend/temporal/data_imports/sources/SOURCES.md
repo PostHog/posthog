@@ -327,6 +327,7 @@ the row lists both.
 | gitguardian                      | HTTP                        | requests                                                        | ✅                          |
 | giphy                            | HTTP                        | requests                                                        | ✅                          |
 | gitlab                           | HTTP                        | requests                                                        | ✅                          |
+| givebutter                       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | gladly                           | HTTP                        | requests                                                        | ✅                          |
 | glassfrog                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | gleif                            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -1093,7 +1094,6 @@ doesn't conflict with concurrent PRs.
 - getstream
 - ghost
 - gitea
-- givebutter
 - gmail
 - gnews
 - gojiberry
