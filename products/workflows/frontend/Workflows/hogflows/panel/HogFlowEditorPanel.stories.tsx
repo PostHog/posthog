@@ -174,7 +174,7 @@ const meta: Meta<typeof HogFlowEditorPanel> = {
     component: HogFlowEditorPanel,
     parameters: {
         layout: 'fullscreen',
-        featureFlags: [FEATURE_FLAGS.WORKFLOWS_TRIGGER_VOLUME_ESTIMATE],
+        featureFlags: [FEATURE_FLAGS.WORKFLOWS_TRIGGER_VOLUME_ESTIMATE, FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP],
     },
     decorators: [
         mswDecorator({
