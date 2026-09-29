@@ -39,7 +39,15 @@ class ProjectDefinitionScale:
     orders_by_name: bool
 
 
-def project_definition_scale(table: DefinitionTable, project_id: int, db_alias: str) -> ProjectDefinitionScale:
+def project_definition_scale(
+    table: Literal["posthog_eventdefinition"], project_id: int, db_alias: str
+) -> ProjectDefinitionScale:
+    """The event list's size check, which counts past the name-order threshold in name order.
+
+    Property search keeps `search_plan` instead. On `posthog_propertydefinition` the name order reads the
+    heap in random order, so a cold count takes several times longer than the unordered one, and property
+    search needs only the `PROJECT_SCAN_MAX_DEFINITIONS` answer.
+    """
     definition_count = _cached_definition_count(table, project_id, db_alias)
     scale = ProjectDefinitionScale(
         large=definition_count > PROJECT_SCAN_MAX_DEFINITIONS,
@@ -50,11 +58,6 @@ def project_definition_scale(table: DefinitionTable, project_id: int, db_alias: 
     span.set_attribute("taxonomy_search_plan", "trigram" if scale.large else "project_scan")
     span.set_attribute("taxonomy_definition_count", definition_count)
     return scale
-
-
-def is_large_project(table: DefinitionTable, project_id: int, db_alias: str) -> bool:
-    """Whether the project holds more than PROJECT_SCAN_MAX_DEFINITIONS rows of `table` (cached for a day)."""
-    return project_definition_scale(table, project_id, db_alias).large
 
 
 def bounded_count_sql(source_sql: str, order_by: str) -> str:
@@ -76,10 +79,31 @@ def search_plan(table: DefinitionTable, project_id: int, db_alias: str) -> Searc
     faster to scan through their own unique index and filter in place; only the few huge projects
     are better off with the trigram index. The count is bounded so it stays cheap for those.
     """
-    return "trigram" if project_definition_scale(table, project_id, db_alias).large else "project_scan"
+    plan = _cached_search_plan(table, project_id, db_alias)
+    trace.get_current_span().set_attribute("taxonomy_search_plan", plan)
+    return plan
 
 
-def _cached_definition_count(table: DefinitionTable, project_id: int, db_alias: str) -> int:
+def _cached_search_plan(table: DefinitionTable, project_id: int, db_alias: str) -> SearchPlan:
+    cache_key = f"taxonomy_search_plan:{table}:{project_id}"
+    # A cache outage must only cost the count query, never the search itself.
+    cached = get_safe_cache(cache_key)
+    if cached is not None:
+        return cached
+
+    with connections[db_alias].cursor() as cursor:
+        cursor.execute(
+            f"SELECT count(*) FROM (SELECT 1 FROM {table} WHERE COALESCE(project_id, team_id) = %(project_id)s LIMIT %(limit)s) bounded",
+            {"project_id": project_id, "limit": PROJECT_SCAN_MAX_DEFINITIONS + 1},
+        )
+        definition_count = cursor.fetchone()[0]
+
+    plan: SearchPlan = "trigram" if definition_count > PROJECT_SCAN_MAX_DEFINITIONS else "project_scan"
+    safe_cache_set(cache_key, plan, SEARCH_PLAN_CACHE_SECONDS)
+    return plan
+
+
+def _cached_definition_count(table: Literal["posthog_eventdefinition"], project_id: int, db_alias: str) -> int:
     # The key is not `taxonomy_search_plan:*`, which holds a plan name, so a release that reads the count
     # never reads an entry an earlier release wrote, in either direction.
     cache_key = f"taxonomy_definition_count:{table}:{project_id}"

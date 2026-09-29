@@ -14,7 +14,7 @@ from parameterized import parameterized
 
 from posthog.models import EventDefinition, PropertyDefinition
 from posthog.taxonomy import definition_search
-from posthog.taxonomy.definition_search import is_large_project, search_plan
+from posthog.taxonomy.definition_search import project_definition_scale, search_plan
 
 
 class TestSearchPlan(BaseTest):
@@ -33,7 +33,7 @@ class TestSearchPlan(BaseTest):
     def test_plan_follows_the_definition_count(self, _name: str, max_definitions: int, expected: str) -> None:
         with patch.object(definition_search, "PROJECT_SCAN_MAX_DEFINITIONS", max_definitions):
             assert search_plan("posthog_eventdefinition", self.team.pk, DEFAULT_DB_ALIAS) == expected
-            assert is_large_project("posthog_eventdefinition", self.team.pk, DEFAULT_DB_ALIAS) is (
+            assert project_definition_scale("posthog_eventdefinition", self.team.pk, DEFAULT_DB_ALIAS).large is (
                 expected == "trigram"
             )
 
@@ -52,7 +52,30 @@ class TestSearchPlan(BaseTest):
         with patch.object(cache, failing_method, side_effect=ConnectionError("redis down")):
             assert search_plan("posthog_eventdefinition", self.team.pk, DEFAULT_DB_ALIAS) == "project_scan"
 
-    @parameterized.expand([("search_plan", search_plan), ("is_large_project", is_large_project)])
+    @parameterized.expand(
+        [
+            ("property_search_keeps_the_unordered_count", search_plan, "posthog_propertydefinition", False, 50_001),
+            (
+                "event_list_counts_past_the_name_threshold",
+                project_definition_scale,
+                "posthog_eventdefinition",
+                True,
+                100_001,
+            ),
+        ]
+    )
+    def test_size_check_statement_per_reader(
+        self, _name: str, check: Callable[..., object], table: str, ordered: bool, limit: int
+    ) -> None:
+        with CaptureQueriesContext(connection) as queries:
+            check(table, self.team.pk, DEFAULT_DB_ALIAS)
+
+        (size_check,) = [q["sql"] for q in queries.captured_queries if "bounded" in q["sql"]]
+        assert f"FROM {table} " in size_check
+        assert ("ORDER BY name" in size_check) is ordered
+        assert f"LIMIT {limit}" in size_check
+
+    @parameterized.expand([("search_plan", search_plan), ("project_definition_scale", project_definition_scale)])
     def test_plan_is_recorded_on_the_request_span(self, _name: str, read_plan: Callable[..., object]) -> None:
         exporter = InMemorySpanExporter()
         provider = TracerProvider()
