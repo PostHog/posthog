@@ -7,7 +7,6 @@ import api, { ApiConfig } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { isUserLoggedIn } from 'lib/utils/getAppContext'
 import { getAppContext } from 'lib/utils/getAppContext'
-import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { identifierToHuman } from 'lib/utils/strings'
 
 import { organizationsProjectsCancelDeletionCreate } from '~/generated/core/api'
@@ -326,10 +325,10 @@ export const projectLogic = kea<projectLogicType>([
         guardPendingDeletion: ({ pathname, isPendingDeletion }) => {
             // projectBased scenes are served under a /project/:id prefix, so match the lockout path by suffix.
             const onLockoutScreen = pathname.endsWith(urls.projectPendingDeletion())
-            // Organization pages read no project data, so the lockout leaves them open, as sceneLogic does.
-            const onOrganizationPage = removeProjectIdIfPresent(pathname).startsWith('/organization/')
-            if (isPendingDeletion && !onLockoutScreen && !onOrganizationPage) {
-                router.actions.replace(urls.projectPendingDeletion())
+            if (isPendingDeletion && !onLockoutScreen) {
+                // Replay the location so sceneLogic.openScene decides which scenes the lockout closes.
+                const { search, hash } = router.values.location
+                router.actions.replace(pathname + search + hash)
             } else if (!isPendingDeletion && onLockoutScreen) {
                 // Reached the lockout screen for a project that isn't being deleted (e.g. switched projects) — send home
                 router.actions.replace(urls.projectHomepage())

@@ -9,6 +9,7 @@ import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
+import { projectLogic } from 'scenes/projectLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -722,6 +723,19 @@ describe('sceneLogic', () => {
         await expectLogic(logic).delay(1)
 
         expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.projectHomepage())
+    })
+
+    it.each([
+        ['locks out a project scene', urls.projectHomepage(), urls.projectPendingDeletion()],
+        ['keeps billing open', urls.organizationBilling(), urls.organizationBilling()],
+    ])('%s when the project loads as pending deletion', async (_name, target, expectedRoute) => {
+        router.actions.push(target)
+        await expectLogic(logic).delay(1)
+
+        projectLogic.actions.loadCurrentProjectSuccess({ ...MOCK_DEFAULT_PROJECT, is_pending_deletion: true })
+        await expectLogic(logic).delay(1)
+
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(expectedRoute)
     })
 
     describe('a project pending deletion', () => {
