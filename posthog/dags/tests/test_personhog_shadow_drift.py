@@ -91,6 +91,7 @@ def test_compute_shadow_drift_counts_each_category() -> None:
         0,
         1,
     )
+    assert distinct_ids.field_mismatches == {"version": 0}
     assert distinct_ids.samples == [
         f"team={TEAM_ID} distinct_id='shadow-drift-did-2' "
         f"legacy_person={matched} personhog_person={props_differ} person_mismatch"

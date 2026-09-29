@@ -73,8 +73,10 @@ class DriftCategoryReport:
 # deleted row does not read as drift.
 # The join hashes one whole side, so carrying properties through it costs
 # memory proportional to the documents. jsonb text output is canonical
-# (sorted keys, no duplicates, fixed whitespace), so hashing it preserves
-# equality while shrinking each row to 32 bytes.
+# (sorted keys, no duplicates, fixed whitespace), so hashing it shrinks
+# each row to 32 bytes. This is stricter than jsonb equality: numeric
+# formatting differences (1 vs 1.0) hash differently but compare equal
+# as jsonb, so they count as drift here.
 _PERSON_SIDES = """
 WITH legacy AS (
     SELECT team_id, uuid, md5(properties::text) AS properties_hash, is_identified, created_at, version
@@ -128,12 +130,12 @@ LIMIT %(limit)s
 
 _DISTINCT_ID_SIDES = """
 WITH legacy AS (
-    SELECT d.team_id, d.distinct_id, p.uuid AS person_uuid
+    SELECT d.team_id, d.distinct_id, p.uuid AS person_uuid, d.version
     FROM posthog_persondistinctid d
     JOIN posthog_person p ON p.id = d.person_id AND p.team_id = d.team_id
     WHERE NOT d.is_deleted AND NOT p.is_deleted
 ), personhog AS (
-    SELECT d.team_id, d.distinct_id, p.uuid AS person_uuid
+    SELECT d.team_id, d.distinct_id, p.uuid AS person_uuid, d.version
     FROM personhog_persondistinctid_tmp d
     JOIN personhog_person_tmp p ON p.team_id = d.team_id AND p.id = d.person_id
     WHERE NOT d.is_deleted AND NOT p.is_deleted
@@ -148,7 +150,9 @@ SELECT
     count(*) FILTER (WHERE p.person_uuid IS NULL) AS missing_in_personhog,
     count(*) FILTER (WHERE l.person_uuid IS NULL) AS missing_in_legacy,
     count(*) FILTER (WHERE l.person_uuid IS NOT NULL AND p.person_uuid IS NOT NULL
-        AND l.person_uuid <> p.person_uuid) AS mismatched_rows
+        AND l.person_uuid <> p.person_uuid) AS mismatched_rows,
+    count(*) FILTER (WHERE l.person_uuid IS NOT NULL AND p.person_uuid IS NOT NULL
+        AND l.version IS DISTINCT FROM p.version) AS version
 FROM legacy l
 FULL OUTER JOIN personhog p USING (team_id, distinct_id)
 """
@@ -323,9 +327,11 @@ def wait_for_shadow_settle(context: dagster.OpExecutionContext, config: ShadowSe
     The consumers are down, but the personhog writer keeps applying its
     changelog backlog. A quiet database cannot be told apart from a stalled
     writer here: if the writer crashed with backlog uncommitted, the counter
-    also holds still, and the report then counts the unapplied writes as
-    missing_in_personhog drift. Check the writer's health before trusting an
-    unexpectedly large number there.
+    also holds still. Identity creates the person row immediately with
+    empty properties, and the writer fills them in later, so a stalled
+    writer mostly shows as properties mismatches, not missing_in_personhog.
+    Check the writer's health before trusting an unexpectedly large
+    properties count.
     """
     with closing(shadow_db_connection(config.shadow_db_env_var)) as connection:
         connection.autocommit = True
