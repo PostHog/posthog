@@ -4,12 +4,10 @@ import { IconRefresh } from '@posthog/icons'
 import { LemonBanner, LemonCard, LemonSkeleton, LemonTable, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
@@ -155,7 +153,6 @@ export function MaterializationStatusPanel({
         setIncrementalDraft,
         setSyncFrequencyDraft,
     } = useActions(jobsLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const { updatingDataWarehouseSavedQuery, materializationActionLoading } = useValues(dataWarehouseViewsLogic)
 
@@ -178,8 +175,7 @@ export function MaterializationStatusPanel({
 
     const currentJobStatus = dataModelingJobs?.results?.[0]?.status || null
     const { sync } = getMaterializationDisabledReasons(currentJobStatus, startingMaterialization)
-    const incrementalFlagOn = kind !== 'endpoint' && !!featureFlags[FEATURE_FLAGS.DATA_MODELING_INCREMENTAL_VIEWS]
-    const showIncremental = incrementalFlagOn && !!savedQuery.incremental?.enabled
+    const showIncremental = kind !== 'endpoint' && !!savedQuery.incremental?.enabled
     const lastRunMode = savedQuery.incremental_state?.last_run_mode
     const savedIncremental = savedQuery.incremental
     // Key or unique-key edits change what the stored rows mean, so the next run rebuilds (via the
@@ -311,7 +307,7 @@ export function MaterializationStatusPanel({
                                         </div>
                                     )}
                                 </div>
-                                {incrementalFlagOn && !savedQuery.managed_viewset_kind && incrementalCheck && (
+                                {kind !== 'endpoint' && !savedQuery.managed_viewset_kind && incrementalCheck && (
                                     <fieldset
                                         className="mt-4 max-w-160"
                                         disabled={
@@ -371,7 +367,7 @@ export function MaterializationStatusPanel({
                                     )}
                                     {showRunActions && <MaterializationRunActions viewId={viewId} kind={kind} />}
                                 </div>
-                                {incrementalFlagOn && (
+                                {kind !== 'endpoint' && (
                                     <div className="max-w-160">
                                         <IncrementalConfigOptions
                                             check={incrementalCheck}
@@ -463,7 +459,7 @@ export function MaterializationStatusPanel({
                         {
                             title: 'Refresh mode',
                             dataIndex: 'run_mode',
-                            isHidden: !incrementalFlagOn || !savedQuery.has_incremental_history,
+                            isHidden: kind === 'endpoint' || !savedQuery.has_incremental_history,
                             render: (_, { run_mode, full_refresh_reason }: DataModelingJobApi) => {
                                 if (run_mode === 'incremental') {
                                     return 'Incremental'

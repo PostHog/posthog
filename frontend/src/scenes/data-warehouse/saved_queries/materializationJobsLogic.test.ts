@@ -5,8 +5,6 @@ import posthog from 'posthog-js'
 import { createElement } from 'react'
 
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { DataWarehouseSavedQueryOrigin } from '~/queries/schema/schema-general'
@@ -83,16 +81,11 @@ describe('materializationJobsLogic', () => {
         checkCalls = 0
         savedSyncFrequency = null
         initKeaTests()
-        featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.DATA_MODELING_INCREMENTAL_VIEWS], {
-            [FEATURE_FLAGS.DATA_MODELING_INCREMENTAL_VIEWS]: true,
-        })
     })
 
     afterEach(() => {
         cleanup()
         logic?.unmount()
-        featureFlagLogic.unmount()
         jest.useRealTimers()
     })
 
@@ -347,15 +340,9 @@ describe('materializationJobsLogic', () => {
         }
     )
 
-    it.each([
-        ['the surface is an endpoint', { kind: 'endpoint' as const, flag: true }],
-        ['the feature flag is off', { kind: 'view' as const, flag: false }],
-    ])('does not run the eligibility check when %s', async (_name, { kind, flag }) => {
-        featureFlagLogic.actions.setFeatureFlags([], {
-            [FEATURE_FLAGS.DATA_MODELING_INCREMENTAL_VIEWS]: flag,
-        })
+    it('does not run the eligibility check when the surface is an endpoint', async () => {
         useMocks(apiMocks({ isMaterialized: false }))
-        logic = materializationJobsLogic({ viewId: 'view-1', kind })
+        logic = materializationJobsLogic({ viewId: 'view-1', kind: 'endpoint' })
         logic.mount()
 
         await expectLogic(logic).toDispatchActions(['loadSavedQuerySuccess']).toFinishAllListeners()
@@ -363,12 +350,10 @@ describe('materializationJobsLogic', () => {
     })
 
     it.each([
-        ['flag disabled', 'view' as const, false, false],
-        ['endpoint', 'endpoint' as const, true, false],
-        ['untouched draft', 'view' as const, true, false],
-        ['explicit full refresh', 'view' as const, true, true],
-    ])('preserves stored incremental settings unless edited: %s', async (_name, kind, flag, edited) => {
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.DATA_MODELING_INCREMENTAL_VIEWS]: flag })
+        ['endpoint', 'endpoint' as const, false],
+        ['untouched draft', 'view' as const, false],
+        ['explicit full refresh', 'view' as const, true],
+    ])('preserves stored incremental settings unless edited: %s', async (_name, kind, edited) => {
         const incremental = { enabled: true, incremental_key: 'id', unique_key: ['id'], lookback_seconds: 0 }
         const updates: unknown[] = []
         let materializations = 0

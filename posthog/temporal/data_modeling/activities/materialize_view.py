@@ -28,7 +28,6 @@ from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
-from posthog.ph_client import feature_enabled_or_false
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.settings.base_variables import TEST
 from posthog.sync import database_sync_to_async_pool
@@ -164,10 +163,6 @@ def _reject_duplicate_output_columns(columns: list[_DescribedColumn]) -> None:
 CLICKHOUSE_MAX_BLOCK_SIZE_ROWS = 50 * 1000
 DELTA_TABLE_RETENTION_HOURS = 24
 
-# The only gate. Incremental is also the only path that writes through deltalite, so turning this
-# off falls back to full refresh on delta-rs and takes the engine with it.
-INCREMENTAL_FLAG = "data-modeling-incremental-views"
-
 # Above this many files, the per-run compaction is worth its full-table rewrite. Below it, skipping
 # keeps an incremental run's cost proportional to the rows it changed rather than the table's size.
 INCREMENTAL_COMPACT_FILE_THRESHOLD = 200
@@ -214,27 +209,6 @@ class DuplicateOutputColumnError(NonReportableError):
         self.duplicates = duplicates
 
 
-def _incremental_enabled(team_id: int) -> bool:
-    """Fails closed: a flag-service outage produces a full refresh, which costs money but is
-    never wrong."""
-    try:
-        team = Team.objects.only("organization_id").get(id=team_id)
-        return feature_enabled_or_false(
-            INCREMENTAL_FLAG,
-            str(team_id),
-            groups={"organization": str(team.organization_id), "project": str(team_id)},
-            group_properties={
-                "organization": {"id": str(team.organization_id)},
-                "project": {"id": str(team_id)},
-            },
-            only_evaluate_locally=True,
-            send_feature_flag_events=False,
-        )
-    except Exception:
-        LOGGER.warning("Failed to evaluate incremental flag; falling back to full refresh", team_id=team_id)
-        return False
-
-
 @dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
 class WritePlan:
     """Whether this run rebuilds the table or updates it, and why. The reason is surfaced on the
@@ -247,14 +221,10 @@ class WritePlan:
     config: IncrementalConfig | None = None
 
 
-@database_sync_to_async_pool
-def _resolve_write_plan(saved_query: DataWarehouseSavedQuery, team_id: int) -> WritePlan:
+def _resolve_write_plan(saved_query: DataWarehouseSavedQuery) -> WritePlan:
     config = get_incremental_config(saved_query)
     if config is None:
         return WritePlan(incremental=False, reason="not configured for incremental materialization")
-
-    if not _incremental_enabled(team_id):
-        return WritePlan(incremental=False, reason="incremental materialization is not enabled")
 
     fingerprint = definition_fingerprint(typing.cast(dict, saved_query.query), config)
     state = get_incremental_state(saved_query)
@@ -1228,7 +1198,7 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
     await logger.adebug(f"Delta table URI = {table_uri}")
 
     storage_options = get_aws_storage_options()
-    plan = await _resolve_write_plan(objects.saved_query, inputs.team_id)
+    plan = await asyncio.to_thread(_resolve_write_plan, objects.saved_query)
     if plan.incremental and not await asyncio.to_thread(table_exists, table_uri, storage_options):
         # deltalite can only open a table, never create one, so a missing table has to rebuild.
         plan = dataclasses.replace(plan, incremental=False, reason="table missing")
