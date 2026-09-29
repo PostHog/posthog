@@ -1,5 +1,6 @@
+import { PassThrough } from "node:stream";
 import { describe, expect, it } from "vitest";
-import { type Box, extractMouse, hitTest } from "./mouse";
+import { type Box, extractMouse, hitTest, MouseInput } from "./mouse";
 
 describe("extractMouse", () => {
   it.each([
@@ -40,5 +41,28 @@ describe("hitTest", () => {
     [{ column: 81, row: 10 }, null],
   ])("finds the box under %o", (click, expected) => {
     expect(hitTest(click, boxes)?.[0] ?? null).toBe(expected);
+  });
+});
+
+describe("MouseInput", () => {
+  it("still passes keys through when the terminal stream was paused before it started", async () => {
+    const source = Object.assign(new PassThrough(), {
+      isTTY: true,
+      setRawMode: () => source,
+    });
+    const stdout = Object.assign(new PassThrough(), { isTTY: true });
+    source.pause();
+
+    const mouse = new MouseInput(
+      source as unknown as NodeJS.ReadStream,
+      stdout as unknown as NodeJS.WriteStream,
+    );
+    const received = new Promise<string>((resolve) =>
+      mouse.stdin.once("data", (data) => resolve(String(data))),
+    );
+    source.write("a");
+
+    expect(await received).toBe("a");
+    mouse.dispose();
   });
 });

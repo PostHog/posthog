@@ -99,6 +99,8 @@ export class MouseInput {
       if (keys) stream.write(keys);
     };
     source.on("data", this.onData);
+    // A listener alone does not restart a stream that was paused explicitly, such as after the theme query.
+    source.resume();
     this.stdin = stream;
   }
 
