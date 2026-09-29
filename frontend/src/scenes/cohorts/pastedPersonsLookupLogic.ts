@@ -8,7 +8,7 @@ import { hogql } from '~/queries/utils'
 
 export const MAX_PASTED_VALUES = 1000
 
-const EMAIL_PATTERN = /^[^@\s]+@[^@\s]+\.[^@\s]+$/
+const EMAIL_PATTERN = /^[^@\s]+@[^@.\s]+(?:\.[^@.\s]+)+$/
 
 /**
  * Returns the values of a pasted list of emails or distinct IDs, or null when the text is a normal search.
