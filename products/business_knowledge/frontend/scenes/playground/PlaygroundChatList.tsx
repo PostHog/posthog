@@ -151,6 +151,14 @@ export function PlaygroundChatList(): JSX.Element {
                         </Collapsible>
                     ))
                 )}
+                {chatsError && chats.length > 0 && (
+                    <div role="alert" className="flex items-center gap-2 px-2 text-xs text-danger">
+                        <span>{chatsError}</span>
+                        <LemonButton size="small" loading={chatsLoading} onClick={() => loadChats()}>
+                            Retry
+                        </LemonButton>
+                    </div>
+                )}
                 {moreChatsError && (
                     <p role="alert" className="px-2 text-xs text-danger">
                         {moreChatsError}
