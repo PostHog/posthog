@@ -61,6 +61,7 @@
     "expo-system-ui": "~57.0.4",
     "expo-updates": "~57.0.22",
     "expo-web-browser": "~57.0.2",
+    "marked": "16.4.2",
     "react": "catalog:",
     "react-dom": "catalog:",
     "react-native": "0.86.0",
