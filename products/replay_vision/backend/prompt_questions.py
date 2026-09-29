@@ -210,8 +210,8 @@ def backfill_prompt_questions(
         source = prompt_fingerprint(_prompt_of(scanner.scanner_config))
         if source == scanner.prompt_question_source:
             continue
-        written += 1
         if dry_run:
+            written += 1
             continue
         # The phrasing depends on the scanner type, so the same prompt on another type gets its own question.
         key = (source, scanner.scanner_type)
@@ -221,7 +221,8 @@ def backfill_prompt_questions(
                 team_id=scanner.team_id, scanner_type=scanner.scanner_type, scanner_config=scanner.scanner_config
             )
             condensed[key] = question
-        ReplayScanner.all_origins.filter(pk=scanner.pk, scanner_config=scanner.scanner_config).update(
+        # Zero rows when the prompt was edited mid-run, which is then not a write of ours.
+        written += ReplayScanner.all_origins.filter(pk=scanner.pk, scanner_config=scanner.scanner_config).update(
             **question.as_fields()
         )
     return BackfillResult(checked=checked, written=written)
