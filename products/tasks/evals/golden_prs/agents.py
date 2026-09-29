@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
+from products.tasks.evals.golden_prs.scoring import USER_INSTRUCTIONS_OFF
+
 Runtime = Literal["claude", "codex"]
 
 DEFAULT_MODELS: dict[Runtime, str] = {"claude": "claude-opus-5", "codex": "gpt-5.5"}
@@ -39,6 +41,7 @@ def agent_command(runtime: Runtime, model: str, *, disable_hooks: bool = False) 
             "--model",
             model,
             "--dangerously-skip-permissions",
+            *USER_INSTRUCTIONS_OFF,
             "--output-format",
             "json",
             *settings,
@@ -97,6 +100,22 @@ def agent_usage(run: AgentRun) -> dict[str, float | int]:
         usage["num_turns"] = len(turns)
         usage.update({key: sum(turn.get(key, 0) for turn in turns) for key in TOKEN_KEYS})
     return usage
+
+
+def agent_reply(run: AgentRun) -> str:
+    """The agent's last message to the user, which a rule that asks for a warning is judged on."""
+    if run.runtime == "claude":
+        return str(_claude_report(run).get("result") or "")
+    messages = []
+    for line in run.stdout.splitlines():
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        item = event.get("item") or {}
+        if event.get("type") == "item.completed" and item.get("type") == "agent_message":
+            messages.append(str(item.get("text") or ""))
+    return messages[-1] if messages else ""
 
 
 def agent_failure(run: AgentRun) -> str | None:

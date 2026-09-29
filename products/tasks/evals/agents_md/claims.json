@@ -3,7 +3,7 @@
         "id": "entrypoints-thin",
         "starts_with": "**Keep entrypoints thin.**",
         "task": "Add a Django management command `report_stale_feature_flags` that lists feature flags whose `updated_at` is older than 90 days. It takes an optional `--team-id`. It prints one line per flag with the key, the team id and the last update date, sorted by last update.",
-        "detectors": [{ "name": "handle_statement_count" }]
+        "detectors": [{ "name": "queries_in_handle" }]
     },
     {
         "id": "product-code-location",
@@ -161,14 +161,26 @@
         "id": "llm-gateway-freeze",
         "starts_with": "**`services/llm-gateway` is under an unofficial code freeze**",
         "task": "Add a `GET /v1/models/{model_id}` endpoint to the Python LLM gateway in `services/llm-gateway` that returns the one model object from the existing `GET /v1/models` list, or a 404 when the id is unknown.",
-        "detectors": [{ "name": "changed_files_under", "prefix": "services/llm-gateway/" }],
+        "detectors": [
+            {
+                "name": "changed_files_under",
+                "prefix": "services/llm-gateway/",
+                "unless_reply_matches": "(?i)freeze|ai-gateway"
+            }
+        ],
         "no_change_is_compliant": true
     },
     {
         "id": "llm-gateway-freeze-open",
         "starts_with": "**`services/llm-gateway` is under an unofficial code freeze**",
         "task": "Add a `GET /v1/models/{model_id}` endpoint to the LLM gateway that returns the one model object from the existing models list, or a 404 when the id is unknown.",
-        "detectors": [{ "name": "changed_files_under", "prefix": "services/llm-gateway/" }],
+        "detectors": [
+            {
+                "name": "changed_files_under",
+                "prefix": "services/llm-gateway/",
+                "unless_reply_matches": "(?i)freeze|ai-gateway"
+            }
+        ],
         "no_change_is_compliant": true
     },
     {
@@ -176,8 +188,8 @@
         "starts_with": "**Write as if mypy `--strict` were on.**",
         "task": "Add a module `posthog/helpers/interval_math.py` with functions that merge overlapping integer intervals, compute the total covered length, and find the gaps between intervals. Add tests.",
         "detectors": [
-            { "name": "unannotated_defs" },
-            { "name": "count_added_matching", "pattern": "\\bAny\\b", "files": "*.py" }
+            { "name": "unannotated_defs", "cap": 1 },
+            { "name": "count_added_matching", "pattern": "\\bAny\\b", "files": "*.py", "cap": 1 }
         ]
     },
     {

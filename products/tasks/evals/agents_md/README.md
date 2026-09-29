@@ -26,7 +26,7 @@ Each run is one sample. Use `--repeats` to observe variation between runs.
 These scores are observations from the selected tasks, not statistical confidence or proof that the changes work.
 Removing a root bullet leaves related skills, nested instructions, and repository examples available.
 A zero in both arms does not show that a rule is unnecessary.
-The entrypoint detector counts statements as a proxy; it does not establish a maximum method size.
+The entrypoint detector flags a query built inside `handle()`; other logic in the entrypoint passes it.
 Failed agent runs are excluded from detector summaries, and missing scores remain unmeasured.
 The run command returns a nonzero exit status if any job crashes or an agent run fails.
 The team-scoping claim checks application files. Test files and fixtures neither satisfy its required read nor count as violations.

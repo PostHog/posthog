@@ -5,6 +5,7 @@ import tempfile
 import subprocess
 from collections import Counter
 from dataclasses import dataclass
+from pathlib import Path
 
 import anthropic
 from pydantic import BaseModel, Field
@@ -121,11 +122,20 @@ class Answer[T: BaseModel]:
 
 
 def structured_answer[T: BaseModel](
-    model: str, system_prompt: str, request: str, output_type: type[T], client: anthropic.Anthropic | None = None
+    model: str,
+    system_prompt: str,
+    request: str,
+    output_type: type[T],
+    client: anthropic.Anthropic | None = None,
+    *,
+    read_dir: Path | None = None,
 ) -> Answer[T]:
-    """Ask a model for an `output_type`, through the SDK with an API key or the signed-in `claude` CLI without one."""
+    """Ask a model for an `output_type`, through the SDK with an API key or the signed-in `claude` CLI without one.
+
+    Only the CLI can read `read_dir`; the SDK path sees the request alone.
+    """
     if client is None and not os.environ.get("ANTHROPIC_API_KEY"):
-        return _answer_with_claude_cli(model, system_prompt, request, output_type)
+        return _answer_with_claude_cli(model, system_prompt, request, output_type, read_dir)
     client = client or anthropic.Anthropic()
     response = client.messages.parse(
         model=model,
@@ -138,20 +148,27 @@ def structured_answer[T: BaseModel](
 
 
 JUDGE_CLI_TIMEOUT_SECONDS = 10 * 60
+# User-level CLAUDE.md differs per machine, and a devbox's tells Claude to report to a tool it does not have.
+USER_INSTRUCTIONS_OFF = ("--setting-sources", "project,local")
 
 
 def _answer_with_claude_cli[T: BaseModel](
-    model: str, system_prompt: str, request: str, output_type: type[T]
+    model: str, system_prompt: str, request: str, output_type: type[T], read_dir: Path | None
 ) -> Answer[T]:
     """The CLI signs in with its own credentials, so a devbox with `claude` logged in needs no API key."""
+    reading = ["--tools", "Read,Grep,Glob", "--add-dir", str(read_dir)] if read_dir is not None else ["--tools", ""]
+    if read_dir is not None:
+        system_prompt += (
+            f"\nThe repository after the change is at {read_dir}. Read it to check code the diff relies on."
+        )
     command = [
         "claude",
         "-p",
         "--no-session-persistence",
         "--model",
         model,
-        "--tools",
-        "",
+        *reading,
+        *USER_INSTRUCTIONS_OFF,
         "--output-format",
         "json",
         "--system-prompt",

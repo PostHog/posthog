@@ -11,9 +11,23 @@ from unittest.mock import patch
 from parameterized import parameterized
 
 from products.tasks.evals.golden_prs.__main__ import report, verdict_for
-from products.tasks.evals.golden_prs.agents import AgentRun, agent_environment, agent_failure, agent_usage
+from products.tasks.evals.golden_prs.agents import (
+    AgentRun,
+    agent_command,
+    agent_environment,
+    agent_failure,
+    agent_reply,
+    agent_usage,
+)
 from products.tasks.evals.golden_prs.cases import GoldenPR, build_prompt, load_golden_prs, select_golden_prs
-from products.tasks.evals.golden_prs.scoring import added_lines, changed_files, judge, score_diffs
+from products.tasks.evals.golden_prs.scoring import (
+    Verdict,
+    added_lines,
+    changed_files,
+    judge,
+    score_diffs,
+    structured_answer,
+)
 from products.tasks.evals.golden_prs.workspace import candidate_diff, checkout_parent
 
 GOLDEN_AUTHORS = {"pauldambra", "benjackwhite", "mariusandra", "Twixes"}
@@ -137,6 +151,22 @@ def test_judge_uses_the_claude_cli_when_no_api_key_is_set(
     assert expected_reasoning in verdict.reasoning
 
 
+@parameterized.expand([("diff only", None, ""), ("with the checkout", Path("/work/tree"), "Read,Grep,Glob")])
+def test_cli_judge_reads_the_checkout_only_when_given_one(_name: str, read_dir: Path | None, tools: str) -> None:
+    completed = subprocess.CompletedProcess(
+        args=["claude"], returncode=0, stdout='{"structured_output": {"score": 1, "reasoning": "ok"}}', stderr=""
+    )
+    with (
+        patch.dict(os.environ, {}, clear=True),
+        patch("products.tasks.evals.golden_prs.scoring.subprocess.run", return_value=completed) as run,
+    ):
+        structured_answer("m", "system", "request", Verdict, read_dir=read_dir)
+    command = run.call_args.args[0]
+    assert command[command.index("--tools") + 1] == tools
+    assert ("--add-dir" in command) == (read_dir is not None)
+    assert command[command.index("--setting-sources") + 1] == "project,local"
+
+
 def agent_run(**overrides: Any) -> AgentRun:
     fields: dict[str, Any] = {
         "runtime": "claude",
@@ -198,6 +228,22 @@ CODEX_STREAM = (
 )
 def test_agent_usage_reads_each_runtime(_name: str, run: AgentRun, expected: dict[str, float | int]):
     assert agent_usage(run) == expected
+
+
+@parameterized.expand(
+    [
+        ("claude result", agent_run(stdout='{"result": "done"}'), "done"),
+        ("codex last message", agent_run(runtime="codex", stdout=CODEX_STREAM), "done"),
+        ("nothing parseable", agent_run(stdout="not json"), ""),
+    ]
+)
+def test_agent_reply_reads_each_runtime(_name: str, run: AgentRun, expected: str) -> None:
+    assert agent_reply(run) == expected
+
+
+def test_claude_agents_skip_user_level_instructions() -> None:
+    command = agent_command("claude", "m")
+    assert command[command.index("--setting-sources") + 1] == "project,local"
 
 
 def test_verdict_for_a_failed_agent_names_the_failure_instead_of_judging():

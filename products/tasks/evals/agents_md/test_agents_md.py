@@ -53,8 +53,8 @@ def claim(**overrides: Any) -> Claim:
     return Claim(**(fields | overrides))
 
 
-def candidate(diff: str, workdir: Path = Path("/nonexistent")) -> Candidate:
-    return Candidate.from_diff(diff, workdir)
+def candidate(diff: str, workdir: Path = Path("/nonexistent"), reply: str = "") -> Candidate:
+    return Candidate.from_diff(diff, workdir, reply=reply)
 
 
 def test_every_review_rule_in_agents_md_has_a_claim_with_known_detectors():
@@ -354,7 +354,15 @@ def test_diff_detectors_count_violations(_name: str, detector: str, params: dict
     assert DETECTORS[detector](candidate(diff), claim(), **params).violations == expected
 
 
-HANDLE = "class Command:\n    def handle(self, *args, **options):\n        a = 1\n        b = 2\n        return a + b\n"
+HANDLE_WITH_QUERY = (
+    "class Command:\n    def handle(self, *args, **options):\n"
+    "        for flag in FeatureFlag.objects.filter(team_id=1).order_by('updated_at'):\n            print(flag.key)\n"
+)
+HANDLE_CALLING_A_FUNCTION = (
+    "def stale_flags(team_id):\n    return FeatureFlag.objects.filter(team_id=team_id)\n\n\n"
+    "class Command:\n    def handle(self, *args, **options):\n"
+    "        for flag in stale_flags(options['team_id']):\n            print(flag.key)\n"
+)
 DEFS = "def f(a):\n    pass\n\n\ndef g(a: int) -> int:\n    return a\n"
 CALL_FIRST = "def a():\n    return b()\n\n\ndef b():\n    return 1\n"
 ATOMIC_WITH_EMAIL = "def view():\n    with transaction.atomic():\n        Thing.objects.create()\n        send_mail()\n"
@@ -365,16 +373,30 @@ TWO_DESCRIBES = "describe('a', () => {})\ndescribe('b', () => {})\n"
 
 @parameterized.expand(
     [
+        *[
+            (
+                name,
+                "queries_in_handle",
+                {},
+                "posthog/management/commands/x.py",
+                source,
+                source.splitlines(),
+                expected,
+            )
+            for name, source, expected in [
+                ("query in handle", HANDLE_WITH_QUERY, 1),
+                ("handle calls a function that queries", HANDLE_CALLING_A_FUNCTION, 0),
+            ]
+        ],
         (
-            "handle statements",
-            "handle_statement_count",
+            "no handle added",
+            "queries_in_handle",
             {},
             "posthog/management/commands/x.py",
-            HANDLE,
-            ["def handle(self, *args, **options):"],
-            3,
+            HANDLE_WITH_QUERY,
+            ["x = 1"],
+            None,
         ),
-        ("no handle added", "handle_statement_count", {}, "posthog/management/commands/x.py", HANDLE, ["x = 1"], None),
         ("unannotated def", "unannotated_defs", {}, "a.py", DEFS, ["def f(a):", "def g(a: int) -> int:"], 1),
         ("call before definition", "calls_before_definition", {}, "a.py", CALL_FIRST, ["def a():"], 1),
         (
@@ -479,6 +501,31 @@ def test_claim_detectors_score_the_compliant_answer_as_clean(
 ) -> None:
     [under_test] = [c for c in load_claims() if c.id == claim_id]
     assert detect(candidate(diff_for(path, [line])), under_test).violations == expected
+
+
+@parameterized.expand(
+    [
+        (claim_id, name, reply, expected)
+        for claim_id in ("llm-gateway-freeze", "llm-gateway-freeze-open")
+        for name, reply, expected in [
+            ("reply warns about the freeze", "The Python gateway is under a code freeze, so check first.", 0),
+            ("reply points at the Go gateway", "New features belong on PostHog/ai-gateway.", 0),
+            ("reply is silent", "I added the endpoint and a test.", 1),
+            ("reply only mentions the parity audit", "I did not update PARITY.md or run the parity audit.", 1),
+        ]
+    ]
+)
+def test_llm_gateway_edit_is_compliant_when_the_agent_warns_about_the_freeze(
+    claim_id: str, _name: str, reply: str, expected: float
+) -> None:
+    [under_test] = [c for c in load_claims() if c.id == claim_id]
+    edit = diff_for("services/llm-gateway/src/api/models.py", ["x = 1"])
+    assert detect(candidate(edit, reply=reply), under_test).violations == expected
+
+
+def test_a_capped_detector_counts_many_hits_as_one_breach() -> None:
+    capped = claim(detectors=({"name": "count_added_matching", "pattern": "x", "cap": 1},))
+    assert detect(candidate(diff_for("a.py", ["x = 1", "x = 2", "x = 3"])), capped).violations == 1
 
 
 def test_detect_sums_detectors_and_reports_no_number_when_one_cannot_tell():

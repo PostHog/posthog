@@ -13,7 +13,14 @@ from statistics import mean
 
 from posthog.dataclasses import frozen
 
-from products.tasks.evals.golden_prs.agents import DEFAULT_MODELS, Runtime, agent_failure, agent_usage, run_agent
+from products.tasks.evals.golden_prs.agents import (
+    DEFAULT_MODELS,
+    Runtime,
+    agent_failure,
+    agent_reply,
+    agent_usage,
+    run_agent,
+)
 from products.tasks.evals.golden_prs.scoring import changed_files
 from products.tasks.evals.golden_prs.workspace import candidate_diff
 
@@ -101,7 +108,7 @@ def evaluate(
     variant = agents_md_for(agents_md, job.claim, job.arm, candidate_agents_md)
     with checkout_with_agents_md(repo, ref, variant) as workdir:
         run = run_agent(runtime, model, prompt, workdir, timeout_seconds, disable_hooks=True)
-        candidate = Candidate.from_diff(candidate_diff(workdir), workdir)
+        candidate = Candidate.from_diff(candidate_diff(workdir), workdir, reply=agent_reply(run))
         failure = agent_failure(run)
         environment_changes = candidate.changed_files(".flox/*")
         if environment_changes:
@@ -254,7 +261,6 @@ def report(results: list[dict]) -> str:
         + f"Repeats won counts the repeats where {without_label.lower()} had a higher detector score than {with_label.lower()}. "
         "These comparisons do not establish statistical confidence or task correctness. "
         "Task assessments are model reviews, not executed tests; no_issues_found does not establish correctness. "
-        "The entrypoint score counts statements, not architectural violations. "
         "Other instructions, skills, and repository examples remain available in both arms.\n"
         + _untempted_traps(successful)
         + (f"\nExcluded {excluded} failed run(s) from detector summaries.\n" if excluded else "")
