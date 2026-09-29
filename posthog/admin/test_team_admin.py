@@ -725,8 +725,8 @@ class TestTeamAdminEmailSendingSuspension(BaseTest):
         assert any("keeps tier 4" in message and "has not held its current tier" in message for message in rendered)
 
     def test_recompute_creates_a_missing_workflows_config(self) -> None:
-        # A team that predates the extension signal can have no config row, and the sweep skips a
-        # rowless team, so the recompute action must create the row before it runs.
+        # A team that predates the extension signal can have no config row, so staff need the
+        # recompute action to leave one behind that they can then pin or re-tier.
         TeamWorkflowsConfig.objects.filter(team_id=self.team.pk).delete()
         assert self._config() is None
         with patch(
