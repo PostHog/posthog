@@ -233,6 +233,99 @@ export const AccountTrackRulesRunCreateBody = /* @__PURE__ */ zod.object({
     confirmed: zod.boolean(),
 })
 
+/**
+ * @summary Create a private account view
+ */
+export const accountViewsCreateBodyNameMax = 400
+
+export const accountViewsCreateBodyContentOneContentItemAttrsOneMarkdownMax = 262144
+
+export const accountViewsCreateBodyContentOneContentMax = 1
+
+export const AccountViewsCreateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(accountViewsCreateBodyNameMax).describe('View name.'),
+    content: zod
+        .object({
+            type: zod.enum(['doc']).describe('\* `doc` - doc').describe('Document root type.\n\n\* `doc` - doc'),
+            content: zod
+                .array(
+                    zod.object({
+                        type: zod
+                            .enum(['ph-markdown-notebook'])
+                            .describe('\* `ph-markdown-notebook` - ph-markdown-notebook')
+                            .describe(
+                                'Markdown notebook node type.\n\n\* `ph-markdown-notebook` - ph-markdown-notebook'
+                            ),
+                        attrs: zod
+                            .object({
+                                nodeId: zod.string().describe('Stable identifier for this document.'),
+                                markdown: zod
+                                    .string()
+                                    .max(accountViewsCreateBodyContentOneContentItemAttrsOneMarkdownMax)
+                                    .describe('Component-only Markdown stored by the account view editor.'),
+                            })
+                            .describe('Markdown notebook attributes.'),
+                    })
+                )
+                .min(1)
+                .max(accountViewsCreateBodyContentOneContentMax)
+                .describe('The single Markdown notebook node containing the account view components.'),
+        })
+        .describe('Initial account view components.'),
+})
+
+/**
+ * @summary Update an account view
+ */
+export const accountViewsPartialUpdateBodyNameMax = 400
+
+export const accountViewsPartialUpdateBodyContentOneContentItemAttrsOneMarkdownMax = 262144
+
+export const accountViewsPartialUpdateBodyContentOneContentMax = 1
+
+export const AccountViewsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(accountViewsPartialUpdateBodyNameMax)
+        .optional()
+        .describe('New view name. Omit to keep the current name.'),
+    content: zod
+        .object({
+            type: zod.enum(['doc']).describe('\* `doc` - doc').describe('Document root type.\n\n\* `doc` - doc'),
+            content: zod
+                .array(
+                    zod.object({
+                        type: zod
+                            .enum(['ph-markdown-notebook'])
+                            .describe('\* `ph-markdown-notebook` - ph-markdown-notebook')
+                            .describe(
+                                'Markdown notebook node type.\n\n\* `ph-markdown-notebook` - ph-markdown-notebook'
+                            ),
+                        attrs: zod
+                            .object({
+                                nodeId: zod.string().describe('Stable identifier for this document.'),
+                                markdown: zod
+                                    .string()
+                                    .max(accountViewsPartialUpdateBodyContentOneContentItemAttrsOneMarkdownMax)
+                                    .describe('Component-only Markdown stored by the account view editor.'),
+                            })
+                            .describe('Markdown notebook attributes.'),
+                    })
+                )
+                .min(1)
+                .max(accountViewsPartialUpdateBodyContentOneContentMax)
+                .describe('The single Markdown notebook node containing the account view components.'),
+        })
+        .optional()
+        .describe('Replacement account view components. Omit to keep current content.'),
+    visibility: zod
+        .enum(['private'])
+        .describe('\* `private` - Personal')
+        .optional()
+        .describe('Views can only be private.\n\n\* `private` - Personal'),
+    version: zod.number().min(1).describe('Version returned by the last read.'),
+})
+
 export const accountsCreateBodyNameMax = 400
 
 export const accountsCreateBodyExternalIdMax = 400
@@ -824,7 +917,7 @@ export const CustomPropertySourcesCreateBody = /* @__PURE__ */ zod
             .unknown()
             .optional()
             .describe(
-                "Person and group sources only: {warehouse_column: description} giving each mapped column a human-facing description, seeded from the warehouse column's information_schema description. Optional per column. Create-only."
+                "Person and group sources only: {warehouse_column: description} giving each mapped column a human-facing description, seeded from the warehouse column's information_schema description. Optional per column."
             ),
         key_column: zod
             .string()
@@ -859,13 +952,25 @@ export const CustomPropertySourcesUpdateBody = /* @__PURE__ */ zod
             .max(customPropertySourcesUpdateBodyKeyColumnMax)
             .optional()
             .describe("Column in the view whose value matches an account's external_id."),
+        column_property_map: zod
+            .unknown()
+            .optional()
+            .describe(
+                'Person and group sources only: {warehouse_column: property_name} mapping the columns this source writes onto the person or group.'
+            ),
+        column_descriptions: zod
+            .unknown()
+            .optional()
+            .describe(
+                'Person and group sources only: {warehouse_column: description} for mapped columns. Optional per column.'
+            ),
         is_enabled: zod
             .boolean()
             .optional()
             .describe('Whether the source syncs; re-enabling it resets the failure count.'),
     })
     .describe(
-        "Writable fields for updating a source. ``definition`` and ``saved_query`` are create-only, so\nthey are intentionally absent — only these reach the facade's update."
+        "Writable fields for updating a source. Binding and definition fields are create-only, so they\nare intentionally absent — only these reach the facade's update."
     )
 
 export const customPropertySourcesPartialUpdateBodySourceColumnMax = 400
@@ -884,13 +989,25 @@ export const CustomPropertySourcesPartialUpdateBody = /* @__PURE__ */ zod
             .max(customPropertySourcesPartialUpdateBodyKeyColumnMax)
             .optional()
             .describe("Column in the view whose value matches an account's external_id."),
+        column_property_map: zod
+            .unknown()
+            .optional()
+            .describe(
+                'Person and group sources only: {warehouse_column: property_name} mapping the columns this source writes onto the person or group.'
+            ),
+        column_descriptions: zod
+            .unknown()
+            .optional()
+            .describe(
+                'Person and group sources only: {warehouse_column: description} for mapped columns. Optional per column.'
+            ),
         is_enabled: zod
             .boolean()
             .optional()
             .describe('Whether the source syncs; re-enabling it resets the failure count.'),
     })
     .describe(
-        "Writable fields for updating a source. ``definition`` and ``saved_query`` are create-only, so\nthey are intentionally absent — only these reach the facade's update."
+        "Writable fields for updating a source. Binding and definition fields are create-only, so they\nare intentionally absent — only these reach the facade's update."
     )
 
 export const customerJourneysCreateBodyNameMax = 400
