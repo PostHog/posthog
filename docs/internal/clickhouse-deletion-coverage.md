@@ -152,6 +152,8 @@ mutation an earlier run enqueued, which is the failure the count was added to no
 
 `SweepTargetsConfig.skip_targets` defaults to `["sharded_events_json"]`, so the weekly sweep leaves
 that table alone and does not address the events cluster at all.
+Deletion request verification reads the same `DEFAULT_DELETION_TARGETS` set, so it does not count
+rows in a table that the default sweep leaves unchanged.
 
 The table's storage is on the events cluster, which `deletes_job` reaches through a sibling handle.
 Resolving that handle has not been reliable: a run that fails to resolve it drops the target and
@@ -167,7 +169,7 @@ sweep does remove from `sharded_events`.
 To sweep it again:
 
 - For one run, set `skip_targets: []` under the `resolve_sweep_targets` op in run config.
-- Permanently, remove the entry from `_DEFAULT_SKIP_TARGETS` in `posthog/dags/deletes.py`.
+- Permanently, add `EVENTS_JSON` to `DEFAULT_DELETION_TARGETS` in `posthog/models/deletion_targets.py`.
 
 Neither restores what earlier runs left behind. That needs a backfill sweep over the affected uuids.
 
