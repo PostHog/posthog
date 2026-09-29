@@ -264,7 +264,7 @@ export interface featureFlagRulesV2EditorLogicMeta {
         saveDisabledReason: (
             draft: FeatureFlagRulesV2Draft,
             currentTeam: TeamPublicType | TeamType | null,
-            enabledFeatures: any,
+            enabledFeatures: FeatureFlagsSet,
             id: number | 'link' | 'new'
         ) => string | null
     }

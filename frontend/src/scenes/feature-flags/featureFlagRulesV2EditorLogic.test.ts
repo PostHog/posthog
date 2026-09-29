@@ -277,7 +277,8 @@ describe('featureFlagRulesV2EditorLogic', () => {
             pageLogic.actions.editFeatureFlag(true)
 
             logic.actions.setConfig({ default_value: null })
-            await expectLogic(pageLogic, () => router.actions.push(urls.featureFlag(7)))
+            // The project-prefixed path passes the editor's unload prompt, so only featureFlagLogic's guard keeps the draft.
+            await expectLogic(pageLogic, () => router.actions.push(router.values.location.pathname))
                 .toFinishAllListeners()
                 .toMatchValues({ isEditingFlag: true })
             expect(logic.values.draft.config.default_value).toBeNull()

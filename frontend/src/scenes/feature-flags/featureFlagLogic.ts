@@ -937,9 +937,9 @@ export interface featureFlagLogicValues {
     customPairEnableCronPreview: string | null
     dependentFlags: DependentFlag[]
     dependentFlagsLoading: boolean
-    editorKind: FeatureFlagEditorKind
     disableCopiedFlag: boolean
     earlyAccessFeaturesList: MinimalEarlyAccessFeatureType[]
+    editorKind: FeatureFlagEditorKind
     emailDomain: string
     endDate: Dayjs | null
     expandAdvancedOnEdit: boolean
@@ -2101,7 +2101,7 @@ export interface featureFlagLogicMeta {
         availableTabs: (featureFlag: FeatureFlagType, props: any) => FeatureFlagsTab[]
         configFormat: (featureFlag: FeatureFlagType) => FeatureFlagConfigFormat
         editorKind: (
-            props: FeatureFlagLogicProps,
+            props: any,
             isEditingFlag: boolean,
             featureFlag: FeatureFlagType,
             enabledFeatures: FeatureFlagsSet,
