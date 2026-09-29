@@ -58,7 +58,6 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
     import_data_activity_sync,
 )
 from products.warehouse_sources.backend.types import IncrementalFieldType
-from products.warehouse_sources_queue.backend.core.jobs_db import EarlierBatch
 
 
 class _FakeAsyncCM:
@@ -1261,27 +1260,15 @@ async def test_probe_uncertainty_runs_the_full_sync(probe: Any):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "overrides,resume_after",
+    "overrides,retry_loaded_rows",
     [
         pytest.param({"fast_return_eligible": False}, None, id="not_eligible"),
         pytest.param({"reset_pipeline": True}, None, id="reset_requested"),
-        pytest.param(
-            {},
-            EarlierBatch(
-                id="batch-1",
-                created_at=datetime(2026, 1, 1, tzinfo=UTC),
-                run_uuid="wfrun-1-a1",
-                batch_index=4,
-                is_final_batch=False,
-                run_failed=False,
-                incremental_last_value=2_000,
-            ),
-            id="append_retry_resumes",
-        ),
+        pytest.param({}, 250, id="append_retry_resumes"),
     ],
 )
 async def test_probe_never_runs_when_not_eligible_or_resetting(
-    overrides: dict[str, Any], resume_after: EarlierBatch | None
+    overrides: dict[str, Any], retry_loaded_rows: int | None
 ):
     model = _probe_model()
     model.pipeline_version = ExternalDataJob.PipelineVersion.V3
@@ -1289,7 +1276,7 @@ async def test_probe_never_runs_when_not_eligible_or_resetting(
 
     with (
         _probe_ctx(source, model),
-        mock.patch.object(module, "find_append_retry_resume", return_value=resume_after),
+        mock.patch.object(module, "settle_append_retry", return_value=retry_loaded_rows),
     ):
         result = await import_data_activity_sync(_probe_inputs(**overrides))
 

@@ -41,7 +41,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
     ResumableData,
     SourceResponse,
 )
-from products.warehouse_sources_queue.backend.core.jobs_db import EarlierBatch
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
@@ -89,7 +88,8 @@ class LanedPipelineV3(PipelineV3[ResumableData]):
         resumable_source_manager: ResumableSourceManager[ResumableData] | None,
         *,
         models: ImportJobModels,
-        resume_after: EarlierBatch | None = None,
+        retry_loaded_rows: int | None = None,
+        rows_ordered_by_cursor: bool = False,
     ) -> None:
         if not source_response.lanes:
             raise ValueError(f"{source_response.name} declares no lanes; run it on PipelineV3")
@@ -103,7 +103,8 @@ class LanedPipelineV3(PipelineV3[ResumableData]):
             shutdown_monitor,
             resumable_source_manager,
             models=models,
-            resume_after=resume_after,
+            retry_loaded_rows=retry_loaded_rows,
+            rows_ordered_by_cursor=rows_ordered_by_cursor,
         )
 
         # The base built the first lane; it shares the base's batch list so the two never disagree.

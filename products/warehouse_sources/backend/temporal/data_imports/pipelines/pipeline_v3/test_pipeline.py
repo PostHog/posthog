@@ -1,7 +1,6 @@
 import json
 from contextlib import ExitStack, nullcontext
 from dataclasses import dataclass
-from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import cast
 
@@ -37,7 +36,6 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
     ImportJobModels,
 )
 from products.warehouse_sources.backend.types import IncrementalFieldType
-from products.warehouse_sources_queue.backend.core.jobs_db import EarlierBatch
 
 _PIPELINE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline"
 _LANES = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.lanes"
@@ -54,18 +52,6 @@ def _make_logger() -> MagicMock:
     logger.aexception = AsyncMock()
     logger.exception = MagicMock()
     return logger
-
-
-def _earlier_batch(*, is_final_batch: bool, run_failed: bool = False) -> EarlierBatch:
-    return EarlierBatch(
-        id="batch-1",
-        created_at=datetime(2026, 1, 1, tzinfo=UTC),
-        run_uuid="wfrun-1-a1",
-        batch_index=4,
-        is_final_batch=is_final_batch,
-        run_failed=run_failed,
-        incremental_last_value=2_000,
-    )
 
 
 def _make_pipeline() -> PipelineV3:
@@ -89,7 +75,9 @@ def _make_pipeline() -> PipelineV3:
     pipeline._logger = _make_logger()
     pipeline._is_incremental = False
     pipeline._reset_pipeline = False
-    pipeline._resume_after = None
+    pipeline._retry_loaded_rows = None
+    pipeline._rows_ordered_by_cursor = False
+    pipeline._held_ties = None
     pipeline._delta_table_ref = MagicMock(is_first_sync=True)
     pipeline._resumable_source_manager = None
     pipeline._internal_schema = MagicMock()
@@ -113,12 +101,7 @@ def _make_pipeline() -> PipelineV3:
 
 
 class TestAttemptScopedRunUuid:
-    @pytest.mark.parametrize(
-        "resume_after,expected_is_resume", [(None, False), (_earlier_batch(is_final_batch=False), True)]
-    )
-    def test_run_uuid_includes_attempt_number(
-        self, resume_after: EarlierBatch | None, expected_is_resume: bool
-    ) -> None:
+    def test_run_uuid_includes_attempt_number(self) -> None:
         mock_job = MagicMock(
             team_id=1,
             workflow_run_id="wfrun-abc",
@@ -173,7 +156,7 @@ class TestAttemptScopedRunUuid:
             ) as mock_s3_writer_cls,
             patch(
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline.PostgresProducer",
-            ) as mock_producer_cls,
+            ),
             patch(
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline.DeltaTableRef"
             ),
@@ -187,10 +170,8 @@ class TestAttemptScopedRunUuid:
                 shutdown_monitor=MagicMock(),
                 resumable_source_manager=None,
                 models=ImportJobModels(job=mock_job, schema=mock_schema, source=mock_source, table=None),
-                resume_after=resume_after,
             )
 
-        assert mock_producer_cls.call_args.kwargs["is_resume"] is expected_is_resume
         assert pipeline._attempt == 3
         mock_s3_writer_cls.assert_called_once()
         assert mock_s3_writer_cls.call_args[0][3] == "wfrun-abc-a3"
@@ -229,29 +210,15 @@ class TestAttemptScopedRunUuid:
 
         mock_reset.assert_not_called()
 
-    @pytest.mark.parametrize(
-        "resume_after,finishes_earlier_attempt,consumer_manages_job_status,expected_rows",
-        [
-            (None, False, False, 0),
-            (_earlier_batch(is_final_batch=False), True, True, 900),
-            (_earlier_batch(is_final_batch=True), False, True, 900),
-            (_earlier_batch(is_final_batch=False, run_failed=True), False, False, 900),
-        ],
-    )
+    @pytest.mark.parametrize("retry_loaded_rows,expected_rows", [(None, 0), (250, 250)])
     @pytest.mark.asyncio
-    async def test_a_resumed_retry_with_no_new_rows_hands_the_job_to_the_loader(
-        self,
-        resume_after: EarlierBatch | None,
-        finishes_earlier_attempt: bool,
-        consumer_manages_job_status: bool,
-        expected_rows: int,
+    async def test_retry_counts_only_rows_that_stay_loaded(
+        self, retry_loaded_rows: int | None, expected_rows: int
     ) -> None:
         pipeline = _make_pipeline()
         pipeline._attempt = 2
-        pipeline._resume_after = resume_after
+        pipeline._retry_loaded_rows = retry_loaded_rows
         pipeline._job.rows_synced = 900
-        producer = cast(MagicMock, pipeline._pg_producer)
-        schema = cast(MagicMock, pipeline._schema)
 
         with (
             patch(f"{_PIPELINE}.validate_incremental_sync"),
@@ -268,47 +235,51 @@ class TestAttemptScopedRunUuid:
             pipeline._resource.items = MagicMock(return_value=iter([]))
             pipeline._batcher.should_yield.return_value = False  # type: ignore[attr-defined]
 
-            result = await pipeline.run()
+            await pipeline.run()
 
-        assert result["consumer_manages_job_status"] is consumer_manages_job_status
         assert pipeline._job.rows_synced == expected_rows
-        if finishes_earlier_attempt:
-            schema.stage_incremental_field_value.assert_called_once_with("wfrun-1-a1", 2_000)
-            producer.enqueue_final_batch_copy.assert_called_once_with(resume_after)
-        else:
-            schema.stage_incremental_field_value.assert_not_called()
-            producer.enqueue_final_batch_copy.assert_not_called()
-        if resume_after is not None and resume_after.run_failed:
-            schema.advance_incremental_field_last_value.assert_called_once_with(2_000)
-        else:
-            schema.advance_incremental_field_last_value.assert_not_called()
 
 
 @pytest.mark.asyncio
-class TestBatchCursor:
-    async def test_each_batch_carries_the_cursor_reached_so_far(self) -> None:
+class TestCursorOrderedBatches:
+    @pytest.mark.parametrize(
+        "ordered,staged_ids,cursors",
+        [
+            (True, [[1], [2, 2, 2], [3, 3, 3]], [1, 2, 3]),
+            (False, [[1, 2, 2], [2, 3], [3, 3]], [None, None, None]),
+        ],
+    )
+    async def test_an_append_from_a_cursor_ordered_source_never_splits_a_cursor_value(
+        self, ordered: bool, staged_ids: list[list[int]], cursors: list[int | None]
+    ) -> None:
         pipeline = _make_pipeline()
+        pipeline._rows_ordered_by_cursor = ordered
         pipeline._schema = ExternalDataSchema(
             sync_type="append",
             sync_type_config={"incremental_field": "id", "incremental_field_type": IncrementalFieldType.Integer},
         )
-        pipeline._resource.sort_mode = "asc"
         pipeline._last_incremental_field_value = None
         pipeline._earliest_incremental_field_value = None
 
+        async def running_max(schema, table, resource, last_value, *_args, **_kwargs):
+            return MagicMock(last_value=max([*table["id"].to_pylist(), last_value or 0]), earliest_value=None)
+
+        batch_index = 0
         with (
-            patch(f"{_PIPELINE}.update_incremental_field_values", new_callable=AsyncMock) as update_cursor,
+            patch(f"{_PIPELINE}.update_incremental_field_values", side_effect=running_max),
             patch(f"{_PIPELINE}.update_row_tracking_after_batch", new_callable=AsyncMock),
         ):
-            for batch_index, ids in enumerate([[1, 5, 3], [4, 2], [9]]):
-                update_cursor.return_value = MagicMock(
-                    last_value=max([*ids, pipeline._last_incremental_field_value or 0]), earliest_value=None
-                )
+            for ids in [[1, 2, 2], [2, 3], [3, 3]]:
                 table = pa.table({"id": pa.array(ids, pa.int64())})
-                await pipeline._process_batch(pa_table=table, batch_index=batch_index, row_count=len(ids))
+                if await pipeline._process_batch(pa_table=table, batch_index=batch_index, row_count=0):
+                    batch_index += 1
+            await pipeline._stage_held_ties(batch_index=batch_index, row_count=0)
 
-        send = cast(MagicMock, pipeline._pg_producer.hold_batch)
-        assert [call.kwargs["incremental_last_value"] for call in send.call_args_list] == [5, 5, 9]
+        writes = cast(MagicMock, pipeline._s3_batch_writer.write_batch).call_args_list
+        assert [call.args[0]["id"].to_pylist() for call in writes] == staged_ids
+        assert [call.args[1] for call in writes] == [0, 1, 2]
+        holds = cast(MagicMock, pipeline._pg_producer.hold_batch).call_args_list
+        assert [call.kwargs["incremental_last_value"] for call in holds] == cursors
 
 
 class TestExtractionFailureDoesNotCleanupS3:
@@ -1154,8 +1125,9 @@ class TestFinalMarkerIsTheLastDataRow:
         pipeline._resource = SourceResponse(name="test_table", items=items, primary_keys=["id"])
 
         # Everything `_process_batch` does besides staging needs the app DB; staging is the part under test.
-        async def stage_only(pa_table: pa.Table, batch_index: int, row_count: int) -> None:
+        async def stage_only(pa_table: pa.Table, batch_index: int, row_count: int) -> bool:
             await pipeline._stage_batch(pa_table, batch_index, row_count)
+            return True
 
         pipeline._process_batch = AsyncMock(side_effect=stage_only)  # type: ignore[method-assign]
         return pipeline

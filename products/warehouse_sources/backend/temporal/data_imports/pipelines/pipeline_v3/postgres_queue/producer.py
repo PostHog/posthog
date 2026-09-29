@@ -22,7 +22,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
     PartitionFormat,
     PartitionMode,
 )
-from products.warehouse_sources_queue.backend.core.jobs_db import BATCH_TABLE, BatchQueue, EarlierBatch
+from products.warehouse_sources_queue.backend.core.jobs_db import BATCH_TABLE, BatchQueue
 
 logger = structlog.get_logger(__name__)
 
@@ -320,9 +320,6 @@ class PostgresProducer:
                 batch_index=batch_result.batch_index,
                 is_final_batch=False,
             )
-
-    def enqueue_final_batch_copy(self, batch: EarlierBatch) -> None:
-        BatchQueue.enqueue_final_batch_copy(self._conn, batch=batch)
 
     def flush(self, timeout: Optional[float] = None) -> int:
         """No-op — inserts are durable on commit. Returns count of batches sent since last flush."""

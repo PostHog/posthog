@@ -64,7 +64,10 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.sin
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.table_stats import record_source_item_stats
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.typings import PipelineResult
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.append_retry import attempt_run_uuid
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.append_retry import (
+    attempt_run_uuid,
+    split_trailing_cursor_ties,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.metrics import (
     get_batches_produced_metric,
     get_pipeline_run_duration_metric,
@@ -88,7 +91,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
     ResumableData,
     SourceResponse,
 )
-from products.warehouse_sources_queue.backend.core.jobs_db import EarlierBatch
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.import_data_sync import (
@@ -145,7 +147,8 @@ class PipelineV3(Generic[ResumableData]):
         resumable_source_manager: ResumableSourceManager[ResumableData] | None,
         *,
         models: "ImportJobModels",
-        resume_after: EarlierBatch | None = None,
+        retry_loaded_rows: int | None = None,
+        rows_ordered_by_cursor: bool = False,
     ) -> None:
         self._resource = source_response
         self._resource_name = source_response.name
@@ -157,8 +160,11 @@ class PipelineV3(Generic[ResumableData]):
 
         self._job = models.job
         self._reset_pipeline = reset_pipeline
-        # Set when a retried append attempt continues after an earlier attempt's batches (see append_retry.py).
-        self._resume_after = resume_after
+        # Set when a retried append attempt continues after the rows earlier attempts loaded (see append_retry.py).
+        self._retry_loaded_rows = retry_loaded_rows
+        self._rows_ordered_by_cursor = rows_ordered_by_cursor
+        # Rows that share the highest cursor of the last batch, staged with the next one (see `_process_batch`).
+        self._held_ties: pa.Table | None = None
         self._logger = logger
         self._load_id = time.time_ns()
 
@@ -220,7 +226,7 @@ class PipelineV3(Generic[ResumableData]):
         self._observed_columns: dict[str, dict[str, Any]] = {}
 
         self._resumable_source_manager = resolve_resume_manager(resumable_source_manager, self._resource)
-        is_resume = self._is_resume()
+        is_resume = self._resumable_source_manager is not None and self._resumable_source_manager.can_resume()
 
         self._producer_kwargs: dict[str, Any] = {
             "sync_type": sync_type,
@@ -348,33 +354,16 @@ class PipelineV3(Generic[ResumableData]):
         """
         return self._resource.cdc_write_mode == SCD2_APPEND_MODE
 
-    def _is_resume(self) -> bool:
-        if self._resume_after is not None:
-            return True
-        return self._resumable_source_manager is not None and self._resumable_source_manager.can_resume()
+    def _holds_back_cursor_ties(self) -> bool:
+        return self._rows_ordered_by_cursor and self._schema.is_append and self._schema.incremental_field is not None
 
-    async def _finish_earlier_attempt(self, earlier: EarlierBatch) -> bool:
-        """Close out an interrupted earlier attempt when this retry found no new rows.
-
-        Returns whether the loader completes the job. Normally this sends the final batch that attempt never
-        sent, so the loader completes the job after its batches, publishes the table and promotes the cursor
-        through them. Without it the workflow completes the job before those batches load, and the next sync
-        reads them again.
-
-        The loader never claims a final batch in a run with a failed batch. There the resume point is that
-        run's last loaded batch, so its cursor is committed here and the workflow completes the job.
-        """
-        if earlier.run_failed:
-            await database_sync_to_async_pool(self._schema.advance_incremental_field_last_value)(
-                earlier.incremental_last_value
-            )
+    async def _stage_held_ties(self, batch_index: int, row_count: int) -> bool:
+        """Stage the rows held back from the last batch, once the source has no more rows."""
+        held = self._held_ties
+        if held is None:
             return False
-        if not earlier.is_final_batch:
-            await database_sync_to_async_pool(self._schema.stage_incremental_field_value)(
-                earlier.run_uuid, earlier.incremental_last_value
-            )
-            self._pg_producer.enqueue_final_batch_copy(earlier)
-        return True
+        self._held_ties = None
+        return await self._process_batch(held, batch_index, row_count, hold_back_ties=False)
 
     def _close_producers(self) -> None:
         self._pg_producer.close()
@@ -392,7 +381,7 @@ class PipelineV3(Generic[ResumableData]):
     async def run(self) -> PipelineResult:
         pa_memory_pool = pa.default_memory_pool()
 
-        should_resume = self._is_resume()
+        should_resume = self._resumable_source_manager is not None and self._resumable_source_manager.can_resume()
         source_is_resumable = self._resumable_source_manager is not None
 
         if should_resume:
@@ -427,13 +416,18 @@ class PipelineV3(Generic[ResumableData]):
 
             # v3 stages the incremental cursor until job completion, so a retried attempt
             # re-extracts from batch 0 and the previous attempt's count must not be kept.
-            await reset_rows_synced_if_needed(
-                self._job,
-                self._is_incremental,
-                self._reset_pipeline,
-                should_resume,
-                incremental_cursor_staged=True,
-            )
+            if self._retry_loaded_rows is None:
+                await reset_rows_synced_if_needed(
+                    self._job,
+                    self._is_incremental,
+                    self._reset_pipeline,
+                    should_resume,
+                    incremental_cursor_staged=True,
+                )
+            else:
+                # The rows earlier attempts loaded stay in the table, so the job counts them once.
+                self._job.rows_synced = self._retry_loaded_rows
+                await database_sync_to_async_pool(self._job.save)(update_fields=["rows_synced", "updated_at"])
 
             validate_incremental_sync(
                 self._is_incremental,
@@ -491,7 +485,7 @@ class PipelineV3(Generic[ResumableData]):
                 while self._batcher.should_yield(include_incomplete_chunk=True):
                     py_table = self._batcher.get_table()
                     row_count += py_table.num_rows
-                    await self._process_batch(
+                    staged = await self._process_batch(
                         pa_table=py_table,
                         batch_index=chunk_index,
                         row_count=row_count,
@@ -501,7 +495,8 @@ class PipelineV3(Generic[ResumableData]):
                         get_rows_extracted_metric(team_id_str, schema_id_str, source_type).add(py_table.num_rows)
                         get_batches_produced_metric(team_id_str, schema_id_str).add(1)
 
-                    chunk_index += 1
+                    if staged:
+                        chunk_index += 1
                 # Every yielded row is staged now, so whatever the source staged last is safe.
                 await self._commit_resume_state()
 
@@ -528,18 +523,17 @@ class PipelineV3(Generic[ResumableData]):
                         py_table = self._batcher.get_table()
                         row_count += py_table.num_rows
 
-                        await self._process_batch(
+                        if await self._process_batch(
                             pa_table=py_table,
                             batch_index=chunk_index,
                             row_count=row_count,
-                        )
+                        ):
+                            chunk_index += 1
                         wrote_chunk = True
 
                         if activity.in_activity():
                             get_rows_extracted_metric(team_id_str, schema_id_str, source_type).add(py_table.num_rows)
                             get_batches_produced_metric(team_id_str, schema_id_str).add(1)
-
-                        chunk_index += 1
 
                         cleanup_memory(pa_memory_pool, py_table)
                         py_table = None
@@ -564,16 +558,15 @@ class PipelineV3(Generic[ResumableData]):
                 raise
 
             await stage_remaining_rows()
+            if await self._stage_held_ties(batch_index=chunk_index, row_count=row_count):
+                chunk_index += 1
 
             await self._finalize(row_count=row_count)
 
             # With zero batches, `_finalize` sent no final-batch notification, so the load
             # consumer will never hear about this run and cannot finalize it — the workflow must.
             # See the PipelineResult docstring for the full ownership contract.
-            if self._resume_after is not None and self._total_batches() == 0:
-                consumer_will_hear_about_this_run = await self._finish_earlier_attempt(self._resume_after)
-            else:
-                consumer_will_hear_about_this_run = self._consumer_finalizes_this_run()
+            consumer_will_hear_about_this_run = self._consumer_finalizes_this_run()
 
             return {
                 "should_trigger_cdp_producer": await self._sinks.cdp_producer.should_run(),
@@ -617,7 +610,25 @@ class PipelineV3(Generic[ResumableData]):
 
             cleanup_memory(pa_memory_pool, py_table if "py_table" in locals() else None)
 
-    async def _process_batch(self, pa_table: pa.Table, batch_index: int, row_count: int) -> None:
+    async def _process_batch(
+        self, pa_table: pa.Table, batch_index: int, row_count: int, *, hold_back_ties: bool = True
+    ) -> bool:
+        """Stage one batch. Returns whether a batch was staged, which is False when every row was held back.
+
+        For an append from a source that returns rows sorted by the cursor, the rows that share the
+        batch's highest cursor wait for the next batch, as more rows with that value can follow. Every
+        staged batch then ends before the next cursor value, so a retry can resume strictly after it.
+        """
+        if self._holds_back_cursor_ties():
+            if self._held_ties is not None:
+                pa_table = pa.concat_tables([self._held_ties, pa_table], promote_options="permissive")
+                self._held_ties = None
+            if hold_back_ties:
+                assert self._schema.incremental_field is not None
+                pa_table, self._held_ties = split_trailing_cursor_ties(pa_table, self._schema.incremental_field)
+                if pa_table.num_rows == 0:
+                    return False
+
         pa_table = _append_debug_column_to_pyarrows_table(pa_table, self._load_id)
         pa_table = normalize_table_column_names(pa_table)
 
@@ -669,7 +680,7 @@ class PipelineV3(Generic[ResumableData]):
 
         batch_last_value = (
             self._schema.serialize_incremental_value(incremental_values.last_value)
-            if self._resource.sort_mode == "asc"
+            if self._holds_back_cursor_ties()
             else None
         )
         tracked_rows = await self._stage_batch(
@@ -683,6 +694,7 @@ class PipelineV3(Generic[ResumableData]):
         await update_row_tracking_after_batch(
             str(self._job.id), self._job.team_id, self._schema.id, tracked_rows, self._logger
         )
+        return True
 
     async def _stamp_full_run(self) -> None:
         """Record that this run took the full extraction path, for the fast-return valve.
