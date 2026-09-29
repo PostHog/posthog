@@ -17,8 +17,8 @@ describe('PropertyFilterButton', () => {
     // The content span carries a native `title` only when the rich group card
     // tooltip is NOT used; a group-identity filter suppresses it and wraps the
     // chip in the formatted-card Tooltip instead.
-    const contentTitle = (): string | null =>
-        document.querySelector('.PropertyFilterButton-content')?.getAttribute('title') ?? null
+    const contentTitle = (container: HTMLElement): string | null =>
+        container.querySelector('.PropertyFilterButton-content')?.getAttribute('title') ?? null
 
     it.each([
         {
@@ -42,17 +42,17 @@ describe('PropertyFilterButton', () => {
             },
         },
     ])('suppresses the native title (uses the group card tooltip) for $description', ({ item }) => {
-        render(
+        const { container } = render(
             <Provider>
                 <PropertyFilterButton item={item as AnyPropertyFilter} onClick={jest.fn()} />
             </Provider>
         )
 
-        expect(document.querySelector('.PropertyFilterButton-content')).toBeInTheDocument()
+        expect(container.querySelector('.PropertyFilterButton-content')).toBeInTheDocument()
         // Native title is suppressed; the formatted-card Tooltip is used instead.
         // (The inverse — group *property* keys not triggering the card — is
         // covered by the isGroupCardFilterKey() unit tests.)
-        expect(contentTitle()).toBeNull()
+        expect(contentTitle(container)).toBeNull()
     })
     it('resolves relationship member names without opening the picker and keeps unknown IDs readable', async () => {
         useMocks({
@@ -68,7 +68,7 @@ describe('PropertyFilterButton', () => {
                 },
             },
         })
-        render(
+        const { container } = render(
             <Provider>
                 <PropertyFilterButton
                     item={
@@ -83,6 +83,6 @@ describe('PropertyFilterButton', () => {
                 />
             </Provider>
         )
-        await waitFor(() => expect(contentTitle()).toContain('CSM ≠ Robin Finch, 9002'))
+        await waitFor(() => expect(contentTitle(container)).toContain('CSM ≠ Robin Finch, 9002'))
     })
 })

@@ -310,9 +310,8 @@ function queryPropertyFilter(
 
 function queryPropertyFilterGroups(input: AccountsTableDatasetInput): AccountsTablePropertyFilter[][] {
     return [input.accountFilters, ...input.accountFilterGroups]
+        .map((group) => group.map((filter) => queryPropertyFilter(filter, input)).filter((filter) => filter !== null))
         .filter((group) => group.length > 0)
-        .map((group) => group.map((filter) => queryPropertyFilter(filter, input)))
-        .filter((group): group is AccountsTablePropertyFilter[] => group.every((filter) => filter !== null))
 }
 
 function queryFilters(

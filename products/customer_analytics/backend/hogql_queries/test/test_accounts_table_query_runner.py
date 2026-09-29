@@ -645,6 +645,49 @@ class TestAccountsTableQueryRunner(BaseTest):
         assert {row.name for row in rows} == {"Account current", "Account incoming"}
         assert metrics == [2]
 
+    @parameterized.expand(
+        [
+            ("churned", AccountsTableAccountField.CHURNED_AT),
+            ("ignored", AccountsTableAccountField.IGNORED_AT),
+        ]
+    )
+    def test_lifecycle_filter_in_one_group_does_not_widen_other_groups(
+        self, _name: str, lifecycle_field: AccountsTableAccountField
+    ) -> None:
+        timestamp = datetime(2026, 1, 1, tzinfo=UTC)
+        churned_at = timestamp if lifecycle_field == AccountsTableAccountField.CHURNED_AT else None
+        ignored_at = timestamp if lifecycle_field == AccountsTableAccountField.IGNORED_AT else None
+        create_account(team_id=self.team.id, name="Shared active")
+        create_account(team_id=self.team.id, name="Shared hidden", churned_at=churned_at, ignored_at=ignored_at)
+        create_account(team_id=self.team.id, name="Target hidden", churned_at=churned_at, ignored_at=ignored_at)
+        groups = [
+            [
+                AccountsTableAccountFieldFilter(
+                    field=AccountsTableAccountField.NAME,
+                    operator=AccountsTableAccountFieldOperator.ICONTAINS,
+                    values=["Shared"],
+                )
+            ],
+            [
+                AccountsTableAccountFieldFilter(
+                    field=lifecycle_field, operator=AccountsTableAccountFieldOperator.IS_SET
+                ),
+                AccountsTableAccountFieldFilter(
+                    field=AccountsTableAccountField.NAME,
+                    operator=AccountsTableAccountFieldOperator.EXACT,
+                    values=["Target hidden"],
+                ),
+            ],
+        ]
+
+        rows = self._run(AccountsTableQuery(columns=[], filterGroups=groups)).results
+        metrics = self._run(
+            AccountsTableQuery(columns=[], filterGroups=groups, metrics=[AccountsTableCountMetric()])
+        ).metricsResults
+
+        assert {row.name for row in rows} == {"Shared active", "Target hidden"}
+        assert metrics == [2]
+
     def test_unassigned_and_account_id_filters(self) -> None:
         assigned_account = create_account(team_id=self.team.id, name="Assigned")
         unassigned_account = create_account(team_id=self.team.id, name="Unassigned")
