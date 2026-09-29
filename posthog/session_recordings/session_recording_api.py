@@ -16,6 +16,7 @@ from django.conf import settings
 from django.contrib.auth.models import AnonymousUser
 from django.core.cache import cache
 from django.http import HttpResponse, JsonResponse
+from django.utils import timezone
 
 import requests
 import structlog
@@ -163,6 +164,11 @@ SESSION_RECORDING_THROTTLED = Counter(
     "session_recording_api_throttled_total",
     "Throttled responses from the session recording API",
     labelnames=["location", "auth_type"],
+)
+
+SESSION_RECORDING_EXPIRED_SHREDDED_COUNTER = Counter(
+    "session_recording_bulk_delete_expired_shredded_total",
+    "Recordings past their retention expiry that bulk delete shredded",
 )
 
 _OTEL_PLAYBACK = OtelInstrumentFactory("session-replay-playback")
@@ -508,8 +514,8 @@ class SessionRecordingBulkDeleteRequestSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         help_text="Earliest start time of the recordings, as an ISO date or a relative offset like '-30d'. "
-        "Providing this narrows the lookup and speeds up the request; defaults to the project's "
-        "recording retention period.",
+        "Recordings that started before this time are skipped. When omitted, the lookup has no start time "
+        "limit, so it also finds recordings past their retention period.",
     )
 
 
@@ -842,6 +848,7 @@ class SessionRecordingViewSet(
     permission_classes = [ExportRendererRecordingPermission]
     scope_object = "session_recording"
     scope_object_read_actions = ["list", "retrieve", "snapshots"]
+    scope_object_write_actions = ["create", "update", "partial_update", "patch", "destroy", "bulk_delete"]
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
     serializer_class = SessionRecordingSerializer
     # We don't use this
@@ -1146,6 +1153,8 @@ class SessionRecordingViewSet(
                 f"Cannot process more than {MAX_RECORDINGS_PER_BULK_DELETE} recordings at once"
             )
 
+        # The default window ends at the retention period, so it would hide expired recordings.
+        bypass_date_window = not date_from
         if not date_from:
             retention_period = self.team.session_recording_retention_period or "90d"
             date_from = f"-{retention_period}"
@@ -1159,7 +1168,13 @@ class SessionRecordingViewSet(
             "limit": len(session_recording_ids),
         }
         query = RecordingsQuery.model_validate(query_data)
-        listing_result = list_recordings_from_query(query, None, self.team)
+        listing_result = list_recordings_from_query(
+            query,
+            None,
+            self.team,
+            bypass_date_window_for_session_ids=bypass_date_window,
+            include_expired_for_session_ids=True,
+        )
 
         user_access_control = self.user_access_control
         accessible_recordings = [
@@ -1173,6 +1188,16 @@ class SessionRecordingViewSet(
         failed_ids = self._delete_via_recording_api(session_ids, deleted_by=deleted_by) if session_ids else []
         deleted_count = len(session_ids) - len(failed_ids)
 
+        failed_id_set = set(failed_ids)
+        now = timezone.now()
+        expired_deleted_count = sum(
+            1
+            for r in accessible_recordings
+            if r.session_id not in failed_id_set and r.expiry_time is not None and r.expiry_time < now
+        )
+        if expired_deleted_count:
+            SESSION_RECORDING_EXPIRED_SHREDDED_COUNTER.inc(expired_deleted_count)
+
         if failed_ids:
             logger.warning(
                 "bulk_delete_recording_api_partial_failure",
@@ -1185,6 +1210,7 @@ class SessionRecordingViewSet(
             "bulk_recordings_deleted",
             team_id=self.team.id,
             deleted_count=deleted_count,
+            expired_deleted_count=expired_deleted_count,
             total_requested=len(session_recording_ids),
         )
 
@@ -1788,6 +1814,7 @@ def list_recordings_from_query(
     team: Team,
     allow_event_property_expansion: bool = False,
     bypass_date_window_for_session_ids: bool = False,
+    include_expired_for_session_ids: bool = False,
 ) -> RecordingsListingResult:
     """
     Loads the listing from ClickHouse, then overlays any Postgres row (pins, shares) onto each result.
@@ -1849,6 +1876,7 @@ def list_recordings_from_query(
             allow_event_property_expansion=allow_event_property_expansion,
             session_ids_to_exclude=session_ids_to_exclude,
             bypass_date_window_for_session_ids=bypass_date_window_for_session_ids,
+            include_expired_for_session_ids=include_expired_for_session_ids,
         ).run()
         ch_session_recordings = query_result.results
 
