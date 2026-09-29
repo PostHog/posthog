@@ -724,8 +724,10 @@ tools:
             estimated longitudinal points; its snapshot is only an optional cached fallback. An affected-users metric
             counts distinct people through one series with `math: dau`. Consumers derive a `BoldNumber` query for each
             metric's whole-window `aggregated_value` and an `ActionsBar` query for its longitudinal buckets; never sum
-            affected-user buckets. Opt-in: only available to scouts that list `emit_report` in their skill's
-            `allowed_tools`.
+            affected-user buckets. Optional `links` records how the new report relates to existing reports
+            (`duplicate_of`, `depends_on`, `part_of`, `follow_up_of`, `recurrence_of`). Send them here rather than in a
+            later `scout-edit-report`, because autostart reads them when the report is created. Opt-in: only available
+            to scouts that list `emit_report` in their skill's `allowed_tools`.
     scout-emit-signal:
         operation: signals_scout_emit_signal
         enabled: true
