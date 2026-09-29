@@ -28,6 +28,7 @@ from products.signals.backend.scout_harness.tools.report import (
     ReviewerInput,
     edit_report,
     edit_report_sync,
+    emit_report,
     emit_report_sync,
 )
 from products.signals.backend.scout_harness.tools.scratchpad import ScratchpadEntry
@@ -193,7 +194,13 @@ class TestScoutTrialReportCapture(APIBaseTest):
         self.capture_internal = patch("products.signals.backend.scout_harness.tools.report.capture_internal").start()
         self.addCleanup(patch.stopall)
 
-    def _emit(self, *, title: str = "A synthetic checkout issue", key: str = "checkout") -> str:
+    def _emit(
+        self,
+        *,
+        title: str = "A synthetic checkout issue",
+        key: str = "checkout",
+        links: list[ReportLinkInput] | None = None,
+    ) -> str:
         result = emit_report_sync(
             team=self.team,
             run=self.scout_run,
@@ -208,6 +215,7 @@ class TestScoutTrialReportCapture(APIBaseTest):
             priority_explanation="The synthetic checkout total is incorrect.",
             repository="NO_REPO",
             idempotency_key=key,
+            links=links,
         )
         assert result.report_id is not None
         assert result.emitted
@@ -390,17 +398,26 @@ class TestScoutTrialReportCapture(APIBaseTest):
         self.judge.assert_not_called()
         assert self.store.reports() == []
 
-    def test_unsupported_report_links_invalidate_comparison(self) -> None:
-        report_id = self._emit()
-        with self.assertRaisesMessage(InvalidScoutReportError, "Report links are not supported"):
-            edit_report_sync(
-                team=self.team,
-                run=self.scout_run,
-                report_id=report_id,
-                links=[ReportLinkInput(kind="depends_on", report_id=str(uuid4()))],
-            )
+    @parameterized.expand(["emit", "emit_retry", "edit"])
+    def test_unsupported_report_links_invalidate_comparison(self, operation: str) -> None:
+        report_id = self._emit() if operation != "emit" else None
+        links = [ReportLinkInput(kind="depends_on", report_id=str(uuid4()))]
+        with (
+            patch("products.signals.backend.scout_harness.tools.report.missing_link_targets") as link_targets,
+            self.assertRaisesMessage(InvalidScoutReportError, "Report links are not supported"),
+        ):
+            if operation == "edit":
+                assert report_id is not None
+                edit_report_sync(team=self.team, run=self.scout_run, report_id=report_id, links=links)
+            else:
+                self._emit(links=links)
         assert self.store.invalid_reason() is not None
-        assert self.judge.call_count == 1
+        assert self.judge.call_count == (0 if operation == "emit" else 1)
+        assert len(self.store.reports()) == (0 if operation == "emit" else 1)
+        link_targets.assert_not_called()
+        assert not SignalReport.objects.filter(team=self.team).exists()
+        assert not SignalReportArtefact.objects.filter(team=self.team).exists()
+        assert not OAuthAccessToken.objects.filter(sandbox_task_id=self.scout_run.task_run.task_id).exists()
 
     def test_inbox_reads_private_report_evidence_and_artefacts_only_for_its_run(self) -> None:
         report_id = self._emit()
@@ -484,8 +501,9 @@ class TestScoutTrialReportCapture(APIBaseTest):
 
 
 @pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize("operation", ["emit", "edit"])
 @override_settings(SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE=True, LLM_GATEWAY_URL="https://gateway.example")
-def test_async_report_links_invalidate_comparison(team: Team) -> None:
+def test_async_report_links_invalidate_comparison(team: Team, operation: str) -> None:
     with team_scope(team.id):
         run = _make_run(team, metadata={"scout_trial": {"version": 1, "context_id": str(uuid4())}})
     with (
@@ -494,12 +512,28 @@ def test_async_report_links_invalidate_comparison(team: Team) -> None:
             return_value="synthetic-token",
         ),
         patch("products.signals.backend.scout_harness.tools.report.revoke_trial_gateway_token"),
+        patch("products.signals.backend.scout_harness.tools.report.missing_link_targets") as link_targets,
+        patch(
+            "products.signals.backend.scout_harness.tools.report.judge_scout_report", new_callable=AsyncMock
+        ) as judge,
         pytest.raises(InvalidScoutReportError, match="Report links are not supported"),
     ):
-        async_to_sync(edit_report)(
-            team=team,
-            run=run,
-            report_id=str(uuid4()),
-            links=[ReportLinkInput(kind="depends_on", report_id=str(uuid4()))],
-        )
+        links = [ReportLinkInput(kind="depends_on", report_id=str(uuid4()))]
+        if operation == "emit":
+            async_to_sync(emit_report)(
+                team=team,
+                run=run,
+                title="Synthetic title",
+                summary="Synthetic summary",
+                evidence=[ReportEvidence(description="Synthetic evidence", source_id="fixture")],
+                actionability_explanation="Correct the fixture.",
+                actionability="immediately_actionable",
+                links=links,
+            )
+        else:
+            async_to_sync(edit_report)(team=team, run=run, report_id=str(uuid4()), links=links)
     assert ScoutTrialStore(run).invalid_reason() is not None
+    link_targets.assert_not_called()
+    judge.assert_not_called()
+    assert not SignalReport.objects.filter(team=team).exists()
+    assert not SignalReportArtefact.objects.filter(team=team).exists()

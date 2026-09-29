@@ -157,13 +157,354 @@ class TestComputeTableStatisticsSync:
         )
         return schema, table, job
 
-    def _mock_delta(self, add_actions: pa.Table, version: int = 7):
+    def _mock_delta(self, add_actions: pa.Table, version: int = 7, delta_types: dict[str, Any] | None = None):
         delta_table = MagicMock()
         delta_table.version.return_value = version
         delta_table.get_add_actions.return_value = add_actions
+        delta_table.table_uri = "s3://bucket/data/stripe_charge/"
+        fields = [{"name": name, "type": kind} for name, kind in (delta_types or {"amount": "long"}).items()]
+        delta_table.schema.return_value.to_json.return_value = json.dumps({"type": "struct", "fields": fields})
         helper = MagicMock()
         helper.get_delta_table = AsyncMock(return_value=delta_table)
+        helper.get_storage_options.return_value = {}
         return helper
+
+    @pytest.fixture(autouse=True)
+    def _no_commit_log(self) -> Any:
+        # Tests that want the incremental fold patch the reader themselves; everything else sees a
+        # log with no commit files, which sends the computation down the full scan.
+        with patch.object(comp, "_read_commit_actions", side_effect=FileNotFoundError("no commit")):
+            yield
+
+    def _stored(
+        self,
+        team: Team,
+        table: DataWarehouseTable,
+        column_name: str = "amount",
+        *,
+        version: int = 7,
+        age: dt.timedelta = dt.timedelta(days=2),
+        row_count: int = 40,
+        null_count: int | None = 4,
+        min_value: str | None = "2",
+        max_value: str | None = "50",
+        stats_basis: str = "delta_log",
+        full_scan_age: dt.timedelta | None = None,
+    ) -> WarehouseColumnStatistics:
+        # A row from a real full scan has full_scan_at == computed_at; a caller simulating a folded
+        # or pre-full_scan_at row passes full_scan_age explicitly (or None for "no full scan yet").
+        full_scan_age = age if full_scan_age is None else full_scan_age
+        return WarehouseColumnStatistics.objects.for_team(team.id).create(
+            team=team,
+            table=table,
+            column_name=column_name,
+            row_count=row_count,
+            null_count=null_count,
+            min_value=min_value,
+            max_value=max_value,
+            has_min_max=min_value is not None or max_value is not None,
+            computed_at=timezone.now() - age,
+            computed_for_delta_version=version,
+            stats_basis=stats_basis,
+            full_scan_at=timezone.now() - full_scan_age,
+        )
+
+    @staticmethod
+    def _add(num_records: int, **columns: tuple[Any, Any, Any]) -> dict[str, Any]:
+        """One commit `add` action; each column is (min, max, null_count), None to leave it out."""
+        stats: dict[str, Any] = {"numRecords": num_records, "minValues": {}, "maxValues": {}, "nullCount": {}}
+        for name, (min_value, max_value, null_count) in columns.items():
+            if min_value is not None:
+                stats["minValues"][name] = min_value
+            if max_value is not None:
+                stats["maxValues"][name] = max_value
+            if null_count is not None:
+                stats["nullCount"][name] = null_count
+        return {"add": {"path": f"part-{uuid.uuid4()}.parquet", "dataChange": True, "stats": json.dumps(stats)}}
+
+    def test_append_only_commits_fold_into_the_stored_statistics(self) -> None:
+        team = self._team()
+        schema, table, _ = self._schema_table_job(team)
+        self._stored(team, table)
+        commits = {
+            8: [{"commitInfo": {"operation": "WRITE"}}, self._add(10, amount=(1, 60, 1))],
+            9: [{"commitInfo": {"operation": "WRITE"}}, self._add(5, amount=(3, 7, 0)), {"txn": {"appId": "x"}}],
+        }
+        helper = self._mock_delta(pa.table({"num_records": [999]}), version=9)
+        with (
+            patch.object(comp, "statistics_enabled", return_value=True),
+            patch.object(comp, "_read_commit_actions", side_effect=lambda _uri, _options, version: commits[version]),
+            patch(DELTA_HELPER_PATH, return_value=helper),
+        ):
+            result = compute_table_statistics_sync(team.id, schema.id)
+
+        assert result["status"] == "done"
+        assert result["basis"] == "incremental"
+        helper.get_delta_table.return_value.get_add_actions.assert_not_called()
+        stat = WarehouseColumnStatistics.objects.for_team(team.id).get(table_id=table.id, column_name="amount")
+        assert stat.row_count == 55
+        assert stat.null_count == 5
+        assert stat.null_fraction == 5 / 55
+        assert stat.min_value == "1"
+        assert stat.max_value == "60"
+        assert stat.has_min_max is True
+        assert stat.computed_for_delta_version == 9
+
+    def test_a_fold_does_not_reset_the_full_scan_clock(self) -> None:
+        # Regression: the fold gate must read the age of the last *full scan*, not the age of the
+        # last write. If a fold bumped the same clock a full scan does, folding more often than
+        # MAX_RECOMPUTE_INTERVAL would push that clock forward forever and the periodic full scan
+        # that corrects drift would never run.
+        team = self._team()
+        schema, table, _ = self._schema_table_job(team)
+        self._stored(team, table, version=7, age=dt.timedelta(days=1))
+
+        # First fold: version 7 -> 8.
+        with (
+            patch.object(comp, "statistics_enabled", return_value=True),
+            patch.object(comp, "_read_commit_actions", return_value=[self._add(10, amount=(1, 60, 1))]),
+            patch(DELTA_HELPER_PATH, return_value=self._mock_delta(pa.table({"num_records": [999]}), version=8)),
+        ):
+            result = compute_table_statistics_sync(team.id, schema.id)
+        assert result["basis"] == "incremental"
+        stat = WarehouseColumnStatistics.objects.for_team(team.id).get(table_id=table.id, column_name="amount")
+        assert stat.stats_basis == "incremental"
+        first_full_scan_at = stat.full_scan_at
+        assert first_full_scan_at is not None
+
+        # Age the write past MIN_RECOMPUTE_INTERVAL, without touching when the full scan happened,
+        # so the next call is not skipped as "computed recently".
+        WarehouseColumnStatistics.objects.for_team(team.id).filter(table_id=table.id).update(
+            computed_at=timezone.now() - dt.timedelta(days=2)
+        )
+
+        # Second fold: version 8 -> 9. A fold that reset full_scan_at would make the row look like
+        # it was freshly full-scanned; it must not.
+        with (
+            patch.object(comp, "statistics_enabled", return_value=True),
+            patch.object(comp, "_read_commit_actions", return_value=[self._add(5, amount=(3, 7, 0))]),
+            patch(DELTA_HELPER_PATH, return_value=self._mock_delta(pa.table({"num_records": [999]}), version=9)),
+        ):
+            result = compute_table_statistics_sync(team.id, schema.id)
+        assert result["basis"] == "incremental"
+        stat = WarehouseColumnStatistics.objects.for_team(team.id).get(table_id=table.id, column_name="amount")
+        assert stat.full_scan_at == first_full_scan_at
+
+        # Push the (still untouched) full scan past MAX_RECOMPUTE_INTERVAL and bump the write time
+        # again; the fold gate must now refuse and the caller must fall back to a full scan.
+        WarehouseColumnStatistics.objects.for_team(team.id).filter(table_id=table.id).update(
+            computed_at=timezone.now() - dt.timedelta(days=2),
+            full_scan_at=timezone.now() - dt.timedelta(days=8),
+        )
+        add_actions = pa.table({"num_records": [999], "null_count.amount": [0], "min.amount": [0], "max.amount": [100]})
+        with (
+            patch.object(comp, "statistics_enabled", return_value=True),
+            patch.object(comp, "_read_commit_actions", return_value=[self._add(2, amount=(0, 100, 0))]) as mock_read,
+            patch(DELTA_HELPER_PATH, return_value=self._mock_delta(add_actions, version=10)),
+        ):
+            result = compute_table_statistics_sync(team.id, schema.id)
+        assert result["basis"] == "full"
+        assert not mock_read.called
+        stat = WarehouseColumnStatistics.objects.for_team(team.id).get(table_id=table.id, column_name="amount")
+        assert stat.stats_basis == "delta_log"
+        assert stat.full_scan_at is not None
+        assert stat.full_scan_at > first_full_scan_at
+
+    def test_fold_gate_falls_back_when_the_last_full_scan_is_stale_even_if_recently_folded(self) -> None:
+        # Same regression as above, exercised directly: a row that looks freshly written (a recent
+        # fold) but whose last full scan is past MAX_RECOMPUTE_INTERVAL must not fold further.
+        team = self._team()
+        schema, table, _ = self._schema_table_job(team)
+        self._stored(
+            team,
+            table,
+            version=7,
+            age=dt.timedelta(days=2),
+            full_scan_age=dt.timedelta(days=8),
+            stats_basis="incremental",
+        )
+        add_actions = pa.table({"num_records": [99], "null_count.amount": [0], "min.amount": [1], "max.amount": [1]})
+        with (
+            patch.object(comp, "statistics_enabled", return_value=True),
+            patch.object(comp, "_read_commit_actions", return_value=[self._add(1, amount=(1, 1, 0))]) as mock_read,
+            patch(DELTA_HELPER_PATH, return_value=self._mock_delta(add_actions, version=8)),
+        ):
+            result = compute_table_statistics_sync(team.id, schema.id)
+
+        assert result["basis"] == "full"
+        assert not mock_read.called
+        stat = WarehouseColumnStatistics.objects.for_team(team.id).get(table_id=table.id, column_name="amount")
+        assert stat.stats_basis == "delta_log"
+
+    @parameterized.expand(
+        [
+            ("long", "long", "2", "50", 1, 60, "1", "60"),
+            ("double", "double", "1.5", "2.5", 0.25, 9.75, "0.25", "9.75"),
+            ("string", "string", "b", "m", "a", "z", "a", "z"),
+            ("boolean", "boolean", "False", "False", True, True, "False", "True"),
+            ("date", "date", "2024-01-01", "2024-02-01", "2023-12-31", "2024-03-01", "2023-12-31", "2024-03-01"),
+            (
+                "timestamp",
+                "timestamp",
+                "2024-01-01 00:00:00+00:00",
+                "2024-02-01 00:00:00+00:00",
+                "2023-12-31T23:00:00Z",
+                "2024-06-01T12:30:00.000123Z",
+                "2023-12-31 23:00:00+00:00",
+                "2024-06-01 12:30:00.000123+00:00",
+            ),
+            ("decimal", "decimal(10,2)", "1.50", "9.99", 0.5, 12.5, "0.50", "12.50"),
+        ]
+    )
+    def test_folded_bounds_keep_the_full_scans_text_representation(
+        self,
+        _name: str,
+        delta_type: str,
+        stored_min: str,
+        stored_max: str,
+        log_min: Any,
+        log_max: Any,
+        expected_min: str,
+        expected_max: str,
+    ) -> None:
+        # The stored bound is `str()` of the typed value the Add-action scan yields; the commit log
+        # carries the same value in JSON form. A fold that compared the two as text, or stored the
+        # log's spelling, would drift from what the next full scan writes.
+        team = self._team()
+        schema, table, _ = self._schema_table_job(team)
+        self._stored(team, table, min_value=stored_min, max_value=stored_max)
+        helper = self._mock_delta(pa.table({"num_records": [999]}), version=8, delta_types={"amount": delta_type})
+        commit = [self._add(1, amount=(log_min, log_max, 0))]
+        with (
+            patch.object(comp, "statistics_enabled", return_value=True),
+            patch.object(comp, "_read_commit_actions", return_value=commit),
+            patch(DELTA_HELPER_PATH, return_value=helper),
+        ):
+            result = compute_table_statistics_sync(team.id, schema.id)
+
+        assert result["basis"] == "incremental"
+        stat = WarehouseColumnStatistics.objects.for_team(team.id).get(table_id=table.id, column_name="amount")
+        assert stat.min_value == expected_min
+        assert stat.max_value == expected_max
+
+    @parameterized.expand(
+        [
+            ("a_file_was_removed", "remove", 8, dt.timedelta(days=2), {"amount": "long"}, True),
+            ("the_schema_changed", "metadata", 8, dt.timedelta(days=2), {"amount": "long"}, True),
+            ("a_file_carries_no_stats", "no_stats", 8, dt.timedelta(days=2), {"amount": "long"}, True),
+            ("a_column_was_added", "append", 8, dt.timedelta(days=2), {"amount": "long", "total": "long"}, False),
+            (
+                "too_many_commits",
+                "append",
+                8 + comp.MAX_INCREMENTAL_COMMITS,
+                dt.timedelta(days=2),
+                {"amount": "long"},
+                False,
+            ),
+            ("stored_rows_past_the_max_age", "append", 8, dt.timedelta(days=8), {"amount": "long"}, False),
+        ]
+    )
+    def test_falls_back_to_the_full_scan_when_the_fold_is_not_exact(
+        self,
+        _name: str,
+        commit_kind: str,
+        table_version: int,
+        age: dt.timedelta,
+        columns: dict[str, str],
+        expect_log_read: bool,
+    ) -> None:
+        team = self._team()
+        schema, table, _ = self._schema_table_job(
+            team, columns={name: {"clickhouse": "Nullable(Int64)"} for name in columns}
+        )
+        self._stored(team, table, age=age)
+        commit: list[dict[str, Any]]
+        if commit_kind == "remove":
+            commit = [self._add(1, amount=(1, 1, 0)), {"remove": {"path": "old.parquet", "dataChange": True}}]
+        elif commit_kind == "metadata":
+            commit = [{"metaData": {"schemaString": "{}"}}, self._add(1, amount=(1, 1, 0))]
+        elif commit_kind == "no_stats":
+            commit = [{"add": {"path": "p.parquet", "dataChange": True, "stats": None}}]
+        else:
+            commit = [self._add(1, amount=(1, 1, 0))]
+        add_actions = pa.table(
+            {
+                "num_records": [99],
+                **{f"null_count.{name}": [0] for name in columns},
+                "min.amount": [1],
+                "max.amount": [1],
+            }
+        )
+        helper = self._mock_delta(add_actions, version=table_version, delta_types=columns)
+        with (
+            patch.object(comp, "statistics_enabled", return_value=True),
+            patch.object(comp, "_read_commit_actions", return_value=commit) as mock_read,
+            patch.object(comp, "capture_exception") as mock_capture,
+            patch(DELTA_HELPER_PATH, return_value=helper),
+        ):
+            result = compute_table_statistics_sync(team.id, schema.id)
+
+        assert result["status"] == "done"
+        assert result["basis"] == "full"
+        assert mock_read.called is expect_log_read
+        mock_capture.assert_not_called()
+        helper.get_delta_table.return_value.get_add_actions.assert_called_once()
+        stat = WarehouseColumnStatistics.objects.for_team(team.id).get(table_id=table.id, column_name="amount")
+        assert stat.row_count == 99
+        assert stat.computed_for_delta_version == table_version
+
+    def test_an_unparseable_stored_value_falls_back_without_leaking_it(self) -> None:
+        # A stored bound written under an earlier column type (say string) cannot be parsed under a
+        # changed type (say long): `int("not-a-number")` raises `ValueError` with the raw text in its
+        # message. The fold must fall back to a full scan, and neither the capture nor the log line it
+        # reports on may repeat that text.
+        team = self._team()
+        schema, table, _ = self._schema_table_job(team)
+        self._stored(team, table, min_value="not-a-number", max_value="not-a-number-either")
+        add_actions = pa.table({"num_records": [99], "null_count.amount": [0], "min.amount": [1], "max.amount": [1]})
+        helper = self._mock_delta(add_actions, version=8, delta_types={"amount": "long"})
+        with (
+            patch.object(comp, "statistics_enabled", return_value=True),
+            patch.object(comp, "_read_commit_actions", return_value=[self._add(1, amount=(1, 1, 0))]) as mock_read,
+            patch.object(comp, "capture_exception") as mock_capture,
+            patch(DELTA_HELPER_PATH, return_value=helper),
+        ):
+            result = compute_table_statistics_sync(team.id, schema.id)
+
+        assert result["status"] == "done"
+        assert result["basis"] == "full"
+        assert not mock_read.called
+        mock_capture.assert_called_once()
+        reported = str(mock_capture.call_args[0][0])
+        assert "not-a-number" not in reported
+
+    def test_a_nested_column_neither_blocks_nor_gains_bounds_from_the_fold(self) -> None:
+        team = self._team()
+        schema, table, _ = self._schema_table_job(
+            team, columns={"amount": {"clickhouse": "Nullable(Int64)"}, "payload": {"clickhouse": "String"}}
+        )
+        self._stored(team, table)
+        self._stored(team, table, "payload", null_count=None, min_value=None, max_value=None)
+        commit = [self._add(10, amount=(1, 60, 1), payload=({"x": 1}, {"x": 2}, {"x": 0}))]
+        helper = self._mock_delta(
+            pa.table({"num_records": [999]}),
+            version=8,
+            delta_types={"amount": "long", "payload": {"type": "struct", "fields": []}},
+        )
+        with (
+            patch.object(comp, "statistics_enabled", return_value=True),
+            patch.object(comp, "_read_commit_actions", return_value=commit),
+            patch(DELTA_HELPER_PATH, return_value=helper),
+        ):
+            result = compute_table_statistics_sync(team.id, schema.id)
+
+        assert result["basis"] == "incremental"
+        payload = WarehouseColumnStatistics.objects.for_team(team.id).get(table_id=table.id, column_name="payload")
+        assert payload.row_count == 50
+        assert payload.has_min_max is False
+        assert payload.null_count is None
+        amount = WarehouseColumnStatistics.objects.for_team(team.id).get(table_id=table.id, column_name="amount")
+        assert amount.max_value == "60"
 
     def test_skipped_when_flag_disabled(self) -> None:
         team = self._team()

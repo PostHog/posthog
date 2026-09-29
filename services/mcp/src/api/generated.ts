@@ -28895,6 +28895,8 @@ export namespace Schemas {
      * * `Expo` - Expo
      * * `PostNord` - PostNord
      * * `Commslayer` - Commslayer
+     * * `Sprinto` - Sprinto
+     * * `Gem` - Gem
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -30248,6 +30250,8 @@ export namespace Schemas {
       Expo: 'Expo',
       PostNord: 'PostNord',
       Commslayer: 'Commslayer',
+      Sprinto: 'Sprinto',
+      Gem: 'Gem',
     } as const;
 
     /**
@@ -31614,7 +31618,9 @@ export namespace Schemas {
        * * `Oneleet` - Oneleet
        * * `Expo` - Expo
        * * `PostNord` - PostNord
-       * * `Commslayer` - Commslayer */
+       * * `Commslayer` - Commslayer
+       * * `Sprinto` - Sprinto
+       * * `Gem` - Gem */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -32774,6 +32780,34 @@ export namespace Schemas {
       Failed: 'failed',
     } as const;
 
+    /**
+     * One merged pull request as the digest listed it.
+     */
+    export interface _DigestSummaryPR {
+      /** Pull request number on GitHub. */
+      readonly pr_number: number;
+      /** Pull request title. */
+      readonly title: string;
+      /** Full URL to the pull request on GitHub. */
+      readonly url: string;
+      /** GitHub login of the pull request author. */
+      readonly author_login: string;
+      /** The one-line summary of the change that the digest posted. */
+      readonly summary: string;
+      /** Repository full name, e.g. 'PostHog/posthog'. Blank on older runs. */
+      readonly repository: string;
+    }
+
+    /**
+     * What the digest posted to Slack: the headline and the pull requests it listed.
+     */
+    export interface _DigestSummary {
+      /** Prose about the merges with real consequence. Blank when the digest led with its first line. */
+      readonly headline: string;
+      /** The merged pull requests the digest listed, in the order it listed them. */
+      readonly prs: readonly _DigestSummaryPR[];
+    }
+
     export interface DigestRun {
       readonly id: string;
       /** Digest bucket this run drained, e.g. a team slug or 'repo:PostHog/posthog'. */
@@ -32797,6 +32831,8 @@ export namespace Schemas {
       readonly status: DigestRunStatusEnum;
       /** Number of merged PRs included in the posted digest. */
       readonly pr_count: number;
+      /** What the digest posted: its headline and the merged pull requests it listed. Both are empty on a run with nothing to post, and on runs stored before this format. */
+      readonly summary: _DigestSummary;
       /** Slack message timestamp of the posted digest, if posted. */
       readonly slack_message_ts: string;
       /** Error message if the run failed, blank otherwise. */
@@ -34163,7 +34199,9 @@ export namespace Schemas {
        * * `Oneleet` - Oneleet
        * * `Expo` - Expo
        * * `PostNord` - PostNord
-       * * `Commslayer` - Commslayer */
+       * * `Commslayer` - Commslayer
+       * * `Sprinto` - Sprinto
+       * * `Gem` - Gem */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** Human-readable name to show in the picker (falls back to the source type). */
       readonly label: string;
@@ -35248,10 +35286,10 @@ export namespace Schemas {
     } as const;
 
     /**
-     * One typed, directed link to write on the report being edited.
+     * One typed, directed link to write on the report being emitted or edited.
      */
     export interface ReportLinkWrite {
-      /** How the edited report relates to `report_id`. `depends_on` for work that cannot land until the other report's fix does, `part_of` for one piece of a larger report, `follow_up_of` for work the other report left behind, `duplicate_of` for the same problem filed twice, and `recurrence_of` for a problem a resolved report already covered.
+      /** How this report relates to `report_id`. `depends_on` for work that cannot land until the other report's fix does, `part_of` for one piece of a larger report, `follow_up_of` for work the other report left behind, `duplicate_of` for the same problem filed twice, and `recurrence_of` for a problem a resolved report already covered.
        *
        * * `depends_on` - Depends on
        * * `part_of` - Part of
@@ -35792,6 +35830,11 @@ export namespace Schemas {
          * @items.maxLength 200
          */
       suggested_prompts?: string[];
+      /**
+         * Typed, directed links from the new report to reports that already exist. Send them here, not in a later `edit-report` call, because autostart reads them when the report is created: a `duplicate_of` link to a report that already has a pull request, or a `depends_on` link to a report with no pull request yet, stops a second draft PR. Only the new report gets a row, so link from the side the sentence starts at. Links of the same kind must stay acyclic and every report must be in this project.
+         * @maxItems 10
+         */
+      links?: ReportLinkWrite[];
       /**
          * Optional name for this emission, unique within the run. Reuse it verbatim to retry a call whose outcome you don't know (a timeout, a dropped connection): the retry returns the report the first call authored, with `idempotent_replay` true, instead of a second report. Omit it and the report's own content is the key, which covers a retry of the identical call — pass one when a retry might reword the report.
          * @maxLength 200
@@ -44853,7 +44896,9 @@ export namespace Schemas {
        * * `Oneleet` - Oneleet
        * * `Expo` - Expo
        * * `PostNord` - PostNord
-       * * `Commslayer` - Commslayer */
+       * * `Commslayer` - Commslayer
+       * * `Sprinto` - Sprinto
+       * * `Gem` - Gem */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
@@ -46240,7 +46285,9 @@ export namespace Schemas {
        * * `Oneleet` - Oneleet
        * * `Expo` - Expo
        * * `PostNord` - PostNord
-       * * `Commslayer` - Commslayer */
+       * * `Commslayer` - Commslayer
+       * * `Sprinto` - Sprinto
+       * * `Gem` - Gem */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick which tables sync; omit it and every discovered table syncs with default settings. */
       payload: ExternalDataSourceCreatePayload;
@@ -94889,7 +94936,9 @@ export namespace Schemas {
        * * `Oneleet` - Oneleet
        * * `Expo` - Expo
        * * `PostNord` - PostNord
-       * * `Commslayer` - Commslayer */
+       * * `Commslayer` - Commslayer
+       * * `Sprinto` - Sprinto
+       * * `Gem` - Gem */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -96292,7 +96341,9 @@ export namespace Schemas {
        * * `Oneleet` - Oneleet
        * * `Expo` - Expo
        * * `PostNord` - PostNord
-       * * `Commslayer` - Commslayer */
+       * * `Commslayer` - Commslayer
+       * * `Sprinto` - Sprinto
+       * * `Gem` - Gem */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -97677,7 +97728,9 @@ export namespace Schemas {
        * * `Oneleet` - Oneleet
        * * `Expo` - Expo
        * * `PostNord` - PostNord
-       * * `Commslayer` - Commslayer */
+       * * `Commslayer` - Commslayer
+       * * `Sprinto` - Sprinto
+       * * `Gem` - Gem */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;

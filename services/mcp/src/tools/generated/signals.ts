@@ -1106,6 +1106,9 @@ const scoutEmitReport = (): ToolBase<ReturnType<typeof ScoutEmitReportSchema>, S
         if (params.suggested_prompts !== undefined) {
             body['suggested_prompts'] = params.suggested_prompts
         }
+        if (params.links !== undefined) {
+            body['links'] = params.links
+        }
         if (params.idempotency_key !== undefined) {
             body['idempotency_key'] = params.idempotency_key
         }
@@ -2114,6 +2117,9 @@ const signalsScoutEmitReport = (): ToolBase<
         }
         if (params.suggested_prompts !== undefined) {
             body['suggested_prompts'] = params.suggested_prompts
+        }
+        if (params.links !== undefined) {
+            body['links'] = params.links
         }
         if (params.idempotency_key !== undefined) {
             body['idempotency_key'] = params.idempotency_key

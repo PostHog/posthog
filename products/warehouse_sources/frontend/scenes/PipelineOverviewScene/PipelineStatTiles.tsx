@@ -47,6 +47,9 @@ export function PipelineStatTiles(): JSX.Element {
         healthIssuesLoading,
         failingSyncCount,
         issuesBySeverity,
+        syncingTableCount,
+        sources,
+        sourcesLoading,
     } = useValues(pipelineOverviewSceneLogic)
 
     // `job_stats` reports syncs and materialized view runs separately, and every count here
@@ -69,10 +72,10 @@ export function PipelineStatTiles(): JSX.Element {
                     loading={rowsStatsLoading && rowsStats === null}
                 />
                 <StatTile
-                    label="Sync runs"
-                    value={humanFriendlyNumber(syncJobs?.total ?? 0)}
-                    sub={`${humanFriendlyNumber(syncJobs?.successful ?? 0)} succeeded`}
-                    loading={jobStatsLoading && jobStats === null}
+                    label="Tables syncing"
+                    value={humanFriendlyNumber(syncingTableCount)}
+                    sub="Switched on across every source"
+                    loading={sourcesLoading && sources === null}
                 />
                 <StatTile
                     label="Needs attention"

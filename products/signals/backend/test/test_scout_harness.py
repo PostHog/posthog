@@ -1434,6 +1434,8 @@ class TestPromptBuilder(BaseTest):
         if is_private_trial:
             assert "You cannot create or cancel checks, or record check results" in prompt
             assert "You may read existing checks on live reports" in prompt
+            assert "Omit the `links` field from report writes" in prompt
+            assert "A nonempty list invalidates this comparison" in prompt
             assert "scout-report-check" not in prompt
             assert "and the report-check tools" not in prompt
         elif "edit_report" in allowed_tools:

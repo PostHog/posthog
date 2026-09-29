@@ -299,6 +299,7 @@ _FOLLOWUP_CHECK_ON_REPORT = """- **A follow-up that hangs on a report belongs on
 """
 
 _FOLLOWUP_CHECKS_PRIVATE = """- **Report follow-up checks are limited in this private trial.** You cannot create or cancel checks, or record check results. Reports emitted in this trial have no supported follow-up check list. You may read existing checks on live reports. Keep planned follow-up in your private scratchpad.
+- **Typed report links are unavailable in this private trial.** Omit the `links` field from report writes. A nonempty list invalidates this comparison.
 """
 
 _FOLLOWUP_RESURFACE_SIGNAL = (
