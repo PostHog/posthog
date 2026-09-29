@@ -2,7 +2,7 @@ import './DataGrid.scss'
 import 'react-data-grid/lib/styles.css'
 
 import clsx from 'clsx'
-import { BindLogic, useActions, useValues } from 'kea'
+import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { useCallback, useMemo, useRef, useState } from 'react'
 import DataGrid, {
     CellClickArgs,
@@ -42,6 +42,7 @@ import { useCellCopyContextMenu } from 'lib/hooks/useCellCopyContextMenu'
 import { IconTableChart } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
+import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { tryJsonParse } from 'lib/utils/json'
@@ -85,6 +86,7 @@ import {
 } from '~/types'
 
 import { WarehouseWizardHint } from 'products/data_warehouse/frontend/shared/components/WarehouseWizardHint'
+import { aiChartRecommendationLogic } from 'products/data_warehouse/frontend/sql_editor/aiChartRecommendationLogic'
 import { HogQLBoldNumber } from 'products/product_analytics/frontend/insights/shared/BoldNumber/BoldNumber'
 
 import {
@@ -646,6 +648,13 @@ export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareT
     } = useValues(dataNodeLogic)
     const { queryCancelled, isChartSettingsPanelOpen } = useValues(dataVisualizationLogic)
     const { toggleChartSettingsPanel } = useActions(dataVisualizationLogic)
+    const visualizationLogic = useMountedLogic(dataVisualizationLogic)
+    const chartRecommendationLogic = aiChartRecommendationLogic({
+        visualizationProps: visualizationLogic.props,
+        tabId: tabId || '',
+    })
+    const { choosingChart } = useValues(chartRecommendationLogic)
+    const { skipRecommendation } = useActions(chartRecommendationLogic)
 
     const response = dataNodeResponse as HogQLQueryResponse | undefined
     const splitPaneRef = useRef<HTMLDivElement>(null)
@@ -966,7 +975,23 @@ export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareT
                 onFixWithAI={fixIndexUsageWithAI}
                 fixWithAILoading={fixWithAILoading}
             />
-            {outputContent}
+            {choosingChart ? (
+                <div
+                    className="flex flex-1 min-h-0 flex-col items-center justify-center gap-3 p-4 border-t"
+                    data-attr="sql-editor-chart-loading"
+                    aria-busy="true"
+                >
+                    <div className="flex items-center gap-2" role="status">
+                        <Spinner />
+                        <span>Choosing a chart…</span>
+                    </div>
+                    <LemonButton size="small" type="secondary" onClick={skipRecommendation}>
+                        Show results now
+                    </LemonButton>
+                </div>
+            ) : (
+                outputContent
+            )}
             <div className="flex justify-between px-2 border-t">
                 <div>{response && !responseError ? <LoadPreviewText localResponse={response} /> : <></>}</div>
                 <div className="flex items-center gap-4">

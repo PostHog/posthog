@@ -105,6 +105,7 @@ describe('aiChartRecommendationLogic', () => {
             expect(visualization.values.selectedXAxis).toBe('category')
             expect(visualization.values.selectedYAxis?.map((axis) => axis?.name)).toEqual(['value'])
             expect(outputPaneLogic({ tabId: 'jev-test' }).values.activeTab).toBe(OutputTab.Both)
+            expect(logic.values.choosingChart).toBe(false)
         }
     )
 
@@ -123,6 +124,7 @@ describe('aiChartRecommendationLogic', () => {
             }
             await expectLogic(logic, () => logic.actions.loadDataSuccess(response)).toFinishAllListeners()
             expect(decide).not.toHaveBeenCalled()
+            expect(logic.values.choosingChart).toBe(false)
             expect(outputPaneLogic({ tabId: 'jev-test' }).values.activeTab).toBe(OutputTab.Results)
         }
     )
@@ -133,6 +135,7 @@ describe('aiChartRecommendationLogic', () => {
         expect(visualization.values.query.display).toBe(ChartDisplayType.Auto)
         expect(visualization.values.selectedXAxis).toBe('category')
         expect(outputPaneLogic({ tabId: 'jev-test' }).values.activeTab).toBe(OutputTab.Results)
+        expect(logic.values.choosingChart).toBe(false)
     })
 
     it('returns to the existing auto behavior on the next run when consent is revoked', async () => {
@@ -155,7 +158,7 @@ describe('aiChartRecommendationLogic', () => {
         expect(outputPaneLogic({ tabId: 'jev-test' }).values.activeTab).toBe(OutputTab.Results)
     })
 
-    it.each(['consent', 'axes', 'layout', 'query'])(
+    it.each(['consent', 'axes', 'layout', 'query', 'skip', 'rerun'])(
         'ignores an in-flight decision after changing %s',
         async (change) => {
             let resolve!: (result: DecideResponseApi) => void
@@ -170,8 +173,11 @@ describe('aiChartRecommendationLogic', () => {
                 })
             })
             logic.actions.loadDataSuccess(response)
+            expect(logic.values.choosingChart).toBe(true)
             await requestStarted
             expect(decide).toHaveBeenCalled()
+            expect(visualization.values.query.display).toBe(ChartDisplayType.Auto)
+            expect(outputPaneLogic({ tabId: 'jev-test' }).values.activeTab).toBe(OutputTab.Results)
             if (change === 'consent') {
                 organizationLogic.actions.loadCurrentOrganizationSuccess({
                     ...MOCK_DEFAULT_ORGANIZATION,
@@ -181,6 +187,20 @@ describe('aiChartRecommendationLogic', () => {
                 visualization.actions.updateXSeries('value')
             } else if (change === 'layout') {
                 outputPaneLogic({ tabId: 'jev-test' }).actions.setActiveTab(OutputTab.Visualization)
+            } else if (change === 'skip') {
+                logic.actions.skipRecommendation()
+                expect(logic.values.choosingChart).toBe(false)
+                expect(decide.mock.calls[0][2].signal.aborted).toBe(true)
+            } else if (change === 'rerun') {
+                dataNodeLogic({
+                    key: 'jev-test',
+                    query: visualization.values.query.source,
+                    doNotLoad: true,
+                    cachedResults: { ...response, results: [] },
+                })
+                logic.actions.loadData()
+                expect(logic.values.choosingChart).toBe(false)
+                expect(decide.mock.calls[0][2].signal.aborted).toBe(true)
             } else {
                 visualization.actions.setQuery((query) => ({
                     ...query,
@@ -189,6 +209,18 @@ describe('aiChartRecommendationLogic', () => {
             }
             await expectLogic(logic, () => resolve(decision)).toFinishAllListeners()
             expect(visualization.values.query.display).toBe(ChartDisplayType.Auto)
+            expect(logic.values.choosingChart).toBe(false)
         }
     )
+
+    it('can show results before the recommendation request starts', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.loadDataSuccess(response)
+            expect(logic.values.choosingChart).toBe(true)
+            logic.actions.skipRecommendation()
+        }).toFinishAllListeners()
+        expect(decide).not.toHaveBeenCalled()
+        expect(logic.values.choosingChart).toBe(false)
+        expect(outputPaneLogic({ tabId: 'jev-test' }).values.activeTab).toBe(OutputTab.Results)
+    })
 })

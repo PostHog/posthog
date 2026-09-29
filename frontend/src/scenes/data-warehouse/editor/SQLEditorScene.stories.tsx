@@ -2,6 +2,7 @@ import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
 
 import { Decorator, Meta, StoryObj } from '@storybook/react'
 import { BindLogic } from 'kea'
+import { delay } from 'msw'
 import { useEffect, useRef } from 'react'
 
 import { App } from 'scenes/App'
@@ -387,7 +388,7 @@ const CHART_EXPERIMENT_RESULTS = {
     hasMore: false,
 }
 
-const chartExperimentParameters = (approved: boolean): Record<string, unknown> => ({
+const chartExperimentParameters = (approved: boolean, decisionDelay = 0): Record<string, unknown> => ({
     featureFlags: ['ml-inference-decisions'],
     pageUrl: urls.sqlEditor({ query: 'SELECT category, revenue FROM example_sales' }),
     msw: {
@@ -400,33 +401,36 @@ const chartExperimentParameters = (approved: boolean): Record<string, unknown> =
                 '/api/projects/:team_id/warehouse_expressions/': { results: [] },
             },
             post: {
-                '/api/projects/:team_id/ml_inference/decisions/decide/': () => [
-                    200,
-                    {
-                        model: 'test',
-                        input_tokens: 1,
-                        latency_ms: 1,
-                        answers: Object.fromEntries(
-                            Object.entries({
-                                chart: 'ActionsBar',
-                                layout: 'both',
-                                x: 'c0',
-                                value: 'c1',
-                                dimension: 'none',
-                            }).map(([id, choice]) => [
-                                id,
-                                {
-                                    type: 'choice',
-                                    choice,
-                                    confidence: 1,
-                                    probability: null,
-                                    probabilities: {},
-                                    score: null,
-                                },
-                            ])
-                        ),
-                    },
-                ],
+                '/api/projects/:team_id/ml_inference/decisions/decide/': async () => {
+                    await delay(decisionDelay)
+                    return [
+                        200,
+                        {
+                            model: 'test',
+                            input_tokens: 1,
+                            latency_ms: 1,
+                            answers: Object.fromEntries(
+                                Object.entries({
+                                    chart: 'ActionsBar',
+                                    layout: 'both',
+                                    x: 'c0',
+                                    value: 'c1',
+                                    dimension: 'none',
+                                }).map(([id, choice]) => [
+                                    id,
+                                    {
+                                        type: 'choice',
+                                        choice,
+                                        confidence: 1,
+                                        probability: null,
+                                        probabilities: {},
+                                        score: null,
+                                    },
+                                ])
+                            ),
+                        },
+                    ]
+                },
             },
         },
     },
@@ -451,4 +455,14 @@ export const JevChartAndTable: Story = {
 export const JevWithoutConsent: Story = {
     parameters: chartExperimentParameters(false),
     decorators: [withAIConsent(false)],
+}
+
+export const JevChoosingChart: Story = {
+    parameters: chartExperimentParameters(true, 3000),
+    decorators: [withAIConsent(true)],
+}
+
+export const JevChartTimeout: Story = {
+    parameters: chartExperimentParameters(true, 6000),
+    decorators: [withAIConsent(true)],
 }
