@@ -416,8 +416,6 @@ class FunnelCorrelationActorsMixin(BaseParamMixin):
                         error_type = type(e).__name__
                         property_field_count = len(prop_params) if isinstance(prop_params, dict) else 0
                     if error_type is not None:
-                        # Do not report while handling the raw validation error: it can
-                        # contain the property's value or key.
                         with posthoganalytics.new_context():
                             posthoganalytics.set_capture_exception_code_variables_context(False)
                             capture_exception(
