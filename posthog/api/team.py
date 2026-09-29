@@ -2100,6 +2100,11 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         if not isinstance(value, dict):
             raise exceptions.ValidationError("Must provide a dictionary or None.")
 
+        # The native JSON events table is an internal rollout switch that PostHog staff set per project in Django
+        # admin. Dropping the key keeps a client from setting or clearing it, including a settings page that echoes
+        # the whole modifiers dict back.
+        value = {key: item for key, item in value.items() if key != "useNewEventsSchema"}
+
         if "bounceRateDurationSeconds" in value:
             bounce_rate = value["bounceRateDurationSeconds"]
             if bounce_rate is not None:

@@ -1265,6 +1265,23 @@ def team_api_test_factory():
                 {"id": "test", "channel_type": "Direct", "combiner": "AND", "items": []}
             ]
 
+        def test_modifiers_use_new_events_schema_is_not_client_writable(self) -> None:
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}",
+                {"modifiers": {"useNewEventsSchema": True}},
+            )
+            assert response.status_code == status.HTTP_200_OK, response.json()
+            assert "useNewEventsSchema" not in response.json()["modifiers"]
+
+            self.team.modifiers = {"useNewEventsSchema": True}
+            self.team.save()
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}",
+                {"modifiers": {"useNewEventsSchema": False, "bounceRateDurationSeconds": 30}},
+            )
+            assert response.status_code == status.HTTP_200_OK, response.json()
+            assert response.json()["modifiers"] == {"useNewEventsSchema": True, "bounceRateDurationSeconds": 30}
+
         @parameterized.expand(
             [
                 (1, True),

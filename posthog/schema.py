@@ -5816,9 +5816,10 @@ class HogQLQueryModifiers(BaseModel):
         default=None,
         description=(
             "Read events from the native JSON events table (`true`) or the legacy"
-            " events table (`false`). When unset, the project's value for this modifier"
-            " applies. If the project has no value, the"
-            " `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance settings decide."
+            " events table (`false`). When unset, the project's stored value applies,"
+            " then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance settings. This"
+            " is an internal rollout switch. PostHog staff set the project value in"
+            " Django admin and the project settings API ignores it."
         ),
     )
     usePreaggregatedIntermediateResults: bool | None = None
