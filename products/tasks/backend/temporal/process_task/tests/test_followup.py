@@ -714,6 +714,64 @@ class TestCIFollowUpLoop:
 
         assert followups_at_original_deadline, "idle heartbeat should not push the CI follow-up deadline"
 
+    @pytest.mark.timeout(90, func_only=True)
+    async def test_client_activity_does_not_extend_ci_follow_up_clock(self):
+        async with await WorkflowEnvironment.start_time_skipping() as env:
+            task_queue = f"test-{uuid.uuid4()}"
+            async with _make_worker(env, task_queue):
+                handle = await env.client.start_workflow(
+                    ProcessTaskWorkflow.run,
+                    ProcessTaskInput(run_id="run-1"),
+                    id=f"test-{uuid.uuid4()}",
+                    task_queue=task_queue,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                    execution_timeout=timedelta(hours=2),
+                )
+                await env.sleep(CI_FOLLOW_UP_DELAY.total_seconds() - 30)
+                await handle.signal(ProcessTaskWorkflow.client_activity)
+                await env.sleep(60)
+                followups_at_original_deadline = list(_ci_followup_calls)
+
+                await handle.signal(ProcessTaskWorkflow.complete_task, args=["completed", None])
+                await handle.result()
+
+        assert followups_at_original_deadline, (
+            "a relayed client command is not agent activity and must not defer the CI follow-up"
+        )
+
+    @pytest.mark.timeout(90, func_only=True)
+    async def test_user_message_asks_for_a_ci_check_without_spending_the_budget(self):
+        async with await WorkflowEnvironment.start_time_skipping() as env:
+            task_queue = f"test-{uuid.uuid4()}"
+            async with _make_worker(env, task_queue):
+                handle = await env.client.start_workflow(
+                    ProcessTaskWorkflow.run,
+                    ProcessTaskInput(run_id="run-1"),
+                    id=f"test-{uuid.uuid4()}",
+                    task_queue=task_queue,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                    execution_timeout=timedelta(hours=4),
+                )
+                await asyncio.sleep(2)
+                await handle.signal(ProcessTaskWorkflow.send_followup_message, args=["please fix CI", []])
+                await env.sleep(60)
+                ci_messages_before_first_deadline = _ci_followup_calls.count(DEFAULT_CI_MESSAGE)
+
+                # The agent ends the turn each nudge opened; a run that idles out with a turn
+                # still open is recorded as failed.
+                for _ in range(MAX_CI_REPETITIONS):
+                    await handle.signal(ProcessTaskWorkflow.agent_state_changed, False)
+                    await env.sleep(CI_FOLLOW_UP_DELAY.total_seconds() + 60)
+                await handle.signal(ProcessTaskWorkflow.complete_task, args=["completed", None])
+                await handle.result()
+
+        assert ci_messages_before_first_deadline == 1, (
+            "asking the run to fix CI should check the PR now, not 15 minutes after the last message"
+        )
+        assert _ci_followup_calls.count(DEFAULT_CI_MESSAGE) == MAX_CI_REPETITIONS + 1, (
+            "a check the user asked for must not spend one of the autonomous CI rounds"
+        )
+
 
 class TestFollowupGuards:
     @pytest.fixture(autouse=True)
