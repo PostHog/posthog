@@ -114105,6 +114105,10 @@ export namespace Schemas {
      */
     offset?: number;
     /**
+     * How much of each issue's `payload` to return. 'full' (the default) returns the whole check-specific payload. 'preview' caps each list in the payload at 3 items and each string at 200 characters, so a page stays small. Fetch one issue by id for its full payload.
+     */
+    payload_mode?: HealthIssuesListPayloadMode;
+    /**
      * Only return issues with this severity. One of: 'critical', 'warning', 'info'.
      */
     severity?: string;
@@ -114113,6 +114117,14 @@ export namespace Schemas {
      */
     status?: string;
     };
+
+    export type HealthIssuesListPayloadMode = typeof HealthIssuesListPayloadMode[keyof typeof HealthIssuesListPayloadMode];
+
+
+    export const HealthIssuesListPayloadMode = {
+      Full: 'full',
+      Preview: 'preview',
+    } as const;
 
     export type HeatmapScreenshotsContentRetrieveParams = {
     /**
