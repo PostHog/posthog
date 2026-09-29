@@ -228,7 +228,7 @@ Unlike `client`, they are evidence of which credential made a change.
 - The fields are internal. The advanced activity log serializer and the notifications serializer list their fields explicitly and leave them out. The advanced serializer also builds `$activity_log_entry_created` for customer destinations.
 - Every authentication class inherits `ActivityCredentialMixin` and sets `activity_credential_type`. A class that defines its own `authenticate` sets it again, even when the parent's value is correct. `posthog/test/repo_invariants/test_authentication_credential_types.py` enforces both rules.
 - The class calls `self.record_activity_actor(user, credential_id)` after every check of the credential passed, and the type comes from the declaration. `SessionAuthentication` is the exception, because the middleware records the session. A class that declares a type but never calls the recorder writes `unattributed` rows.
-- A partner OAuth class declares `oauth` and passes `oauth_activity_credential_args(access_token)` to the recorder, so its rows read the same as the main OAuth path.
+- A partner OAuth class declares `oauth` and passes the token's application id and `impersonated_by_id` to the recorder, as the main OAuth path does, so its rows read the same.
 
 To match a row to a session, compare `credential_id` with `session_public_id(session_key)` from `posthog/session/activity.py`.
 The login sessions API (`/api/users/@me/login_sessions/`) returns the same id and revokes a session by it.

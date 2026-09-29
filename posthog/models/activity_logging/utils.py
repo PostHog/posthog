@@ -12,7 +12,6 @@ from posthog.dataclasses import frozen
 
 if TYPE_CHECKING:
     from posthog.models.activity_logging.activity_log import ActivityLog, Trigger
-    from posthog.models.oauth import OAuthAccessToken
     from posthog.models.user import User
 
 logger = structlog.get_logger(__name__)
@@ -292,6 +291,7 @@ class ActivityCredentialMixin:
         cls,
         user: "User | None",
         credential_id: str | None = None,
+        *,
         impersonated_by_id: int | None = None,
     ) -> None:
         """Attribute the request's activity rows to the credential this class verified, and to its
@@ -314,11 +314,6 @@ class ActivityCredentialMixin:
                 impersonated_by_id=impersonated_by_id,
             )
         )
-
-
-def oauth_activity_credential_args(access_token: "OAuthAccessToken") -> tuple[str, int | None]:
-    """The credential id and impersonator to pass to `record_activity_actor` for an OAuth token."""
-    return str(access_token.application_id), access_token.impersonated_by_id
 
 
 class ActivityLogVisibilityManager:
