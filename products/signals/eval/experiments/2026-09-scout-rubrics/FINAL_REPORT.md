@@ -1,9 +1,10 @@
 # Scout rubric suggestions: development report
 
-2026-09-29 latest: retain the integrated generator with [revised instructions for every visible field](#expanded-editor-readability-recheck).
-Ten additional Sol/high generations exposed dense wording and several rule changes in intermediate
-drafts. The final pair preserved the source rules and was readable overall, with minor wording edits
-still recommended. Updated screenshots show the unedited output in the list and expanded editor.
+2026-09-29 latest: retain the plain-language prompt after [expanded-field checks](#expanded-editor-readability-recheck)
+across twelve scouts, six with history and six without. All twelve outputs preserved the scout's
+intended behavior. Eleven were readable without required edits; one feedback criterion needed a
+localized sentence repair. That is 59 of 60 criteria clear as generated, not a claim of flawless
+wording. The instructions are general and contain no scout-specific exceptions.
 The earlier [40-generation pass](#readability-pass-2026-09-29) and [additional checks](#additional-sol-checks)
 remain recorded below; their readability grades were too lenient for expanded fields.
 The broader content gates describe an earlier prompt, not a full retest of this wording change.
@@ -624,37 +625,127 @@ Sol/high and the retained prompt. Earlier Clear grades had overlooked dense pass
 applicability text. Those original grades remain above as history, not evidence that the text met
 the owner's standard.
 
-The prompt required source headings instead of explanations, and sent technical details into passing
-conditions. Five revisions ran on the same public analytics scout without history and a copied
-feedback scout with five run summaries: ten further generations, all Sol/high. One separate reviewer
-checked source meaning and every visible field; the execution owner also reviewed wording and rendered
-the public example. These were familiar development cases, with no model or prompt blinding.
+Ten prompt revisions ran on the same public analytics scout without history and a copied feedback
+scout with five run summaries: twenty further generations, all Sol/high. One separate reviewer checked
+source meaning and every visible field, including the selection-generated summary. The execution
+owner also reviewed wording. These were familiar development cases, with no model or prompt blinding.
 
-| Revision                                             | Analytics without runs                                              | Feedback with runs                                     |
-| ---------------------------------------------------- | ------------------------------------------------------------------- | ------------------------------------------------------ |
-| Explain passing conditions                           | Incorrect restriction on skipping scoring; dense text               | Source rules preserved; dense text                     |
-| Shorten procedures                                   | Same scoring restriction; still dense                               | Incomplete condition for an unused stream; still dense |
-| State result, then source rules                      | Source rules preserved; several awkward terms                       | Source rules preserved; minor wording edits            |
-| Describe source rules                                | Primary criterion omitted required report delivery; technical lists | Source rules preserved; technical lists                |
-| Short references and explicit deliverables, retained | Source rules preserved; minor wording edits                         | Source rules preserved; minor wording edits            |
+| Revision                               | Analytics without runs                                               | Feedback with runs                                |
+| -------------------------------------- | -------------------------------------------------------------------- | ------------------------------------------------- |
+| Explain passing conditions             | Incorrect scoring restriction; dense text                            | Source rules preserved; dense text                |
+| Shorten procedures                     | Same restriction; still dense                                        | Incomplete unused-stream condition; still dense   |
+| State result, then source rules        | Source rules preserved; awkward terms                                | Source rules preserved; wording edits needed      |
+| Describe source rules                  | Primary check lacks report delivery; technical lists                 | Source rules preserved; technical lists           |
+| Short references and explicit delivery | Source rules preserved; wording edits needed                         | Source rules preserved; wording edits needed      |
+| Concrete field guidance                | Source rules preserved; technical wording remains                    | Source rules preserved; technical wording remains |
+| Owner questions                        | Incorrectly restricts regressions to falling metrics; wording issues | Source rules preserved; wording issues            |
+| Plain main guidance                    | Primary work and delivery split; wording issues                      | Primary work and delivery split; wording issues   |
+| Plain result example                   | Same split; one wording edit                                         | Same split; wording edits needed                  |
+| Writing guidance after the source      | Ready and Clear; 5/5 retained                                        | Ready and Clear; 6/6 retained                     |
 
-The retained prompt asks for the observable result first and a short reference to the governing
-policy second. It preserves conditional duties through the full source instead of rewriting complex
-exceptions as a partial checklist. Applicability states when a check matters in ordinary language.
-Generation still uses the same draft and selection steps, schema and runtime.
+The fifth revision was initially retained, but both outputs still needed wording edits. That did not
+meet the readability requirement. Later reviews included the summary and every editor field instead
+of treating readable titles as sufficient. For the eighth and ninth revisions, the complete sets
+covered investigation and reporting separately. Their content rejection concerned the declared
+requirement that the primary check cover both when selected alone; it was not absence of reporting
+coverage from the full set.
 
-Both final outputs were Ready on content, retaining all six suggestions each. Neither received an
-unqualified Clear readability grade. The analytics check could describe the number of people entering
-a flow more explicitly; one feedback memory check still uses vague state-management language.
-These drafts are usable for owner review, not guaranteed polished text. The broader scout matrix
-was not repeated for this final prompt.
+The tenth revision rewrites the main instructions in plain language and places concrete writing
+guidance plus a short fictional example after the source and schema. It asks for useful results,
+plain references to complete source rules and explicit comparison quantities. The selection step
+also writes a short explanation for the owner. Model, effort, schemas and the two generation steps
+remain unchanged; selection still copies whole draft criteria exactly.
 
-All ten calls completed with the expected requests and Sol/high configuration. Selection preserved
-the draft text, no format correction was needed, and sandbox sessions closed in the local ledger.
-Captured tools only updated the generation task's own progress. The local configs remained disabled,
-non-emitting and unchanged. The existing rubric backend suite passed after the final prompt edit.
+Four additional sources then used that unchanged tenth revision: docs freshness without history,
+flag cleanup with five summaries, API quality with five summaries, and a description-only export
+scout. All six outputs were Ready for content, retaining 29/29 suggestions. Five were Clear for
+readability. The docs output needed one bounded wording edit because a sentence mixed reviewing
+documents with comparing code against documentation. Both reviewers of that sentence agreed it
+needed correction. No generated output was manually repaired.
 
-The final public analytics list and all six expanded criteria were rendered and visually inspected.
-The screenshots preserve the generated text exactly and contain only the repository's public scout
-source. Storybook replayed API responses; this was not another browser-triggered backend generation.
-Private context, outputs, original reviews and rejected screenshots remain outside version control.
+All twenty-four calls completed with the expected requests and Sol/high configuration. Selection
+preserved the draft text, no format correction was needed, and sandbox sessions closed in the local
+ledger. Captured tools only updated the generation task's own progress. Local configs stayed disabled,
+non-emitting and unchanged. The existing rubric backend suite passed at the tenth revision.
+
+The tenth revision's public analytics list and all five expanded criteria were rendered and inspected,
+with exact-text assertions and no browser errors. Storybook replayed API responses; this was not
+another browser-triggered backend generation. Private context, outputs, original reviews and rejected
+screenshots remain outside version control. The earlier broad content matrix has not been repeated
+for these writing changes.
+
+A further six-case repeat added guidance on separate actions and clear comparisons. All six outputs
+were Ready on content, retaining 30/30 suggestions. Three were Clear on readability; three each
+needed one wording edit. The remaining problems were vague saved-data language, the same mixed
+comparison, and a compressed negative sentence. The original reviews and outputs remain separate.
+The twelfth revision permits up to three short complete sentences, removes the soft numerical word
+target, and asks for literal descriptions of saved information. It retains the meaning and coverage
+rules and the same runtime.
+
+All six twelfth-revision outputs were Clear on readability. Four were Ready for content and two
+needed small corrections. One required fresh evidence for every report update, including corrections.
+The description-only scout treated using an existing finding as a requirement to edit it. The other
+checks retained the source rules, and no core check was missing. A fresh independent reviewer read
+the frozen sources before reviewing every output; original reviews remain separate from this report.
+All six sessions completed and closed, the request and selection audits passed, and configs stayed
+unchanged. No generated output was manually repaired.
+
+The thirteenth revision adds two general writing instructions: preserve action meanings, and do not
+apply requirements for one kind of report or update to every kind. The instructions contain no
+scout-specific exceptions. All six outputs were Clear for readability. Original content grades were
+four Ready and two Small. A separate source-based adjudication accepted one initially rejected
+criterion: its contrast between updating and duplicating a report describes a reporting choice,
+without explicitly forbidding an allowed skip. That judging correction is not a generator improvement.
+The remaining docs criterion incorrectly required a stale claim even for a missing-page report.
+The final content grades were five Ready and one Small, with no missing core checks. All six sessions
+closed and passed the request, runtime, selection and config audits. The backend suite passed.
+
+The thirteenth revision's public example was also rendered without text edits. The list and all five
+editors passed exact-text assertions and visual inspection. Those screenshots remain private because
+the twelve-case confirmation uses a later prompt.
+
+The fourteenth revision keeps the same model and generation steps. Its final writing instructions
+leave detailed report contents and other complex requirements in the full source rules instead of
+reproducing partial lists. The fixed confirmation has twelve cases: all ten copied scouts, the public
+analytics example, and the description-only export case. Six have five run summaries and six have
+none. Six cases were used during writing revisions; six additional copied sources appeared in earlier
+content tests. This is broader confirmation, not an untouched holdout. Every output was reviewed;
+the earlier thirteenth-revision breadth plan was never launched.
+
+The first two fourteenth-revision attempts failed before generation because the local app rejected
+sandbox callbacks while database migrations were pending. Both sessions closed; the other ten cases
+had not started. After local migration and health checks, the same twelve cases were retried with
+exactly equal source bundles, prompts and runtime settings. The failed attempts remain recorded
+separately and receive no quality grades.
+
+All twelve retried generations completed. The separate reviewer read each frozen source before
+reviewing its output. The execution owner also read every visible field. Content was Ready for all
+twelve; readability was Clear for eleven and Small wording edit for one. The sixty criteria included
+one required wording repair and no missing core checks. All summaries were clear, and no output
+needed broad rewriting. Normal domain terms were acceptable when the surrounding explanation was
+concrete and understandable to the scout's owner.
+
+The remaining feedback sentence grouped a count comparison and a timestamp check under the same
+verb. It needs those actions separated and the comparison quantity named. The original judgment
+remains a required repair, not an optional style preference. No generated output was edited to make
+the results pass. The prompt already asks for separate actions and explicit comparison quantities;
+this result shows that instruction does not guarantee perfect wording on every generation.
+
+The retained version is suitable for an editable v0: owners still review suggestions before saving.
+Further tuning to this single sentence would not establish reliable improvement without another
+broader comparison. The final twelve cases span onboarding, feedback, code quality and maintenance,
+issue readiness, documentation, flags, team conversations, daily summaries, analytics, and a
+description-only assignment. No scout-specific prompt rules or extra generation stages were added.
+
+The final audit verified all twelve exact request pairs, Sol/high settings, unchanged selected draft
+text, and local session closure. No format repair was needed. Captured tools only updated the
+generation task's own progress, and local scout configs remained disabled, non-emitting and unchanged.
+The existing rubric backend suite passed with the retained prompt. The public analytics list and
+all five expanded editors passed exact-text checks and visual inspection, without browser errors.
+The screenshots replay those generated API responses; this was not a fresh browser-to-backend run.
+
+This expanded-field round completed 54 generations across fourteen prompt revisions, plus the two
+ungraded infrastructure failures. It is separate from the earlier 40-generation comparison and two
+additional Sol checks. All intermediate outputs and original reviews remain in the private cache.
+These are development results on familiar inputs, not a blind benchmark or a guarantee for every
+future scout. The broader saved-rubric and run-history matrix was not repeated for the final wording.

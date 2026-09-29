@@ -313,12 +313,13 @@ Historical transcripts and full report contents are not supplied or inspected.
 When no runs exist, the generator uses the description and available instructions without inventing history.
 The prompt asks for a few distinct judgments about required outcomes and decisions, preserving saved coverage, edits and disabled choices.
 Each passing condition explains the required result in plain language. For complex policies, a short description of the governing source rules follows that explanation to preserve conditions and exceptions.
-Final writing instructions ask for readable titles, descriptions, passing conditions and applicability without narrowing the source rules or losing permitted outcomes.
+Writing instructions and a short example follow the source and schema. They ask for readable titles, descriptions, passing conditions, applicability and summaries without narrowing the source rules or losing permitted outcomes.
 Later evaluation must receive those reference instructions alongside the rubric; a tested variant's changed instructions must not silently replace them.
 Each suggestion must work independently with the saved criteria and source, and missing evaluation evidence must remain distinct from a known unmet requirement.
 Its API records a generation request before dispatching a Temporal workflow, then links the task before the agent starts.
 The agent first drafts a complete set of source-specific criteria, then receives the full saved rubric and selects which draft items add useful judgments.
 Selection returns indices rather than rewritten criteria; the backend preserves each selected item exactly and keeps draft order.
+Its summary explains the suggested checks and important evidence limits in plain language.
 An empty selection is valid when the saved rubric already supplies the draft's judgments.
 The agent can update its own task's progress before the final result.
 The summary describes supplied evidence and material limitations without grading historical runs.
