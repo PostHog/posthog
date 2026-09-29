@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("ai_observability", "0057_evaluationbackfill_remaining_count"),
+        ("ai_observability", "0058_evaluationbackfill_failed_count"),
     ]
 
     operations = [
