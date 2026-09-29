@@ -34,7 +34,19 @@ export function transcriptFrom(
           convertStoredEntriesToEvents(entries, taskDescription),
           null,
         ).items;
-  return items.flatMap(toLine);
+  const lines = items.flatMap(toLine);
+  // The sandbox echoes a new chat's first message only once it boots, so show it until then.
+  if (
+    runtime === "pi" &&
+    taskDescription &&
+    !lines.some((line) => line.kind === "user")
+  ) {
+    return [
+      { kind: "user", id: "first-message", text: taskDescription },
+      ...lines,
+    ];
+  }
+  return lines;
 }
 
 function toLine(item: ConversationItem): TranscriptLine[] {
