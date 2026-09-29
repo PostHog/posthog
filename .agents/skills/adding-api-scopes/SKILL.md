@@ -9,6 +9,7 @@ A scope object such as `feature_flag` gives a token `feature_flag:read` and `fea
 `posthog/scopes.py` is the source of the object list.
 The frontend type and the MCP OAuth list are generated from it.
 The picker rows and the groups are kept by hand in `frontend/src/lib/scopes.tsx`, and a test checks them.
+They stay in the frontend on purpose: labels, plurals, groups and picker omissions are UI decisions, while `posthog/scopes.py` decides what exists and what it grants.
 
 ## Decide if you need a new object
 
@@ -26,7 +27,7 @@ Use a `snake_case` singular noun.
 Then decide two more things, separately from the kind:
 
 - **Project secret API keys:** a project secret API key is a project credential with no user, for server-to-server calls. Allow the scope on it only when such a caller needs it. The allowed list is `PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION`, in both `posthog/scopes.py` and `frontend/src/lib/scopes.tsx`. Read `/adding-project-secret-api-key-auth` first.
-- **Access control:** if an organization must be able to restrict the resource per role or per object, add it to `ACCESS_CONTROL_RESOURCES` in `products/access_control/backend/facade/user_access_control.py`. Use the same name for the scope object and the resource.
+- **Access control:** if an organization must be able to restrict the resource per role or per object, add it to `ACCESS_CONTROL_RESOURCES` in `products/access_control/backend/facade/user_access_control.py`. Access control resources use scope object names by design, so a viewset's `scope_object` names both its token scope and its access control resource. Do not give access control a naming or a type of its own. The `resource` fields of the access control serializers take `GRANTABLE_API_SCOPE_OBJECTS` as their choices, and the frontend `APIScopeObject` type is generated from those fields. Narrowing them to the resources that support rules would remove objects from the OAuth consent screen and the key picker.
 
 ## Add the object
 
