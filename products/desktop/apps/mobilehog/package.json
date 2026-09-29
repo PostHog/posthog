@@ -1,0 +1,64 @@
+{
+  "name": "@posthog/mobilehog",
+  "version": "0.1.0",
+  "main": "./index.js",
+  "scripts": {
+    "start": "expo start",
+    "start:clear": "expo start --clear",
+    "ios": "expo run:ios",
+    "prebuild": "expo prebuild",
+    "prebuild:clean": "expo prebuild --clean",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "clean": "node ../../scripts/rimraf.mjs .turbo .expo"
+  },
+  "expo": {
+    "autolinking": {
+      "buildFromSource": [
+        "react-native-worklets"
+      ]
+    },
+    "install": {
+      "exclude": [
+        "react",
+        "react-dom",
+        "typescript"
+      ]
+    }
+  },
+  "dependencies": {
+    "@expo/metro-runtime": "~57.0.15",
+    "@posthog/api-client": "workspace:*",
+    "@posthog/core": "workspace:*",
+    "@posthog/shared": "workspace:*",
+    "@tanstack/react-query": "^5.90.12",
+    "expo": "57.0.23",
+    "expo-constants": "~57.0.18",
+    "expo-dev-client": "~57.0.19",
+    "expo-font": "~57.0.4",
+    "expo-glass-effect": "~57.0.3",
+    "expo-haptics": "~57.0.3",
+    "expo-linking": "~57.0.10",
+    "expo-router": "~57.0.21",
+    "expo-secure-store": "~57.0.4",
+    "expo-splash-screen": "~57.0.9",
+    "expo-status-bar": "~57.0.1",
+    "expo-system-ui": "~57.0.4",
+    "react": "catalog:",
+    "react-dom": "catalog:",
+    "react-native": "0.86.0",
+    "react-native-gesture-handler": "~2.32.0",
+    "react-native-keyboard-controller": "1.21.9",
+    "react-native-reanimated": "~4.5.0",
+    "react-native-safe-area-context": "~5.7.0",
+    "react-native-screens": "~4.26.2",
+    "react-native-worklets": "0.10.0",
+    "zustand": "^4.5.7"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.0",
+    "typescript": "~5.9.2"
+  },
+  "private": true
+}
