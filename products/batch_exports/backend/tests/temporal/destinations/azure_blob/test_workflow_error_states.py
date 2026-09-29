@@ -245,8 +245,11 @@ async def test_workflow_sets_cancelled_on_cancellation(
     async def insert_into_internal_stage_activity_mocked(_: BatchExportInsertIntoInternalStageInputs):
         return InternalStageResult(stage_folder="test-stage-folder", records_total=None)
 
+    activity_started = asyncio.Event()
+
     @activity.defn(name="insert_into_azure_blob_activity_from_stage")
     async def never_finish_activity(_):
+        activity_started.set()
         while True:
             activity.heartbeat()
             await asyncio.sleep(1)
@@ -271,7 +274,7 @@ async def test_workflow_sets_cancelled_on_cancellation(
                 task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
                 retry_policy=RetryPolicy(maximum_attempts=1),
             )
-            await asyncio.sleep(5)
+            await asyncio.wait_for(activity_started.wait(), timeout=30)
             await handle.cancel()
 
             with pytest.raises(WorkflowFailureError):

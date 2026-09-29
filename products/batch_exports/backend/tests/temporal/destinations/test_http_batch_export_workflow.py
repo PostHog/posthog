@@ -820,8 +820,11 @@ async def test_http_export_workflow_handles_cancellation(ateam, http_batch_expor
         **http_batch_export.destination.config,
     )
 
+    activity_started = asyncio.Event()
+
     @activity.defn(name="insert_into_http_activity")
     async def never_finish_activity(_: HttpInsertInputs) -> str:
+        activity_started.set()
         while True:
             activity.heartbeat()
             await asyncio.sleep(1)
@@ -845,7 +848,7 @@ async def test_http_export_workflow_handles_cancellation(ateam, http_batch_expor
                 task_queue=settings.TEMPORAL_TASK_QUEUE,
                 retry_policy=RetryPolicy(maximum_attempts=1),
             )
-            await asyncio.sleep(5)
+            await asyncio.wait_for(activity_started.wait(), timeout=30)
             await handle.cancel()
 
             with pytest.raises(WorkflowFailureError):

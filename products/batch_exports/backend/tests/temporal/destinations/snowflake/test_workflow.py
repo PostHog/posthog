@@ -379,8 +379,11 @@ async def test_snowflake_export_workflow_handles_cancellation_mocked(ateam, snow
         **snowflake_batch_export.destination.config,
     )
 
+    activity_started = asyncio.Event()
+
     @activity.defn(name="insert_into_snowflake_activity_from_stage")
     async def never_finish_activity_from_stage(_: SnowflakeInsertInputs) -> str:
+        activity_started.set()
         while True:
             activity.heartbeat()
             await asyncio.sleep(1)
@@ -407,7 +410,7 @@ async def test_snowflake_export_workflow_handles_cancellation_mocked(ateam, snow
             task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
             retry_policy=RetryPolicy(maximum_attempts=1),
         )
-        await asyncio.sleep(5)
+        await asyncio.wait_for(activity_started.wait(), timeout=30)
         await handle.cancel()
 
         with pytest.raises(WorkflowFailureError):
