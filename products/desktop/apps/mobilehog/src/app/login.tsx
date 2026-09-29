@@ -110,12 +110,12 @@ export default function LandingScreen() {
   const login = useAuth((s) => s.login);
   const loginWithOAuth = useAuth((s) => s.loginWithOAuth);
   const [region, setRegion] = useState<CloudRegion>("us");
-  const [busy, setBusy] = useState<"cloud" | "switch" | "local" | null>(null);
+  const [busy, setBusy] = useState<"cloud" | "local" | null>(null);
   const loginPending = useRef(false);
   const [error, setError] = useState<string | null>(null);
 
   const run = async (
-    kind: "cloud" | "switch" | "local",
+    kind: "cloud" | "local",
     attempt: () => Promise<void>,
   ): Promise<void> => {
     if (loginPending.current) return;
@@ -186,19 +186,6 @@ export default function LandingScreen() {
               <Text style={styles.buttonText}>Get started</Text>
             )}
           </Glass>
-        </Pressable>
-        <Pressable
-          onPress={() =>
-            run("switch", () => loginWithOAuth(region, { switchAccount: true }))
-          }
-          disabled={!!busy}
-          style={styles.switchLink}
-        >
-          {busy === "switch" ? (
-            <ActivityIndicator size="small" color={colors.inkMute} />
-          ) : (
-            <Text style={styles.link}>Use a different account</Text>
-          )}
         </Pressable>
         {__DEV__ ? (
           <Pressable
@@ -298,7 +285,6 @@ const styles = StyleSheet.create({
     color: colors.inkMute,
   },
   segmentTextActive: { color: colors.ink },
-  switchLink: { alignItems: "center", marginTop: -8 },
   devLink: { alignItems: "center", marginTop: -6 },
   link: { fontFamily: fonts.sansMedium, fontSize: 14, color: colors.inkMute },
 });
