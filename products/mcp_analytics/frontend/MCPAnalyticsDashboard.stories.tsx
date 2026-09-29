@@ -87,6 +87,7 @@ const SESSION_LIST = {
         {
             session_id: '0193f2a1-aaaa-bbbb-cccc-000000000001',
             tool_calls: 42,
+            error_calls: 1,
             session_start: '2026-06-07T10:00:00Z',
             session_end: '2026-06-07T10:10:10Z',
             distinct_id_count: 1,
@@ -100,6 +101,7 @@ const SESSION_LIST = {
         {
             session_id: '0193f2a1-aaaa-bbbb-cccc-000000000002',
             tool_calls: 6,
+            error_calls: 0,
             session_start: '2026-06-07T09:30:00Z',
             session_end: '2026-06-07T09:31:35Z',
             distinct_id_count: 1,
@@ -113,6 +115,7 @@ const SESSION_LIST = {
         {
             session_id: '0193f2a1-aaaa-bbbb-cccc-000000000003',
             tool_calls: 31,
+            error_calls: 4,
             session_start: '2026-06-07T08:15:00Z',
             session_end: '2026-06-07T08:19:00Z',
             distinct_id_count: 1,

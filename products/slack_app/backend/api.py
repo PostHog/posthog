@@ -72,6 +72,7 @@ from products.slack_app.backend.services.integration_resolver import (
     pick_a_project_message,
     resolve_from_candidates,
     resolve_user_for_workspace,
+    unresolved_user_properties,
     user_resolution_failure_reply,
 )
 from products.slack_app.backend.services.slack_app_home import (
@@ -150,6 +151,10 @@ SLACK_PLACEHOLDER_USER_ID = "U00"
 # cutover. A real re-join after this window should re-onboard — most likely the
 # person forgot how it works.
 ONBOARDING_DEDUPE_TTL_SECONDS = 60 * 10
+
+EDITED_MENTION_WINDOW_SECONDS = 60 * 60
+# Outlives the window, because an expired marker would let an edit start a second run.
+MESSAGE_HANDLED_MARKER_TTL_SECONDS = 2 * EDITED_MENTION_WINDOW_SECONDS
 
 ROUTE_HANDLED_LOCALLY = "handled_locally"
 ROUTE_PROXIED = "proxied"
@@ -1331,11 +1336,55 @@ def _app_mention_ignore_reason(event: dict[str, Any]) -> str | None:
     """
     if event.get("edited") or event.get("subtype") == "message_changed":
         return "edit"
+    return _mention_content_ignore_reason(event)
+
+
+def _mention_content_ignore_reason(event: dict[str, Any]) -> str | None:
     authorship = _app_authorship_ignore_reason(event)
     if authorship:
         return authorship
     if _every_mention_is_a_path_segment(event):
         return "path_mention"
+    return None
+
+
+def _message_handled_cache_key(slack_team_id: str, event: dict[str, Any]) -> str | None:
+    channel = event.get("channel")
+    message_ts = event.get("ts")
+    if not isinstance(channel, str) or not channel or not isinstance(message_ts, str) or not message_ts:
+        return None
+    return f"slack_app:message_handled:v1:{slack_team_id}:{channel}:{message_ts}"
+
+
+def _mark_message_handled(slack_team_id: str, event: dict[str, Any], handled_as: str) -> None:
+    """Record that the pipeline acted on this message, so that a later edit of it starts nothing."""
+    cache_key = _message_handled_cache_key(slack_team_id, event)
+    if cache_key is not None:
+        cache.set(cache_key, handled_as, timeout=MESSAGE_HANDLED_MARKER_TTL_SECONDS)
+
+
+def _edited_mention_ignore_cause(event: dict[str, Any], slack_team_id: str) -> str | None:
+    """Why an edited ``app_mention`` must start nothing, or None when it must start a run.
+
+    The marker claim is atomic and comes last, so a second edit of the same message stops here.
+    """
+    # The envelope nests the message, so its top-level ``ts`` is the ts of the change.
+    if event.get("subtype") == "message_changed":
+        return "message_changed_envelope"
+    content_reason = _mention_content_ignore_reason(event)
+    if content_reason:
+        return content_reason
+    cache_key = _message_handled_cache_key(slack_team_id, event)
+    if cache_key is None:
+        return "no_message_ts"
+    try:
+        posted_at = float(event["ts"])
+    except ValueError:
+        return "no_message_ts"
+    if time.time() - posted_at > EDITED_MENTION_WINDOW_SECONDS:
+        return "too_old"
+    if not cache.add(cache_key, "edited_mention", timeout=MESSAGE_HANDLED_MARKER_TTL_SECONDS):
+        return f"handled_as_{cache.get(cache_key) or 'unknown'}"
     return None
 
 
@@ -2265,10 +2314,26 @@ def route_posthog_code_event_to_relevant_region(
 
         if event_type == "app_mention":
             ignore_reason = _app_mention_ignore_reason(event)
+            drop_context: dict[str, Any] = {}
+            if ignore_reason == "edit":
+                edit_ignore_cause = _edited_mention_ignore_cause(event, slack_team_id)
+                if edit_ignore_cause is None:
+                    ignore_reason = None
+                    logger.info(
+                        "slack_app_edited_mention_accepted",
+                        slack_team_id=slack_team_id,
+                        channel=event.get("channel"),
+                        message_ts=event.get("ts"),
+                    )
+                else:
+                    drop_context = {"edit_ignore_cause": edit_ignore_cause}
+            elif ignore_reason == "path_mention":
+                drop_context = _path_mention_drop_properties(event)
+            elif ignore_reason is None:
+                # Marked before the later gates, so that an edit of a refused mention does not
+                # repeat the explanation.
+                _mark_message_handled(slack_team_id, event, "mention")
             if ignore_reason:
-                drop_context: dict[str, Any] = (
-                    _path_mention_drop_properties(event) if ignore_reason == "path_mention" else {}
-                )
                 logger.info(
                     "slack_app_event_app_mention_ignored",
                     reason=ignore_reason,
@@ -2403,6 +2468,7 @@ def route_posthog_code_event_to_relevant_region(
                     reason=f"user_unresolved:{resolution.failure_reason or 'unknown'}",
                     replied=False,
                     integration=untagged_followup_mapping.integration,
+                    **unresolved_user_properties(resolution, untagged_followup_mapping.integration),
                 )
                 return ROUTE_HANDLED_LOCALLY
             # Keep the failure reply out of the channel in an unapproved
@@ -2438,6 +2504,7 @@ def route_posthog_code_event_to_relevant_region(
                 replied=replied,
                 integration=probe,
                 posthog_user=attributed_user,
+                **unresolved_user_properties(resolution, probe),
             )
             return ROUTE_HANDLED_LOCALLY
 
@@ -2557,6 +2624,9 @@ def route_posthog_code_event_to_relevant_region(
             posthog_user=posthog_user,
         ):
             return ROUTE_HANDLED_LOCALLY
+
+        if untagged_followup_mapping is not None:
+            _mark_message_handled(slack_team_id, event, "untagged_followup")
 
         return _start_mention_workflow(
             event,
@@ -3504,6 +3574,7 @@ def _report_slack_mention_received(
             # ``posthog code slack mention dropped`` reports the same field, so the two sides
             # add up to a funnel.
             "slack_event_type": event.get("type"),
+            "slack_message_edited": bool(event.get("edited")),
             # "im" marks an assistant DM; channel mentions carry "channel"/"group" or no type at all.
             "slack_channel_type": event.get("channel_type"),
             "posthog_user_identified": identified_distinct_id is not None,

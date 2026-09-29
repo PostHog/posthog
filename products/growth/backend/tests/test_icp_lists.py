@@ -71,8 +71,9 @@ class TestIcpLists(BaseTest):
 
         assert active_version() == "lists-1"
 
-        config.version = "lists-2"
-        config.save()
+        replacement = _config(version="lists-2")
+        IcpScoringConfig.objects.filter(pk=config.pk).update(is_active=False)
+        IcpScoringConfig.objects.filter(pk=replacement.pk).update(is_active=True)
         assert active_version() == "lists-1"  # cached
         clear_lists_cache()
         assert active_version() == "lists-2"

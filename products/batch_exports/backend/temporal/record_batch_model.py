@@ -27,6 +27,7 @@ from products.batch_exports.backend.hogql_source import (
     UnsupportedHogQLQueryError,
     create_hogql_context_for_batch_export,
     find_interval_placeholders,
+    load_hogql_modifiers,
     parse_hogql_select_for_batch_export,
     replace_interval_placeholders,
     serialize_batch_export_query,
@@ -372,11 +373,17 @@ class HogQLQueryRecordBatchModel(RecordBatchModel):
     """
 
     def __init__(
-        self, team_id: int, hogql_query: str, batch_export_id: str | None = None, user_id: int | None = None
+        self,
+        team_id: int,
+        hogql_query: str,
+        batch_export_id: str | None = None,
+        user_id: int | None = None,
+        hogql_modifiers: dict[str, typing.Any] | None = None,
     ) -> None:
         super().__init__(team_id=team_id, batch_export_id=batch_export_id)
         self.user_id = user_id
         self.hogql_query = hogql_query
+        self.hogql_modifiers = load_hogql_modifiers(hogql_modifiers)
         self.parsed_hogql_query = parse_hogql_select_for_batch_export(hogql_query)
         self.wait_for_data_interval_end = DATA_INTERVAL_END_PLACEHOLDER in find_interval_placeholders(
             self.parsed_hogql_query
@@ -387,7 +394,7 @@ class HogQLQueryRecordBatchModel(RecordBatchModel):
         user = await User.objects.filter(pk=self.user_id).afirst()
         await database_sync_to_async(validate_hogql_batch_export_user)(team, user)
         return await database_sync_to_async(create_hogql_context_for_batch_export)(
-            team, user=user, values={"log_comment": self.get_log_comment()}
+            team, user=user, values={"log_comment": self.get_log_comment()}, modifiers=self.hogql_modifiers
         )
 
     async def _print_query(
@@ -455,6 +462,7 @@ def resolve_batch_exports_model(
                     hogql_query=model.hogql_query,
                     batch_export_id=batch_export_id,
                     user_id=model.user_id,
+                    hogql_modifiers=model.hogql_modifiers,
                 )
         else:
             model_name = "events"

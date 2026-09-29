@@ -704,7 +704,14 @@ class RecordCheckResultRequestSerializer(serializers.Serializer):
 
     check_id = serializers.UUIDField(help_text="The check this run was dispatched to answer, as given in the run note.")
     outcome = serializers.ChoiceField(
-        choices=SignalReportCheck.Outcome.choices,
+        choices=[
+            (outcome.value, outcome.label)
+            for outcome in (
+                SignalReportCheck.Outcome.PASSED,
+                SignalReportCheck.Outcome.FAILED,
+                SignalReportCheck.Outcome.ERRORED,
+            )
+        ],
         help_text=(
             "`passed` when the expectation still holds, `failed` when it does not, and `errored` when you "
             "could not establish either. `failed` retires the check, so use it for a conclusion, not a suspicion."
@@ -776,6 +783,26 @@ class ScoutCheckSummarySerializer(serializers.Serializer):
     next_run_at = serializers.DateTimeField(help_text="When the check next runs. Provisional while it is `pending`.")
     last_outcome = serializers.CharField(
         allow_null=True, help_text="Verdict of the most recent run; null before the first."
+    )
+    run_state = serializers.CharField(
+        help_text=(
+            "Where the check is in its run cycle. `waiting_on_report`: pending, no fix to measure yet. "
+            "`paused`: active, but its report is suppressed or its horizon passed, so nothing runs it. "
+            "`scheduled`: active, not due yet. `due`: due now, so a run on the check's scout may record the verdict. "
+            "`queued`: a run was dispatched and has not started. `running`: the dispatched run started and has "
+            "time left. `stale`: the dispatched run recorded nothing in its window, so the coordinator dispatches "
+            "again. Any other value is the terminal status."
+        )
+    )
+    waiting_on_run = serializers.BooleanField(
+        help_text="True while an `agent` check waits on a dispatched run to record its verdict."
+    )
+    dispatched_run_id = serializers.UUIDField(
+        allow_null=True,
+        help_text="The scout run the coordinator dispatched for the check, once it started. Null while queued.",
+    )
+    dispatched_at = serializers.DateTimeField(
+        allow_null=True, help_text="When the coordinator last dispatched a run for the check. Null when no run waits."
     )
 
 
@@ -1229,6 +1256,15 @@ class ScoutNotesQuerySerializer(serializers.Serializer):
             "full body — use this on wide scans so stacked notes can't dominate your context."
         ),
     )
+    text = serializers.CharField(
+        required=False,
+        max_length=200,
+        help_text=(
+            "Return only the notes whose content contains this text, case-insensitively. Pass an "
+            "entity (an error id, a flag key, a page path, an event name) to find the notes about "
+            "it, including older ones the newest-first cap would hide."
+        ),
+    )
     limit = serializers.IntegerField(
         required=False,
         min_value=1,
@@ -1442,6 +1478,27 @@ class SuggestedReviewerSerializer(serializers.Serializer):
         return attrs
 
 
+class ReportLinkWriteSerializer(serializers.Serializer):
+    """One typed, directed link to write on the report being emitted or edited."""
+
+    kind = serializers.ChoiceField(
+        choices=report_link_kind_choices(),
+        help_text=(
+            "How this report relates to `report_id`. `depends_on` for work that cannot land "
+            "until the other report's fix does, `part_of` for one piece of a larger report, "
+            "`follow_up_of` for work the other report left behind, `duplicate_of` for the same "
+            "problem filed twice, and `recurrence_of` for a problem a resolved report already covered."
+        ),
+    )
+    report_id = serializers.CharField(help_text="Id of the report to link to. Must be another report in this project.")
+    reason = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=MAX_REPORT_LINK_REASON_LENGTH,
+        help_text="Optional one-line note on why the reports are linked this way.",
+    )
+
+
 class EmitReportRequestSerializer(serializers.Serializer):
     """Request body for `emit-report`. Run attribution is taken from the URL path."""
 
@@ -1558,6 +1615,19 @@ class EmitReportRequestSerializer(serializers.Serializer):
             "research left open, phrased as the reader would send them."
         ),
     )
+    links = serializers.ListField(
+        required=False,
+        child=ReportLinkWriteSerializer(),
+        max_length=MAX_REPORT_LINKS_PER_WRITE,
+        help_text=(
+            "Typed, directed links from the new report to reports that already exist. Send them here, "
+            "not in a later `edit-report` call, because autostart reads them when the report is created: "
+            "a `duplicate_of` link to a report that already has a pull request, or a `depends_on` link to "
+            "a report with no pull request yet, stops a second draft PR. Only the new report gets a row, "
+            "so link from the side the sentence starts at. Links of the same kind must stay acyclic and "
+            "every report must be in this project."
+        ),
+    )
     idempotency_key = serializers.CharField(
         required=False,
         allow_null=True,
@@ -1606,27 +1676,6 @@ class EmitReportResponseSerializer(serializers.Serializer):
             "above describe that first report. Expected on a retry; treat the report as filed and don't "
             "send it again."
         ),
-    )
-
-
-class ReportLinkWriteSerializer(serializers.Serializer):
-    """One typed, directed link to write on the report being edited."""
-
-    kind = serializers.ChoiceField(
-        choices=report_link_kind_choices(),
-        help_text=(
-            "How the edited report relates to `report_id`. `depends_on` for work that cannot land "
-            "until the other report's fix does, `part_of` for one piece of a larger report, "
-            "`follow_up_of` for work the other report left behind, `duplicate_of` for the same "
-            "problem filed twice, and `recurrence_of` for a problem a resolved report already covered."
-        ),
-    )
-    report_id = serializers.CharField(help_text="Id of the report to link to. Must be another report in this project.")
-    reason = serializers.CharField(
-        required=False,
-        allow_blank=True,
-        max_length=MAX_REPORT_LINK_REASON_LENGTH,
-        help_text="Optional one-line note on why the reports are linked this way.",
     )
 
 

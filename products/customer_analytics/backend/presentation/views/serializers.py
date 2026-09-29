@@ -1477,11 +1477,22 @@ class CalendarSyncStatusSerializer(DataclassSerializer):
         read_only=True, allow_null=True, help_text="When the last sync run completed; null before the first sync."
     )
     is_syncing = serializers.BooleanField(read_only=True, help_text="Whether a sync run is currently in flight.")
+    sync_interval_minutes = serializers.IntegerField(read_only=True, help_text="Minutes between scheduled syncs.")
 
     class Meta:
         dataclass = CalendarSyncStatus
         ref_name = "CalendarSyncStatus"
-        fields = ["integration_id", "last_synced_at", "is_syncing"]
+        fields = ["integration_id", "last_synced_at", "is_syncing", "sync_interval_minutes"]
+
+
+class CalendarSyncIntervalSerializer(serializers.Serializer):
+    integration_id = serializers.IntegerField(help_text="Id of the connected Google account.")
+    sync_interval_minutes = serializers.IntegerField(help_text="Minutes between scheduled syncs: 5, 15, 30, or 60.")
+
+    def validate_sync_interval_minutes(self, value: int) -> int:
+        if value not in (5, 15, 30, 60):
+            raise serializers.ValidationError("Choose 5, 15, 30, or 60 minutes.")
+        return value
 
 
 class CalendarSyncTriggerSerializer(serializers.Serializer):
@@ -1585,12 +1596,12 @@ class CustomPropertySyncTriggerResponseSerializer(serializers.Serializer):
         choices=[("triggered", "triggered"), ("started", "started"), ("already_running", "already_running")],
         help_text=(
             "'triggered' (sync now started the warehouse sync), 'started' (a new backfill began), or "
-            "'already_running' (a backfill for this table was already in flight, so this was a no-op)."
+            "'already_running' (a backfill was in flight and a latest-state follow-up was queued)."
         ),
     )
     already_running = serializers.BooleanField(
         required=False,
-        help_text="Backfill only: true when a backfill for this table was already running and this call coalesced.",
+        help_text="Backfill only: true when a run was already in flight and this call queued its follow-up.",
     )
 
 
@@ -1752,7 +1763,7 @@ class CustomPropertySourceSerializer(DataclassSerializer):
         help_text=(
             "Person and group sources only: {warehouse_column: description} giving each mapped column a "
             "human-facing description, seeded from the warehouse column's information_schema "
-            "description. Optional per column. Create-only."
+            "description. Optional per column."
         ),
     )
     key_column = serializers.CharField(
@@ -2006,14 +2017,29 @@ class CustomPropertyDefinitionSerializer(DataclassSerializer):
 
 
 class CustomPropertySourceUpdateSerializer(serializers.Serializer):
-    """Writable fields for updating a source. ``definition`` and ``saved_query`` are create-only, so
-    they are intentionally absent — only these reach the facade's update."""
+    """Writable fields for updating a source. Binding and definition fields are create-only, so they
+    are intentionally absent — only these reach the facade's update."""
 
     source_column = serializers.CharField(
         max_length=400, required=False, help_text="Column in the view whose value is written to the property."
     )
     key_column = serializers.CharField(
         max_length=400, required=False, help_text="Column in the view whose value matches an account's external_id."
+    )
+    column_property_map = serializers.JSONField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Person and group sources only: {warehouse_column: property_name} mapping the columns this "
+            "source writes onto the person or group."
+        ),
+    )
+    column_descriptions = serializers.JSONField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Person and group sources only: {warehouse_column: description} for mapped columns. Optional per column."
+        ),
     )
     is_enabled = serializers.BooleanField(
         required=False, help_text="Whether the source syncs; re-enabling it resets the failure count."

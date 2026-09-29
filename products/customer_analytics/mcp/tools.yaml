@@ -547,6 +547,9 @@ tools:
     calendar-sync-backfill-create:
         operation: calendar_sync_backfill_create
         enabled: false
+    calendar-sync-interval-create:
+        operation: calendar_sync_interval_create
+        enabled: false
     calendar-sync-list:
         operation: calendar_sync_list
         enabled: false
@@ -798,6 +801,9 @@ tools:
         enabled: false
     customer-analytics-accounts-table-query-create:
         operation: customer_analytics_accounts_table_query_create
+        enabled: false
+    customer-analytics-external-account-create:
+        operation: customer_analytics_external_account_create
         enabled: false
     customer-analytics-external-account-retrieve:
         operation: customer_analytics_external_account_retrieve

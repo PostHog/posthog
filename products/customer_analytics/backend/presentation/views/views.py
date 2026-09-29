@@ -83,6 +83,7 @@ from products.customer_analytics.backend.presentation.views.serializers import (
     AccountTrackRuleRunSerializer,
     AccountTrackRulesConfigSerializer,
     CalendarSyncBackfillSerializer,
+    CalendarSyncIntervalSerializer,
     CalendarSyncStatusSerializer,
     CalendarSyncTriggerResponseSerializer,
     CalendarSyncTriggerSerializer,
@@ -1461,6 +1462,8 @@ class CustomPropertySourceViewSet(
                 fields=write.validated_data,
                 user_access_control=_warehouse_scoped_uac(self),
             )
+        except api.CustomPropertySourceValidationError as e:
+            raise ValidationError(str(e))
         except api.ResourceForbiddenError:
             raise PermissionDenied()
         if source is None:
@@ -1525,8 +1528,8 @@ class CustomPropertySourceViewSet(
     @action(methods=["POST"], detail=True)
     def backfill(self, request: Request, *args, **kwargs) -> Response:
         """Person and group sources only: start a backfill that reads the whole warehouse table and
-        populates person or group properties for historical rows. Coalesces if one is already running
-        for the table."""
+        populates person or group properties for historical rows. If one is already running for the
+        table, queue a follow-up that observes the latest mapping."""
         self._guard_group_source(request, self.kwargs["pk"])
         try:
             started = api.trigger_person_property_backfill(
@@ -2798,6 +2801,22 @@ class CalendarSyncViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vie
     def list(self, request: Request, *args, **kwargs) -> Response:
         statuses = api.list_calendar_sync_statuses(self.team_id)
         return Response(CalendarSyncStatusSerializer(instance=statuses, many=True).data)
+
+    @validated_request(
+        request_serializer=CalendarSyncIntervalSerializer,
+        responses={200: CalendarSyncIntervalSerializer},
+        summary="Set Google account sync interval",
+    )
+    @action(methods=["POST"], detail=False, url_path="interval")
+    def interval(self, request: ValidatedRequest, *args, **kwargs) -> Response:
+        requesting_level = self.user_permissions.current_team.effective_membership_level
+        if requesting_level is None or requesting_level < OrganizationMembership.Level.ADMIN:
+            raise PermissionDenied("Only project admins can change Google account sync intervals.")
+        integration_id = request.validated_data["integration_id"]
+        interval_minutes = request.validated_data["sync_interval_minutes"]
+        if not api.update_calendar_sync_interval(self.team_id, integration_id, interval_minutes):
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(CalendarSyncIntervalSerializer(instance=request.validated_data).data)
 
     @validated_request(
         request_serializer=CalendarSyncBackfillSerializer,

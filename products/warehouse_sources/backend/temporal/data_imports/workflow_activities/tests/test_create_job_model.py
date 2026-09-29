@@ -4,7 +4,7 @@ import datetime as dt
 import pytest
 from unittest.mock import MagicMock, patch
 
-from django.db import OperationalError
+from django.db import IntegrityError, OperationalError
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -432,3 +432,114 @@ class TestCreateJobActivityDeletedSourceOrSchema:
         assert is_expected_activity_failure(exc_info.value)
         mock_delete_schedule.assert_called_once_with(str(schema.id))
         assert ExternalDataJob.objects.filter(schema_id=schema.id).count() == 0
+
+    @patch(f"{MODULE}.close_old_connections")
+    @patch(f"{MODULE}.delete_external_data_schedule")
+    @patch(f"{MODULE}._create_job")
+    def test_integrity_error_on_insert_is_treated_as_the_same_race(
+        self,
+        mock_create_job: MagicMock,
+        mock_delete_schedule: MagicMock,
+        _mock_close_connections: MagicMock,
+    ) -> None:
+        # The row can still vanish (e.g. a team deletion cascading to its source/schema) between
+        # the existence check passing and the insert itself, surfacing as a raw IntegrityError
+        # instead of the early check catching it.
+        team = _team()
+        schema = _schema(team, None)
+        mock_create_job.side_effect = IntegrityError(
+            'insert or update on table "posthog_externaldatajob" violates foreign key constraint'
+        )
+
+        inputs = CreateExternalDataJobModelActivityInputs(
+            team_id=team.id,
+            schema_id=schema.id,
+            source_id=schema.source_id,
+            billable=True,
+        )
+
+        with pytest.raises(SourceOrSchemaDeletedError) as exc_info:
+            create_external_data_job_model_activity(inputs)
+
+        assert is_expected_activity_failure(exc_info.value)
+        mock_delete_schedule.assert_called_once_with(str(schema.id))
+
+
+@pytest.mark.django_db
+class TestCreateJobActivityPrepareRunOutputs:
+    @parameterized.expand(
+        [
+            ("non_billable_run_is_never_limited", False, True, False),
+            ("billable_run_under_quota", True, False, False),
+            ("billable_run_over_quota", True, True, True),
+        ]
+    )
+    @patch(f"{MODULE}.close_old_connections")
+    @patch(f"{MODULE}.activity")
+    def test_answers_the_billing_limit_with_the_job_row(
+        self,
+        _name: str,
+        billable: bool,
+        team_limited: bool,
+        expect_hit: bool,
+        mock_activity: MagicMock,
+        _mock_close_connections: MagicMock,
+    ) -> None:
+        mock_activity.info.return_value.workflow_id = "wf-1"
+        mock_activity.info.return_value.workflow_run_id = "run-1"
+        team = _team()
+        schema = _schema(team, None)
+        # Past the free window for a new source, so only the quota decides.
+        ExternalDataSource.objects.filter(id=schema.source_id).update(created_at=timezone.now() - dt.timedelta(days=30))
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.workflow_activities.check_billing_limits.is_team_limited",
+            return_value=team_limited,
+        ):
+            result = create_external_data_job_model_activity(
+                CreateExternalDataJobModelActivityInputs(
+                    team_id=team.id, schema_id=schema.id, source_id=schema.source_id, billable=billable
+                )
+            )
+
+        assert result.billing_limit_checked is True
+        assert result.hit_billing_limit is expect_hit
+        assert ExternalDataJob.objects.filter(schema_id=schema.id).count() == 1
+
+    @parameterized.expand(
+        [
+            ("stripe_first_sync", "Stripe", False, True),
+            ("stripe_after_a_completed_sync", "Stripe", True, False),
+            ("other_source", "Postgres", False, False),
+        ]
+    )
+    @patch(f"{MODULE}.close_old_connections")
+    @patch(f"{MODULE}.activity")
+    def test_source_templates_needed_only_for_a_stripe_sources_first_sync(
+        self,
+        _name: str,
+        source_type: str,
+        has_completed_job: bool,
+        expected: bool,
+        mock_activity: MagicMock,
+        _mock_close_connections: MagicMock,
+    ) -> None:
+        mock_activity.info.return_value.workflow_id = "wf-1"
+        mock_activity.info.return_value.workflow_run_id = "run-1"
+        team = _team()
+        source = ExternalDataSource.objects.create(
+            source_id="src", connection_id="conn", team=team, source_type=source_type
+        )
+        schema = ExternalDataSchema.objects.create(name="Charge", team=team, source=source)
+        if has_completed_job:
+            ExternalDataJob.objects.create(
+                team=team, pipeline=source, schema=schema, status=ExternalDataJob.Status.COMPLETED, rows_synced=0
+            )
+
+        result = create_external_data_job_model_activity(
+            CreateExternalDataJobModelActivityInputs(
+                team_id=team.id, schema_id=schema.id, source_id=source.id, billable=False
+            )
+        )
+
+        assert result.source_templates_needed is expected
