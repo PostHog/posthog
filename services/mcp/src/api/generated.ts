@@ -106599,6 +106599,11 @@ export namespace Schemas {
       total_cost_usd: number | null;
       /** Whether the call failed. */
       is_error: boolean;
+      /**
+         * The span id the event names in `task_run_span_id`: the span of this trace the call belongs under. Set on events linked to the trace by `task_run_trace_id`.
+         * @nullable
+         */
+      run_span_id: string | null;
     }
 
     export interface _TracingTraceAiEventsResponse {
@@ -118807,6 +118812,17 @@ export namespace Schemas {
      * @minLength 1
      */
     search?: string;
+    };
+
+    export type TracingSpansTraceAiEventsRetrieveParams = {
+    /**
+     * Start of the trace, in ISO 8601. With `date_to`, the lookup also returns events that name the trace in `task_run_trace_id`, searched in this range.
+     */
+    date_from?: string;
+    /**
+     * End of the trace, in ISO 8601. Used only together with `date_from`.
+     */
+    date_to?: string;
     };
 
     export type TracingSpansValuesRetrieveParams = {

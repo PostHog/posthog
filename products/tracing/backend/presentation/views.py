@@ -857,6 +857,20 @@ class _TracingTraceAiEventSerializer(serializers.Serializer):
     output_tokens = serializers.IntegerField(allow_null=True, help_text="Completion tokens.")
     total_cost_usd = serializers.FloatField(allow_null=True, help_text="Total cost of the call, in USD.")
     is_error = serializers.BooleanField(help_text="Whether the call failed.")
+    run_span_id = serializers.CharField(
+        allow_null=True,
+        help_text="The span id the event names in `task_run_span_id`: the span of this trace the call belongs under. Set on events linked to the trace by `task_run_trace_id`.",
+    )
+
+
+class _TracingTraceAiEventsQuerySerializer(serializers.Serializer):
+    date_from = serializers.DateTimeField(
+        required=False,
+        help_text="Start of the trace, in ISO 8601. With `date_to`, the lookup also returns events that name the trace in `task_run_trace_id`, searched in this range.",
+    )
+    date_to = serializers.DateTimeField(
+        required=False, help_text="End of the trace, in ISO 8601. Used only together with `date_from`."
+    )
 
 
 class _TracingTraceAiEventsResponseSerializer(serializers.Serializer):
@@ -1913,7 +1927,10 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             status=status.HTTP_200_OK,
         )
 
-    @extend_schema(responses={200: _TracingTraceAiEventsResponseSerializer})
+    @validated_request(
+        query_serializer=_TracingTraceAiEventsQuerySerializer,
+        responses={200: OpenApiResponse(response=_TracingTraceAiEventsResponseSerializer)},
+    )
     # Both scopes: the response is LLM analytics data, so a token scoped to tracing alone must
     # not reach it. Scopes gate the token; the access-control check below gates the user.
     @action(
@@ -1922,9 +1939,10 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         url_path="trace/(?P<trace_id>[a-zA-Z0-9]+)/ai_events",
         required_scopes=["tracing:read", "llm_analytics:read"],
     )
-    def trace_ai_events(self, request: Request, trace_id: str, *args, **kwargs) -> Response:
+    def trace_ai_events(self, request: ValidatedRequest, trace_id: str, *args, **kwargs) -> Response:
         """List the LLM analytics events whose `$ai_trace_id` is this trace's id, so the waterfall
-        can show each model call inline with the spans.
+        can show each model call inline with the spans. With the trace's time range it also lists
+        the events that name the trace in `task_run_trace_id`.
 
         The spans and the AI events live on different ClickHouse clusters, so one query cannot join
         them; this returns the events half and the caller places them by time.
@@ -1948,7 +1966,13 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         except ValueError:
             return Response(status=status.HTTP_400_BAD_REQUEST)
 
-        ai_events = fetch_trace_ai_events(team=self.team, user=cast(User, request.user), trace_id=trace_id)
+        ai_events = fetch_trace_ai_events(
+            team=self.team,
+            user=cast(User, request.user),
+            trace_id=trace_id,
+            date_from=request.validated_query_data.get("date_from"),
+            date_to=request.validated_query_data.get("date_to"),
+        )
 
         self._report_usage(
             request,
