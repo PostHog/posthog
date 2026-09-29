@@ -4,6 +4,8 @@ export const colors = {
   // posthog.com's tan and ink; the brand package only ships the chromatic set.
   bg: "#EEEFE9",
   bgDeep: "#E4E6DE",
+  // Raised surfaces: a half step between the tan and white.
+  bgRaised: "#F7F7F3",
   ink: "#151515",
   inkSoft: "#4F5150",
   inkMute: "#8F918D",
