@@ -1506,6 +1506,126 @@ export namespace Schemas {
       groups: AccountTrackRuleGroup[];
     }
 
+    /**
+     * * `doc` - doc
+     */
+    export type AccountViewContentTypeEnum = typeof AccountViewContentTypeEnum[keyof typeof AccountViewContentTypeEnum];
+
+
+    export const AccountViewContentTypeEnum = {
+      Doc: 'doc',
+    } as const;
+
+    /**
+     * * `ph-markdown-notebook` - ph-markdown-notebook
+     */
+    export type AccountViewMarkdownNodeTypeEnum = typeof AccountViewMarkdownNodeTypeEnum[keyof typeof AccountViewMarkdownNodeTypeEnum];
+
+
+    export const AccountViewMarkdownNodeTypeEnum = {
+      PhMarkdownNotebook: 'ph-markdown-notebook',
+    } as const;
+
+    export interface AccountViewMarkdownAttributes {
+      /** Stable identifier for this document. */
+      nodeId: string;
+      /**
+         * Component-only Markdown stored by the account view editor.
+         * @maxLength 262144
+         */
+      markdown: string;
+    }
+
+    export interface AccountViewMarkdownNode {
+      /** Markdown notebook node type.
+       *
+       * * `ph-markdown-notebook` - ph-markdown-notebook */
+      type: AccountViewMarkdownNodeTypeEnum;
+      /** Markdown notebook attributes. */
+      attrs: AccountViewMarkdownAttributes;
+    }
+
+    export interface AccountViewContent {
+      /** Document root type.
+       *
+       * * `doc` - doc */
+      type: AccountViewContentTypeEnum;
+      /**
+         * The single Markdown notebook node containing the account view components.
+         * @minItems 1
+         * @maxItems 1
+         */
+      content: AccountViewMarkdownNode[];
+    }
+
+    export interface AccountView {
+      /** Stable account view identifier. */
+      readonly id: string;
+      /** Name shown in the account view. */
+      readonly name: string;
+      /** Account views created through this API are private. */
+      readonly visibility: string;
+      /** Validated Markdown notebook document. */
+      readonly content: AccountViewContent;
+      /** Searchable component labels extracted from content. */
+      readonly text_content: string;
+      /** Optimistic concurrency version. */
+      readonly version: number;
+      /**
+         * Creator user ID.
+         * @nullable
+         */
+      readonly created_by: number | null;
+      /**
+         * User ID that last changed the view.
+         * @nullable
+         */
+      readonly last_modified_by: number | null;
+      /** When the view was created. */
+      readonly created_at: string;
+      /** When the view was last changed. */
+      readonly updated_at: string;
+    }
+
+    export interface AccountViewCreate {
+      /**
+         * View name.
+         * @maxLength 400
+         */
+      name: string;
+      /** Initial account view components. */
+      content: AccountViewContent;
+    }
+
+    /**
+     * * `private` - Personal
+     */
+    export type AccountViewUpdateVisibilityEnum = typeof AccountViewUpdateVisibilityEnum[keyof typeof AccountViewUpdateVisibilityEnum];
+
+
+    export const AccountViewUpdateVisibilityEnum = {
+      Private: 'private',
+    } as const;
+
+    export interface AccountViewUpdate {
+      /**
+         * New view name. Omit to keep the current name.
+         * @maxLength 400
+         */
+      name?: string;
+      /** Replacement account view components. Omit to keep current content. */
+      content?: AccountViewContent;
+      /** Views can only be private.
+       *
+       * * `private` - Personal */
+      visibility?: AccountViewUpdateVisibilityEnum;
+      /**
+         * Version returned by the last read.
+         * @minimum 1
+         */
+      version: number;
+    }
+
     export type BounceRatePageViewMode = typeof BounceRatePageViewMode[keyof typeof BounceRatePageViewMode];
 
 
@@ -24248,7 +24368,7 @@ export namespace Schemas {
       source_column?: string | null;
       /** Person and group sources only: {warehouse_column: property_name} mapping the columns this source writes onto the person or group. */
       column_property_map?: unknown;
-      /** Person and group sources only: {warehouse_column: description} giving each mapped column a human-facing description, seeded from the warehouse column's information_schema description. Optional per column. Create-only. */
+      /** Person and group sources only: {warehouse_column: description} giving each mapped column a human-facing description, seeded from the warehouse column's information_schema description. Optional per column. */
       column_descriptions?: unknown;
       /**
          * Column whose value identifies the target: an account's external_id for account sources, the person's distinct_id for person sources, or the group key for group sources.
@@ -24383,8 +24503,8 @@ export namespace Schemas {
     }
 
     /**
-     * Writable fields for updating a source. ``definition`` and ``saved_query`` are create-only, so
-     * they are intentionally absent — only these reach the facade's update.
+     * Writable fields for updating a source. Binding and definition fields are create-only, so they
+     * are intentionally absent — only these reach the facade's update.
      */
     export interface CustomPropertySourceUpdate {
       /**
@@ -24397,6 +24517,10 @@ export namespace Schemas {
          * @maxLength 400
          */
       key_column?: string;
+      /** Person and group sources only: {warehouse_column: property_name} mapping the columns this source writes onto the person or group. */
+      column_property_map?: unknown;
+      /** Person and group sources only: {warehouse_column: description} for mapped columns. Optional per column. */
+      column_descriptions?: unknown;
       /** Whether the source syncs; re-enabling it resets the failure count. */
       is_enabled?: boolean;
     }
@@ -24419,13 +24543,13 @@ export namespace Schemas {
      * Response of the person/group-property sync/backfill trigger actions.
      */
     export interface CustomPropertySyncTriggerResponse {
-      /** 'triggered' (sync now started the warehouse sync), 'started' (a new backfill began), or 'already_running' (a backfill for this table was already in flight, so this was a no-op).
+      /** 'triggered' (sync now started the warehouse sync), 'started' (a new backfill began), or 'already_running' (a backfill was in flight and a latest-state follow-up was queued).
        *
        * * `triggered` - triggered
        * * `started` - started
        * * `already_running` - already_running */
       status: CustomPropertySyncTriggerResponseStatusEnum;
-      /** Backfill only: true when a backfill for this table was already running and this call coalesced. */
+      /** Backfill only: true when a run was already in flight and this call queued its follow-up. */
       already_running?: boolean;
     }
 
@@ -72588,8 +72712,8 @@ export namespace Schemas {
     }
 
     /**
-     * Writable fields for updating a source. ``definition`` and ``saved_query`` are create-only, so
-     * they are intentionally absent — only these reach the facade's update.
+     * Writable fields for updating a source. Binding and definition fields are create-only, so they
+     * are intentionally absent — only these reach the facade's update.
      */
     export interface PatchedCustomPropertySourceUpdate {
       /**
@@ -72602,6 +72726,10 @@ export namespace Schemas {
          * @maxLength 400
          */
       key_column?: string;
+      /** Person and group sources only: {warehouse_column: property_name} mapping the columns this source writes onto the person or group. */
+      column_property_map?: unknown;
+      /** Person and group sources only: {warehouse_column: description} for mapped columns. Optional per column. */
+      column_descriptions?: unknown;
       /** Whether the source syncs; re-enabling it resets the failure count. */
       is_enabled?: boolean;
     }
@@ -86948,17 +87076,19 @@ export namespace Schemas {
     }
 
     /**
-     * * `passed` - Passed
-     * * `failed` - Failed
-     * * `errored` - Errored
+     * * `awaiting_data` - Awaiting Data
+     * * `unmeasurable` - Unmeasurable
+     * * `needs_manual_verification` - Needs Manual Verification
+     * * `no_fix_to_measure` - No Fix To Measure
      */
-    export type RecordCheckResultRequestOutcomeEnum = typeof RecordCheckResultRequestOutcomeEnum[keyof typeof RecordCheckResultRequestOutcomeEnum];
+    export type SignalReportCheckInconclusiveReasonEnum = typeof SignalReportCheckInconclusiveReasonEnum[keyof typeof SignalReportCheckInconclusiveReasonEnum];
 
 
-    export const RecordCheckResultRequestOutcomeEnum = {
-      Passed: 'passed',
-      Failed: 'failed',
-      Errored: 'errored',
+    export const SignalReportCheckInconclusiveReasonEnum = {
+      AwaitingData: 'awaiting_data',
+      Unmeasurable: 'unmeasurable',
+      NeedsManualVerification: 'needs_manual_verification',
+      NoFixToMeasure: 'no_fix_to_measure',
     } as const;
 
     /**
@@ -86967,12 +87097,20 @@ export namespace Schemas {
     export interface RecordCheckResultRequest {
       /** The check this run was dispatched to answer, as given in the run note. */
       check_id: string;
-      /** `passed` when the expectation still holds, `failed` when it does not, and `errored` when you could not establish either. `failed` retires the check, so use it for a conclusion, not a suspicion.
+      /** `passed` when the evidence meets the check's stated bar and the expectation holds, `failed` when the evidence meets the bar and the expectation does not hold. `inconclusive` when your tools worked but the evidence cannot settle the question; give a `reason`. `errored` only when a tool, query, or model call failed. `failed` retires the check, so use it for a conclusion, not a suspicion.
        *
        * * `passed` - Passed
        * * `failed` - Failed
-       * * `errored` - Errored */
-      outcome: RecordCheckResultRequestOutcomeEnum;
+       * * `errored` - Errored
+       * * `inconclusive` - Inconclusive */
+      outcome: SignalReportCheckOutcomeEnum;
+      /** Required with `inconclusive`, and refused with any other outcome. `awaiting_data`: the data can still arrive (a rollout lag, a soak not complete, too few samples so far), so the check looks again later. `unmeasurable`: the data the check needs is not captured. `needs_manual_verification`: only a person or another environment can verify it. `no_fix_to_measure`: nothing was changed to fix the claim, so no window after a fix exists. A report resolved without a pull request still has a window that starts when it resolved. Every reason except `awaiting_data` ends the check.
+       *
+       * * `awaiting_data` - Awaiting Data
+       * * `unmeasurable` - Unmeasurable
+       * * `needs_manual_verification` - Needs Manual Verification
+       * * `no_fix_to_measure` - No Fix To Measure */
+      reason?: SignalReportCheckInconclusiveReasonEnum | null;
       /**
          * One or two sentences on what you looked at and what it showed. This is what a person reads on the report, so write it for them, with the numbers or entities you checked.
          * @maxLength 1000
@@ -108428,6 +108566,13 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type AccountViewsDestroyParams = {
+    /**
+     * Version returned by the last read.
+     */
+    version: number;
+    };
+
     export type AccountsListParams = {
     /**
      * When true, returns only accounts where no user actively holds any relationship.
@@ -108758,6 +108903,7 @@ export namespace Schemas {
      * * `OAuthApplication` - OAuthApplication
      * * `User` - User
      * * `Action` - Action
+     * * `AccountView` - AccountView
      * * `AlertConfiguration` - AlertConfiguration
      * * `Threshold` - Threshold
      * * `AlertSubscription` - AlertSubscription
@@ -108861,6 +109007,7 @@ export namespace Schemas {
       OAuthApplication: 'OAuthApplication',
       User: 'User',
       Action: 'Action',
+      AccountView: 'AccountView',
       AlertConfiguration: 'AlertConfiguration',
       Threshold: 'Threshold',
       AlertSubscription: 'AlertSubscription',
@@ -108950,6 +109097,7 @@ export namespace Schemas {
      * * `OAuthApplication` - OAuthApplication
      * * `User` - User
      * * `Action` - Action
+     * * `AccountView` - AccountView
      * * `AlertConfiguration` - AlertConfiguration
      * * `Threshold` - Threshold
      * * `AlertSubscription` - AlertSubscription
@@ -109041,6 +109189,7 @@ export namespace Schemas {
       OAuthApplication: 'OAuthApplication',
       User: 'User',
       Action: 'Action',
+      AccountView: 'AccountView',
       AlertConfiguration: 'AlertConfiguration',
       Threshold: 'Threshold',
       AlertSubscription: 'AlertSubscription',
