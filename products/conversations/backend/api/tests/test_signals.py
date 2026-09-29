@@ -80,10 +80,12 @@ class TestTicketMessageSignals(BaseTest):
         assert self.ticket.updated_at == comment.created_at
         assert self.ticket.unread_customer_count == 0  # Customer messages don't increment this
 
+    @patch("products.conversations.backend.signals.capture_exception")
+    @patch("products.conversations.backend.signals.report_team_action")
     @patch("products.conversations.backend.signals.capture_message_received")
     @patch("products.conversations.backend.signals.capture_message_sent")
     def test_public_workflow_message_counts_without_emitting_a_trigger_event(
-        self, mock_sent, mock_received, mock_on_commit
+        self, mock_sent, mock_received, mock_report_team_action, mock_capture_exception, mock_on_commit
     ):
         Comment.objects.create(
             team=self.team,
@@ -99,6 +101,10 @@ class TestTicketMessageSignals(BaseTest):
         assert self.ticket.unread_customer_count == 1
         mock_sent.assert_not_called()
         mock_received.assert_not_called()
+        mock_capture_exception.assert_not_called()
+        mock_report_team_action.assert_called_once_with(
+            self.ticket.team, "support message sent", {"channel_source": "widget"}
+        )
 
     def test_team_message_updates_stats_and_unread(self, mock_on_commit):
         comment = self._create_team_message("Response from team")

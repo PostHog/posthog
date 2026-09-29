@@ -215,11 +215,11 @@ def update_ticket_on_message(sender, instance: Comment, created: bool, **kwargs)
                     capture_exception(e, {"ticket_id": item_id})
 
             # Customer-facing analytics (to customer's project)
+            author = None
             if is_team_message and author_type != WORKFLOW_AUTHOR_TYPE:
                 author = User.objects.filter(id=created_by_id).first() if created_by_id else None
                 capture_message_sent(ticket, comment_id, content or "", author=author)
             elif not is_team_message:
-                author = None
                 capture_message_received(ticket, comment_id, content or "")
 
             # Internal analytics (PostHog tracking its own usage)
