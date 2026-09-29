@@ -20,7 +20,7 @@ if(inputs.debug) {
 
 if(not empty(inputs.distinct_id) and not empty(inputs.event)) {
   let properties := {}
-  for (let propertyKey, propertyValue in (inputs.properties ?? {})) {
+  for (let propertyKey, propertyValue in withoutCredentials(inputs.properties ?? {})) {
     properties[propertyKey] := withoutCredentials(propertyValue)
   }
   postHogCapture({
