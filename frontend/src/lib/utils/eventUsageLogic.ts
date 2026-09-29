@@ -1102,17 +1102,6 @@ export interface eventUsageLogicActions {
         isPrimary: boolean
         metricUuid: string
     }
-    reportExperimentWizardStepViewed: (
-        step: string,
-        stepNumber: number,
-        previousStep: string | null,
-        navigation: string
-    ) => {
-        navigation: string
-        previousStep: string | null
-        step: string
-        stepNumber: number
-    }
     reportExperimentMetricBreakdownRemoved: (
         experiment: Experiment,
         metricUuid: string,
@@ -1271,6 +1260,17 @@ export interface eventUsageLogicActions {
     }
     reportExperimentWizardStarted: () => {
         value: true
+    }
+    reportExperimentWizardStepViewed: (
+        step: string,
+        stepNumber: number,
+        previousStep: string | null,
+        navigation: string
+    ) => {
+        navigation: string
+        previousStep: string | null
+        step: string
+        stepNumber: number
     }
     reportExperimentsListAiBadgeClicked: () => {
         value: true
