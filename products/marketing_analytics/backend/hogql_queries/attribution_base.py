@@ -58,6 +58,12 @@ class AttributionQueryRunnerBase(MarketingSessionBreakdownQueryRunnerBase[Respon
     # Narrower than the session-breakdown base's union: everything below reads attribution-only fields.
     query: MarketingAnalyticsAttributionQuery | MarketingAnalyticsAttributionPathsQuery
 
+    def get_cache_key_variant(self) -> str:
+        variant = super().get_cache_key_variant()
+        if self.config.live_session_resolution_enabled:
+            return f"{variant}_live_session_resolution"
+        return variant
+
     @cached_property
     def goal(self) -> ConversionGoal:
         """The requested goal, found among the team's configured goals.

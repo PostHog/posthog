@@ -31,6 +31,17 @@ _DIMENSION_FIELDS = {
 }
 
 
+def _raw_session_source(modifiers: HogQLQueryModifiers) -> tuple[str, ast.Expr]:
+    is_v3 = modifiers.sessionTableVersion == SessionTableVersion.V3
+    table = "raw_sessions_v3" if is_v3 else "raw_sessions"
+    timestamp = (
+        ast.Field(chain=[table, "session_timestamp"])
+        if is_v3
+        else uuid_uint128_expr_to_timestamp_expr_v2(ast.Field(chain=[table, "session_id_v7"]))
+    )
+    return table, timestamp
+
+
 def _raw_dimensions(
     modifiers: HogQLQueryModifiers,
     columns: set[str],
@@ -41,20 +52,18 @@ def _raw_dimensions(
     having: ast.Expr | None = None,
     require_valid_start: bool = False,
 ) -> ast.SelectQuery:
-    is_v3 = modifiers.sessionTableVersion == SessionTableVersion.V3
-    table = "raw_sessions_v3" if is_v3 else "raw_sessions"
-    timestamp = (
-        ast.Field(chain=[table, "session_timestamp"])
-        if is_v3
-        else uuid_uint128_expr_to_timestamp_expr_v2(ast.Field(chain=[table, "session_id_v7"]))
-    )
+    table, timestamp = _raw_session_source(modifiers)
     fields = [
         "$start_timestamp",
         "$end_timestamp",
         *[field for column, field in _DIMENSION_FIELDS.items() if column in columns],
     ]
     context = HogQLContext(modifiers=modifiers)
-    select_sessions = select_from_sessions_table_v3 if is_v3 else select_from_sessions_table_v2
+    select_sessions = (
+        select_from_sessions_table_v3
+        if modifiers.sessionTableVersion == SessionTableVersion.V3
+        else select_from_sessions_table_v2
+    )
     source = select_sessions(
         {field: [field] for field in fields}, ast.SelectQuery(select=[ast.Constant(value=1)]), context
     )
@@ -109,13 +118,7 @@ def _raw_dimensions(
 def _exceptional_dimensions(
     modifiers: HogQLQueryModifiers, columns: set[str], start: datetime, end: datetime
 ) -> ast.SelectQuery:
-    is_v3 = modifiers.sessionTableVersion == SessionTableVersion.V3
-    table = "raw_sessions_v3" if is_v3 else "raw_sessions"
-    timestamp = (
-        ast.Field(chain=[table, "session_timestamp"])
-        if is_v3
-        else uuid_uint128_expr_to_timestamp_expr_v2(ast.Field(chain=[table, "session_id_v7"]))
-    )
+    table, timestamp = _raw_session_source(modifiers)
     # Use the live join's ID timestamp window so both paths count the same sessions.
     bounds: dict[str, ast.Expr] = {
         "start": ast.Constant(value=start),

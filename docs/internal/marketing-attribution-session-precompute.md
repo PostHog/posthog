@@ -55,6 +55,7 @@ Ranges that cross a transition can still use cached dimensions when both boundar
 The independent `marketing-analytics-live-session-resolution` flag opts attribution tables and paths into shared live session resolution.
 It takes precedence over the sessions-precomputation flag for eligible queries and does not require precomputed jobs.
 The default remains off.
+Attribution result cache keys distinguish the flag state, so enabling or disabling it cannot reuse results computed with the opposite setting.
 
 This route materializes pageview session IDs and current person IDs once, then resolves current dimensions from the matching raw sessions.
 Reach and credit share those rows and the conversion aggregation.
