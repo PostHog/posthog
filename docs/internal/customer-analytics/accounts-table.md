@@ -15,8 +15,8 @@ Filters within each group use AND, while search, tags, assignment status, and se
 Saved views and shared links keep the groups; older views without groups retain their AND behavior.
 It also keeps sorting, selected columns, column display settings, and overview tile settings.
 
-The filter editor collapses to one row with a condition count and an AND/OR summary.
-Restored filters start collapsed. Adding the first condition opens the groups, and removing the last group restores the Filter button.
+The toolbar keeps a Filters button with a condition count. The button highlights while the compact groups are open below it.
+Restored filters start collapsed. Relationship pills show member names using the same member list as the value picker. Adding the first condition opens the groups, and removing the last group restores the Filter button.
 Empty OR groups do not affect results. Search, tags, and assignment controls remain outside the editor.
 
 The browser stores one draft per project and user in `sessionStorage`.

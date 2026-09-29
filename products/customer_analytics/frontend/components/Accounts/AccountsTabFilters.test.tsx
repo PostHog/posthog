@@ -173,13 +173,16 @@ describe('AccountsTabFilters', () => {
         renderFilters()
 
         expect(screen.queryByText('Add OR group')).not.toBeInTheDocument()
+        expect(screen.getByText('Filters').closest('button')).toHaveAttribute('aria-expanded', 'false')
         fireEvent.click(screen.getByText('Filters'))
+        expect(screen.getByText('Filters').closest('button')).toHaveAttribute('aria-expanded', 'true')
+        expect(screen.queryByText('Match all conditions')).not.toBeInTheDocument()
         expect(await screen.findByText('Add OR group')).toBeInTheDocument()
-        fireEvent.click(screen.getByText('Collapse'))
+        fireEvent.click(screen.getByText('Filters'))
         expect(logic.values.accountFilters).toEqual(first)
         expect(logic.values.accountFilterGroups).toEqual([second])
 
-        fireEvent.click(screen.getByText('Edit'))
+        fireEvent.click(screen.getByText('Filters'))
         fireEvent.click(await screen.findByLabelText('Remove group A'))
         expect(logic.values.accountFilters).toEqual(second)
         expect(logic.values.accountFilterGroups).toEqual([])

@@ -1,8 +1,9 @@
 import '@testing-library/jest-dom'
 
-import { render } from '@testing-library/react'
+import { render, waitFor } from '@testing-library/react'
 import { Provider } from 'kea'
 
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
@@ -52,5 +53,36 @@ describe('PropertyFilterButton', () => {
         // (The inverse — group *property* keys not triggering the card — is
         // covered by the isGroupCardFilterKey() unit tests.)
         expect(contentTitle()).toBeNull()
+    })
+    it('resolves relationship member names without opening the picker and keeps unknown IDs readable', async () => {
+        useMocks({
+            get: {
+                '/api/organizations/:organization_id/members/': {
+                    count: 1,
+                    next: null,
+                    results: [
+                        {
+                            user: { id: 9001, first_name: 'Robin', last_name: 'Finch', email: 'robin@example.com' },
+                        },
+                    ],
+                },
+            },
+        })
+        render(
+            <Provider>
+                <PropertyFilterButton
+                    item={
+                        {
+                            type: PropertyFilterType.AccountRelationship,
+                            key: 'example-relationship',
+                            label: 'CSM',
+                            operator: PropertyOperator.IsNot,
+                            value: [9001, 9002],
+                        } as unknown as AnyPropertyFilter
+                    }
+                />
+            </Provider>
+        )
+        await waitFor(() => expect(contentTitle()).toContain('CSM ≠ Robin Finch, 9002'))
     })
 })
