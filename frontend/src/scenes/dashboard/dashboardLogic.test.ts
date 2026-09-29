@@ -3721,12 +3721,12 @@ describe('dashboardLogic', () => {
         it('preserves sync warnings when a bare PATCH returns them null', async () => {
             const warning = {
                 type: 'warehouse_sync' as const,
-                message: 'Last sync of `costs` (from DoIt) failed.',
-                schema_name: 'costs',
+                message: 'Last sync of `invoices` (from Stripe) failed.',
+                schema_name: 'invoices',
                 source_id: 'source-1',
-                source_type: 'DoIt',
+                source_type: 'Stripe',
                 status: 'Failed',
-                table_name: 'doit_costs',
+                table_name: 'stripe_invoices',
             }
             insightsModel.actions.renameInsightSuccess({ ...insight800(), warnings: [warning] })
             await expectLogic(logic).toFinishAllListeners()

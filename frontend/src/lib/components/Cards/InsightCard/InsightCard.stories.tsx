@@ -494,17 +494,17 @@ export const WarehouseSyncWarning: Story = {
     render: () => {
         const insight = {
             ...EXAMPLE_TRENDS,
-            name: 'Replay margin by month',
+            name: 'Monthly revenue by plan',
             warnings: [
                 {
                     type: 'warehouse_sync',
                     message:
-                        'Last sync of `costs` (from DoIt) failed. Results reflect data from 5 days ago. Check the data warehouse source for details.',
-                    schema_name: 'costs',
+                        'Last sync of `invoices` (from Stripe) failed. Results reflect data from 5 days ago. Check the data warehouse source for details.',
+                    schema_name: 'invoices',
                     source_id: 'source-1',
-                    source_type: 'DoIt',
+                    source_type: 'Stripe',
                     status: 'Failed',
-                    table_name: 'doit_costs',
+                    table_name: 'stripe_invoices',
                 },
             ],
         } as unknown as InsightModel

@@ -6,12 +6,12 @@ import { trimRedundantTail, warehouseSyncDashboardEntries } from './warehouseSyn
 function syncWarning(table: string): DataWarehouseSyncWarning {
     return {
         type: 'warehouse_sync',
-        message: `Last sync of \`${table}\` (from DoIt) failed.`,
+        message: `Last sync of \`${table}\` (from Stripe) failed.`,
         schema_name: table,
         source_id: 'source-1',
-        source_type: 'DoIt',
+        source_type: 'Stripe',
         status: 'Failed',
-        table_name: `doit_${table}`,
+        table_name: `stripe_${table}`,
     }
 }
 
@@ -59,16 +59,16 @@ describe('warehouseSyncWarnings', () => {
     })
 
     it('lists each out-of-date table once, with every insight on the dashboard that reads it', () => {
-        const costs = syncWarning('costs')
+        const invoices = syncWarning('invoices')
         const entries = warehouseSyncDashboardEntries([
-            tile(1, { short_id: 'aaa' as InsightShortId, name: 'Margin', warnings: [costs] }),
+            tile(1, { short_id: 'aaa' as InsightShortId, name: 'Revenue', warnings: [invoices] }),
             tile(2, {
                 short_id: 'bbb' as InsightShortId,
-                derived_name: 'Cost by day',
-                warnings: [costs, syncWarning('gemini')],
+                derived_name: 'Revenue by day',
+                warnings: [invoices, syncWarning('charges')],
             }),
             tile(3, { short_id: 'ccc' as InsightShortId, name: 'Healthy', warnings: null }),
-            tile(4, { short_id: 'ddd' as InsightShortId, name: 'Deleted', warnings: [costs], deleted: true }),
+            tile(4, { short_id: 'ddd' as InsightShortId, name: 'Deleted', warnings: [invoices], deleted: true }),
             tile(5, {
                 short_id: 'eee' as InsightShortId,
                 name: 'Restricted',
@@ -78,8 +78,8 @@ describe('warehouseSyncWarnings', () => {
         ])
 
         expect(entries.map(({ warning, insights }) => [warning.table_name, insights.map((i) => i.name)])).toEqual([
-            ['doit_costs', ['Margin', 'Cost by day']],
-            ['doit_gemini', ['Cost by day']],
+            ['stripe_invoices', ['Revenue', 'Revenue by day']],
+            ['stripe_charges', ['Revenue by day']],
         ])
     })
 })
