@@ -1743,11 +1743,7 @@
         },
         "$mcp_protocol_version": {
             "description": "The MCP protocol revision the request was made under, such as 2025-11-25 or 2026-07-28.",
-            "examples": [
-                "2025-11-25",
-                "2025-06-18",
-                "2026-07-28"
-            ],
+            "examples": ["2025-11-25", "2025-06-18", "2026-07-28"],
             "label": "MCP protocol version"
         },
         "$mcp_read_only": {
@@ -3727,11 +3723,7 @@
         },
         "$mcp_protocol_version": {
             "description": "The MCP protocol revision the request was made under, such as 2025-11-25 or 2026-07-28.",
-            "examples": [
-                "2025-11-25",
-                "2025-06-18",
-                "2026-07-28"
-            ],
+            "examples": ["2025-11-25", "2025-06-18", "2026-07-28"],
             "label": "MCP protocol version"
         },
         "$mcp_read_only": {
@@ -5850,11 +5842,7 @@
         },
         "$mcp_protocol_version": {
             "description": "The MCP protocol revision the request was made under, such as 2025-11-25 or 2026-07-28.",
-            "examples": [
-                "2025-11-25",
-                "2025-06-18",
-                "2026-07-28"
-            ],
+            "examples": ["2025-11-25", "2025-06-18", "2026-07-28"],
             "label": "MCP protocol version"
         },
         "$mcp_read_only": {
