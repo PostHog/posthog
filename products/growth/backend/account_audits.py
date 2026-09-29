@@ -42,11 +42,18 @@ class AccountAuditResult:
 
 
 class AccountAuditService:
+    @staticmethod
+    def signing_secret_for(public_key_id: UUID) -> str | None:
+        return (
+            AccountAuditCredential.objects.filter(public_key_id=public_key_id, is_active=True)
+            .values_list("signing_secret", flat=True)
+            .first()
+        )
+
     @classmethod
-    def start(
-        cls, payload: AccountAuditRequest, credential: AccountAuditCredential, webhook_id: str
-    ) -> AccountAuditResult:
-        if not cls._credential_is_eligible(credential):
+    def start(cls, payload: AccountAuditRequest, public_key_id: UUID, webhook_id: str) -> AccountAuditResult:
+        credential = AccountAuditCredential.objects.select_related("owner").filter(public_key_id=public_key_id).first()
+        if credential is None or not cls._credential_is_eligible(credential):
             return AccountAuditResult(status="unauthorized")
         team_id = cls._resolve_team_id(payload, credential_id=credential.id, webhook_id=webhook_id)
         if team_id is None:

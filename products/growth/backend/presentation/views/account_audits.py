@@ -18,7 +18,6 @@ from posthog.ingress.verify.schemes import HmacSha256, VerificationOutcome
 from posthog.rate_limit import IPThrottle
 
 from products.growth.backend.facade.account_audits import AccountAuditRequest, AccountAuditService
-from products.growth.backend.models import AccountAuditCredential
 
 MAX_BODY_BYTES = 4 * 1024
 SIGNATURE_TOLERANCE = timedelta(minutes=5)
@@ -91,22 +90,24 @@ class AccountAuditStartViewSet(viewsets.ViewSet):
         if len(raw_body) > MAX_BODY_BYTES:
             return Response(status=status.HTTP_400_BAD_REQUEST)
 
-        credential = self._credential(request)
+        public_key_id = self._credential_key_id(request)
+        signing_secret = AccountAuditService.signing_secret_for(public_key_id) if public_key_id else None
         webhook_id = request.headers.get("webhook-id")
         timestamp = request.headers.get("webhook-timestamp")
         signature = request.headers.get("webhook-signature")
         if (
-            credential is None
+            public_key_id is None
+            or signing_secret is None
             or not webhook_id
             or len(webhook_id) > 255
-            or not self._valid_signature(credential.signing_secret, webhook_id, timestamp, signature, raw_body)
+            or not self._valid_signature(signing_secret, webhook_id, timestamp, signature, raw_body)
         ):
             return Response(status=status.HTTP_401_UNAUTHORIZED)
 
         payload = self._payload(raw_body)
         if payload is None:
             return Response(status=status.HTTP_400_BAD_REQUEST)
-        result = AccountAuditService.start(payload, credential, webhook_id)
+        result = AccountAuditService.start(payload, public_key_id, webhook_id)
         if result.status == "accepted":
             return Response({"workflow_id": str(result.workflow_id), "team_id": result.team_id}, status=202)
         if result.status == "cooldown":
@@ -124,11 +125,11 @@ class AccountAuditStartViewSet(viewsets.ViewSet):
         )
 
     @staticmethod
-    def _credential(request: Request) -> AccountAuditCredential | None:
+    def _credential_key_id(request: Request) -> UUID | None:
         key_id = request.headers.get("X-PostHog-Audit-Key")
         try:
-            return AccountAuditCredential.objects.select_related("owner").get(public_key_id=UUID(key_id or ""))
-        except (AccountAuditCredential.DoesNotExist, TypeError, ValueError, AttributeError):
+            return UUID(key_id or "")
+        except (TypeError, ValueError, AttributeError):
             return None
 
     @staticmethod
