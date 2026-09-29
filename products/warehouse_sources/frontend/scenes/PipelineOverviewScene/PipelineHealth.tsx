@@ -110,7 +110,7 @@ export function PipelineHealth(): JSX.Element {
                     width: 80,
                     render: (_, issue) =>
                         issue.url ? (
-                            <LemonButton type="secondary" size="xsmall" to={issue.url}>
+                            <LemonButton type="tertiary" size="xsmall" to={issue.url}>
                                 View
                             </LemonButton>
                         ) : null,
