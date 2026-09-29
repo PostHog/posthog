@@ -3,19 +3,21 @@ import { router } from 'kea-router'
 
 import { IconFolder } from '@posthog/icons'
 
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
+import { LibraryCreateButton } from 'scenes/library/LibraryCreateButton'
+import { libraryLogic } from 'scenes/library/libraryLogic'
+import { urls } from 'scenes/urls'
+
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { FileSystemIconType } from '~/queries/schema/schema-general'
 
-import { TodayCreateObjectButton } from './TodayCreateObjectButton'
-import { libraryUrl, todayLibraryLogic } from './todayLibraryLogic'
 import { TodayPaneRow } from './TodayPaneRow'
-import { railPaneForPath } from './todayShellLogic'
 
 /** The Library sub-nav: every saved object type, each opening a filtered list in the main area. */
 export function TodayLibrarySidebar(): JSX.Element {
-    const { objectTypes, objectType } = useValues(todayLibraryLogic)
+    const { objectTypes } = useValues(libraryLogic)
     const { location } = useValues(router)
-    const onLibrary = railPaneForPath(location.pathname, location.search) === 'library'
+    const path = removeProjectIdIfPresent(location.pathname)
 
     return (
         <div className="TodayPane">
@@ -24,8 +26,8 @@ export function TodayLibrarySidebar(): JSX.Element {
                 <TodayPaneRow
                     label="All objects"
                     icon={<IconFolder />}
-                    to={libraryUrl()}
-                    active={onLibrary && !objectType}
+                    to={urls.library()}
+                    active={path === urls.library()}
                     dataAttr="today-library-all"
                 />
                 {objectTypes.map((type) => (
@@ -33,9 +35,9 @@ export function TodayLibrarySidebar(): JSX.Element {
                         key={type.value}
                         label={type.pluralLabel}
                         icon={iconForType(type.value as FileSystemIconType)}
-                        to={libraryUrl(type.value)}
-                        active={onLibrary && objectType === type.value}
-                        action={<TodayCreateObjectButton objectType={type.value} />}
+                        to={urls.library(type.value)}
+                        active={path === urls.library(type.value)}
+                        action={<LibraryCreateButton objectType={type.value} />}
                         dataAttr="today-library-type"
                     />
                 ))}

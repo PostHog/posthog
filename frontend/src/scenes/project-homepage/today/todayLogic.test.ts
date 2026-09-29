@@ -3,108 +3,87 @@ import { expectLogic } from 'kea-test-utils'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { SAMPLE_REPORTS } from './todayFixtures'
-import { routeFromSearchParams, todayLogic } from './todayLogic'
-import { toTodayReport, summaryParagraphs } from './todaySignalReports'
+import { makeReport } from 'products/signals/frontend/inbox/__mocks__/inboxMocks'
+import { SignalReport } from 'products/signals/frontend/inbox/types'
 
-const REPORT = {
-    id: 'report-1',
-    title: 'Signup form rejects plus-addressed emails',
-    summary: 'Sign-ups fail since the [last release](chart:abc).\n\n## Impact\n\nMost **new** teams are affected.',
-    status: 'ready',
-    total_weight: 4,
-    signal_count: 12,
-    created_at: '2026-09-27T09:00:00Z',
-    updated_at: '2026-09-28T07:00:00Z',
-    artefact_count: 2,
-    is_suggested_reviewer: true,
-    source_products: ['error_tracking', 'session_replay'],
-    implementation_pr_url: 'https://github.com/example/app/pull/42',
-} as any
+import { TOP_REPORT_COUNT, reportIdFromPath, todayLogic } from './todayLogic'
+import { GENERAL_REPORT_PROMPTS, briefingForReports, reportPrompts } from './todaySignalReports'
 
 describe('todayLogic', () => {
-    let signalReports: any[]
+    let listResponse: [number, any]
+    let listParams: URLSearchParams | null
 
     beforeEach(() => {
-        signalReports = []
+        listResponse = [200, { results: [], count: 0 }]
+        listParams = null
         useMocks({
             get: {
-                '/api/projects/:team_id/signals/reports/': () => [
-                    200,
-                    { results: signalReports, count: signalReports.length },
-                ],
+                '/api/projects/:team_id/signals/reports/': ({ request }) => {
+                    listParams = new URL(request.url).searchParams
+                    return listResponse
+                },
             },
         })
         initKeaTests()
     })
 
-    test.each([
-        [{}, { view: 'home', reportId: null, conversationId: null, evidenceId: null }],
-        [{ report: 'pr' }, { view: 'report', reportId: 'pr', conversationId: null, evidenceId: null }],
-        [
-            { report: 'pr', view: 'follow-up' },
-            { view: 'follow-up', reportId: 'pr', conversationId: null, evidenceId: null },
-        ],
-        [
-            { view: 'library', type: 'feature_flag' },
-            { view: 'library', reportId: null, conversationId: null, evidenceId: null },
-        ],
-        [
-            { view: 'new', conversation: 'c1', evidence: 'e1' },
-            { view: 'new', reportId: null, conversationId: 'c1', evidenceId: 'e1' },
-        ],
-    ])('reads the view from %o', (searchParams, route) => {
-        expect(routeFromSearchParams(searchParams)).toEqual(route)
-    })
-
-    it('uses sample reports only when the project has no actionable reports', async () => {
+    it('asks for the top actionable reports by priority and counts the rest', async () => {
+        const reports = [makeReport({ id: 'a' }), makeReport({ id: 'b' })]
+        listResponse = [200, { results: reports, count: 9 }]
         const logic = todayLogic()
         logic.mount()
-        await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.usingSampleReports).toBe(true)
-        expect(logic.values.reports).toEqual(SAMPLE_REPORTS)
-        logic.unmount()
 
-        signalReports = [REPORT]
-        const withReports = todayLogic()
-        withReports.mount()
-        await expectLogic(withReports).toFinishAllListeners()
-        expect(withReports.values.usingSampleReports).toBe(false)
-        expect(withReports.values.reports.map((report) => report.id)).toEqual(['report-report-1'])
-    })
-
-    it('walks a primary action through its steps and marks the report done', async () => {
-        jest.useFakeTimers()
-        try {
-            const logic = todayLogic()
-            logic.mount()
-            logic.actions.runReportAction('exp')
-            expect(logic.values.actionStates.exp).toBe('loading')
-            expect(logic.values.actionMessage).toBe('Turning on one-page-checkout for 10% of users…')
-
-            jest.advanceTimersByTime(900)
-            expect(logic.values.actionMessage).toBe('Guardrails holding. Rolling out to 50%…')
-
-            jest.advanceTimersByTime(2000)
-            expect(logic.values.actionStates.exp).toBe('complete')
-            expect(logic.values.visibleReports.find((report) => report.id === 'exp')?.completed).toBe(true)
-        } finally {
-            jest.useRealTimers()
-        }
-    })
-
-    it('turns a signal report into a Today report that opens its pull request', () => {
-        const report = toTodayReport(REPORT, '/inbox/reports/report-1')
-        expect(report).toMatchObject({
-            title: 'Signup form rejects plus-addressed emails',
-            icon: 'pr',
-            action: { primary: 'Review the pull request', href: 'https://github.com/example/app/pull/42' },
-            evidence: [{ product: 'Error tracking' }, { product: 'Session replay' }],
+        await expectLogic(logic).toFinishAllListeners().toMatchValues({ reports, moreReportCount: 7 })
+        expect(Object.fromEntries(listParams!.entries())).toMatchObject({
+            status: 'ready,pending_input',
+            actionability: 'immediately_actionable,requires_human_input',
+            ordering: 'priority,-updated_at',
+            limit: String(TOP_REPORT_COUNT),
         })
-        expect(summaryParagraphs(REPORT.summary)).toEqual([
-            'Sign-ups fail since the last release.',
-            'Impact',
-            'Most new teams are affected.',
+    })
+
+    it('keeps a failed load apart from an empty list', async () => {
+        listResponse = [500, { detail: 'Server error' }]
+        const logic = todayLogic()
+        logic.mount()
+
+        await expectLogic(logic).toFinishAllListeners().toMatchValues({ topReports: null, reportsFailed: true })
+    })
+
+    test.each([
+        ['/project/1/home/reports/abc', 'abc'],
+        ['/home/reports/abc/', 'abc'],
+        ['/project/1/home', null],
+        ['/project/1/home/reports/abc/signals', null],
+        ['/project/1/inbox/reports/abc', null],
+    ])('reads the report id from %s', (pathname, reportId) => {
+        expect(reportIdFromPath(pathname)).toBe(reportId)
+    })
+
+    it('links every report from the briefing and keeps acronyms in titles', () => {
+        const briefing = briefingForReports([
+            makeReport({
+                id: 'a',
+                title: 'Signup form rejects emails',
+                implementation_pr_url: 'https://example.com/1',
+            }),
+            makeReport({ id: 'b', title: 'Pricing page drops off' }),
+            makeReport({ id: 'c', title: 'LLM costs doubled' }),
         ])
+
+        expect(briefing.flat().filter((segment) => segment.reportId)).toEqual([
+            { text: 'Signup form rejects emails', reportId: 'a', highlight: true },
+            { text: 'pricing page drops off', reportId: 'b' },
+            { text: 'LLM costs doubled', reportId: 'c' },
+        ])
+    })
+
+    test.each([
+        ['an action-capable report', {}, ['Draft the fix']],
+        ['a report with a pull request', { implementation_pr_url: 'https://example.com/1' }, GENERAL_REPORT_PROMPTS],
+        ['a report judged not actionable', { actionability: 'not_actionable' }, GENERAL_REPORT_PROMPTS],
+    ])('offers the right prompts for %s', (_, overrides, expected) => {
+        const report = makeReport({ suggested_prompts: ['Draft the fix'], ...(overrides as Partial<SignalReport>) })
+        expect(reportPrompts(report)).toEqual(expected)
     })
 })

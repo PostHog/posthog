@@ -11,6 +11,7 @@ import {
     IconWrench,
 } from '@posthog/icons'
 
+import { NewAccountMenu } from 'lib/components/Account/NewAccountMenu'
 import { commandLogic } from 'lib/components/Command/commandLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { cn } from 'lib/utils/css-classes'
@@ -84,6 +85,7 @@ export function TodayRail(): JSX.Element {
                 >
                     {sidebarOpen ? <IconSidebarClose /> : <IconSidebarOpen />}
                 </ButtonPrimitive>
+                <NewAccountMenu isLayoutNavCollapsed />
             </div>
         </nav>
     )

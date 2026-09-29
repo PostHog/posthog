@@ -9,6 +9,9 @@ import { urls } from 'scenes/urls'
 import { mswDecorator } from '~/mocks/browser'
 import { EMPTY_PAGINATED_RESPONSE } from '~/mocks/handlers'
 
+import { makeReport, mockSignals } from 'products/signals/frontend/inbox/__mocks__/inboxMocks'
+import { SignalReportStatus } from 'products/signals/frontend/inbox/types'
+
 const SPACES = [
     {
         id: 'space-me',
@@ -57,35 +60,45 @@ const LIBRARY = [
 ]
 
 const REPORTS = [
-    {
+    makeReport({
         id: 'report-1',
         title: 'Signup form rejects plus-addressed emails',
-        summary: 'Sign-ups with a plus sign in the email address fail validation since the last release.',
-        status: 'ready',
-        total_weight: 4,
+        summary:
+            'Sign-ups with a plus sign in the email address fail validation since the last release.\n\n## Impact\n\nNew teams that use plus addressing cannot finish signing up.',
+        status: SignalReportStatus.READY,
         signal_count: 12,
-        created_at: '2026-09-27T09:00:00Z',
         updated_at: '2026-09-28T07:00:00Z',
-        artefact_count: 2,
-        is_suggested_reviewer: true,
         priority: 'P1',
+        actionability: 'immediately_actionable',
         source_products: ['error_tracking', 'session_replay'],
         implementation_pr_url: 'https://github.com/example/app/pull/42',
-    },
-    {
+    }),
+    makeReport({
         id: 'report-2',
         title: 'Pricing page visitors drop off at the plan table',
         summary: 'Most visitors who reach the plan table leave without starting a trial.',
-        status: 'ready',
-        total_weight: 2,
+        status: SignalReportStatus.READY,
         signal_count: 5,
-        created_at: '2026-09-26T09:00:00Z',
         updated_at: '2026-09-27T16:00:00Z',
-        artefact_count: 1,
-        is_suggested_reviewer: false,
         priority: 'P3',
+        actionability: 'requires_human_input',
         source_products: ['analytics'],
-    },
+        suggested_prompts: [
+            'Which plans do visitors compare before they leave?',
+            'Draft an experiment for the plan table',
+        ],
+    }),
+    makeReport({
+        id: 'report-3',
+        title: 'LLM costs doubled for the summarize tool',
+        summary: 'Token usage for the summarize tool doubled after the prompt change.',
+        status: SignalReportStatus.PENDING_INPUT,
+        signal_count: 3,
+        updated_at: '2026-09-27T10:00:00Z',
+        priority: 'P2',
+        actionability: 'immediately_actionable',
+        source_products: ['llm_analytics'],
+    }),
 ]
 
 const meta: Meta = {
@@ -94,7 +107,20 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:team_id/signals/reports/': EMPTY_PAGINATED_RESPONSE,
+                '/api/projects/:team_id/signals/reports/': { results: REPORTS, count: 7 },
+                '/api/projects/:team_id/signals/reports/:id/': (req) => [
+                    200,
+                    REPORTS.find((report) => report.id === req.params.id) ?? REPORTS[0],
+                ],
+                '/api/projects/:team_id/signals/reports/:id/signals/': (req) => [
+                    200,
+                    // Error tracking signals fetch their issue, which these stories do not mock.
+                    {
+                        signals: mockSignals(String(req.params.id), 6).filter(
+                            (signal) => signal.source_product !== 'error_tracking'
+                        ),
+                    },
+                ],
                 '/api/projects/:team_id/task_channels/': SPACES,
                 '/api/projects/:team_id/tasks/': EMPTY_PAGINATED_RESPONSE,
                 '/api/environments/:team_id/conversations/': { results: CONVERSATIONS, next: null },
@@ -116,28 +142,30 @@ export default meta
 
 type Story = StoryObj<{}>
 
-export const SampleHome: Story = {}
+export const Home: Story = {}
 
-export const ReportPage: Story = {
-    parameters: { pageUrl: `${urls.projectHomepage()}?report=pr` },
-}
-
-export const ReportWithAdvisory: Story = {
-    parameters: { pageUrl: `${urls.projectHomepage()}?report=error` },
-}
-
-export const NewFlowCompose: Story = {
-    parameters: { pageUrl: `${urls.projectHomepage()}?view=new` },
-}
-
-export const RealReports: Story = {
+export const HomeWithNoReports: Story = {
     decorators: [
         mswDecorator({
-            get: {
-                '/api/projects/:team_id/signals/reports/': { results: REPORTS, count: REPORTS.length },
-            },
+            get: { '/api/projects/:team_id/signals/reports/': EMPTY_PAGINATED_RESPONSE },
         }),
     ],
+}
+
+export const HomeWhenReportsFailToLoad: Story = {
+    decorators: [
+        mswDecorator({
+            get: { '/api/projects/:team_id/signals/reports/': () => [500, { detail: 'Server error' }] },
+        }),
+    ],
+}
+
+export const ReportWithPullRequest: Story = {
+    parameters: { pageUrl: urls.todayReport('report-1') },
+}
+
+export const ReportWithSuggestedPrompts: Story = {
+    parameters: { pageUrl: urls.todayReport('report-2') },
 }
 
 export const SpacesPane: Story = {
@@ -147,11 +175,11 @@ export const SpacesPane: Story = {
 }
 
 export const LibraryAllObjects: Story = {
-    parameters: { pageUrl: `${urls.projectHomepage()}?view=library` },
+    parameters: { pageUrl: urls.library() },
 }
 
 export const LibraryFeatureFlags: Story = {
-    parameters: { pageUrl: `${urls.projectHomepage()}?view=library&type=feature_flag` },
+    parameters: { pageUrl: urls.library('feature_flag') },
 }
 
 export const ToolsPane: Story = {

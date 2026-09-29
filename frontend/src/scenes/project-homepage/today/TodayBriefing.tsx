@@ -1,116 +1,158 @@
 import { useActions, useValues } from 'kea'
 
+import { LemonBanner } from '@posthog/lemon-ui'
+
+import { Link } from 'lib/lemon-ui/Link'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
+import { urls } from 'scenes/urls'
 
 import { TodayAskBox } from './TodayAskBox'
 import { TodayIcon } from './TodayIcon'
 import { todayLogic } from './todayLogic'
-import { TodayBriefingSegment } from './todayTypes'
+import { TodayBriefingSegment, reportIcon, reportSource } from './todaySignalReports'
 
-const DATE_FORMAT = new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: '2-digit', month: 'short' })
-const TIME_FORMAT = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+const DATE_FORMAT = new Intl.DateTimeFormat(undefined, { weekday: 'short', day: 'numeric', month: 'short' })
+const TIME_FORMAT = new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' })
 
 function TodayMetaLine(): JSX.Element {
-    const { now, currentTeam, usingSampleReports } = useValues(todayLogic)
+    const { now, currentTeam } = useValues(todayLogic)
     const date = new Date(now)
     return (
         <div className="TodayHome__meta">
             <span>{`${currentTeam?.name ?? 'Your project'} · ${DATE_FORMAT.format(date)} · `}</span>
             <time translate="no">{TIME_FORMAT.format(date)}</time>
-            {usingSampleReports && <span className="TodayHome__sample">Sample reports</span>}
         </div>
     )
 }
 
 function BriefingSegment({ segment }: { segment: TodayBriefingSegment }): JSX.Element {
-    const { hoveredReportId } = useValues(todayLogic)
-    const { openReport, setHoveredReportId } = useActions(todayLogic)
-    const reportId = segment.link
-    if (!reportId) {
+    const { hoveredReportId, reports } = useValues(todayLogic)
+    const { reportOpened, setHoveredReportId } = useActions(todayLogic)
+    const report = reports.find((candidate) => candidate.id === segment.reportId)
+    if (!report) {
         return <span>{segment.text}</span>
     }
     const link = (
-        <button
-            type="button"
+        <Link
+            to={urls.todayReport(report.id)}
+            subtle
             className="TodayReportLink"
-            data-active={hoveredReportId === reportId}
-            onClick={() => openReport(reportId)}
-            onMouseEnter={() => setHoveredReportId(reportId)}
+            data-active={hoveredReportId === report.id}
+            data-attr="today-briefing-report"
+            onClick={() => reportOpened(report, 'briefing')}
+            onMouseEnter={() => setHoveredReportId(report.id)}
             onMouseLeave={() => setHoveredReportId(null)}
-            onFocus={() => setHoveredReportId(reportId)}
-            onBlur={() => setHoveredReportId(null)}
         >
             {segment.text}
-        </button>
+        </Link>
     )
     return segment.highlight ? <span className="TodayHome__highlight">{link}</span> : link
 }
 
-export function TodayBriefing(): JSX.Element {
-    const { greeting, reportSummary, reports, briefing, hoveredReportId, reportsReady } = useValues(todayLogic)
+function TodayBriefingReports(): JSX.Element {
+    const { reportSummary, reports, briefing, hoveredReportId, moreReportCount } = useValues(todayLogic)
     const { openReport, setHoveredReportId } = useActions(todayLogic)
     const { askSidePanelMax } = useActions(maxGlobalLogic)
-    const chips = reports.filter((report) => !report.secondary).slice(0, 6)
+
+    return (
+        <>
+            <p className="TodayHome__count">
+                <span>{reportSummary}</span>
+                <span className="TodayChipStack">
+                    {reports.map((report, index) => (
+                        <button
+                            key={report.id}
+                            type="button"
+                            className="TodayChipStack__chip"
+                            aria-label={`Open ${report.title ?? 'report'}`}
+                            data-active={hoveredReportId === report.id}
+                            data-attr="today-briefing-chip"
+                            // eslint-disable-next-line react/forbid-dom-props
+                            style={
+                                {
+                                    '--index': index,
+                                    '--tilt': index % 2 === 0 ? '-3deg' : '3deg',
+                                    '--report-color': reportSource(report).color,
+                                } as React.CSSProperties
+                            }
+                            onClick={() => openReport(report, 'chip')}
+                            onMouseEnter={() => setHoveredReportId(report.id)}
+                            onMouseLeave={() => setHoveredReportId(null)}
+                        >
+                            <TodayIcon icon={reportIcon(report)} />
+                        </button>
+                    ))}
+                </span>
+            </p>
+            {briefing.map((paragraph, index) => (
+                <p key={index}>
+                    {paragraph.map((segment, segmentIndex) => (
+                        <BriefingSegment key={segmentIndex} segment={segment} />
+                    ))}
+                </p>
+            ))}
+            <p className="TodayHome__foot">
+                {moreReportCount > 0 && (
+                    <>
+                        <Link to={urls.inbox()} data-attr="today-briefing-inbox">
+                            {`${moreReportCount} more ${moreReportCount === 1 ? 'report is' : 'reports are'} in the Inbox`}
+                        </Link>
+                        <span>. </span>
+                    </>
+                )}
+                <span>Or </span>
+                <button
+                    type="button"
+                    data-attr="today-ask-about-edition"
+                    onClick={() => askSidePanelMax('Walk me through what changed in my product today.')}
+                >
+                    ask PostHog AI to walk you through it
+                </button>
+                <span>.</span>
+            </p>
+        </>
+    )
+}
+
+export function TodayBriefing(): JSX.Element {
+    const { greeting, topReports, topReportsLoading, reportsFailed, reports } = useValues(todayLogic)
+    const { loadTopReports } = useActions(todayLogic)
 
     return (
         <div className="TodayHome Today__page">
             <TodayMetaLine />
             <section className="TodayHome__intro" aria-label="Daily brief">
                 <div className="TodayHome__greeting">{greeting}</div>
-                {reportsReady ? (
+                {topReports === null && reportsFailed ? (
+                    <LemonBanner
+                        type="error"
+                        action={{
+                            children: 'Try again',
+                            onClick: () => loadTopReports(),
+                            loading: topReportsLoading,
+                            'data-attr': 'today-reports-retry',
+                        }}
+                    >
+                        Couldn’t load your reports. Try again, or open the Inbox to see them there.
+                    </LemonBanner>
+                ) : topReports === null ? (
+                    <p>Reading what changed in your project…</p>
+                ) : reports.length === 0 ? (
                     <>
-                        <p className="TodayHome__count">
-                            <span>{reportSummary}</span>
-                            {chips.length > 0 && (
-                                <span className="TodayChipStack">
-                                    {chips.map((report, index) => (
-                                        <button
-                                            key={report.id}
-                                            type="button"
-                                            className="TodayChipStack__chip"
-                                            aria-label={`Open ${report.title}`}
-                                            data-active={hoveredReportId === report.id}
-                                            // eslint-disable-next-line react/forbid-dom-props
-                                            style={
-                                                {
-                                                    '--index': index,
-                                                    '--tilt': index % 2 === 0 ? '-3deg' : '3deg',
-                                                    '--report-color': report.color,
-                                                } as React.CSSProperties
-                                            }
-                                            onClick={() => openReport(report.id)}
-                                            onMouseEnter={() => setHoveredReportId(report.id)}
-                                            onMouseLeave={() => setHoveredReportId(null)}
-                                            onFocus={() => setHoveredReportId(report.id)}
-                                            onBlur={() => setHoveredReportId(null)}
-                                        >
-                                            <TodayIcon report={report.icon} />
-                                        </button>
-                                    ))}
-                                </span>
-                            )}
-                        </p>
-                        {briefing.map((paragraph, index) => (
-                            <p key={index}>
-                                {paragraph.map((segment, segmentIndex) => (
-                                    <BriefingSegment key={segmentIndex} segment={segment} />
-                                ))}
-                            </p>
-                        ))}
-                        <p className="TodayHome__foot">
-                            <span>Or </span>
-                            <button
-                                type="button"
-                                data-attr="today-ask-about-edition"
-                                onClick={() => askSidePanelMax('Walk me through what changed in my product today.')}
-                            >
-                                ask PostHog AI to walk you through it
-                            </button>
-                            <span>.</span>
+                        <p className="TodayHome__count">Nothing needs your attention</p>
+                        <p>
+                            <span>
+                                Self-driving turns signals from across PostHog into reports worth acting on. New ones
+                                show up here as it finds them.{' '}
+                            </span>
+                            <Link to={urls.inbox()} data-attr="today-empty-inbox">
+                                Open the Inbox
+                            </Link>
+                            <span> to see everything it’s tracking.</span>
                         </p>
                     </>
                 ) : (
-                    <p>Reading what changed in your project…</p>
+                    <TodayBriefingReports />
                 )}
             </section>
             <TodayAskBox />

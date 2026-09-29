@@ -1,20 +1,16 @@
-import { IconX } from '@posthog/icons'
-
-import { cn } from 'lib/utils/css-classes'
+import { Link } from 'lib/lemon-ui/Link'
 
 interface TodayNavItemProps {
     title: string
     meta: string
     color: string
-    icon: JSX.Element | null
+    icon: JSX.Element
+    to: string
+    /** Highlighted because the matching report is hovered elsewhere on the page. */
     active?: boolean
     current?: boolean
-    complete?: boolean
-    thinking?: boolean
-    entering?: boolean
-    onClick: () => void
+    onClick?: () => void
     onHoverChange?: (hovered: boolean) => void
-    onRemove?: () => void
     dataAttr?: string
 }
 
@@ -23,55 +19,37 @@ export function TodayNavItem({
     meta,
     color,
     icon,
+    to,
     active = false,
     current = false,
-    complete = false,
-    thinking = false,
-    entering = false,
     onClick,
     onHoverChange,
-    onRemove,
     dataAttr,
 }: TodayNavItemProps): JSX.Element {
     return (
-        <div className={cn('TodayNavRow', entering && 'TodayNavRow--enter')}>
-            <div className="TodayNavRow__inner">
-                <button
-                    type="button"
-                    className="TodayNavItem"
-                    // eslint-disable-next-line react/forbid-dom-props
-                    style={{ '--report-color': color } as React.CSSProperties}
-                    data-active={active || current}
-                    data-complete={complete}
-                    data-thinking={thinking}
-                    aria-current={current ? 'page' : undefined}
-                    data-attr={dataAttr}
-                    onClick={onClick}
-                    onMouseEnter={() => onHoverChange?.(true)}
-                    onMouseLeave={() => onHoverChange?.(false)}
-                    onFocus={() => onHoverChange?.(true)}
-                    onBlur={() => onHoverChange?.(false)}
-                >
-                    <span className="TodayNavItem__marker" aria-hidden>
-                        {icon}
-                    </span>
-                    <span className="TodayNavItem__copy">
-                        <span className="TodayNavItem__title">{title}</span>
-                        <span className="TodayNavItem__meta">{meta}</span>
-                    </span>
-                </button>
-                {complete && onRemove && (
-                    <button
-                        type="button"
-                        className="TodayNavRow__remove"
-                        aria-label={`Remove ${title}`}
-                        data-attr="today-remove-report"
-                        onClick={onRemove}
-                    >
-                        <IconX />
-                    </button>
-                )}
-            </div>
-        </div>
+        <Link
+            to={to}
+            subtle
+            className="TodayNavItem"
+            data-active={active || current}
+            aria-current={current ? 'page' : undefined}
+            data-attr={dataAttr}
+            onClick={onClick}
+            onMouseEnter={() => onHoverChange?.(true)}
+            onMouseLeave={() => onHoverChange?.(false)}
+        >
+            <span
+                className="TodayNavItem__marker"
+                aria-hidden
+                // eslint-disable-next-line react/forbid-dom-props
+                style={{ '--report-color': color } as React.CSSProperties}
+            >
+                {icon}
+            </span>
+            <span className="TodayNavItem__copy">
+                <span className="TodayNavItem__title">{title}</span>
+                <span className="TodayNavItem__meta">{meta}</span>
+            </span>
+        </Link>
     )
 }

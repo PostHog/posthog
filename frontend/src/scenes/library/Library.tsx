@@ -3,22 +3,26 @@ import { useActions, useValues } from 'kea'
 import { LemonBanner, LemonButton, LemonInput, LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { SceneExport } from 'scenes/sceneTypes'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
-import { TodayCreateObjectButton } from '~/layout/today/TodayCreateObjectButton'
-import {
-    baseObjectType,
-    libraryObjectHref,
-    libraryObjectName,
-    todayLibraryLogic,
-} from '~/layout/today/todayLibraryLogic'
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { FileSystemEntry, FileSystemIconType } from '~/queries/schema/schema-general'
 
-/** Saved objects in the main area, filtered by the type picked in the Library sub-nav. */
-export function TodayLibrary(): JSX.Element {
+import { LibraryCreateButton } from './LibraryCreateButton'
+import { baseObjectType, libraryLogic, libraryObjectHref, libraryObjectName } from './libraryLogic'
+
+export const scene: SceneExport = {
+    component: Library,
+    logic: libraryLogic,
+}
+
+/** Saved objects across the project, filtered by the type in the URL. */
+export function Library(): JSX.Element {
     const { objectType, objectTypeByValue, visibleObjects, objectsLoading, loadFailed, search, hasMore } =
-        useValues(todayLibraryLogic)
-    const { setSearch, loadObjects, loadMoreObjects } = useActions(todayLibraryLogic)
+        useValues(libraryLogic)
+    const { setSearch, loadObjects, loadMoreObjects } = useActions(libraryLogic)
     const selectedType = objectType ? objectTypeByValue[objectType] : undefined
     const title = selectedType?.pluralLabel ?? 'All objects'
 
@@ -33,7 +37,7 @@ export function TodayLibrary(): JSX.Element {
                     <span className="flex items-center gap-2 min-w-0">
                         <span className="shrink-0 flex">{iconForType(entry.type as FileSystemIconType)}</span>
                         {href ? (
-                            <Link to={href} className="truncate font-semibold" data-attr="today-library-object">
+                            <Link to={href} className="truncate font-semibold" data-attr="library-object">
                                 {name}
                             </Link>
                         ) : (
@@ -62,30 +66,38 @@ export function TodayLibrary(): JSX.Element {
     ]
 
     return (
-        <div className="Today__page mx-auto w-full max-w-[960px] px-6 py-12 flex flex-col gap-4">
-            <div className="flex flex-wrap items-end justify-between gap-2">
-                <div>
-                    <div className="Today__label">Library</div>
-                    <h1 className="text-2xl font-semibold mt-1 mb-0">{title}</h1>
-                </div>
-                {selectedType && (
-                    <TodayCreateObjectButton
-                        objectType={selectedType.value}
-                        label={`New ${selectedType.label.toLowerCase()}`}
-                    />
-                )}
-            </div>
+        <SceneContent>
+            <SceneTitleSection
+                name={title}
+                description={
+                    selectedType
+                        ? null
+                        : 'Everything saved in this project. Pick a type in the sidebar to narrow the list.'
+                }
+                resourceType={{ type: objectType || 'folder' }}
+                actions={
+                    selectedType ? (
+                        <LibraryCreateButton
+                            objectType={selectedType.value}
+                            label={`New ${selectedType.label.toLowerCase()}`}
+                        />
+                    ) : undefined
+                }
+            />
             <LemonInput
                 type="search"
                 placeholder={`Search ${title.toLowerCase()}`}
                 value={search}
                 onChange={setSearch}
-                data-attr="today-library-search"
+                data-attr="library-search"
                 fullWidth
             />
             {loadFailed && !visibleObjects.length ? (
-                <LemonBanner type="error" action={{ children: 'Try again', onClick: () => loadObjects() }}>
-                    Your library didn’t load.
+                <LemonBanner
+                    type="error"
+                    action={{ children: 'Try again', onClick: () => loadObjects(), loading: objectsLoading }}
+                >
+                    Couldn’t load your library. Try again, and if it keeps happening contact support.
                 </LemonBanner>
             ) : (
                 <LemonTable
@@ -109,12 +121,12 @@ export function TodayLibrary(): JSX.Element {
                         size="small"
                         loading={objectsLoading}
                         onClick={() => loadMoreObjects()}
-                        data-attr="today-library-load-more"
+                        data-attr="library-load-more"
                     >
                         Show more
                     </LemonButton>
                 </div>
             )}
-        </div>
+        </SceneContent>
     )
 }

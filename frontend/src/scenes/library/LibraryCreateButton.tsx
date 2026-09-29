@@ -3,17 +3,17 @@ import { useValues } from 'kea'
 import { IconPlus } from '@posthog/icons'
 import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
 
-import { todayLibraryLogic } from './todayLibraryLogic'
+import { libraryLogic } from './libraryLogic'
 
-interface TodayCreateObjectButtonProps {
+interface LibraryCreateButtonProps {
     objectType: string
     /** Shown on the button. Without it the button is a small plus icon. */
     label?: string
 }
 
 /** Creates an object of one Library type. Types with several kinds (insights) open a menu of kinds. */
-export function TodayCreateObjectButton({ objectType, label }: TodayCreateObjectButtonProps): JSX.Element | null {
-    const { createItemsByType, objectTypeByValue } = useValues(todayLibraryLogic)
+export function LibraryCreateButton({ objectType, label }: LibraryCreateButtonProps): JSX.Element | null {
+    const { createItemsByType, objectTypeByValue } = useValues(libraryLogic)
     const items = createItemsByType[objectType] ?? []
     const typeLabel = objectTypeByValue[objectType]?.label.toLowerCase() ?? 'object'
     if (!items.length) {
@@ -29,7 +29,7 @@ export function TodayCreateObjectButton({ objectType, label }: TodayCreateObject
                 {...buttonProps}
                 to={items[0].href}
                 aria-label={`New ${typeLabel}`}
-                data-attr={`today-library-new-${objectType}`}
+                data-attr="library-new-object"
             />
         )
     }
@@ -38,7 +38,7 @@ export function TodayCreateObjectButton({ objectType, label }: TodayCreateObject
             items={items.map((item) => ({
                 label: item.path.split('/').pop() ?? item.path,
                 to: item.href,
-                'data-attr': `today-library-new-${objectType}`,
+                'data-attr': 'library-new-object',
             }))}
         >
             <LemonButton {...buttonProps} aria-label={`New ${typeLabel}`} />

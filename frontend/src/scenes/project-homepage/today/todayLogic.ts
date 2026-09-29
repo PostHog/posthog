@@ -1,9 +1,11 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router, urlToAction } from 'kea-router'
+import { router } from 'kea-router'
+import type { LocationChangedPayload } from 'kea-router/lib/types'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
-import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -13,54 +15,27 @@ import { TeamType, UserType } from '~/types'
 import { SignalReport } from 'products/signals/frontend/inbox/types'
 
 import type { TeamPublicType } from '../../../types'
-import { AGENT_OPTIONS, SAMPLE_BRIEFING, SAMPLE_REPORTS } from './todayFixtures'
-import { briefingForReports, toTodayReport } from './todaySignalReports'
-import {
-    TodayActionRun,
-    TodayBriefingSegment,
-    TodayConversation,
-    TodayItem,
-    TodayScenarioId,
-    TodayReport,
-} from './todayTypes'
+import { TodayBriefingSegment, briefingForReports } from './todaySignalReports'
 
-export type TodayView = 'home' | 'report' | 'follow-up' | 'new' | 'library'
-export type TodayActionState = 'idle' | 'loading' | 'complete'
-export type TodayFollowUpTime = string | 'cancelled'
+export const TOP_REPORT_COUNT = 5
+const CLOCK_MS = 30_000
 
-export interface TodayRoute {
-    view: TodayView
-    reportId: string | null
-    conversationId: string | null
-    evidenceId: string | null
+/** Where a report was opened from, sent with the `today report opened` event. */
+export type TodayReportOpenSource = 'briefing' | 'chip' | 'sidebar'
+
+export interface TodayReports {
+    results: SignalReport[]
+    /** Every report that matches the filter, including the ones past the top five. */
+    count: number
 }
 
-const HOME_ROUTE: TodayRoute = { view: 'home', reportId: null, conversationId: null, evidenceId: null }
-const TOP_REPORT_COUNT = 5
-const STEP_MS = 900
-const FINAL_STEP_MS = 1100
+const COUNT_WORDS = ['No', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten']
 
-export const SCENARIO_COLORS: Record<TodayScenarioId, string> = {
-    growth: '#ff5c1c',
-    checkout: '#2f80fa',
-    'llm-cost': '#a737d2',
+/** The report a Today report page shows, read from a path such as `/project/1/home/reports/abc`. */
+export function reportIdFromPath(pathname: string): string | null {
+    const match = removeProjectIdIfPresent(pathname).match(/^\/home\/reports\/([^/]+)\/?$/)
+    return match ? decodeURIComponent(match[1]) : null
 }
-
-const COUNT_WORDS = [
-    'No',
-    'One',
-    'Two',
-    'Three',
-    'Four',
-    'Five',
-    'Six',
-    'Seven',
-    'Eight',
-    'Nine',
-    'Ten',
-    'Eleven',
-    'Twelve',
-]
 
 export function countWord(count: number): string {
     return COUNT_WORDS[count] ?? String(count)
@@ -81,16 +56,16 @@ export function greetingForHour(hour: number, name: string | null | undefined): 
 }
 
 export function reportSummaryForHour(hour: number, count: number): string {
-    const reports = `${countWord(count)} ${count === 1 ? 'report' : 'reports'}`
-    const verb = count === 1 ? 'needs' : 'need'
     if (count === 0) {
         return 'Nothing needs your attention'
     }
+    const reports = `${countWord(count)} ${count === 1 ? 'report' : 'reports'}`
+    const verb = count === 1 ? 'needs' : 'need'
     if (hour < 5) {
         return `${reports} ${count === 1 ? 'is' : 'are'} ready for tomorrow`
     }
     if (hour < 12) {
-        return `${reports} came in overnight`
+        return `${reports} ${verb} your attention this morning`
     }
     if (hour < 17) {
         return `${reports} ${verb} your attention this afternoon`
@@ -98,171 +73,78 @@ export function reportSummaryForHour(hour: number, count: number): string {
     return `${reports} still ${verb} your attention`
 }
 
-/** The progress steps a primary action walks through. A pull request merge generates its own. */
-export function actionRun(report: TodayReport): TodayActionRun | null {
-    const { action } = report
-    if (action.pr) {
-        return {
-            loading: 'Merging…',
-            steps: [`Merging PR ${action.pr}…`],
-            result: `PR ${action.pr} merged.`,
-            live: `PR ${action.pr} merged`,
-        }
-    }
-    return action.run ?? null
-}
-
-export function routeFromSearchParams(searchParams: Record<string, any>): TodayRoute {
-    const reportId = typeof searchParams.report === 'string' ? searchParams.report : null
-    const conversationId = typeof searchParams.conversation === 'string' ? searchParams.conversation : null
-    const evidenceId = typeof searchParams.evidence === 'string' ? searchParams.evidence : null
-    if (searchParams.view === 'new') {
-        return { view: 'new', reportId: null, conversationId, evidenceId }
-    }
-    if (searchParams.view === 'library') {
-        return { ...HOME_ROUTE, view: 'library' }
-    }
-    if (reportId) {
-        return {
-            view: searchParams.view === 'follow-up' ? 'follow-up' : 'report',
-            reportId,
-            conversationId: null,
-            evidenceId: null,
-        }
-    }
-    return HOME_ROUTE
-}
-
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface todayLogicValues {
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     user: UserType | null // userLogic
-    actionMessage: string | null
-    actionStates: Record<string, TodayActionState>
     briefing: TodayBriefingSegment[][]
-    completedIds: string[]
-    conversations: TodayConversation[]
-    currentConversation: TodayConversation | null
-    currentReport: TodayReport | null
-    followUpTimes: Record<string, TodayFollowUpTime>
     greeting: string
     hour: number
     hoveredReportId: string | null
-    loadedMore: boolean
+    moreReportCount: number
     now: number
-    openReportCount: number
-    removedIds: string[]
-    reportById: Record<string, TodayReport>
+    reportId: string | null
     reportSummary: string
-    reports: TodayReport[]
-    reportsReady: boolean
-    route: TodayRoute
-    sentQuestion: string | null
-    signalReports: SignalReport[] | null
-    signalReportsLoading: boolean
-    todayItems: TodayItem[]
-    usingSampleReports: boolean
-    visibleReports: TodayReport[]
+    reports: SignalReport[]
+    reportsFailed: boolean
+    topReports: TodayReports | null
+    topReportsLoading: boolean
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface todayLogicActions {
-    addTodayItem: (item: TodayItem) => {
-        item: TodayItem
-    }
-    askQuestion: (question: string) => {
-        question: string
-    }
-    completeReportAction: (
-        reportId: string,
-        result: string
-    ) => {
-        reportId: string
-        result: string
-    }
-    loadMore: () => {
-        value: true
-    }
-    loadSignalReports: () => any
-    loadSignalReportsFailure: (
+    locationChanged: ({
+        method,
+        pathname,
+        search,
+        searchParams,
+        hash,
+        hashParams,
+        initial,
+        url,
+        routerState,
+    }: LocationChangedPayload) => {
+        hash: string
+        hashParams: Record<string, any>
+        initial: boolean
+        method: 'POP' | 'PUSH' | 'REPLACE'
+        pathname: string
+        routerState: Record<string, any>
+        search: string
+        searchParams: Record<string, any>
+        url: string
+    } // router
+    loadTopReports: () => any
+    loadTopReportsFailure: (
         error: string,
         errorObject?: any
     ) => {
         error: string
         errorObject?: any
     }
-    loadSignalReportsSuccess: (
-        signalReports: SignalReport[],
+    loadTopReportsSuccess: (
+        topReports: TodayReports,
         payload?: any
     ) => {
-        signalReports: SignalReport[]
+        topReports: TodayReports
         payload?: any
     }
-    markConversationAnswered: (conversationId: string) => {
-        conversationId: string
-    }
-    openConversation: (
-        conversationId: string,
-        evidenceId?: string | null
+    openReport: (
+        report: SignalReport,
+        source: TodayReportOpenSource
     ) => {
-        conversationId: string
-        evidenceId: string | null
+        report: SignalReport
+        source: TodayReportOpenSource
     }
-    openFollowUp: (reportId: string) => {
-        reportId: string
-    }
-    openHome: () => {
-        value: true
-    }
-    openNew: () => {
-        value: true
-    }
-    openReport: (reportId: string) => {
-        reportId: string
-    }
-    removeReport: (reportId: string) => {
-        reportId: string
-    }
-    runReportAction: (reportId: string) => {
-        reportId: string
-    }
-    sendToAgent: (
-        reportId: string,
-        agentId: 'mine' | 'posthog'
+    reportOpened: (
+        report: SignalReport,
+        source: TodayReportOpenSource
     ) => {
-        agentId: 'mine' | 'posthog'
-        reportId: string
-    }
-    setActionMessage: (message: string | null) => {
-        message: string | null
-    }
-    setActionState: (
-        reportId: string,
-        state: TodayActionState
-    ) => {
-        reportId: string
-        state: TodayActionState
-    }
-    setFollowUpTime: (
-        reportId: string,
-        time: TodayFollowUpTime
-    ) => {
-        reportId: string
-        time: string
+        report: SignalReport
+        source: TodayReportOpenSource
     }
     setHoveredReportId: (reportId: string | null) => {
         reportId: string | null
-    }
-    setRoute: (route: TodayRoute) => {
-        route: TodayRoute
-    }
-    startConversation: (
-        question: string,
-        scenarioId: TodayScenarioId
-    ) => {
-        id: string
-        question: string
-        scenarioId: TodayScenarioId
     }
     tick: () => {
         value: true
@@ -272,23 +154,13 @@ export interface todayLogicActions {
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface todayLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
-        reportsReady: (signalReports: SignalReport[] | null, signalReportsLoading: boolean) => boolean
-        usingSampleReports: (signalReports: SignalReport[] | null) => boolean
-        reports: (signalReports: SignalReport[] | null, usingSampleReports: boolean) => TodayReport[]
-        reportById: (reports: TodayReport[]) => Record<string, TodayReport>
-        currentReport: (route: TodayRoute, reportById: Record<string, TodayReport>) => TodayReport | null
-        visibleReports: (
-            reports: TodayReport[],
-            removedIds: string[],
-            loadedMore: boolean,
-            completedIds: string[]
-        ) => TodayReport[]
-        openReportCount: (reports: TodayReport[]) => number
-        briefing: (usingSampleReports: boolean, reports: TodayReport[]) => TodayBriefingSegment[][]
+        reportId: (location: { hash: string; pathname: string; search: string }) => string | null
+        reports: (topReports: TodayReports | null) => SignalReport[]
+        moreReportCount: (topReports: TodayReports | null) => number
+        briefing: (reports: SignalReport[]) => TodayBriefingSegment[][]
         hour: (now: number) => number
         greeting: (hour: number, user: UserType | null) => string
-        reportSummary: (hour: number, openReportCount: number) => string
-        currentConversation: (route: TodayRoute, conversations: TodayConversation[]) => TodayConversation | null
+        reportSummary: (hour: number, reports: SignalReport[]) => string
     }
 }
 
@@ -298,168 +170,66 @@ export const todayLogic = kea<todayLogicType>([
     path(['scenes', 'project-homepage', 'today', 'todayLogic']),
     connect(() => ({
         values: [userLogic, ['user'], teamLogic, ['currentTeam']],
+        actions: [router, ['locationChanged']],
     })),
     actions({
-        setRoute: (route: TodayRoute) => ({ route }),
-        openHome: true,
-        openReport: (reportId: string) => ({ reportId }),
-        openFollowUp: (reportId: string) => ({ reportId }),
-        openNew: true,
-        openConversation: (conversationId: string, evidenceId: string | null = null) => ({
-            conversationId,
-            evidenceId,
-        }),
         setHoveredReportId: (reportId: string | null) => ({ reportId }),
-        removeReport: (reportId: string) => ({ reportId }),
-        loadMore: true,
-        runReportAction: (reportId: string) => ({ reportId }),
-        setActionState: (reportId: string, state: TodayActionState) => ({ reportId, state }),
-        setActionMessage: (message: string | null) => ({ message }),
-        completeReportAction: (reportId: string, result: string) => ({ reportId, result }),
-        sendToAgent: (reportId: string, agentId: 'mine' | 'posthog') => ({ reportId, agentId }),
-        setFollowUpTime: (reportId: string, time: TodayFollowUpTime) => ({ reportId, time }),
-        askQuestion: (question: string) => ({ question }),
-        startConversation: (question: string, scenarioId: TodayScenarioId) => ({
-            question,
-            scenarioId,
-            id: `conversation-${Date.now().toString(36)}`,
-        }),
-        markConversationAnswered: (conversationId: string) => ({ conversationId }),
-        addTodayItem: (item: TodayItem) => ({ item }),
+        openReport: (report: SignalReport, source: TodayReportOpenSource) => ({ report, source }),
+        reportOpened: (report: SignalReport, source: TodayReportOpenSource) => ({ report, source }),
         tick: true,
     }),
     loaders({
-        signalReports: [
-            null as SignalReport[] | null,
+        topReports: [
+            null as TodayReports | null,
             {
-                loadSignalReports: async () => {
+                loadTopReports: async (): Promise<TodayReports> => {
+                    // The same filter as the Inbox's actionable view, ranked by priority, so Today shows
+                    // the reports most worth acting on first.
                     const response = await api.signalReports.list({
                         status: 'ready,pending_input',
                         actionability: 'immediately_actionable,requires_human_input',
                         ordering: 'priority,-updated_at',
                         limit: TOP_REPORT_COUNT,
                     })
-                    return response.results
+                    return { results: response.results, count: response.count }
                 },
             },
         ],
     }),
     reducers({
-        route: [HOME_ROUTE, { setRoute: (_, { route }) => route }],
         hoveredReportId: [
             null as string | null,
             {
                 setHoveredReportId: (_, { reportId }) => reportId,
-                setRoute: () => null,
+                locationChanged: () => null,
             },
         ],
-        completedIds: [
-            [] as string[],
+        reportsFailed: [
+            false,
             {
-                completeReportAction: (state, { reportId }) =>
-                    state.includes(reportId) ? state : [...state, reportId],
-            },
-        ],
-        removedIds: [
-            [] as string[],
-            { persist: true },
-            { removeReport: (state, { reportId }) => (state.includes(reportId) ? state : [...state, reportId]) },
-        ],
-        loadedMore: [false, { loadMore: () => true }],
-        actionStates: [
-            {} as Record<string, TodayActionState>,
-            {
-                setActionState: (state, { reportId, state: actionState }) => ({ ...state, [reportId]: actionState }),
-                completeReportAction: (state, { reportId }) => ({ ...state, [reportId]: 'complete' }),
-            },
-        ],
-        actionMessage: [
-            null as string | null,
-            {
-                setActionMessage: (_, { message }) => message,
-                completeReportAction: (_, { result }) => result,
-                setRoute: () => null,
-            },
-        ],
-        followUpTimes: [
-            {} as Record<string, TodayFollowUpTime>,
-            { setFollowUpTime: (state, { reportId, time }) => ({ ...state, [reportId]: time }) },
-        ],
-        sentQuestion: [
-            null as string | null,
-            {
-                askQuestion: (_, { question }) => question,
-                setRoute: () => null,
-            },
-        ],
-        conversations: [
-            [] as TodayConversation[],
-            {
-                startConversation: (state, { id, question, scenarioId }) => [
-                    { id, question, scenarioId, status: 'thinking' },
-                    ...state,
-                ],
-                markConversationAnswered: (state, { conversationId }) =>
-                    state.map((conversation) =>
-                        conversation.id === conversationId ? { ...conversation, status: 'answered' } : conversation
-                    ),
-            },
-        ],
-        todayItems: [
-            [] as TodayItem[],
-            {
-                addTodayItem: (state, { item }) =>
-                    state.some((existing) => existing.evidenceId === item.evidenceId) ? state : [item, ...state],
+                loadTopReports: () => false,
+                loadTopReportsFailure: () => true,
             },
         ],
         now: [Date.now(), { tick: () => Date.now() }],
     }),
     selectors({
-        reportsReady: [
-            (s) => [s.signalReports, s.signalReportsLoading],
-            (signalReports: SignalReport[] | null, loading: boolean): boolean => !!signalReports || !loading,
-        ],
-        usingSampleReports: [
-            (s) => [s.signalReports],
-            (signalReports: SignalReport[] | null): boolean => !signalReports || signalReports.length === 0,
+        reportId: [
+            () => [router.selectors.location],
+            (location: { pathname: string }): string | null => reportIdFromPath(location.pathname),
         ],
         reports: [
-            (s) => [s.signalReports, s.usingSampleReports],
-            (signalReports: SignalReport[] | null, usingSampleReports: boolean): TodayReport[] =>
-                usingSampleReports || !signalReports
-                    ? SAMPLE_REPORTS
-                    : signalReports.map((report) => toTodayReport(report, urls.inboxReport('reports', report.id))),
+            (s) => [s.topReports],
+            (topReports: TodayReports | null): SignalReport[] => topReports?.results ?? [],
         ],
-        reportById: [
-            (s) => [s.reports],
-            (reports: TodayReport[]): Record<string, TodayReport> =>
-                Object.fromEntries(reports.map((report) => [report.id, report])),
-        ],
-        currentReport: [
-            (s) => [s.route, s.reportById],
-            (route: TodayRoute, reportById: Record<string, TodayReport>): TodayReport | null =>
-                route.reportId ? (reportById[route.reportId] ?? null) : null,
-        ],
-        visibleReports: [
-            (s) => [s.reports, s.removedIds, s.loadedMore, s.completedIds],
-            (
-                reports: TodayReport[],
-                removedIds: string[],
-                loadedMore: boolean,
-                completedIds: string[]
-            ): TodayReport[] =>
-                reports
-                    .filter((report) => !removedIds.includes(report.id) && (loadedMore || !report.secondary))
-                    .map((report) => (completedIds.includes(report.id) ? { ...report, completed: true } : report)),
-        ],
-        openReportCount: [
-            (s) => [s.reports],
-            (reports: TodayReport[]): number => reports.filter((report) => !report.secondary).length,
+        moreReportCount: [
+            (s) => [s.topReports],
+            (topReports: TodayReports | null): number =>
+                topReports ? Math.max(topReports.count - topReports.results.length, 0) : 0,
         ],
         briefing: [
-            (s) => [s.usingSampleReports, s.reports],
-            (usingSampleReports: boolean, reports: TodayReport[]): TodayBriefingSegment[][] =>
-                usingSampleReports ? SAMPLE_BRIEFING : briefingForReports(reports),
+            (s) => [s.reports],
+            (reports: SignalReport[]): TodayBriefingSegment[][] => briefingForReports(reports),
         ],
         hour: [(s) => [s.now], (now: number): number => new Date(now).getHours()],
         greeting: [
@@ -467,107 +237,36 @@ export const todayLogic = kea<todayLogicType>([
             (hour: number, user: UserType | null): string => greetingForHour(hour, user?.first_name),
         ],
         reportSummary: [
-            (s) => [s.hour, s.openReportCount],
-            (hour: number, openReportCount: number): string => reportSummaryForHour(hour, openReportCount),
-        ],
-        currentConversation: [
-            (s) => [s.route, s.conversations],
-            (route: TodayRoute, conversations: TodayConversation[]): TodayConversation | null =>
-                conversations.find((conversation) => conversation.id === route.conversationId) ?? null,
+            (s) => [s.hour, s.reports],
+            (hour: number, reports: SignalReport[]): string => reportSummaryForHour(hour, reports.length),
         ],
     }),
-    listeners(({ actions, values, cache }) => ({
-        openHome: () => router.actions.push(urls.projectHomepage()),
-        openReport: ({ reportId }) => router.actions.push(urls.projectHomepage(), { report: reportId }),
-        openFollowUp: ({ reportId }) =>
-            router.actions.push(urls.projectHomepage(), { report: reportId, view: 'follow-up' }),
-        openNew: () => router.actions.push(urls.projectHomepage(), { view: 'new' }),
-        openConversation: ({ conversationId, evidenceId }) =>
-            router.actions.push(urls.projectHomepage(), {
-                view: 'new',
-                conversation: conversationId,
-                ...(evidenceId ? { evidence: evidenceId } : {}),
-            }),
-        startConversation: ({ id }) => {
-            router.actions.push(urls.projectHomepage(), { view: 'new', conversation: id })
+    listeners(({ actions, values }) => ({
+        openReport: ({ report, source }) => {
+            router.actions.push(urls.todayReport(report.id))
+            actions.reportOpened(report, source)
         },
-        removeReport: ({ reportId }) => {
-            if (values.route.reportId === reportId) {
-                actions.openHome()
-            }
+        loadTopReportsSuccess: ({ topReports }) => {
+            // pinned: analytics event name and properties. Renaming them breaks dashboards.
+            posthog.capture('today home loaded', {
+                report_count: topReports.results.length,
+                more_report_count: values.moreReportCount,
+            })
         },
-        runReportAction: ({ reportId }) => {
-            const report = values.reportById[reportId]
-            if (
-                !report ||
-                values.actionStates[reportId] === 'loading' ||
-                values.actionStates[reportId] === 'complete'
-            ) {
-                return
-            }
-            if (report.action.href) {
-                actions.setActionMessage(report.action.confirmation)
-                if (/^https?:\/\//.test(report.action.href)) {
-                    window.open(report.action.href, '_blank', 'noopener,noreferrer')
-                } else {
-                    router.actions.push(report.action.href)
-                }
-                return
-            }
-            const run = actionRun(report)
-            if (!run) {
-                actions.setActionMessage(report.action.confirmation)
-                return
-            }
-            actions.setActionState(reportId, 'loading')
-            actions.setActionMessage(run.steps[0] ?? run.loading)
-            cache.disposables.add(
-                () => {
-                    const timers = run.steps
-                        .slice(1)
-                        .map((step, index) =>
-                            window.setTimeout(() => actions.setActionMessage(step), STEP_MS * (index + 1))
-                        )
-                    timers.push(
-                        window.setTimeout(
-                            () => actions.completeReportAction(reportId, run.result),
-                            STEP_MS * (run.steps.length - 1) + FINAL_STEP_MS
-                        )
-                    )
-                    return () => timers.forEach((timer) => clearTimeout(timer))
-                },
-                `action-run-${reportId}`,
-                // A hidden tab must not restart a run it already started.
-                { pauseOnPageHidden: false }
-            )
-        },
-        sendToAgent: ({ reportId, agentId }) => {
-            const report = values.reportById[reportId]
-            const agent = AGENT_OPTIONS.find((option) => option.id === agentId)
-            if (!report || !agent) {
-                return
-            }
-            actions.setActionMessage(agent.sent)
-            if (agentId === 'posthog') {
-                maxGlobalLogic.actions.askSidePanelMax(`${report.heading}\n\n${report.paragraphs.join('\n\n')}`)
-            }
-        },
-        askQuestion: ({ question }) => {
-            maxGlobalLogic.actions.askSidePanelMax(question)
-        },
-    })),
-    urlToAction(({ actions, values }) => ({
-        [urls.projectHomepage()]: (_, searchParams) => {
-            const route = routeFromSearchParams(searchParams)
-            if (JSON.stringify(route) !== JSON.stringify(values.route)) {
-                actions.setRoute(route)
-            }
+        reportOpened: ({ report, source }) => {
+            // pinned: analytics event name and properties. Renaming them breaks dashboards.
+            posthog.capture('today report opened', {
+                report_id: report.id,
+                priority: report.priority ?? null,
+                has_pr: !!report.implementation_pr_url,
+                source,
+            })
         },
     })),
     afterMount(({ actions, cache }) => {
-        actions.loadSignalReports()
+        actions.loadTopReports()
         cache.disposables.add(() => {
-            const clock = window.setInterval(() => actions.tick(), 1000)
+            const clock = window.setInterval(() => actions.tick(), CLOCK_MS)
             return () => clearInterval(clock)
         }, 'clock')
     }),
