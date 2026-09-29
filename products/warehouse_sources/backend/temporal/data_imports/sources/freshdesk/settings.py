@@ -26,7 +26,7 @@ class FreshdeskChainedFanoutConfig:
     resolve_field: str
 
 
-@dataclass
+@dataclass(frozen=True)
 class FreshdeskEndpointConfig:
     name: str
     path: str
