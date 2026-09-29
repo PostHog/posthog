@@ -380,6 +380,40 @@ class TestFacadeReadsAndMappers(TestCase):
         run.refresh_from_db()
         self.assertEqual(run.environment, TaskRun.Environment.CLOUD)
 
+    def test_list_workflow_last_runs_uses_each_workflows_newest_listed_task(self):
+        now = django_timezone.now()
+        flow_with_runs, flow_without_run, flow_not_asked = uuid4(), uuid4(), uuid4()
+        older = self._make_task(origin_product=Task.OriginProduct.WORKFLOW, hog_flow_id=flow_with_runs)
+        newer = self._make_task(origin_product=Task.OriginProduct.WORKFLOW, hog_flow_id=flow_with_runs, archived=True)
+        Task.objects.filter(pk=older.pk).update(created_at=now - timedelta(hours=2))
+        Task.objects.filter(pk=newer.pk).update(created_at=now - timedelta(hours=1))
+        TaskRun.objects.create(task=older, team=self.team, status=TaskRun.Status.COMPLETED)
+        earlier_run = TaskRun.objects.create(task=newer, team=self.team, status=TaskRun.Status.COMPLETED)
+        newest_run = TaskRun.objects.create(task=newer, team=self.team, status=TaskRun.Status.FAILED)
+        TaskRun.objects.filter(pk=earlier_run.pk).update(created_at=now - timedelta(minutes=50))
+        TaskRun.objects.filter(pk=newest_run.pk).update(created_at=now - timedelta(minutes=30))
+        # Run history hides internal tasks, so the newest task here must not count as the last run.
+        self._make_task(origin_product=Task.OriginProduct.WORKFLOW, hog_flow_id=flow_with_runs, internal=True)
+        not_started = self._make_task(origin_product=Task.OriginProduct.WORKFLOW, hog_flow_id=flow_without_run)
+        self._make_task(origin_product=Task.OriginProduct.WORKFLOW, hog_flow_id=flow_not_asked)
+
+        last_runs = facade.list_workflow_last_runs(self.team.id, self.user.id, [flow_with_runs, flow_without_run])
+
+        assert last_runs == {
+            flow_with_runs: contracts.WorkflowLastRunDTO(
+                hog_flow_id=flow_with_runs,
+                task_id=newer.id,
+                status="failed",
+                ran_at=now - timedelta(minutes=30),
+            ),
+            flow_without_run: contracts.WorkflowLastRunDTO(
+                hog_flow_id=flow_without_run,
+                task_id=not_started.id,
+                status="not_started",
+                ran_at=not_started.created_at,
+            ),
+        }
+
     def test_task_exists_and_visibility(self):
         task = self._make_task()
         self.assertTrue(facade.task_exists(task.id, self.team.id))
