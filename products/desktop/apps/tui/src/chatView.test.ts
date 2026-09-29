@@ -1,7 +1,7 @@
 import { initTheme } from "@earendil-works/pi-coding-agent";
 import { stripTerminalSequences } from "@earendil-works/pi-tui";
 import { beforeAll, describe, expect, it } from "vitest";
-import { ChatView } from "./chatView";
+import { ChatView, overlayBottom } from "./chatView";
 import type { TranscriptLine } from "./transcript";
 
 const plain = (lines: string[]): string[] =>
@@ -97,5 +97,25 @@ describe("ChatView", () => {
     expect(lines[0]).toBe("yo");
     expect(lines[1]).toBe("");
     expect(lines[2]).toMatch(/Thinking…$/);
+  });
+});
+
+describe("overlayBottom", () => {
+  it.each([
+    [
+      "covers the last rows",
+      ["a", "b", "c", "d"],
+      ["x", "y"],
+      ["a", "b", "x", "y"],
+    ],
+    ["keeps the chat when nothing floats", ["a", "b"], [], ["a", "b"]],
+    [
+      "shows the popup's end when it is taller than the chat",
+      ["a", "b"],
+      ["x", "y", "z"],
+      ["y", "z"],
+    ],
+  ])("%s", (_, lines, popup, expected) => {
+    expect(overlayBottom(lines, popup)).toEqual(expected);
   });
 });

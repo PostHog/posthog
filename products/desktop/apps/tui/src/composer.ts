@@ -90,16 +90,25 @@ export class Composer {
     this.repaint();
   }
 
-  render(width: number, focused: boolean): string[] {
+  // The input and its rule, and apart from them any suggestion list, which the pane floats over the chat.
+  render(
+    width: number,
+    focused: boolean,
+  ): { editor: string[]; popup: string[] } {
     this.editor.focused = focused;
     const lines = this.editor
       .render(width)
       .map((line) => line.replace(CURSOR_MARKER, ""));
-    // pi closes the input with a second rule; the pane edge already does that job.
-    const bottomRule = lines.findLastIndex(
+    // pi closes the input with a rule (or a "↓ n more" line); suggestions follow it.
+    const closing = lines.findLastIndex(
       (line, index) =>
-        index > 0 && PLAIN_RULE.test(stripTerminalSequences(line)),
+        index > 0 && stripTerminalSequences(line).startsWith("─"),
     );
-    return bottomRule > 0 ? lines.toSpliced(bottomRule, 1) : lines;
+    if (closing <= 0) return { editor: lines, popup: [] };
+    // A plain closing rule goes: the pane edge already closes the input.
+    const keep = PLAIN_RULE.test(stripTerminalSequences(lines[closing]))
+      ? closing
+      : closing + 1;
+    return { editor: lines.slice(0, keep), popup: lines.slice(closing + 1) };
   }
 }
