@@ -43,6 +43,7 @@ from posthog.models.comment.utils import (
     send_mention_notifications,
 )
 from posthog.models.integration import Integration, SlackIntegration
+from posthog.permissions import is_scout_sandbox_request
 from posthog.tasks.comment_slack_sync import backfill_comment_slack_thread
 from posthog.tasks.email import send_discussions_mentioned
 
@@ -371,6 +372,8 @@ class CommentSerializer(serializers.ModelSerializer):
         scope = data["scope"] if "scope" in data else getattr(instance, "scope", None)
         item_id = data["item_id"] if "item_id" in data else getattr(instance, "item_id", None)
         candidate_scopes = {scope, getattr(instance, "scope", None), getattr(source_comment, "scope", None)}
+        if is_scout_sandbox_request(request) and candidate_scopes & TICKET_COMMENT_SCOPES:
+            raise exceptions.PermissionDenied("Scouts must use the ticket reply endpoint to add private notes.")
         if candidate_scopes & COMMENT_SCOPES_BLOCKED_FROM_GENERIC_API:
             raise exceptions.PermissionDenied("Email thread messages cannot be managed through the comments API")
         if source_comment is not None:
