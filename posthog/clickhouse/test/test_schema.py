@@ -40,6 +40,7 @@ from posthog.settings.kafka import KAFKA_PREFIX
 
 @pytest.mark.parametrize("query", CREATE_TABLE_QUERIES, ids=get_table_name)
 def test_create_table_query(query, snapshot, settings):
+    settings.CLICKHOUSE_DATABASE = "posthog_test"
     settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA = False
 
     assert build_query(query) == snapshot
@@ -47,6 +48,7 @@ def test_create_table_query(query, snapshot, settings):
 
 @pytest.mark.parametrize("query", CREATE_MERGETREE_TABLE_QUERIES, ids=get_table_name)
 def test_create_table_query_replicated_and_storage(query, snapshot, settings):
+    settings.CLICKHOUSE_DATABASE = "posthog_test"
     settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA = False
     settings.CLICKHOUSE_ENABLE_STORAGE_POLICY = True
 

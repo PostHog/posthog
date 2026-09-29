@@ -1431,6 +1431,20 @@
   
   '''
 # ---
+# name: test_create_table_query[distributed_person_group_membership_config]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS distributed_person_group_membership_config
+  (
+      team_id Int64,
+      group_type_index UInt8,
+      enabled UInt8,
+      version UInt64
+  )
+  ENGINE = Distributed('aux', 'posthog_test', 'person_group_membership_config', sipHash64(team_id))
+  
+  '''
+# ---
 # name: test_create_table_query[distributed_posthog_document_embeddings]
   '''
   
@@ -5751,6 +5765,38 @@
   
   '''
 # ---
+# name: test_create_table_query[person_group_membership]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS person_group_membership
+  (
+      team_id Int64,
+      group_type_index UInt8,
+      group_key String,
+      distinct_id String,
+      first_seen SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
+      last_seen SimpleAggregateFunction(max, DateTime64(6, 'UTC'))
+  )
+  ENGINE = Distributed('aux', 'posthog_test', 'sharded_person_group_membership', sipHash64(team_id, group_type_index, group_key))
+  
+  '''
+# ---
+# name: test_create_table_query[person_group_membership_config]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS person_group_membership_config
+  (
+      team_id Int64,
+      group_type_index UInt8,
+      enabled UInt8,
+      version UInt64
+  )
+  ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.person_group_membership_config', '{replica}-{shard}', version)
+  ORDER BY team_id
+  SETTINGS index_granularity = 8192
+  
+  '''
+# ---
 # name: test_create_table_query[person_mv]
   '''
   
@@ -8362,6 +8408,24 @@
   
   '''
 # ---
+# name: test_create_table_query[sharded_person_group_membership]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_person_group_membership
+  (
+      team_id Int64,
+      group_type_index UInt8,
+      group_key String,
+      distinct_id String,
+      first_seen SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
+      last_seen SimpleAggregateFunction(max, DateTime64(6, 'UTC'))
+  )
+  ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_person_group_membership', '{replica}')
+  ORDER BY (team_id, group_type_index, group_key, distinct_id)
+  SETTINGS index_granularity = 8192, min_rows_for_wide_part = 0, min_bytes_for_wide_part = 0
+  
+  '''
+# ---
 # name: test_create_table_query[sharded_platform_alert_events]
   '''
   
@@ -10838,6 +10902,22 @@
   
   '''
 # ---
+# name: test_create_table_query[writable_person_group_membership]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS writable_person_group_membership
+  (
+      team_id Int64,
+      group_type_index UInt8,
+      group_key String,
+      distinct_id String,
+      first_seen SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
+      last_seen SimpleAggregateFunction(max, DateTime64(6, 'UTC'))
+  )
+  ENGINE = Distributed('aux', 'posthog_test', 'sharded_person_group_membership', sipHash64(team_id, group_type_index, group_key))
+  
+  '''
+# ---
 # name: test_create_table_query[writable_plugin_log_entries]
   '''
   
@@ -12933,6 +13013,22 @@
       
   '''
 # ---
+# name: test_create_table_query_replicated_and_storage[person_group_membership_config]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS person_group_membership_config
+  (
+      team_id Int64,
+      group_type_index UInt8,
+      enabled UInt8,
+      version UInt64
+  )
+  ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.person_group_membership_config', '{replica}-{shard}', version)
+  ORDER BY team_id
+  SETTINGS index_granularity = 8192
+  
+  '''
+# ---
 # name: test_create_table_query_replicated_and_storage[person_overrides]
   '''
   
@@ -14050,6 +14146,24 @@
   ORDER BY (team_id, toDate(timestamp), session_id, pageview_id, timestamp)
   
   SETTINGS storage_policy = 'hot_to_cold'
+  
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[sharded_person_group_membership]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_person_group_membership
+  (
+      team_id Int64,
+      group_type_index UInt8,
+      group_key String,
+      distinct_id String,
+      first_seen SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
+      last_seen SimpleAggregateFunction(max, DateTime64(6, 'UTC'))
+  )
+  ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_person_group_membership', '{replica}')
+  ORDER BY (team_id, group_type_index, group_key, distinct_id)
+  SETTINGS index_granularity = 8192, min_rows_for_wide_part = 0, min_bytes_for_wide_part = 0
   
   '''
 # ---

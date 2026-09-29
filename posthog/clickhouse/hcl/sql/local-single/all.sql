@@ -1762,6 +1762,12 @@ CREATE TABLE posthog.person_distinct_id_overrides (
   _partition UInt64,
   INDEX kafka_timestamp_minmax_person_distinct_id_overrides _timestamp TYPE minmax GRANULARITY 3
 ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.person_distinct_id_overrides', '{replica}-{shard}', version) ORDER BY (team_id, distinct_id) SETTINGS index_granularity = 512;
+CREATE TABLE posthog.person_group_membership_config (
+  team_id Int64,
+  group_type_index UInt8,
+  enabled UInt8,
+  version UInt64
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.person_group_membership_config', '{replica}-{shard}', version) ORDER BY (team_id) SETTINGS index_granularity = 8192;
 CREATE TABLE posthog.person_overrides (
   team_id Int32,
   old_person_id UUID,
@@ -2453,6 +2459,14 @@ CREATE TABLE posthog.sharded_performance_events (
   _offset UInt64,
   _partition UInt64
 ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/{shard}/posthog.performance_events', '{replica}') ORDER BY (team_id, toDate(timestamp), session_id, pageview_id, timestamp) PARTITION BY toYYYYMM(timestamp) TTL toDate(timestamp) + toIntervalWeek(3) SETTINGS index_granularity = 8192;
+CREATE TABLE posthog.sharded_person_group_membership (
+  team_id Int64,
+  group_type_index UInt8,
+  group_key String,
+  distinct_id String,
+  first_seen SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
+  last_seen SimpleAggregateFunction(max, DateTime64(6, 'UTC'))
+) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/{shard}/posthog.sharded_person_group_membership', '{replica}') ORDER BY (team_id, group_type_index, group_key, distinct_id) SETTINGS index_granularity = 8192, min_bytes_for_wide_part = 0, min_rows_for_wide_part = 0;
 CREATE TABLE posthog.sharded_platform_alert_events (
   team_id Int64,
   configuration_id UUID,
@@ -4123,6 +4137,14 @@ CREATE TABLE posthog.writable_person_distinct_id_overrides (
   _offset UInt64,
   _partition UInt64
 ) ENGINE = Distributed('posthog_single_shard', 'posthog', 'person_distinct_id_overrides');
+CREATE TABLE posthog.writable_person_group_membership (
+  team_id Int64,
+  group_type_index UInt8,
+  group_key String,
+  distinct_id String,
+  first_seen SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
+  last_seen SimpleAggregateFunction(max, DateTime64(6, 'UTC'))
+) ENGINE = Distributed('aux', 'posthog', 'sharded_person_group_membership', sipHash64(team_id, group_type_index, group_key));
 CREATE TABLE posthog.writable_plugin_log_entries (
   id UUID,
   team_id Int64,
@@ -6621,6 +6643,12 @@ CREATE TABLE posthog.distributed_events_recent (
   _offset UInt64,
   inserted_at DateTime64(6, 'UTC') DEFAULT now64()
 ) ENGINE = Distributed('posthog_primary_replica', 'posthog', 'sharded_events_recent', sipHash64(distinct_id));
+CREATE TABLE posthog.distributed_person_group_membership_config (
+  team_id Int64,
+  group_type_index UInt8,
+  enabled UInt8,
+  version UInt64
+) ENGINE = Distributed('aux', 'posthog', 'person_group_membership_config', sipHash64(team_id));
 CREATE TABLE posthog.distributed_posthog_document_embeddings (
   team_id Int64,
   product LowCardinality(String),
@@ -7150,6 +7178,14 @@ CREATE TABLE posthog.performance_events (
   _offset UInt64,
   _partition UInt64
 ) ENGINE = Distributed('posthog', 'posthog', 'sharded_performance_events', sipHash64(session_id));
+CREATE TABLE posthog.person_group_membership (
+  team_id Int64,
+  group_type_index UInt8,
+  group_key String,
+  distinct_id String,
+  first_seen SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
+  last_seen SimpleAggregateFunction(max, DateTime64(6, 'UTC'))
+) ENGINE = Distributed('aux', 'posthog', 'sharded_person_group_membership', sipHash64(team_id, group_type_index, group_key));
 CREATE TABLE posthog.platform_alert_events (
   team_id Int64,
   configuration_id UUID,
@@ -8090,3 +8126,4 @@ CREATE VIEW posthog.sessions_v AS SELECT
 FROM posthog.sessions
 GROUP BY
   session_id, team_id;
+CREATE OR REPLACE DICTIONARY posthog.person_group_membership_config_dict (`team_id` Int64, `group_type_index` UInt8 DEFAULT 255, `enabled` UInt8 DEFAULT 0) PRIMARY KEY team_id SOURCE(CLICKHOUSE(USER 'default' QUERY 'SELECT team_id, config.1 AS group_type_index, config.2 AS enabled FROM (SELECT team_id, argMax(tuple(group_type_index, enabled), version) AS config FROM posthog.distributed_person_group_membership_config GROUP BY team_id) WHERE enabled = 1 AND group_type_index <= 4')) LAYOUT(COMPLEX_KEY_HASHED()) LIFETIME(MIN 60 MAX 120);
