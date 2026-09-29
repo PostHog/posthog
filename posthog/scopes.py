@@ -6,9 +6,14 @@ from typing import Literal, get_args
 # Not every model needs a scope - it should more be for top-level things
 # Typically each object should have `read` and `write` scopes, but some objects may have more specific scopes
 
-# WARNING: Make sure to keep in sync with the frontend!
-# - frontend/src/lib/scopes.tsx (an `API_SCOPES` row and a group in `API_SCOPE_GROUPS`)
-# - frontend/src/types.ts (`export type APIScopeObject`)
+# A new scope object also needs UI data in frontend/src/lib/scopes.tsx:
+# - a row in `API_SCOPES`, or an entry with a reason in `API_SCOPES_OMITTED_FROM_MODAL`.
+# - a group in `API_SCOPE_GROUPS`.
+# frontend/src/lib/scopes.test.ts fails until both exist.
+#
+# The frontend `APIScopeObject` type needs no edit. `hogli build:openapi` generates it from
+# `GRANTABLE_API_SCOPE_OBJECTS` below, through the `resource` choice fields of the access
+# control serializers.
 #
 # The MCP `OAUTH_SCOPES_SUPPORTED` list at
 # `services/mcp/src/lib/oauth-scopes.generated.ts` is generated from
@@ -221,6 +226,13 @@ OAUTH_HIDDEN_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset(
     }
 )
 
+# Every scope object a person can grant: a personal API key, an OAuth grant or an access
+# control rule can name any of these. The access control API types its resource fields with
+# this list, so the generated frontend enum carries it and the frontend keeps no copy.
+GRANTABLE_API_SCOPE_OBJECTS: tuple[APIScopeObject, ...] = tuple(
+    obj for obj in API_SCOPE_OBJECTS if obj not in INTERNAL_API_SCOPE_OBJECTS
+)
+
 # llm_gateway:read is omitted on purpose: it's alpha/privileged and granted only behind the
 # ai-gateway flag in ProjectSecretAPIKeySerializer, not unconditionally like the entries here.
 PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[APIScopeObject, APIScopeActions]] = [
@@ -258,10 +270,7 @@ PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[APIScopeObject, APIS
 # Every public `obj:action` scope string. Matches `get_scope_descriptions()`
 # keys; excludes INTERNAL scopes (programmatic-only, never user-facing).
 ALL_SCOPES: frozenset[str] = frozenset(
-    f"{obj}:{action}"
-    for obj in API_SCOPE_OBJECTS
-    if obj not in INTERNAL_API_SCOPE_OBJECTS
-    for action in API_SCOPE_ACTIONS
+    f"{obj}:{action}" for obj in GRANTABLE_API_SCOPE_OBJECTS for action in API_SCOPE_ACTIONS
 )
 
 # Privileged scopes only land on `OAuthApplication.scopes` via an admin-driven
