@@ -76,7 +76,7 @@ export const SCOUT_WRITE_SCOPE_ROWS: ScoutWriteScopeRow[] = [
         group: 'Support',
         label: 'Support tickets',
         description:
-            'Update tickets and manage saved views, and edit or delete the private notes this scout wrote. It can also send replies, which email the customer and cannot be taken back',
+            "Update tickets and manage saved views, and edit or delete the private notes this scout wrote. It can also send replies, which reach the customer over the ticket's channel (email, Slack, Teams, or GitHub) and cannot be taken back",
     },
 ]
 
