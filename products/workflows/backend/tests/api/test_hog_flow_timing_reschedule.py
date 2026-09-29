@@ -10,7 +10,7 @@ from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 webhook_template = MOCK_NODE_TEMPLATES[0]
 
-TASK_PATH = "products.workflows.backend.api.hog_flow.reschedule_hog_flow_timing"
+TASK_PATH = "products.workflows.backend.presentation.views.hog_flow.reschedule_hog_flow_timing"
 
 
 def _actions(delay_duration: str = "7d", webhook_url: str = "https://example.com") -> list[dict]:
@@ -137,7 +137,7 @@ class TestHogFlowTimingRescheduleTrigger(APIBaseTest):
         mock_task.delay.assert_not_called()
 
         with patch(
-            "products.workflows.backend.api.hog_flow.get_hog_flow_in_flight_count",
+            "products.workflows.backend.presentation.views.hog_flow.get_hog_flow_in_flight_count",
             side_effect=Exception("count service down"),
         ):
             preview = self.client.post(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/publish", {})
