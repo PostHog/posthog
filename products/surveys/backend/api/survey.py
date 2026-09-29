@@ -1744,27 +1744,31 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                 team_id=self.context["team_id"],
                 feature_flag_id=validated_data["targeting_flag_id"],
             )
-        if validated_data.get("targeting_flag_filters"):
-            assert_feature_flag_write_scope(
-                self.context["request"],
-                action="survey.create",
-                resource_scope="survey:write",
-                team_id=self.context["team_id"],
-            )
-            targeting_feature_flag = self._create_or_update_targeting_flag(
-                None, validated_data["targeting_flag_filters"], validated_data["name"]
-            )
-            validated_data["targeting_flag_id"] = targeting_feature_flag.id
-            validated_data.pop("targeting_flag_filters")
+        # The survey row and its flags are one unit. The gate can reject a flag write after the
+        # row is saved, which would leave a survey with no targeting or internal flag and no way
+        # to retry, so keep the whole create in one block.
+        with gated_atomic():
+            if validated_data.get("targeting_flag_filters"):
+                assert_feature_flag_write_scope(
+                    self.context["request"],
+                    action="survey.create",
+                    resource_scope="survey:write",
+                    team_id=self.context["team_id"],
+                )
+                targeting_feature_flag = self._create_or_update_targeting_flag(
+                    None, validated_data["targeting_flag_filters"], validated_data["name"]
+                )
+                validated_data["targeting_flag_id"] = targeting_feature_flag.id
+                validated_data.pop("targeting_flag_filters")
 
-        if "targeting_flag_filters" in validated_data:
-            validated_data.pop("targeting_flag_filters")
+            if "targeting_flag_filters" in validated_data:
+                validated_data.pop("targeting_flag_filters")
 
-        validated_data["created_by"] = self.context["request"].user
-        instance = super().create(validated_data)
-        self._add_user_survey_interacted_filters(instance)
-        self._associate_actions(instance, validated_data.get("conditions"))
-        self._add_internal_response_sampling_filters(instance)
+            validated_data["created_by"] = self.context["request"].user
+            instance = super().create(validated_data)
+            self._add_user_survey_interacted_filters(instance)
+            self._associate_actions(instance, validated_data.get("conditions"))
+            self._add_internal_response_sampling_filters(instance)
 
         team = Team.objects.get(id=self.context["team_id"])
         log_activity(
