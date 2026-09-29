@@ -104,9 +104,13 @@
         --quill-highlight-foreground: oklch(0.85 0.09 305deg);
     }
 
-    /* Forced colors drop background images, which would leave text-clipped glyphs invisible. */
+    /* Forced colors drop gradient backgrounds, so paint the system mark colors and undo the text clip of the stroke. */
     @media (forced-colors: active) {
+        .quill-highlight,
         .quill-highlight[data-phase] {
+            color: MarkText;
+            background-color: Mark;
+            background-clip: padding-box;
             -webkit-text-fill-color: currentColor;
         }
     }
