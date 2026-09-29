@@ -111,7 +111,8 @@ INBOX_RANKING_PROMOTION_MIN_DAYS = get_from_env("INBOX_RANKING_PROMOTION_MIN_DAY
 # from the deployment's own object store, so this is the only place the served family is chosen.
 INBOX_RANKING_SERVED_FAMILY = os.getenv("INBOX_RANKING_SERVED_FAMILY", "report_embeddings")
 # Scorer (products/signals/backend/ranking/scorer.py): report ids per ClickHouse vector read. A
-# larger call is paged at this size.
+# larger call is paged at this size. The sweep also gives one scorer call at most this many ids, which
+# bounds the vectors and matrices one call holds.
 INBOX_RANKING_SCORING_BATCH_SIZE = get_from_env("INBOX_RANKING_SCORING_BATCH_SIZE", 500, type_cast=int)
 # Scoring sweep (products/signals/backend/ranking/sweep.py). Off by default: the schedule still
 # ticks, but the activity returns before it reads or writes anything. The max age keeps the vector

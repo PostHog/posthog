@@ -125,6 +125,22 @@ describe('EvalResultBadges', () => {
             expect(descResult[0].latestRun.id).toBe('new')
         })
 
+        it('orders by when a verdict was produced, not by its backdated timestamp', () => {
+            const live = makeRun({
+                id: 'live',
+                timestamp: '2026-04-10T12:00:05Z',
+                start_time: '2026-04-10T12:00:05Z',
+            })
+            const rerun = makeRun({
+                id: 'rerun',
+                timestamp: '2026-04-10T12:00:00.400Z',
+                start_time: '2026-04-12T09:00:00Z',
+                backfill_id: 'backfill-1',
+            })
+
+            expect(getEvalSummaries([live, rerun])[0]).toMatchObject({ latestRun: { id: 'rerun' }, runCount: 2 })
+        })
+
         it('handles a single run', () => {
             const summaries = getEvalSummaries([makeRun()])
             expect(summaries).toHaveLength(1)

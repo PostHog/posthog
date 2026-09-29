@@ -35,7 +35,7 @@ class TestBuildCaptureKwargs:
             "event_name": "$set",
             "event_source": "x",
             "distinct_id": "42",
-            "properties": {"$set": {"plan_tier": "pro"}},
+            "properties": {"$set": {"plan_tier": "pro"}, "$geoip_disable": True},
             "process_person_profile": True,
         }
 
@@ -60,7 +60,12 @@ class TestBuildCaptureKwargs:
             "event_name": "$groupidentify",
             "event_source": EVENT_SOURCE,
             "distinct_id": "team-uuid",
-            "properties": {"$group_type": "organization", "$group_key": "acme", "$group_set": {"plan_tier": "pro"}},
+            "properties": {
+                "$group_type": "organization",
+                "$group_key": "acme",
+                "$group_set": {"plan_tier": "pro"},
+                "$geoip_disable": True,
+            },
             "process_person_profile": True,
         }
 

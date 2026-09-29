@@ -33,6 +33,7 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
     ComputeTableStatisticsInputs,
     ComputeTableStatisticsWorkflow,
     _aggregate_add_action_stats,
+    _parse_log_value,
     compute_table_statistics_activity,
     compute_table_statistics_sync,
 )
@@ -123,6 +124,10 @@ class TestAggregateAddActionStats:
             (3, 9, "3", "9"),
             (Decimal("1.50"), Decimal("9.99"), "1.50", "9.99"),
             (dt.date(2024, 1, 1), dt.date(2025, 6, 25), "2024-01-01", "2025-06-25"),
+            # A source string column can carry a NUL byte; min_value/max_value land in a Postgres
+            # text column, which rejects it outright (DataError: "PostgreSQL text fields cannot
+            # contain NUL (0x00) bytes"). It must be stripped here, before the DB write.
+            ("ab\x00c", "z\x00", "abc", "z"),
         ],
     )
     def test_min_max_coerced_to_string(self, min_val, max_val, expected_min, expected_max) -> None:
@@ -130,6 +135,19 @@ class TestAggregateAddActionStats:
         _, stats = _aggregate_add_action_stats(add_actions, {"v": "X"})
         assert stats["v"].min_value == expected_min
         assert stats["v"].max_value == expected_max
+
+
+class TestParseLogValue:
+    def test_decimal_using_its_full_precision_is_not_mistaken_for_unparseable(self) -> None:
+        # Regression: quantize() used the default decimal context (28 significant digits), which is
+        # narrower than Delta allows (up to 38). A high-precision decimal(38,32) value legitimately
+        # using all 38 digits blew that context and raised _UnparseableValue even though the value
+        # fits its column's type fine.
+        value = Decimal("123456.12345678901234567890123456789012")
+        assert _parse_log_value("decimal(38,32)", value) == value
+
+    def test_decimal_rounds_to_the_columns_scale(self) -> None:
+        assert _parse_log_value("decimal(10,2)", Decimal("1.505")) == Decimal("1.50")
 
 
 @pytest.mark.django_db
@@ -353,6 +371,26 @@ class TestComputeTableStatisticsSync:
                 "2023-12-31 23:00:00+00:00",
                 "2024-06-01 12:30:00.000123+00:00",
             ),
+            (
+                "timestamp_logged_without_an_offset",
+                "timestamp",
+                "2024-01-01 00:00:00+00:00",
+                "2024-02-01 00:00:00+00:00",
+                "2023-12-31T23:00:00",
+                "2024-06-01T12:30:00.000123",
+                "2023-12-31 23:00:00+00:00",
+                "2024-06-01 12:30:00.000123+00:00",
+            ),
+            (
+                "timestamp_ntz_logged_with_an_offset",
+                "timestamp_ntz",
+                "2024-01-01 00:00:00",
+                "2024-02-01 00:00:00",
+                "2023-12-31T23:00:00Z",
+                "2024-06-01T12:30:00Z",
+                "2023-12-31 23:00:00",
+                "2024-06-01 12:30:00",
+            ),
             ("decimal", "decimal(10,2)", "1.50", "9.99", 0.5, 12.5, "0.50", "12.50"),
         ]
     )
@@ -370,6 +408,8 @@ class TestComputeTableStatisticsSync:
         # The stored bound is `str()` of the typed value the Add-action scan yields; the commit log
         # carries the same value in JSON form. A fold that compared the two as text, or stored the
         # log's spelling, would drift from what the next full scan writes.
+        # A timestamp is the one type whose two sides can disagree on spelling the offset, which
+        # made the fold compare a naive datetime with an aware one and abandon itself.
         team = self._team()
         schema, table, _ = self._schema_table_job(team)
         self._stored(team, table, min_value=stored_min, max_value=stored_max)
