@@ -115,16 +115,30 @@ export function SavedInsights(): JSX.Element {
             title: 'Name',
             dataIndex: 'name',
             key: 'name',
+            width: 680,
             render: function renderName(name: string, insight) {
                 if (isDraftInsightRow(insight)) {
                     return <DraftInsightNameCell item={insight} />
                 }
+                const displayName = name || summarizeInsight(insight.query)
                 return (
-                    <div className="flex items-center gap-1">
+                    <div className="flex min-w-0 items-center gap-1">
                         <LemonTableLink
                             to={urls.insightView(insight.short_id)}
-                            title={name || <i>{summarizeInsight(insight.query)}</i>}
-                            description={insight.description}
+                            className="min-w-0 flex-1"
+                            truncateTitle
+                            title={
+                                <Tooltip title={displayName}>
+                                    <span className="block truncate min-w-0">{name || <i>{displayName}</i>}</span>
+                                </Tooltip>
+                            }
+                            description={
+                                insight.description ? (
+                                    <Tooltip title={insight.description}>
+                                        <span className="block truncate max-w-[30rem]">{insight.description}</span>
+                                    </Tooltip>
+                                ) : undefined
+                            }
                         />
                         <AccessControlAction
                             resourceType={AccessControlResourceType.Insight}
@@ -162,6 +176,7 @@ export function SavedInsights(): JSX.Element {
             title: 'Tags',
             dataIndex: 'tags' as keyof SavedInsightListItem,
             key: 'tags',
+            width: 140,
             render: function renderTags(tags: string[]) {
                 return <ObjectTags tags={[...tags].sort()} staticOnly />
             },
@@ -169,6 +184,7 @@ export function SavedInsights(): JSX.Element {
         {
             title: 'Created by',
             dataIndex: 'created_by' as keyof SavedInsightListItem,
+            width: 180,
             render: function Render(_: any, item: SavedInsightListItem) {
                 const { created_by } = item
                 return (
@@ -185,6 +201,7 @@ export function SavedInsights(): JSX.Element {
         {
             title: 'Created',
             dataIndex: 'created_at',
+            width: 120,
             render: function RenderCreated(created_at: string) {
                 return created_at ? (
                     <div className="whitespace-nowrap text-right">
@@ -203,6 +220,7 @@ export function SavedInsights(): JSX.Element {
             sorter: true,
             defaultSortOrder: -1,
             dataIndex: 'last_modified_at',
+            width: 140,
             render: function renderLastModified(last_modified_at: string) {
                 return (
                     <div className="whitespace-nowrap">{last_modified_at && <TZLabel time={last_modified_at} />}</div>
@@ -214,6 +232,7 @@ export function SavedInsights(): JSX.Element {
             sorter: true,
             defaultSortOrder: -1,
             dataIndex: 'last_viewed_at',
+            width: 140,
             render: function renderLastViewed(last_viewed_at: string | null) {
                 return (
                     <div className="whitespace-nowrap">
@@ -223,7 +242,7 @@ export function SavedInsights(): JSX.Element {
             },
         },
         {
-            width: 0,
+            width: 48,
             render: function Render(_, insight) {
                 if (isDraftInsightRow(insight)) {
                     return <DraftInsightMoreMenu item={insight} />
@@ -372,6 +391,8 @@ export function SavedInsights(): JSX.Element {
                         }
                     />
                     <LemonTable
+                        tableLayout="fixed"
+                        tableStyle={{ minWidth: '1400px' }}
                         loading={insightsLoading}
                         columns={columns}
                         dataSource={
