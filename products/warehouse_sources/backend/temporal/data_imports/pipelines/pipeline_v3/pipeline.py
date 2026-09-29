@@ -4,6 +4,7 @@ import datetime
 from typing import TYPE_CHECKING, Any, Generic
 
 import pyarrow as pa
+import pyarrow.compute as pc
 import posthoganalytics
 from structlog.types import FilteringBoundLogger
 from temporalio import activity
@@ -98,6 +99,8 @@ if TYPE_CHECKING:
     )
 
 PARQUET_COMPRESSION: ParquetCompression = "zstd"
+# Rows sharing one cursor value held back in memory before they are staged anyway (see `_process_batch`).
+MAX_HELD_TIE_BYTES = 512 * 1024 * 1024
 
 
 def should_coalesce_tables(*, resume_manager: ResumableSourceManager[Any] | None, is_webhook: bool) -> bool:
@@ -165,6 +168,8 @@ class PipelineV3(Generic[ResumableData]):
         self._rows_ordered_by_cursor = rows_ordered_by_cursor
         # Rows that share the highest cursor of the last batch, staged with the next one (see `_process_batch`).
         self._held_ties: pa.Table | None = None
+        # Cursor through the last batch that ended on a complete cursor value.
+        self._complete_cursor: Any = None
         self._logger = logger
         self._load_id = time.time_ns()
 
@@ -619,6 +624,10 @@ class PipelineV3(Generic[ResumableData]):
         batch's highest cursor wait for the next batch, as more rows with that value can follow. Every
         staged batch then ends before the next cursor value, so a retry can resume strictly after it.
         """
+        # An oversized tie is staged mid-value under the last complete cursor, so a retry reads the tie again.
+        # That repeats its rows but keeps the worker's memory bounded.
+        incomplete_cursor: Any = None
+        is_incomplete = False
         if self._holds_back_cursor_ties():
             if self._held_ties is not None:
                 pa_table = pa.concat_tables([self._held_ties, pa_table], promote_options="permissive")
@@ -626,9 +635,19 @@ class PipelineV3(Generic[ResumableData]):
             if hold_back_ties:
                 assert self._schema.incremental_field is not None
                 split = split_trailing_cursor_ties(pa_table, self._schema.incremental_field)
-                pa_table, self._held_ties = split.kept, split.held
-                if pa_table.num_rows == 0:
-                    return False
+                if split.held.nbytes <= MAX_HELD_TIE_BYTES:
+                    pa_table, self._held_ties = split.kept, split.held
+                    if pa_table.num_rows == 0:
+                        return False
+                else:
+                    is_incomplete = True
+                    incomplete_cursor = (
+                        self._schema.serialize_incremental_value(
+                            pc.max(split.kept[self._schema.incremental_field]).as_py()
+                        )
+                        if split.kept.num_rows
+                        else self._complete_cursor
+                    )
 
         pa_table = _append_debug_column_to_pyarrows_table(pa_table, self._load_id)
         pa_table = normalize_table_column_names(pa_table)
@@ -679,11 +698,12 @@ class PipelineV3(Generic[ResumableData]):
         self._last_incremental_field_value = incremental_values.last_value
         self._earliest_incremental_field_value = incremental_values.earliest_value
 
-        batch_last_value = (
-            self._schema.serialize_incremental_value(incremental_values.last_value)
-            if self._holds_back_cursor_ties()
-            else None
-        )
+        batch_last_value: Any = None
+        if is_incomplete:
+            batch_last_value = incomplete_cursor
+        elif self._holds_back_cursor_ties():
+            batch_last_value = self._schema.serialize_incremental_value(incremental_values.last_value)
+        self._complete_cursor = batch_last_value
         tracked_rows = await self._stage_batch(
             pa_table, batch_index, row_count, incremental_last_value=batch_last_value
         )

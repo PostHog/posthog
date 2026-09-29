@@ -281,6 +281,36 @@ class TestCursorOrderedBatches:
         holds = cast(MagicMock, pipeline._pg_producer.hold_batch).call_args_list
         assert [call.kwargs["incremental_last_value"] for call in holds] == cursors
 
+    async def test_an_oversized_tie_is_staged_under_the_last_complete_cursor(self) -> None:
+        pipeline = _make_pipeline()
+        pipeline._rows_ordered_by_cursor = True
+        pipeline._schema = ExternalDataSchema(
+            sync_type="append",
+            sync_type_config={"incremental_field": "id", "incremental_field_type": IncrementalFieldType.Integer},
+        )
+        pipeline._last_incremental_field_value = None
+        pipeline._earliest_incremental_field_value = None
+
+        async def running_max(schema, table, resource, last_value, *_args, **_kwargs):
+            return MagicMock(last_value=max([*table["id"].to_pylist(), last_value or 0]), earliest_value=None)
+
+        batch_index = 0
+        with (
+            patch(f"{_PIPELINE}.update_incremental_field_values", side_effect=running_max),
+            patch(f"{_PIPELINE}.update_row_tracking_after_batch", new_callable=AsyncMock),
+            patch(f"{_PIPELINE}.MAX_HELD_TIE_BYTES", 40),
+        ):
+            for ids in [[1, 2], [2, 2, 2, 2, 2, 2], [2, 3]]:
+                table = pa.table({"id": pa.array(ids, pa.int64())})
+                if await pipeline._process_batch(pa_table=table, batch_index=batch_index, row_count=0):
+                    batch_index += 1
+            await pipeline._stage_held_ties(batch_index=batch_index, row_count=0)
+
+        writes = cast(MagicMock, pipeline._s3_batch_writer.write_batch).call_args_list
+        assert [call.args[0]["id"].to_pylist() for call in writes] == [[1], [2] * 7, [2], [3]]
+        holds = cast(MagicMock, pipeline._pg_producer.hold_batch).call_args_list
+        assert [call.kwargs["incremental_last_value"] for call in holds] == [1, 1, 2, 3]
+
 
 class TestExtractionFailureDoesNotCleanupS3:
     @pytest.mark.asyncio
