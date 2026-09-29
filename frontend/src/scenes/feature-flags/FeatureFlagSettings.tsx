@@ -101,18 +101,12 @@ export function FlagsSecureApiKeys(): JSX.Element {
     const hasLegacyKey = !!(currentTeam?.secret_api_token || currentTeam?.secret_api_token_backup)
 
     const openResetDialog = (): void => {
-        const verb = currentTeam?.secret_api_token ? 'Rotate' : 'Generate'
-        const description =
-            'This will generate a new Feature Flags secure API key' +
-            (currentTeam?.secret_api_token
-                ? ' and move the existing one to backup. The old key will remain active until you delete it.'
-                : '')
-
         LemonDialog.open({
-            title: `${verb} Flag Definitions API key?`,
-            description: description,
+            title: 'Rotate Flag Definitions API key?',
+            description:
+                'This will generate a new Feature Flags secure API key and move the existing one to backup. The old key will remain active until you delete it.',
             primaryButton: {
-                children: verb,
+                children: 'Rotate',
                 type: 'primary',
                 onClick: rotateSecretToken,
             },
@@ -177,13 +171,12 @@ export function FlagsSecureApiKeys(): JSX.Element {
                         disabledReason={
                             !isTeamTokenResetAvailable ? 'You do not have permission to rotate this key' : undefined
                         }
-                        tooltip={currentTeam?.secret_api_token ? 'Rotate key' : 'Generate key'}
+                        tooltip="Rotate key"
                     />
                 }
-                className={currentTeam?.secret_api_token ? '' : 'text-muted'}
                 thing="Primary Feature Flags Secure API key"
             >
-                {currentTeam?.secret_api_token || 'Click the rotate button on the right to generate a new key.'}
+                {currentTeam?.secret_api_token}
             </CodeSnippet>
 
             {currentTeam?.secret_api_token_backup ? (

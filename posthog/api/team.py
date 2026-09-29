@@ -519,7 +519,7 @@ def handle_evaluation_context_suggestions(request: request.Request, team: Team) 
 
 def validate_secret_token_generation(team: Team) -> None:
     """Rotating an existing legacy secret token stays allowed for safe migration, but minting a
-    first one is blocked. Project secret API keys replace it."""
+    first one is blocked unless Support is enabled. Project secret API keys replace it."""
     if team.secret_api_token or team.secret_api_token_backup:
         return
     if team.conversations_enabled:
