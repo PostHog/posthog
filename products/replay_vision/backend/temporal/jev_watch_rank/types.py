@@ -13,9 +13,12 @@ class JevWatchRankSweepResult(BaseModel, frozen=True):
     # Enrolled in the flag, but the organization has not approved AI data processing.
     teams_without_consent: int = 0
     scanners_judged: int = 0
-    # Windows whose membership matched the cache's fingerprint, so no Jev call was spent.
+    # Windows whose every row the judged set already holds, so no Jev call was spent.
     scanners_skipped_unchanged: int = 0
     observations_judged: int = 0
+    # Scanners skipped because their cache could not be read (judging over an unseen cache would
+    # overwrite it), plus writes that failed after judging.
+    cache_errors: int = 0
     failed_chunks: int = 0
     input_tokens: int = 0
     estimated_cost_usd: float = 0.0

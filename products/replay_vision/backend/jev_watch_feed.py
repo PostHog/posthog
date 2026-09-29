@@ -339,23 +339,53 @@ def store_watch_ranks(
 
 
 def load_judged_ids(team_id: int, scanner_id: UUID) -> set[str]:
-    """Every observation id the sweep has judged for this scanner. Fail-soft: a lost or malformed
-    entry reads as nothing judged, so the sweep re-buys those judgments instead of failing."""
-    try:
-        value = get_client(settings.REPLAY_VISION_REDIS_URL).get(_judged_key(team_id, scanner_id))
-        if not value:
-            return set()
-        stored = json.loads(value).get("ids")
-        return {str(judged_id) for judged_id in stored} if isinstance(stored, list) else set()
-    except Exception:
-        logger.exception("Jev watch rank judged-set read failed", team_id=team_id)
+    """Every observation id the sweep has judged for this scanner. A missing key is an empty set.
+
+    A Redis read failure raises: an unreadable cache must not read as an empty one, or the sweep
+    re-buys the scanner's judgments and its next write replaces entries it never saw. A stored
+    value that cannot be parsed reads as empty instead, because rewriting it loses nothing.
+    """
+    value = get_client(settings.REPLAY_VISION_REDIS_URL).get(_judged_key(team_id, scanner_id))
+    if not value:
         return set()
+    try:
+        stored = json.loads(value).get("ids")
+    except Exception:
+        logger.exception("Jev watch rank judged-set malformed", team_id=team_id)
+        return set()
+    return {str(judged_id) for judged_id in stored} if isinstance(stored, list) else set()
+
+
+def _parse_watchable(value: Any) -> dict[str, float]:
+    if not value:
+        return {}
+    try:
+        stored = json.loads(value).get("probabilities")
+    except Exception:
+        logger.exception("Jev watch rank cache value malformed")
+        return {}
+    if not isinstance(stored, dict):
+        return {}
+    probabilities: dict[str, float] = {}
+    for observation_id, probability in stored.items():
+        # Clamped like the weighted ranker clamps notability, because a cache can carry anything
+        # (and bool is an int subclass).
+        if isinstance(probability, int | float) and not isinstance(probability, bool):
+            probabilities[str(observation_id)] = min(1.0, max(0.0, float(probability)))
+    return probabilities
+
+
+def load_scanner_watch_ranks(team_id: int, scanner_id: UUID) -> dict[str, float]:
+    """The sweep's read of one scanner's watchable map. Raises on a Redis read failure, because the
+    sweep merges what it loads back into the store, so writing over a map it never saw drops
+    entries. The feed reads through `load_watch_ranks`, which fails soft instead."""
+    return _parse_watchable(get_client(settings.REPLAY_VISION_REDIS_URL).get(_watchable_key(team_id, scanner_id)))
 
 
 def load_watch_ranks(team_id: int, scanner_ids: list[UUID]) -> dict[str, float]:
-    """The cached watchable probabilities for these scanners, keyed by observation id. Any malformed
-    or missing cache entry contributes nothing, so a cold cache degrades the Jev feed to the recency
-    filler tier rather than failing the request."""
+    """The cached watchable probabilities for these scanners, keyed by observation id. Fail-soft:
+    any malformed, missing, or unreachable cache entry contributes nothing, so the Jev feed degrades
+    to the recency filler tier rather than failing the request."""
     if not scanner_ids:
         return {}
     probabilities: dict[str, float] = {}
@@ -364,16 +394,7 @@ def load_watch_ranks(team_id: int, scanner_ids: list[UUID]) -> dict[str, float]:
             [_watchable_key(team_id, scanner_id) for scanner_id in scanner_ids]
         )
         for value in values:
-            if not value:
-                continue
-            stored = json.loads(value).get("probabilities")
-            if not isinstance(stored, dict):
-                continue
-            for observation_id, probability in stored.items():
-                # Clamped like the weighted ranker clamps notability, because a cache can carry
-                # anything (and bool is an int subclass).
-                if isinstance(probability, int | float) and not isinstance(probability, bool):
-                    probabilities[str(observation_id)] = min(1.0, max(0.0, float(probability)))
+            probabilities |= _parse_watchable(value)
     except Exception:
         logger.exception("Jev watch rank cache read failed", team_id=team_id)
     return probabilities

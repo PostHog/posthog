@@ -34,7 +34,7 @@ from products.replay_vision.backend.jev_watch_feed import (
     WINDOW_CHUNK_SIZE,
     judge_scanner_window,
     load_judged_ids,
-    load_watch_ranks,
+    load_scanner_watch_ranks,
     refresh_watch_ranks_ttl,
     store_watch_ranks,
     watch_feed_ranker,
@@ -117,6 +117,7 @@ async def _judge_watch_ranks(inputs: JevWatchRankSweepInputs) -> JevWatchRankSwe
     scanners_judged = 0
     scanners_skipped_unchanged = 0
     observations_judged = 0
+    cache_errors = 0
     failed_chunks = 0
     input_tokens = 0
     estimated_cost = 0.0
@@ -152,7 +153,19 @@ async def _judge_watch_ranks(inputs: JevWatchRankSweepInputs) -> JevWatchRankSwe
             # newest first, and cache entries whose rows left the window are pruned. Coverage
             # therefore grows across sweeps at MAX_JUDGED_PER_SCANNER per hour whatever the
             # scanner's volume, and a fully judged window costs nothing.
-            judged = await asyncio.to_thread(load_judged_ids, team_id, scanner_id)
+            try:
+                judged = await asyncio.to_thread(load_judged_ids, team_id, scanner_id)
+                cached_watchable = await asyncio.to_thread(load_scanner_watch_ranks, team_id, scanner_id)
+            except Exception:
+                # A cache the sweep cannot read must not be judged over or written: without the
+                # judged set it re-buys rows, and the write would replace entries it never saw.
+                logger.exception(
+                    "Jev watch rank cache unreadable, skipping scanner",
+                    team_id=team_id,
+                    scanner_id=str(scanner_id),
+                )
+                cache_errors += 1
+                continue
             unjudged_ids = [row_id for row_id in window_ids if str(row_id) not in judged][:MAX_JUDGED_PER_SCANNER]
             if not unjudged_ids:
                 await asyncio.to_thread(refresh_watch_ranks_ttl, team_id, scanner_id)
@@ -165,14 +178,20 @@ async def _judge_watch_ranks(inputs: JevWatchRankSweepInputs) -> JevWatchRankSwe
             # Sub-threshold judgments join only the judged set, keeping the watchable key — which
             # the feed loads for every readable scanner on each request — small.
             window_strs = {str(row_id) for row_id in window_ids}
-            cached_watchable = await asyncio.to_thread(load_watch_ranks, team_id, [scanner_id])
             watchable = {
                 **{oid: p for oid, p in cached_watchable.items() if oid in window_strs},
                 **{oid: p for oid, p in judgment.probabilities.items() if p >= JEV_WATCHABLE_MIN},
             }
             all_judged = (judged & window_strs) | set(judgment.probabilities) | set(judgment.skipped_no_prose)
             if all_judged:
-                await asyncio.to_thread(store_watch_ranks, team_id, scanner_id, all_judged, watchable, judgment.model)
+                try:
+                    await asyncio.to_thread(
+                        store_watch_ranks, team_id, scanner_id, all_judged, watchable, judgment.model
+                    )
+                except Exception:
+                    # The batch is re-bought next run, which beats one write failure ending the sweep.
+                    logger.exception("Jev watch rank cache write failed", team_id=team_id, scanner_id=str(scanner_id))
+                    cache_errors += 1
             scanners_judged += 1
             observations_judged += len(judgment.probabilities)
             failed_chunks += judgment.failed_chunks
@@ -207,6 +226,7 @@ async def _judge_watch_ranks(inputs: JevWatchRankSweepInputs) -> JevWatchRankSwe
         scanners_judged=scanners_judged,
         scanners_skipped_unchanged=scanners_skipped_unchanged,
         observations_judged=observations_judged,
+        cache_errors=cache_errors,
         failed_chunks=failed_chunks,
         input_tokens=input_tokens,
         estimated_cost_usd=estimated_cost,
@@ -222,6 +242,7 @@ async def _judge_watch_ranks(inputs: JevWatchRankSweepInputs) -> JevWatchRankSwe
         scanners_judged=result.scanners_judged,
         scanners_skipped_unchanged=result.scanners_skipped_unchanged,
         observations_judged=result.observations_judged,
+        cache_errors=result.cache_errors,
         failed_chunks=result.failed_chunks,
         input_tokens=result.input_tokens,
         hit_team_cap=result.hit_team_cap,
