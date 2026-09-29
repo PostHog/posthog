@@ -1595,7 +1595,7 @@
 8 posthog/temporal/ai_observability/evaluation_clustering/activities.py
 8 posthog/temporal/delete_teams/types.py
 8 products/signals/backend/temporal/signal_queries.py
-9 posthog/clickhouse/cluster.py
+5 posthog/clickhouse/cluster.py
 9 posthog/temporal/backfill_materialized_property/activities.py
 9 products/experiments/backend/temporal/models.py
 9 products/signals/backend/temporal/reingestion.py

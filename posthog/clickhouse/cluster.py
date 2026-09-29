@@ -27,6 +27,7 @@ from posthog.clickhouse.client.connection import (
     get_clickhouse_creds,
     is_file_backed_user,
 )
+from posthog.dataclasses import frozen
 from posthog.settings import CLICKHOUSE_PER_TEAM_SETTINGS
 from posthog.settings.data_stores import CLICKHOUSE_CLUSTER, TEST
 
@@ -714,14 +715,14 @@ class Query:
         return f"Query(query={query!r}, parameters={params_repr}, settings={self.settings!r})"
 
 
-@dataclass
+@frozen
 class RetryPolicy:
     max_attempts: int
     delay: float | Callable[[int], float]
     exceptions: tuple[type[Exception], ...] | Callable[[Exception], bool] = (Exception,)
 
     def __call__(self, fn: Callable[[Client], T]) -> Retryable[T]:
-        return Retryable(fn, self)
+        return Retryable(callable=fn, policy=self)
 
     def is_retryable(self, e: Exception) -> bool:
         if isinstance(self.exceptions, tuple):
@@ -732,7 +733,7 @@ class RetryPolicy:
         return replace(self, exceptions=lambda e: predicate(e) or self.is_retryable(e))
 
 
-@dataclass
+@frozen
 class Retryable(Generic[T]):  # note: this class exists primarily to allow a readable __repr__
     callable: Callable[[Client], T]
     policy: RetryPolicy
