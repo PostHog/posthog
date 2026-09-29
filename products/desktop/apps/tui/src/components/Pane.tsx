@@ -2,22 +2,36 @@ import type { Task } from "@posthog/shared";
 import { Box, Text, useBoxMetrics } from "ink";
 import { type ReactElement, useEffect, useMemo, useRef, useState } from "react";
 import type { ChatView } from "../chatView";
-import { type CloudRuns, emptyRunView, type RunView } from "../runs";
+import {
+  type CloudRuns,
+  emptyRunView,
+  type RunSubscription,
+  type RunView,
+} from "../runs";
 import { transcriptFrom } from "../transcript";
 import { Spinner } from "./Spinner";
 
-function useRunView(runs: CloudRuns, task: Task | undefined): RunView {
+function useRunView(
+  runs: CloudRuns,
+  task: Task | undefined,
+): { view: RunView; loadOlder: () => void } {
   const taskId = task?.id;
   const run = task?.latest_run;
   const cloudRunId = run && run.environment !== "local" ? run.id : null;
   const [view, setView] = useState(emptyRunView);
+  const subscription = useRef<RunSubscription | null>(null);
   // Keyed on ids only: each list refresh brings a new task object for the same run.
   useEffect(() => {
     setView(emptyRunView);
     if (!taskId || !cloudRunId) return;
-    return runs.watch(taskId, cloudRunId, setView);
+    const current = runs.watch(taskId, cloudRunId, setView);
+    subscription.current = current;
+    return () => {
+      subscription.current = null;
+      current.stop();
+    };
   }, [runs, taskId, cloudRunId]);
-  return view;
+  return { view, loadOlder: () => void subscription.current?.loadOlder() };
 }
 
 export function Pane({
@@ -35,7 +49,7 @@ export function Pane({
 }): ReactElement {
   const body = useRef(null);
   const { width, height } = useBoxMetrics(body);
-  const view = useRunView(runs, task);
+  const { view, loadOlder } = useRunView(runs, task);
   const lines = useMemo(
     () =>
       task
@@ -47,7 +61,26 @@ export function Pane({
         : [],
     [task, view.entries],
   );
-  useEffect(() => chat.setTranscript(lines), [chat, lines]);
+  const hasOlder = view.windowStart > 0;
+  // Set before this render draws the chat, so a frame never shows the previous transcript.
+  const shown = useRef<{
+    chat: ChatView;
+    lines: typeof lines;
+    hasOlder: boolean;
+  } | null>(null);
+  if (
+    shown.current?.chat !== chat ||
+    shown.current.lines !== lines ||
+    shown.current.hasOlder !== hasOlder
+  ) {
+    chat.setTranscript(lines, { hasOlder });
+    shown.current = { chat, lines, hasOlder };
+  }
+  // Reaching the top, or a transcript shorter than the pane, pulls in the page above.
+  useEffect(() => {
+    if (width > 0 && hasOlder && !view.loadingOlder && chat.isAtTop())
+      loadOlder();
+  });
   const run = task?.latest_run;
 
   let content: ReactElement;
