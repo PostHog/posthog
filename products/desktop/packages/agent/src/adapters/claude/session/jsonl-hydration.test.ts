@@ -744,6 +744,31 @@ describe("conversationTurnsToJsonlEntries", () => {
     );
   });
 
+  it("repairs a tool id the API rejects, on the call and on its result", () => {
+    const lines = conversationTurnsToJsonlEntries(
+      [
+        {
+          role: "assistant",
+          content: [],
+          toolCalls: [
+            {
+              toolCallId: "toolu_01AbCdEfGh[REDACTED]",
+              toolName: "Bash",
+              input: {},
+              result: "ok",
+            },
+          ],
+        },
+      ],
+      config,
+    );
+
+    const [toolUse, toolResult] = parseConversationEntries(lines);
+    const id = toolUse.message.content[0].id;
+    expect(id).toMatch(/^[a-zA-Z0-9_-]+$/);
+    expect(toolResult.message.content[0].tool_use_id).toBe(id);
+  });
+
   it("falls back to space for empty user content", () => {
     const lines = conversationTurnsToJsonlEntries(
       [{ role: "user", content: [] }],
@@ -1411,6 +1436,51 @@ describe("sanitizeSessionJsonl", () => {
       { type: "text", text: "running" },
       { type: "tool_use", id: "tc-1", name: "Bash", input: {} },
     ]);
+  });
+
+  it("repairs a tool id the API rejects, on the call and on its result", async () => {
+    const file = await writeJsonl([
+      {
+        type: "assistant",
+        uuid: "a1",
+        parentUuid: null,
+        message: {
+          role: "assistant",
+          content: [
+            {
+              type: "tool_use",
+              id: "toolu_01AbCdEfGh[REDACTED]",
+              name: "Bash",
+              input: {},
+            },
+          ],
+        },
+      },
+      {
+        type: "user",
+        uuid: "u1",
+        parentUuid: "a1",
+        message: {
+          role: "user",
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: "toolu_01AbCdEfGh[REDACTED]",
+              content: "ok",
+            },
+          ],
+        },
+      },
+    ]);
+
+    expect(await sanitizeSessionJsonl(file)).toBe(true);
+
+    const [toolUse, toolResult] = (await readJsonl(file)).map(
+      (line) =>
+        (line.message as { content: Record<string, unknown>[] }).content[0],
+    );
+    expect(toolUse.id).toMatch(/^[a-zA-Z0-9_-]+$/);
+    expect(toolResult.tool_use_id).toBe(toolUse.id);
   });
 
   it("sanitizes empty blocks in user lines too", async () => {
