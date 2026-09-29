@@ -22,7 +22,7 @@ FLY_IO_SESSION_PATCH = (
 )
 
 
-def _response(body: dict[str, Any], status: int = 200) -> Response:
+def _response(body: Any, status: int = 200) -> Response:
     resp = Response()
     resp.status_code = status
     resp._content = json.dumps(body).encode()
@@ -155,7 +155,7 @@ class TestPaginationAndUrls:
     def test_unexpected_response_shape_raises(self, MockClientSession) -> None:
         # A bare list where an object wrapper is expected must fail loudly, not silently sync zero rows.
         session = MockClientSession.return_value
-        _wire(session, [_response([{"id": "x"}])])  # type: ignore[arg-type]
+        _wire(session, [_response([{"id": "x"}])])
 
         with pytest.raises(ValueError):
             _rows(fly_io_source("tok", "apps", "acme", team_id=1, job_id="j"))
@@ -253,7 +253,7 @@ class TestFanout:
         MockFlyIoSession.return_value = session
         _wire(
             session, [_response({"machines": [{"id": "m1", "app_name": "app1"}], "next_cursor": None}), _response(None)]
-        )  # type: ignore[arg-type]
+        )
 
         assert _rows(fly_io_source("tok", "machine_events", "acme", team_id=1, job_id="j")) == []
 

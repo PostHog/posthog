@@ -1,10 +1,12 @@
 from dataclasses import dataclass, field
 from typing import Optional
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.types import IncrementalField
 
 
-@dataclass
+@frozen
 class FlyIoFanoutConfig:
     # Schema name of the endpoint whose rows drive this one.
     parent: str
