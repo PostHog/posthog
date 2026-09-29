@@ -21,6 +21,7 @@
         "@storybook/react": "catalog:",
         "@testing-library/react": "*",
         "@types/papaparse": "*",
+        "kea-disposables": "catalog:",
         "kea-test-utils": "catalog:"
     },
     "peerDependencies": {

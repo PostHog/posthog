@@ -400,7 +400,7 @@ export const organizationLogic = kea<organizationLogicType>([
                 ApiConfig.setCurrentOrganizationId(currentOrganization.id)
             }
         },
-        refreshCurrentOrganization: async () => {
+        refreshCurrentOrganization: async (_, breakpoint) => {
             if (!values.currentOrganization || !isUserLoggedIn()) {
                 return
             }
@@ -410,6 +410,8 @@ export const organizationLogic = kea<organizationLogicType>([
             } catch {
                 return
             }
+            // A newer refresh supersedes this one, so an older response cannot undo a block it already found.
+            breakpoint()
             // Not the loader: it flips `currentOrganizationLoading`, which the settings forms read.
             const current = values.currentOrganization
             if (

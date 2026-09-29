@@ -1,6 +1,7 @@
 import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 
 import { resetContext } from 'kea'
+import { disposablesPlugin } from 'kea-disposables'
 import { expectLogic, testUtilsPlugin } from 'kea-test-utils'
 
 import api from 'lib/api'
@@ -38,7 +39,7 @@ describe('workflowTemplateLogic', () => {
         initKeaTests()
 
         resetContext({
-            plugins: [testUtilsPlugin],
+            plugins: [testUtilsPlugin, disposablesPlugin],
         })
 
         jest.clearAllMocks()

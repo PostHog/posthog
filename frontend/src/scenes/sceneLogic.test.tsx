@@ -729,6 +729,57 @@ describe('sceneLogic', () => {
             expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(expectedRoute)
         })
 
+        it('keeps a navigation that is still loading when a refresh finds the organization open', async () => {
+            logic.unmount()
+            initKeaTests(true, MOCK_DEFAULT_TEAM, MOCK_DEFAULT_PROJECT, {
+                ...MOCK_DEFAULT_ORGANIZATION,
+                teams: [MOCK_DEFAULT_TEAM],
+                is_active: false,
+            } as OrganizationType)
+            await expectLogic(teamLogic).toDispatchActions(['loadCurrentTeamSuccess'])
+            featureFlagLogic.mount()
+            logic = sceneLogic.build({ scenes: testScenes })
+            logic.mount()
+            router.actions.push(urls.organizationDeactivated())
+            await expectLogic(logic).delay(1)
+
+            // The billing scene is still loading, so the block scene is the one on screen.
+            router.actions.push(urls.organizationBilling())
+            organizationLogic.actions.loadCurrentOrganizationSuccess({
+                ...organizationLogic.values.currentOrganization!,
+                is_active: true,
+            })
+            await expectLogic(logic).delay(1)
+
+            expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.organizationBilling())
+        })
+
+        it("keeps the block page without a page load when the organization's team list misses the project", async () => {
+            logic.unmount()
+            initKeaTests(true, MOCK_DEFAULT_TEAM, MOCK_DEFAULT_PROJECT, {
+                ...MOCK_DEFAULT_ORGANIZATION,
+                teams: [],
+                is_active: false,
+            } as OrganizationType)
+            await expectLogic(teamLogic).toDispatchActions(['loadCurrentTeamSuccess'])
+            featureFlagLogic.mount()
+            logic = sceneLogic.build({ scenes: testScenes })
+            logic.mount()
+            const originalLocation = Object.getOwnPropertyDescriptor(window, 'location')!
+            Object.defineProperty(window, 'location', { configurable: true, value: { ...window.location, href: '' } })
+            try {
+                router.actions.push(urls.organizationDeactivated())
+                await expectLogic(logic).delay(1)
+                organizationLogic.actions.loadCurrentOrganizationSuccess(organizationLogic.values.currentOrganization)
+                await expectLogic(logic).delay(1)
+
+                expect(window.location.href).toEqual('')
+                expect(logic.values.sceneId).toEqual(Scene.OrganizationDeactivated)
+            } finally {
+                Object.defineProperty(window, 'location', originalLocation)
+            }
+        })
+
         it("loads the page for a deactivated member's link into another organization's project", async () => {
             logic.unmount()
             initKeaTests(true, MOCK_DEFAULT_TEAM, MOCK_DEFAULT_PROJECT, {

@@ -1,4 +1,5 @@
 import { resetContext } from 'kea'
+import { disposablesPlugin } from 'kea-disposables'
 import { expectLogic, partial, testUtilsPlugin } from 'kea-test-utils'
 
 import { uuid } from 'lib/utils/dom'
@@ -18,7 +19,7 @@ describe('stepWaitUntilTimeWindowLogic', () => {
         initKeaTests()
 
         resetContext({
-            plugins: [testUtilsPlugin],
+            plugins: [testUtilsPlugin, disposablesPlugin],
         })
 
         wfLogic = workflowLogic({ id: 'new' })

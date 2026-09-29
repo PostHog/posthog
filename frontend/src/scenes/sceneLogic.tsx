@@ -93,6 +93,11 @@ function isOrganizationBlockScene(sceneId: string | null): boolean {
     return sceneId === Scene.OrganizationDeactivated || sceneId === Scene.OrganizationPendingDeletion
 }
 
+function isOrganizationBlockPath(pathname: string): boolean {
+    const route = removeProjectIdIfPresent(pathname)
+    return route === urls.organizationDeactivated() || route === urls.organizationPendingDeletion()
+}
+
 function leaveBlockedOrganizationPath(): boolean {
     const { currentOrganizationBlockPage, isPathInAnotherOrganization, isPathOpenWhileBlocked } =
         organizationLogic.values
@@ -100,15 +105,17 @@ function leaveBlockedOrganizationPath(): boolean {
         return false
     }
     const { pathname, search, hash } = router.values.location
+    // Check the allowlist first. The block page must never trigger the page load below, or a current
+    // project missing from the organization's team list reloads the block page forever.
+    if (isPathOpenWhileBlocked(pathname)) {
+        return false
+    }
     if (isPathInAnotherOrganization(pathname)) {
         // The client keeps the blocked organization's project whatever the URL says, so the scene would
         // read that project's data. A page load lets the server switch the member into the project's
         // organization, or send them to the block page.
         window.location.href = pathname + search + hash
         return true
-    }
-    if (isPathOpenWhileBlocked(pathname)) {
-        return false
     }
     router.actions.replace(currentOrganizationBlockPage)
     return true
@@ -731,7 +738,7 @@ export const sceneLogic = kea<sceneLogicType>([
         [organizationLogic.actionTypes.loadCurrentOrganizationSuccess]: () => {
             if (organizationLogic.values.currentOrganizationBlockPage) {
                 leaveBlockedOrganizationPath()
-            } else if (isOrganizationBlockScene(values.sceneId)) {
+            } else if (isOrganizationBlockPath(router.values.location.pathname)) {
                 router.actions.replace(urls.projectRoot())
             }
         },

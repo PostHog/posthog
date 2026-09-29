@@ -2,6 +2,8 @@ import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
+import api from 'lib/api'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -130,6 +132,7 @@ describe('organizationLogic', () => {
 
         afterEach(() => {
             delete (document as { hidden?: boolean }).hidden
+            jest.restoreAllMocks()
         })
 
         test.each([
@@ -142,6 +145,24 @@ describe('organizationLogic', () => {
             await expectLogic(logic, () => logic.actions.refreshCurrentOrganization()).toFinishAllListeners()
 
             expect(logic.values.currentOrganization).toMatchObject(expected)
+        })
+
+        it('drops an older refresh that returns after a newer one', async () => {
+            mount()
+            await expectLogic(logic).toDispatchActions(['loadCurrentOrganizationSuccess'])
+            let resolveOlder: (organization: OrganizationType) => void = () => {}
+            jest.spyOn(api, 'get')
+                .mockImplementationOnce(() => new Promise((resolve) => (resolveOlder = resolve)))
+                .mockImplementationOnce(() => Promise.resolve({ ...LOADED, is_active: false }))
+
+            logic.actions.refreshCurrentOrganization()
+            await expectLogic(logic, () => logic.actions.refreshCurrentOrganization()).toDispatchActions([
+                'loadCurrentOrganizationSuccess',
+            ])
+            resolveOlder({ ...LOADED, is_active: true })
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.currentOrganization?.is_active).toBe(false)
         })
 
         it('refreshes on the first show of a tab that mounted hidden', async () => {
