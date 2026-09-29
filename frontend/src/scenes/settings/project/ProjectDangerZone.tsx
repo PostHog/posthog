@@ -2,12 +2,15 @@ import { useActions, useValues } from 'kea'
 import { Dispatch, SetStateAction, useState } from 'react'
 
 import { IconTrash } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
+import { billingLogic } from 'scenes/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { projectLogic } from 'scenes/projectLogic'
+import { urls } from 'scenes/urls'
 
 export function DeleteProjectModal({
     isOpen,
@@ -83,6 +86,9 @@ export function DeleteProjectModal({
 
 export function ProjectDangerZone(): JSX.Element {
     const { currentProject } = useValues(projectLogic)
+    const { currentOrganization } = useValues(organizationLogic)
+    const { preflight } = useValues(preflightLogic)
+    const { billing } = useValues(billingLogic)
     const [isModalVisible, setIsModalVisible] = useState(false)
 
     const restrictedReason = useRestrictedArea({
@@ -90,11 +96,32 @@ export function ProjectDangerZone(): JSX.Element {
         scope: RestrictionScope.Project,
     })
 
+    // The API refuses this deletion, so say why before the member types the project name.
+    const isLastProjectWithSubscription =
+        !!preflight?.cloud && currentOrganization?.projects.length === 1 && !!billing?.has_active_subscription
+
+    const disabledReason =
+        restrictedReason ||
+        (currentProject?.is_pending_deletion ? 'This project is already being deleted.' : null) ||
+        (isLastProjectWithSubscription
+            ? 'This is the last project in your organization, which has an active subscription.'
+            : null)
+
     return (
         <>
             <div className="text-danger">
                 <div className="mt-4">
-                    {!restrictedReason && (
+                    {!restrictedReason && isLastProjectWithSubscription && (
+                        <LemonBanner
+                            type="info"
+                            className="mb-4"
+                            action={{ children: 'Go to billing', to: urls.organizationBilling() }}
+                        >
+                            This is the last project in your organization. To delete it, cancel your subscription on the
+                            billing page first.
+                        </LemonBanner>
+                    )}
+                    {!disabledReason && (
                         <p className="text-danger">
                             This is <b>irreversible</b>. Please be certain.
                         </p>
@@ -105,7 +132,7 @@ export function ProjectDangerZone(): JSX.Element {
                         onClick={() => setIsModalVisible(true)}
                         data-attr="delete-project-button"
                         icon={<IconTrash />}
-                        disabledReason={restrictedReason}
+                        disabledReason={disabledReason}
                     >
                         Delete {currentProject?.name || 'the current project'}
                     </LemonButton>

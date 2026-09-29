@@ -9,6 +9,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
+import { billingUnsubscribedJson } from '~/mocks/fixtures/_billing_unsubscribed'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
@@ -76,7 +77,14 @@ export const SettingsProjectDetails: Story = { args: { sectionId: 'project-detai
 
 export const SettingsProjectCustomization: Story = { args: { sectionId: 'project-customization' } }
 
-export const SettingsProjectDangerZone: Story = { args: { sectionId: 'project-danger-zone' } }
+export const SettingsProjectDangerZone: Story = {
+    args: { sectionId: 'project-danger-zone' },
+    decorators: [mswDecorator({ get: { '/api/billing/': billingUnsubscribedJson } })],
+}
+
+export const SettingsProjectDangerZoneLastProjectWithSubscription: Story = {
+    args: { sectionId: 'project-danger-zone' },
+}
 
 // -- Project (legacy) --
 

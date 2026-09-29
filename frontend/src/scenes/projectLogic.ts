@@ -314,16 +314,13 @@ export const projectLogic = kea<projectLogicType>([
                     : null,
         ],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions }) => ({
         loadCurrentProjectSuccess: ({ currentProject }) => {
             if (currentProject) {
                 ApiConfig.setCurrentProjectId(currentProject.id)
             }
             // Lock the project out once deletion has been initiated (covers full page loads / reloads)
             actions.guardPendingDeletion(router.values.location.pathname, currentProject?.is_pending_deletion)
-        },
-        locationChanged: ({ pathname }) => {
-            actions.guardPendingDeletion(pathname, values.currentProject?.is_pending_deletion)
         },
         guardPendingDeletion: ({ pathname, isPendingDeletion }) => {
             // projectBased scenes are served under a /project/:id prefix, so match the lockout path by suffix.

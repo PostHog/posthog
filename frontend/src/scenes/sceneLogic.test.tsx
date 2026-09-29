@@ -49,6 +49,7 @@ const testScenes: Record<string, () => any> = {
     [Scene.OrganizationPendingDeletion]: sceneImport,
     [Scene.PasswordResetComplete]: sceneImport,
     [Scene.ProjectCreateFirst]: sceneImport,
+    [Scene.ProjectPendingDeletion]: sceneImport,
     [Scene.Settings]: sceneImport,
     [Scene.ProjectFiles]: sceneImport,
 }
@@ -713,6 +714,41 @@ describe('sceneLogic', () => {
             } finally {
                 Object.defineProperty(window, 'location', originalLocation)
             }
+        })
+    })
+
+    describe('a project pending deletion', () => {
+        let priorAppContext: AppContext | undefined
+
+        beforeEach(async () => {
+            priorAppContext = window.POSTHOG_APP_CONTEXT
+            logic.unmount()
+            initKeaTests(true, MOCK_DEFAULT_TEAM, { ...MOCK_DEFAULT_PROJECT, is_pending_deletion: true })
+            await expectLogic(teamLogic).toDispatchActions(['loadCurrentTeamSuccess'])
+            featureFlagLogic.mount()
+            logic = sceneLogic.build({ scenes: testScenes })
+            logic.mount()
+            await expectLogic(logic).delay(1)
+        })
+
+        afterEach(() => {
+            window.POSTHOG_APP_CONTEXT = priorAppContext as AppContext
+        })
+
+        it.each([
+            [
+                'keeps the member on the lockout screen after a client-side link',
+                urls.projectHomepage(),
+                urls.projectPendingDeletion(),
+                Scene.ProjectPendingDeletion,
+            ],
+            ['opens billing', urls.organizationBilling(), urls.organizationBilling(), Scene.Billing],
+        ])('%s', async (_name, target, expectedRoute, expectedScene) => {
+            router.actions.push(target)
+            await expectLogic(logic).delay(1)
+
+            expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(expectedRoute)
+            expect(logic.values.sceneId).toEqual(expectedScene)
         })
     })
 })

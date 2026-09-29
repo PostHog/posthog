@@ -58,6 +58,7 @@ import { parseCouponCampaign } from './coupons/utils'
 import { isOnboardingRedirectSuppressed } from './onboarding/legacy/onboardingDelegationState'
 import { organizationLogic } from './organizationLogic'
 import { preflightLogic } from './PreflightCheck/preflightLogic'
+import { projectLogic } from './projectLogic'
 import type { SceneProps } from './sceneTypes'
 import { inviteLogic } from './settings/organization/inviteLogic'
 import { teamLogic } from './teamLogic'
@@ -902,6 +903,17 @@ export const sceneLogic = kea<sceneLogicType>([
                     // listener runs. The onboarding and project-creation redirects below stay off: they
                     // only lead to pages that are closed while blocked, so they loop against the block page.
                     if (!leaveBlockedOrganizationPath()) {
+                        actions.loadScene(sceneId, sceneKey, params, method)
+                    }
+                    return
+                }
+
+                if (projectLogic.values.currentProject?.is_pending_deletion) {
+                    // Decide the lockout here, as for the organization block above. Organization scenes such as
+                    // billing stay open, because they read no data of the project.
+                    if (sceneConfig.projectBased && sceneId !== Scene.ProjectPendingDeletion) {
+                        router.actions.replace(urls.projectPendingDeletion())
+                    } else {
                         actions.loadScene(sceneId, sceneKey, params, method)
                     }
                     return
