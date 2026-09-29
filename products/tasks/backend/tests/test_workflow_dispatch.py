@@ -351,6 +351,46 @@ class TestWorkflowDispatchPersistence(TestCase):
 
         self.assertEqual(outcome, "already_active")
 
+    @parameterized.expand([(False,), (True,)])
+    def test_failed_restart_preserves_concurrent_state(self, use_dispatch: bool) -> None:
+        run = self.task_run
+        original_state = {"mode": "background", "sandbox_id": "old-sandbox", "pr_authorship_mode": "bot"}
+        run.status = TaskRun.Status.COMPLETED
+        run.environment = TaskRun.Environment.CLOUD
+        run.state = original_state.copy()
+        run.save(update_fields=["status", "environment", "state"])
+        concurrent_state = {
+            "unprocessed_request_ids": ["pending"],
+            "token_cost": {"model": {"provider": {"request_ids": ["settled"], "cost_microusd": 10_000}}},
+            "compute_cost": 3,
+            "token_cost_incomplete": True,
+            "task_summary": "Updated summary",
+        }
+
+        def fail_restart(*args: object) -> None:
+            TaskRun.update_state_atomic(run.id, updates=concurrent_state)
+            raise RuntimeError("unavailable")
+
+        with (
+            patch(
+                "products.tasks.backend.feature_flags.is_workflow_dispatch_restart_enabled", return_value=use_dispatch
+            ),
+            patch("products.tasks.backend.facade.streams.reset_task_run_stream", return_value=True),
+            patch("products.tasks.backend.temporal.client.resume_task_in_cloud_workflow", side_effect=fail_restart),
+        ):
+            outcome, _, _ = resume_task_run_in_cloud(run.id, run.task_id, self.team.id, run.task.created_by_id)
+
+        if use_dispatch:
+            assert outcome == "resumed"
+            dispatch = claim_dispatches("dispatcher-1", 1, timedelta(minutes=1))[0]
+            TaskRun.update_state_atomic(run.id, updates=concurrent_state)
+            assert mark_dead(dispatch.id, "dispatcher-1", "unavailable") == 1
+        else:
+            assert outcome == "workflow_failed"
+        run.refresh_from_db()
+        assert run.status == TaskRun.Status.COMPLETED
+        assert run.state == {**original_state, **concurrent_state}
+
     def test_reenqueuing_restart_resets_dispatch_age(self) -> None:
         snapshot = RestartSnapshot(
             status=TaskRun.Status.FAILED,
