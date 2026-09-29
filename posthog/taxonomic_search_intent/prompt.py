@@ -8,24 +8,24 @@ copy below is the fallback when the managed prompt is unreachable or malformed; 
 `production` version so a fallback answer reads the same.
 """
 
-import time
-import threading
 from collections.abc import Mapping
-from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 import structlog
 from posthoganalytics.ai.prompts import PromptResult
 
 from posthog.dataclasses import frozen
-from posthog.llm.managed_decision_model import DEFAULT_DECISION_MODEL, get_app_prompt, model_from_config
+from posthog.llm.managed_decision_model import (
+    DEFAULT_DECISION_MODEL,
+    BackgroundRefresher,
+    get_app_prompt,
+    model_from_config,
+)
 from posthog.llm.system_one_client import GATEWAY_MAX_CHOICE_OPTIONS
 
 logger = structlog.get_logger(__name__)
 
 SEARCH_INTENT_PROMPT_NAME = "taxonomic-filter-search-intent"
-SEARCH_INTENT_PROMPT_LABEL = "production"
-PROMPT_REFRESH_SECONDS = 60
 
 
 @frozen
@@ -105,47 +105,15 @@ def parse_search_intent_prompt(result: PromptResult) -> SearchIntentPrompt:
     )
 
 
-def fetch_search_intent_prompt(*, label: str | None = None, version: int | None = None) -> SearchIntentPrompt:
+def fetch_search_intent_prompt(*, version: int | None = None) -> SearchIntentPrompt:
     """Blocks on the network for up to the SDK timeout. Request code reads `current_search_intent_prompt` instead."""
-    result = get_app_prompt(SEARCH_INTENT_PROMPT_NAME, label=label if version is None else None, version=version)
+    result = get_app_prompt(SEARCH_INTENT_PROMPT_NAME, version=version)
     if result is None:
-        if version is not None:
-            raise RuntimeError(f"Managed prompt {SEARCH_INTENT_PROMPT_NAME} version {version} was not found")
         return BUNDLED_SEARCH_INTENT_PROMPT
     return parse_search_intent_prompt(result)
 
 
-class _PromptRefresher:
-    # The SDK fetch blocks for up to 10 s on a cache miss and the picker's budget is 2 s, so a request
-    # reads the last prompt it has and at most one background fetch replaces it.
-    def __init__(self) -> None:
-        self._lock = threading.Lock()
-        self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="search-intent-prompt")
-        self._prompt = BUNDLED_SEARCH_INTENT_PROMPT
-        self._refreshed_at = float("-inf")
-        self._refreshing = False
-
-    def current(self) -> SearchIntentPrompt:
-        with self._lock:
-            if not self._refreshing and time.monotonic() - self._refreshed_at >= PROMPT_REFRESH_SECONDS:
-                self._refreshing = True
-                self._executor.submit(self._refresh)
-            return self._prompt
-
-    def _refresh(self) -> None:
-        try:
-            prompt = fetch_search_intent_prompt(label=SEARCH_INTENT_PROMPT_LABEL)
-        except Exception:
-            logger.exception("taxonomic_search_intent_prompt_refresh_failed")
-            prompt = None
-        with self._lock:
-            if prompt is not None and (prompt.version is not None or self._prompt.version is None):
-                self._prompt = prompt
-            self._refreshed_at = time.monotonic()
-            self._refreshing = False
-
-
-_REFRESHER = _PromptRefresher()
+_REFRESHER = BackgroundRefresher(SEARCH_INTENT_PROMPT_NAME, BUNDLED_SEARCH_INTENT_PROMPT, fetch_search_intent_prompt)
 
 
 def current_search_intent_prompt() -> SearchIntentPrompt:

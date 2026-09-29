@@ -40,7 +40,7 @@ import dataclasses
 from posthog.llm.system_one_client import system_one_configured
 from posthog.taxonomic_search_intent.classify import classify_search_intent
 from posthog.taxonomic_search_intent.contracts import SearchIntentRequest
-from posthog.taxonomic_search_intent.prompt import SEARCH_INTENT_PROMPT_LABEL, fetch_search_intent_prompt
+from posthog.taxonomic_search_intent.prompt import fetch_search_intent_prompt
 
 from products.posthog_ai.eval_harness.config import BaseEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
@@ -323,11 +323,7 @@ async def eval_search_intent(ctx: EvalContext) -> None:
             "eval_search_intent needs AI_GATEWAY_URL (https) and AI_GATEWAY_API_KEY to reach the decision model"
         )
     version = os.environ.get("SEARCH_INTENT_PROMPT_VERSION")
-    prompt = await asyncio.to_thread(
-        fetch_search_intent_prompt,
-        label=None if version else SEARCH_INTENT_PROMPT_LABEL,
-        version=int(version) if version else None,
-    )
+    prompt = await asyncio.to_thread(fetch_search_intent_prompt, version=int(version) if version else None)
 
     async def task(case: BaseEvalCase, task_ctx: EvalContext) -> dict:
         if task_ctx.demo_data is None:

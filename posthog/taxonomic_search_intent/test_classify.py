@@ -1,6 +1,4 @@
-import threading
 import dataclasses
-from concurrent.futures import Future
 
 from unittest.mock import patch
 
@@ -16,7 +14,6 @@ from posthog.taxonomic_search_intent.contracts import SearchIntent, SearchIntent
 from posthog.taxonomic_search_intent.prompt import (
     BUNDLED_SEARCH_INTENT_PROMPT,
     SearchIntentPrompt,
-    _PromptRefresher,
     fetch_search_intent_prompt,
     parse_search_intent_prompt,
 )
@@ -282,46 +279,13 @@ class TestSearchIntentPrompt(SimpleTestCase):
             config={"model": "posthog/hogference/jeeves-0.1"},
         )
 
-        prompt = fetch_search_intent_prompt(label="production")
+        prompt = fetch_search_intent_prompt()
         assert prompt.version == 3
         assert prompt.model == "posthog/hogference/jeeves-0.1"
-        read_prompt.assert_called_with("taxonomic-filter-search-intent", label="production", version=None)
+        read_prompt.assert_called_with("taxonomic-filter-search-intent", version=None)
 
         fetch_search_intent_prompt(version=4)
-        read_prompt.assert_called_with("taxonomic-filter-search-intent", label=None, version=4)
+        read_prompt.assert_called_with("taxonomic-filter-search-intent", version=4)
 
         read_prompt.return_value = None
-        assert fetch_search_intent_prompt(label="production") is BUNDLED_SEARCH_INTENT_PROMPT
-        with self.assertRaisesRegex(RuntimeError, "version 4 was not found"):
-            fetch_search_intent_prompt(version=4)
-
-    def test_a_request_never_waits_for_the_prompt_fetch(self) -> None:
-        managed = dataclasses.replace(BUNDLED_SEARCH_INTENT_PROMPT, instructions="Which tab?", version=3)
-        release = threading.Event()
-        fetches: list[Future] = []
-
-        def slow_fetch(**_kwargs: object) -> SearchIntentPrompt:
-            assert release.wait(timeout=5)
-            return managed
-
-        refresher = _PromptRefresher()
-        submit = refresher._executor.submit
-        with (
-            patch("posthog.taxonomic_search_intent.prompt.fetch_search_intent_prompt", slow_fetch),
-            patch.object(refresher._executor, "submit", side_effect=lambda fn: fetches.append(submit(fn))),
-        ):
-            assert refresher.current() is BUNDLED_SEARCH_INTENT_PROMPT
-            assert refresher.current() is BUNDLED_SEARCH_INTENT_PROMPT
-            release.set()
-            fetches[0].result(timeout=5)
-
-            assert refresher.current() == managed
-            assert len(fetches) == 1
-
-    @patch("posthog.taxonomic_search_intent.prompt.fetch_search_intent_prompt", side_effect=ConnectionError)
-    def test_failed_refresh_keeps_the_bundled_prompt(self, _fetch_prompt) -> None:
-        refresher = _PromptRefresher()
-
-        refresher._refresh()
-
-        assert refresher.current() is BUNDLED_SEARCH_INTENT_PROMPT
+        assert fetch_search_intent_prompt() is BUNDLED_SEARCH_INTENT_PROMPT
