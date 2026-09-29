@@ -372,22 +372,33 @@ jobs:
                   for attempt in $(seq 1 12); do
                       # Workflows first: Depot creates a run before its workflow, so the run list
                       # read after it holds the run of every listed workflow.
-                      workflows=$(depot ci workflow list --repo "$REPO" --pr "$PR_NUMBER" --status queued --status running -n 200 -o json) || exit 0
-                      runs=$(depot ci run list --repo "$REPO" --pr "$PR_NUMBER" --trigger pull_request --status queued --status running -n 200 -o json) || exit 0
+                      # Terminal workflows are listed too, so a run whose workflow already ended is not awaited.
+                      if ! workflows=$(depot ci workflow list --repo "$REPO" --pr "$PR_NUMBER" --status queued --status running --status finished --status failed --status cancelled -n 200 -o json) ||
+                          ! runs=$(depot ci run list --repo "$REPO" --pr "$PR_NUMBER" --trigger pull_request --status queued --status running -n 200 -o json); then
+                          echo "::warning::Could not list this PR's Depot runs, so no run was cancelled."
+                          exit 0
+                      fi
                       # Ties on the one-second created_at fall back to the run id, so every run
-                      # of the PR agrees on one order and exactly one run survives.
+                      # of the PR agrees on one order and exactly one run survives. The order is
+                      # a string comparison, so any other timestamp format stops the job rather
+                      # than risk cancelling a newer run.
                       plan=$(jq -n --arg own "$own_workflow" --argjson workflows "$workflows" --argjson runs "$runs" '
                           ($runs | map({key: .run_id, value: [.created_at, .run_id]}) | from_entries) as $order
                           | [$workflows[] | select(.workflow_path == "ci-backend.yml" and $order[.run_id] != null)] as $backend
                           | ($backend | map(select(.workflow_id == $own)) | first) as $me
-                          | if $me == null then {cancel: [], pending: ["self"]}
+                          | if any($runs[]; .created_at | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$") | not) then {unordered: true}
+                            elif $me == null then {cancel: [], pending: ["self"]}
                             else $order[$me.run_id] as $mine
                               | {
-                                  cancel: [$backend[] | select($order[.run_id] < $mine) | "\(.run_id) \(.workflow_id)"],
+                                  cancel: [$backend[] | select((.status == "queued" or .status == "running") and $order[.run_id] < $mine) | "\(.run_id) \(.workflow_id)"],
                                   pending: [$runs[] | select([.created_at, .run_id] < $mine) | .run_id as $run
                                       | select($backend | all(.run_id != $run)) | $run]
                                 }
                             end') || exit 0
+                      if jq -e '.unordered' <<<"$plan" >/dev/null; then
+                          echo "::warning::A Depot run has no whole-second created_at, so no run was cancelled."
+                          exit 0
+                      fi
                       while read -r run workflow; do
                           [ -n "$run" ] || continue
                           echo "Cancelling superseded run $run (workflow $workflow)"
