@@ -299,7 +299,7 @@ let retry_strategy = ExponentialBackoff::from_millis(100)
 | `flags_definition_query_time`              | -                      | Flag definition query duration                                                                         |
 | `flags_pool_utilization_ratio`             | `pool`                 | Pool utilization (0.0-1.0)                                                                             |
 | `flags_connection_hold_time_ms`            | `pool`, `operation`    | How long connections are held                                                                          |
-| `flags_hash_key_retries_total`             | `team_id`, `operation` | Retries scheduled after a failed attempt. The last failed attempt of a call does not count             |
+| `flags_hash_key_retries_total`             | `team_id`, `operation` | Retries that started. A failed attempt counts only when its retry starts                               |
 | `flags_flag_evaluation_error_total`        | `error_type`           | Error counter                                                                                          |
 | `db_connection_created_total`              | `pool`                 | Connection creation events (physical TCP/TLS, not pool reuse)                                          |
 | `flags_db_connection_pool_size`            | `pool`                 | Total pool size (should equal active + idle)                                                           |
