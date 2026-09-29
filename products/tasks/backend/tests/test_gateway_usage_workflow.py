@@ -39,10 +39,10 @@ async def test_scheduling_reuses_connection_after_success_and_retries_failure(fa
 
 
 def test_scheduling_reconnects_when_event_loop_changes() -> None:
-    async def connect():
+    async def connect() -> Mock:
         loop = asyncio.get_running_loop()
 
-        async def start(*args, **kwargs):
+        async def start(*args: object, **kwargs: object) -> None:
             assert asyncio.get_running_loop() is loop
 
         return Mock(start_workflow=AsyncMock(side_effect=start))

@@ -353,6 +353,29 @@ class TestSignupAPI(APIBaseTest):
         self.assertEqual(User.objects.count(), 1)
 
     @pytest.mark.skip_on_multitenancy
+    def test_signup_disallowed_on_gmail_dot_collision(self) -> None:
+        User.objects.create(email="jane@gmail.com", first_name="Jane")
+
+        response = self.client.post(
+            "/api/signup/",
+            {
+                "first_name": "John",
+                "email": "j.a.n.e@gmail.com",
+                "password": VALID_TEST_PASSWORD,
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            self.validation_error_response(
+                "There is already an account with this email address.",
+                code="unique",
+                attr="email",
+            ),
+        )
+        self.assertEqual(User.objects.count(), 1)
+
+    @pytest.mark.skip_on_multitenancy
     def test_social_signup_allows_plus_addressed_email(self):
         # Social signup is deliberately out of scope for the plus-addressing rules.
         session = self.client.session
@@ -3359,9 +3382,17 @@ class TestSignupPrecheckPendingInvite(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["code"], "plus_addressing_not_allowed")
 
-    def test_precheck_reports_collision_with_an_aliased_account(self):
-        User.objects.create_user(email="dupe+old@acme.com", password=None, first_name="Dupe")
-        response = self.client.post("/api/signup/precheck", {"email": "dupe@acme.com"})
+    @parameterized.expand(
+        [
+            ("aliased_account", "dupe+old@acme.com", "dupe@acme.com"),
+            ("dotted_gmail_account", "dupe@gmail.com", "d.u.p.e@gmail.com"),
+        ]
+    )
+    def test_precheck_reports_collision_with_the_same_mailbox(
+        self, _name: str, stored_email: str, looked_up_email: str
+    ) -> None:
+        User.objects.create_user(email=stored_email, password=None, first_name="Dupe")
+        response = self.client.post("/api/signup/precheck", {"email": looked_up_email})
         self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
         self.assertTrue(response.json()["email_exists"])
 

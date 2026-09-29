@@ -5,26 +5,31 @@ from .codeowners import CodeownersProjection, owner_handle, package_dirs_from, p
 from .github import GitHubLookupError, GitHubOrg
 from .matcher import compile_pattern, normalize_path, path_matches_pattern
 from .resolver import (
+    Addition,
     BatchOwnershipSource,
     DiskSource,
     OwnershipSource,
     OwnersResolver,
+    PathKind,
     Purpose,
     RepoRootNotFound,
     Resolution,
     TeamChannel,
+    TreeSource,
     team_channel,
     teams_registry,
 )
 from .schema import Producer, RepoSettings, TeamEntry
 
 __all__ = [
+    "Addition",
     "BatchOwnershipSource",
     "CodeownersProjection",
     "DiskSource",
     "GitHubLookupError",
     "GitHubOrg",
     "OwnersResolver",
+    "PathKind",
     "OwnershipSource",
     "Producer",
     "Purpose",
@@ -34,6 +39,7 @@ __all__ = [
     "TeamChannel",
     "TeamEntry",
     "TeamTestCensus",
+    "TreeSource",
     "census",
     "compile_pattern",
     "first_team_owner",

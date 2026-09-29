@@ -1,0 +1,314 @@
+{
+  "_generated": "Generated file. Do not edit by hand and do not add units by hand. Every unit is built by the AI observability sample pipeline from the structure of real production events, with all content replaced. See AGENTS.md in this directory.",
+  "title": "Trip concierge agent finds family hotels",
+  "scenario": "An OpenAI Agents SDK trip-concierge agent handles a family's Lisbon hotel request, calls a search_hotels tool, reasons over the raw results, and returns a structured recommendation that an online evaluation checks for groundedness.",
+  "summary": {
+    "events": {
+      "$ai_generation": 2,
+      "$ai_span": 2,
+      "$ai_trace": 1,
+      "$ai_evaluation": 2
+    },
+    "traces": 1,
+    "sessions": 0,
+    "errors": 0,
+    "libs": [
+      "posthog-ai",
+      "posthog-capture-v1-internal"
+    ],
+    "providers": [
+      "openai"
+    ],
+    "frameworks": [
+      "openai-agents"
+    ],
+    "models": [
+      "gpt-5.6-luna"
+    ],
+    "content_types": [
+      "function_call",
+      "function_call_result",
+      "message",
+      "output_text",
+      "reasoning",
+      "text"
+    ]
+  },
+  "events": [
+    {
+      "event": "$ai_generation",
+      "offset_ms": 0,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_parent_id": "span_xCcAWaoMGK3OoppmlOJIXhhd",
+        "$ai_total_tokens": 902,
+        "$ai_response_id": "resp_t6UzdDRX3JALmEQgkpmbjNstpSizyPOtAY3iwM7txHDAbsznsI",
+        "$ai_output_tokens": 49,
+        "$ai_input_tokens": 853,
+        "$lib_version": "5.41.0",
+        "$ai_lib": "posthog-ai",
+        "$ai_span_id": "span_FYJ2pRLptL4UCIwPXGLln0GK",
+        "$ai_framework": "openai-agents",
+        "$ai_model": "gpt-5.6-luna",
+        "$geoip_disable": true,
+        "$ai_provider": "openai",
+        "$lib": "posthog-node",
+        "$is_server": true,
+        "$ai_lib_version": "8.3.0",
+        "feature": "trip_concierge_agent",
+        "$ai_latency": 2.376000165939331,
+        "$ai_trace_id": "trace_5gL08JNGqLvX2XcwWRWBmJgj6s6VwJcE",
+        "$ai_tools_called": "search_hotels",
+        "$ai_tool_call_count": 1,
+        "$ai_input": [
+          {
+            "content": "Can you check if there are family rooms available in Lisbon for the last week of October, and let me know if I'll need a visa?\nWe're a family of 4, flying from Toronto.",
+            "role": "user",
+            "type": "message"
+          }
+        ],
+        "$ai_output_choices": [
+          {
+            "content": [],
+            "encrypted_content": "tlsm5FBuaCtn1vV6HXlzFHt+QLCEcSbq+qypfZK9fGpvYIed3N4/PaPOzbENT2mNIwn2YPTJE1UOyC7JvsF32QxsN7r/f/3LEtlzPTpwFX5Y2tB7Gj0faBLmc/IDzLeIKeLOH0VZACujzUuvRiH8ALXQXAU7gsJpM0UCKrrerfwtuFiNM2gl7mKhLJJKVBe/ARwQ3DS6sWFvUMeIFBDxpCLpBZ1wRJ7XYeZPr0Arr0kGPwhVnMC0GwNni/Hh9GxOGlHjIt7piJubdhTawc9m0EeiDAWl07huzAohaZzdC/dXt/TcajcUxmV0Wx29LvUN7T0BnLGJdveW4LU8GfrZyUJgagz2uYk+QV/70sND2A8osL9cWojm5goaQm+utKh/MbT6CkQsSlSvChFwI+QTFrvUOOlN2CHkjfkE05mwWNnniPIXp4Z6PzglOFkejrYzRrFMcbmMoAEtkKmx0Escqmbx6qZYFNoDoV+PKPbXi11s0tTXUodoGlq+fxAzoeiRti15vkcIr1awuj5/QvCm1XLDNNxrJqkavwxx6nD1maBL+CCMxrdwg/K/n0axkQsG/TNCQK87MIMxi1FYH/NAsLPpSNY+GrFHzsaiedDDJVRTcP/fQQJC9RbPT/IEbwFy51IpJADxO0M4/tkv11dDeWB1n7+ypFjsz5fpmMqj44hCrMXjF2DbEJ04W1x/EV3SHml/0K9rbSWah9XbET0ZG1mGdmMhW/hnsGO7YIny2Axy2x5X8fEnanhsZLdT1xtROWPNh+IcWC4ZBvLsKSR9ex6KfyiO2FBPIAJAolc5xp1muZGy8oouX9gHJo4H+EMQJr7LpN0VwiESPaOJx/v2cQ5yxK0HhAaPo6H+W0aToKvk5BlVp5R9MUvZXTOfGhm0143jHEyVWZMfhvcSSfrK+xGGdvqa80HxZfLBdYglRWej1GKHAmNJVZdZBws/XlzX7sLNW2/EyxS+007JCd5mckwlEPr2RJfKLKQU58/CtlFzU4tpt8FXmLHAz8wxcJ54z91KH7+34p+HZyW2ZBR413mMqr8HssJgqB8veitkXcrOmFoTcm9KsL0heM4ji+QX+4BnAg+Z4Pu2HlPvGPmY4gTaPGewv92Z2+uXOOJqPnHNvi88DJgmmUrIFzHEGeUZbOEAEY+z8W7CwG+n9K9PvWYZG0Ab7WI0EnoOmd81Dno1bh5gnbanGmY2vTCl43sfd8kpK77gCBaXBjQXifBz5AzR4VTYNMJMV8tz/wGoD32l+pv/MwnkIuHvlszdAekVohkejBAgs+n0YUlBbOwGWcqNk+E87ExAVZ/BuvEjnUUOHbWJ3ExCjXdjAHY634OTWvExcevKz/G0agy6gW52PzRqhdj6f9UlUM42",
+            "id": "rs_AYCIKjg8QHPkcL3T3bAUoq94kYzvaQoJhPgcUTpWLL38j6jLT9",
+            "summary": [],
+            "type": "reasoning"
+          },
+          {
+            "arguments": "{}",
+            "call_id": "call_s9xj0usZFfGPmLGeafIP9MUN",
+            "id": "fc_C9LD7ObucZkUKSigLgve2JN6yBphJrJt13vp35ULQEflp00n25",
+            "name": "search_hotels",
+            "status": "completed",
+            "type": "function_call"
+          }
+        ]
+      },
+      "uuid": "2864bb23-1838-757a-f65e-83f2826cbbc2"
+    },
+    {
+      "event": "$ai_span",
+      "offset_ms": 0,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_span_name": "search_hotels",
+        "$ai_lib_version": "8.3.0",
+        "$ai_parent_id": "span_xCcAWaoMGK3OoppmlOJIXhhd",
+        "$ai_provider": "openai",
+        "$is_server": true,
+        "$ai_latency": 0,
+        "$ai_span_id": "span_CULdQjgMziv9EbJnburSgu3D",
+        "feature": "trip_concierge_agent",
+        "$ai_span_type": "tool",
+        "$ai_framework": "openai-agents",
+        "$ai_trace_id": "trace_5gL08JNGqLvX2XcwWRWBmJgj6s6VwJcE",
+        "$geoip_disable": true,
+        "$lib": "posthog-node",
+        "$lib_version": "5.41.0",
+        "$ai_lib": "posthog-ai",
+        "$ai_input_state": "{}",
+        "$ai_output_state": "Search results for: Lisbon, check-in 2026-10-24, check-out 2026-10-31, guests: 2 adults + 2 children\nFilters applied: family room required, free cancellation, max distance 6 km from center\n\n1. Hotel Alfama Vista\n   Rating: 4.6/5 (1204 reviews)\n   Family room: Yes, sleeps 4, 32 sqm\n   Price: EUR 189/night (7 nights: EUR 1323)\n   Cancellation: Free until 48h before check-in\n   Distance to center: 0.8 km\n   Amenities: Rooftop pool, breakfast included, pet friendly\n\n2. Baixa Riverside Suites\n   Rating: 4.4/5 (876 reviews)\n   Family room: Yes, sleeps 4, 28 sqm\n   Price: EUR 165/night (7 nights: EUR 1155)\n   Cancellation: Free until 48h before check-in\n   Distance to center: 0.4 km\n   Amenities: River view, kitchenette, no breakfast\n\n3. Belem Garden Hotel\n   Rating: 4.7/5 (592 reviews)\n   Family room: Yes, sleeps 4, 35 sqm\n   Price: EUR 210/night (7 nights: EUR 1470)\n   Cancellation: Free until 48h before check-in\n   Distance to center: 3.1 km\n   Amenities: Garden courtyard, spa, breakfast included\n\n4. Chiado Boutique Rooms\n   Rating: 4.3/5 (341 reviews)\n   Family room: Yes, sleeps 4, 26 sqm\n   Price: EUR 152/night (7 nights: EUR 1064)\n   Cancellation: Free until 48h before check-in\n   Distance to center: 0.6 km\n   Amenities: Historic building, no elevator, breakfast extra\n\n5. Parque das Nacoes Family Inn\n   Rating: 4.5/5 (208 reviews)\n   Family room: Yes, sleeps 4, 40 sqm\n   Price: EUR 176/night (7 nights: EUR 1232)\n   Cancellation: Free until 48h before check-in\n   Distance to center: 5.4 km\n   Amenities: Near cable car, kids club, breakfast included\n\n6. Estrela Quiet Apartments\n   Rating: 4.2/5 (156 reviews)\n   Family room: Yes, sleeps 4, 45 sqm\n   Price: EUR 142/night (7 nights: EUR 994)\n   Cancellation: Free until 48h before check-in\n   Distance to center: 2.3 km\n   Amenities: Full kitchen, laundry, no daily cleaning\n\n7. Alcantara Loft Suites\n   Rating: 4.1/5 (98 reviews)\n   Family room: Yes, sleeps 4, 30 sqm\n   Price: EUR 134/night (7 nights: EUR 938)\n   Cancellation: Free until 48h before check-in\n   Distance to center: 4.0 km\n   Amenities: Industrial-chic, rooftop bar, breakfast extra\n\nVisa note: Canadian passport holders do not require a visa for stays under 90 days in Portugal (Schengen area).\nCurrency: EUR. Card payment accepted at all listed properties.\nAvailability last checked: 2026-09-24 10:18 UTC. Prices may change if booked more than 48 hours from now."
+      }
+    },
+    {
+      "event": "$ai_generation",
+      "offset_ms": 5996,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_model": "gpt-5.6-luna",
+        "$ai_parent_id": "span_xCcAWaoMGK3OoppmlOJIXhhd",
+        "$ai_response_id": "resp_klx2gvAQZnLtNaXUgbFxg2L7Az15GoJGFMNBt6s847mQpP4v54",
+        "feature": "trip_concierge_agent",
+        "$ai_input_tokens": 1616,
+        "$ai_lib": "posthog-ai",
+        "$is_server": true,
+        "$ai_total_tokens": 2202,
+        "$ai_provider": "openai",
+        "$ai_framework": "openai-agents",
+        "$ai_latency": 5.995000123977661,
+        "$ai_span_id": "span_ctqufTsp1mJkbrbkhXzicEWV",
+        "$lib": "posthog-node",
+        "$ai_lib_version": "8.3.0",
+        "$ai_trace_id": "trace_5gL08JNGqLvX2XcwWRWBmJgj6s6VwJcE",
+        "$ai_output_tokens": 586,
+        "$geoip_disable": true,
+        "$lib_version": "5.41.0",
+        "$ai_input": [
+          {
+            "content": "Can you check if there are family rooms available in Lisbon for the last week of October, and let me know if I'll need a visa?\nWe're a family of 4, flying from Toronto.",
+            "role": "user",
+            "type": "message"
+          },
+          {
+            "content": [],
+            "id": "rs_AYCIKjg8QHPkcL3T3bAUoq94kYzvaQoJhPgcUTpWLL38j6jLT9",
+            "originalItem": {
+              "content": [],
+              "encrypted_content": "tlsm5FBuaCtn1vV6HXlzFHt+QLCEcSbq+qypfZK9fGpvYIed3N4/PaPOzbENT2mNIwn2YPTJE1UOyC7JvsF32QxsN7r/f/3LEtlzPTpwFX5Y2tB7Gj0faBLmc/IDzLeIKeLOH0VZACujzUuvRiH8ALXQXAU7gsJpM0UCKrrerfwtuFiNM2gl7mKhLJJKVBe/ARwQ3DS6sWFvUMeIFBDxpCLpBZ1wRJ7XYeZPr0Arr0kGPwhVnMC0GwNni/Hh9GxOGlHjIt7piJubdhTawc9m0EeiDAWl07huzAohaZzdC/dXt/TcajcUxmV0Wx29LvUN7T0BnLGJdveW4LU8GfrZyUJgagz2uYk+QV/70sND2A8osL9cWojm5goaQm+utKh/MbT6CkQsSlSvChFwI+QTFrvUOOlN2CHkjfkE05mwWNnniPIXp4Z6PzglOFkejrYzRrFMcbmMoAEtkKmx0Escqmbx6qZYFNoDoV+PKPbXi11s0tTXUodoGlq+fxAzoeiRti15vkcIr1awuj5/QvCm1XLDNNxrJqkavwxx6nD1maBL+CCMxrdwg/K/n0axkQsG/TNCQK87MIMxi1FYH/NAsLPpSNY+GrFHzsaiedDDJVRTcP/fQQJC9RbPT/IEbwFy51IpJADxO0M4/tkv11dDeWB1n7+ypFjsz5fpmMqj44hCrMXjF2DbEJ04W1x/EV3SHml/0K9rbSWah9XbET0ZG1mGdmMhW/hnsGO7YIny2Axy2x5X8fEnanhsZLdT1xtROWPNh+IcWC4ZBvLsKSR9ex6KfyiO2FBPIAJAolc5xp1muZGy8oouX9gHJo4H+EMQJr7LpN0VwiESPaOJx/v2cQ5yxK0HhAaPo6H+W0aToKvk5BlVp5R9MUvZXTOfGhm0143jHEyVWZMfhvcSSfrK+xGGdvqa80HxZfLBdYglRWej1GKHAmNJVZdZBws/XlzX7sLNW2/EyxS+007JCd5mckwlEPr2RJfKLKQU58/CtlFzU4tpt8FXmLHAz8wxcJ54z91KH7+34p+HZyW2ZBR413mMqr8HssJgqB8veitkXcrOmFoTcm9KsL0heM4ji+QX+4BnAg+Z4Pu2HlPvGPmY4gTaPGewv92Z2+uXOOJqPnHNvi88DJgmmUrIFzHEGeUZbOEAEY+z8W7CwG+n9K9PvWYZG0Ab7WI0EnoOmd81Dno1bh5gnbanGmY2vTCl43sfd8kpK77gCBaXBjQXifBz5AzR4VTYNMJMV8tz/wGoD32l+pv/MwnkIuHvlszdAekVohkejBAgs+n0YUlBbOwGWcqNk+E87ExAVZ/BuvEjnUUOHbWJ3ExCjXdjAHY634OTWvExcevKz/G0agy6gW52PzRqhdj6f9UlUM42",
+              "id": "rs_AYCIKjg8QHPkcL3T3bAUoq94kYzvaQoJhPgcUTpWLL38j6jLT9",
+              "type": "reasoning"
+            },
+            "type": "reasoning"
+          },
+          {
+            "arguments": "{}",
+            "callId": "call_s9xj0usZFfGPmLGeafIP9MUN",
+            "id": "fc_C9LD7ObucZkUKSigLgve2JN6yBphJrJt13vp35ULQEflp00n25",
+            "name": "search_hotels",
+            "originalItem": {
+              "id": "fc_C9LD7ObucZkUKSigLgve2JN6yBphJrJt13vp35ULQEflp00n25",
+              "type": "function_call"
+            },
+            "role": "assistant",
+            "status": "completed",
+            "type": "function_call"
+          },
+          {
+            "callId": "call_s9xj0usZFfGPmLGeafIP9MUN",
+            "name": "search_hotels",
+            "output": {
+              "text": "Search results for: Lisbon, check-in 2026-10-24, check-out 2026-10-31, guests: 2 adults + 2 children\nFilters applied: family room required, free cancellation, max distance 6 km from center\n\n1. Hotel Alfama Vista\n   Rating: 4.6/5 (1204 reviews)\n   Family room: Yes, sleeps 4, 32 sqm\n   Price: EUR 189/night (7 nights: EUR 1323)\n   Cancellation: Free until 48h before check-in\n   Distance to center: 0.8 km\n   Amenities: Rooftop pool, breakfast included, pet friendly\n\n2. Baixa Riverside Suites\n   Rating: 4.4/5 (876 reviews)\n   Family room: Yes, sleeps 4, 28 sqm\n   Price: EUR 165/night (7 nights: EUR 1155)\n   Cancellation: Free until 48h before check-in\n   Distance to center: 0.4 km\n   Amenities: River view, kitchenette, no breakfast\n\n3. Belem Garden Hotel\n   Rating: 4.7/5 (592 reviews)\n   Family room: Yes, sleeps 4, 35 sqm\n   Price: EUR 210/night (7 nights: EUR 1470)\n   Cancellation: Free until 48h before check-in\n   Distance to center: 3.1 km\n   Amenities: Garden courtyard, spa, breakfast included\n\n4. Chiado Boutique Rooms\n   Rating: 4.3/5 (341 reviews)\n   Family room: Yes, sleeps 4, 26 sqm\n   Price: EUR 152/night (7 nights: EUR 1064)\n   Cancellation: Free until 48h before check-in\n   Distance to center: 0.6 km\n   Amenities: Historic building, no elevator, breakfast extra\n\n5. Parque das Nacoes Family Inn\n   Rating: 4.5/5 (208 reviews)\n   Family room: Yes, sleeps 4, 40 sqm\n   Price: EUR 176/night (7 nights: EUR 1232)\n   Cancellation: Free until 48h before check-in\n   Distance to center: 5.4 km\n   Amenities: Near cable car, kids club, breakfast included\n\n6. Estrela Quiet Apartments\n   Rating: 4.2/5 (156 reviews)\n   Family room: Yes, sleeps 4, 45 sqm\n   Price: EUR 142/night (7 nights: EUR 994)\n   Cancellation: Free until 48h before check-in\n   Distance to center: 2.3 km\n   Amenities: Full kitchen, laundry, no daily cleaning\n\n7. Alcantara Loft Suites\n   Rating: 4.1/5 (98 reviews)\n   Family room: Yes, sleeps 4, 30 sqm\n   Price: EUR 134/night (7 nights: EUR 938)\n   Cancellation: Free until 48h before check-in\n   Distance to center: 4.0 km\n   Amenities: Industrial-chic, rooftop bar, breakfast extra\n\nVisa note: Canadian passport holders do not require a visa for stays under 90 days in Portugal (Schengen area).\nCurrency: EUR. Card payment accepted at all listed properties.\nAvailability last checked: 2026-09-24 10:18 UTC. Prices may change if booked more than 48 hours from now.",
+              "type": "text"
+            },
+            "role": "tool",
+            "status": "completed",
+            "type": "function_call_result"
+          }
+        ],
+        "$ai_output_choices": [
+          {
+            "content": [],
+            "encrypted_content": "sefIl1xFjZS89NmLfQdwv8fkyY5hvdeKiqF5IpBkezoCwkrvX1IAlFtjL2iVuhgrpS8l5PUID348WetIeH/5NGwBWZB0vfvbBs/0bix5hv8vR1mRg6vEcvEErgPz6bwX6r6PEwKjugMLFyo7nNghhSUGU4wFjysO4YUgSZ8UGy/1YHQs8XpNK2+yl+Grqn5zIo2M+LJXycsP0Uwt37vlHRBdr7N62fUQrvMmAy70qtcJPveUY7oRJoLt6VLkmvjxAT7cxEhs6kfp3/abL8z1IrM4UBZdmd6vW7RY7X2/gWJ5dQ8O9XneEOLzkWhMXtZP+TJZL+scIPAFfLwfsJ6BC4zC57TFGWZJwkP6BFkUBWJ2yG5RnUQR9cUzB9pKnXKQs8bPo+jScW/MrY7HU61s6dM5cB1P8HZaz6/11RKR48INDUIEKJzZj0XajdFe6eps2slRnMvwNV/u4akIomEfv0840fmk91UBsf2TozpgksCT5vBpBZ5DwLpOemSqfkf/Gsgar2AFnfR358B7vawpsIKzb/iER4PhjaeHn736DDELpxJ2qwQyfnpohYTgKvU34Qr+3Gp06NZsVBs/noGXgrDp45vvsWHyOTJe3snrYULOkCQEUmaRpLcdu5EhGKVA35BndCoMHUmfGpMiSv1McBjjQvGaYHtzWR9IywcXYqf8RJPgQzXu8zUIrJ0xmzbTYF9brEPhFAhMDiGkzvvc5ifMp7xDQDJmBWwNFBBVP9l9FDZkVTgWT+eBoY/4jhRdmQI+yN1tmRpRBf56LzFJVjLEqTDGTtpshZSZdHZ9ecS4BF14dNRPiMo/3Jn0cCvPwQS8DwAjNj1+bgmqlwH584iO54I0iNL9mBvcVA45a01Xec4FU8vOswyb00G+emQW0ipShoRaVeOZskLJ7GOjcE+BGRpYKTJaM+xgPPv1454WtcFEp52FKLKYNReyiVXHNovNg7jv33g9V7V+AG30V5oWK1YPRRdVMBvGtciyZldABdiSwXQ+2qiSt8NxwJBrRwvdOY2u/H13Wl2lVhPliXNrCcdVxjTQNLgQlrgvHJrOjMDK1lvAvd9Mgzxjjbltz4+P3j2ZKyn2Wh41Q9aVTRxzpUdryfzsNJE3LmYc7Y6UtVQSvwH7GqEIzoo5KVj0uINvwxJUUELi477gwtWbIB6AJNenxVcaNaMoDIjOSfcHX1ViyWNGLr21Vo6sTZlqdvj5rZU/Shgxli7VqJAp+2OE/426GrG2eVz3hIGrREgg0uhKkdyvrg6x6UfGrCMwneKCBDp8lnix4pbi+FUsCSrUd4U40NGg8KZEss1H4E4Fc6bHWM21NWwoKTdxd/+oIOZHz7eWYFyx/9OO+7+bhOA52wkzlLgFnSipZfo1UZbsUs/hK5uUBzaAGhqalJ6y8U9pWd51VWSLrIeCgIDIjRZj+3UQlJaGVfX8x1FWOBYGNxKTyq2kehsSQkYkT2h2pFpcWRVu8GQEf9dVKMdhoLHHWEP2GXo7aC4QWvEdVSZMNNddx1vPQ8Em4n6ZT88j/ysjN3G5MTvCiYug8OFCKN1o4Hb409GK0dqfQbyH9Q26Jx6ZeiVKOd1hnBLSDqJg2FEfE54Y8GSWC9YphtQfejHwZ8SUfRqfuXg4ylfANd03VHUoWl5WAHm5yl0mG+YHUPK4eVyvwlMb",
+            "id": "rs_2ndjE8ADAfbNUCCUphWVuywNzt7dNV2FJJKEF6toPkb38LNEHY",
+            "summary": [],
+            "type": "reasoning"
+          },
+          {
+            "content": [
+              {
+                "annotations": [],
+                "logprobs": [],
+                "text": "{\"summary\": \"Found three family-friendly hotels in Lisbon with rooms for late October, and Canadian passport holders don't need a visa for this trip.\", \"details\": {\"type\": \"text\", \"content\": \"# Lisbon Family Trip, Oct 24-31\\n\\n## Visa\\nCanadian passport holders do not need a visa for stays under 90 days in Portugal, since it's in the Schengen area. Just make sure your passport is valid at least 3 months past your return date. Bring a printed copy of your return flight in case border control asks.\\n\\n## Recommended hotels (family room, sleeps 4)\\n\\n**1. Hotel Alfama Vista** - EUR 189/night, EUR 1,323 total\\n- Rooftop pool, breakfast included, pet friendly\\n- 0.8 km from the center, rated 4.6/5, 1,204 reviews\\n\\n**2. Baixa Riverside Suites** - EUR 165/night, EUR 1,155 total\\n- River view, kitchenette, no breakfast\\n- 0.4 km from the center, rated 4.4/5, 876 reviews\\n\\n**3. Belem Garden Hotel** - EUR 210/night, EUR 1,470 total\\n- Garden courtyard, spa, breakfast included\\n- 3.1 km from the center, rated 4.7/5, 592 reviews\\n\\nAll three have free cancellation until 48 hours before check-in, so you can book now and adjust later if plans shift. Prices were last checked a few minutes ago and may change slightly if you book more than 48 hours from now.\\n\\n## Weather and packing\\nLate October in Lisbon is mild, usually 15-20C, with occasional rain. Pack a light jacket, a compact umbrella, and comfortable shoes for the hilly, cobbled streets.\\n\\n## Next steps\\n- Tell me which hotel you'd like and I can hold a room\\n- Let me know if you want flight options from Toronto for the same dates\\n- Ask if you want a day-by-day itinerary for the family\"}}",
+                "type": "output_text"
+              }
+            ],
+            "id": "msg_kOUcgcMIShmSsYpGkcDHEx9dgMvpcHcYyWBRxmh6PciOmYR1TJ",
+            "phase": "final_answer",
+            "role": "assistant",
+            "status": "completed",
+            "type": "message"
+          }
+        ]
+      },
+      "uuid": "65ed9ea6-398b-7c59-32bc-a32577820244"
+    },
+    {
+      "event": "$ai_span",
+      "offset_ms": 5997,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_lib": "posthog-ai",
+        "$ai_span_name": "trip-concierge-agent-run",
+        "$ai_latency": 8.374000072479248,
+        "$ai_framework": "openai-agents",
+        "$ai_parent_id": null,
+        "$ai_provider": "openai",
+        "$ai_span_type": "agent",
+        "$is_server": true,
+        "$ai_agent_output_type": "ZodOutput",
+        "$lib": "posthog-node",
+        "feature": "trip_concierge_agent",
+        "$ai_agent_handoffs": [
+          "ItineraryAgent"
+        ],
+        "$ai_trace_id": "trace_5gL08JNGqLvX2XcwWRWBmJgj6s6VwJcE",
+        "$ai_agent_tools": [
+          "search_flights",
+          "check_visa_requirements",
+          "get_weather_forecast",
+          "search_hotels",
+          "convert_currency"
+        ],
+        "$geoip_disable": true,
+        "$ai_span_id": "span_xCcAWaoMGK3OoppmlOJIXhhd",
+        "$lib_version": "5.41.0",
+        "$ai_lib_version": "8.3.0"
+      }
+    },
+    {
+      "event": "$ai_trace",
+      "offset_ms": 5997,
+      "distinct_id": "user-1",
+      "properties": {
+        "feature": "trip_concierge_agent",
+        "$lib": "posthog-node",
+        "$lib_version": "5.41.0",
+        "$geoip_disable": true,
+        "$ai_lib": "posthog-ai",
+        "$ai_lib_version": "8.3.0",
+        "$ai_trace_id": "trace_5gL08JNGqLvX2XcwWRWBmJgj6s6VwJcE",
+        "$ai_trace_name": "Trip Planning",
+        "$ai_provider": "openai",
+        "$ai_framework": "openai-agents",
+        "$ai_latency": 8.377000093460083,
+        "$ai_trace_metadata": {
+          "userId": "9432f4d0-1a38-7c4a-a840-a22446331b7d"
+        },
+        "$is_server": true
+      }
+    },
+    {
+      "event": "$ai_evaluation",
+      "offset_ms": 12025,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_evaluation_id": "cbf8ebc8-3e71-746e-5386-1e791507a148",
+        "$ai_evaluation_name": "no_fabrication",
+        "$ai_evaluation_type": "online",
+        "$ai_evaluation_runtime": "hog",
+        "$ai_evaluation_result_type": "boolean",
+        "$ai_evaluation_start_time": "2026-09-24T10:18:36.287664+00:00",
+        "$ai_evaluation_reasoning": "The tool call result matches the cited hotel data exactly.",
+        "$ai_evaluation_trigger": "live",
+        "$ai_evaluation_allows_na": false,
+        "$ai_evaluation_result": true,
+        "$ai_target_event_id": "2864bb23-1838-757a-f65e-83f2826cbbc2",
+        "$ai_target_event_type": "$ai_generation",
+        "$ai_target_id": "2864bb23-1838-757a-f65e-83f2826cbbc2",
+        "$ai_target_type": "generation_uuid",
+        "$ai_trace_id": "trace_5gL08JNGqLvX2XcwWRWBmJgj6s6VwJcE",
+        "$lib": "posthog-capture-v1-internal",
+        "$lib_version": "1.0"
+      }
+    },
+    {
+      "event": "$ai_evaluation",
+      "offset_ms": 12072,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_evaluation_id": "cbf8ebc8-3e71-746e-5386-1e791507a148",
+        "$ai_evaluation_name": "no_fabrication",
+        "$ai_evaluation_type": "online",
+        "$ai_evaluation_runtime": "hog",
+        "$ai_evaluation_result_type": "boolean",
+        "$ai_evaluation_start_time": "2026-09-24T10:18:36.333847+00:00",
+        "$ai_evaluation_reasoning": "The final answer only cites facts present in the tool output.",
+        "$ai_evaluation_trigger": "live",
+        "$ai_evaluation_allows_na": false,
+        "$ai_evaluation_result": true,
+        "$ai_target_event_id": "65ed9ea6-398b-7c59-32bc-a32577820244",
+        "$ai_target_event_type": "$ai_generation",
+        "$ai_target_id": "65ed9ea6-398b-7c59-32bc-a32577820244",
+        "$ai_target_type": "generation_uuid",
+        "$ai_trace_id": "trace_5gL08JNGqLvX2XcwWRWBmJgj6s6VwJcE",
+        "$lib": "posthog-capture-v1-internal",
+        "$lib_version": "1.0"
+      }
+    }
+  ],
+  "sets": [
+    "core"
+  ],
+  "why": "OpenAI Agents SDK: tool calls, reasoning, spans, trace event, online evals attached"
+}

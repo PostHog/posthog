@@ -29,27 +29,25 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.featurebas
     FEATUREBASE_OBJECT_TYPE_TO_TOPICS,
     FEATUREBASE_PAGE_SIZE,
     FeaturebaseEndpointConfig,
+    FeaturebaseFanOutConfig,
 )
 
 POSTHOG_WEBHOOK_NAME = "PostHog data warehouse"
-
-# Hard cap on voters pages fetched per post to bound runaway pagination in the fan-out.
-MAX_VOTER_PAGES_PER_POST = 100
 
 
 class FeaturebaseRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class FeaturebaseResumeConfig:
     # Cursor of the next page to fetch. None means "start from the first page" — used when the
-    # fan-out bookmark advances to a post whose first page has no cursor yet.
+    # fan-out bookmark advances to a parent whose first page has no cursor yet.
     cursor: str | None = None
-    # The post currently being processed in the post_voters fan-out. A stable post-ID bookmark
-    # (not a positional index) so posts created/deleted between a crash and the retry can't
-    # resume us into the wrong post. None for the standard endpoints.
-    post_id: str | None = None
+    # The parent currently being processed in a fan-out. A stable ID bookmark (not a positional
+    # index) so parents created/deleted between a crash and the retry can't resume us into the
+    # wrong parent. None for the standard endpoints.
+    parent_id: str | None = None
 
 
 def _get_headers(api_key: str) -> dict[str, str]:
@@ -133,7 +131,7 @@ def _fetch_page(
         raise FeaturebaseRetryableError(f"Featurebase API error (retryable): status={response.status_code}, url={url}")
 
     if not response.ok:
-        # 404 is expected during the post_voters fan-out (a post deleted mid-sync).
+        # 404 is expected during a fan-out (a parent deleted mid-sync).
         log = logger.warning if response.status_code == 404 else logger.error
         log(f"Featurebase API error: status={response.status_code}, body={response.text[:500]}, url={url}")
         response.raise_for_status()
@@ -269,71 +267,80 @@ def _get_top_level_rows(
             return
 
 
-def _iter_post_ids(session: requests.Session, headers: dict[str, str], logger: FilteringBoundLogger) -> Iterator[str]:
-    params = {"limit": FEATUREBASE_PAGE_SIZE, "sortBy": "createdAt", "sortOrder": "asc"}
-    for items, _ in _iter_pages(session, headers, logger, "/posts", params):
+def _iter_parent_ids(
+    session: requests.Session,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+    fan_out: FeaturebaseFanOutConfig,
+) -> Iterator[str]:
+    params: dict[str, Any] = {"limit": FEATUREBASE_PAGE_SIZE, **fan_out.parent_params}
+    for items, _ in _iter_pages(session, headers, logger, fan_out.parent_path, params):
         for item in items:
             if item.get("id"):
                 yield item["id"]
 
 
-def _get_post_voter_rows(
+def _get_fan_out_rows(
     session: requests.Session,
     headers: dict[str, str],
     logger: FilteringBoundLogger,
     config: FeaturebaseEndpointConfig,
     resumable_source_manager: ResumableSourceManager[FeaturebaseResumeConfig],
 ) -> Iterator[list[dict[str, Any]]]:
-    """Fan out over every post, materializing upvoters as {postId, ...contact} rows.
+    """Fan out over every parent row, injecting the parent id into each child row.
 
-    Voter removal has no timestamp on the API, so this table is full-refresh only; the resumable
-    bookmark just lets a crashed sync pick up at the post it was processing.
+    Neither child endpoint exposes a timestamp filter, so these tables are full-refresh only;
+    the resumable bookmark just lets a crashed sync pick up at the parent it was processing.
     """
-    post_ids = list(_iter_post_ids(session, headers, logger))
+    fan_out = config.fan_out
+    assert fan_out is not None
+    parent_ids = list(_iter_parent_ids(session, headers, logger, fan_out))
 
-    # Resolve the saved post-ID bookmark to the slice of posts still to process. If the
-    # bookmarked post no longer exists (deleted between attempts), start over from the first
-    # post — merge dedupes the re-pulled rows on the composite primary key.
+    # Resolve the saved parent-ID bookmark to the slice of parents still to process. If the
+    # bookmarked parent no longer exists (deleted between attempts), start over from the first
+    # one — merge dedupes the re-pulled rows on the composite primary key.
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    remaining = post_ids
+    remaining = parent_ids
     resume_cursor: str | None = None
-    if resume is not None and resume.post_id is not None and resume.post_id in post_ids:
-        remaining = post_ids[post_ids.index(resume.post_id) :]
+    if resume is not None and resume.parent_id is not None and resume.parent_id in parent_ids:
+        remaining = parent_ids[parent_ids.index(resume.parent_id) :]
         resume_cursor = resume.cursor
-        logger.debug(f"Featurebase: resuming post_voters from post_id={resume.post_id}")
+        logger.debug(f"Featurebase: resuming {config.name} from parent_id={resume.parent_id}")
 
-    for index, post_id in enumerate(remaining):
-        path = config.path.format(post_id=post_id)
+    for index, parent_id in enumerate(remaining):
+        path = config.path.format(**{fan_out.path_placeholder: parent_id})
         pages_fetched = 0
         try:
             for items, next_cursor in _iter_pages(
                 session, headers, logger, path, {"limit": FEATUREBASE_PAGE_SIZE}, resume_cursor
             ):
-                rows = [{**item, "postId": post_id} for item in items]
+                rows = [{**item, fan_out.parent_id_column: parent_id} for item in items]
                 if rows:
                     yield rows
                 if next_cursor:
-                    resumable_source_manager.save_state(FeaturebaseResumeConfig(cursor=next_cursor, post_id=post_id))
+                    resumable_source_manager.save_state(
+                        FeaturebaseResumeConfig(cursor=next_cursor, parent_id=parent_id)
+                    )
                 pages_fetched += 1
-                if pages_fetched >= MAX_VOTER_PAGES_PER_POST:
+                if fan_out.max_pages_per_parent is not None and pages_fetched >= fan_out.max_pages_per_parent:
                     logger.warning(
-                        f"Featurebase: post_voters page cap reached, truncating. post_id={post_id}, "
+                        f"Featurebase: {config.name} page cap reached, truncating. parent_id={parent_id}, "
                         f"pages={pages_fetched}"
                     )
                     break
         except requests.HTTPError as exc:
-            # A post deleted between enumeration and this fetch 404s. Skip it rather than
-            # failing the whole sync — the votes are genuinely gone.
+            # A parent deleted between enumeration and this fetch 404s. Skip it rather than
+            # failing the whole sync — its children are genuinely gone.
             if exc.response is not None and exc.response.status_code == 404:
-                logger.warning(f"Featurebase: post {post_id} not found while fetching voters, skipping")
+                logger.warning(f"Featurebase: parent {parent_id} not found while fetching {config.name}, skipping")
             else:
                 raise
         finally:
-            resume_cursor = None  # only the resumed-into post uses the saved cursor
+            resume_cursor = None  # only the resumed-into parent uses the saved cursor
 
-        # Advance the bookmark to the next post so a crash between posts resumes correctly.
+        # Advance the bookmark to the next parent so a crash between parents resumes correctly.
         if index + 1 < len(remaining):
-            resumable_source_manager.save_state(FeaturebaseResumeConfig(cursor=None, post_id=remaining[index + 1]))
+            resumable_source_manager.save_state(FeaturebaseResumeConfig(cursor=None, parent_id=remaining[index + 1]))
 
 
 def get_rows(
@@ -347,12 +354,12 @@ def get_rows(
 ) -> Iterator[list[dict[str, Any]]]:
     config = FEATUREBASE_ENDPOINTS[endpoint]
     headers = _get_headers(api_key)
-    # One session reused across every page (and, for the fan-out, every post) so urllib3 keeps
+    # One session reused across every page (and, for a fan-out, every parent) so urllib3 keeps
     # the connection alive instead of re-handshaking per request.
     session = _make_session(api_key)
 
-    if config.fan_out_over_posts:
-        yield from _get_post_voter_rows(session, headers, logger, config, resumable_source_manager)
+    if config.fan_out:
+        yield from _get_fan_out_rows(session, headers, logger, config, resumable_source_manager)
         return
 
     yield from _get_top_level_rows(

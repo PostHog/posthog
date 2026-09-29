@@ -50,6 +50,8 @@ Cloud runs send live events through event ingest. Clients can replay only events
 Presence-gated runs do not mirror events while no reader is attached.
 Reload the run's session logs to recover agent output.
 Refetch the run for its current state because run-state and progress frames are not in those logs.
+When available, sandbox provisioning records the installed agent package version in run state for terminal analytics events.
+Failures before sandbox creation have no agent version.
 When event ingest is enabled, the agent server does not also retain events for a disconnected SSE client.
 An attached SSE client still receives live events.
 Runs without event ingest buffer events until an SSE client attaches.

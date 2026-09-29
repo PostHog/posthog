@@ -2355,6 +2355,8 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description:
                     "When we detect you are using a new product, we'll automatically add it to your sidebar as a suggestion. We might also suggest products that are related to the ones you are using when we launch a new one.",
                 component: <SidebarAutoSuggestSetting />,
+                // Suggestions land in custom products, which the simple sidebar does not show.
+                flag: '!SIMPLE_SIDEPANEL',
                 keywords: ['sidebar', 'suggest', 'products', 'apps', 'tools', 'auto'],
             },
             {
@@ -2400,7 +2402,8 @@ export const SETTINGS_MAP: SettingSection[] = [
         level: 'user',
         id: 'user-navigation',
         title: 'Navigation',
-        flag: 'UI_CUSTOMIZATION',
+        // The simple sidebar edits these inline, from its own customize dialog.
+        flag: ['UI_CUSTOMIZATION', '!SIMPLE_SIDEPANEL'],
         settings: [
             {
                 id: 'homepage',
