@@ -51,7 +51,7 @@ class FreshchatHostNotAllowedError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class FreshchatResumeConfig:
     # The next page number to fetch. Freshchat uses page/items_per_page pagination, so a single
     # integer is enough to pick back up. Endpoints are full refresh (no time window), so re-entering
@@ -242,11 +242,16 @@ def _chained_fanout_resource(
     )
 
 
-def _source_response(config: FreshchatEndpointConfig, items: Callable[[], Iterable[Any]]) -> SourceResponse:
+def _source_response(
+    config: FreshchatEndpointConfig,
+    items: Callable[[], Iterable[Any]],
+    supports_resume: bool = True,
+) -> SourceResponse:
     return SourceResponse(
         name=config.name,
         items=items,
         primary_keys=PRIMARY_KEYS[config.name],
+        supports_resume=supports_resume,
         # Every endpoint is full refresh, so this only describes the order rows arrive in.
         sort_mode="asc",
         partition_count=1 if config.partition_key else None,
@@ -293,7 +298,7 @@ def freshchat_source(
         # A two-level chain takes no resume state: one hook consumed at two levels would corrupt
         # the saved page. The table is full refresh, so a retry restarts it.
         chained = _chained_fanout_resource(config, client_config, team_id, job_id)
-        return _source_response(config, lambda: chained)
+        return _source_response(config, lambda: chained, supports_resume=False)
 
     if config.fanout is not None:
         dependent = _fanout_resource(config, client_config, team_id, job_id, save_checkpoint, initial_paginator_state)

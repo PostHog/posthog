@@ -417,6 +417,18 @@ class TestFanout:
 
         assert self._call("user_conversations", session) == [{"id": "c2", "user_id": "u2"}]
 
+    def test_conversation_messages_is_not_resumable(self) -> None:
+        response = freshchat_source(
+            "key",
+            BASE_HOST,
+            "conversation_messages",
+            team_id=1,
+            job_id="j",
+            resumable_source_manager=_make_manager(FreshchatResumeConfig(page=2)),
+        )
+
+        assert response.supports_resume is False
+
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_conversation_messages_chains_through_users_and_conversations(self, MockSession) -> None:
         session = MockSession.return_value
