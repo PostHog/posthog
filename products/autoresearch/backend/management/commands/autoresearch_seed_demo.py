@@ -38,6 +38,7 @@ from dataclasses import field
 from datetime import datetime, timedelta
 from typing import Any
 
+from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 from django.utils import timezone
 
@@ -312,6 +313,9 @@ class Command(BaseCommand):
         flush()
 
     def handle(self, *args, **options):
+        if not settings.DEBUG:
+            raise CommandError("This command can only be run with DEBUG=True")
+
         team_id = options["team_id"]
         try:
             team = Team.objects.get(pk=team_id)
@@ -367,24 +371,20 @@ class Command(BaseCommand):
             }
         ]
         # Action rows live on the project's root team; a child environment would miss them and duplicate the action.
-        action, created = Action.objects.get_or_create(
-            team=team.parent_team or team,
-            name=ACTION_NAME,
-            deleted=False,
-            defaults={
-                "description": f"`{TARGET_EVENT}` with share_type = external. Seeded by autoresearch_seed_demo.",
-                "steps_json": steps_json,
-            },
-        )
-        if created:
-            action_status = "created"
-        elif action.steps_json != steps_json:
-            # The action-target path trains on these steps, so a stale same-name action would train the wrong target.
-            action.steps_json = steps_json
-            action.save()
-            action_status = "steps reset to the seeded definition"
-        else:
+        root_team = team.parent_team or team
+        # Names are not unique, so reuse only an action with the seeded steps and never edit someone else's.
+        same_name = Action.objects.filter(team=root_team, name=ACTION_NAME, deleted=False).order_by("pk")
+        action = next((a for a in same_name if a.steps_json == steps_json), None)
+        if action is not None:
             action_status = "already existed"
+        else:
+            action = Action.objects.create(
+                team=root_team,
+                name=ACTION_NAME,
+                description=f"`{TARGET_EVENT}` with share_type = external. Seeded by autoresearch_seed_demo.",
+                steps_json=steps_json,
+            )
+            action_status = "created"
 
         self.stdout.write(self.style.SUCCESS(f"\n✓ Wrote {len(users)} persons and {total_events} events."))
         self.stdout.write(f"  Action '{ACTION_NAME}' id={action.pk} ({action_status})")
