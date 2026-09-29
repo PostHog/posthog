@@ -24,6 +24,7 @@ import dataclasses
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
+from functools import lru_cache
 from typing import Any, cast
 
 from django.db import transaction
@@ -73,6 +74,7 @@ from products.signals.backend.pipeline_identity import pipeline_writer_identity
 from products.signals.backend.report_charts import ChartSize
 from products.signals.backend.report_generation.resolve_reviewers import MAX_PROJECT_MEMBERS, list_project_members
 from products.signals.backend.scout_harness.config_registry import enabled_scout_count, ensure_scout_category
+from products.signals.backend.scout_harness.create_access import can_create_scout
 from products.signals.backend.scout_harness.deprecation import deprecation_metadata_of
 from products.signals.backend.scout_harness.fleet_sync import materialize_scout_fleet
 from products.signals.backend.scout_harness.lazy_seed import (
@@ -82,7 +84,6 @@ from products.signals.backend.scout_harness.lazy_seed import (
     is_operational_scout,
     scout_skill_origin,
 )
-from products.signals.backend.scout_harness.limits import MAX_ENABLED_SCOUTS_PER_TEAM
 from products.signals.backend.scout_harness.run_costs import scout_run_token_costs
 from products.signals.backend.scout_harness.run_gates import (
     ScoutRunRejection,
@@ -134,6 +135,7 @@ from products.signals.backend.scout_harness.serializers import (
     ScoutOrigin,
     ScoutRunIdsBatchRequestSerializer,
     ScoutRunTokenCostsSerializer,
+    ScoutToolCatalogueSerializer,
     ScratchpadEntrySerializer,
     SearchMemoryQuerySerializer,
     SearchRecentRunsQuerySerializer,
@@ -157,7 +159,12 @@ from products.signals.backend.scout_harness.skill_loader import (
     resolve_scout_acting_user_id,
 )
 from products.signals.backend.scout_harness.suggestions import find_suggestion, mark_suggestion_created
-from products.signals.backend.scout_harness.team_limits import resolve_team_metadata, withheld_skills_for_team
+from products.signals.backend.scout_harness.team_limits import (
+    max_enabled_scouts_for_team,
+    resolve_team_metadata,
+    withheld_skills_for_team,
+)
+from products.signals.backend.scout_harness.tool_catalogue import get_scout_tool_catalogue
 from products.signals.backend.scout_harness.tools.checks import (
     InvalidCheckResultError,
     InvalidCheckWriteError,
@@ -1246,6 +1253,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 charts=_to_report_charts(data.get("charts")),
                 metrics=_to_report_metrics(data.get("metrics")),
                 suggested_prompts=data.get("suggested_prompts"),
+                links=_to_report_links(data.get("links")),
                 idempotency_key=data.get("idempotency_key"),
             )
         except InvalidScoutReportError as exc:
@@ -1673,6 +1681,43 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         )
 
     @validated_request(
+        query_serializer=ListReportChecksQuerySerializer,
+        responses={
+            200: OpenApiResponse(
+                response=ScoutCheckSummarySerializer(many=True), description="The report's checks, newest first."
+            ),
+            400: OpenApiResponse(description="The report does not exist for this project."),
+        },
+        summary="List a report's follow-up checks",
+        description=(
+            "Every check on one report, newest first. The `report_id` is the only input. Read this before "
+            "writing one: a report already carrying a check for the same claim needs no second one, and a "
+            "report holds at most five open checks at a time."
+        ),
+        operation_id="signals_scout_report_check_list",
+    )
+    # nosemgrep: api-path-underscore -- matches the per-run path it replaces
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="report-checks",
+        required_scopes=["signal_scout_report:write"],
+        pagination_class=None,
+    )
+    def report_check_list(self, request: Request, **kwargs) -> Response:
+        # A read needs no run: the project scope is the tenant boundary, and the REST
+        # report-checks endpoint shows the same rows to anyone who can read the report.
+        validated = getattr(request, "validated_query_data", {}) or {}
+        try:
+            checks = list_report_checks(team=_canonical_team(self), report_id=str(validated["report_id"]))
+        except InvalidCheckWriteError as exc:
+            raise exceptions.ValidationError({"detail": str(exc)})
+        return Response(
+            ScoutCheckSummarySerializer([dataclasses.asdict(check) for check in checks], many=True).data,
+            status=status.HTTP_200_OK,
+        )
+
+    @validated_request(
         request_serializer=CancelReportCheckRequestSerializer,
         parameters=[_RUN_ID_PATH_PARAMETER],
         responses={
@@ -1716,8 +1761,9 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             ),
             400: OpenApiResponse(
                 description=(
-                    "The check does not exist for this project, already finished, is measured by the "
-                    "coordinator rather than a run, runs on another scout, or is not waiting on a run."
+                    "The check does not exist for this project, already finished, waits for its report to "
+                    "resolve, is measured by the coordinator rather than a run, runs on another scout, or is "
+                    "neither waiting on a run nor due."
                 )
             ),
             404: OpenApiResponse(description="Run not found for this project."),
@@ -1729,7 +1775,8 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "investigates and says nothing leaves the check unanswered. The verdict lands on the report as a "
             "`check_result` entry people read in the inbox. `failed` retires the check, `passed` re-arms a "
             "recurring one, and `errored` retries it, so send the outcome you actually reached rather than "
-            "the one that closes the loop. A run may only close a check dispatched to its own scout."
+            "the one that closes the loop. A run may close the check it was dispatched for, or a check on its own "
+            "scout that is due or waiting on a run."
         ),
         operation_id="signals_scout_record_check_result",
     )
@@ -2010,7 +2057,8 @@ class SignalScoutNoteViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "browse every note. Expired notes are excluded unless `include_expired=true`. "
             "`date_from` / `date_to` are a half-open window on `created_at` (`>= date_from`, "
             "`< date_to`); pass `date_to` (the `created_at` of the oldest note seen) to walk past "
-            "the cap. Results capped at 500."
+            "the cap. Pass `text` to keep only the notes whose content contains it, "
+            "case-insensitively. Results capped at 500."
         ),
         operation_id="signals_scout_notes_list",
     )
@@ -2025,6 +2073,7 @@ class SignalScoutNoteViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             date_to=validated.get("date_to"),
             limit=validated.get("limit") or DEFAULT_NOTES_LIST_LIMIT,
             content_max_chars=validated.get("content_max_chars"),
+            text=validated.get("text") or None,
             exclude_origins=(
                 ()
                 if _may_read_reports(request, self.team.parent_team or self.team)
@@ -2391,20 +2440,26 @@ class SignalScoutMembersViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
         )
 
 
-def _reject_if_enabled_cap_reached(team_id: int, skill_name: str) -> None:
+def _reject_if_enabled_cap_reached(team_id: int, skill_name: str, *, cap: int) -> None:
     """Raise when enabling this scout would push the team past the per-team enabled cap.
 
     Counts every enabled config except this skill's own row, so re-asserting
-    `enabled=True` on an already-enabled scout is always allowed. Best-effort
-    (count + write, no lock): a concurrent enable can overshoot by one, which the
-    coordinator's per-tick caps still bound.
+    `enabled=True` on an already-enabled scout is always allowed. `cap` is the project's
+    effective ceiling, so the number in the error is the number enforcement uses; the
+    caller resolves it before opening its transaction, since resolving it reads the flag
+    and every write path here holds a row lock. The error names the count apart from the
+    cap, because a lowered cap pauses nothing and can leave the count above it.
+    Best-effort (count + write, no lock): a concurrent enable can overshoot by one, which
+    the coordinator's per-tick caps still bound.
     """
-    if enabled_scout_count(team_id, exclude_skill=skill_name) >= MAX_ENABLED_SCOUTS_PER_TEAM:
+    enabled = enabled_scout_count(team_id, exclude_skill=skill_name)
+    if enabled >= cap:
+        to_disable = enabled - cap + 1
         raise exceptions.ValidationError(
             {
                 "enabled": (
-                    f"This project already has {MAX_ENABLED_SCOUTS_PER_TEAM} enabled scouts (the maximum). "
-                    "Disable one before enabling another."
+                    f"This project already has {enabled} enabled scouts, and its limit is {cap}. "
+                    f"Disable {to_disable} {'scout' if to_disable == 1 else 'scouts'} before you enable another."
                 )
             }
         )
@@ -2417,6 +2472,7 @@ def _upsert_scout_config(
     tunables: dict,
     request: Request,
     serializer_context: dict,
+    max_enabled_scouts: int,
 ) -> tuple[SignalScoutConfig, bool]:
     """Create or tune one config while preserving the existing config endpoint's upsert semantics."""
 
@@ -2429,7 +2485,7 @@ def _upsert_scout_config(
         else (not existing.enabled and tunables.get("enabled") is True)
     )
     if will_enable:
-        _reject_if_enabled_cap_reached(team_id, skill_name)
+        _reject_if_enabled_cap_reached(team_id, skill_name, cap=max_enabled_scouts)
 
     # `team_id` stays in the kwargs because queryset filters do not propagate into
     # the row Django builds for `get_or_create`.
@@ -2536,6 +2592,10 @@ def create_scout_for_source(
     if not UserAccessControl(user=user, team=team).check_access_level_for_resource("llm_skill", "editor"):
         raise exceptions.PermissionDenied("Creating a scout requires editor access to skills.")
 
+    # Resolved before the transaction: it reads the `signals-scout` flag, and the block below
+    # holds row locks on the skill and its config.
+    max_enabled_scouts = max_enabled_scouts_for_team(team.id)
+
     with transaction.atomic():
         try:
             skill = create_skill(
@@ -2605,6 +2665,7 @@ def create_scout_for_source(
             skill_name=name,
             tunables=tunables,
             request=request,
+            max_enabled_scouts=max_enabled_scouts,
             serializer_context=serializer_context,
         )
         # `create_skill` derives the server-owned `category` from the name prefix, so a scout under
@@ -2915,8 +2976,7 @@ class SignalScoutViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     pagination_class = None
 
     def _assert_can_create_scout(self, *, user: User, canonical_team: Team) -> None:
-        access = UserAccessControl(user=user, team=canonical_team)
-        if not access.check_access_level_for_resource("llm_skill", "editor"):
+        if not can_create_scout(user, canonical_team):
             raise exceptions.PermissionDenied("Creating a scout requires editor access to skills.")
 
     @validated_request(
@@ -3000,6 +3060,16 @@ class SignalScoutViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             response.data,
             status=status.HTTP_201_CREATED if outcome.created else status.HTTP_200_OK,
         )
+
+
+@lru_cache(maxsize=1)
+def _scout_tool_catalogue_payload() -> dict[str, Any]:
+    """The rendered tool catalogue.
+
+    The catalogue is built from committed files and code constants, so it is identical for every
+    project and every caller. Rendering a thousand tools on each request would be pure waste.
+    """
+    return dict(ScoutToolCatalogueSerializer(get_scout_tool_catalogue()).data)
 
 
 class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
@@ -3180,6 +3250,7 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         )
         serializer.is_valid(raise_exception=True)
         skill_name = serializer.validated_data["skill_name"]
+        max_enabled_scouts = max_enabled_scouts_for_team(team_id)
         # Upsert, so the grant is compared against whatever row already exists — registering a
         # config for an existing scout is the same widening as patching one. The row stays locked
         # from the comparison to the save, so a grant revoked in between cannot be written back by
@@ -3214,6 +3285,7 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 tunables=tunables,
                 request=request,
                 serializer_context={**self.get_serializer_context(), "project_id": self.team.project_id},
+                max_enabled_scouts=max_enabled_scouts,
             )
         context = scout_config_context(team, [config.skill_name], request)
         return Response(
@@ -3247,6 +3319,7 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             self._assert_can_author_structured_output_schema()
         config_id = _parse_run_id_or_404(kwargs)
         repositories_checked = _precheck_scout_repositories(request, team=team, config_id=config_id)
+        max_enabled_scouts = max_enabled_scouts_for_team(team_id)
         # The row stays locked from the grant comparison to the save. A whole-config resend that
         # compared against the grant before a concurrent revoke would otherwise write it back,
         # because a model save writes every column off the instance it loaded.
@@ -3278,7 +3351,7 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             serializer.is_valid(raise_exception=True)
             enabling = not config.enabled and serializer.validated_data.get("enabled")
             if enabling:
-                _reject_if_enabled_cap_reached(team_id, config.skill_name)
+                _reject_if_enabled_cap_reached(team_id, config.skill_name, cap=max_enabled_scouts)
             # Fold `enabled_by` into the same save so enabling logs one activity entry, not two.
             save_kwargs: dict[str, Any] = {}
             if enabling:
@@ -3496,3 +3569,36 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         )
         context = scout_config_context(team, [c.skill_name for c in configs], request)
         return Response(SignalScoutConfigSerializer(configs, many=True, context=context).data)
+
+    @extend_schema(
+        responses={
+            200: OpenApiResponse(
+                response=ScoutToolCatalogueSerializer,
+                description="Every catalogued MCP tool, with the scout scope postures to read it against.",
+            ),
+        },
+        summary="List the MCP tool catalogue",
+        description=(
+            "List every MCP tool a scout could be configured with. Each entry carries the tool's name, "
+            "label, one-line summary, category, and required scopes, plus `holdable`: whether a scout run "
+            "can hold every scope the tool needs, and `missing_scopes`: what it would have to be granted "
+            "on top of the baseline preset. The response also returns the scout scope presets and the "
+            "write scopes a person can grant to one scout, so a caller can show why a tool is out of "
+            "reach. Tools a successor has replaced are left out. A tool can carry a `feature_flag`, which "
+            "resolves per project: evaluate it for the project you are configuring before you offer the "
+            "tool. Read-only, and the same for every project."
+        ),
+        operation_id="signals_scout_config_tool_catalogue",
+    )
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="tool_catalogue",
+        url_name="tool-catalogue",
+        pagination_class=None,
+        # Custom actions need explicit scopes, as the `sync` action above notes. This one reads
+        # committed definition files and constants, so it uses the public read scope.
+        required_scopes=["signal_scout:read"],
+    )
+    def tool_catalogue(self, request: Request, *args, **kwargs) -> Response:
+        return Response(_scout_tool_catalogue_payload())

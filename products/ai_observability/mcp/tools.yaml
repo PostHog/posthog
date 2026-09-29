@@ -23,6 +23,45 @@ tools:
     ai-observability-instrumentation-checklist-retrieve:
         operation: ai_observability_instrumentation_checklist_retrieve
         enabled: false
+    ai-observability-offline-experiments-complete-create:
+        operation: ai_observability_offline_experiments_complete_create
+        enabled: false
+    ai-observability-offline-experiments-create:
+        operation: ai_observability_offline_experiments_create
+        enabled: false
+    ai-observability-offline-experiments-fail-create:
+        operation: ai_observability_offline_experiments_fail_create
+        enabled: false
+    ai-observability-offline-experiments-items-list:
+        operation: ai_observability_offline_experiments_items_list
+        enabled: false
+    ai-observability-offline-experiments-items-payload-retrieve:
+        operation: ai_observability_offline_experiments_items_payload_retrieve
+        enabled: false
+    ai-observability-offline-experiments-items-results-list:
+        operation: ai_observability_offline_experiments_items_results_list
+        enabled: false
+    ai-observability-offline-experiments-items-retrieve:
+        operation: ai_observability_offline_experiments_items_retrieve
+        enabled: false
+    ai-observability-offline-experiments-list:
+        operation: ai_observability_offline_experiments_list
+        enabled: false
+    ai-observability-offline-experiments-results-payload-retrieve:
+        operation: ai_observability_offline_experiments_results_payload_retrieve
+        enabled: false
+    ai-observability-offline-experiments-retrieve:
+        operation: ai_observability_offline_experiments_retrieve
+        enabled: false
+    ai-observability-offline-experiments-scorer-summaries-list:
+        operation: ai_observability_offline_experiments_scorer_summaries_list
+        enabled: false
+    ai-observability-offline-experiments-upload-create:
+        operation: ai_observability_offline_experiments_upload_create
+        enabled: false
+    ai-observability-offline-scorers-history-list:
+        operation: ai_observability_offline_scorers_history_list
+        enabled: false
     datasets-exports-content-retrieve:
         operation: datasets_exports_content_retrieve
         enabled: false
@@ -64,6 +103,12 @@ tools:
         enabled: false
     llm-analytics-parser-recipes-retrieve:
         operation: llm_analytics_parser_recipes_retrieve
+        enabled: false
+    llm-analytics-score-definitions-versions-list:
+        operation: llm_analytics_score_definitions_versions_list
+        enabled: false
+    llm-analytics-score-definitions-versions-retrieve:
+        operation: llm_analytics_score_definitions_versions_retrieve
         enabled: false
     llma-clustering-config-get:
         operation: llm_analytics_clustering_config_list
@@ -519,12 +564,14 @@ tools:
         description: >
             Create an evaluation. 'llm_judge': set evaluation_config.prompt and model_configuration with provider and
             model; provider_key_id may be null when no key is pinned. 'hog': evaluation_config.source (Hog returning a
-            boolean). 'sentiment': output_type='sentiment', omit model_configuration, optional
-            evaluation_config.source='user_messages'. `target` accepts 'generation' (default), 'trace', or 'session'. A
-            session target runs once per `$ai_session_id` and defaults to the 'inactivity' settle strategy. Pass
-            `enabled` as a boolean (true to start scoring new $ai_generation events immediately, false to create it
-            paused). To organize the evaluation, pass a `directory_id` returned by llma-evaluation-directory-list. Omit
-            `directory_id` or pass null to keep it at the top level. Results are '$ai_evaluation' events.
+            boolean or finite number). For 'hog' and 'llm_judge', choose output_type='boolean' or 'numeric'; numeric
+            output_config accepts min, max, step, allows_na, and passing_rule. 'sentiment': output_type='sentiment',
+            omit model_configuration, optional evaluation_config.source='user_messages'. `target` accepts 'generation'
+            (default), 'trace', or 'session'. A session target runs once per `$ai_session_id` and defaults to the
+            'inactivity' settle strategy. Pass `enabled` as a boolean (true to start scoring new $ai_generation events
+            immediately, false to create it paused). To organize the evaluation, pass a `directory_id` returned by
+            llma-evaluation-directory-list. Omit `directory_id` or pass null to keep it at the top level. Results are
+            '$ai_evaluation' events.
     llma-evaluation-delete:
         operation: evaluations_destroy
         enabled: true
@@ -638,11 +685,11 @@ tools:
             List provider+model combinations supported for llm_judge. Call it with no arguments to get every supported
             provider and its models in one response; each model carries the `provider` to pair it with. Pass `provider`
             to narrow to one of these lowercase values: openai, anthropic, gemini, openrouter, fireworks, azure_openai,
-            together_ai, minimax, zeabur. Optional `key_id` scopes to a key's reachable deployments (mainly
-            azure_openai) and implies that key's provider. The `providers` list in the response flags providers whose
-            models only appear once you pass `key_id` for one of the team's keys; those return no models otherwise. Call
-            this before creating an llm_judge eval to pick a valid combo, and prefer a provider the team already has a
-            key for (see llma-provider-key-list).
+            together_ai, minimax, zeabur, openai_compatible. Optional `key_id` scopes to a key's reachable deployments
+            or models (mainly azure_openai and openai_compatible) and implies that key's provider. The `providers` list
+            in the response flags providers whose models only appear once you pass `key_id` for one of the team's keys;
+            those return no models otherwise. Call this before creating an llm_judge eval to pick a valid combo, and
+            prefer a provider the team already has a key for (see llma-provider-key-list).
     llma-evaluation-list:
         operation: evaluations_list
         enabled: true
@@ -811,8 +858,8 @@ tools:
             runs against trace-level globals, 'session' samples whole sessions that have gone quiet and runs against
             session-level globals. For trace previews, pass target_config.window_seconds to match the saved evaluation's
             aggregation window; for session previews, pass target_config.quiet_period_seconds to match its quiet period.
-            Returns per-sample results (pass/fail/N/A), reasoning, and input/output previews. Use this to validate Hog
-            code before creating or updating a 'hog' type evaluation.
+            Returns per-sample raw boolean or numeric results, N/A when allowed, errors, reasoning, and input/output
+            previews. Use this to validate Hog code before creating or updating a 'hog' type evaluation.
     llma-evaluation-update:
         operation: evaluations_partial_update
         enabled: true
@@ -825,14 +872,17 @@ tools:
         title: Update evaluation
         description: >
             Partially update an AI observability evaluation. Requires the evaluation `id` (UUID). If you don't have it,
-            call llma-evaluation-list first to look it up by name. Toggle enabled, change its type or evaluation config,
-            or change the model for an llm_judge. When switching to llm_judge, include model_configuration with provider
-            and model. When an llm_judge remains an llm_judge, omit model_configuration to keep its current model or
-            provide both fields to replace it; null is rejected for configured judges. When switching an llm_judge to
-            hog or sentiment, set model_configuration to null. Legacy llm_judge evaluations without a model remain
-            editable. provider_key_id may be null when no key is pinned. `target` accepts 'generation', 'trace', or
-            'session'. Pass a `directory_id` returned by llma-evaluation-directory-list to move the evaluation into a
-            directory, or pass null to move it to the top level.
+            call llma-evaluation-list first to look it up by name. Changing to or from numeric output requires a new
+            evaluation; for numeric evaluations, update output_config to change bounds, N/A handling, or passing_rule. A
+            passing rule has operator 'gte' or 'lte' and a finite threshold. Rule edits reinterpret historical scores;
+            saved reports stay unchanged. Toggle enabled, change its runtime type or evaluation config, or change the
+            model for an llm_judge. When switching to llm_judge, include model_configuration with provider and model.
+            When an llm_judge remains an llm_judge, omit model_configuration to keep its current model or provide both
+            fields to replace it; null is rejected for configured judges. When switching an llm_judge to hog or
+            sentiment, set model_configuration to null. Legacy llm_judge evaluations without a model remain editable.
+            provider_key_id may be null when no key is pinned. `target` accepts 'generation', 'trace', or 'session'.
+            Pass a `directory_id` returned by llma-evaluation-directory-list to move the evaluation into a directory, or
+            pass null to move it to the top level.
         param_overrides:
             id:
                 aliases:
@@ -874,6 +924,7 @@ tools:
             Create a new LLM prompt for the current team. Requires a unique name and prompt content (string or JSON
             object). Optionally pass 'config', a JSON object with model parameters or any agent configuration (e.g.
             model, temperature, tools) — it is versioned with the prompt and returned as-is when fetching it.
+        category: Experiments
         include_params:
             - name
             - prompt
@@ -893,6 +944,7 @@ tools:
             Duplicate an existing LLM prompt under a new name. Copies the latest version's content to create a new
             prompt at version 1. Useful for forking a prompt or as a way to rename since names are immutable after
             creation.
+        category: Experiments
     llma-prompt-get:
         operation: llm_prompts_name_retrieve
         enabled: true
@@ -923,6 +975,7 @@ tools:
             with the tags intact — always do this before editing the prompt (see llma-prompt-update).
             References are rolling out gradually: when not enabled for the team, responses return the raw tags
             and no `resolved_references`, so treat content containing `@@@prompt:` as unresolved.
+        category: Experiments
         param_overrides:
             prompt_name:
                 aliases:
@@ -944,6 +997,7 @@ tools:
         description: >
             Remove a label from an LLM prompt. The label stops pointing at any version; recreate it with the set-label
             tool if needed. Confirm nothing depends on the label before removing it.
+        category: Experiments
     llma-prompt-label-set:
         operation: llm_prompts_name_labels_update
         enabled: true
@@ -960,6 +1014,7 @@ tools:
             there. Use labels to mark a version as released ('production', 'staging') or roll back by pointing the label
             at an earlier version. Label names use lowercase letters, numbers, dots, hyphens and underscores; 'latest'
             is reserved and numbers-only names are not allowed. Each prompt can have at most 50 labels.
+        category: Experiments
     llma-prompt-list:
         operation: llm_prompts_list
         enabled: true
@@ -985,6 +1040,7 @@ tools:
             `resolved_references` listing the spliced versions; unlabeled listings return raw content with any reference
             tags intact. Reference resolution is rolling out gradually and returns raw tags when not enabled for the
             team.
+        category: Experiments
     llma-prompt-resolve:
         operation: llm_prompts_resolve_name_retrieve
         enabled: false
@@ -1014,6 +1070,7 @@ tools:
             that raw text: the default llma-prompt-get response inlines the referenced prompts, so republishing
             it replaces the references with flattened copies that stop following label moves. 'edits' written
             against resolved content also fail to match, because the stored content keeps the tags.
+        category: Experiments
         include_params:
             - prompt
             - edits

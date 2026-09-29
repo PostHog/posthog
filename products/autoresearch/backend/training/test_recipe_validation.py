@@ -2,6 +2,10 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from posthog.hogql import ast
+from posthog.hogql.parser import parse_select
+
+from products.autoresearch.backend.dataset.labeling import build_training_features_sql
 from products.autoresearch.backend.training.recipe_validation import (
     RecipeValidationError,
     validate_feature_sql,
@@ -110,6 +114,25 @@ class TestRecipeValidation(SimpleTestCase):
         with self.assertRaises(RecipeValidationError) as ctx:
             validate_feature_sql(sql)
         assert "training wrapper" in str(ctx.exception)
+
+    def test_feature_sql_rejects_every_cte_the_training_wrapper_defines(self):
+        # The refused names are a hand-kept list, so a CTE renamed in labeling.py would reopen a path to the label.
+        sql, values = build_training_features_sql(
+            feature_sql=ANCHORED,
+            target_event="$pageview",
+            horizon_days=7,
+            lookback_days=30,
+            training_population=None,
+        )
+        node = parse_select(sql, placeholders={k: ast.Constant(value=v) for k, v in values.items()})
+        assert isinstance(node, ast.SelectQuery)
+        ctes = node.ctes or {}
+        assert "labeled_anchors" in ctes
+        for name in ctes:
+            with self.subTest(cte=name), self.assertRaises(RecipeValidationError):
+                validate_feature_sql(
+                    f"SELECT a.person_id AS distinct_id, x.t AS t FROM {{anchors}} a JOIN {name} x ON x.person_id = a.person_id"
+                )
 
     @parameterized.expand([("label", "__label"), ("fold", "__fold")])
     def test_feature_sql_rejects_reserved_output_names(self, _name, column):

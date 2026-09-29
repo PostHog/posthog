@@ -2,15 +2,15 @@ import { BuiltLogic, useValues } from 'kea'
 
 import { LemonTable, Link, Tooltip } from '@posthog/lemon-ui'
 
-import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { urls } from 'scenes/urls'
 
 import { llmEvaluationsLogic } from '../evaluations/llmEvaluationsLogic'
 import { EvaluationRun } from '../evaluations/types'
 import type { generationEvaluationRunsLogicType } from '../generationEvaluationRunsLogic'
-import { EvaluationResultTag, getEvaluationResultSortValue } from './EvaluationResultTag'
+import { EvaluationResultTag, compareEvaluationResults } from './EvaluationResultTag'
 import { EvaluationRunTargetCell } from './EvaluationRunTargetCell'
+import { EvaluationRunTimestampCell } from './EvaluationRunTimestampCell'
 
 export function GenerationEvalRunsTable({
     generationRunsLogic,
@@ -18,13 +18,13 @@ export function GenerationEvalRunsTable({
     generationRunsLogic: BuiltLogic<generationEvaluationRunsLogicType>
 }): JSX.Element {
     const { generationEvaluationRuns, generationEvaluationRunsLoading } = useValues(generationRunsLogic)
-    const { detectorEvaluationIds } = useValues(llmEvaluationsLogic)
+    const { detectorEvaluationIds, evaluations } = useValues(llmEvaluationsLogic)
 
     const columns: LemonTableColumns<EvaluationRun> = [
         {
             title: 'Timestamp',
             key: 'timestamp',
-            render: (_, run) => <TZLabel time={run.timestamp} />,
+            render: (_, run) => <EvaluationRunTimestampCell run={run} />,
             sorter: (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
         },
         {
@@ -45,18 +45,25 @@ export function GenerationEvalRunsTable({
             title: 'Result',
             key: 'result',
             render: (_, run) => (
-                <EvaluationResultTag run={run} trueIsFailure={detectorEvaluationIds.includes(run.evaluation_id)} />
+                <EvaluationResultTag
+                    run={run}
+                    categoryOptions={
+                        evaluations?.find((evaluation) => evaluation.id === run.evaluation_id)?.output_config.options
+                    }
+                    passingRule={
+                        evaluations?.find((evaluation) => evaluation.id === run.evaluation_id)?.output_config
+                            .passing_rule
+                    }
+                    trueIsFailure={detectorEvaluationIds.includes(run.evaluation_id)}
+                />
             ),
-            sorter: (a, b) => {
-                return (
-                    getEvaluationResultSortValue(b, {
-                        trueIsFailure: detectorEvaluationIds.includes(b.evaluation_id),
-                    }) -
-                    getEvaluationResultSortValue(a, {
-                        trueIsFailure: detectorEvaluationIds.includes(a.evaluation_id),
-                    })
-                )
-            },
+            sorter: (a, b) =>
+                compareEvaluationResults(
+                    b,
+                    a,
+                    { trueIsFailure: detectorEvaluationIds.includes(b.evaluation_id) },
+                    { trueIsFailure: detectorEvaluationIds.includes(a.evaluation_id) }
+                ),
         },
         {
             title: 'Reasoning',

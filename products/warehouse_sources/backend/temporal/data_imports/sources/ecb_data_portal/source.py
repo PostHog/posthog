@@ -106,6 +106,7 @@ class EcbDataPortalSource(ResumableSource[EcbDataPortalSourceConfig, ECBResumeCo
             label="European Central Bank (ECB Data Portal)",
             caption="Import euro-area statistics from the ECB Data Portal's free, keyless public API: reference exchange rates, key interest rates, and HICP inflation. No API key or account is required.",
             iconPath="/static/services/ecb_data_portal.png",
+            docsUrl="https://posthog.com/docs/cdp/sources/ecb-data-portal",
             keywords=["ecb", "exchange rates", "eur fx", "interest rates", "inflation", "hicp"],
             fields=cast(list[FieldType], []),
             releaseStatus=ReleaseStatus.ALPHA,

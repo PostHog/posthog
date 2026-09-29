@@ -45,6 +45,12 @@ from products.ai_observability.backend.models.trace_reviews import TraceReview, 
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.annotations.backend.models.annotation import Annotation
 from products.autoresearch.backend.facade import testing as autoresearch_testing
+from products.batch_exports.backend.facade import testing as batch_exports_testing
+from products.batch_exports.backend.facade.contracts import (
+    BatchExportBackfillStatus,
+    BatchExportRunStatus,
+    DestinationType,
+)
 from products.business_knowledge.backend.models import KnowledgeChunk, KnowledgeDocument, KnowledgeSource
 from products.business_knowledge.backend.models.constants import SourceStatus, SourceType
 from products.canvas.backend.models import Canvas
@@ -90,6 +96,7 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.logs.backend.models import LogsAlertConfiguration, LogsView
 from products.notebooks.backend.models import Notebook, ResourceNotebook
 from products.product_analytics.backend.facade.models import Insight, InsightVariable
+from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerOrigin, ScannerType
 from products.surveys.backend.models import Survey, SurveyResponseArchive
 from products.tasks.backend.models import Channel, SandboxEnvironment, Task, TaskRun
 from products.warehouse_sources.backend.facade.models import (
@@ -99,7 +106,7 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSource,
 )
 from products.warehouse_sources.backend.facade.types import DIRECT_ENGINE_BY_SOURCE_TYPE
-from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
+from products.workflows.backend.facade.testing import create_workflow_for_test
 
 # Only directly-queryable tables are team-scoped via a WHERE clause. Namespace nodes such as
 # `information_schema` carry no `table` of their own (just child catalog tables computed per-query),
@@ -206,11 +213,10 @@ class TestSystemTablesTeamScoping(BaseTest):
         }
 
 
-def _create_batch_export(team: Team, label: str):
-    from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination
-
-    destination = BatchExportDestination.objects.create(type="S3", config={})
-    return BatchExport.objects.create(team=team, name=f"export_{label}", destination=destination, interval="hour")
+def _create_batch_export(team: Team, label: str) -> uuid.UUID:
+    return batch_exports_testing.create_batch_export(
+        team.pk, name=f"export_{label}", destination_type=DestinationType.AWS_S3, destination_config={}
+    )
 
 
 def _create_data_deletion_request(team: Team, label: str) -> DataDeletionRequest:
@@ -223,44 +229,35 @@ def _create_data_deletion_request(team: Team, label: str) -> DataDeletionRequest
     )
 
 
-def _create_batch_export_backfill(team: Team, label: str):
-    from products.batch_exports.backend.models.batch_export import (
-        BatchExport,
-        BatchExportBackfill,
-        BatchExportDestination,
+def _create_batch_export_backfill(team: Team, label: str) -> uuid.UUID:
+    batch_export_id = batch_exports_testing.create_batch_export(
+        team.pk, name=f"export_for_backfill_{label}", destination_type=DestinationType.AWS_S3, destination_config={}
+    )
+    return batch_exports_testing.create_backfill(
+        batch_export_id, team_id=team.pk, status=BatchExportBackfillStatus.RUNNING
     )
 
-    destination = BatchExportDestination.objects.create(type="S3", config={})
-    batch_export = BatchExport.objects.create(
-        team=team, name=f"export_for_backfill_{label}", destination=destination, interval="hour"
+
+def _create_batch_export_run(team: Team, label: str) -> uuid.UUID:
+    batch_export_id = batch_exports_testing.create_batch_export(
+        team.pk, name=f"export_for_run_{label}", destination_type=DestinationType.AWS_S3, destination_config={}
     )
-    return BatchExportBackfill.objects.create(team=team, batch_export=batch_export, status="Running")
-
-
-def _create_batch_export_run(team: Team, label: str):
-    from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination, BatchExportRun
-
-    destination = BatchExportDestination.objects.create(type="S3", config={})
-    batch_export = BatchExport.objects.create(
-        team=team, name=f"export_for_run_{label}", destination=destination, interval="hour"
+    return batch_exports_testing.create_batch_export_run(
+        batch_export_id=batch_export_id, status=BatchExportRunStatus.RUNNING, data_interval_end=timezone.now()
     )
-    return BatchExportRun.objects.create(batch_export=batch_export, status="Running", data_interval_end=timezone.now())
 
 
-def _create_batch_export_on_demand(team: Team, label: str):
-    from products.batch_exports.backend.models.batch_export import BatchExportDestination, BatchExportOnDemand
-
-    destination = BatchExportDestination.objects.create(type="S3", config={})
-    with team_scope(team.pk):
-        return BatchExportOnDemand.objects.create(team=team, destination=destination)
+def _create_batch_export_on_demand(team: Team, label: str) -> uuid.UUID:
+    return batch_exports_testing.create_batch_export_on_demand(
+        team.pk, destination_type=DestinationType.AWS_S3, destination_config={}
+    )
 
 
-def _create_batch_export_run_on_demand(team: Team, label: str):
-    from products.batch_exports.backend.models.batch_export import BatchExportRun
-
-    on_demand = _create_batch_export_on_demand(team, label)
-    return BatchExportRun.objects.create(
-        batch_export_on_demand=on_demand, status="Running", data_interval_end=timezone.now()
+def _create_batch_export_run_on_demand(team: Team, label: str) -> uuid.UUID:
+    return batch_exports_testing.create_batch_export_run(
+        on_demand_id=_create_batch_export_on_demand(team, label),
+        status=BatchExportRunStatus.RUNNING,
+        data_interval_end=timezone.now(),
     )
 
 
@@ -525,8 +522,8 @@ def _create_error_tracking_symbol_set(team: Team, label: str) -> uuid.UUID:
     return create_symbol_set(team_id=team.pk, ref=f"symbol_set_{label}", storage_ptr=f"symbolsets/{label}")
 
 
-def _create_hog_flow(team: Team, label: str) -> HogFlow:
-    return HogFlow.objects.create(team=team, name=f"flow_{label}")
+def _create_hog_flow(team: Team, label: str) -> str:
+    return create_workflow_for_test(team_id=team.id, name=f"flow_{label}").id
 
 
 def _create_message_category(team: Team, label: str):
@@ -620,6 +617,16 @@ def _create_logs_alert(team: Team, label: str) -> LogsAlertConfiguration:
         team=team,
         name=f"logs_alert_{label}",
         threshold_count=10,
+    )
+
+
+def _create_replay_scanner(team: Team, label: str) -> ReplayScanner:
+    return ReplayScanner.objects.create(
+        team=team,
+        name=f"replay_scanner_{label}",
+        scanner_type=ScannerType.MONITOR,
+        scanner_config={"prompt": "p"},
+        model=ScannerModel.GEMINI_3_8_FLASH,
     )
 
 
@@ -986,6 +993,7 @@ SYSTEM_TABLE_FACTORIES = [
     ("integrations", _create_integration),
     ("integration_repository_cache", _create_integration_repository_cache_entry),
     ("logs_alerts", _create_logs_alert),
+    ("replay_scanners", _create_replay_scanner),
     ("logs_views", _create_logs_view),
     ("message_categories", _create_message_category),
     ("message_recipient_preferences", _create_message_recipient_preference),
@@ -1185,6 +1193,28 @@ class TestSystemTablesCanvasDeletedExclusionIsolation(NonAtomicBaseTest):
 
         assert str(live_canvas.pk) in ids
         assert str(deleted_canvas.pk) not in ids
+
+
+class TestSystemTablesReplayScannersInlineExclusion(NonAtomicBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def test_inline_scanners_excluded(self):
+        configured = _create_replay_scanner(self.team, "configured")
+        inline = ReplayScanner.objects.create(
+            team=self.team,
+            name="inline",
+            scanner_type=ScannerType.MONITOR,
+            scanner_config={"prompt": "p"},
+            model=ScannerModel.GEMINI_3_8_FLASH,
+            origin=ScannerOrigin.INLINE,
+            inline_key="inline-key",
+        )
+
+        response = execute_hogql_query("SELECT id FROM system.replay_scanners", team=self.team, user=self.user)
+        ids = {str(row[0]) for row in response.results}
+
+        assert str(configured.pk) in ids
+        assert str(inline.pk) not in ids
 
 
 class TestSystemTablesActivityLogsCanvasIdCoercion(NonAtomicBaseTest):

@@ -10,6 +10,7 @@ import {
     reducers,
     selectors,
 } from 'kea'
+import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
@@ -50,6 +51,8 @@ import { ChartDisplayType } from '~/types'
 
 import { mapUrlToProvider } from 'products/data_warehouse/frontend/shared/components/SourceIcon'
 import { sourceManagementLogic } from 'products/data_warehouse/frontend/shared/logics/sourceManagementLogic'
+import { marketingAnalyticsSourceValidationRetrieve } from 'products/marketing_analytics/frontend/generated/api'
+import type { SourceValidationApi } from 'products/marketing_analytics/frontend/generated/api.schemas'
 
 import type { PaginatedResponse } from '../../../../../../lib/api'
 import type { FeatureFlagsSet } from '../../../../../../lib/logic/featureFlagLogic'
@@ -64,6 +67,7 @@ import {
     NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS,
     findSchemaByFieldName,
     generateUniqueName,
+    getEnabledNativeMarketingSources,
     sanitizeIntegrationFilter,
     validColumnsForTiles,
 } from './utils'
@@ -188,8 +192,16 @@ export type SourceStatus = ExternalDataSchemaStatus | MarketingSourceStatus
 function getSourceStatus(
     source: { id: string; name: string; type: string; prefix?: string },
     nativeSources: ExternalDataSource[],
-    validExternalTables: ExternalTable[]
+    validExternalTables: ExternalTable[],
+    validationErrors: SourceValidationApi['errors_by_source']
 ): { status: SourceStatus; message: string } {
+    const errors = validationErrors[source.id]
+    const validationWarning = errors?.length
+        ? {
+              status: MarketingSourceStatus.Warning,
+              message: `${errors.join(' ')} This source is excluded from the campaign table. ${source.type === 'native' ? 'Review its settings and fully resync the affected tables.' : 'Review its column mapping and table configuration.'}`,
+          }
+        : null
     const nativeSource = nativeSources.find((s) => s.id === source.id)
     if (nativeSource) {
         const requiredFields =
@@ -231,6 +243,9 @@ function getSourceStatus(
                 message: 'One or more required tables sync is cancelled',
             }
         }
+        if (validationWarning) {
+            return validationWarning
+        }
         if (
             schemaStatuses.length === requiredFields.length &&
             schemaStatuses.every((status) => status === ExternalDataSchemaStatus.Completed)
@@ -249,13 +264,13 @@ function getSourceStatus(
         const hasMapping = externalTable.source_map && Object.keys(externalTable.source_map).length > 0
 
         if (!hasMapping) {
-            return { status: MarketingSourceStatus.Warning, message: 'Needs column mapping' }
+            return validationWarning ?? { status: MarketingSourceStatus.Warning, message: 'Needs column mapping' }
         }
 
         // For sources with schema_status (managed sources like BigQuery)
         if (externalTable.schema_status) {
             if (externalTable.schema_status === ExternalDataSchemaStatus.Completed) {
-                return { status: ExternalDataSchemaStatus.Completed, message: 'Ready to use' }
+                return validationWarning ?? { status: ExternalDataSchemaStatus.Completed, message: 'Ready to use' }
             }
             if (externalTable.schema_status === ExternalDataSchemaStatus.Failed) {
                 return { status: ExternalDataSchemaStatus.Failed, message: 'Table sync failed' }
@@ -271,8 +286,7 @@ function getSourceStatus(
             }
         }
 
-        // For self-managed sources having a mapping means it's ready
-        return { status: ExternalDataSchemaStatus.Completed, message: 'Ready to use' }
+        return validationWarning ?? { status: ExternalDataSchemaStatus.Completed, message: 'Ready to use' }
     }
 
     return { status: MarketingSourceStatus.Error, message: 'Unknown source status' }
@@ -334,11 +348,11 @@ export interface marketingAnalyticsLogicValues {
     allAvailableSourcesWithStatus: {
         id: string
         name: string
-        prefix?: string | undefined
+        prefix: string | undefined
         source_type: string
         status: SourceStatus
         statusMessage: string
-        type: string
+        type: DataWarehouseSettingsTab | 'native'
     }[]
     allExternalTablesWithStatus: {
         columns: {
@@ -390,6 +404,10 @@ export interface marketingAnalyticsLogicValues {
     overviewQuery: MarketingAnalyticsAggregatedQuery
     setupSection: SetupSection
     shouldFilterTestAccounts: boolean
+    sourceValidation: SourceValidationApi
+    sourceValidationError: string | null
+    sourceValidationErrors: SourceValidationApi['errors_by_source']
+    sourceValidationLoading: boolean
     tileColumnSelection: validColumnsForTiles
     unconfiguredNativeSources: ExternalDataSource[]
     uniqueConversionGoalName: string
@@ -475,6 +493,21 @@ export interface marketingAnalyticsLogicActions {
     }
     loadConversionGoal: (goal: ConversionGoalFilter) => {
         goal: ConversionGoalFilter
+    }
+    loadSourceValidation: (_: void) => void
+    loadSourceValidationFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadSourceValidationSuccess: (
+        sourceValidation: SourceValidationApi,
+        payload?: void
+    ) => {
+        sourceValidation: SourceValidationApi
+        payload?: void
     }
     openSetup: (
         section: SetupSection,
@@ -637,7 +670,10 @@ export interface marketingAnalyticsLogicMeta {
                 [x: string]: SourceMap
             } | null
         ) => ExternalTable[]
-        nativeSources: (dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null) => ExternalDataSource[]
+        nativeSources: (
+            dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null,
+            featureFlags: FeatureFlagsSet
+        ) => ExternalDataSource[]
         validNativeSources: (
             nativeSources: ExternalDataSource[],
             dataWarehouseTables: DatabaseSchemaDataWarehouseTable[]
@@ -662,24 +698,36 @@ export interface marketingAnalyticsLogicMeta {
             source_type: string
             type: string
         }[]
+        sourceValidationErrors: (sourceValidation: SourceValidationApi) => SourceValidationApi['errors_by_source']
         allAvailableSourcesWithStatus: (
-            allAvailableSources: {
+            allExternalTablesWithStatus: {
+                columns: {
+                    name: string
+                    type: string
+                }[]
+                dw_source_type: string
+                external_type: DataWarehouseSettingsTab
                 id: string
                 name: string
-                prefix?: string | undefined
+                schema_name: string
+                schema_status?: string | undefined
+                source_map: SourceMap | null
+                source_map_id: string
+                source_prefix: string
                 source_type: string
-                type: string
-            }[],
-            nativeSources: ExternalDataSource[],
-            validExternalTables: ExternalTable[]
+                sourceUrl: string
+                status: SourceStatus
+                statusMessage: string
+                url_pattern: string
+            }[]
         ) => {
             id: string
             name: string
-            prefix?: string | undefined
+            prefix: string | undefined
             source_type: string
             status: SourceStatus
             statusMessage: string
-            type: string
+            type: DataWarehouseSettingsTab | 'native'
         }[]
         hasNoConfiguredSources: (
             validExternalTables: ExternalTable[],
@@ -690,7 +738,8 @@ export interface marketingAnalyticsLogicMeta {
         hasSources: (validExternalTables: ExternalTable[], validNativeSources: NativeSource[]) => boolean
         allExternalTablesWithStatus: (
             externalTables: ExternalTable[],
-            nativeSources: ExternalDataSource[]
+            nativeSources: ExternalDataSource[],
+            sourceValidationErrors: import('products/marketing_analytics/frontend/generated/api.schemas').SourceValidationApiErrorsBySource
         ) => {
             columns: {
                 name: string
@@ -764,6 +813,21 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             ['addProductIntent'],
         ],
     })),
+    loaders(() => ({
+        sourceValidation: [
+            { errors_by_source: {} } as SourceValidationApi,
+            {
+                loadSourceValidation: async (_: void, breakpoint) => {
+                    await breakpoint(100)
+                    const result = await marketingAnalyticsSourceValidationRetrieve(
+                        String(teamLogic.values.currentTeamId)
+                    )
+                    breakpoint()
+                    return result
+                },
+            },
+        ],
+    })),
     actions({
         setAdPerformanceConversionGoals: (include: boolean) => ({ include }),
         setActiveTab: (tab: MarketingAnalyticsTab) => ({ tab }),
@@ -831,6 +895,13 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
         const persistConfig = buildTeamScopedPersistenceConfig()
 
         return {
+            sourceValidationError: [
+                null as string | null,
+                {
+                    loadSourceValidationSuccess: () => null,
+                    loadSourceValidationFailure: (_, { error }) => error,
+                },
+            ],
             adPerformanceConversionGoals: [true, { setAdPerformanceConversionGoals: (_, { include }) => include }],
             activeTab: [
                 MarketingAnalyticsTab.DASHBOARD as MarketingAnalyticsTab,
@@ -1163,13 +1234,18 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             },
         ],
         nativeSources: [
-            (s) => [s.dataWarehouseSources],
+            (s) => [s.dataWarehouseSources, s.featureFlags],
             (
-                dataWarehouseSources: null | import('../../../../../../lib/api').PaginatedResponse<ExternalDataSource>
-            ): ExternalDataSource[] =>
-                dataWarehouseSources?.results.filter((source) =>
-                    VALID_NATIVE_MARKETING_SOURCES.includes(source.source_type as NativeMarketingSource)
-                ) ?? [],
+                dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null,
+                featureFlags: FeatureFlagsSet
+            ): ExternalDataSource[] => {
+                const enabledSources = getEnabledNativeMarketingSources(featureFlags)
+                return (
+                    dataWarehouseSources?.results.filter((source) =>
+                        enabledSources.includes(source.source_type as NativeMarketingSource)
+                    ) ?? []
+                )
+            },
         ],
         validNativeSources: [
             (s) => [s.nativeSources, s.dataWarehouseTables],
@@ -1291,57 +1367,25 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                 return sources
             },
         ],
+        sourceValidationErrors: [
+            (s) => [s.sourceValidation],
+            (sourceValidation: SourceValidationApi): SourceValidationApi['errors_by_source'] =>
+                sourceValidation.errors_by_source,
+        ],
         allAvailableSourcesWithStatus: [
-            (s) => [s.allAvailableSources, s.nativeSources, s.validExternalTables],
-            (
-                allAvailableSources: {
-                    id: string
-                    name: string
-                    prefix?: string | undefined
-                    source_type: string
-                    type: string
-                }[],
-                nativeSources: ExternalDataSource[],
-                validExternalTables: ExternalTable[]
-            ) => {
-                const sourcesWithStatus = allAvailableSources.map((source) => {
-                    const status = getSourceStatus(source, nativeSources, validExternalTables)
-                    return {
-                        ...source,
-                        status: status.status,
-                        statusMessage: status.message,
-                    }
-                })
-
-                // Also include native sources not in allAvailableSources (those with
-                // disabled/missing tables) so the banner can surface warnings for them
-                const includedIds = new Set(allAvailableSources.map((s) => s.id))
-                nativeSources.forEach((source) => {
-                    if (!includedIds.has(source.id)) {
-                        const status = getSourceStatus(
-                            {
-                                id: source.id,
-                                name: source.source_type,
-                                type: 'native',
-                                prefix: source.prefix ?? undefined,
-                            },
-                            nativeSources,
-                            validExternalTables
-                        )
-                        sourcesWithStatus.push({
-                            id: source.id,
-                            name: source.source_type,
-                            type: 'native',
-                            source_type: source.source_type,
-                            prefix: source.prefix ?? undefined,
-                            status: status.status,
-                            statusMessage: status.message,
-                        })
-                    }
-                })
-
-                return sourcesWithStatus
-            },
+            (s) => [s.allExternalTablesWithStatus],
+            (tables: (ExternalTable & { status: SourceStatus; statusMessage: string; isNativeSource?: boolean })[]) =>
+                tables
+                    .filter((table) => table.isNativeSource || table.source_map !== null)
+                    .map((table) => ({
+                        id: table.source_map_id,
+                        name: table.schema_name,
+                        type: table.isNativeSource ? 'native' : table.external_type,
+                        source_type: table.source_type,
+                        prefix: table.source_prefix || undefined,
+                        status: table.status,
+                        statusMessage: table.statusMessage,
+                    })),
         ],
         hasNoConfiguredSources: [
             (s) => [s.validExternalTables, s.validNativeSources, s.loading, s.dataWarehouseTables],
@@ -1364,8 +1408,12 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                 validExternalTables.length > 0 || validNativeSources.length > 0,
         ],
         allExternalTablesWithStatus: [
-            (s) => [s.externalTables, s.nativeSources],
-            (externalTables: ExternalTable[], nativeSources: ExternalDataSource[]) => {
+            (s) => [s.externalTables, s.nativeSources, s.sourceValidationErrors],
+            (
+                externalTables: ExternalTable[],
+                nativeSources: ExternalDataSource[],
+                validationErrors: SourceValidationApi['errors_by_source']
+            ) => {
                 // Filter out tables that belong to native sources (to avoid duplicates)
                 // Only include BigQuery, self-managed, and other non-native sources
                 // For example a native source could have multiple external tables.
@@ -1383,7 +1431,8 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                             prefix: table.source_prefix,
                         },
                         [],
-                        nonNativeTables
+                        nonNativeTables,
+                        validationErrors
                     )
                     return {
                         ...table,
@@ -1397,7 +1446,8 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                     const status = getSourceStatus(
                         { id: source.id, name: source.source_type, type: 'native', prefix: source.prefix ?? undefined },
                         nativeSources,
-                        []
+                        [],
+                        validationErrors
                     )
 
                     // Convert native source to ExternalTable format for unified handling
@@ -1507,6 +1557,13 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                 return [router.values.location.pathname, searchParams.toString()]
             }
             const searchParams = new URLSearchParams()
+            const currentSearchParams = new URLSearchParams(router.values.location.search)
+            for (const key of ['select', 'order_column', 'order_direction', 'pinned_columns']) {
+                const value = currentSearchParams.get(key)
+                if (value !== null) {
+                    searchParams.set(key, value)
+                }
+            }
 
             // Tab
             if (values.activeTab && values.activeTab !== MarketingAnalyticsTab.DASHBOARD) {
@@ -1653,7 +1710,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             setChartDisplayType: trackDashboardInteraction,
             setTileColumnSelection: trackDashboardInteraction,
             setDrillDownLevel: trackDashboardInteraction,
-            reloadAll: trackDashboardInteraction,
+            reloadAll: [trackDashboardInteraction, () => actions.loadSourceValidation()],
             applyConversionGoal: [
                 () => {
                     const goal = {

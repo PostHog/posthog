@@ -2859,13 +2859,7 @@ const api = {
             return new ApiRequest()
                 .tracingSpans()
                 .withAction(`trace/${traceId}`)
-                .create({
-                    signal,
-                    data: {
-                        ...query,
-                        dateRange: query?.dateRange ?? { date_from: '-24h' },
-                    },
-                })
+                .create({ signal, data: { ...query } })
         },
         async sparkline(
             query: {
@@ -5026,6 +5020,8 @@ const api = {
             scout_prefix?: string
             /** true returns only the filtered total: `results` is empty and no rows are serialized. */
             count_only?: 'true' | 'false'
+            /** false skips the ClickHouse lookup for `source_products` and `scout_name`, which then come back empty. */
+            include_source_metadata?: 'true' | 'false'
         }): Promise<CountedPaginatedResponse<SignalReport>> {
             return await new ApiRequest().signalReports().withQueryString(params).get()
         },
@@ -5037,6 +5033,9 @@ const api = {
             params: { limit?: number } = {}
         ): Promise<SignalReportArtefactResponse> {
             return await new ApiRequest().signalReport(id).withAction('artefacts').withQueryString(params).get()
+        },
+        async activateMeasurement(id: SignalReport['id'], artefactId: string): Promise<void> {
+            await new ApiRequest().signalReport(id).withAction(`artefacts/${artefactId}/activate`).create()
         },
         async delete(id: SignalReport['id']): Promise<void> {
             await new ApiRequest().signalReport(id).delete()
@@ -5148,8 +5147,15 @@ const api = {
              * across the entire resume chain). Used to bootstrap the sandbox stream before
              * opening SSE.
              */
-            async getLogEntries(taskId: Task['id'], runId: TaskRun['id']): Promise<Record<string, any>[]> {
-                const response = await new ApiRequest().taskRun(taskId, runId).withAction('logs').getResponse()
+            async getLogEntries(
+                taskId: Task['id'],
+                runId: TaskRun['id'],
+                options: { signal?: AbortSignal; projectId?: TeamType['id'] } = {}
+            ): Promise<Record<string, any>[]> {
+                const response = await new ApiRequest()
+                    .taskRun(taskId, runId, options.projectId)
+                    .withAction('logs')
+                    .getResponse({ signal: options.signal })
                 const text = await response.text()
                 const entries: Record<string, any>[] = []
                 for (const line of text.split('\n')) {
@@ -5179,6 +5185,7 @@ const api = {
                 runId: TaskRun['id'],
                 options: {
                     signal: AbortSignal
+                    projectId?: TeamType['id']
                     lastEventId?: string
                     startLatest?: boolean
                     /**
@@ -5208,7 +5215,7 @@ const api = {
                     headers['Authorization'] = `Bearer ${options.proxyTarget.token}`
                     return api.getResponse(url, { signal: options.signal, headers })
                 }
-                let request = new ApiRequest().taskRun(taskId, runId).withAction('stream')
+                let request = new ApiRequest().taskRun(taskId, runId, options.projectId).withAction('stream')
                 if (!options.lastEventId && options.startLatest) {
                     request = request.withQueryString({ start: 'latest' })
                 }

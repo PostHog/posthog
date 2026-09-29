@@ -332,11 +332,13 @@ class TestRouteThreadMessage(TestCase):
         with (
             patch("products.slack_app.backend.api._post_user_resolution_failure_reply") as mock_failure,
             patch("products.slack_app.backend.api._start_mention_workflow") as mock_start,
+            patch("products.slack_app.backend.api.posthoganalytics.capture") as mock_capture,
         ):
             result = self._route(event)
         assert result == ROUTE_HANDLED_LOCALLY
         mock_failure.assert_not_called()
         mock_start.assert_not_called()
+        assert mock_capture.call_args.kwargs["properties"]["slack_email_available"] is False
 
     # --- Scope + approval gates ------------------------------------------
 
@@ -456,8 +458,7 @@ class TestRouteThreadMessage(TestCase):
             ("never_other_person", UntaggedFollowupMode.NEVER, "U_BOB", False),
             # `never` means nobody, the creator included.
             ("never_creator", UntaggedFollowupMode.NEVER, "U_ALICE", False),
-            # Never picked: the feature is opt-in, so an untouched row behaves as `never`.
-            ("unset", None, "U_BOB", False),
+            ("unset", None, "U_BOB", True),
         ]
     )
     @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")

@@ -58,6 +58,12 @@ class AttributionQueryRunnerBase(MarketingSessionBreakdownQueryRunnerBase[Respon
     # Narrower than the session-breakdown base's union: everything below reads attribution-only fields.
     query: MarketingAnalyticsAttributionQuery | MarketingAnalyticsAttributionPathsQuery
 
+    def get_cache_key_variant(self) -> str:
+        variant = super().get_cache_key_variant()
+        if self.config.live_session_resolution_enabled:
+            return f"{variant}_live_session_resolution"
+        return variant
+
     @cached_property
     def goal(self) -> ConversionGoal:
         """The requested goal, found among the team's configured goals.
@@ -241,14 +247,19 @@ class AttributionQueryRunnerBase(MarketingSessionBreakdownQueryRunnerBase[Respon
         )
 
     def _person_arrays_select(self, date_range: QueryDateRange) -> ast.SelectQuery:
-        """The credit side, served from the precompute when it can."""
-        if self.config.sessions_precomputation_enabled:
+        """The credit side, using shared session resolution when eligible."""
+        if self.config.sessions_precomputation_enabled or self.config.live_session_resolution_enabled:
             from .attribution_sessions_read import build_person_arrays  # noqa: PLC0415 (import cycle)
 
-            with self.timings.measure("attribution_sessions_precompute_credit"):
+            with self.timings.measure(
+                "attribution_live_session_resolution"
+                if self.config.live_session_resolution_enabled
+                else "attribution_sessions_precompute_credit"
+            ):
                 precomputed = build_person_arrays(self, date_range)
             if precomputed is not None:
-                self._sessions_precompute_used = True
+                self._sessions_precompute_used = not self.config.live_session_resolution_enabled
+                self._live_session_resolution_used = self.config.live_session_resolution_enabled
                 return precomputed
         return self._build_person_arrays_select(date_range)
 

@@ -43,8 +43,6 @@ from posthog.settings.utils import get_list
 # without booting Django; re-exported here for existing callers.
 from posthog.week_start_day import WeekStartDay  # noqa: F401
 
-from products.customer_analytics.backend.facade.constants import DEFAULT_ACTIVITY_EVENT
-
 from ...hogql.modifiers import set_default_modifier_values
 from ...schema_enums import CurrencyCode, PersonsOnEventsMode
 from .extensions import get_or_create_team_extension
@@ -745,13 +743,11 @@ class Team(UUIDTClassicModel):
     def customer_analytics_config(self):
         from products.customer_analytics.backend.facade.team_extension import TeamCustomerAnalyticsConfig
 
-        return get_or_create_team_extension(
-            self, TeamCustomerAnalyticsConfig, defaults={"activity_event": DEFAULT_ACTIVITY_EVENT}
-        )
+        return get_or_create_team_extension(self, TeamCustomerAnalyticsConfig)
 
     @cached_property
     def workflows_config(self):
-        from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
+        from products.workflows.backend.facade.team_extension import TeamWorkflowsConfig
 
         return get_or_create_team_extension(self, TeamWorkflowsConfig)
 
@@ -987,9 +983,20 @@ class Team(UUIDTClassicModel):
         old_primary_token = self.secret_api_token
         new_token = generate_random_token_secret()
         expired_token = self.secret_api_token_backup
-        self.secret_api_token = new_token
-        self.secret_api_token_backup = old_primary_token
-        self.save()
+        # One transaction with the signal receivers: the conversations signing secret must
+        # never diverge from the column, so a failed copy rolls the rotation back whole.
+        try:
+            with transaction.atomic():
+                self.secret_api_token = new_token
+                self.secret_api_token_backup = old_primary_token
+                self.save()
+                secret_api_token_rotated.send(sender=self.__class__, team=self)
+        except Exception:
+            # save() already cached this team (post_save) with the new tokens, which the
+            # rollback discarded. Rewrite that entry from the committed row.
+            self.refresh_from_db(fields=["secret_api_token", "secret_api_token_backup"])
+            set_team_in_cache(self.api_token, self)
+            raise
 
         set_team_in_cache(new_token, self)
         # Old token needs to continue to work until it's deleted.
@@ -998,8 +1005,6 @@ class Team(UUIDTClassicModel):
         if expired_token:
             # Clear the previous backup token from cache since it's being replaced
             set_team_in_cache(expired_token, None)
-
-        secret_api_token_rotated.send(sender=self.__class__, team=self)
 
         # Build up the changes.
 

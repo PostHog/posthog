@@ -384,6 +384,21 @@ class TestGitHubIntegrationModel(BaseTest):
         assert result["success"] is False
         assert result["status_code"] == 502
 
+    def test_get_pull_request_diff_uses_the_durable_pr_endpoint(self):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        mock_response = MagicMock(status_code=200, text="diff --git a b")
+        with patch.object(github, "api_request", return_value=mock_response) as mock_get:
+            result = github.get_pull_request_diff("PostHog/posthog", 42)
+
+        assert result == {"success": True, "diff": "diff --git a b", "truncated": False}
+        mock_get.assert_called_once_with(
+            "GET",
+            "/repos/PostHog/posthog/pulls/42",
+            endpoint="/repos/{owner}/{repo}/pulls/{pull_number}",
+            headers={"Accept": "application/vnd.github.diff"},
+        )
+
     def _github_for_org(self) -> GitHubIntegration:
         integration = self.create_integration(
             config={"account": {"name": "PostHog"}}, sensitive_config={"access_token": "ACCESS_TOKEN"}
@@ -871,6 +886,39 @@ class TestGitHubIntegrationModel(BaseTest):
             result = GitHubIntegration.first_for_team_repository(self.team.id, "PostHog/posthog")
         assert result is not None
         mock_access.assert_called_once_with("PostHog/posthog")
+
+    @parameterized.expand(
+        [
+            ("our_budget", GitHubEgressBudgetExhausted("shed")),
+            ("githubs_limit", GitHubRateLimitError("429")),
+        ]
+    )
+    def test_first_for_team_repository_looks_past_an_exhausted_installation(self, _name, error):
+        # The search is ordered by id, so an exhausted first installation would otherwise hide a
+        # healthy later one that covers the repository.
+        self.create_integration(sensitive_config={"access_token": "FIRST"})
+        covering = self.create_integration(sensitive_config={"access_token": "SECOND"})
+        with patch.object(GitHubIntegration, "installation_can_access_repository", side_effect=[error, True]):
+            result = GitHubIntegration.first_for_team_repository(self.team.id, "PostHog/posthog")
+        assert result is not None
+        assert result.integration.id == covering.id
+
+    @parameterized.expand(
+        [
+            ("our_budget", GitHubEgressBudgetExhausted("shed")),
+            ("githubs_limit", GitHubRateLimitError("429")),
+        ]
+    )
+    def test_first_for_team_repository_raises_when_only_an_exhausted_installation_could_have_covered(
+        self, _name, error
+    ):
+        # No other installation answered, so the caller has to hear why rather than read it as
+        # "this team has no integration for the repository".
+        self.create_integration(sensitive_config={"access_token": "FIRST"})
+        self.create_integration(sensitive_config={"access_token": "SECOND"})
+        with patch.object(GitHubIntegration, "installation_can_access_repository", side_effect=[error, False]):
+            with pytest.raises(type(error)):
+                GitHubIntegration.first_for_team_repository(self.team.id, "PostHog/posthog")
 
     @parameterized.expand(
         [

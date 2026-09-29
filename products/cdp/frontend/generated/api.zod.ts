@@ -116,6 +116,7 @@ export const HogFunctionsCreateBody = /* @__PURE__ */ zod.object({
                 value: zod.unknown().optional(),
                 templating: zod.enum(['hog', 'liquid']).optional().describe('\* `hog` - hog\n\* `liquid` - liquid'),
                 bytecode: zod.array(zod.unknown()),
+                bytecode_contract: zod.string(),
                 order: zod.number(),
                 transpiled: zod.unknown(),
             })
@@ -138,6 +139,7 @@ export const HogFunctionsCreateBody = /* @__PURE__ */ zod.object({
             transpiled: zod.unknown().optional(),
             filter_test_accounts: zod.boolean().optional(),
             bytecode_error: zod.string().optional(),
+            bytecode_contract: zod.string().optional(),
         })
         .optional()
         .describe('Event filters that control which events trigger this function.'),
@@ -228,6 +230,7 @@ export const HogFunctionsCreateBody = /* @__PURE__ */ zod.object({
                                 .optional()
                                 .describe('\* `hog` - hog\n\* `liquid` - liquid'),
                             bytecode: zod.array(zod.unknown()),
+                            bytecode_contract: zod.string(),
                             order: zod.number(),
                             transpiled: zod.unknown(),
                         })
@@ -256,6 +259,7 @@ export const HogFunctionsCreateBody = /* @__PURE__ */ zod.object({
                         transpiled: zod.unknown().optional(),
                         filter_test_accounts: zod.boolean().optional(),
                         bytecode_error: zod.string().optional(),
+                        bytecode_contract: zod.string().optional(),
                     })
                     .optional(),
             })
@@ -390,6 +394,7 @@ export const HogFunctionsUpdateBody = /* @__PURE__ */ zod.object({
                 value: zod.unknown().optional(),
                 templating: zod.enum(['hog', 'liquid']).optional().describe('\* `hog` - hog\n\* `liquid` - liquid'),
                 bytecode: zod.array(zod.unknown()),
+                bytecode_contract: zod.string(),
                 order: zod.number(),
                 transpiled: zod.unknown(),
             })
@@ -412,6 +417,7 @@ export const HogFunctionsUpdateBody = /* @__PURE__ */ zod.object({
             transpiled: zod.unknown().optional(),
             filter_test_accounts: zod.boolean().optional(),
             bytecode_error: zod.string().optional(),
+            bytecode_contract: zod.string().optional(),
         })
         .optional()
         .describe('Event filters that control which events trigger this function.'),
@@ -502,6 +508,7 @@ export const HogFunctionsUpdateBody = /* @__PURE__ */ zod.object({
                                 .optional()
                                 .describe('\* `hog` - hog\n\* `liquid` - liquid'),
                             bytecode: zod.array(zod.unknown()),
+                            bytecode_contract: zod.string(),
                             order: zod.number(),
                             transpiled: zod.unknown(),
                         })
@@ -530,6 +537,7 @@ export const HogFunctionsUpdateBody = /* @__PURE__ */ zod.object({
                         transpiled: zod.unknown().optional(),
                         filter_test_accounts: zod.boolean().optional(),
                         bytecode_error: zod.string().optional(),
+                        bytecode_contract: zod.string().optional(),
                     })
                     .optional(),
             })
@@ -664,6 +672,7 @@ export const HogFunctionsPartialUpdateBody = /* @__PURE__ */ zod.object({
                 value: zod.unknown().optional(),
                 templating: zod.enum(['hog', 'liquid']).optional().describe('\* `hog` - hog\n\* `liquid` - liquid'),
                 bytecode: zod.array(zod.unknown()),
+                bytecode_contract: zod.string(),
                 order: zod.number(),
                 transpiled: zod.unknown(),
             })
@@ -686,6 +695,7 @@ export const HogFunctionsPartialUpdateBody = /* @__PURE__ */ zod.object({
             transpiled: zod.unknown().optional(),
             filter_test_accounts: zod.boolean().optional(),
             bytecode_error: zod.string().optional(),
+            bytecode_contract: zod.string().optional(),
         })
         .optional()
         .describe('Event filters that control which events trigger this function.'),
@@ -776,6 +786,7 @@ export const HogFunctionsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                 .optional()
                                 .describe('\* `hog` - hog\n\* `liquid` - liquid'),
                             bytecode: zod.array(zod.unknown()),
+                            bytecode_contract: zod.string(),
                             order: zod.number(),
                             transpiled: zod.unknown(),
                         })
@@ -804,6 +815,7 @@ export const HogFunctionsPartialUpdateBody = /* @__PURE__ */ zod.object({
                         transpiled: zod.unknown().optional(),
                         filter_test_accounts: zod.boolean().optional(),
                         bytecode_error: zod.string().optional(),
+                        bytecode_contract: zod.string().optional(),
                     })
                     .optional(),
             })
@@ -942,6 +954,7 @@ export const HogFunctionsEnableBackfillsCreateBody = /* @__PURE__ */ zod.object(
                 value: zod.unknown().optional(),
                 templating: zod.enum(['hog', 'liquid']).optional().describe('\* `hog` - hog\n\* `liquid` - liquid'),
                 bytecode: zod.array(zod.unknown()),
+                bytecode_contract: zod.string(),
                 order: zod.number(),
                 transpiled: zod.unknown(),
             })
@@ -964,6 +977,7 @@ export const HogFunctionsEnableBackfillsCreateBody = /* @__PURE__ */ zod.object(
             transpiled: zod.unknown().optional(),
             filter_test_accounts: zod.boolean().optional(),
             bytecode_error: zod.string().optional(),
+            bytecode_contract: zod.string().optional(),
         })
         .optional()
         .describe('Event filters that control which events trigger this function.'),
@@ -1060,6 +1074,7 @@ export const HogFunctionsEnableBackfillsCreateBody = /* @__PURE__ */ zod.object(
                                 .optional()
                                 .describe('\* `hog` - hog\n\* `liquid` - liquid'),
                             bytecode: zod.array(zod.unknown()),
+                            bytecode_contract: zod.string(),
                             order: zod.number(),
                             transpiled: zod.unknown(),
                         })
@@ -1088,6 +1103,7 @@ export const HogFunctionsEnableBackfillsCreateBody = /* @__PURE__ */ zod.object(
                         transpiled: zod.unknown().optional(),
                         filter_test_accounts: zod.boolean().optional(),
                         bytecode_error: zod.string().optional(),
+                        bytecode_contract: zod.string().optional(),
                     })
                     .optional(),
             })
@@ -1301,6 +1317,7 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                             .optional()
                             .describe('\* `hog` - hog\n\* `liquid` - liquid'),
                         bytecode: zod.array(zod.unknown()),
+                        bytecode_contract: zod.string(),
                         order: zod.number(),
                         transpiled: zod.unknown(),
                     })
@@ -1329,6 +1346,7 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                     transpiled: zod.unknown().optional(),
                     filter_test_accounts: zod.boolean().optional(),
                     bytecode_error: zod.string().optional(),
+                    bytecode_contract: zod.string().optional(),
                 })
                 .optional()
                 .describe('Event filters that control which events trigger this function.'),
@@ -1425,6 +1443,7 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                                         .optional()
                                         .describe('\* `hog` - hog\n\* `liquid` - liquid'),
                                     bytecode: zod.array(zod.unknown()),
+                                    bytecode_contract: zod.string(),
                                     order: zod.number(),
                                     transpiled: zod.unknown(),
                                 })
@@ -1455,6 +1474,7 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                                 transpiled: zod.unknown().optional(),
                                 filter_test_accounts: zod.boolean().optional(),
                                 bytecode_error: zod.string().optional(),
+                                bytecode_contract: zod.string().optional(),
                             })
                             .optional(),
                     })

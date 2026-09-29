@@ -43,6 +43,7 @@ from products.access_control.backend.presentation.access_control import UserAcce
 from products.ai_observability.backend.models.llm_prompt import LLMPrompt
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.facade.contracts import CreateExperimentInput
+from products.experiments.backend.facade.timeseries import merge_saved_metric_breakdowns
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
 from products.experiments.backend.hogql_queries.exposure_query_logic import resolve_default_exposure_event
 from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
@@ -358,6 +359,13 @@ class ExperimentBaseSerializer(
         data["parameters"] = parameters
 
 
+def _dedupe_metric_ordering(value: list[str] | None) -> list[str] | None:
+    """Keep the first occurrence of each uuid. The ordering is a display hint, so a repeat carries no meaning."""
+    if value is None:
+        return None
+    return list(dict.fromkeys(value))
+
+
 class ExperimentSerializer(ExperimentBaseSerializer):
     """Full experiment representation for the detail, create, and update endpoints.
 
@@ -380,6 +388,26 @@ class ExperimentSerializer(ExperimentBaseSerializer):
         required=False,
         allow_null=True,
         help_text="IDs of shared saved metrics to attach to this experiment. Each item has 'id' (saved metric ID) and 'metadata' with 'type' (primary or secondary).",
+    )
+    primary_metrics_ordered_uuids = serializers.ListField(
+        child=serializers.CharField(allow_blank=False),
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Display order of the primary metrics, as metric uuids. This is a display hint only: a metric "
+            "not in the list renders after the listed ones in stored order, and an entry that matches no "
+            "metric is ignored. Send it only to reorder metrics. Adding or removing metrics does not need it."
+        ),
+    )
+    secondary_metrics_ordered_uuids = serializers.ListField(
+        child=serializers.CharField(allow_blank=False),
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Display order of the secondary metrics, as metric uuids. This is a display hint only: a metric "
+            "not in the list renders after the listed ones in stored order, and an entry that matches no "
+            "metric is ignored. Send it only to reorder metrics. Adding or removing metrics does not need it."
+        ),
     )
     allow_unknown_events = serializers.BooleanField(
         required=False,
@@ -612,10 +640,12 @@ class ExperimentSerializer(ExperimentBaseSerializer):
                 if saved_metric.get("query"):
                     apply_metric_date_range(saved_metric["query"], new_date_range)
 
-                    # Add fingerprint to saved metric returned from API
-                    # so that frontend knows what timeseries records to query
+                    # Add fingerprint to saved metric returned from API so that the frontend knows what
+                    # timeseries records to query. Computed on the effective config (with link-metadata
+                    # breakdowns), the same dict the daily discovery fingerprints, so the chart read finds
+                    # the rows the daily workflow wrote.
                     saved_metric["query"]["fingerprint"] = compute_metric_fingerprint(
-                        saved_metric["query"],
+                        merge_saved_metric_breakdowns(saved_metric["query"], saved_metric.get("metadata")),
                         instance.start_date,
                         get_experiment_stats_method(instance),
                         instance.exposure_criteria,
@@ -783,6 +813,12 @@ class ExperimentSerializer(ExperimentBaseSerializer):
     def validate_excluded_variants(self, value):
         ExperimentService.validate_excluded_variants(value)
         return value
+
+    def validate_primary_metrics_ordered_uuids(self, value: list[str] | None) -> list[str] | None:
+        return _dedupe_metric_ordering(value)
+
+    def validate_secondary_metrics_ordered_uuids(self, value: list[str] | None) -> list[str] | None:
+        return _dedupe_metric_ordering(value)
 
     def validate_exposure_criteria(self, exposure_criteria: dict | None):
         ExperimentService.validate_experiment_exposure_criteria(exposure_criteria)

@@ -12,7 +12,12 @@ import { urls } from 'scenes/urls'
 
 import { llmEvaluationLogic } from '../evaluations/llmEvaluationLogic'
 import type { EvaluationConfig } from '../evaluations/types'
-import { llmPromptsCreate, llmPromptsNamePartialUpdate, llmPromptsNameRetrieve } from '../generated/api'
+import {
+    evaluationsRetrieve,
+    llmPromptsCreate,
+    llmPromptsNamePartialUpdate,
+    llmPromptsNameRetrieve,
+} from '../generated/api'
 import { normalizeMessage } from '../messageNormalization'
 import { llmPromptLogic } from '../prompts/llmPromptLogic'
 import { getApiErrorDetail } from '../prompts/utils'
@@ -1242,7 +1247,7 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                             lemonToast.error('Could not determine team')
                             return
                         }
-                        // nosemgrep: prefer-codegen-api
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use evaluationsRetrieve() from 'products/ai_observability/frontend/generated/api' instead.
                         const fetchedEvaluation = await api.get<EvaluationConfig>(
                             `/api/environments/${teamId}/evaluations/${payload.sourceEvaluationId}/`
                         )
@@ -1436,7 +1441,7 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                 return
             }
             try {
-                // nosemgrep: prefer-codegen-api
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use evaluationsPartialUpdate() from 'products/ai_observability/frontend/generated/api' instead.
                 await api.update(`/api/environments/${teamId}/evaluations/${linkedSource.evaluationId}/`, {
                     evaluation_config: { prompt: prompt.systemPrompt },
                     ...(modelConfig ? { model_configuration: modelConfig } : {}),
@@ -1516,13 +1521,19 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                 return
             }
             try {
-                // nosemgrep: prefer-codegen-api
+                const sourceEvaluation =
+                    prompt.sourceType === 'evaluation' && prompt.sourceEvaluationId
+                        ? await evaluationsRetrieve(String(teamId), prompt.sourceEvaluationId)
+                        : null
+                const compatibleSource = sourceEvaluation?.output_type === 'sentiment' ? null : sourceEvaluation
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use evaluationsCreate() from 'products/ai_observability/frontend/generated/api' instead.
                 const created = await api.create<EvaluationConfig>(`/api/environments/${teamId}/evaluations/`, {
                     name,
                     evaluation_type: 'llm_judge',
                     evaluation_config: { prompt: prompt.systemPrompt },
                     model_configuration: modelConfig,
-                    output_type: 'boolean',
+                    output_type: compatibleSource?.output_type ?? 'boolean',
+                    ...(compatibleSource ? { output_config: compatibleSource.output_config } : {}),
                     conditions: [],
                     enabled: false,
                 })

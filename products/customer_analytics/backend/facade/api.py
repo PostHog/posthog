@@ -187,11 +187,11 @@ from products.notebooks.backend.facade import (
 # the notebooks legacy-leak interface block.
 from products.notebooks.backend.models import ResourceNotebook
 from products.warehouse_sources.backend.facade.hooks import WarehouseBinding, saved_query_binding, schema_binding
-from products.workflows.backend.services.template_input_usage import (
-    HogFlowReference,
+from products.workflows.backend.facade.api import (
     filter_hog_flow_references_by_access_level,
     get_hog_flows_referencing_template_input_keys,
 )
+from products.workflows.backend.facade.contracts import HogFlowReference
 
 from . import contracts
 
@@ -206,7 +206,7 @@ if TYPE_CHECKING:
     from posthog.models.user import User
 
     from products.customer_analytics.backend.models import CustomPropertyValue
-    from products.workflows.backend.services.account_audience import AccountAudienceFilters
+    from products.workflows.backend.facade.contracts import AccountAudienceFilters
 
 
 def _to_account_properties(properties: _ModelAccountProperties) -> contracts.AccountProperties:
@@ -3877,6 +3877,32 @@ def list_account_presence_viewers(
     )
 
 
+def list_accounts_presence(
+    team_id: int,
+    account_ids: list[str],
+    user_access_control: "UserAccessControl",
+    *,
+    viewer_user_id: int | None,
+) -> list[contracts.AccountPresence]:
+    accessible_account_ids = list(
+        user_access_control.filter_queryset_by_access_level(
+            Account.objects.unscoped().filter(team_id=team_id, id__in=account_ids)
+        ).values_list("id", flat=True)
+    )
+    viewers_by_account_id = _account_presence_logic.list_account_presence(
+        team_id=team_id, account_ids=[str(account_id) for account_id in accessible_account_ids]
+    )
+    return [
+        contracts.AccountPresence(
+            account_id=account_id,
+            viewers=[
+                viewer for viewer in viewers_by_account_id.get(str(account_id), []) if viewer.user_id != viewer_user_id
+            ],
+        )
+        for account_id in accessible_account_ids
+    ]
+
+
 def get_editable_account_id(team_id: int, account_id: str, user_access_control: "UserAccessControl") -> str | None:
     """The account_id when the caller can edit that account, else None."""
     account = _resolve_accessible_account(team_id, user_access_control, account_id=account_id)
@@ -4211,6 +4237,7 @@ def list_calendar_sync_statuses(team_id: int) -> list[contracts.CalendarSyncStat
         SYNC_RETRY_AT_CONFIG_KEY,
         SYNC_STALE_AFTER,
         SYNC_STARTED_AT_CONFIG_KEY,
+        get_calendar_sync_interval,
     )
 
     statuses = []
@@ -4233,9 +4260,23 @@ def list_calendar_sync_statuses(team_id: int) -> list[contracts.CalendarSyncStat
                 integration_id=integration.id,
                 last_synced_at=last_synced_at,
                 is_syncing=is_syncing,
+                sync_interval_minutes=get_calendar_sync_interval(config),
             )
         )
     return statuses
+
+
+def update_calendar_sync_interval(team_id: int, integration_id: int, interval_minutes: int) -> bool:
+    from products.customer_analytics.backend.logic.calendar_sync import (  # noqa: PLC0415
+        SYNC_INTERVAL_CONFIG_KEY,
+        update_calendar_sync_config,
+    )
+
+    try:
+        update_calendar_sync_config(integration_id, team_id, {SYNC_INTERVAL_CONFIG_KEY: interval_minutes})
+    except Integration.DoesNotExist:
+        return False
+    return True
 
 
 def _parse_datetime(value: str | None) -> datetime | None:

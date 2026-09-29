@@ -1,18 +1,19 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { BindLogic } from 'kea'
 
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { AccessControlLevel, DashboardMode, DashboardType, InsightModel } from '~/types'
+import { AccessControlLevel, DashboardMode, DashboardPlacement, DashboardType, InsightModel } from '~/types'
 
 import { useMcpToolApplyBack } from 'products/posthog_ai/frontend/api/logics'
 import type { ToolStreamEvent } from 'products/posthog_ai/frontend/types/streamTypes'
 
 import { DashboardHeader, insightIsAddedToDashboard } from './DashboardHeader'
+import { DashboardEmbeddedShareButton } from './DashboardHeaderActions'
 import { DashboardLoadAction, dashboardLogic } from './dashboardLogic'
 
 jest.mock('lib/components/FullScreen', () => ({
@@ -142,6 +143,7 @@ describe('DashboardHeader', () => {
                 tiles: [{ id: 1, color: null, layouts: {}, text: { body: 'Dashboard note' } }],
             })
             const { logic } = renderHeader({ dashboard, dashboardEditing })
+            act(() => logic.actions.updateContainerWidth(1200, 12))
 
             fireEvent.keyDown(document.body, { key: 'e', code: 'KeyE' })
 
@@ -153,6 +155,33 @@ describe('DashboardHeader', () => {
             logic.unmount()
         }
     )
+
+    it.each([600, 768])('shows customization without layout editing at %ipx', async (width) => {
+        const originalWidth = window.innerWidth
+        Object.defineProperty(window, 'innerWidth', { configurable: true, value: width })
+        window.dispatchEvent(new Event('resize'))
+
+        try {
+            const dashboard = makeDashboard({
+                tiles: [{ id: 1, color: null, layouts: {}, text: { body: 'Dashboard note' } }],
+            })
+            const { logic } = renderHeader({ dashboard })
+
+            expect(document.querySelector('[data-attr="dashboard-edit-mode-button"]')).not.toBeInTheDocument()
+            expect(document.querySelector('[data-attr="dashboard-edit-layout-customize-dropdown"]')).toBeInTheDocument()
+            fireEvent.click(
+                document.querySelector('[data-attr="dashboard-edit-layout-customize-dropdown"]') as HTMLElement
+            )
+            expect(await screen.findByText('Tile density')).toBeInTheDocument()
+            expect(screen.queryByText('When you move a tile')).not.toBeInTheDocument()
+            expect(logic.values.layoutEditMode).toBe(false)
+
+            logic.unmount()
+        } finally {
+            Object.defineProperty(window, 'innerWidth', { configurable: true, value: originalWidth })
+            window.dispatchEvent(new Event('resize'))
+        }
+    })
 
     it('recognizes sandbox insight calls that add to the open dashboard', () => {
         expect(insightIsAddedToDashboard({ dashboards: ['5', 8] }, 5)).toBe(true)
@@ -181,6 +210,60 @@ describe('DashboardHeader', () => {
 
         logic.unmount()
     })
+
+    it.each([
+        { isShared: false, active: false, empty: false },
+        { isShared: true, active: true, empty: false },
+        { isShared: true, active: true, empty: true },
+    ])(
+        'shows the share button as active when sharing is $isShared and empty is $empty',
+        ({ isShared, active, empty }) => {
+            const dashboard = makeDashboard({
+                is_shared: isShared,
+                tiles: empty ? [] : [{ id: 1, color: null, layouts: {}, text: { body: 'Dashboard note' } }],
+            })
+            const { logic } = renderHeader({ dashboard })
+
+            const shareButton = document.querySelector('[data-attr="dashboard-share-button"]')
+
+            if (active) {
+                expect(shareButton).toHaveClass('LemonButton--active')
+                expect(shareButton).toHaveTextContent('OnSharing')
+                expect(shareButton?.querySelector('.LemonBadge--primary')).toBeVisible()
+                expect(shareButton?.querySelector('.LemonButton__icon svg')).not.toBeInTheDocument()
+            } else {
+                expect(shareButton).not.toHaveClass('LemonButton--active')
+                expect(shareButton).toHaveTextContent('Share')
+                expect(shareButton?.querySelector('.LemonBadge')).not.toBeInTheDocument()
+                expect(shareButton?.querySelector('.LemonButton__icon svg')).toBeInTheDocument()
+            }
+
+            logic.unmount()
+        }
+    )
+
+    it.each([
+        { placement: DashboardPlacement.Builtin, isShared: true, visible: true },
+        { placement: DashboardPlacement.ProjectHomepage, isShared: true, visible: true },
+        { placement: DashboardPlacement.Builtin, isShared: false, visible: false },
+        { placement: DashboardPlacement.Public, isShared: true, visible: false },
+        { placement: DashboardPlacement.Export, isShared: true, visible: false },
+    ])(
+        'shows the embedded sharing state for $placement when sharing is $isShared',
+        ({ placement, isShared, visible }) => {
+            const dashboard = makeDashboard({ is_shared: isShared })
+
+            render(<DashboardEmbeddedShareButton dashboard={dashboard} placement={placement} />)
+
+            const shareButton = document.querySelector('[data-attr="dashboard-share-button"]')
+            if (visible) {
+                expect(shareButton).toHaveTextContent('OnSharing')
+                expect(shareButton).toHaveClass('LemonButton--active')
+            } else {
+                expect(shareButton).not.toBeInTheDocument()
+            }
+        }
+    )
 
     it.each([
         {

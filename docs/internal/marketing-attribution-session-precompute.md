@@ -8,13 +8,17 @@ The writer query change invalidates existing job hashes. Deploy both writer and 
 
 `MARKETING_SESSIONS_PRECOMPUTE_WINDOW_DAYS` covers calendar display days in the project timezone.
 The warmer starts at local midnight that many days before the run's local date, then subtracts the team's attribution lookback and one reachback day in UTC.
+It warms through the end of that local day so reports that include today have complete UTC daily-window coverage.
+For projects west of UTC, this can warm a UTC window before it starts.
+A job computed before its window starts stops being eligible at that start, including for stale reads.
+The reader falls back to live calculation until the window is refreshed after it starts, so the earlier snapshot cannot hide new sessions.
 The reader uses the same calendar boundary to check its maximum range.
 This includes the complete starting day for relative ranges such as `-90d`, even across daylight saving changes.
 Query overrides that extend before that boundary remain ineligible.
 
 Calendar alignment does not change the writer query or existing job hashes.
-Run the updated warmer to populate any missing oldest daily windows before testing the full display range.
-Existing ready jobs remain reusable, and missing coverage still falls back to live calculation.
+Run the updated warmer to populate missing daily windows at either end before testing the full display range.
+Existing ready jobs remain reusable if they satisfy the freshness policy, and missing coverage still falls back to live calculation.
 The allowlist, daily chunk size, and query execution limits are unchanged.
 
 With the existing serve-stale flag, readers may use jobs expired within six hours and enqueue debounced revalidation. Only that task runs reader-initiated inserts; it takes no stale grace. Scheduled writers also require fresh jobs. Classifier expression changes and the explicit dictionary version change the shared job hash, requiring fresh materialization.
@@ -22,6 +26,11 @@ With the existing serve-stale flag, readers may use jobs expired within six hour
 The reader caches session dimensions, then joins them to current pageview identities by `session_id_v7`. It resolves both touchpoints and conversions through `events.person_id`, so person merges, splits, and delayed identity mappings follow the same behavior as live attribution without rebuilding session jobs. The stored `person_id` is not used for attribution.
 
 Materialized CTEs share the pageview identity scan between reach and credit, and share the conversion aggregation with the timestamp bounds. Event scans remain necessary for identity and conversions; cached dimensions avoid merging entry properties and classifying channels for ordinary sessions. A narrow timestamp scan and selective dimension lookup handle exceptional sessions. This uses the existing `web_sessions_dimensional_preaggregated` schema and does not require a migration.
+
+The shared sessions CTE selects one dimension row per session, then joins it to unique session/person pairs from current pageviews.
+Reach and credit use these resolved rows directly, without grouping by session again.
+Exclusions and conversion bounds apply after dimension resolution, so superseded cached rows cannot survive a filter or add a touchpoint.
+This reader optimization does not change writer hashes or require rebuilding existing jobs.
 
 Queries that override the session table version or v2 join mode fall back to live attribution when they differ from the writer. AUTO and v2 share the same session semantics. Custom channel rules can use cached dimensions when they match the writer's project rules, including rules that depend on the full entry URL. The writer classifies the channel before storing it and includes the rules in the job hash, so rule changes require fresh jobs. Queries with different rules, or disabled project-timezone conversion, use the live path. Identity and execution-only modifiers do not invalidate cached dimensions.
 
@@ -40,3 +49,27 @@ Attribution filters compare the event timestamp directly with the date bounds, u
 This avoids copying timestamp casts into session filters and preserves the shared raw-session timestamp definition.
 If either date boundary falls within a repeated local hour at a daylight saving transition, the reader uses live attribution because conversion filters parse dates without a UTC offset.
 Ranges that cross a transition can still use cached dimensions when both boundaries are unambiguous.
+
+## Live session resolution
+
+The independent `marketing-analytics-live-session-resolution` flag opts attribution tables and paths into shared live session resolution.
+It takes precedence over the sessions-precomputation flag for eligible queries and does not require precomputed jobs.
+The default remains off.
+Attribution result cache keys distinguish the flag state, so enabling or disabling it cannot reuse results computed with the opposite setting.
+
+This route materializes pageview session IDs and current person IDs once, then resolves current dimensions from the matching raw sessions.
+Reach and credit share those rows and the conversion aggregation.
+Late-arriving events and session updates therefore do not depend on a cached dimension snapshot or its recorded ingestion time.
+A missing cache window at a calendar boundary does not switch this route back to the legacy live query.
+The report's date range and timezone remain unchanged.
+
+The initial rollout keeps the cached reader's eligibility restrictions, including date-boundary, access-control, test-account, range, and session-modifier checks.
+Conversion goals that depend on session fields or deferred action expressions also use legacy live attribution, preserving its wider session-ID lookup window.
+Ineligible queries continue to use legacy live attribution.
+Raw session lookups retain that path's session-ID timestamp bounds, including its three-day buffer.
+This does not extend coverage for older session IDs or guarantee that independently replicated events and sessions arrive together.
+
+Validate result parity and query cost before enabling this flag: current dimensions require more source reads than a warm dimension cache.
+The query telemetry property `live_session_resolution_used` identifies this route; `sessions_precompute_used` remains false for it.
+Disabling the new flag restores the existing selection between cached and legacy live attribution.
+The writer, schedule, existing jobs, TTLs, and job hashes are unchanged.

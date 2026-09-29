@@ -18,9 +18,10 @@ import { teamLogic } from 'scenes/teamLogic'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { ReloadAll } from '~/queries/nodes/DataNode/Reload'
 
+import { AddIntegrationButton } from 'products/marketing_analytics/frontend/components/AddIntegrationButton'
+
 import { marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
 import { MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID } from '../../logic/marketingAnalyticsTilesLogic'
-import { AddIntegrationButton } from './AddIntegrationButton'
 import { ConversionGoalFilterButton } from './ConversionGoalFilterButton'
 import { ConversionGoalModal } from './ConversionGoalModal'
 import { IntegrationFilter } from './IntegrationFilter'
