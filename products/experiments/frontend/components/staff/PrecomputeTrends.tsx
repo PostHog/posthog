@@ -9,7 +9,10 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { formatDurationMilliseconds } from 'lib/utils/durations'
 import { humanizeBytes } from 'lib/utils/numbers'
 
-import { EXCEPTION_CODE_LABELS, queryPerformanceLogic } from './queryPerformanceLogic'
+import {
+    EXCEPTION_CODE_LABELS,
+    queryPerformanceLogic,
+} from 'products/experiments/frontend/scenes/queryPerformanceLogic'
 
 const TIMESERIES_RANGE_OPTIONS = [
     { label: '48h', hours: 48 },
