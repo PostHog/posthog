@@ -110,8 +110,14 @@ INBOX_RANKING_PROMOTION_MIN_DAYS = get_from_env("INBOX_RANKING_PROMOTION_MIN_DAY
 # The family whose champion the serving manifest serves. The scoring sweep reads the manifest
 # from the deployment's own object store, so this is the only place the served family is chosen.
 INBOX_RANKING_SERVED_FAMILY = os.getenv("INBOX_RANKING_SERVED_FAMILY", "report_embeddings")
+# A second deployment's object store that receives a copy of every serving publish, so a region
+# that does not train still serves the trained models. Reached via ambient AWS config. Unset means
+# no mirror.
+INBOX_RANKING_SERVING_MIRROR_BUCKET = os.getenv("INBOX_RANKING_SERVING_MIRROR_BUCKET", "")
+INBOX_RANKING_SERVING_MIRROR_REGION = os.getenv("INBOX_RANKING_SERVING_MIRROR_REGION", "")
 # Scorer (products/signals/backend/ranking/scorer.py): report ids per ClickHouse vector read. A
-# larger call is paged at this size.
+# larger call is paged at this size. The sweep also gives one scorer call at most this many ids, which
+# bounds the vectors and matrices one call holds.
 INBOX_RANKING_SCORING_BATCH_SIZE = get_from_env("INBOX_RANKING_SCORING_BATCH_SIZE", 500, type_cast=int)
 # Scoring sweep (products/signals/backend/ranking/sweep.py). Off by default: the schedule still
 # ticks, but the activity returns before it reads or writes anything. The max age keeps the vector
@@ -176,3 +182,11 @@ if TEST or DEBUG:
     )
 else:
     DICTIONARY_STAGING_S3_ENDPOINT = os.getenv("DICTIONARY_STAGING_S3_ENDPOINT", "") or None
+
+# Replay Vision labeling benchmark. Frozen cases are written under this bucket and prefix; an empty bucket
+# disables the build. The prefix must sit outside the exports lifecycle rule, since a benchmark version is kept.
+REPLAY_VISION_BENCHMARK_BUCKET = os.getenv("REPLAY_VISION_BENCHMARK_BUCKET", "")
+REPLAY_VISION_BENCHMARK_PREFIX = os.getenv("REPLAY_VISION_BENCHMARK_PREFIX", "replay-vision-benchmark")
+# The labeling suite's benchmark export API (MLHog labeling/replay/EXPORT.md), and a read-scoped `lbl_` token for it.
+REPLAY_VISION_BENCHMARK_LABELING_URL = os.getenv("REPLAY_VISION_BENCHMARK_LABELING_URL", "")
+REPLAY_VISION_BENCHMARK_LABELING_TOKEN = os.getenv("REPLAY_VISION_BENCHMARK_LABELING_TOKEN", "")

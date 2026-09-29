@@ -305,6 +305,15 @@ export interface UserBasicApi {
     role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
+export interface HogFlowLastRunApi {
+    /** The task this run belongs to. */
+    readonly task_id: string
+    /** Status of the task's newest run: not_started, queued, in_progress, completed, failed or cancelled. */
+    readonly status: string
+    /** When the run started, or when the task was created if it has no run yet. */
+    readonly ran_at: string
+}
+
 /**
  * Mixin for serializers to add user access control fields
  */
@@ -337,6 +346,8 @@ export interface HogFlowMinimalApi {
      * @nullable
      */
     readonly user_access_level: string | null
+    /** Newest task this loop workflow created, as its last run. Null when the workflow is not a loop or has not run. */
+    readonly last_run: HogFlowLastRunApi | null
 }
 
 export interface PaginatedHogFlowMinimalListApi {
@@ -658,6 +669,8 @@ export interface HogFlowApi {
      * @nullable
      */
     readonly email_sending_resumed_at: string | null
+    /** Newest task this loop workflow created, as its last run. Null when the workflow is not a loop or has not run. */
+    readonly last_run: HogFlowLastRunApi | null
 }
 
 /**
@@ -757,6 +770,8 @@ export interface HogFlowUpdateApi {
      * @nullable
      */
     readonly email_sending_resumed_at: string | null
+    /** Newest task this loop workflow created, as its last run. Null when the workflow is not a loop or has not run. */
+    readonly last_run: HogFlowLastRunApi | null
 }
 
 /**
@@ -856,6 +871,8 @@ export interface PatchedHogFlowUpdateApi {
      * @nullable
      */
     readonly email_sending_resumed_at?: string | null
+    /** Newest task this loop workflow created, as its last run. Null when the workflow is not a loop or has not run. */
+    readonly last_run?: HogFlowLastRunApi | null
 }
 
 /**
@@ -1936,6 +1953,10 @@ export type HogFlowsListParams = {
      * Pass `true` to return broadcasts plus the ordinary workflows the broadcasts UI can render: a batch trigger and a single email step.
      */
     broadcast_eligible?: boolean
+    /**
+     * Comma-separated broadcast statuses as the broadcasts UI shows them: draft, scheduled, sending, sent, failed, archived. Scheduled, sending, sent and failed come from the latest run and whether a schedule still has sends to come.
+     */
+    broadcast_status?: string
     created_at?: string
     /**
      * Filter to workflows created by the user with this uuid.

@@ -17,6 +17,7 @@ from products.data_modeling.backend.facade.system_tables import DATA_MODELING_AL
 from products.data_modeling.backend.logic.node_suspension import clear_suspension_if_query_changed
 from products.data_modeling.backend.logic.schedule_reconcile import maybe_reconcile_dag
 from products.data_modeling.backend.models.dag import DAG, REVENUE_ANALYTICS_DAG_NAME
+from products.data_modeling.backend.models.data_modeling_job import DataModelingJob, DataModelingJobStatus
 from products.data_modeling.backend.models.edge import Edge
 from products.data_modeling.backend.models.modeling import UnknownParentError, get_parents_from_model_query
 from products.data_modeling.backend.models.node import Node, NodeType
@@ -163,6 +164,14 @@ def resolve_dependency_to_node(
                 "properties": {"origin": "warehouse", "warehouse_table_id": str(warehouse_table.id)},
             },
         )
+        properties = {
+            **(node.properties if isinstance(node.properties, dict) else {}),
+            "origin": "warehouse",
+            "warehouse_table_id": str(warehouse_table.id),
+        }
+        if node.properties != properties:
+            node.properties = properties
+            node.save(update_fields=["properties", "updated_at"])
         return node
     # system table
     node, _ = Node.objects.get_or_create(
@@ -172,6 +181,11 @@ def resolve_dependency_to_node(
         type=NodeType.TABLE,
         defaults={"properties": {"origin": "posthog"}},
     )
+    properties = {**(node.properties if isinstance(node.properties, dict) else {}), "origin": "posthog"}
+    properties.pop("warehouse_table_id", None)
+    if node.properties != properties:
+        node.properties = properties
+        node.save(update_fields=["properties", "updated_at"])
     return node
 
 
@@ -181,11 +195,14 @@ class ManagedDAGError(Exception):
     pass
 
 
-def _lock_dag(team_id: int, dag_id: UUID) -> None:
+def lock_dag(team_id: int, dag_id: UUID) -> None:
     """Serialize against every other writer of this DAG's edges.
 
     The same key `Edge._detect_cycles` takes, so an edge write and a node delete cannot interleave.
     Callers holding more than one DAG take them in a fixed order, so two of them cannot deadlock.
+
+    Materialization takes it too, on the job-start side, so a job cannot be created against a
+    placement a move has already left behind.
     """
     with connection.cursor() as cursor:
         cursor.execute("SELECT pg_advisory_xact_lock(%s, hashtext(%s))", [team_id, str(dag_id)])
@@ -213,7 +230,7 @@ def replace_incoming_edges(
     """
     unresolved: list[str] = []
     with transaction.atomic():
-        _lock_dag(team.pk, dag.id)
+        lock_dag(team.pk, dag.id)
         Node.objects.select_for_update().filter(pk=target.pk).first()
         Edge.objects.filter(team=team, target=target).delete()
         for dependency_name in dependency_names:
@@ -482,7 +499,7 @@ def delete_node_from_dag(saved_query: "DataWarehouseSavedQuery") -> None:
         # check below and the delete that would cascade its edge away.
         dags = sorted({node.dag for node in nodes if node.dag is not None}, key=lambda dag: str(dag.id))
         for dag in dags:
-            _lock_dag(saved_query.team_id, dag.id)
+            lock_dag(saved_query.team_id, dag.id)
 
         query_dependents = [
             Dependent(
@@ -503,6 +520,79 @@ def delete_node_from_dag(saved_query: "DataWarehouseSavedQuery") -> None:
         nodes.delete()
     for dag in dags:
         maybe_reconcile_dag(dag)
+
+
+NodeMoveRefusal = Literal["multiple_placements", "blocked", "materializing", "moved"]
+
+
+class NodeMoveError(Exception):
+    """Raised when a saved query's node cannot move to the requested DAG.
+
+    Carries `reason` rather than prose, so a caller serving a user words the refusal itself.
+    """
+
+    def __init__(self, reason: NodeMoveRefusal) -> None:
+        super().__init__(reason)
+        self.reason = reason
+
+
+def move_saved_query_to_dag(team_id: int, saved_query_id: UUID, dag_id: UUID) -> None:
+    """Place a saved query's node in the given DAG, keeping its frequency target and job history.
+
+    Holds the source and destination DAGs for the whole check-and-move, in id order, for the
+    reason `delete_node_from_dag` holds every DAG it touches: otherwise a sync can attach a
+    dependent between the dependents check and the move, leaving an edge whose source sits in
+    another DAG, which `Edge.save` treats as an invariant violation.
+
+    A move is refused while a materialization runs. Its activities load the node by team, node
+    and DAG, so the move makes the remaining ones stop finding it -- including the activity that
+    records the failure, which leaves the job row Running with nothing to close it. Job creation
+    takes the same DAG lock and re-reads the node in its DAG, so a job that starts between the
+    check and the move cannot slip past.
+
+    The saved-query row lock is held too, because a query edit picks the DAG to sync into from its
+    own read of the node. Without it that edit can choose the DAG this move is leaving and then
+    `get_or_create` a second node there, which later moves refuse as `multiple_placements`.
+
+    That row lock is `FOR NO KEY UPDATE`, which is what makes it safe to hold alongside a DAG
+    lock. `FOR UPDATE` conflicts with the `KEY SHARE` lock Postgres takes on this row for the
+    foreign key of every job and node insert, so a materialization holding the DAG lock and
+    inserting its job row would deadlock against this transaction waiting for that same DAG.
+    """
+    from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+
+    with transaction.atomic():
+        saved_query = DataWarehouseSavedQuery.objects.select_for_update(no_key=True).get(
+            team_id=team_id, id=saved_query_id
+        )
+        dag = DAG.objects.get(team_id=team_id, id=dag_id)
+        placements = Node.objects.filter(team_id=team_id, saved_query=saved_query)
+        held = {dag.id} | {node.dag_id for node in placements if node.dag_id is not None}
+        for held_dag_id in sorted(held, key=str):
+            lock_dag(team_id, held_dag_id)
+
+        nodes = list(placements.select_related("dag"))
+        if len(nodes) > 1:
+            raise NodeMoveError("multiple_placements")
+        if nodes and nodes[0].dag_id != dag.id:
+            node = nodes[0]
+            if node.dag_id not in held:
+                # Another move landed between the read above and the locks, so the DAG this node
+                # sits in now is not one of the ones being held.
+                raise NodeMoveError("moved")
+            if node.dag.is_managed or node.outgoing_edges.exists():
+                raise NodeMoveError("blocked")
+            if DataModelingJob.objects.filter(
+                team_id=team_id, saved_query=saved_query, status=DataModelingJobStatus.RUNNING
+            ).exists():
+                raise NodeMoveError("materializing")
+            previous_dag = node.dag
+            # Rebuild parents in the destination without discarding the node's targets or job history.
+            Edge.objects.filter(team_id=team_id, target=node).delete()
+            node.dag = dag
+            node.save(update_fields=["dag"])
+            maybe_reconcile_dag(previous_dag)
+        sync_saved_query_to_dag(saved_query, dag=dag)
 
 
 def update_node_type(saved_query: "DataWarehouseSavedQuery", type: NodeType) -> None:

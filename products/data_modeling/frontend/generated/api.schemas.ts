@@ -132,6 +132,17 @@ export interface LineageIssueApi {
     at: string | null
 }
 
+/**
+ * * `posthog` - posthog
+ * * `warehouse` - warehouse
+ */
+export type NodeOriginEnumApi = (typeof NodeOriginEnumApi)[keyof typeof NodeOriginEnumApi]
+
+export const NodeOriginEnumApi = {
+    Posthog: 'posthog',
+    Warehouse: 'warehouse',
+} as const
+
 export interface NodeSuspensionApi {
     /** When the node was suspended. */
     at: string
@@ -167,6 +178,16 @@ export interface NodeApi {
     /** @nullable */
     readonly metric_id: string | null
     readonly lineage_issue: LineageIssueApi | null
+    /** Where a table originates, or null for legacy and unrecognized nodes.
+     *
+     * * `posthog` - posthog
+     * * `warehouse` - warehouse */
+    readonly origin: NodeOriginEnumApi | null
+    /**
+     * Warehouse table identifier for an imported table, or null when unavailable.
+     * @nullable
+     */
+    readonly warehouse_table_id: string | null
     readonly created_at: string
     /** @nullable */
     readonly updated_at: string | null
@@ -223,6 +244,16 @@ export interface PatchedNodeApi {
     /** @nullable */
     readonly metric_id?: string | null
     readonly lineage_issue?: LineageIssueApi | null
+    /** Where a table originates, or null for legacy and unrecognized nodes.
+     *
+     * * `posthog` - posthog
+     * * `warehouse` - warehouse */
+    readonly origin?: NodeOriginEnumApi | null
+    /**
+     * Warehouse table identifier for an imported table, or null when unavailable.
+     * @nullable
+     */
+    readonly warehouse_table_id?: string | null
     readonly created_at?: string
     /** @nullable */
     readonly updated_at?: string | null

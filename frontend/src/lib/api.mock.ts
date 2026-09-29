@@ -180,6 +180,7 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     base_currency: CurrencyCode.USD,
     default_evaluation_contexts_enabled: false,
     managed_viewsets: { revenue_analytics: true },
+    flag_evaluations_mode: 0,
     receive_org_level_activity_logs: false,
     require_evaluation_contexts: false,
     feature_flag_policy_config: {
@@ -261,6 +262,8 @@ export const MOCK_DEFAULT_USER: UserType = {
     has_social_auth: false,
     has_sso_enforcement: false,
     shortcut_position: 'above',
+    // Most stories show a settled sidebar. Stories of the starred products setup override this.
+    ui_configuration: { version: 1, sidebar: { starred_products_setup_completed: true } },
     sensitive_session_expires_at: dayjs().add(1, 'hour').toISOString(),
     theme_mode: null,
     team: MOCK_DEFAULT_TEAM,
