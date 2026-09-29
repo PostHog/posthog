@@ -127,19 +127,21 @@ export const pastedPersonsLookupLogic = kea<pastedPersonsLookupLogicType>([
                         ),
                     ])
 
-                    const personIdsByValue = new Map<string, string[]>()
+                    const personIdsByEmail = new Map<string, string[]>()
                     for (const [email, personIds] of byEmail.results ?? []) {
-                        personIdsByValue.set(email, personIds)
+                        personIdsByEmail.set(email, personIds)
                     }
+                    const personIdsByDistinctId = new Map<string, string[]>()
                     for (const [personId, distinctId] of byDistinctId.results ?? []) {
-                        personIdsByValue.set(distinctId, [personId])
+                        personIdsByDistinctId.set(distinctId, [personId])
                     }
 
                     const matches: PastedPersonsMatch[] = []
                     const unmatched: string[] = []
                     const matchedPersonIds = new Set<string>()
                     for (const value of checkedValues) {
-                        const personIds = personIdsByValue.get(value) ?? personIdsByValue.get(value.toLowerCase())
+                        // A pasted email selects the person with that email, even when another person uses the address as a distinct ID
+                        const personIds = personIdsByEmail.get(value.toLowerCase()) ?? personIdsByDistinctId.get(value)
                         if (!personIds) {
                             unmatched.push(value)
                             continue

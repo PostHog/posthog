@@ -41,7 +41,12 @@ describe('pastedPersonsLookupLogic', () => {
     it('selects every matched person, skips persons already in the cohort, and lists unmatched values', async () => {
         jest.spyOn(api, 'queryHogQL').mockImplementation(async (query) =>
             String(query).includes('person_distinct_ids')
-                ? ({ results: [['person-3', 'user-3']] } as any)
+                ? ({
+                      results: [
+                          ['person-3', 'user-3'],
+                          ['person-5', 'alice@example.com'],
+                      ],
+                  } as any)
                 : ({
                       results: [
                           ['alice@example.com', ['person-1']],
