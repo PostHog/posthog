@@ -142,7 +142,7 @@ if (res.status < 200 or res.status >= 300) {
             type: 'string',
             label: 'Source',
             description: 'The system that has the problem.',
-            default: '{event.properties.source ?? project.name}',
+            default: '{notEmpty(event.properties.source) ? event.properties.source : project.name}',
             secret: false,
             required: true,
         },
