@@ -206,6 +206,25 @@ class TestCreateExperimentTool(APIBaseTest):
         assert metadata["source"] == EventSource.POSTHOG_AI
         assert metadata["ai_entry_point"] == "experiment_wizard_guide"
 
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    async def test_create_experiment_ignores_unknown_ai_entry_point(self, mock_report_user_action, _mock_on_commit):
+        await self._create_multivariate_flag(key="unknown-entry-flag")
+        context_manager = MagicMock()
+        context_manager.get_contextual_tools.return_value = {"create_experiment": {"entry_point": "x" * 500}}
+        tool = CreateExperimentTool(
+            team=self.team,
+            user=self.user,
+            state=AssistantState(messages=[]),
+            context_manager=context_manager,
+            config={},
+        )
+
+        await tool._arun_impl(name="Unknown Entry Experiment", feature_flag_key="unknown-entry-flag")
+
+        metadata = mock_report_user_action.call_args.args[2]
+        assert "ai_entry_point" not in metadata
+
     async def test_create_experiment_flag_already_used(self):
         flag = await self._create_multivariate_flag(key="used-flag")
         await Experiment.objects.acreate(
