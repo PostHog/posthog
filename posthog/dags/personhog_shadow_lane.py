@@ -240,7 +240,7 @@ class ShadowLaneStartConfig(dagster.Config):
     ready_timeout_seconds: int = 600
     # How long the reset waits for in-flight writes to stop before truncating.
     reset_settle_poll_seconds: int = 10
-    reset_settle_stable_checks: int = 3
+    reset_settle_stable_checks: int = Field(default=3, ge=1)
     reset_settle_timeout_seconds: int = 600
 
 
