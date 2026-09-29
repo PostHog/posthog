@@ -2,7 +2,7 @@ import './PropertyGroupFilters.scss'
 
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
-import React from 'react'
+import React, { useMemo } from 'react'
 
 import { IconCopy, IconPlusSmall, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
@@ -54,6 +54,17 @@ export function PropertyGroupFilters({
     } = useActions(propertyGroupFilterLogic(logicProps))
 
     const behavioralFiltersEnabled = !!featureFlags[FEATURE_FLAGS.BEHAVIORAL_PROPERTY_FILTER]
+    // A nested group that survives inlining is not a leaf filter. The row below labels it and leaves
+    // it alone rather than editing it. Memoized so each row keeps a stable list across renders.
+    const groupRows = useMemo(
+        () =>
+            propertyGroupFilter.values?.map((group: PropertyGroupFilterValue) =>
+                isPropertyGroupFilterLike(group)
+                    ? (inlineEquivalentPropertyGroups(group.values, group.type) as AnyPropertyFilter[])
+                    : null
+            ) ?? [],
+        [propertyGroupFilter.values]
+    )
     const showHeader = propertyGroupFilter.type && propertyGroupFilter.values.length > 1
     const disabledReason = hasDataWarehouseSeries
         ? 'Filter groups cannot be added to insights with a data warehouse series. Please use individual series filters instead.'
@@ -158,16 +169,7 @@ export function PropertyGroupFilters({
                                                 >
                                                     <PropertyFilters
                                                         addText="Filter"
-                                                        propertyFilters={
-                                                            isPropertyGroupFilterLike(group)
-                                                                ? // A nested group that survives inlining is not a leaf filter. The row
-                                                                  // below labels it and leaves it alone rather than editing it.
-                                                                  (inlineEquivalentPropertyGroups(
-                                                                      group.values,
-                                                                      group.type
-                                                                  ) as AnyPropertyFilter[])
-                                                                : null
-                                                        }
+                                                        propertyFilters={groupRows[propertyGroupIndex]}
                                                         onChange={(properties) => {
                                                             setPropertyFilters(properties, propertyGroupIndex)
                                                         }}

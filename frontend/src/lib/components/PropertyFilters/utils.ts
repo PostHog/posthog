@@ -371,11 +371,6 @@ export function inlineEquivalentPropertyGroups(
     })
 }
 
-/** Rows the editor must keep: a filled filter, or a nested group it cannot edit but must not drop. */
-export function isRetainedFilterRow(filter: AnyPropertyFilter | PropertyGroupFilterValue): boolean {
-    return isValidPropertyFilter(filter) || isPropertyGroupFilterLike(filter)
-}
-
 /** Plain-text description of a nested group, so a row the editor cannot edit still says what it
  * filters on. */
 export function propertyGroupSummary(

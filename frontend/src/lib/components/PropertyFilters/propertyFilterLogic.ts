@@ -4,7 +4,7 @@ import { MakeLogicType, actions, kea, key, listeners, path, props, propsChanged,
 import { PropertyFilterLogicProps } from 'lib/components/PropertyFilters/types'
 import {
     isBehavioralPropertyFilter,
-    isRetainedFilterRow,
+    isPropertyGroupFilterLike,
     isValidPropertyFilter,
     parseProperties,
     PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE,
@@ -50,6 +50,11 @@ export interface FilterItem {
 export interface FiltersState {
     nextId: number
     items: FilterItem[]
+}
+
+/** Rows the editor must keep: a filled filter, or a nested group it cannot edit but must not drop. */
+function isRetainedFilterRow(filter: AnyPropertyFilter): boolean {
+    return isValidPropertyFilter(filter) || isPropertyGroupFilterLike(filter)
 }
 
 function initFiltersState(filters: AnyPropertyFilter[]): FiltersState {
