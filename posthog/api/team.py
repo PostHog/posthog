@@ -350,7 +350,19 @@ def handle_tracing_config(request: request.Request, team: Team) -> response.Resp
             config, data=request.data, partial=True, context={"request": request, "team": team}
         )
         serializer.is_valid(raise_exception=True)
-        serializer.save()
+        with transaction.atomic():
+            locked_config = TeamTracingConfig.objects.select_for_update().get(team=team)
+            retention = serializer.validated_data.get("retention_days")
+            if retention is not None and retention != locked_config.retention_days:
+                throttle_error = retention_update_throttle_error(locked_config.retention_last_updated)
+                if throttle_error:
+                    raise exceptions.ValidationError({"retention_days": throttle_error})
+                if locked_config.retention_days != config.retention_days:
+                    raise exceptions.ValidationError(
+                        {"retention_days": "Retention changed. Reload the settings and retry."}
+                    )
+            serializer.instance = locked_config
+            serializer.save()
         return response.Response(serializer.data)
 
     return response.Response(TeamTracingConfigSerializer(config).data)
