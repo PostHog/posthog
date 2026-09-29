@@ -53,6 +53,7 @@ import { urlForSubscriptions } from 'products/subscriptions/frontend/components/
 import { dashboardInsightColorsModalLogic } from './dashboardInsightColorsModalLogic'
 import { dashboardLogic } from './dashboardLogic'
 import { dashboardTemplateModalLogic } from './dashboards/templates/dashboardTemplateModalLogic'
+import { dashboardTemplateForExport } from './dashboardUtils'
 
 const RESOURCE_TYPE = 'dashboard'
 
@@ -228,7 +229,9 @@ function DashboardSceneMenuBarInner(): JSX.Element | null {
                                         startExport({
                                             export_format: ExporterFormat.JSON,
                                             export_context: {
-                                                localData: JSON.stringify(asDashboardTemplate),
+                                                localData: JSON.stringify(
+                                                    dashboardTemplateForExport(asDashboardTemplate)
+                                                ),
                                                 filename: `dashboard-${slugify(
                                                     dashboard?.name || 'nameless dashboard'
                                                 )}.json`,
