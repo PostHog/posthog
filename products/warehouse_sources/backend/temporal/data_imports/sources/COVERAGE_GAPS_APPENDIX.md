@@ -3376,14 +3376,14 @@ Note: Ticket conversations and canned responses are per-parent sub-resources, so
 
 ## Freshsales — gaps
 
-Today (9): `completed_tasks`, `contacts`, `deals`, `leads`, `open_tasks`, `past_appointments`, `sales_accounts`, `sales_activities`, `upcoming_appointments`
+Today (13): `completed_tasks`, `contacts`, `deal_pipelines`, `deal_stages`, `deals`, `leads`, `lifecycle_stages`, `open_tasks`, `owners`, `past_appointments`, `sales_accounts`, `sales_activities`, `upcoming_appointments`
 
 Diffed against: <https://developers.freshworks.com/crm/api/>
 
-- [ ] `/api/selector/owners` — user lookup - resolves owner_id on contacts, deals, accounts, tasks and activities; there is no users table today (high)
-- [ ] `/api/selector/deal_stages` — lookup resolving deal_stage_id, required for any pipeline or conversion analysis (high)
-- [ ] `/api/selector/deal_pipelines` — lookup resolving deal_pipeline_id on deals (high)
-- [ ] `/api/selector/lifecycle_stages` — lookup resolving lifecycle_stage_id on contacts and accounts (high)
+- [x] `/api/selector/owners` — user lookup - resolves owner_id on contacts, deals, accounts, tasks and activities; there is no users table today (high)
+- [x] `/api/selector/deal_stages` — lookup resolving deal_stage_id, required for any pipeline or conversion analysis (high)
+- [x] `/api/selector/deal_pipelines` — lookup resolving deal_pipeline_id on deals (high)
+- [x] `/api/selector/lifecycle_stages` — lookup resolving lifecycle_stage_id on contacts and accounts (high)
 - [ ] `/api/selector/lead_sources` — lookup resolving lead_source_id - the core attribution dimension (high)
 - [ ] `/api/selector/sales_activity_types (+ /sales_activity_outcomes)` — lookups resolving type and outcome IDs on the sales_activities already synced (high)
 - [ ] `/api/selector/contact_statuses` — lookup resolving contact_status_id (medium)
