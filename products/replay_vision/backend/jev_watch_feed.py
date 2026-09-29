@@ -35,7 +35,13 @@ from posthog.ph_client import get_feature_flag_or_none
 from posthog.redis import get_client
 
 from products.ml_inference.backend.facade import api as decision_api
-from products.ml_inference.backend.facade.contracts import DecisionQuestion, DecisionRequest, JsonValue, NoulAnswer
+from products.ml_inference.backend.facade.contracts import (
+    MAX_QUESTIONS_PER_REQUEST,
+    DecisionQuestion,
+    DecisionRequest,
+    JsonValue,
+    NoulAnswer,
+)
 from products.ml_inference.backend.facade.enums import DecisionQuestionType
 from products.replay_vision.backend.watch_feed import WatchFeedEntry
 
@@ -63,9 +69,9 @@ JEV_SEEN_PENALTY = 0.3
 # probability; the seen penalty only orders rows inside the evidence tier.
 JEV_WATCHABLE_MIN = 0.5
 # Observations per Jev request: the request carries the chunk as shared state and one question per
-# observation, and a request takes at most MAX_QUESTIONS_PER_REQUEST (32) questions. A judgment is
-# therefore relative to its chunk, not to the whole window at once.
-WINDOW_CHUNK_SIZE = 24
+# observation, so the facade's per-request question cap is the most context one judgment can get. A
+# judgment is therefore relative to its chunk, not to the whole window at once.
+WINDOW_CHUNK_SIZE = MAX_QUESTIONS_PER_REQUEST
 # Per-entry prose caps, so a 24-entry chunk state stays small and per-chunk latency predictable
 # whatever the scanner's configured summary length.
 _MAX_TITLE_CHARS = 300
