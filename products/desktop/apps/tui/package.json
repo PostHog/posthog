@@ -1,0 +1,26 @@
+{
+  "name": "@posthog/tui",
+  "version": "0.0.0-dev",
+  "description": "Terminal command centre for PostHog tasks",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "posthog-tui": "cli.mjs"
+  },
+  "scripts": {
+    "dev": "node cli.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "ink": "^7.1.1",
+    "react": "catalog:",
+    "vite": "^7.0.0"
+  },
+  "devDependencies": {
+    "@posthog/tsconfig": "workspace:*",
+    "@types/react": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "^4.1.8"
+  }
+}
