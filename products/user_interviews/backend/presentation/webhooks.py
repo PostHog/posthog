@@ -32,15 +32,13 @@ from posthog.ingress.views import build_webhook_view
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.team import Team
 from posthog.rate_limit import IPThrottle
-from posthog.storage.llm_prompt_cache import get_prompt_by_name_from_cache
-
-from products.ai_observability.backend.prompt_references import resolve_prompt_references
 
 from ..facade.api import is_shared_interviewee_context, valid_distinct_id, valid_session_id
 from ..logic import (
     RESPONDENT_KEY_MAX_CHARS,
     RESPONDENT_NAME_MAX_CHARS,
     clean_field,
+    resolve_first_message_template,
     resolve_share,
     shared_interviewee_identifier,
 )
@@ -161,22 +159,7 @@ def _normalise_topic(topic_text: str) -> str:
 
 
 def _resolve_first_message_template(team: Team) -> str:
-    try:
-        cached = get_prompt_by_name_from_cache(team, FIRST_MESSAGE_PROMPT_NAME)
-    except Exception as err:
-        logger.warning(
-            "user_interviews_first_message_prompt_lookup_failed",
-            team_id=team.id,
-            error=str(err),
-        )
-        return DEFAULT_FIRST_MESSAGE_TEMPLATE
-    if cached is not None:
-        template = cached.get("prompt")
-        if isinstance(template, str) and template.strip():
-            resolved = resolve_prompt_references(team, template)
-            if resolved is not None:
-                return resolved
-    return DEFAULT_FIRST_MESSAGE_TEMPLATE
+    return resolve_first_message_template(team, FIRST_MESSAGE_PROMPT_NAME, DEFAULT_FIRST_MESSAGE_TEMPLATE)
 
 
 def _build_first_message(
