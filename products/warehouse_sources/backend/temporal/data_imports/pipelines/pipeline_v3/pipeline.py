@@ -625,7 +625,8 @@ class PipelineV3(Generic[ResumableData]):
                 self._held_ties = None
             if hold_back_ties:
                 assert self._schema.incremental_field is not None
-                pa_table, self._held_ties = split_trailing_cursor_ties(pa_table, self._schema.incremental_field)
+                split = split_trailing_cursor_ties(pa_table, self._schema.incremental_field)
+                pa_table, self._held_ties = split.kept, split.held
                 if pa_table.num_rows == 0:
                     return False
 

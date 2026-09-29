@@ -6,6 +6,7 @@ import psycopg
 import pyarrow as pa
 import pyarrow.compute as pc
 
+from posthog.dataclasses import frozen
 from posthog.settings import WAREHOUSE_SOURCES_DATABASE_URL
 
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
@@ -23,7 +24,14 @@ def attempt_run_uuid(workflow_run_id: str, attempt: int) -> str:
     return f"{workflow_run_id}-a{attempt}"
 
 
-def split_trailing_cursor_ties(table: pa.Table, cursor_column: str) -> tuple[pa.Table, pa.Table]:
+@frozen
+class CursorTieSplit:
+    kept: pa.Table
+    # Rows that share the highest cursor value, which the next table can continue.
+    held: pa.Table
+
+
+def split_trailing_cursor_ties(table: pa.Table, cursor_column: str) -> CursorTieSplit:
     """Split off the rows that share the table's highest cursor value.
 
     The source returns rows sorted by the cursor, so these rows are the table's tail, and the next
@@ -33,7 +41,9 @@ def split_trailing_cursor_ties(table: pa.Table, cursor_column: str) -> tuple[pa.
     highest = cast(pa.Scalar, pc.max(cursor))
     at_highest = cast(pa.ChunkedArray, pc.equal(cursor, highest))
     at_highest = cast(pa.ChunkedArray, pc.fill_null(at_highest, pa.scalar(False)))
-    return table.filter(cast(pa.ChunkedArray, pc.invert(at_highest))), table.filter(at_highest)
+    return CursorTieSplit(
+        kept=table.filter(cast(pa.ChunkedArray, pc.invert(at_highest))), held=table.filter(at_highest)
+    )
 
 
 def _connect_to_queue() -> psycopg.Connection[Any]:

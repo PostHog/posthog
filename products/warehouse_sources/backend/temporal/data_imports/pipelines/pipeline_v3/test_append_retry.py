@@ -63,11 +63,11 @@ class TestSplitTrailingCursorTies:
     ) -> None:
         table = pa.table({"id": pa.array(ids, pa.int64()), "value": pa.array(range(len(ids)), pa.int64())})
 
-        head, tail = split_trailing_cursor_ties(table, "id")
+        split = split_trailing_cursor_ties(table, "id")
 
-        assert head["id"].to_pylist() == kept
-        assert tail["id"].to_pylist() == held
-        assert head.num_rows + tail.num_rows == table.num_rows
+        assert split.kept["id"].to_pylist() == kept
+        assert split.held["id"].to_pylist() == held
+        assert split.kept.num_rows + split.held.num_rows == table.num_rows
 
 
 class TestSettleAppendRetry:
