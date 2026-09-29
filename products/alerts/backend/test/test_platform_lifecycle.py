@@ -29,7 +29,7 @@ class TestPlatformAlertLifecycle(APIBaseTest):
             )
         self.slot = (self.cutoff - timedelta(minutes=1)).isoformat()
 
-    def _record(self, **overrides) -> None:
+    def _record(self, now: datetime | None = None, **overrides) -> None:
         fields = {
             "configuration_id": self.configuration.id,
             "new_state": "firing",
@@ -37,7 +37,23 @@ class TestPlatformAlertLifecycle(APIBaseTest):
             "consecutive_failures": 0,
         }
         fields.update(overrides)
-        record_outcomes(self.team.id, [PlatformAlertOutcome(**fields)], self.cutoff)
+        record_outcomes(self.team.id, [PlatformAlertOutcome(**fields)], now or self.cutoff)
+
+    def _alert(self) -> PlatformAlert:
+        with team_scope(self.team.id):
+            return PlatformAlert.objects.get(configuration=self.configuration)
+
+    def test_a_firing_keeps_its_start_across_checks_and_clears_when_it_ends(self) -> None:
+        self._record()
+        assert self._alert().firing_started_at == self.cutoff
+
+        # A later check that finds the alert still firing belongs to the same firing, so a
+        # delivery keyed on the start reaches the conversation the first one opened.
+        self._record(now=self.cutoff + timedelta(hours=1))
+        assert self._alert().firing_started_at == self.cutoff
+
+        self._record(new_state="not_firing", now=self.cutoff + timedelta(hours=2))
+        assert self._alert().firing_started_at is None
 
     def test_a_disabling_outcome_stops_the_configuration_being_discovered(self) -> None:
         self._record(new_state="broken", notified=False, consecutive_failures=5, disable=True)
