@@ -363,6 +363,46 @@ export const Default: Story = {
     ],
 }
 
+export const TagsEditorNarrow: Story = {
+    render: () => <App />,
+    parameters: {
+        testOptions: {
+            waitForSelector: '[data-attr="accounts-tags-cell"]',
+            viewport: { width: 800, height: 900 },
+        },
+    },
+    decorators: [
+        mswDecorator({
+            post: {
+                [QUERY_ENDPOINT]: mockAccountsTableQuery([
+                    [
+                        { name: 'Example Account', external_id: 'example-001', id: 'example-1', logo_domain: null },
+                        ['first tag', 'a long tag that exceeds the available column width', 'third tag'],
+                        0,
+                        [],
+                        [],
+                        [],
+                    ],
+                ]),
+            },
+        }),
+    ],
+    play: async ({ canvasElement }) => {
+        const tagsCell = canvasElement.querySelector('[data-attr="accounts-tags-cell"]')
+        const tableCell = tagsCell?.closest('td')
+        if (!tagsCell || !tableCell) {
+            throw new Error('Expected an editable tags cell')
+        }
+        await userEvent.click(within(tagsCell as HTMLElement).getByText('Edit tags'))
+        await waitFor(() => {
+            const editor = tagsCell.querySelector('[data-attr="new-tag-input"]')
+            if (!editor || editor.getBoundingClientRect().right > tableCell.getBoundingClientRect().right) {
+                throw new Error('The tag editor must fit inside its column')
+            }
+        })
+    },
+}
+
 const ADDITIONAL_COLUMN_DEFINITIONS: CustomPropertyDefinitionApi[] = (
     [
         { name: 'Subscription cost', display_type: 'currency' },
