@@ -3,7 +3,7 @@ import { StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { GlassCircleButton } from "@/components/Glass";
 import { MenuIcon } from "@/components/Icons";
-import { colors } from "@/lib/theme";
+import { colors, fonts } from "@/lib/theme";
 
 interface ChatHeaderProps {
   showNewChat?: boolean;
@@ -42,5 +42,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingHorizontal: 16,
   },
-  plus: { fontSize: 26, lineHeight: 30, color: colors.ink, marginTop: -2 },
+  plus: {
+    fontFamily: fonts.sans,
+    fontSize: 26,
+    lineHeight: 30,
+    color: colors.ink,
+    marginTop: -2,
+  },
 });

@@ -5,7 +5,9 @@ import { colors, drawer } from "@/lib/theme";
 export default function DrawerLayout() {
   return (
     <Drawer
-      drawerContent={() => <DrawerContent />}
+      drawerContent={(props) => (
+        <DrawerContent closeDrawer={() => props.navigation.closeDrawer()} />
+      )}
       screenOptions={{
         headerShown: false,
         drawerType: "back",

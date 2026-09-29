@@ -129,6 +129,7 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   input: {
+    fontFamily: fonts.sans,
     fontSize: 17,
     lineHeight: 22,
     color: colors.ink,

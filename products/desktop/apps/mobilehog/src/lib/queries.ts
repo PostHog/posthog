@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { DEFAULT_MODEL, DEFAULT_REPOSITORY } from "@/config";
 import { useAuth } from "@/lib/auth";
 import { getClient } from "@/lib/client";
+import { useRepo } from "@/lib/repo";
 
 const TERMINAL: ReadonlySet<string> = new Set([
   "completed",
@@ -17,6 +18,7 @@ export const keys = {
   channels: ["channels"] as const,
   models: ["models"] as const,
   repository: ["repository"] as const,
+  repositories: ["repositories"] as const,
 };
 
 export function useTasks() {
@@ -102,13 +104,39 @@ function fallbackModels(): GatewayModel[] {
 }
 
 // Most recently used repository on this project, else the configured default.
+// The chosen repo wins, then the config default, then the most recently used.
 export function useDefaultRepository() {
   const tasks = useTasks();
+  const chosen = useRepo((s) => s.repository);
   const recent = tasks.data?.find((task) => task.repository)?.repository;
   return {
-    data: DEFAULT_REPOSITORY ?? recent ?? null,
-    isLoading: tasks.isLoading,
+    data:
+      chosen !== undefined ? chosen : (DEFAULT_REPOSITORY ?? recent ?? null),
+    isLoading: chosen === undefined && tasks.isLoading,
   };
+}
+
+export function useRepositories() {
+  const session = useAuth((s) => s.session);
+  return useQuery<string[]>({
+    queryKey: keys.repositories,
+    queryFn: async () => {
+      const client = getClient();
+      const integrations = await client.getGithubUserIntegrations();
+      const pages = await Promise.all(
+        integrations.map((integration) =>
+          client.getGithubUserRepositoriesPage(
+            integration.installation_id,
+            0,
+            100,
+          ),
+        ),
+      );
+      return [...new Set(pages.flatMap((page) => page.repositories))].sort();
+    },
+    enabled: !!session,
+    staleTime: 5 * 60_000,
+  });
 }
 
 export function useInvalidateTasks() {
