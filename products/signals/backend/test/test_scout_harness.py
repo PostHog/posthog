@@ -885,10 +885,8 @@ class TestWriteAccessPromptSection(SimpleTestCase):
         # from the prompt, not from a refused call.
         assert "Scanners spend credits" not in granted
         assert "Scanners spend credits" in _prompt(write_scopes=["replay_scanner:write"])
-        # The ticket grant is the only one that reaches a customer, so the run has to learn the
-        # private-note default before it posts, not after an email has gone out.
-        assert "cannot be taken back" not in granted
-        assert "cannot be taken back" in _prompt(write_scopes=["ticket:write"])
+        assert "Scouts can only add private notes" not in granted
+        assert "Scouts can only add private notes" in _prompt(write_scopes=["ticket:write"])
 
         ungranted = _prompt(write_scopes=[])
         assert "# Write access" not in ungranted
