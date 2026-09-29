@@ -111,6 +111,7 @@ from products.signals.dags.inbox_ranking.training.serving import FamilyModels, c
 from products.signals.dags.inbox_ranking.training.telemetry import (
     DISTINCT_ID,
     LOCAL_DISTINCT_ID,
+    SERVING_MANIFEST_PUBLISHED_EVENT,
     HeadExampleCounts,
     TrainingEvent,
     candidate_events,
@@ -2471,14 +2472,16 @@ class _AppObjectStore:
     def __init__(self, existing: dict[str, bytes] | None = None, fail_on: str | None = None):
         self.objects = dict(existing or {})
         self.fail_on = fail_on
+        self.written: list[str] = []
 
-    def head_object(self, file_key: str, bucket: str | None = None):
+    def head_object(self, bucket: str, file_key: str):
         return {"ContentLength": len(self.objects[file_key])} if file_key in self.objects else None
 
-    def write(self, file_name: str, content, extras: dict | None = None, bucket: str | None = None) -> None:
-        if self.fail_on is not None and self.fail_on in file_name:
+    def write(self, bucket: str, key: str, content, extras: dict | None) -> None:
+        if self.fail_on is not None and self.fail_on in key:
             raise RuntimeError("object store write failed")
-        self.objects[file_name] = content if isinstance(content, bytes) else content.encode()
+        self.objects[key] = content if isinstance(content, bytes) else content.encode()
+        self.written.append(key)
 
 
 def _serving_dataset_s3(prefix: str, partition_key: str):
@@ -2497,10 +2500,12 @@ def _serving_dataset_s3(prefix: str, partition_key: str):
     return _ModelStoreS3(objects)
 
 
-def _run_serving_manifest(monkeypatch, store: _AppObjectStore, dataset_objects=None):
+def _run_serving_manifest(
+    monkeypatch, store: _AppObjectStore, dataset_objects=None, mirror: _AppObjectStore | None = None
+) -> _FakeClient:
     partition_key = "2026-08-19"
     prefix = settings.INBOX_RANKING_DATASET_S3_PREFIX
-    _patch_capture(monkeypatch, cloud=False, debug=False)
+    capture = _patch_capture(monkeypatch, cloud=True, debug=False)
     monkeypatch.setattr(settings, "INBOX_RANKING_SERVED_FAMILY", EMBEDDINGS_MODEL_NAME)
     monkeypatch.setattr(
         "products.signals.dags.inbox_ranking.training.dag.MODEL_FAMILIES",
@@ -2510,22 +2515,54 @@ def _run_serving_manifest(monkeypatch, store: _AppObjectStore, dataset_objects=N
         _ModelStoreS3(dataset_objects) if dataset_objects is not None else _serving_dataset_s3(prefix, partition_key)
     )
     monkeypatch.setattr("products.signals.dags.inbox_ranking.training.dag.s3_client", lambda: client)
-    monkeypatch.setattr("posthog.storage.object_storage.head_object", store.head_object)
-    monkeypatch.setattr("posthog.storage.object_storage.write", store.write)
+    monkeypatch.setattr("posthog.storage.object_storage.object_storage_client", lambda: store)
+    monkeypatch.setattr(settings, "INBOX_RANKING_SERVING_MIRROR_BUCKET", "mirror-bucket" if mirror else "")
+
+    def mirror_storage() -> _AppObjectStore:
+        assert mirror is not None, "no mirror is set, so nothing may reach a second store"
+        return mirror
+
+    monkeypatch.setattr("products.signals.dags.inbox_ranking.training.dag.serving_mirror_storage", mirror_storage)
     _publish_manifest(dagster.build_asset_context(partition_key=partition_key), partition_key, "run-1")
-    return prefix
+    return capture
 
 
-def test_publishing_copies_every_model_the_manifest_names_and_writes_the_manifest_last(monkeypatch):
+def _manifest_event(capture: _FakeClient) -> dict[str, Any]:
+    [event] = [call["properties"] for call in capture.calls if call["event"] == SERVING_MANIFEST_PUBLISHED_EVENT]
+    return event
+
+
+@pytest.mark.parametrize("mirrored", [False, True])
+def test_publishing_copies_every_model_the_manifest_names_and_writes_the_manifest_last(monkeypatch, mirrored):
+    # The EU sweep reads the mirror, so it needs the same files, in the same order, as the primary.
+    prefix = settings.INBOX_RANKING_DATASET_S3_PREFIX
     store = _AppObjectStore()
-    prefix = _run_serving_manifest(monkeypatch, store)
+    mirror = _AppObjectStore() if mirrored else None
+    capture = _run_serving_manifest(monkeypatch, store, mirror=mirror)
 
     manifest = ServingManifest.model_validate_json(store.objects[serving_manifest_key(prefix)])
     assert manifest.served.key == model_key(EMBEDDINGS_MODEL_NAME, "2026-08-15")
-    # Every entry the manifest names has its record and its booster in the store the sweep reads.
-    for entry in manifest.models:
-        assert f"{entry.prefix}/{METADATA_FILE}" in store.objects
-        assert f"{entry.prefix}/open.ubj" in store.objects
+    for target in (store, mirror) if mirror is not None else (store,):
+        assert target.objects == store.objects
+        assert target.written[-1] == serving_manifest_key(prefix)
+        # Every entry the manifest names has its record and its booster in the store the sweep reads.
+        for entry in manifest.models:
+            assert f"{entry.prefix}/{METADATA_FILE}" in target.objects
+            assert f"{entry.prefix}/open.ubj" in target.objects
+    assert _manifest_event(capture).get("mirror_published") is (True if mirrored else None)
+
+
+def test_a_failed_mirror_leaves_the_primary_publish_intact(monkeypatch):
+    prefix = settings.INBOX_RANKING_DATASET_S3_PREFIX
+    store = _AppObjectStore()
+    mirror = _AppObjectStore(fail_on="open.ubj")
+    capture = _run_serving_manifest(monkeypatch, store, mirror=mirror)
+
+    assert serving_manifest_key(prefix) in store.objects
+    assert serving_manifest_key(prefix) not in mirror.objects
+    event = _manifest_event(capture)
+    assert event["published"] is True
+    assert event["mirror_published"] is False
 
 
 def test_a_version_already_in_the_store_is_not_copied_again(monkeypatch):
@@ -2535,7 +2572,8 @@ def test_a_version_already_in_the_store_is_not_copied_again(monkeypatch):
         settings.INBOX_RANKING_DATASET_S3_PREFIX, model_key(EMBEDDINGS_MODEL_NAME, "2026-08-15")
     )
     store = _AppObjectStore({f"{champion_prefix}/{METADATA_FILE}": b"already here"})
-    prefix = _run_serving_manifest(monkeypatch, store)
+    _run_serving_manifest(monkeypatch, store)
+    prefix = settings.INBOX_RANKING_DATASET_S3_PREFIX
 
     assert store.objects[f"{champion_prefix}/{METADATA_FILE}"] == b"already here"
     assert f"{champion_prefix}/open.ubj" not in store.objects
