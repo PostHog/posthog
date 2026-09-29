@@ -26,7 +26,7 @@ import {
   RowSkeletons,
   TaskRow,
 } from "@/components/TaskRow";
-import { useTasks } from "@/lib/queries";
+import { useTaskPages } from "@/lib/queries";
 import { useReports } from "@/lib/reports";
 import { colors, fonts, radius } from "@/lib/theme";
 
@@ -62,13 +62,14 @@ export default function RecentsScreen() {
   const [query, setQuery] = useState("");
   const [scope, setScope] = useState<Scope>("all");
   const search = useDebounced(query.trim(), 250);
-  const tasks = useTasks(search);
+  const tasks = useTaskPages(search, false);
   const reports = useReports(search);
 
   const items = useMemo(() => {
     const list: Item[] = [];
     if (scope !== "reports") {
-      for (const task of tasks.data ?? []) {
+      for (const task of tasks.data?.pages.flatMap((page) => page.visible) ??
+        []) {
         list.push({ kind: "task", id: task.id, time: activityAt(task), task });
       }
     }
@@ -134,6 +135,15 @@ export default function RecentsScreen() {
           paddingBottom: insets.bottom + 140,
           paddingHorizontal: 18,
         }}
+        onEndReached={() => {
+          if (scope !== "reports" && tasks.hasNextPage && !tasks.isFetching) {
+            void tasks.fetchNextPage();
+          }
+        }}
+        onEndReachedThreshold={0.5}
+        ListFooterComponent={
+          tasks.isFetchingNextPage ? <RowSkeletons count={2} /> : null
+        }
         keyboardDismissMode="on-drag"
         keyboardShouldPersistTaps="handled"
       />

@@ -1,6 +1,11 @@
 import type { GatewayModel } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { DEFAULT_MODEL, DEFAULT_REPOSITORY } from "@/config";
 import { useAuth } from "@/lib/auth";
 import { getClient } from "@/lib/client";
@@ -21,22 +26,56 @@ export const keys = {
   repositories: ["repositories"] as const,
 };
 
+const PAGE_SIZE = 50;
+
+function visibleTasks(tasks: Task[]): Task[] {
+  return tasks.filter(
+    (task) =>
+      !task.internal &&
+      task.latest_run?.environment !== "local" &&
+      !task.origin_key?.startsWith("desktop_onboarding"),
+  );
+}
+
+// The full task history, newest activity first, one page at a time.
+export function useTaskPages(search: string, archived: boolean) {
+  const session = useAuth((s) => s.session);
+  const scope = archived ? "archived" : "active";
+  return useInfiniteQuery({
+    queryKey: search
+      ? [...keys.tasks, "pages", scope, "search", search]
+      : [...keys.tasks, "pages", scope],
+    initialPageParam: 0,
+    queryFn: async ({ pageParam }) => {
+      const page = await getClient().getTasksPage({
+        basic: true,
+        archived,
+        search: search || undefined,
+        ordering: "-last_activity_at",
+        limit: PAGE_SIZE,
+        offset: pageParam,
+      });
+      return { ...page, visible: visibleTasks(page.tasks) };
+    },
+    getNextPageParam: (page, _pages, offset) => {
+      const next = offset + page.tasks.length;
+      return page.tasks.length > 0 && next < page.count ? next : undefined;
+    },
+    enabled: !!session,
+  });
+}
+
 export function useTasks(search = "") {
   const session = useAuth((s) => s.session);
   return useQuery({
     queryKey: search ? [...keys.tasks, "search", search] : keys.tasks,
-    queryFn: async () => {
-      const tasks = await getClient().getTasks({
-        basic: true,
-        search: search || undefined,
-      });
-      return tasks.filter(
-        (task) =>
-          !task.internal &&
-          task.latest_run?.environment !== "local" &&
-          !task.origin_key?.startsWith("desktop_onboarding"),
-      );
-    },
+    queryFn: async () =>
+      visibleTasks(
+        await getClient().getTasks({
+          basic: true,
+          search: search || undefined,
+        }),
+      ),
     enabled: !!session,
     refetchInterval: (query) => {
       const tasks = query.state.data as Task[] | undefined;

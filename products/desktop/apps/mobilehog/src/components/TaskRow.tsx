@@ -124,7 +124,11 @@ export function TaskRow({
 
 const SKELETON_WIDTHS = ["72%", "54%", "86%", "62%", "78%"] as const;
 
-export function RowSkeletons() {
+export function RowSkeletons({
+  count = SKELETON_WIDTHS.length,
+}: {
+  count?: number;
+}) {
   const opacity = useSharedValue(1);
   useEffect(() => {
     opacity.value = withRepeat(
@@ -136,7 +140,7 @@ export function RowSkeletons() {
   const pulse = useAnimatedStyle(() => ({ opacity: opacity.value }));
   return (
     <Animated.View style={pulse}>
-      {SKELETON_WIDTHS.map((width) => (
+      {SKELETON_WIDTHS.slice(0, count).map((width) => (
         <View key={width} style={styles.row}>
           <View style={styles.body}>
             <View style={[styles.skeletonTitle, { width }]} />
