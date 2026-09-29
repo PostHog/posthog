@@ -88,7 +88,8 @@
                        optimize_rewrite_aggregate_function_with_if=0,
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
-                       use_hive_partitioning=0
+                       use_hive_partitioning=0,
+                       json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestExperimentRatioMetric.test_basic_ratio_metric_1_precomputed[new_events_schema]
@@ -174,7 +175,8 @@
                        optimize_rewrite_aggregate_function_with_if=0,
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
-                       use_hive_partitioning=0
+                       use_hive_partitioning=0,
+                       json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestExperimentRatioMetric.test_only_count_matured_users_0_direct[new_events_schema]
@@ -267,7 +269,8 @@
                        optimize_rewrite_aggregate_function_with_if=0,
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
-                       use_hive_partitioning=0
+                       use_hive_partitioning=0,
+                       json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestExperimentRatioMetric.test_outlier_handling_numerator_and_denominator_independent_0_direct[new_events_schema]
@@ -372,7 +375,8 @@
                        optimize_rewrite_aggregate_function_with_if=0,
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
-                       use_hive_partitioning=0
+                       use_hive_partitioning=0,
+                       json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestExperimentRatioMetric.test_outlier_handling_numerator_only_0_direct[new_events_schema]
@@ -477,7 +481,8 @@
                        optimize_rewrite_aggregate_function_with_if=0,
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
-                       use_hive_partitioning=0
+                       use_hive_partitioning=0,
+                       json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestExperimentRatioMetric.test_outlier_handling_with_breakdown[new_events_schema]
@@ -590,7 +595,8 @@
                        optimize_rewrite_aggregate_function_with_if=0,
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
-                       use_hive_partitioning=0
+                       use_hive_partitioning=0,
+                       json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestExperimentRatioMetric.test_ratio_metric_action_and_event_sources_0_direct[new_events_schema]
@@ -682,7 +688,8 @@
                        optimize_rewrite_aggregate_function_with_if=0,
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
-                       use_hive_partitioning=0
+                       use_hive_partitioning=0,
+                       json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestExperimentRatioMetric.test_ratio_metric_different_math_types_0_direct[new_events_schema]
@@ -774,7 +781,8 @@
                        optimize_rewrite_aggregate_function_with_if=0,
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
-                       use_hive_partitioning=0
+                       use_hive_partitioning=0,
+                       json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestExperimentRatioMetric.test_ratio_metric_same_event_different_properties_0_direct[new_events_schema]
@@ -866,7 +874,8 @@
                        optimize_rewrite_aggregate_function_with_if=0,
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
-                       use_hive_partitioning=0
+                       use_hive_partitioning=0,
+                       json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestExperimentRatioMetric.test_ratio_metric_with_conversion_window_0_direct[new_events_schema]
@@ -958,7 +967,8 @@
                        optimize_rewrite_aggregate_function_with_if=0,
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
-                       use_hive_partitioning=0
+                       use_hive_partitioning=0,
+                       json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestExperimentRatioMetric.test_ratio_metric_with_parametric_aggregation_0_direct[new_events_schema]
@@ -1050,7 +1060,8 @@
                        optimize_rewrite_aggregate_function_with_if=0,
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
-                       use_hive_partitioning=0
+                       use_hive_partitioning=0,
+                       json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestExperimentRatioMetric.test_ratio_metric_zero_denominator_0_direct[new_events_schema]
@@ -1142,6 +1153,7 @@
                        optimize_rewrite_aggregate_function_with_if=0,
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
-                       use_hive_partitioning=0
+                       use_hive_partitioning=0,
+                       json_type_escape_dots_in_keys=1
   '''
 # ---

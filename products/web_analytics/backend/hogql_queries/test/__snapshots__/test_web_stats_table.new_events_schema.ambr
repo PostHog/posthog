@@ -39,7 +39,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_all_time[new_events_schema]
@@ -59,7 +60,8 @@
                    optimize_rewrite_aggregate_function_with_if=0,
                    optimize_min_inequality_conjunction_chain_length=4294967295,
                    allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+                   use_hive_partitioning=0,
+                   json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_avg_time_can_compare[new_events_schema]
@@ -149,7 +151,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_avg_time_on_multiple_routes_and_users[new_events_schema.1]
@@ -239,7 +242,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_avg_time_on_multiple_routes_and_users[new_events_schema]
@@ -259,7 +263,8 @@
                    optimize_rewrite_aggregate_function_with_if=0,
                    optimize_min_inequality_conjunction_chain_length=4294967295,
                    allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+                   use_hive_partitioning=0,
+                   json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_avg_time_on_page_multiple_users[new_events_schema.1]
@@ -349,7 +354,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_avg_time_on_page_multiple_users[new_events_schema]
@@ -369,7 +375,8 @@
                    optimize_rewrite_aggregate_function_with_if=0,
                    optimize_min_inequality_conjunction_chain_length=4294967295,
                    allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+                   use_hive_partitioning=0,
+                   json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_avg_time_on_page_one_user[new_events_schema.1]
@@ -459,7 +466,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_avg_time_on_page_one_user[new_events_schema]
@@ -479,7 +487,8 @@
                    optimize_rewrite_aggregate_function_with_if=0,
                    optimize_min_inequality_conjunction_chain_length=4294967295,
                    allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+                   use_hive_partitioning=0,
+                   json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_bounce_rate[new_events_schema.1]
@@ -559,7 +568,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_bounce_rate[new_events_schema]
@@ -579,7 +589,8 @@
                    optimize_rewrite_aggregate_function_with_if=0,
                    optimize_min_inequality_conjunction_chain_length=4294967295,
                    allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+                   use_hive_partitioning=0,
+                   json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_bounce_rate_one_user[new_events_schema.1]
@@ -659,7 +670,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_bounce_rate_one_user[new_events_schema]
@@ -679,7 +691,8 @@
                    optimize_rewrite_aggregate_function_with_if=0,
                    optimize_min_inequality_conjunction_chain_length=4294967295,
                    allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+                   use_hive_partitioning=0,
+                   json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_bounce_rate_path_cleaning[new_events_schema.1]
@@ -759,7 +772,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_bounce_rate_path_cleaning[new_events_schema]
@@ -779,7 +793,8 @@
                    optimize_rewrite_aggregate_function_with_if=0,
                    optimize_min_inequality_conjunction_chain_length=4294967295,
                    allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+                   use_hive_partitioning=0,
+                   json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_bounce_rate_with_multiple_pathname_filters[new_events_schema.1]
@@ -859,7 +874,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_bounce_rate_with_multiple_pathname_filters[new_events_schema]
@@ -879,7 +895,8 @@
                    optimize_rewrite_aggregate_function_with_if=0,
                    optimize_min_inequality_conjunction_chain_length=4294967295,
                    allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+                   use_hive_partitioning=0,
+                   json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_bounce_rate_with_property[new_events_schema.1]
@@ -959,7 +976,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_bounce_rate_with_property[new_events_schema]
@@ -979,7 +997,8 @@
                    optimize_rewrite_aggregate_function_with_if=0,
                    optimize_min_inequality_conjunction_chain_length=4294967295,
                    allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+                   use_hive_partitioning=0,
+                   json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_breakdown_channel_type_doesnt_throw[new_events_schema]
@@ -1032,7 +1051,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_cohort_test_filters[new_events_schema.1]
@@ -1078,7 +1098,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_cohort_test_filters[new_events_schema]
@@ -1098,7 +1119,8 @@
                    optimize_rewrite_aggregate_function_with_if=0,
                    optimize_min_inequality_conjunction_chain_length=4294967295,
                    allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+                   use_hive_partitioning=0,
+                   json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_comparison[new_events_schema]
@@ -1141,7 +1163,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_conversion_goal_no_conversions[new_events_schema]
@@ -1201,7 +1224,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_conversion_goal_one_autocapture_conversion[new_events_schema]
@@ -1258,7 +1282,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_conversion_goal_one_custom_action_conversion[new_events_schema]
@@ -1315,7 +1340,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_conversion_goal_one_custom_event_conversion[new_events_schema]
@@ -1372,7 +1398,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_conversion_goal_one_pageview_conversion[new_events_schema.1]
@@ -1432,7 +1459,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_conversion_goal_one_pageview_conversion[new_events_schema]
@@ -1492,7 +1520,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_conversion_rate[new_events_schema]
@@ -1552,7 +1581,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_dont_filter_test_accounts[new_events_schema]
@@ -1595,7 +1625,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_entry_bounce_rate[new_events_schema.1]
@@ -1649,7 +1680,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_entry_bounce_rate[new_events_schema]
@@ -1669,7 +1701,8 @@
                    optimize_rewrite_aggregate_function_with_if=0,
                    optimize_min_inequality_conjunction_chain_length=4294967295,
                    allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+                   use_hive_partitioning=0,
+                   json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_entry_bounce_rate_one_user[new_events_schema.1]
@@ -1723,7 +1756,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_entry_bounce_rate_one_user[new_events_schema]
@@ -1743,7 +1777,8 @@
                    optimize_rewrite_aggregate_function_with_if=0,
                    optimize_min_inequality_conjunction_chain_length=4294967295,
                    allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+                   use_hive_partitioning=0,
+                   json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_entry_bounce_rate_path_cleaning[new_events_schema.1]
@@ -1797,7 +1832,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_entry_bounce_rate_path_cleaning[new_events_schema]
@@ -1817,7 +1853,8 @@
                    optimize_rewrite_aggregate_function_with_if=0,
                    optimize_min_inequality_conjunction_chain_length=4294967295,
                    allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+                   use_hive_partitioning=0,
+                   json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_entry_bounce_rate_with_property[new_events_schema.1]
@@ -1871,7 +1908,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_entry_bounce_rate_with_property[new_events_schema]
@@ -1891,7 +1929,8 @@
                    optimize_rewrite_aggregate_function_with_if=0,
                    optimize_min_inequality_conjunction_chain_length=4294967295,
                    allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+                   use_hive_partitioning=0,
+                   json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_filter_test_accounts[new_events_schema]
@@ -1934,7 +1973,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_first_pageview_attribution_anchors_all_properties_to_one_event[new_events_schema.1]
@@ -1982,7 +2022,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_first_pageview_attribution_anchors_all_properties_to_one_event[new_events_schema.2]
@@ -2029,7 +2070,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_first_pageview_attribution_anchors_all_properties_to_one_event[new_events_schema]
@@ -2049,7 +2091,8 @@
                    optimize_rewrite_aggregate_function_with_if=0,
                    optimize_min_inequality_conjunction_chain_length=4294967295,
                    allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+                   use_hive_partitioning=0,
+                   json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_first_pageview_attribution_excludes_sessionless_events[new_events_schema.1]
@@ -2096,7 +2139,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_first_pageview_attribution_excludes_sessionless_events[new_events_schema]
@@ -2116,7 +2160,8 @@
                    optimize_rewrite_aggregate_function_with_if=0,
                    optimize_min_inequality_conjunction_chain_length=4294967295,
                    allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+                   use_hive_partitioning=0,
+                   json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_first_pageview_attribution_flag_flips_initial_breakdowns[new_events_schema.1]
@@ -2168,7 +2213,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_first_pageview_attribution_flag_flips_initial_breakdowns[new_events_schema.2]
@@ -2221,7 +2267,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_first_pageview_attribution_flag_flips_initial_breakdowns[new_events_schema.3]
@@ -2268,7 +2315,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_first_pageview_attribution_flag_flips_initial_breakdowns[new_events_schema.4]
@@ -2316,7 +2364,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_first_pageview_attribution_flag_flips_initial_breakdowns[new_events_schema]
@@ -2336,7 +2385,8 @@
                    optimize_rewrite_aggregate_function_with_if=0,
                    optimize_min_inequality_conjunction_chain_length=4294967295,
                    allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+                   use_hive_partitioning=0,
+                   json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_first_pageview_attribution_ignores_conversion_goal_events[new_events_schema.1]
@@ -2390,7 +2440,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_first_pageview_attribution_ignores_conversion_goal_events[new_events_schema]
@@ -2410,7 +2461,8 @@
                    optimize_rewrite_aggregate_function_with_if=0,
                    optimize_min_inequality_conjunction_chain_length=4294967295,
                    allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+                   use_hive_partitioning=0,
+                   json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_first_pageview_attribution_ignores_non_pageview_first_event[new_events_schema.1]
@@ -2462,7 +2514,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_first_pageview_attribution_ignores_non_pageview_first_event[new_events_schema.2]
@@ -2515,7 +2568,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_first_pageview_attribution_ignores_non_pageview_first_event[new_events_schema.3]
@@ -2562,7 +2616,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_first_pageview_attribution_ignores_non_pageview_first_event[new_events_schema.4]
@@ -2610,7 +2665,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_first_pageview_attribution_ignores_non_pageview_first_event[new_events_schema]
@@ -2630,7 +2686,8 @@
                    optimize_rewrite_aggregate_function_with_if=0,
                    optimize_min_inequality_conjunction_chain_length=4294967295,
                    allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+                   use_hive_partitioning=0,
+                   json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_first_pageview_attribution_rewrites_drill_down_filters_0_channel_type[new_events_schema.1]
@@ -2685,7 +2742,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_first_pageview_attribution_rewrites_drill_down_filters_0_channel_type[new_events_schema.2]
@@ -2738,7 +2796,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_first_pageview_attribution_rewrites_drill_down_filters_0_channel_type[new_events_schema]
@@ -2758,7 +2817,8 @@
                    optimize_rewrite_aggregate_function_with_if=0,
                    optimize_min_inequality_conjunction_chain_length=4294967295,
                    allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+                   use_hive_partitioning=0,
+                   json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_first_pageview_attribution_rewrites_drill_down_filters_1_utm_source[new_events_schema.1]
@@ -2812,7 +2872,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_first_pageview_attribution_rewrites_drill_down_filters_1_utm_source[new_events_schema.2]
@@ -2864,7 +2925,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_first_pageview_attribution_rewrites_drill_down_filters_1_utm_source[new_events_schema]
@@ -2884,7 +2946,8 @@
                    optimize_rewrite_aggregate_function_with_if=0,
                    optimize_min_inequality_conjunction_chain_length=4294967295,
                    allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+                   use_hive_partitioning=0,
+                   json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_first_pageview_attribution_rewrites_drill_down_filters_2_referring_domain[new_events_schema.1]
@@ -2938,7 +3001,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_first_pageview_attribution_rewrites_drill_down_filters_2_referring_domain[new_events_schema.2]
@@ -2990,7 +3054,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_first_pageview_attribution_rewrites_drill_down_filters_2_referring_domain[new_events_schema]
@@ -3010,7 +3075,8 @@
                    optimize_rewrite_aggregate_function_with_if=0,
                    optimize_min_inequality_conjunction_chain_length=4294967295,
                    allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+                   use_hive_partitioning=0,
+                   json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_first_pageview_attribution_rewrites_list_valued_filters_0_multi_value_exact[new_events_schema.1]
@@ -3064,7 +3130,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_first_pageview_attribution_rewrites_list_valued_filters_0_multi_value_exact[new_events_schema]
@@ -3084,7 +3151,8 @@
                    optimize_rewrite_aggregate_function_with_if=0,
                    optimize_min_inequality_conjunction_chain_length=4294967295,
                    allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+                   use_hive_partitioning=0,
+                   json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_first_pageview_attribution_rewrites_list_valued_filters_1_multi_value_exact_matching_both[new_events_schema.1]
@@ -3138,7 +3206,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_first_pageview_attribution_rewrites_list_valued_filters_1_multi_value_exact_matching_both[new_events_schema]
@@ -3158,7 +3227,8 @@
                    optimize_rewrite_aggregate_function_with_if=0,
                    optimize_min_inequality_conjunction_chain_length=4294967295,
                    allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+                   use_hive_partitioning=0,
+                   json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_first_pageview_attribution_rewrites_list_valued_filters_2_single_element_list[new_events_schema.1]
@@ -3212,7 +3282,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_first_pageview_attribution_rewrites_list_valued_filters_2_single_element_list[new_events_schema]
@@ -3232,7 +3303,8 @@
                    optimize_rewrite_aggregate_function_with_if=0,
                    optimize_min_inequality_conjunction_chain_length=4294967295,
                    allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+                   use_hive_partitioning=0,
+                   json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_first_pageview_attribution_rewrites_list_valued_filters_3_empty_list[new_events_schema.1]
@@ -3279,7 +3351,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_first_pageview_attribution_rewrites_list_valued_filters_3_empty_list[new_events_schema]
@@ -3299,7 +3372,8 @@
                    optimize_rewrite_aggregate_function_with_if=0,
                    optimize_min_inequality_conjunction_chain_length=4294967295,
                    allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+                   use_hive_partitioning=0,
+                   json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_first_pageview_attribution_rewrites_list_valued_filters_4_multi_value_is_not[new_events_schema.1]
@@ -3353,7 +3427,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_first_pageview_attribution_rewrites_list_valued_filters_4_multi_value_is_not[new_events_schema]
@@ -3373,7 +3448,8 @@
                    optimize_rewrite_aggregate_function_with_if=0,
                    optimize_min_inequality_conjunction_chain_length=4294967295,
                    allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+                   use_hive_partitioning=0,
+                   json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_first_pageview_channel_type_buckets_0_referral_unknown_domain[new_events_schema.1]
@@ -3421,7 +3497,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_first_pageview_channel_type_buckets_0_referral_unknown_domain[new_events_schema]
@@ -3441,7 +3518,8 @@
                    optimize_rewrite_aggregate_function_with_if=0,
                    optimize_min_inequality_conjunction_chain_length=4294967295,
                    allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+                   use_hive_partitioning=0,
+                   json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_first_pageview_channel_type_buckets_1_gad_source_only[new_events_schema.1]
@@ -3489,7 +3567,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_first_pageview_channel_type_buckets_1_gad_source_only[new_events_schema]
@@ -3509,7 +3588,8 @@
                    optimize_rewrite_aggregate_function_with_if=0,
                    optimize_min_inequality_conjunction_chain_length=4294967295,
                    allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+                   use_hive_partitioning=0,
+                   json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_first_pageview_channel_type_buckets_2_bare_direct[new_events_schema.1]
@@ -3557,7 +3637,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_first_pageview_channel_type_buckets_2_bare_direct[new_events_schema]
@@ -3577,7 +3658,8 @@
                    optimize_rewrite_aggregate_function_with_if=0,
                    optimize_min_inequality_conjunction_chain_length=4294967295,
                    allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+                   use_hive_partitioning=0,
+                   json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_in_app_browser_breakdown_groups_by_webview_app_and_drops_regular_traffic[new_events_schema]
@@ -3620,7 +3702,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_include_host_concatenates_host_and_path_0_Page[new_events_schema.1]
@@ -3663,7 +3746,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_include_host_concatenates_host_and_path_0_Page[new_events_schema]
@@ -3683,7 +3767,8 @@
                    optimize_rewrite_aggregate_function_with_if=0,
                    optimize_min_inequality_conjunction_chain_length=4294967295,
                    allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+                   use_hive_partitioning=0,
+                   json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_include_host_concatenates_host_and_path_1_InitialPage[new_events_schema.1]
@@ -3737,7 +3822,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_include_host_concatenates_host_and_path_1_InitialPage[new_events_schema]
@@ -3757,7 +3843,8 @@
                    optimize_rewrite_aggregate_function_with_if=0,
                    optimize_min_inequality_conjunction_chain_length=4294967295,
                    allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+                   use_hive_partitioning=0,
+                   json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_include_host_concatenates_host_and_path_2_ExitPage[new_events_schema.1]
@@ -3811,7 +3898,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_include_host_concatenates_host_and_path_2_ExitPage[new_events_schema]
@@ -3831,7 +3919,8 @@
                    optimize_rewrite_aggregate_function_with_if=0,
                    optimize_min_inequality_conjunction_chain_length=4294967295,
                    allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+                   use_hive_partitioning=0,
+                   json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_include_host_exit_page_breakdown_counts_correctly[new_events_schema.1]
@@ -3885,7 +3974,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_include_host_exit_page_breakdown_counts_correctly[new_events_schema]
@@ -3905,7 +3995,8 @@
                    optimize_rewrite_aggregate_function_with_if=0,
                    optimize_min_inequality_conjunction_chain_length=4294967295,
                    allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+                   use_hive_partitioning=0,
+                   json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_include_host_false_returns_path_only_0_Page[new_events_schema.1]
@@ -3948,7 +4039,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_include_host_false_returns_path_only_0_Page[new_events_schema]
@@ -3968,7 +4060,8 @@
                    optimize_rewrite_aggregate_function_with_if=0,
                    optimize_min_inequality_conjunction_chain_length=4294967295,
                    allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+                   use_hive_partitioning=0,
+                   json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_include_host_false_returns_path_only_1_InitialPage[new_events_schema.1]
@@ -4021,7 +4114,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_include_host_false_returns_path_only_1_InitialPage[new_events_schema]
@@ -4041,7 +4135,8 @@
                    optimize_rewrite_aggregate_function_with_if=0,
                    optimize_min_inequality_conjunction_chain_length=4294967295,
                    allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+                   use_hive_partitioning=0,
+                   json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_include_host_false_returns_path_only_2_ExitPage[new_events_schema.1]
@@ -4094,7 +4189,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_include_host_false_returns_path_only_2_ExitPage[new_events_schema]
@@ -4114,7 +4210,8 @@
                    optimize_rewrite_aggregate_function_with_if=0,
                    optimize_min_inequality_conjunction_chain_length=4294967295,
                    allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+                   use_hive_partitioning=0,
+                   json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_include_host_initial_page_breakdown_with_bounce_rate[new_events_schema.1]
@@ -4169,7 +4266,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_include_host_initial_page_breakdown_with_bounce_rate[new_events_schema]
@@ -4189,7 +4287,8 @@
                    optimize_rewrite_aggregate_function_with_if=0,
                    optimize_min_inequality_conjunction_chain_length=4294967295,
                    allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+                   use_hive_partitioning=0,
+                   json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_include_host_page_breakdown_groups_same_paths_on_different_hosts_separately[new_events_schema.1]
@@ -4232,7 +4331,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_include_host_page_breakdown_groups_same_paths_on_different_hosts_separately[new_events_schema.2]
@@ -4275,7 +4375,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_include_host_page_breakdown_groups_same_paths_on_different_hosts_separately[new_events_schema]
@@ -4295,7 +4396,8 @@
                    optimize_rewrite_aggregate_function_with_if=0,
                    optimize_min_inequality_conjunction_chain_length=4294967295,
                    allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+                   use_hive_partitioning=0,
+                   json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_increase_in_users[new_events_schema]
@@ -4338,7 +4440,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_increase_in_users_on_mobile[new_events_schema]
@@ -4381,7 +4484,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_is_not_set_filter[new_events_schema.1]
@@ -4433,7 +4537,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_is_not_set_filter[new_events_schema]
@@ -4453,7 +4558,8 @@
                    optimize_rewrite_aggregate_function_with_if=0,
                    optimize_min_inequality_conjunction_chain_length=4294967295,
                    allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+                   use_hive_partitioning=0,
+                   json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_language_filter[new_events_schema.1]
@@ -4496,7 +4602,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_language_filter[new_events_schema]
@@ -4516,7 +4623,8 @@
                    optimize_rewrite_aggregate_function_with_if=0,
                    optimize_min_inequality_conjunction_chain_length=4294967295,
                    allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+                   use_hive_partitioning=0,
+                   json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_limit[new_events_schema.1]
@@ -4559,7 +4667,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_limit[new_events_schema.2]
@@ -4602,7 +4711,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_limit[new_events_schema]
@@ -4622,7 +4732,8 @@
                    optimize_rewrite_aggregate_function_with_if=0,
                    optimize_min_inequality_conjunction_chain_length=4294967295,
                    allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+                   use_hive_partitioning=0,
+                   json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_no_crash_when_no_data[new_events_schema]
@@ -4665,7 +4776,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_no_session_id[new_events_schema.1]
@@ -4718,7 +4830,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_no_session_id[new_events_schema.2]
@@ -4771,7 +4884,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_no_session_id[new_events_schema.3]
@@ -4814,7 +4928,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_no_session_id[new_events_schema]
@@ -4834,7 +4949,8 @@
                    optimize_rewrite_aggregate_function_with_if=0,
                    optimize_min_inequality_conjunction_chain_length=4294967295,
                    allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+                   use_hive_partitioning=0,
+                   json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_null_in_utm_tags[new_events_schema.1]
@@ -4886,7 +5002,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_null_in_utm_tags[new_events_schema]
@@ -4906,7 +5023,8 @@
                    optimize_rewrite_aggregate_function_with_if=0,
                    optimize_min_inequality_conjunction_chain_length=4294967295,
                    allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+                   use_hive_partitioning=0,
+                   json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_null_prev_pageview_duration_excluded_from_p90[new_events_schema.1]
@@ -4996,7 +5114,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_null_prev_pageview_duration_excluded_from_p90[new_events_schema]
@@ -5016,7 +5135,8 @@
                    optimize_rewrite_aggregate_function_with_if=0,
                    optimize_min_inequality_conjunction_chain_length=4294967295,
                    allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+                   use_hive_partitioning=0,
+                   json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_path_cleaning_filters[new_events_schema.1]
@@ -5059,7 +5179,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_path_cleaning_filters[new_events_schema]
@@ -5079,7 +5200,8 @@
                    optimize_rewrite_aggregate_function_with_if=0,
                    optimize_min_inequality_conjunction_chain_length=4294967295,
                    allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+                   use_hive_partitioning=0,
+                   json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_path_cleaning_filters_applied_in_order[new_events_schema.1]
@@ -5122,7 +5244,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_path_cleaning_filters_applied_in_order[new_events_schema]
@@ -5142,7 +5265,8 @@
                    optimize_rewrite_aggregate_function_with_if=0,
                    optimize_min_inequality_conjunction_chain_length=4294967295,
                    allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+                   use_hive_partitioning=0,
+                   json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_path_cleaning_filters_with_capture_group_backreference[new_events_schema.1]
@@ -5185,7 +5309,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_path_cleaning_filters_with_capture_group_backreference[new_events_schema]
@@ -5205,7 +5330,8 @@
                    optimize_rewrite_aggregate_function_with_if=0,
                    optimize_min_inequality_conjunction_chain_length=4294967295,
                    allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+                   use_hive_partitioning=0,
+                   json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_path_cleaning_filters_with_cleanable_path_property[new_events_schema.1]
@@ -5249,7 +5375,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_path_cleaning_filters_with_cleanable_path_property[new_events_schema]
@@ -5269,7 +5396,8 @@
                    optimize_rewrite_aggregate_function_with_if=0,
                    optimize_min_inequality_conjunction_chain_length=4294967295,
                    allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+                   use_hive_partitioning=0,
+                   json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_path_cleaning_filters_with_cleaned_path_property[new_events_schema.1]
@@ -5313,7 +5441,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_path_cleaning_filters_with_cleaned_path_property[new_events_schema.2]
@@ -5357,7 +5486,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_path_cleaning_filters_with_cleaned_path_property[new_events_schema]
@@ -5377,7 +5507,8 @@
                    optimize_rewrite_aggregate_function_with_if=0,
                    optimize_min_inequality_conjunction_chain_length=4294967295,
                    allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+                   use_hive_partitioning=0,
+                   json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_path_cleaning_filters_with_multiple_capture_groups[new_events_schema.1]
@@ -5420,7 +5551,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_path_cleaning_filters_with_multiple_capture_groups[new_events_schema]
@@ -5440,7 +5572,8 @@
                    optimize_rewrite_aggregate_function_with_if=0,
                    optimize_min_inequality_conjunction_chain_length=4294967295,
                    allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+                   use_hive_partitioning=0,
+                   json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_path_cleaning_with_order_field_and_baseline_urls[new_events_schema.1]
@@ -5483,7 +5616,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_path_cleaning_with_order_field_and_baseline_urls[new_events_schema]
@@ -5503,7 +5637,8 @@
                    optimize_rewrite_aggregate_function_with_if=0,
                    optimize_min_inequality_conjunction_chain_length=4294967295,
                    allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+                   use_hive_partitioning=0,
+                   json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_same_user_multiple_sessions[new_events_schema.1]
@@ -5555,7 +5690,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_same_user_multiple_sessions[new_events_schema.2]
@@ -5598,7 +5734,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_same_user_multiple_sessions[new_events_schema.3]
@@ -5678,7 +5815,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_same_user_multiple_sessions[new_events_schema]
@@ -5698,7 +5836,8 @@
                    optimize_rewrite_aggregate_function_with_if=0,
                    optimize_min_inequality_conjunction_chain_length=4294967295,
                    allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+                   use_hive_partitioning=0,
+                   json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_sorting_by_bounce_rate[new_events_schema.1]
@@ -5779,7 +5918,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_sorting_by_bounce_rate[new_events_schema.2]
@@ -5860,7 +6000,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_sorting_by_bounce_rate[new_events_schema]
@@ -5880,7 +6021,8 @@
                    optimize_rewrite_aggregate_function_with_if=0,
                    optimize_min_inequality_conjunction_chain_length=4294967295,
                    allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+                   use_hive_partitioning=0,
+                   json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_sorting_by_conversion_rate[new_events_schema.1]
@@ -5941,7 +6083,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_sorting_by_conversion_rate[new_events_schema]
@@ -6002,7 +6145,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_sorting_by_total_conversions[new_events_schema.1]
@@ -6062,7 +6206,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_sorting_by_total_conversions[new_events_schema]
@@ -6122,7 +6267,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_sorting_by_views[new_events_schema.1]
@@ -6165,7 +6311,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_sorting_by_views[new_events_schema.2]
@@ -6208,7 +6355,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_sorting_by_views[new_events_schema]
@@ -6228,7 +6376,8 @@
                    optimize_rewrite_aggregate_function_with_if=0,
                    optimize_min_inequality_conjunction_chain_length=4294967295,
                    allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+                   use_hive_partitioning=0,
+                   json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_sorting_by_visitors[new_events_schema.1]
@@ -6271,7 +6420,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_sorting_by_visitors[new_events_schema.2]
@@ -6314,7 +6464,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_sorting_by_visitors[new_events_schema]
@@ -6334,7 +6485,8 @@
                    optimize_rewrite_aggregate_function_with_if=0,
                    optimize_min_inequality_conjunction_chain_length=4294967295,
                    allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+                   use_hive_partitioning=0,
+                   json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_source_medium_campaign[new_events_schema.1]
@@ -6390,7 +6542,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_source_medium_campaign[new_events_schema]
@@ -6410,7 +6563,8 @@
                    optimize_rewrite_aggregate_function_with_if=0,
                    optimize_min_inequality_conjunction_chain_length=4294967295,
                    allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+                   use_hive_partitioning=0,
+                   json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_time_on_page_caps_at_24_hours[new_events_schema.1]
@@ -6500,7 +6654,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_time_on_page_caps_at_24_hours[new_events_schema]
@@ -6520,7 +6675,8 @@
                    optimize_rewrite_aggregate_function_with_if=0,
                    optimize_min_inequality_conjunction_chain_length=4294967295,
                    allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+                   use_hive_partitioning=0,
+                   json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_timezone_filter_general[new_events_schema]
@@ -6562,7 +6718,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_timezone_filter_with_invalid_timezone_offset[new_events_schema.1]
@@ -6604,7 +6761,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_timezone_filter_with_invalid_timezone_offset[new_events_schema.2]
@@ -6646,7 +6804,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_timezone_filter_with_invalid_timezone_offset[new_events_schema.3]
@@ -6688,7 +6847,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_timezone_filter_with_invalid_timezone_offset[new_events_schema]
@@ -6708,6 +6868,7 @@
                    optimize_rewrite_aggregate_function_with_if=0,
                    optimize_min_inequality_conjunction_chain_length=4294967295,
                    allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+                   use_hive_partitioning=0,
+                   json_type_escape_dots_in_keys=1
   '''
 # ---

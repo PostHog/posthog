@@ -26,7 +26,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestPersonOptimization.test_joins_are_left_alone_for_now[new_events_schema]
@@ -63,6 +64,7 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---

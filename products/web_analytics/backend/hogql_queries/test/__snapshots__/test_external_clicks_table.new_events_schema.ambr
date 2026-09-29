@@ -42,7 +42,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestExternalClicksTableQueryRunner.test_all_time[new_events_schema]
@@ -62,7 +63,8 @@
                    optimize_rewrite_aggregate_function_with_if=0,
                    optimize_min_inequality_conjunction_chain_length=4294967295,
                    allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+                   use_hive_partitioning=0,
+                   json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestExternalClicksTableQueryRunner.test_custom_order_by[new_events_schema.1]
@@ -108,7 +110,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestExternalClicksTableQueryRunner.test_custom_order_by[new_events_schema]
@@ -154,7 +157,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestExternalClicksTableQueryRunner.test_dont_filter_test_accounts[new_events_schema]
@@ -200,7 +204,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestExternalClicksTableQueryRunner.test_filter_test_accounts[new_events_schema]
@@ -246,7 +251,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestExternalClicksTableQueryRunner.test_increase_in_users[new_events_schema]
@@ -292,7 +298,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestExternalClicksTableQueryRunner.test_no_crash_when_no_data[new_events_schema]
@@ -338,7 +345,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestExternalClicksTableQueryRunner.test_path_cleaning[new_events_schema.1]
@@ -384,7 +392,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestExternalClicksTableQueryRunner.test_path_cleaning[new_events_schema]
@@ -430,7 +439,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestExternalClicksTableQueryRunner.test_should_exclude_subdomain_under_root[new_events_schema]
@@ -476,7 +486,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestExternalClicksTableQueryRunner.test_should_exclude_subdomain_with_shared_root[new_events_schema]
@@ -522,7 +533,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestExternalClicksTableQueryRunner.test_strip_query_params[new_events_schema.1]
@@ -568,7 +580,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestExternalClicksTableQueryRunner.test_strip_query_params[new_events_schema]
@@ -614,6 +627,7 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---

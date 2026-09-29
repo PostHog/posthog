@@ -55,7 +55,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestFOSSFunnelUDF.test_funnel_aggregation_with_groups_across_persons[new_events_schema]
@@ -122,7 +123,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestFOSSFunnelUDF.test_funnel_conversion_window_seconds[new_events_schema.1]
@@ -180,7 +182,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestFOSSFunnelUDF.test_funnel_conversion_window_seconds[new_events_schema]
@@ -254,7 +257,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestFOSSFunnelUDF.test_funnel_events_with_person_on_events_v2[new_events_schema]
@@ -328,7 +332,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestFOSSFunnelUDF.test_funnel_with_precalculated_cohort_step_filter[new_events_schema]
@@ -397,7 +402,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestFOSSFunnelUDF.test_funnel_with_property_groups[new_events_schema.1]
@@ -455,7 +461,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestFOSSFunnelUDF.test_funnel_with_property_groups[new_events_schema.2]
@@ -513,7 +520,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestFOSSFunnelUDF.test_funnel_with_property_groups[new_events_schema.3]
@@ -571,7 +579,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestFOSSFunnelUDF.test_funnel_with_property_groups[new_events_schema]
@@ -645,7 +654,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestFOSSFunnelUDF.test_funnel_with_static_cohort_step_filter[new_events_schema]
@@ -714,7 +724,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestFOSSFunnelUDF.test_timezones[new_events_schema]
@@ -780,7 +791,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestFunnelBreakdownUDF.test_funnel_breakdown_correct_breakdown_props_are_chosen[new_events_schema]
@@ -848,7 +860,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestFunnelBreakdownUDF.test_funnel_breakdown_correct_breakdown_props_are_chosen_for_step[new_events_schema]
@@ -916,7 +929,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestFunnelBreakdownUDF.test_funnel_step_multiple_breakdown_snapshot[new_events_schema]
@@ -985,7 +999,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestFunnelGroupBreakdownUDF.test_funnel_aggregate_by_groups_breakdown_group_person_on_events[new_events_schema]
@@ -1064,7 +1079,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestFunnelGroupBreakdownUDF.test_funnel_breakdown_group[new_events_schema.1]
@@ -1133,7 +1149,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestFunnelGroupBreakdownUDF.test_funnel_breakdown_group[new_events_schema.2]
@@ -1202,7 +1219,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestFunnelGroupBreakdownUDF.test_funnel_breakdown_group[new_events_schema.3]
@@ -1271,7 +1289,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestFunnelGroupBreakdownUDF.test_funnel_breakdown_group[new_events_schema.4]
@@ -1340,7 +1359,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestFunnelGroupBreakdownUDF.test_funnel_breakdown_group[new_events_schema]
@@ -1426,6 +1446,7 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---

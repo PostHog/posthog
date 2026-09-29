@@ -47,7 +47,8 @@
                        optimize_rewrite_aggregate_function_with_if=0,
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
-                       use_hive_partitioning=0
+                       use_hive_partitioning=0,
+                       json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestExperimentBreakdown.test_funnel_metric_with_person_property_breakdown[new_events_schema]
@@ -99,7 +100,8 @@
                        optimize_rewrite_aggregate_function_with_if=0,
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
-                       use_hive_partitioning=0
+                       use_hive_partitioning=0,
+                       json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestExperimentBreakdown.test_funnel_metric_with_two_breakdowns[new_events_schema]
@@ -154,7 +156,8 @@
                        optimize_rewrite_aggregate_function_with_if=0,
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
-                       use_hive_partitioning=0
+                       use_hive_partitioning=0,
+                       json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestExperimentBreakdown.test_mean_metric_breakdown_with_changing_property_values[new_events_schema]
@@ -222,7 +225,8 @@
                        optimize_rewrite_aggregate_function_with_if=0,
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
-                       use_hive_partitioning=0
+                       use_hive_partitioning=0,
+                       json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestExperimentBreakdown.test_mean_metric_with_breakdown[new_events_schema]
@@ -290,7 +294,8 @@
                        optimize_rewrite_aggregate_function_with_if=0,
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
-                       use_hive_partitioning=0
+                       use_hive_partitioning=0,
+                       json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestExperimentBreakdown.test_mean_metric_with_null_breakdown_values[new_events_schema]
@@ -358,7 +363,8 @@
                        optimize_rewrite_aggregate_function_with_if=0,
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
-                       use_hive_partitioning=0
+                       use_hive_partitioning=0,
+                       json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestExperimentBreakdown.test_mean_metric_with_null_person_property_breakdown[new_events_schema]
@@ -426,7 +432,8 @@
                        optimize_rewrite_aggregate_function_with_if=0,
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
-                       use_hive_partitioning=0
+                       use_hive_partitioning=0,
+                       json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestExperimentBreakdown.test_mean_metric_with_null_type_defaults_to_event_breakdown[new_events_schema]
@@ -500,7 +507,8 @@
                        optimize_rewrite_aggregate_function_with_if=0,
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
-                       use_hive_partitioning=0
+                       use_hive_partitioning=0,
+                       json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestExperimentBreakdown.test_mean_metric_with_person_property_breakdown[new_events_schema]
@@ -568,7 +576,8 @@
                        optimize_rewrite_aggregate_function_with_if=0,
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
-                       use_hive_partitioning=0
+                       use_hive_partitioning=0,
+                       json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestExperimentBreakdown.test_mean_metric_with_two_breakdowns[new_events_schema]
@@ -642,7 +651,8 @@
                        optimize_rewrite_aggregate_function_with_if=0,
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
-                       use_hive_partitioning=0
+                       use_hive_partitioning=0,
+                       json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestExperimentBreakdown.test_mean_metric_with_winsorization_and_breakdown[new_events_schema]
@@ -723,7 +733,8 @@
                        optimize_rewrite_aggregate_function_with_if=0,
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
-                       use_hive_partitioning=0
+                       use_hive_partitioning=0,
+                       json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestExperimentBreakdown.test_missing_variants_across_breakdown_combinations[new_events_schema]
@@ -797,7 +808,8 @@
                        optimize_rewrite_aggregate_function_with_if=0,
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
-                       use_hive_partitioning=0
+                       use_hive_partitioning=0,
+                       json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestExperimentBreakdown.test_person_property_breakdown_attribution_at_exposure[new_events_schema]
@@ -865,7 +877,8 @@
                        optimize_rewrite_aggregate_function_with_if=0,
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
-                       use_hive_partitioning=0
+                       use_hive_partitioning=0,
+                       json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestExperimentBreakdown.test_ratio_metric_with_breakdown[new_events_schema]
@@ -962,7 +975,8 @@
                        optimize_rewrite_aggregate_function_with_if=0,
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
-                       use_hive_partitioning=0
+                       use_hive_partitioning=0,
+                       json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestExperimentBreakdown.test_ratio_metric_with_person_property_breakdown[new_events_schema]
@@ -1059,7 +1073,8 @@
                        optimize_rewrite_aggregate_function_with_if=0,
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
-                       use_hive_partitioning=0
+                       use_hive_partitioning=0,
+                       json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestExperimentBreakdown.test_ratio_metric_with_two_breakdowns[new_events_schema]
@@ -1161,7 +1176,8 @@
                        optimize_rewrite_aggregate_function_with_if=0,
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
-                       use_hive_partitioning=0
+                       use_hive_partitioning=0,
+                       json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestExperimentBreakdown.test_retention_metric_with_breakdown[new_events_schema]
@@ -1246,7 +1262,8 @@
                        optimize_rewrite_aggregate_function_with_if=0,
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
-                       use_hive_partitioning=0
+                       use_hive_partitioning=0,
+                       json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestExperimentBreakdown.test_retention_metric_with_person_property_breakdown[new_events_schema]
@@ -1331,7 +1348,8 @@
                        optimize_rewrite_aggregate_function_with_if=0,
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
-                       use_hive_partitioning=0
+                       use_hive_partitioning=0,
+                       json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestExperimentBreakdown.test_retention_metric_with_two_breakdowns[new_events_schema]
@@ -1421,6 +1439,7 @@
                        optimize_rewrite_aggregate_function_with_if=0,
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
-                       use_hive_partitioning=0
+                       use_hive_partitioning=0,
+                       json_type_escape_dots_in_keys=1
   '''
 # ---

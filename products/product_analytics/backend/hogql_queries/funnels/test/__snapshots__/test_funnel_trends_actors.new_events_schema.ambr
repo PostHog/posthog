@@ -51,7 +51,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestFunnelTrendsActors.test_funnel_trend_persons_filters_by_breakdown[new_events_schema.2]
@@ -106,7 +107,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestFunnelTrendsActors.test_funnel_trend_persons_filters_by_breakdown[new_events_schema]
@@ -161,7 +163,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestFunnelTrendsActors.test_funnel_trend_persons_returns_recording_when_converting_step_has_no_session_id[new_events_schema]
@@ -222,7 +225,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestFunnelTrendsActors.test_funnel_trend_persons_returns_recordings[new_events_schema]
@@ -283,7 +287,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestFunnelTrendsActors.test_funnel_trend_persons_with_drop_off[new_events_schema]
@@ -344,7 +349,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestFunnelTrendsActors.test_funnel_trend_persons_with_no_to_step[new_events_schema]
@@ -405,6 +411,7 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---

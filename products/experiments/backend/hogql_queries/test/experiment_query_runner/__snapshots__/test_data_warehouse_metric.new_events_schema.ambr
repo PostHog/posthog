@@ -53,7 +53,8 @@
                        optimize_rewrite_aggregate_function_with_if=0,
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
-                       use_hive_partitioning=0
+                       use_hive_partitioning=0,
+                       json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestExperimentQueryRunner.test_data_warehouse_metric_skips_precomputation_1_ratio_metric[new_events_schema]
@@ -140,7 +141,8 @@
                        optimize_rewrite_aggregate_function_with_if=0,
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
-                       use_hive_partitioning=0
+                       use_hive_partitioning=0,
+                       json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_data_warehouse_continuous_metric[new_events_schema]
@@ -197,7 +199,8 @@
                        optimize_rewrite_aggregate_function_with_if=0,
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
-                       use_hive_partitioning=0
+                       use_hive_partitioning=0,
+                       json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_data_warehouse_count_metric[new_events_schema]
@@ -254,7 +257,8 @@
                        optimize_rewrite_aggregate_function_with_if=0,
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
-                       use_hive_partitioning=0
+                       use_hive_partitioning=0,
+                       json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_data_warehouse_metric_with_fixed_properties[new_events_schema]
@@ -311,7 +315,8 @@
                        optimize_rewrite_aggregate_function_with_if=0,
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
-                       use_hive_partitioning=0
+                       use_hive_partitioning=0,
+                       json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_data_warehouse_metric_with_property_filters_0_single_property_filter[new_events_schema]
@@ -368,7 +373,8 @@
                        optimize_rewrite_aggregate_function_with_if=0,
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
-                       use_hive_partitioning=0
+                       use_hive_partitioning=0,
+                       json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_data_warehouse_metric_with_property_filters_1_multiple_property_filters[new_events_schema]
@@ -425,7 +431,8 @@
                        optimize_rewrite_aggregate_function_with_if=0,
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
-                       use_hive_partitioning=0
+                       use_hive_partitioning=0,
+                       json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_data_warehouse_metric_with_property_filters_2_numeric_property_filter[new_events_schema]
@@ -482,7 +489,8 @@
                        optimize_rewrite_aggregate_function_with_if=0,
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
-                       use_hive_partitioning=0
+                       use_hive_partitioning=0,
+                       json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_data_warehouse_metric_with_property_filters_3_mixed_property_filters[new_events_schema]
@@ -539,7 +547,8 @@
                        optimize_rewrite_aggregate_function_with_if=0,
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
-                       use_hive_partitioning=0
+                       use_hive_partitioning=0,
+                       json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_group_aggregation_data_warehouse_mean_metric[new_events_schema]
@@ -589,7 +598,8 @@
                        optimize_rewrite_aggregate_function_with_if=0,
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
-                       use_hive_partitioning=0
+                       use_hive_partitioning=0,
+                       json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_0_person_properties[new_events_schema.1]
@@ -646,7 +656,8 @@
                        optimize_rewrite_aggregate_function_with_if=0,
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
-                       use_hive_partitioning=0
+                       use_hive_partitioning=0,
+                       json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_0_person_properties[new_events_schema]
@@ -703,7 +714,8 @@
                        optimize_rewrite_aggregate_function_with_if=0,
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
-                       use_hive_partitioning=0
+                       use_hive_partitioning=0,
+                       json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_1_event_properties[new_events_schema.1]
@@ -760,7 +772,8 @@
                        optimize_rewrite_aggregate_function_with_if=0,
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
-                       use_hive_partitioning=0
+                       use_hive_partitioning=0,
+                       json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_1_event_properties[new_events_schema]
@@ -817,7 +830,8 @@
                        optimize_rewrite_aggregate_function_with_if=0,
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
-                       use_hive_partitioning=0
+                       use_hive_partitioning=0,
+                       json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_2_feature_flags[new_events_schema.1]
@@ -874,7 +888,8 @@
                        optimize_rewrite_aggregate_function_with_if=0,
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
-                       use_hive_partitioning=0
+                       use_hive_partitioning=0,
+                       json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_2_feature_flags[new_events_schema]
@@ -931,7 +946,8 @@
                        optimize_rewrite_aggregate_function_with_if=0,
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
-                       use_hive_partitioning=0
+                       use_hive_partitioning=0,
+                       json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_3_cohort_static[new_events_schema.1]
@@ -988,7 +1004,8 @@
                        optimize_rewrite_aggregate_function_with_if=0,
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
-                       use_hive_partitioning=0
+                       use_hive_partitioning=0,
+                       json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_3_cohort_static[new_events_schema]
@@ -1048,7 +1065,8 @@
                        optimize_rewrite_aggregate_function_with_if=0,
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
-                       use_hive_partitioning=0
+                       use_hive_partitioning=0,
+                       json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_4_cohort_dynamic[new_events_schema.1]
@@ -1105,7 +1123,8 @@
                        optimize_rewrite_aggregate_function_with_if=0,
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
-                       use_hive_partitioning=0
+                       use_hive_partitioning=0,
+                       json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_4_cohort_dynamic[new_events_schema]
@@ -1165,7 +1184,8 @@
                        optimize_rewrite_aggregate_function_with_if=0,
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
-                       use_hive_partitioning=0
+                       use_hive_partitioning=0,
+                       json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_5_group[new_events_schema.1]
@@ -1222,7 +1242,8 @@
                        optimize_rewrite_aggregate_function_with_if=0,
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
-                       use_hive_partitioning=0
+                       use_hive_partitioning=0,
+                       json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_5_group[new_events_schema]
@@ -1287,7 +1308,8 @@
                        optimize_rewrite_aggregate_function_with_if=0,
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
-                       use_hive_partitioning=0
+                       use_hive_partitioning=0,
+                       json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_6_element[new_events_schema.1]
@@ -1344,7 +1366,8 @@
                        optimize_rewrite_aggregate_function_with_if=0,
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
-                       use_hive_partitioning=0
+                       use_hive_partitioning=0,
+                       json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_6_element[new_events_schema]
@@ -1401,7 +1424,8 @@
                        optimize_rewrite_aggregate_function_with_if=0,
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
-                       use_hive_partitioning=0
+                       use_hive_partitioning=0,
+                       json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_subscriptions_table[new_events_schema]
@@ -1464,7 +1488,8 @@
                        optimize_rewrite_aggregate_function_with_if=0,
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
-                       use_hive_partitioning=0
+                       use_hive_partitioning=0,
+                       json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestExperimentQueryRunner.test_ratio_metric_with_different_join_keys[new_events_schema]
@@ -1551,6 +1576,7 @@
                        optimize_rewrite_aggregate_function_with_if=0,
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
-                       use_hive_partitioning=0
+                       use_hive_partitioning=0,
+                       json_type_escape_dots_in_keys=1
   '''
 # ---

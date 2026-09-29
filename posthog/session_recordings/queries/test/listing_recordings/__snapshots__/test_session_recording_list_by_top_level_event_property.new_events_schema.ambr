@@ -44,7 +44,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestSessionRecordingsListByTopLevelEventProperty_0.test_can_filter_for_does_not_match_regex_event_properties[new_events_schema]
@@ -92,7 +93,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestSessionRecordingsListByTopLevelEventProperty_0.test_can_filter_for_flags_0_session_1_matches_target_flag_is_True[new_events_schema]
@@ -141,7 +143,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestSessionRecordingsListByTopLevelEventProperty_0.test_can_filter_for_flags_1_session_2_matches_target_flag_is_False[new_events_schema]
@@ -190,7 +193,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestSessionRecordingsListByTopLevelEventProperty_0.test_can_filter_for_flags_2_sessions_1_and_2_match_target_flag_is_set[new_events_schema]
@@ -239,7 +243,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestSessionRecordingsListByTopLevelEventProperty_0.test_can_filter_for_flags_3_sessions_3_and_4_match_target_flag_is_not_set[new_events_schema]
@@ -287,7 +292,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestSessionRecordingsListByTopLevelEventProperty_0.test_can_filter_for_two_is_not_event_properties[new_events_schema]
@@ -335,7 +341,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestSessionRecordingsListByTopLevelEventProperty_1.test_can_filter_for_does_not_contain_event_properties[new_events_schema]
@@ -383,7 +390,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestSessionRecordingsListByTopLevelEventProperty_1.test_can_filter_for_does_not_match_regex_event_properties[new_events_schema]
@@ -431,7 +439,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestSessionRecordingsListByTopLevelEventProperty_1.test_can_filter_for_flags_0_session_1_matches_target_flag_is_True[new_events_schema]
@@ -480,7 +489,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestSessionRecordingsListByTopLevelEventProperty_1.test_can_filter_for_flags_1_session_2_matches_target_flag_is_False[new_events_schema]
@@ -529,7 +539,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestSessionRecordingsListByTopLevelEventProperty_1.test_can_filter_for_flags_2_sessions_1_and_2_match_target_flag_is_set[new_events_schema]
@@ -578,7 +589,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestSessionRecordingsListByTopLevelEventProperty_1.test_can_filter_for_flags_3_sessions_3_and_4_match_target_flag_is_not_set[new_events_schema]
@@ -626,7 +638,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestSessionRecordingsListByTopLevelEventProperty_1.test_can_filter_for_two_is_not_event_properties[new_events_schema]
@@ -674,6 +687,7 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---

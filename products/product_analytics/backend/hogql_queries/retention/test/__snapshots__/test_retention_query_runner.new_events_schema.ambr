@@ -42,7 +42,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestClickhouseRetentionGroupAggregation.test_groups_aggregating[new_events_schema.2]
@@ -76,7 +77,8 @@
                         optimize_rewrite_aggregate_function_with_if=0,
                         optimize_min_inequality_conjunction_chain_length=4294967295,
                         allow_experimental_join_condition=1,
-                        use_hive_partitioning=0
+                        use_hive_partitioning=0,
+                        json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestClickhouseRetentionGroupAggregation.test_groups_aggregating[new_events_schema]
@@ -110,7 +112,8 @@
                         optimize_rewrite_aggregate_function_with_if=0,
                         optimize_min_inequality_conjunction_chain_length=4294967295,
                         allow_experimental_join_condition=1,
-                        use_hive_partitioning=0
+                        use_hive_partitioning=0,
+                        json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestClickhouseRetentionGroupAggregation.test_groups_aggregating_person_on_events[new_events_schema.1]
@@ -156,7 +159,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestClickhouseRetentionGroupAggregation.test_groups_aggregating_person_on_events[new_events_schema.2]
@@ -190,7 +194,8 @@
                         optimize_rewrite_aggregate_function_with_if=0,
                         optimize_min_inequality_conjunction_chain_length=4294967295,
                         allow_experimental_join_condition=1,
-                        use_hive_partitioning=0
+                        use_hive_partitioning=0,
+                        json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestClickhouseRetentionGroupAggregation.test_groups_aggregating_person_on_events[new_events_schema]
@@ -224,7 +229,8 @@
                         optimize_rewrite_aggregate_function_with_if=0,
                         optimize_min_inequality_conjunction_chain_length=4294967295,
                         allow_experimental_join_condition=1,
-                        use_hive_partitioning=0
+                        use_hive_partitioning=0,
+                        json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestClickhouseRetentionGroupAggregation.test_retention_24h_window_calculation[new_events_schema.1]
@@ -276,7 +282,8 @@
                         optimize_rewrite_aggregate_function_with_if=0,
                         optimize_min_inequality_conjunction_chain_length=4294967295,
                         allow_experimental_join_condition=1,
-                        use_hive_partitioning=0
+                        use_hive_partitioning=0,
+                        json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestClickhouseRetentionGroupAggregation.test_retention_24h_window_calculation[new_events_schema.2]
@@ -317,7 +324,8 @@
                         optimize_rewrite_aggregate_function_with_if=0,
                         optimize_min_inequality_conjunction_chain_length=4294967295,
                         allow_experimental_join_condition=1,
-                        use_hive_partitioning=0
+                        use_hive_partitioning=0,
+                        json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestClickhouseRetentionGroupAggregation.test_retention_24h_window_calculation[new_events_schema.3]
@@ -369,7 +377,8 @@
                         optimize_rewrite_aggregate_function_with_if=0,
                         optimize_min_inequality_conjunction_chain_length=4294967295,
                         allow_experimental_join_condition=1,
-                        use_hive_partitioning=0
+                        use_hive_partitioning=0,
+                        json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestClickhouseRetentionGroupAggregation.test_retention_24h_window_calculation[new_events_schema]
@@ -410,7 +419,8 @@
                         optimize_rewrite_aggregate_function_with_if=0,
                         optimize_min_inequality_conjunction_chain_length=4294967295,
                         allow_experimental_join_condition=1,
-                        use_hive_partitioning=0
+                        use_hive_partitioning=0,
+                        json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestRetention.test_day_interval_sampled[new_events_schema]
@@ -451,7 +461,8 @@
                         optimize_rewrite_aggregate_function_with_if=0,
                         optimize_min_inequality_conjunction_chain_length=4294967295,
                         allow_experimental_join_condition=1,
-                        use_hive_partitioning=0
+                        use_hive_partitioning=0,
+                        json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestRetention.test_month_interval_with_person_on_events_v2[new_events_schema]
@@ -492,7 +503,8 @@
                         optimize_rewrite_aggregate_function_with_if=0,
                         optimize_min_inequality_conjunction_chain_length=4294967295,
                         allow_experimental_join_condition=1,
-                        use_hive_partitioning=0
+                        use_hive_partitioning=0,
+                        json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestRetention.test_retention_aggregation_different_events_ignores_start_event_property_value[new_events_schema]
@@ -565,7 +577,8 @@
                         optimize_rewrite_aggregate_function_with_if=0,
                         optimize_min_inequality_conjunction_chain_length=4294967295,
                         allow_experimental_join_condition=1,
-                        use_hive_partitioning=0
+                        use_hive_partitioning=0,
+                        json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestRetention.test_retention_aggregation_sum[new_events_schema]
@@ -634,7 +647,8 @@
                         optimize_rewrite_aggregate_function_with_if=0,
                         optimize_min_inequality_conjunction_chain_length=4294967295,
                         allow_experimental_join_condition=1,
-                        use_hive_partitioning=0
+                        use_hive_partitioning=0,
+                        json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestRetention.test_retention_event_action[new_events_schema]
@@ -675,7 +689,8 @@
                         optimize_rewrite_aggregate_function_with_if=0,
                         optimize_min_inequality_conjunction_chain_length=4294967295,
                         allow_experimental_join_condition=1,
-                        use_hive_partitioning=0
+                        use_hive_partitioning=0,
+                        json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestRetention.test_retention_first_ever_single_scan_filters_by_event_name_only[new_events_schema.1]
@@ -722,7 +737,8 @@
                         optimize_rewrite_aggregate_function_with_if=0,
                         optimize_min_inequality_conjunction_chain_length=4294967295,
                         allow_experimental_join_condition=1,
-                        use_hive_partitioning=0
+                        use_hive_partitioning=0,
+                        json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestRetention.test_retention_first_ever_single_scan_filters_by_event_name_only[new_events_schema]
@@ -765,7 +781,8 @@
                         optimize_rewrite_aggregate_function_with_if=0,
                         optimize_min_inequality_conjunction_chain_length=4294967295,
                         allow_experimental_join_condition=1,
-                        use_hive_partitioning=0
+                        use_hive_partitioning=0,
+                        json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestRetention.test_retention_first_time_vs_first_ever_occurrence[new_events_schema.1]
@@ -828,7 +845,8 @@
                         optimize_rewrite_aggregate_function_with_if=0,
                         optimize_min_inequality_conjunction_chain_length=4294967295,
                         allow_experimental_join_condition=1,
-                        use_hive_partitioning=0
+                        use_hive_partitioning=0,
+                        json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestRetention.test_retention_first_time_vs_first_ever_occurrence[new_events_schema]
@@ -891,7 +909,8 @@
                         optimize_rewrite_aggregate_function_with_if=0,
                         optimize_min_inequality_conjunction_chain_length=4294967295,
                         allow_experimental_join_condition=1,
-                        use_hive_partitioning=0
+                        use_hive_partitioning=0,
+                        json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestRetention.test_retention_with_user_properties_via_action[new_events_schema]
@@ -932,7 +951,8 @@
                         optimize_rewrite_aggregate_function_with_if=0,
                         optimize_min_inequality_conjunction_chain_length=4294967295,
                         allow_experimental_join_condition=1,
-                        use_hive_partitioning=0
+                        use_hive_partitioning=0,
+                        json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestRetention.test_timezones[new_events_schema.1]
@@ -973,7 +993,8 @@
                         optimize_rewrite_aggregate_function_with_if=0,
                         optimize_min_inequality_conjunction_chain_length=4294967295,
                         allow_experimental_join_condition=1,
-                        use_hive_partitioning=0
+                        use_hive_partitioning=0,
+                        json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestRetention.test_timezones[new_events_schema]
@@ -1014,7 +1035,8 @@
                         optimize_rewrite_aggregate_function_with_if=0,
                         optimize_min_inequality_conjunction_chain_length=4294967295,
                         allow_experimental_join_condition=1,
-                        use_hive_partitioning=0
+                        use_hive_partitioning=0,
+                        json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestRetention.test_week_interval[new_events_schema.1]
@@ -1055,7 +1077,8 @@
                         optimize_rewrite_aggregate_function_with_if=0,
                         optimize_min_inequality_conjunction_chain_length=4294967295,
                         allow_experimental_join_condition=1,
-                        use_hive_partitioning=0
+                        use_hive_partitioning=0,
+                        json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestRetention.test_week_interval[new_events_schema]
@@ -1096,6 +1119,7 @@
                         optimize_rewrite_aggregate_function_with_if=0,
                         optimize_min_inequality_conjunction_chain_length=4294967295,
                         allow_experimental_join_condition=1,
-                        use_hive_partitioning=0
+                        use_hive_partitioning=0,
+                        json_type_escape_dots_in_keys=1
   '''
 # ---

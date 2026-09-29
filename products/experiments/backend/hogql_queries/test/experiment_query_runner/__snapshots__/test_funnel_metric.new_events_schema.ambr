@@ -44,7 +44,8 @@
                        optimize_rewrite_aggregate_function_with_if=0,
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
-                       use_hive_partitioning=0
+                       use_hive_partitioning=0,
+                       json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_funnel_metric_events_after_exposure_1_unordered[new_events_schema]
@@ -99,7 +100,8 @@
                        optimize_rewrite_aggregate_function_with_if=0,
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
-                       use_hive_partitioning=0
+                       use_hive_partitioning=0,
+                       json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_funnel_metric_excludes_different_feature_flags_0_direct[new_events_schema]
@@ -147,7 +149,8 @@
                        optimize_rewrite_aggregate_function_with_if=0,
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
-                       use_hive_partitioning=0
+                       use_hive_partitioning=0,
+                       json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_funnel_metric_excludes_events_after_experiment_end_date_0_direct[new_events_schema]
@@ -194,7 +197,8 @@
                        optimize_rewrite_aggregate_function_with_if=0,
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
-                       use_hive_partitioning=0
+                       use_hive_partitioning=0,
+                       json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_funnel_metric_ordered_vs_unordered_comparison_0_direct[new_events_schema.1]
@@ -249,7 +253,8 @@
                        optimize_rewrite_aggregate_function_with_if=0,
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
-                       use_hive_partitioning=0
+                       use_hive_partitioning=0,
+                       json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_funnel_metric_ordered_vs_unordered_comparison_0_direct[new_events_schema]
@@ -297,7 +302,8 @@
                        optimize_rewrite_aggregate_function_with_if=0,
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
-                       use_hive_partitioning=0
+                       use_hive_partitioning=0,
+                       json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_funnel_metric_with_action_0_direct[new_events_schema]
@@ -345,7 +351,8 @@
                        optimize_rewrite_aggregate_function_with_if=0,
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
-                       use_hive_partitioning=0
+                       use_hive_partitioning=0,
+                       json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_funnel_metric_with_conversion_window_0_direct[new_events_schema]
@@ -393,7 +400,8 @@
                        optimize_rewrite_aggregate_function_with_if=0,
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
-                       use_hive_partitioning=0
+                       use_hive_partitioning=0,
+                       json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_funnel_metric_with_custom_conversion_window_0_direct[new_events_schema]
@@ -441,7 +449,8 @@
                        optimize_rewrite_aggregate_function_with_if=0,
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
-                       use_hive_partitioning=0
+                       use_hive_partitioning=0,
+                       json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_funnel_metric_with_many_steps_0_direct[new_events_schema]
@@ -493,7 +502,8 @@
                        optimize_rewrite_aggregate_function_with_if=0,
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
-                       use_hive_partitioning=0
+                       use_hive_partitioning=0,
+                       json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_funnel_metric_with_multiple_similar_steps_0_direct[new_events_schema]
@@ -542,7 +552,8 @@
                        optimize_rewrite_aggregate_function_with_if=0,
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
-                       use_hive_partitioning=0
+                       use_hive_partitioning=0,
+                       json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_funnel_metric_with_step_property_filter_0_direct[new_events_schema]
@@ -590,7 +601,8 @@
                        optimize_rewrite_aggregate_function_with_if=0,
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
-                       use_hive_partitioning=0
+                       use_hive_partitioning=0,
+                       json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_funnel_metric_with_unordered_steps_0_direct[new_events_schema]
@@ -645,7 +657,8 @@
                        optimize_rewrite_aggregate_function_with_if=0,
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
-                       use_hive_partitioning=0
+                       use_hive_partitioning=0,
+                       json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_maturity_anchored_on_first_exposure_0_direct[new_events_schema]
@@ -693,7 +706,8 @@
                        optimize_rewrite_aggregate_function_with_if=0,
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
-                       use_hive_partitioning=0
+                       use_hive_partitioning=0,
+                       json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_only_count_matured_users_0_direct[new_events_schema]
@@ -741,7 +755,8 @@
                        optimize_rewrite_aggregate_function_with_if=0,
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
-                       use_hive_partitioning=0
+                       use_hive_partitioning=0,
+                       json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_query_runner_data_warehouse_funnel_metric_0_direct[new_events_schema]
@@ -813,7 +828,8 @@
                        optimize_rewrite_aggregate_function_with_if=0,
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
-                       use_hive_partitioning=0
+                       use_hive_partitioning=0,
+                       json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_query_runner_data_warehouse_funnel_no_fanout_0_direct[new_events_schema]
@@ -885,7 +901,8 @@
                        optimize_rewrite_aggregate_function_with_if=0,
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
-                       use_hive_partitioning=0
+                       use_hive_partitioning=0,
+                       json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_query_runner_data_warehouse_funnel_partial_coverage_0_direct[new_events_schema]
@@ -957,7 +974,8 @@
                        optimize_rewrite_aggregate_function_with_if=0,
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
-                       use_hive_partitioning=0
+                       use_hive_partitioning=0,
+                       json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_query_runner_data_warehouse_funnel_zero_coverage_0_direct[new_events_schema]
@@ -1029,7 +1047,8 @@
                        optimize_rewrite_aggregate_function_with_if=0,
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
-                       use_hive_partitioning=0
+                       use_hive_partitioning=0,
+                       json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_query_runner_funnel_metric_0_direct[new_events_schema]
@@ -1076,7 +1095,8 @@
                        optimize_rewrite_aggregate_function_with_if=0,
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
-                       use_hive_partitioning=0
+                       use_hive_partitioning=0,
+                       json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_query_runner_group_aggregation_funnel_metric_0_direct[new_events_schema]
@@ -1116,6 +1136,7 @@
                        optimize_rewrite_aggregate_function_with_if=0,
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
-                       use_hive_partitioning=0
+                       use_hive_partitioning=0,
+                       json_type_escape_dots_in_keys=1
   '''
 # ---
