@@ -13,6 +13,9 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@earendil-works/pi-ai": "catalog:",
+    "@posthog/harness": "workspace:*",
+    "@posthog/shared": "workspace:*",
     "ink": "^7.1.1",
     "react": "catalog:",
     "vite": "^7.0.0"
