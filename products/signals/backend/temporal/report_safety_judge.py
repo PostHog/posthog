@@ -1,11 +1,13 @@
 import re
 import json
+import asyncio
 from dataclasses import dataclass
 from typing import Optional
 
 import structlog
 import temporalio
 from pydantic import BaseModel, Field, model_validator
+from temporalio.exceptions import ApplicationError
 
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.scoped import scoped_temporal
@@ -29,6 +31,7 @@ logger = structlog.get_logger(__name__)
 _SIGNAL_DATA_TAG = re.compile(r"<(/?)signal_data\b", re.IGNORECASE)
 # A UTF-8 byte can become one token, so this leaves room under the deployed model's 8,192-token cap for framing.
 JEV_REPORT_STATE_MAX_BYTES = 6 * 1024
+JEV_REPORT_TIMEOUT_SECONDS = 240.0
 
 
 class SafetyJudgeResponse(BaseModel):
@@ -202,10 +205,18 @@ async def judge_report_safety(
                 "Shorten or remove that signal, then try again."
             ),
         )
-    for chunk in chunks:
-        result = await judge_once(chunk, mode)
-        if not result.choice:
-            return result
+    try:
+        async with asyncio.timeout(JEV_REPORT_TIMEOUT_SECONDS):
+            for chunk in chunks:
+                result = await judge_once(chunk, mode)
+                if not result.choice:
+                    return result
+    except TimeoutError:
+        raise ApplicationError(
+            "The report safety check exceeded its time limit.",
+            type="ReportSafetyTimeout",
+            non_retryable=True,
+        ) from None
     return SafetyJudgeResponse(choice=True)
 
 

@@ -301,6 +301,7 @@ export const PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION = [
     'endpoint:read',
     'feature_flag:read',
     'account:read',
+    'account:write',
     'loop:write',
     'experiment:read',
     'offline_evaluation_ingestion:write',
