@@ -609,6 +609,7 @@ the row lists both.
 | retently                         | HTTP                        | requests                                                        | ✅                          |
 | revenuecat                       | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (pull) / ➖ (webhook)    |
 | reverb                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| revolut_merchant                 | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | rippling                         | HTTP                        | requests                                                        | ✅                          |
 | rki_covid                        | HTTP                        | requests                                                        | ✅                          |
 | roark                            | HTTP                        | requests                                                        | ✅                          |
@@ -1330,7 +1331,6 @@ doesn't conflict with concurrent PRs.
 - retail_express
 - retell_ai
 - retently
-- revolut_merchant
 - ringcentral
 - rocket_chat
 - rocket_matter
