@@ -217,9 +217,9 @@ export const AccessControlsApply: Story = {
     },
 }
 
-// A docked side panel leaves a 1280px window about 520px of scene. The group headers have to
-// wrap there instead of pushing their controls out of the card, so this story snapshots the
-// runner's narrow viewport.
+// The consent page has no sidebar, so it only gets narrow in a narrow browser window, such as
+// an OAuth popup. There the group labels truncate and the counts hide, so the controls keep
+// their place. This story snapshots the runner's narrow viewport to show that.
 export const ManyOptionalScopesNarrow: Story = {
     parameters: { testOptions: { viewportWidths: ['narrow'] } },
     decorators: [withOAuthApplication({ required_scopes: [] })],

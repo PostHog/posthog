@@ -46,13 +46,13 @@ export function OAuthScopeGroupControl({
     const groupSlug = label.toLowerCase().replace(/[^a-z0-9]+/g, '-')
 
     return (
-        <div className="border-t border-border first:border-t-0">
-            {/* The header wraps, so at a narrow width the counts and the control drop to a second
-                line instead of pushing the control out of the card. */}
-            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 py-2 min-h-10">
+        <div className="border-t border-border first:border-t-0 @container/scope-group">
+            {/* The header stays on one line. In a narrow container, such as an OAuth popup window,
+                the label truncates and the counts hide, so the control keeps its place. */}
+            <div className="flex items-center gap-2 py-2 min-h-10">
                 <button
                     type="button"
-                    className="flex items-center gap-2 flex-1 min-w-48 text-left font-semibold cursor-pointer bg-transparent border-0 p-0 text-inherit"
+                    className="flex items-center gap-2 flex-1 min-w-0 text-left font-semibold cursor-pointer bg-transparent border-0 p-0 text-inherit"
                     onClick={() => setOpen(!open)}
                     aria-expanded={open}
                     aria-controls={panelId}
@@ -66,27 +66,29 @@ export function OAuthScopeGroupControl({
                     />
                     <span className="truncate">{label}</span>
                 </button>
-                <div className="flex items-center gap-2 ml-auto">
-                    <span className="text-xs text-muted whitespace-nowrap">
-                        <span translate="no">{rows.length}</span> {rows.length === 1 ? 'permission' : 'permissions'}
-                    </span>
-                    <span className="flex items-center gap-1">
-                        {/* Same order as the segmented control: no access, read, write. */}
-                        {counts.none > 0 && (
-                            <LemonTag size="small" type="muted">
-                                <span translate="no">{counts.none}</span> none
-                            </LemonTag>
-                        )}
-                        {counts.read > 0 && (
-                            <LemonTag size="small" type="success">
-                                <span translate="no">{counts.read}</span> read
-                            </LemonTag>
-                        )}
-                        {counts.write > 0 && (
-                            <LemonTag size="small" type="warning">
-                                <span translate="no">{counts.write}</span> write
-                            </LemonTag>
-                        )}
+                <div className="flex items-center gap-2 ml-auto shrink-0">
+                    <span className="hidden @min-[36rem]/scope-group:flex items-center gap-2">
+                        <span className="text-xs text-muted whitespace-nowrap">
+                            <span translate="no">{rows.length}</span> {rows.length === 1 ? 'permission' : 'permissions'}
+                        </span>
+                        <span className="flex items-center gap-1">
+                            {/* Same order as the segmented control: no access, read, write. */}
+                            {counts.none > 0 && (
+                                <LemonTag size="small" type="muted">
+                                    <span translate="no">{counts.none}</span> none
+                                </LemonTag>
+                            )}
+                            {counts.read > 0 && (
+                                <LemonTag size="small" type="success">
+                                    <span translate="no">{counts.read}</span> read
+                                </LemonTag>
+                            )}
+                            {counts.write > 0 && (
+                                <LemonTag size="small" type="warning">
+                                    <span translate="no">{counts.write}</span> write
+                                </LemonTag>
+                            )}
+                        </span>
                     </span>
                     <div role="group" aria-label={`${label} access`}>
                         <LemonSegmentedButton
