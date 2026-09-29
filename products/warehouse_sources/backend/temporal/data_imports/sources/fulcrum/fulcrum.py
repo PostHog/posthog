@@ -1,9 +1,10 @@
-import dataclasses
 from collections.abc import Iterable
 from datetime import UTC, date, datetime
 from typing import Any, Optional, cast
 
 from requests import Request, Response
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
@@ -29,7 +30,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.fulcrum.se
 FULCRUM_BASE_URL = "https://api.fulcrumapp.com/api/v2"
 
 
-@dataclasses.dataclass
+@frozen
 class FulcrumResumeConfig:
     # Next page number to fetch for a top-level endpoint. Page-number pagination is deterministic
     # and the incremental `updated_since` filter is fixed for the job, so the page number alone is
