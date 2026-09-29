@@ -117,9 +117,10 @@ def create_layer_reports(
             status=SignalReport.Status.READY,
             title=layer.title,
             summary=_layer_summary(parent=parent, layer=layer, index=index, total=len(layers)),
-            promoted_at=now,
             # Born directly in a visible status without `transition_to`, which stamps this for
-            # pipeline reports, so the daily report limit counts the layer from creation.
+            # pipeline reports, so the daily report limit counts the layer from creation. No
+            # `promoted_at`: a layer runs no research, so it never fires `signal_report_started`,
+            # and lifecycle monitoring expects that event from every promoted report.
             first_visible_at=now,
             billing_exempt_reason=billing_exempt_reason,
         )
