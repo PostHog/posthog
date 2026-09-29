@@ -16,12 +16,12 @@ import { useValues } from 'kea'
 import { ReactNode, useEffect } from 'react'
 
 import { IconArchive } from '@posthog/icons'
-import { Spinner } from '@posthog/lemon-ui'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { DataModelingEdge, DataModelingNode } from '~/types'
 
 import { ElkDirection } from './autolayout'
+import { LineageGraphLoading } from './LineageGraphLoading'
 import { lineageGraphLogic } from './lineageGraphLogic'
 import { LINEAGE_NODE_TYPES, LineageNodeCallbacks, LineageNodeState, LineageVariant } from './LineageNode'
 
@@ -43,6 +43,7 @@ export interface LineageGraphProps {
     showControls?: boolean
     className?: string
     loading?: boolean
+    loadingCenter?: Pick<DataModelingNode, 'name' | 'type'>
     emptyMessage?: string
     /** Per-node visual state (running, dimmed, highlighted), computed by the caller */
     nodeState?: (node: DataModelingNode) => LineageNodeState
@@ -86,10 +87,14 @@ function LineageGraphContent(props: LineageGraphProps): JSX.Element {
     }, [fitView, viewportInitialized, focusNodeIds, layout])
 
     if (!layout) {
+        const center = props.loadingCenter ?? props.nodes.find((node) => node.id === currentNodeId)
         return (
-            <div className="flex items-center justify-center w-full h-full">
-                <Spinner />
-            </div>
+            <LineageGraphLoading
+                center={center}
+                direction={props.direction ?? 'RIGHT'}
+                fitViewOptions={props.fitViewOptions}
+                variant={props.variant ?? 'full'}
+            />
         )
     }
 
@@ -148,9 +153,14 @@ function LineageGraphContent(props: LineageGraphProps): JSX.Element {
 export function LineageGraph(props: LineageGraphProps): JSX.Element {
     if (props.loading) {
         return (
-            <div className="flex items-center justify-center w-full h-full">
-                <Spinner />
-            </div>
+            <ReactFlowProvider>
+                <LineageGraphLoading
+                    center={props.loadingCenter}
+                    direction={props.direction ?? 'RIGHT'}
+                    fitViewOptions={props.fitViewOptions}
+                    variant={props.variant ?? 'full'}
+                />
+            </ReactFlowProvider>
         )
     }
     if (props.nodes.length === 0) {
