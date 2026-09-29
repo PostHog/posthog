@@ -323,7 +323,10 @@ describe('experimentMetricsLogic', () => {
             })
             mountLogic()
 
-            await expectLogic(logic).toDispatchActions(['setCurrentRecalculation', 'setPrimaryMetricsResultsErrors'])
+            await expectLogic(logic)
+                .toDispatchActions(['setCurrentRecalculation', 'setPrimaryMetricsResultsErrors'])
+                // Every metric has a result row, failed or not, so the failure alone must not start a new run.
+                .toNotHaveDispatchedActions(['triggerRecalculation'])
 
             // The successful secondary metric loads its result.
             expect(logic.values.secondaryMetricsResults[0]).toEqual(secondaryResult)
@@ -392,37 +395,51 @@ describe('experimentMetricsLogic', () => {
             expect(capturedBody).toEqual({ trigger: 'cold_run' })
         })
 
-        it('heals a completed run that is missing a metric added after it finished', async () => {
-            // A metric added after the last run finished is absent from that run's results. The run's own
-            // counts look complete, so only a uuid comparison catches the gap; without the heal the new metric
-            // stays stuck loading on every page load.
-            // Derive the extra metric from a real fixture metric so it stays fully typed; only the uuid differs.
-            const addedMetric = { ...EXPERIMENT.metrics[0], uuid: 'added-after-run-uuid' }
-            const experimentWithExtraMetric: Experiment = {
-                ...EXPERIMENT,
-                metrics: [...EXPERIMENT.metrics, addedMetric],
-            }
+        // Derive the extra metric from a real fixture metric so it stays fully typed; only the uuid differs.
+        const experimentWithExtraMetric: Experiment = {
+            ...EXPERIMENT,
+            metrics: [...EXPERIMENT.metrics, { ...EXPERIMENT.metrics[0], uuid: 'added-after-run-uuid' }],
+        }
+
+        it.each([
+            {
+                // The run's own counts look complete; only a uuid comparison catches the added metric.
+                name: 'a completed run that is missing a metric added after it finished',
+                latest: completedRecalculation,
+                experiment: experimentWithExtraMetric,
+            },
+            {
+                // Counts say two completed but only one row came back: the rows sit under a fingerprint the
+                // current experiment config no longer produces, so they read as missing.
+                name: 'a completed run that returns fewer result rows than it counts as completed',
+                latest: { ...completedRecalculation, results: completedRecalculation.results.slice(0, 1) },
+                experiment: EXPERIMENT,
+            },
+            {
+                // A failed terminal run whose failure never wrote a result row: one row for two metrics.
+                name: 'a failed run that returns fewer result rows than the experiment has metrics',
+                latest: { ...partialFailureRecalculation, results: partialFailureRecalculation.results.slice(1) },
+                experiment: EXPERIMENT,
+            },
+        ])('heals $name with a heal_latest_run', async ({ latest, experiment }) => {
             let capturedBody: any
             useMocks({
                 get: {
-                    // Completed run that covers only the two original metrics, not the newly added one.
-                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [
-                        200,
-                        completedRecalculation,
-                    ],
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [200, latest],
                 },
                 post: {
+                    // Return a terminal run so triggerRecalculation finishes without arming a poll timer.
                     '/api/projects/:team_id/experiments/:id/metrics_recalculation/': async ({ request }) => {
                         capturedBody = await request.json()
                         return [201, completedRecalculation2]
                     },
                 },
             })
-            logic = experimentMetricsLogic({ experiment: experimentWithExtraMetric })
+            logic = experimentMetricsLogic({ experiment })
             logic.mount()
 
             await expectLogic(logic).toDispatchActions(['triggerRecalculation']).toFinishAllListeners()
-            expect(capturedBody).toEqual({ trigger: 'experiment_config_change' })
+            expect(capturedBody).toEqual({ trigger: 'heal_latest_run' })
         })
 
         it('applies terminal results and resumes polling the active run (reload while recalculating)', async () => {
@@ -527,7 +544,7 @@ describe('experimentMetricsLogic', () => {
             expect(logic.values.secondaryMetricsResults[0]).toEqual(secondaryResult)
         })
 
-        it('renders the timeseries fallback and triggers a cold_run to fill gaps', async () => {
+        it('renders the timeseries fallback and triggers a heal_latest_run to fill gaps', async () => {
             let capturedBody: any
             useMocks({
                 get: {
@@ -551,8 +568,8 @@ describe('experimentMetricsLogic', () => {
                 .toFinishAllListeners()
             // The placeholder timeseries result is shown immediately for the metric it covered.
             expect(logic.values.primaryMetricsResults[0]).toEqual(primaryResult)
-            // A real cold_run is fired to fill the gap (secondary).
-            expect(capturedBody).toEqual({ trigger: 'cold_run' })
+            // A real run is fired to fill the gap (secondary).
+            expect(capturedBody).toEqual({ trigger: 'heal_latest_run' })
         })
 
         it('keeps the timeseries placeholder visible while the triggered cold_run is still pending', async () => {
