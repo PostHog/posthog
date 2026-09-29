@@ -11,6 +11,7 @@ import type { InvocationFailureSink } from '../services/dead-letter/cdp-dead-let
 import {
     DeadLetterRecord,
     SourceKind,
+    partitionReplayFailures,
     readDeadLetterRecord,
     readParkedEvent,
     replayTargetIds,
@@ -262,10 +263,14 @@ export class CdpDlqReplayConsumer extends CdpConsumerBase<PluginsServerConfig> {
         // how a still-broken destination looks from here. Zero invocations on its own is not enough
         // to go on: a deleted, disabled, quota-limited or masked destination is also correctly
         // built and correctly not delivered.
-        if (this.buildFailures.failures.length) {
-            const [first] = this.buildFailures.failures
+        const { blocking, unreplayable } = partitionReplayFailures(this.buildFailures.failures)
+        if (unreplayable) {
+            counterReplayRecords.labels({ outcome: 'unreplayable' }).inc(unreplayable)
+        }
+        if (blocking.length) {
+            const [first] = blocking
             throw new Error(
-                `${this.buildFailures.failures.length} source(s) in this batch still fail to build, ` +
+                `${blocking.length} source(s) in this batch still fail to build, ` +
                     `first ${first.sourceKind} ${first.sourceId} at ${first.step}: ${first.error}. ` +
                     'Refusing to commit past records whose delivery did not happen'
             )

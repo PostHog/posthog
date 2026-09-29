@@ -3,6 +3,8 @@ import { Message } from 'node-rdkafka'
 import { parseJSON } from '~/common/utils/json-parse'
 
 import type { RawClickHouseEvent } from '../../../types'
+import type { InvocationBuildFailure } from '../../types'
+import { isOurFailure } from './cdp-dead-letter.service'
 
 /**
  * A dead-letter record, read from its headers alone.
@@ -86,4 +88,16 @@ export function readParkedEvent(message: Message): RawClickHouseEvent | null {
     }
     const event = parseJSON(message.value.toString()) as RawClickHouseEvent
     return event.team_id ? event : null
+}
+
+/**
+ * A rebuild that fails on the owner's data or budget fails the same way on every attempt, so
+ * holding the offset for it wedges the worker on a record no retry can clear.
+ */
+export function partitionReplayFailures(failures: InvocationBuildFailure[]): {
+    blocking: InvocationBuildFailure[]
+    unreplayable: number
+} {
+    const blocking = failures.filter(isOurFailure)
+    return { blocking, unreplayable: failures.length - blocking.length }
 }

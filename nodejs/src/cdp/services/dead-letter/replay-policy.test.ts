@@ -1,6 +1,13 @@
 import { Message } from 'node-rdkafka'
 
-import { readDeadLetterRecord, readParkedEvent, replayTargetIds, replayTargetKinds } from './replay-policy'
+import type { InvocationBuildFailure } from '../../types'
+import {
+    partitionReplayFailures,
+    readDeadLetterRecord,
+    readParkedEvent,
+    replayTargetIds,
+    replayTargetKinds,
+} from './replay-policy'
 
 describe('replay policy', () => {
     const message = (headers: Record<string, string>, value: string | null = '{"team_id":2}'): Message =>
@@ -80,5 +87,48 @@ describe('replay policy', () => {
             team_id: 2,
             uuid: 'abc',
         })
+    })
+})
+
+describe('partitionReplayFailures', () => {
+    const failure = (overrides: Partial<InvocationBuildFailure>): InvocationBuildFailure => ({
+        sourceId: 'fn-1',
+        sourceKind: 'hog_function',
+        step: 'inputs',
+        error: 'boom',
+        ...overrides,
+    })
+
+    it('blocks on a failure that is ours, so the offset is not committed past a lost delivery', () => {
+        const { blocking, unreplayable } = partitionReplayFailures([
+            failure({ errorClass: 'drift' }),
+            failure({ errorClass: 'bug' }),
+            failure({ errorClass: 'platform' }),
+            failure({}),
+        ])
+
+        expect(blocking).toHaveLength(4)
+        expect(unreplayable).toBe(0)
+    })
+
+    it('passes over a failure no replay can clear, so one record cannot wedge the worker', () => {
+        const { blocking, unreplayable } = partitionReplayFailures([
+            failure({ errorClass: 'data' }),
+            failure({ errorClass: 'limit' }),
+            failure({ errorClass: 'legacy' }),
+        ])
+
+        expect(blocking).toHaveLength(0)
+        expect(unreplayable).toBe(3)
+    })
+
+    it('still blocks when only one of a mixed batch is ours', () => {
+        const { blocking, unreplayable } = partitionReplayFailures([
+            failure({ errorClass: 'data' }),
+            failure({ sourceId: 'fn-2', errorClass: 'drift' }),
+        ])
+
+        expect(blocking).toEqual([expect.objectContaining({ sourceId: 'fn-2' })])
+        expect(unreplayable).toBe(1)
     })
 })
