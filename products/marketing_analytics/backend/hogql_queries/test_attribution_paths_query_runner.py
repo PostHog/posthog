@@ -15,6 +15,7 @@ from posthog.schema import (
     PropertyMathType,
 )
 
+from posthog.hogql.errors import QueryError
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.test.utils import pretty_print_in_tests
 
@@ -230,9 +231,9 @@ class TestMarketingAnalyticsAttributionPathsQueryRunner(ClickhouseTestMixin, Bas
         self.assertEqual(self._paths(response), {("bing", "google", "newsletter"): 1})
 
     def test_invalid_touchpoint_bounds_are_rejected(self):
-        with self.assertRaises(ValueError):
+        with self.assertRaises(QueryError):
             self._run(min_touchpoints=0)
-        with self.assertRaises(ValueError):
+        with self.assertRaises(QueryError):
             self._run(min_touchpoints=3, max_touchpoints=2)
 
     def test_excluding_direct_drops_direct_steps_from_the_path(self):

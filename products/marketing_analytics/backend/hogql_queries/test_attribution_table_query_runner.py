@@ -20,6 +20,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.errors import QueryError
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.property_access_types import RestrictedProperty
 from posthog.hogql.test.utils import pretty_print_in_tests
@@ -873,7 +874,7 @@ class TestMarketingAnalyticsAttributionQueryRunner(ClickhouseTestMixin, BaseTest
             conversionGoalId="broken-goal",
             properties=[],
         )
-        with self.assertRaises(ValueError) as raised:
+        with self.assertRaises(QueryError) as raised:
             MarketingAnalyticsAttributionQueryRunner(query=broken, team=self.team).to_query()
         self.assertIn("All events (misconfigured)", str(raised.exception))
 
@@ -892,7 +893,7 @@ class TestMarketingAnalyticsAttributionQueryRunner(ClickhouseTestMixin, BaseTest
             properties=[],
         )
         runner = MarketingAnalyticsAttributionQueryRunner(query=query, team=self.team)
-        with self.assertRaises(ValueError):
+        with self.assertRaises(QueryError):
             runner.to_query()
 
     def test_goal_property_filters_narrow_the_conversions_counted(self):
@@ -954,7 +955,7 @@ class TestMarketingAnalyticsAttributionQueryRunner(ClickhouseTestMixin, BaseTest
             conversionGoalId=GOAL_ID,
             properties=[],
         )
-        with self.assertRaises(ValueError) as raised:
+        with self.assertRaises(QueryError) as raised:
             MarketingAnalyticsAttributionQueryRunner(query=query, team=self.team).to_query()
         self.assertIn("no longer exists", str(raised.exception))
 
@@ -1050,7 +1051,7 @@ class TestMarketingAnalyticsAttributionQueryRunner(ClickhouseTestMixin, BaseTest
             lookbackWindowDays=days,
             properties=[],
         )
-        with self.assertRaises(ValueError):
+        with self.assertRaises(QueryError):
             MarketingAnalyticsAttributionQueryRunner(query=query, team=self.team).to_query()
 
     def _printed_sql(self, breakdown: MarketingAnalyticsAttributionBreakdown, *, precomputed: bool = False) -> str:
