@@ -611,6 +611,9 @@ class TestBatchRunReportEvent(_BatchCommandTestCase):
             "failed": 0,
             "tool_calls": 0,
             "tools_deferred": 0,
+            "scores_projected": 0,
+            "score_failures": 0,
+            "score_attempted": 0,
         }
 
     def test_a_report_failure_is_captured_and_the_run_still_completes(self):

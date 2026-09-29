@@ -47,6 +47,7 @@ import {
     stateToRRule,
 } from '../Workflows/hogflows/steps/components/rrule-helpers'
 import { ResourceSaveQueue } from '../Workflows/resourceSaveQueue'
+import { confirmArchiveBroadcast, confirmDeleteBroadcast, restoreBroadcast } from './broadcastLifecycle'
 import {
     BroadcastStatus,
     StoppableBroadcast,
@@ -56,6 +57,9 @@ import {
 } from './broadcastsLogic'
 
 export type BroadcastWizardStep = 'recipients' | 'goal' | 'content' | 'schedule' | 'review'
+
+const EMAIL_AUTOSAVE_RETRIES = 3
+const EMAIL_AUTOSAVE_RETRY_MS = 2000
 
 export const BROADCAST_WIZARD_STEPS: BroadcastWizardStep[] = ['recipients', 'goal', 'content', 'schedule', 'review']
 
@@ -185,10 +189,16 @@ export interface broadcastWizardLogicActions {
         base: HogFlowApi | null
         broadcast: HogFlowApi
     }
+    archiveBroadcast: () => {
+        value: true
+    }
     collapseRun: (runId: string) => {
         runId: string
     }
     continueStep: () => {
+        value: true
+    }
+    deleteBroadcast: () => {
         value: true
     }
     draftAutosaved: (broadcast: HogFlowApi) => {
@@ -275,8 +285,14 @@ export interface broadcastWizardLogicActions {
     replayDeferredEdit: () => {
         value: true
     }
+    restoreBroadcast: () => {
+        value: true
+    }
     saveBroadcastFinished: (broadcast: HogFlowApi | null) => {
         broadcast: HogFlowApi | null
+    }
+    saveName: () => {
+        value: true
     }
     setAudienceProperties: (properties: AnyPropertyFilter[]) => {
         properties: AnyPropertyFilter[]
@@ -336,6 +352,9 @@ export interface broadcastWizardLogicActions {
     }
     setSummaryTab: (tab: BroadcastSummaryTab) => {
         tab: BroadcastSummaryTab
+    }
+    showSavedDraftUrl: () => {
+        value: true
     }
 }
 
@@ -429,6 +448,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         prevStep: true,
         continueStep: true,
         setName: (name: string) => ({ name }),
+        saveName: true,
         setAudienceProperties: (properties: AnyPropertyFilter[]) => ({ properties }),
         setGoalEnabled: (enabled: boolean) => ({ enabled }),
         setConversion: (conversion: HogFlowConversionApi) => ({ conversion }),
@@ -448,6 +468,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         hydrateFromBroadcast: (broadcast: HogFlowApi) => ({ broadcast }),
         saveBroadcastFinished: (broadcast: HogFlowApi | null) => ({ broadcast }),
         ensureDraft: true,
+        showSavedDraftUrl: true,
         draftAutosaved: (broadcast: HogFlowApi) => ({ broadcast }),
         applyExternalEdit: (broadcast: HogFlowApi, base: HogFlowApi | null) => ({ broadcast, base }),
         replayDeferredEdit: true,
@@ -460,6 +481,9 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         moveToDraft: true,
         moveToDraftFinished: true,
         duplicateBroadcast: true,
+        archiveBroadcast: true,
+        restoreBroadcast: true,
+        deleteBroadcast: true,
         duplicateBroadcastFinished: true,
     }),
 
@@ -930,15 +954,15 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             (s) => [s.name],
             (name: string): Breadcrumb[] => [
                 {
-                    key: Scene.Workflows,
+                    key: Scene.Broadcasts,
                     name: 'Broadcasts',
                     path: urls.broadcasts(),
-                    iconType: 'workflows',
+                    iconType: 'broadcasts',
                 },
                 {
                     key: [Scene.Broadcast, name],
                     name,
-                    iconType: 'workflows',
+                    iconType: 'broadcasts',
                 },
             ],
         ],
@@ -994,8 +1018,21 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 await saves.run(async () => {
                     actions.draftAutosaved(await hogFlowsCreate(projectId, buildBroadcastPayload(values) as any))
                 })
+                actions.showSavedDraftUrl()
             } catch (error: any) {
                 lemonToast.error(`Couldn't save the broadcast: ${error?.detail || error?.message || 'unknown error'}`)
+            }
+        },
+        showSavedDraftUrl: () => {
+            // On /broadcasts/new a reload starts over and orphans the saved draft. The new URL remounts the
+            // wizard from the saved copy, so an unsaved email edit moves it only once its autosave lands.
+            if (
+                props.id === 'new' &&
+                !cache.emailEditPending &&
+                values.broadcastId &&
+                values.broadcast?.status === 'draft'
+            ) {
+                router.actions.replace(urls.broadcast(values.broadcastId), { step: values.currentStep })
             }
         },
         setEmail: async (_, breakpoint) => {
@@ -1003,12 +1040,8 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             // sees rather than from the last Continue.
             // The editor is live while the draft is still being created, so wait for it before the
             // draft check. Otherwise edits made during the create never reach the saved draft.
-            const saves = getSaveQueue(cache, values)
-            await saves.whenIdle()
-            if (values.currentStep !== 'content' || values.broadcast?.status !== 'draft') {
-                return
-            }
-            // Overlapping autosaves share the pending flag, so only the latest edit may clear it.
+            // Overlapping autosaves share the pending flag, so only the latest edit may clear it. It is set
+            // before the wait, so a draft created meanwhile does not leave /broadcasts/new without this edit.
             const generation = (cache.emailEditGeneration = (cache.emailEditGeneration ?? 0) + 1)
             const clearPending = (): void => {
                 if (cache.emailEditGeneration === generation) {
@@ -1016,14 +1049,17 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 }
             }
             cache.emailEditPending = true
+            // Read before the wait: a Continue in flight moves the step on, but its save may not carry this edit.
+            const editedOnContent = values.currentStep === 'content'
+            const saves = getSaveQueue(cache, values)
+            await saves.whenIdle()
+            if (!editedOnContent || values.broadcast?.status !== 'draft') {
+                clearPending()
+                return
+            }
             await breakpoint(1000)
-            if (
-                !values.broadcastId ||
-                !values.currentProjectId ||
-                values.currentStep !== 'content' ||
-                values.broadcast?.status !== 'draft'
-            ) {
-                // Continue or Launch saves this edit instead.
+            if (!values.broadcastId || !values.currentProjectId || values.broadcast?.status !== 'draft') {
+                // Launch saves this edit instead.
                 clearPending()
                 return
             }
@@ -1035,14 +1071,60 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                     actions.draftAutosaved(await saveWithoutClobbering(projectId, values.broadcastId!, values))
                     clearPending()
                 })
+                cache.emailAutosaveRetries = 0
+                actions.showSavedDraftUrl()
             } catch (error: any) {
                 if (error instanceof EditedElsewhereError) {
                     clearPending()
                     cache.autosaveConflict = true
                     actions.applyExternalEdit(error.latest, values.broadcast)
                     lemonToast.info(EDITED_ELSEWHERE_MESSAGE)
+                } else if ((cache.emailAutosaveRetries ?? 0) < EMAIL_AUTOSAVE_RETRIES) {
+                    // The edit stays pending, which keeps a new draft on /broadcasts/new until it saves, so retry
+                    // a failed save rather than wait for Continue. Continue saves it and reports a lasting failure.
+                    cache.emailAutosaveRetries = (cache.emailAutosaveRetries ?? 0) + 1
+                    actions.replayDeferredEdit()
+                    await breakpoint(EMAIL_AUTOSAVE_RETRY_MS)
+                    actions.setEmail(values.email)
+                    return
                 }
-                // Otherwise Continue saves the same state and reports the failure there.
+            }
+            actions.replayDeferredEdit()
+        },
+        saveName: async () => {
+            // A new broadcast has no draft yet, and a live one is not renamed in place.
+            if (
+                !values.name.trim() ||
+                !values.broadcastId ||
+                !values.currentProjectId ||
+                values.broadcast?.status !== 'draft' ||
+                values.name === values.broadcast.name
+            ) {
+                return
+            }
+            const projectId = String(values.currentProjectId)
+            try {
+                await getSaveQueue(cache, values).run(async () => {
+                    actions.draftAutosaved(
+                        await patchWithoutClobbering(
+                            projectId,
+                            values.broadcastId!,
+                            { name: values.name },
+                            values.broadcast?.updated_at
+                        )
+                    )
+                })
+            } catch (error: any) {
+                if (error instanceof EditedElsewhereError) {
+                    // The rename stays local unless the other edit renamed it too, and the next save carries it.
+                    const attempted = values.name
+                    actions.applyExternalEdit(error.latest, values.broadcast)
+                    if (values.name !== attempted) {
+                        lemonToast.info("This broadcast was renamed somewhere else, so your new name wasn't saved.")
+                    }
+                } else {
+                    lemonToast.error(`Couldn't save the name: ${error?.detail || error?.message || 'unknown error'}`)
+                }
             }
             actions.replayDeferredEdit()
         },
@@ -1132,14 +1214,21 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 return
             }
             const projectId = String(values.currentProjectId)
+            let savedEditGeneration: number | undefined
             try {
-                const saved = await saves.run(() =>
-                    values.broadcastId
+                const saved = await saves.run(() => {
+                    savedEditGeneration = cache.emailEditGeneration
+                    return values.broadcastId
                         ? saveWithoutClobbering(projectId, values.broadcastId, values)
                         : hogFlowsCreate(projectId, buildBroadcastPayload(values) as any)
-                )
+                })
                 actions.saveBroadcastFinished(saved)
+                // This save carried the email edits made before it started. A later one keeps its own autosave.
+                if (cache.emailEditGeneration === savedEditGeneration) {
+                    cache.emailEditPending = false
+                }
                 actions.nextStep()
+                actions.showSavedDraftUrl()
             } catch (error: any) {
                 actions.saveBroadcastFinished(null)
                 if (error instanceof EditedElsewhereError) {
@@ -1196,6 +1285,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 if (blastRadius.limit != null && blastRadius.affected > blastRadius.limit) {
                     actions.launchBroadcastFinished()
                     actions.setStep('recipients')
+                    actions.showSavedDraftUrl()
                     lemonToast.error(
                         `This audience is above the project's batch limit of ${humanFriendlyNumber(
                             blastRadius.limit
@@ -1267,6 +1357,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                     lemonToast.info(
                         'This email changed while you were editing it. Review the latest version, then launch.'
                     )
+                    actions.showSavedDraftUrl()
                     return
                 }
                 if (activated && broadcastId) {
@@ -1280,6 +1371,8 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 }
                 actions.launchBroadcastFinished()
                 lemonToast.error(`Couldn't launch the broadcast: ${error?.detail || error?.message || 'unknown error'}`)
+                // The launch saved the draft first, so a reload of /broadcasts/new would orphan it.
+                actions.showSavedDraftUrl()
             }
         },
         moveToDraft: async () => {
@@ -1324,6 +1417,23 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             }
             actions.moveToDraftFinished()
         },
+        archiveBroadcast: () => {
+            if (values.currentProjectId && values.broadcast) {
+                confirmArchiveBroadcast(String(values.currentProjectId), values.broadcast, actions.loadBroadcast)
+            }
+        },
+        restoreBroadcast: async () => {
+            if (values.currentProjectId && values.broadcast) {
+                await restoreBroadcast(String(values.currentProjectId), values.broadcast, actions.loadBroadcast)
+            }
+        },
+        deleteBroadcast: () => {
+            if (values.currentProjectId && values.broadcast) {
+                confirmDeleteBroadcast(String(values.currentProjectId), values.broadcast, () =>
+                    router.actions.push(urls.broadcasts())
+                )
+            }
+        },
         duplicateBroadcast: async () => {
             if (!values.currentProjectId) {
                 actions.duplicateBroadcastFinished()
@@ -1353,8 +1463,16 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             }
         },
         hydrateFromBroadcast: () => {
-            // Resume a draft at the first incomplete step; complete drafts land on review.
-            if (values.broadcast?.status === 'draft') {
+            if (values.broadcast?.status !== 'draft') {
+                return
+            }
+            // A draft just saved from /broadcasts/new carries the step it was on. Otherwise resume at the
+            // first incomplete step; complete drafts land on review.
+            const { step, ...searchParams } = router.values.searchParams
+            if (BROADCAST_WIZARD_STEPS.includes(step)) {
+                actions.setStep(step)
+                router.actions.replace(router.values.location.pathname, searchParams, router.values.hashParams)
+            } else {
                 actions.setStep(values.firstInvalidStep ?? 'review')
             }
         },
