@@ -489,3 +489,48 @@ export const AccessControlMixedPermissions: Story = {
         )
     },
 }
+
+export const WarehouseSyncWarning: Story = {
+    render: () => {
+        const insight = {
+            ...EXAMPLE_TRENDS,
+            name: 'Replay margin by month',
+            warnings: [
+                {
+                    type: 'warehouse_sync',
+                    message:
+                        'Last sync of `costs` (from DoIt) failed. Results reflect data from 5 days ago. Check the data warehouse source for details.',
+                    schema_name: 'costs',
+                    source_id: 'source-1',
+                    source_type: 'DoIt',
+                    status: 'Failed',
+                    table_name: 'doit_costs',
+                },
+            ],
+        } as unknown as InsightModel
+
+        return (
+            <div className="flex gap-4 min-w-[50rem]">
+                <div className="w-[32rem]">
+                    <InsightCardComponent
+                        tile={defaultTile}
+                        insight={insight}
+                        rename={() => {}}
+                        duplicate={() => {}}
+                        placement="SavedInsightGrid"
+                    />
+                </div>
+                {/* A narrow tile, so the tag has to share the title row with a truncated name. */}
+                <div className="w-[16rem]">
+                    <InsightCardComponent
+                        tile={defaultTile}
+                        insight={insight}
+                        rename={() => {}}
+                        duplicate={() => {}}
+                        placement="SavedInsightGrid"
+                    />
+                </div>
+            </div>
+        )
+    },
+}

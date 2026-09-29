@@ -3718,6 +3718,29 @@ describe('dashboardLogic', () => {
             ])
         })
 
+        it('preserves sync warnings when a bare PATCH returns them null', async () => {
+            const warning = {
+                type: 'warehouse_sync' as const,
+                message: 'Last sync of `costs` (from DoIt) failed.',
+                schema_name: 'costs',
+                source_id: 'source-1',
+                source_type: 'DoIt',
+                status: 'Failed',
+                table_name: 'doit_costs',
+            }
+            insightsModel.actions.renameInsightSuccess({ ...insight800(), warnings: [warning] })
+            await expectLogic(logic).toFinishAllListeners()
+
+            insightsModel.actions.renameInsightSuccess({
+                ...insight800(),
+                name: 'renamed via bare patch',
+                warnings: null,
+            })
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.insightTiles[0].insight!.warnings).toEqual([warning])
+        })
+
         it('replaces cached chart data when a full refresh returns non-null result', async () => {
             const newResult = [{ data: 'fresh' }]
             const newLastRefresh = '2024-01-01T00:00:00Z'

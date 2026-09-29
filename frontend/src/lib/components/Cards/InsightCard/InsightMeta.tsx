@@ -56,6 +56,8 @@ import { urls } from 'scenes/urls'
 import { insightsModel } from '~/models/insightsModel'
 import { queryScanHasActionableFinding } from '~/queries/nodes/DataNode/queryScan'
 import { QueryScanTileTooltip } from '~/queries/nodes/DataNode/QueryScanTileTooltip'
+import { WarehouseSyncWarningList } from '~/queries/nodes/DataNode/WarehouseSyncWarningList'
+import { warehouseSyncWarnings } from '~/queries/nodes/DataNode/warehouseSyncWarnings'
 import { copyTableData, getInsightExportAdapter } from '~/queries/nodes/InsightViz/exportAdapters'
 import { useInsightDisplayOptions } from '~/queries/nodes/InsightViz/insightDisplayOptions'
 import { Node, ProductKey } from '~/queries/schema/schema-general'
@@ -274,6 +276,16 @@ export function InsightMeta({
         canEditInsight && queryScan && scanFindings.length > 0 ? (
             <QueryScanTileTooltip summary={queryScan} findings={scanFindings} />
         ) : null
+    const syncWarnings = warehouseSyncWarnings(insight.warnings)
+    const warehouseSyncTooltip =
+        syncWarnings.length > 0 ? (
+            <div className="flex flex-col gap-1">
+                <span>
+                    Some warehouse tables this insight reads are out of date, so its results may not be current:
+                </span>
+                <WarehouseSyncWarningList warnings={syncWarnings} />
+            </div>
+        ) : null
 
     const showDashboardAlertsMenuItem = isUsedAsDashboardTile && !!dashboardId && !!insight.id && canViewInsight
     const canCreateAlertForInsight = areAlertsSupportedForInsight(query, {
@@ -487,6 +499,7 @@ export function InsightMeta({
                         showDescription={tile?.show_description !== false}
                         dataRetentionWarning={dataRetentionWarning}
                         queryScanTooltip={queryScanTooltip}
+                        warehouseSyncTooltip={warehouseSyncTooltip}
                         queryScanActionable={queryScanHasActionableFinding(scanFindings)}
                         infoPopover={
                             showCompactTile ? (
@@ -850,6 +863,7 @@ export function InsightMetaContent({
     dataRetentionWarning,
     queryScanTooltip,
     queryScanActionable,
+    warehouseSyncTooltip,
 }: {
     title: string
     fallbackTitle?: string
@@ -865,6 +879,7 @@ export function InsightMetaContent({
     queryScanTooltip?: JSX.Element | null
     /** Whether the person can act on a finding. Without one the tile only notes that the query is slow. */
     queryScanActionable?: boolean
+    warehouseSyncTooltip?: JSX.Element | null
 }): JSX.Element {
     const dataRetentionIndicator = dataRetentionWarning ? (
         <Tooltip title={dataRetentionWarning}>
@@ -885,14 +900,17 @@ export function InsightMetaContent({
             )}
         </Tooltip>
     ) : null
+    const warehouseSyncIndicator = warehouseSyncTooltip ? (
+        <Tooltip title={warehouseSyncTooltip} interactive>
+            <LemonTag type="warning" size="small" className="ml-1.5 shrink-0" data-attr="insight-card-warehouse-sync">
+                Out of date
+            </LemonTag>
+        </Tooltip>
+    ) : null
+    const hasTitleIndicator = !!(infoPopover || dataRetentionIndicator || queryScanIndicator || warehouseSyncIndicator)
     const titleContent = (
         <>
-            <span
-                className={clsx(
-                    'text-primary',
-                    (infoPopover || dataRetentionIndicator || queryScanIndicator) && 'truncate'
-                )}
-            >
+            <span className={clsx('text-primary', hasTitleIndicator && 'truncate')}>
                 {title || <i>{fallbackTitle || 'Untitled'}</i>}
             </span>
             {(loading || loadingQueued) && (
@@ -908,10 +926,7 @@ export function InsightMetaContent({
         <h4
             title={!compact ? title : undefined}
             data-attr="insight-card-title"
-            className={clsx(
-                (infoPopover || dataRetentionIndicator || queryScanIndicator) &&
-                    'inline-flex items-center overflow-visible'
-            )}
+            className={clsx(hasTitleIndicator && 'inline-flex items-center overflow-visible')}
         >
             {link ? (
                 <Link to={link} className="max-w-full truncate">
@@ -922,6 +937,7 @@ export function InsightMetaContent({
             )}
             {dataRetentionIndicator}
             {queryScanIndicator}
+            {warehouseSyncIndicator}
             {infoPopover}
         </h4>
     )

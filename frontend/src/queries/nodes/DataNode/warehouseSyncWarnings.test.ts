@@ -1,6 +1,25 @@
-import { trimRedundantTail } from './syncWarnings'
+import { DataWarehouseSyncWarning } from '~/queries/schema/schema-general'
+import { DashboardTile, InsightModel, InsightShortId } from '~/types'
 
-describe('syncWarnings', () => {
+import { trimRedundantTail, warehouseSyncDashboardEntries } from './warehouseSyncWarnings'
+
+function syncWarning(table: string): DataWarehouseSyncWarning {
+    return {
+        type: 'warehouse_sync',
+        message: `Last sync of \`${table}\` (from DoIt) failed.`,
+        schema_name: table,
+        source_id: 'source-1',
+        source_type: 'DoIt',
+        status: 'Failed',
+        table_name: `doit_${table}`,
+    }
+}
+
+function tile(id: number, insight: Partial<InsightModel> | null): DashboardTile {
+    return { id, color: null, insight: insight ? (insight as InsightModel) : undefined }
+}
+
+describe('warehouseSyncWarnings', () => {
     describe('trimRedundantTail', () => {
         // Messages mirror those emitted by products/data_warehouse/backend/sync_status.py.
         test.each([
@@ -37,5 +56,30 @@ describe('syncWarnings', () => {
         ])('%s', (_name, input, expected) => {
             expect(trimRedundantTail(input)).toEqual(expected)
         })
+    })
+
+    it('lists each out-of-date table once, with every insight on the dashboard that reads it', () => {
+        const costs = syncWarning('costs')
+        const entries = warehouseSyncDashboardEntries([
+            tile(1, { short_id: 'aaa' as InsightShortId, name: 'Margin', warnings: [costs] }),
+            tile(2, {
+                short_id: 'bbb' as InsightShortId,
+                derived_name: 'Cost by day',
+                warnings: [costs, syncWarning('gemini')],
+            }),
+            tile(3, { short_id: 'ccc' as InsightShortId, name: 'Healthy', warnings: null }),
+            tile(4, { short_id: 'ddd' as InsightShortId, name: 'Deleted', warnings: [costs], deleted: true }),
+            tile(5, {
+                short_id: 'eee' as InsightShortId,
+                name: 'Restricted',
+                warnings: [{ type: 'access_control', message: 'Some objects are hidden.', resources: ['insight'] }],
+            }),
+            tile(6, null),
+        ])
+
+        expect(entries.map(({ warning, insights }) => [warning.table_name, insights.map((i) => i.name)])).toEqual([
+            ['doit_costs', ['Margin', 'Cost by day']],
+            ['doit_gemini', ['Cost by day']],
+        ])
     })
 })
