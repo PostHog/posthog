@@ -5,11 +5,13 @@ from django.db.models import Q
 from django.utils import timezone
 
 import structlog
+import posthoganalytics
 
 from posthog.clickhouse.query_tagging import Product
 from posthog.job_owners import JobOwners
 from posthog.models.health_issue import HealthIssue
 from posthog.models.team import Team
+from posthog.ph_client import get_feature_flag_or_none
 from posthog.temporal.health_checks.detectors import HealthExecutionPolicy
 from posthog.temporal.health_checks.framework import AlertContent, HealthCheck, Remediation
 from posthog.temporal.health_checks.models import HealthCheckResult
@@ -34,6 +36,8 @@ from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.models import Survey
 
 logger = structlog.get_logger(__name__)
+
+LIVE_GATE_FLAG = "health-check-stale-feature-flags-live"
 
 # `last_called_at` exists and predates the stale threshold. The column only records received
 # `$feature_flag_called` events, so it says nothing about evaluations that send no event.
@@ -72,13 +76,6 @@ class StaleFeatureFlagsCheck(HealthCheck):
     # Postgres-heavy and one issue per stale flag rather than per team, so smaller
     # batches than the default policy.
     policy = HealthExecutionPolicy(batch_size=250, max_concurrent=2)
-    # Dry until the feature-flags scout can consume these issues; flipping this is an
-    # operational checkpoint, not a code change to make casually.
-    dry_run = True
-    # dry_run stops the writes, not the detection queries. Sample teams until one batch of
-    # this check has a measured cost, because filter_stale_flags has only ever run paginated
-    # for a single team.
-    rollout_percentage = 0.01
     remediation = Remediation(
         human="""
             Open the flag and confirm the staleness evidence is still current. Check every
@@ -133,6 +130,12 @@ class StaleFeatureFlagsCheck(HealthCheck):
         )
 
     def detect(self, team_ids: list[int]) -> dict[int, list[HealthCheckResult]]:
+        # The framework reads a team missing from the return value as healthy, not skipped, so
+        # a team disabled after it got issues has them resolved on the next run.
+        team_ids = _gate_enabled_team_ids(team_ids)
+        if not team_ids:
+            return {}
+
         reportable_flags = FeatureFlag.objects.filter(
             team_id__in=team_ids,
             deleted=False,
@@ -193,8 +196,8 @@ class StaleFeatureFlagsCheck(HealthCheck):
             issues.setdefault(flag.team_id, []).append(_build_result(flag, now, stale_threshold))
 
         if issues:
-            # Each issue fires its own alert once dry_run flips, so the flip decision needs the
-            # worst single team, which the framework's batch-wide dry-run summary does not show.
+            # Each issue fires its own alert, so widening the gate needs the worst single team,
+            # which the framework's batch-wide summary does not show.
             issue_counts = [len(team_issues) for team_issues in issues.values()]
             evidence_classes = [
                 result.payload["evidence_class"] for team_issues in issues.values() for result in team_issues
@@ -208,6 +211,37 @@ class StaleFeatureFlagsCheck(HealthCheck):
                 full_rollout_query_issue_count=len(full_rollout_ids - excluded_ids),
             )
         return issues
+
+
+def _gate_enabled_team_ids(team_ids: list[int]) -> list[int]:
+    """The teams `LIVE_GATE_FLAG` enables, evaluated locally with no HTTP call per team.
+
+    Fails closed. Anything that is not an explicit `True` means do not detect for that team,
+    because this check has never written an issue and an unreadable flag must keep it that way.
+    """
+    # `only_evaluate_locally` does not avoid a definition load: the SDK calls
+    # `load_feature_flags()` whenever its definitions are None, and a /flags/definitions
+    # timeout leaves them None, so without this check a batch pays that timeout once per team.
+    if posthoganalytics.feature_flag_definitions() is None:
+        logger.warning("stale_feature_flags_gate_definitions_unavailable", team_count=len(team_ids))
+        return []
+    return [team_id for team_id in team_ids if _gate_enabled(team_id)]
+
+
+def _gate_enabled(team_id: int) -> bool:
+    # Local evaluation only sees the properties supplied here, so a project-id rollout needs
+    # the id passed in or the condition never matches and the team reads as disabled.
+    return (
+        get_feature_flag_or_none(
+            LIVE_GATE_FLAG,
+            f"team_{team_id}",
+            groups={"project": str(team_id)},
+            group_properties={"project": {"id": str(team_id)}},
+            only_evaluate_locally=True,
+            send_feature_flag_events=False,
+        )
+        is True
+    )
 
 
 def _v1_flags(flags: Iterable[FeatureFlag]) -> list[FeatureFlag]:

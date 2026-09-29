@@ -35,6 +35,7 @@ from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.models import Survey
 
 FULL_ROLLOUT_FILTERS = {"groups": [{"properties": [], "rollout_percentage": 100}]}
+GATE_TARGET = "products.feature_flags.backend.temporal.health_checks.stale_flags.get_feature_flag_or_none"
 
 
 def stale_by_config() -> dict[str, Any]:
@@ -53,6 +54,17 @@ def constant_and_called() -> dict[str, Any]:
 
 
 class TestStaleFlagsDetect(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        # Under `settings.TEST` every flag read returns None, which the fail-closed gate
+        # turns into {} for every case below.
+        for patcher in (
+            patch("posthoganalytics.feature_flag_definitions", return_value={}),
+            patch(GATE_TARGET, return_value=True),
+        ):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
     def _create_flag(self, key: str, **kwargs: Any) -> FeatureFlag:
         kwargs.setdefault("active", True)
         return FeatureFlag.objects.create(team=self.team, key=key, created_by=self.user, **kwargs)
@@ -626,12 +638,48 @@ class TestStaleFlagsDetect(BaseTest):
         result = next(r for r in results[self.team.id] if r.payload["flag_id"] == flag.id)
         assert result.payload["flag_name"] == "x" * 500
 
-    def test_manual_refresh_task_honors_dry_run(self) -> None:
+    def test_unreadable_flag_writes_no_issues(self) -> None:
         self._create_flag("manual-refresh", **stale_by_usage())
 
-        evaluate_health_check_for_team(kind="stale_feature_flags", team_id=self.team.id)
+        with patch("posthoganalytics.feature_flag_definitions", return_value=None):
+            evaluate_health_check_for_team(kind="stale_feature_flags", team_id=self.team.id)
 
         assert not HealthIssue.objects.filter(team=self.team, kind="stale_feature_flags").exists()
+
+    def test_gate_reports_only_the_teams_the_flag_enables(self) -> None:
+        disabled_team = Team.objects.create(organization=self.organization, name="disabled")
+        self._create_flag("enabled", **stale_by_usage())
+        FeatureFlag.objects.create(
+            team=disabled_team, key="disabled", created_by=self.user, active=True, **stale_by_usage()
+        )
+
+        with patch(GATE_TARGET, side_effect=lambda _key, distinct_id, **_kw: distinct_id == f"team_{self.team.id}"):
+            results = self._detect([self.team.id, disabled_team.id])
+
+        assert set(results) == {self.team.id}
+
+    def test_gate_runs_no_query_when_no_team_is_enabled(self) -> None:
+        self._create_flag("enabled-but-gated", **stale_by_usage())
+
+        with patch(GATE_TARGET, return_value=False), CaptureQueriesContext(connection) as queries:
+            results = self._detect()
+
+        assert results == {}
+        assert queries.captured_queries == []
+
+    def test_gate_skips_every_team_when_definitions_are_unavailable(self) -> None:
+        self._create_flag("definitions-down", **stale_by_usage())
+
+        with (
+            patch("posthoganalytics.feature_flag_definitions", return_value=None),
+            patch(GATE_TARGET) as flag_read,
+            capture_logs() as logs,
+        ):
+            results = self._detect()
+
+        assert results == {}
+        flag_read.assert_not_called()
+        assert [log["event"] for log in logs] == ["stale_feature_flags_gate_definitions_unavailable"]
 
     def test_batches_multiple_teams(self) -> None:
         team_two = Team.objects.create(organization=self.organization, name="two")
@@ -772,16 +820,16 @@ class TestStaleFlagsContract(SimpleTestCase):
             unique_hash="h",
         )
 
-    def test_registered_with_dry_run_and_feature_flags_ownership(self) -> None:
+    def test_registered_with_the_flag_as_its_only_gate(self) -> None:
         ensure_registry_loaded()
         registration = HEALTH_CHECKS["stale_feature_flags"]
-        assert registration.dry_run is True
         assert registration.owner == JobOwners.TEAM_FEATURE_FLAGS
         assert registration.product == Product.FEATURE_FLAGS
-        # The weekly cadence and 1% sampling are operational guards like dry_run: the full-batch
-        # query cost is unmeasured, so widening either must be a deliberate change.
+        # A registry-level dry run or team sample would gate the check a second time, out of
+        # reach of the flags UI.
+        assert registration.dry_run is False
+        assert registration.rollout_percentage == 1.0
         assert registration.schedule == "0 6 * * 1"
-        assert registration.rollout_percentage == 0.01
         assert registration.remediation is not None
         # Payloads carry flag keys and names, so the Health API must gate them on flag access.
         assert registration.access_controlled_resource == "feature_flag"
