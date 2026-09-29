@@ -51,30 +51,48 @@ def _governor(mode="enforce", *, limit_mb=30_000.0, current_mb=1_000.0, max_conc
 
 
 class TestSizeUpsert:
-    # threaded model: marginal(source, mpp) = 220 + 133*mpp + 0.73*source. For source_mb=50 (36.5):
+    # threaded model: marginal(source, mpp, files) = 220 + 133*(mpp*files/4) + 0.73*source.
+    # For source_mb=50 (36.5), at the measured 4 files per worker:
     #   mpp1=389.5  mpp2=522.5  mpp3=655.5  mpp4=788.5
+    # and with the reader ceiling of 16 filled: (1,8)=522.5  (2,8)=788.5  (3,5)=755.25
     @parameterized.expand(
         [
-            ("roomy_takes_max_mpp", 5_000.0, 50.0, None, 4, True),
-            ("steps_down_to_two", 600.0, 50.0, None, 2, True),  # mpp2=522.5<=600, mpp3=655.5>600
-            ("steps_down_to_one", 450.0, 50.0, None, 1, True),  # mpp1=389.5<=450, mpp2=522.5>450
-            ("does_not_fit", 300.0, 50.0, None, 1, False),  # mpp1=389.5>300
-            ("partition_cap_limits_mpp", 5_000.0, 50.0, 2, 2, True),  # budget allows 4, only 2 partitions
+            ("roomy_takes_max_mpp", 5_000.0, 50.0, None, 4, 4, True),
+            ("steps_down_to_two", 600.0, 50.0, None, 2, 4, True),  # (2,4)=522.5<=600, (2,8)=788.5>600
+            ("steps_down_to_one", 450.0, 50.0, None, 1, 4, True),  # (1,4)=389.5<=450, (1,8)=522.5>450
+            ("does_not_fit", 300.0, 50.0, None, 1, 4, False),  # (1,4)=389.5>300
+            ("partition_cap_fills_readers", 5_000.0, 50.0, 2, 2, 8, True),  # budget allows 4, only 2 partitions
+            ("single_partition_gets_the_widest_worker", 5_000.0, 50.0, 1, 1, 8, True),
+            ("three_partitions_share_the_ceiling", 5_000.0, 50.0, 3, 3, 5, True),  # 16 // 3
         ]
     )
-    def test_sizing(self, _name, available_mb, source_mb, n_partitions, exp_mpp, exp_fits):
+    def test_sizing(self, _name, available_mb, source_mb, n_partitions, exp_mpp, exp_files, exp_fits):
         plan = size_upsert(available_mb, source_mb, n_partitions)
-        assert plan.max_parallel_partitions == exp_mpp
+        assert (plan.max_parallel_partitions, plan.max_parallel_files) == (exp_mpp, exp_files)
         assert plan.fits is exp_fits
-        assert set(plan.as_upsert_kwargs()) == {
+        # The in-flight reader count of a full plan at the measured defaults (4 workers x 4 files)
+        # is the ceiling every plan stays under.
+        assert plan.max_parallel_partitions * plan.max_parallel_files <= 16
+        kwargs = plan.as_upsert_kwargs()
+        assert set(kwargs) == {
             "max_parallel_partitions",
             "max_parallel_files",
             "max_buffered_bytes",
+            "probe_concurrency",
         }
+        # Probes are budgeted against max_buffered_bytes, so the raised concurrency goes out in
+        # every plan; leaving it out would silently hand deltalite its default of 8.
+        assert kwargs["probe_concurrency"] == 32
 
     def test_predicted_peak_monotonic_in_mpp_and_source(self):
         assert _predict_marginal_mb(50, 1) < _predict_marginal_mb(50, 4)
         assert _predict_marginal_mb(50, 2) < _predict_marginal_mb(500, 2)
+
+    def test_extra_readers_are_charged_as_worker_equivalents(self):
+        # One worker with twice the measured readers is predicted like two measured workers, so a
+        # wider worker can never claim less memory than the shape the coefficient came from.
+        assert _predict_marginal_mb(50, 1, files_per_worker=8) == _predict_marginal_mb(50, 2)
+        assert _predict_marginal_mb(50, 1, files_per_worker=4) < _predict_marginal_mb(50, 1, files_per_worker=8)
 
 
 class TestPodMemory:
