@@ -12,6 +12,7 @@ from posthog.dataclasses import frozen
 
 if TYPE_CHECKING:
     from posthog.models.activity_logging.activity_log import ActivityLog, Trigger
+    from posthog.models.oauth import OAuthAccessToken
     from posthog.models.user import User
 
 logger = structlog.get_logger(__name__)
@@ -76,11 +77,8 @@ class ActivityCredential:
     """
 
     type: CredentialType
-    # The personal or project secret key id, the OAuth application UUID, the ID-JAG client id, the
-    # SCIM identity provider config id, the service JWT audience, the Vercel installation id, the
-    # partner application UUID, the sharing configuration id, the share password id, the gateway
-    # agent's service account id, the exported asset id, or `session_public_id` for a session. None
-    # when the credential has no id of its own.
+    # None when the credential has no id of its own. The table under "Credential attribution" in
+    # docs/internal/activity-logging.md lists the id that each credential type records.
     id: str | None = None
     impersonated_by_id: int | None = None
 
@@ -316,6 +314,11 @@ class ActivityCredentialMixin:
                 impersonated_by_id=impersonated_by_id,
             )
         )
+
+
+def oauth_activity_credential_args(access_token: "OAuthAccessToken") -> tuple[str, int | None]:
+    """The credential id and impersonator to pass to `record_activity_actor` for an OAuth token."""
+    return str(access_token.application_id), access_token.impersonated_by_id
 
 
 class ActivityLogVisibilityManager:

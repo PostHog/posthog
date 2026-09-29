@@ -40,6 +40,7 @@ from posthog.models.activity_logging.utils import (
     ActivityCredentialMixin,
     DeclaredCredentialType,
     activity_storage,
+    oauth_activity_credential_args,
     record_agent_intent,
 )
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthApplicationAuthBrand
@@ -1010,7 +1011,7 @@ class OAuthAccessTokenAuthentication(ActivityCredentialMixin, authentication.Bas
         # before DRF auth), so signal-driven activity logging would otherwise record
         # bearer-token requests as system actions. A token minted during staff
         # impersonation keeps the impersonation marker through `impersonated_by_id`.
-        self.record_activity_actor(user, str(access_token.application_id), access_token.impersonated_by_id)
+        self.record_activity_actor(user, *oauth_activity_credential_args(access_token))
         if activity_storage.is_request_scoped():
             _record_agent_attribution(request, access_token)
             self._set_scout_activity_client(access_token)
