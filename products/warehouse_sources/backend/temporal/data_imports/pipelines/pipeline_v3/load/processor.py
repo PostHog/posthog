@@ -1,12 +1,12 @@
 import uuid
 import socket
+import dataclasses
 from collections.abc import Callable
 from typing import Any, Literal
 
 from django.conf import settings
 from django.db import close_old_connections, transaction
 
-import s3fs
 import pyarrow as pa
 import deltalake as deltalake
 import structlog
@@ -53,7 +53,10 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.aut
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.scd2 import Scd2DeltaWriter
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.writer import DeltaWriter
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.writer import (
+    DeltaWriter,
+    commit_members_tag,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.hogql_schema import HogQLSchema
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.partitioning import (
     append_partition_key_to_table,
@@ -62,7 +65,13 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     validate_schema_and_update_table,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.batch_consumer import (
+    CoalescingDeclined,
     OwnershipLostError,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.coalescing import (
+    CoalesceMember,
+    runs_in_order,
+    set_violation,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.idempotency import (
     is_batch_already_processed,
@@ -86,7 +95,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 )
 from products.warehouse_sources.backend.temporal.data_imports.row_tracking import finish_row_tracking
 from products.warehouse_sources.backend.temporal.data_imports.util import prepare_s3_files_for_querying
-from products.warehouse_sources.backend.temporal.data_imports.workload_report import workload_reporting
+from products.warehouse_sources.backend.temporal.data_imports.workload_report import report_phase, workload_reporting
 
 logger = structlog.get_logger(__name__)
 
@@ -392,18 +401,16 @@ async def _handle_partial_data_loading(
 def _run_post_load_for_already_processed_batch(export_signal: ExportSignalMessage) -> str | None:
     """Run post-load operations for a final batch whose data was already written to Delta Lake.
 
-    The batch data (S3 read, partitioning, Delta Lake write) was already handled when
-    the batch was first processed with is_final_batch=False. We only need to run
-    post-load operations (compaction, S3 queryable folder prep, schema validation).
+    Two deliveries land here: a redelivered final row whose earlier attempt committed the write
+    but failed before post-load finished, and the final-only marker row an older producer inserts
+    as a copy of the run's last data batch. Either way the data is in the table; only the post-load
+    operations (compaction, S3 queryable folder prep, schema validation) are left.
 
     All async operations are run within a single async_to_sync call to avoid
     event loop lifecycle issues with aiohttp/s3fs clients.
 
     Returns the prepared queryable_folder, or None if post-load couldn't run.
     """
-    # Clear cached S3FileSystem instances to avoid reusing sessions bound to a
-    # previously closed event loop (async_to_sync creates/destroys loops).
-    s3fs.S3FileSystem.clear_instance_cache()
 
     async def _run() -> str | None:
         job = await ExternalDataJob.objects.prefetch_related("schema", "schema__source", "schema__table").aget(
@@ -761,6 +768,83 @@ def _mark_job_failed(export_signal: ExportSignalMessage, error: Exception) -> No
     _release_pipeline_lock_for_job(export_signal)
 
 
+def _load_job(job_id: str) -> ExternalDataJob:
+    return ExternalDataJob.objects.prefetch_related("schema", "schema__source", "schema__table").get(id=job_id)
+
+
+def _finalize_run(
+    run_signal: ExportSignalMessage,
+    *,
+    job: ExternalDataJob,
+    schema: ExternalDataSchema,
+    delta_table_ref: DeltaTableRef,
+    internal_schema: HogQLSchema,
+    verify_ownership: Callable[[], None] | None,
+) -> None:
+    """Complete one run whose final batch is in the table: post-load, job status, cursor, triggers."""
+    logger.info(
+        "final_batch_received",
+        external_data_job_id=run_signal.job_id,
+        run_uuid=run_signal.run_uuid,
+        batch_index=run_signal.batch_index,
+        total_batches=run_signal.total_batches,
+        total_rows=run_signal.total_rows,
+        cdc_write_mode=run_signal.cdc_write_mode,
+        cdc_table_mode=run_signal.cdc_table_mode,
+        sync_type=run_signal.sync_type,
+        schema_sync_type=schema.sync_type,
+        schema_cdc_table_mode=schema.cdc_table_mode,
+        resource_name=run_signal.resource_name,
+    )
+
+    # Minutes may have passed since the write — re-check before post-load commits and job
+    # completion promote the staged cursor under a new owner.
+    if verify_ownership is not None:
+        verify_ownership()
+
+    report_phase("post_load")
+    prepared_queryable_folder = async_to_sync(run_post_load_operations)(
+        job=job,
+        schema=schema,
+        source=schema.source,
+        delta_table_ref=delta_table_ref,
+        row_count=run_signal.total_rows or 0,
+        table_schema_dict=internal_schema.to_hogql_types(),
+        resource_name=run_signal.resource_name,
+        logger=logger,
+        cdc_write_mode=run_signal.cdc_write_mode,
+    )
+
+    # Post-load can run minutes (compaction, S3 prep) — re-check before
+    # completion promotes the cursor and releases the lock under a new owner.
+    if verify_ownership is not None:
+        verify_ownership()
+
+    report_phase("finalize")
+    _mark_job_completed(run_signal)
+
+    if prepared_queryable_folder:
+        _trigger_ducklake_register_data_imports(run_signal, prepared_queryable_folder)
+
+    _trigger_post_import_workflow(run_signal)
+
+    logger.debug("post_load_operations_complete", external_data_job_id=run_signal.job_id)
+
+    posthoganalytics.capture(
+        distinct_id=get_machine_id(),
+        event="warehouse_v3_load_completed",
+        properties={
+            "team_id": run_signal.team_id,
+            "schema_id": run_signal.schema_id,
+            "source_id": run_signal.source_id,
+            "resource_name": run_signal.resource_name,
+            "sync_type": run_signal.sync_type,
+            "total_batches": run_signal.total_batches,
+            "total_rows": run_signal.total_rows,
+        },
+    )
+
+
 def process_message(
     message: Any,
     progress_callback: Callable[[], None] | None = None,
@@ -788,6 +872,74 @@ def process_message(
         _process_message_reported(message, export_signal, progress_callback, verify_ownership, attempt)
 
 
+def combine_export_signals(signals: list[ExportSignalMessage]) -> ExportSignalMessage:
+    """The message one write of several consecutive batches stands for.
+
+    It starts where the first batch starts, so batch 0 keeps its overwrite and its partial-loading
+    semantics, and it ends how the last batch ends, so a final batch in the set completes the run.
+    When the set spans runs the message carries the first run's identity; each run's own completion
+    comes from `final_run_signals`.
+    """
+    head, tail = signals[0], signals[-1]
+    return dataclasses.replace(
+        head,
+        row_count=sum(signal.row_count for signal in signals),
+        byte_size=sum(signal.byte_size for signal in signals),
+        is_final_batch=tail.is_final_batch,
+        total_batches=tail.total_batches,
+        total_rows=tail.total_rows,
+        data_folder=tail.data_folder or head.data_folder,
+        schema_path=tail.schema_path or head.schema_path,
+        cumulative_row_count=tail.cumulative_row_count,
+    )
+
+
+def final_run_signals(constituents: list[ExportSignalMessage]) -> list[ExportSignalMessage]:
+    """One combined message per run whose last member of the set is its final batch, in load order.
+
+    Each run completes on its own: its post-load, its job status and its cursor promotion happen
+    in the order the runs were loaded, which is the order the loader would have completed them
+    one batch at a time.
+    """
+    members = [CoalesceMember.from_signal(signal) for signal in constituents]
+    finals: list[ExportSignalMessage] = []
+    for run_uuid in runs_in_order(members):
+        run_signals = [signal for signal in constituents if signal.run_uuid == run_uuid]
+        if run_signals[-1].is_final_batch:
+            finals.append(combine_export_signals(run_signals))
+    return finals
+
+
+def process_messages(
+    messages: list[Any],
+    progress_callback: Callable[[], None] | None = None,
+    verify_ownership: Callable[[], None] | None = None,
+    attempt: int = 1,
+) -> None:
+    """Load consecutive batches of one run, or of consecutive runs, into Delta Lake as one write.
+
+    Raises ``CoalescingDeclined`` before any side effect when the set cannot be loaded as one
+    (a constituent already landed, or the batches' schemas do not concatenate); the engine then
+    loads the constituents one by one.
+    """
+    signals = [ExportSignalMessage.from_dict(message) for message in messages]
+    violation = set_violation([CoalesceMember.from_signal(signal) for signal in signals])
+    if violation is not None:
+        raise CoalescingDeclined(violation)
+    combined = combine_export_signals(signals)
+
+    with workload_reporting(
+        team_id=combined.team_id,
+        schema_id=str(combined.schema_id),
+        run_id=f"{combined.job_id}:load",
+        host=socket.gethostname(),
+        initial_phase="load",
+    ):
+        _process_message_reported(
+            messages[0], combined, progress_callback, verify_ownership, attempt, constituents=signals
+        )
+
+
 def _process_external_destinations_only(
     export_signal: "ExportSignalMessage",
     verify_ownership: Callable[[], None] | None,
@@ -802,6 +954,7 @@ def _process_external_destinations_only(
         deliver_batch_to_destinations,
     )
 
+    report_phase("deliver")
     deliver_batch_to_destinations(export_signal)
 
     if not export_signal.is_final_batch:
@@ -811,7 +964,26 @@ def _process_external_destinations_only(
     if verify_ownership is not None:
         verify_ownership()
 
+    report_phase("finalize")
     _mark_job_completed(export_signal)
+
+
+def _read_constituents(constituents: list[ExportSignalMessage]) -> pa.Table:
+    """Read every constituent's parquet file and concatenate them in load order.
+
+    Batches of one run were converged onto one accumulated schema when they were staged, so they
+    normally concatenate as they are; a later batch, or a later run, can still carry a column an
+    earlier one lacked, which permissive promotion fills with nulls. Anything that still does not
+    fit declines the set, since nothing has been written yet.
+
+    The order matters: the writer keeps the last row per key, so a later run's row for a key an
+    earlier run also carried is the one that lands.
+    """
+    tables = [read_parquet(signal.s3_path) for signal in constituents]
+    try:
+        return pa.concat_tables(tables, promote_options="permissive")
+    except (pa.ArrowInvalid, pa.ArrowTypeError, pa.ArrowNotImplementedError) as e:
+        raise CoalescingDeclined(f"batch schemas do not concatenate: {e}") from e
 
 
 def _process_message_reported(
@@ -820,13 +992,17 @@ def _process_message_reported(
     progress_callback: Callable[[], None] | None,
     verify_ownership: Callable[[], None] | None,
     attempt: int = 1,
+    constituents: list[ExportSignalMessage] | None = None,
 ) -> None:
+    # The (run, batch index) pairs this write stands for: one for an ordinary batch, every member for a set.
+    members = (
+        [(signal.run_uuid, signal.batch_index) for signal in constituents]
+        if constituents is not None
+        else [(export_signal.run_uuid, export_signal.batch_index)]
+    )
+
     # Reconnect stale app-DB connections up front so the ORM queries below don't burn all batch attempts.
     close_old_connections()
-
-    # Clear cached S3FileSystem instances to avoid reusing sessions bound to a
-    # previously closed event loop (async_to_sync creates/destroys loops).
-    s3fs.S3FileSystem.clear_instance_cache()
 
     # Imported here, not at module scope: `load/__init__` imports this module, and delivery
     # imports `load.idempotency`, so a module-level import closes the cycle.
@@ -843,9 +1019,7 @@ def _process_message_reported(
         # delta-history fallback when the Redis dedup flag is missing — the case
         # where the writer crashed between `DeltaWriter.write` committing and
         # `mark_batch_as_processed` being called.
-        job = ExternalDataJob.objects.prefetch_related("schema", "schema__source", "schema__table").get(
-            id=export_signal.job_id
-        )
+        job = _load_job(export_signal.job_id)
         schema = job.schema
         if schema is None:
             raise ValueError(f"ExternalDataJob {export_signal.job_id} has no schema")
@@ -863,19 +1037,35 @@ def _process_message_reported(
             _process_external_destinations_only(export_signal, verify_ownership)
             return
 
-        already_processed = is_batch_already_processed(
-            export_signal.team_id,
-            export_signal.schema_id,
-            export_signal.run_uuid,
-            export_signal.batch_index,
-            delta_table_ref=delta_table_ref,
-            is_first_attempt=attempt <= 1,
-        )
+        if constituents is not None:
+            # A set is all-or-nothing: a member that already landed means the others must be checked
+            # and written one at a time, which the single-batch path knows how to do.
+            for run_uuid, index in members:
+                if is_batch_already_processed(
+                    export_signal.team_id,
+                    export_signal.schema_id,
+                    run_uuid,
+                    index,
+                    delta_table_ref=delta_table_ref,
+                    is_first_attempt=attempt <= 1,
+                ):
+                    raise CoalescingDeclined(f"batch {index} of run {run_uuid} was already processed")
+            already_processed = False
+        else:
+            already_processed = is_batch_already_processed(
+                export_signal.team_id,
+                export_signal.schema_id,
+                export_signal.run_uuid,
+                export_signal.batch_index,
+                delta_table_ref=delta_table_ref,
+                is_first_attempt=attempt <= 1,
+            )
 
         # The warehouse having this batch says nothing about the other destinations, so
         # delivery runs on every path and decides for itself what is left to do. Gating it on
         # the warehouse's marker would strand a destination that failed, and gating publication
         # on the write marker would leave a full refresh staged and never swapped in.
+        report_phase("deliver")
         deliver_batch_to_destinations(export_signal)
 
         if already_processed and not export_signal.is_final_batch:
@@ -899,11 +1089,13 @@ def _process_message_reported(
             )
             if verify_ownership is not None:
                 verify_ownership()
+            report_phase("post_load")
             prepared_queryable_folder = _run_post_load_for_already_processed_batch(export_signal)
             # Post-load can run minutes (compaction, S3 prep) — re-check before
             # completion promotes the cursor and releases the lock under a new owner.
             if verify_ownership is not None:
                 verify_ownership()
+            report_phase("finalize")
             _mark_job_completed(export_signal)
             if prepared_queryable_folder:
                 _trigger_ducklake_register_data_imports(export_signal, prepared_queryable_folder)
@@ -922,8 +1114,12 @@ def _process_message_reported(
             sync_type=export_signal.sync_type,
         )
 
+        report_phase("read")
         with PARQUET_READ_DURATION_SECONDS.time():
-            pa_table = read_parquet(export_signal.s3_path)
+            if constituents is not None:
+                pa_table = _read_constituents(constituents)
+            else:
+                pa_table = read_parquet(export_signal.s3_path)
 
         logger.debug(
             "parquet_file_read",
@@ -950,13 +1146,19 @@ def _process_message_reported(
         primary_keys = export_signal.primary_keys
         cdc_write_mode = export_signal.cdc_write_mode
 
-        # Tag every delta commit with (run_uuid, batch_index) so that a Kafka
-        # redelivery after a writer crash can detect "already committed" even when
-        # the Redis dedup flag is missing. See `is_batch_already_processed`.
+        # Tag every delta commit with (run_uuid, batch_index) so that a redelivery after a writer
+        # crash can detect "already committed" even when the Redis dedup flag is missing. A set
+        # names every member, so each one's redelivery finds the commit. See `is_batch_already_processed`.
         commit_metadata = {
             "run_uuid": export_signal.run_uuid,
             "batch_index": str(export_signal.batch_index),
         }
+        if constituents is not None:
+            commit_metadata["batch_indexes"] = ",".join(
+                str(index) for run_uuid, index in members if run_uuid == export_signal.run_uuid
+            )
+            if any(run_uuid != export_signal.run_uuid for run_uuid, _ in members):
+                commit_metadata["members"] = commit_members_tag(members)
 
         resolution_enabled = cdc_write_mode is not None
 
@@ -998,6 +1200,8 @@ def _process_message_reported(
         if verify_ownership is not None:
             verify_ownership()
 
+        # The writer narrows this to `merge` for an upsert; an append stays `write` to its commit.
+        report_phase("write")
         if cdc_write_mode == "scd2_append":
             logger.debug(
                 "writing_scd2_to_delta_lake",
@@ -1046,20 +1250,36 @@ def _process_message_reported(
 
         DELTA_ROWS_WRITTEN_TOTAL.labels(team_id=team_id_str, schema_id=schema_id_str).inc(pa_table.num_rows)
 
+        # Marked as soon as the commit lands, before post-load: the final row of a run carries its own
+        # data now, so a post-load failure must send the retry down the post-load-only path rather
+        # than through the write again.
+        for run_uuid, index in members:
+            mark_batch_as_processed(export_signal.team_id, export_signal.schema_id, run_uuid, index)
+
+        # file_count is the signal that shows a table fragmenting during a long load, so it stays —
+        # but listing every file costs O(files in table), which is the very thing it measures. Sample
+        # it instead: the trend is what matters, and the version is cheap enough to log every batch.
+        sample_file_count = export_signal.batch_index % FILE_COUNT_LOG_SAMPLE_EVERY == 0
+
+        # The handle `write` returns can be one deltalite commit behind the log. Column names and
+        # types cannot differ across that commit, so the schema below reads it as is; a file list
+        # can, so the readers of one go through the ref, which catches the handle up first.
+        if sample_file_count or _partial_data_loading_applies(export_signal, schema):
+            current_delta_table = async_to_sync(delta_table_ref.get_delta_table)()
+            if current_delta_table is not None:
+                delta_table = current_delta_table
+
         internal_schema = HogQLSchema()
         # Build from the Delta table schema first to cover all columns from
         # all batches, then overlay the current batch for JSON detection.
         internal_schema.add_pyarrow_schema(pyarrow_schema_from_arrow_exportable(delta_table.schema()))
         internal_schema.add_pyarrow_table(pa_table)
 
-        # file_count is the signal that shows a table fragmenting during a long load, so it stays —
-        # but listing every file costs O(files in table), which is the very thing it measures. Sample
-        # it instead: the trend is what matters, and the version is cheap enough to log every batch.
-        sample_file_count = export_signal.batch_index % FILE_COUNT_LOG_SAMPLE_EVERY == 0
         logger.debug(
             "batch_written_to_delta_lake",
             batch_index=export_signal.batch_index,
-            delta_version=delta_table.version(),
+            batch_count=len(members),
+            delta_version=delta_table_ref.latest_known_version(delta_table),
             file_count=len(delta_table.file_uris()) if sample_file_count else None,
         )
 
@@ -1072,68 +1292,23 @@ def _process_message_reported(
             internal_schema=internal_schema,
         )
 
-        if export_signal.is_final_batch:
-            logger.info(
-                "final_batch_received",
-                batch_index=export_signal.batch_index,
-                total_batches=export_signal.total_batches,
-                total_rows=export_signal.total_rows,
-                cdc_write_mode=export_signal.cdc_write_mode,
-                cdc_table_mode=export_signal.cdc_table_mode,
-                sync_type=export_signal.sync_type,
-                schema_sync_type=schema.sync_type,
-                schema_cdc_table_mode=schema.cdc_table_mode,
-                resource_name=export_signal.resource_name,
-            )
-
-            # Minutes may have passed since the batch's write — re-check before post-load
-            # commits and job completion promote the staged cursor under a new owner.
-            if verify_ownership is not None:
-                verify_ownership()
-
-            prepared_queryable_folder = async_to_sync(run_post_load_operations)(
-                job=job,
-                schema=schema,
-                source=schema.source,
+        # Every run whose final batch landed in this write completes now, in load order.
+        if constituents is not None:
+            finals = final_run_signals(constituents)
+        else:
+            finals = [export_signal] if export_signal.is_final_batch else []
+        for run_signal in finals:
+            run_job = job if run_signal.job_id == export_signal.job_id else _load_job(run_signal.job_id)
+            run_schema = run_job.schema
+            if run_schema is None:
+                raise ValueError(f"ExternalDataJob {run_signal.job_id} has no schema")
+            _finalize_run(
+                run_signal,
+                job=run_job,
+                schema=run_schema,
                 delta_table_ref=delta_table_ref,
-                row_count=export_signal.total_rows or 0,
-                table_schema_dict=internal_schema.to_hogql_types(),
-                resource_name=export_signal.resource_name,
-                logger=logger,
-                cdc_write_mode=export_signal.cdc_write_mode,
-            )
-
-            # Post-load can run minutes (compaction, S3 prep) — re-check before
-            # completion promotes the cursor and releases the lock under a new owner.
-            if verify_ownership is not None:
-                verify_ownership()
-
-            _mark_job_completed(export_signal)
-
-            if prepared_queryable_folder:
-                _trigger_ducklake_register_data_imports(export_signal, prepared_queryable_folder)
-
-            _trigger_post_import_workflow(export_signal)
-
-            logger.debug("post_load_operations_complete")
-
-        mark_batch_as_processed(
-            export_signal.team_id, export_signal.schema_id, export_signal.run_uuid, export_signal.batch_index
-        )
-
-        if export_signal.is_final_batch:
-            posthoganalytics.capture(
-                distinct_id=get_machine_id(),
-                event="warehouse_v3_load_completed",
-                properties={
-                    "team_id": export_signal.team_id,
-                    "schema_id": export_signal.schema_id,
-                    "source_id": export_signal.source_id,
-                    "resource_name": export_signal.resource_name,
-                    "sync_type": export_signal.sync_type,
-                    "total_batches": export_signal.total_batches,
-                    "total_rows": export_signal.total_rows,
-                },
+                internal_schema=internal_schema,
+                verify_ownership=verify_ownership,
             )
     except OwnershipLostError:
         # Benign fencing abandon: the engine re-raises this without writing a

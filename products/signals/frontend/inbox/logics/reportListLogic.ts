@@ -1,9 +1,10 @@
 import { MakeLogicType, actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api, { CountedPaginatedResponse } from 'lib/api'
+import api, { ApiConfig, CountedPaginatedResponse } from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { derivePrState } from 'lib/signals/prState'
@@ -12,7 +13,10 @@ import { userLogic } from 'scenes/userLogic'
 
 import type { UserType } from '~/types'
 
-import { signalsReportsRefreshMetricsCreate } from 'products/signals/frontend/generated/api'
+import {
+    signalsReportsRefreshMetricsCreate,
+    signalsReportsSourceMetadataCreate,
+} from 'products/signals/frontend/generated/api'
 import type { SignalReportMetricSnapshotsApi } from 'products/signals/frontend/generated/api.schemas'
 
 import { captureInboxReportAction, type InboxReportActionSurface } from '../inboxAnalytics'
@@ -40,6 +44,9 @@ import { prCiStatusLogic } from './prCiStatusLogic'
 const PAGE_SIZE = 50
 // The refresh endpoint's own id cap per call.
 const METRIC_REFRESH_PAGE_SIZE = 20
+
+/** The row fields the list leaves empty (`include_source_metadata=false`) and `source_metadata` fills in. */
+export type ReportSourceMeta = Pick<SignalReport, 'source_products' | 'scout_name'>
 
 /** Fixed, section-defining server filter (e.g. `{ has_implementation_pr: 'true' }`). */
 export type ReportListParams = Record<string, string>
@@ -163,6 +170,7 @@ export interface reportListLogicValues {
     loadedQueryKey: string | null
     pageLoadFailed: boolean
     primarySectionKey: InboxReportSectionKey
+    reportSourceMeta: Record<string, ReportSourceMeta>
     reports: SignalReport[]
     reportsLoadFailed: boolean
     reportsResponse: ReportListResponse | null
@@ -218,6 +226,9 @@ export interface reportListLogicActions {
     applyReportMetricSnapshots: (snapshots: SignalReportMetricSnapshotsApi[]) => {
         snapshots: SignalReportMetricSnapshotsApi[]
     }
+    applyReportSourceMeta: (meta: Record<string, ReportSourceMeta>) => {
+        meta: Record<string, ReportSourceMeta>
+    }
     dismissReport: (
         reportId: string,
         dismissal: DismissalFeedback
@@ -260,6 +271,9 @@ export interface reportListLogicActions {
     ) => {
         reportsResponse: ReportListResponse
         payload?: any
+    }
+    loadReportSourceMeta: (reportIds: string[]) => {
+        reportIds: string[]
     }
     loadReports: () => any
     loadReportsFailure: (
@@ -319,7 +333,10 @@ export interface reportListLogicMeta {
             scopeReviewerUuid: string | undefined,
             arg: any
         ) => any
-        reports: (reportsResponse: ReportListResponse | null) => SignalReport[]
+        reports: (
+            reportsResponse: ReportListResponse | null,
+            reportSourceMeta: Record<string, ReportSourceMeta>
+        ) => SignalReport[]
         staleMetricReportIds: (reports: SignalReport[]) => string[]
         hasMore: (reportsResponse: ReportListResponse | null) => boolean
         isLoaded: (reportsResponse: ReportListResponse | null) => boolean
@@ -407,6 +424,10 @@ export const reportListLogic = kea<reportListLogicType>([
         // failure leaves the rows on their saved snapshot.
         refreshReportMetrics: (reportIds: string[]) => ({ reportIds }),
         applyReportMetricSnapshots: (snapshots: SignalReportMetricSnapshotsApi[]) => ({ snapshots }),
+        // Source products and scout come from ClickHouse, so the rows load without them and this
+        // fills them in once the page is on screen. Best effort: a failure leaves the source line empty.
+        loadReportSourceMeta: (reportIds: string[]) => ({ reportIds }),
+        applyReportSourceMeta: (meta: Record<string, ReportSourceMeta>) => ({ meta }),
     }),
 
     loaders(({ values, cache }) => ({
@@ -463,6 +484,14 @@ export const reportListLogic = kea<reportListLogicType>([
     })),
 
     reducers({
+        // Kept apart from `reportsResponse` so a refresh that replaces the rows does not blank the
+        // source line while the lookup runs again.
+        reportSourceMeta: [
+            {} as Record<string, ReportSourceMeta>,
+            {
+                applyReportSourceMeta: (state, { meta }) => ({ ...state, ...meta }),
+            },
+        ],
         reportsResponse: {
             // Only the numbers change: the row keeps its title, summary, and query as loaded.
             applyReportMetricSnapshots: (state, { snapshots }) =>
@@ -558,12 +587,20 @@ export const reportListLogic = kea<reportListLogicType>([
                     scout: scoutFilter.length > 0 ? scoutFilter.join(',') : undefined,
                     priority: priorityFilter.length > 0 ? priorityFilter.join(',') : undefined,
                     suggested_reviewers: suggestedReviewer,
+                    // Rows render from Postgres alone; `loadReportSourceMeta` fills the source line after.
+                    include_source_metadata: 'false',
                 }
             },
         ],
         reports: [
-            (s) => [s.reportsResponse],
-            (reportsResponse: ReportListResponse | null): SignalReport[] => reportsResponse?.results ?? [],
+            (s) => [s.reportsResponse, s.reportSourceMeta],
+            (
+                reportsResponse: ReportListResponse | null,
+                reportSourceMeta: Record<string, ReportSourceMeta>
+            ): SignalReport[] =>
+                (reportsResponse?.results ?? []).map((report) =>
+                    reportSourceMeta[report.id] ? { ...report, ...reportSourceMeta[report.id] } : report
+                ),
         ],
         // Rows whose metric snapshot is missing or older than the server's freshness window. Rows
         // refreshed on an earlier page are fresh, so a next-page load only sends the new ones.
@@ -632,10 +669,43 @@ export const reportListLogic = kea<reportListLogicType>([
         loadReportsSuccess: () => {
             actions.trackReports(props.sectionKey, values.livePrReportIds)
             actions.refreshReportMetrics(values.staleMetricReportIds)
+            // A first page or a refresh asks again for every row, because a report gains sources as
+            // new signals land. The rows keep their previous values until the answer arrives.
+            actions.loadReportSourceMeta(values.reports.map((report) => report.id))
         },
         loadMoreReportsSuccess: () => {
             actions.trackReports(props.sectionKey, values.livePrReportIds)
             actions.refreshReportMetrics(values.staleMetricReportIds)
+            actions.loadReportSourceMeta(
+                values.reports.map((report) => report.id).filter((id) => !(id in values.reportSourceMeta))
+            )
+        },
+        // Skips the ids a request already in flight covers, so overlapping page loads do not repeat
+        // the ClickHouse query.
+        loadReportSourceMeta: async ({ reportIds }) => {
+            const inFlight: Set<string> = (cache.sourceMetaInFlight ??= new Set<string>())
+            const requested = reportIds.filter((id) => !inFlight.has(id))
+            if (requested.length === 0) {
+                return
+            }
+            requested.forEach((id) => inFlight.add(id))
+            try {
+                const response = await signalsReportsSourceMetadataCreate(String(ApiConfig.getCurrentProjectId()), {
+                    report_ids: requested,
+                })
+                actions.applyReportSourceMeta(
+                    Object.fromEntries(
+                        response.reports.map(({ id, source_products, scout_name }) => [
+                            id,
+                            { source_products: [...source_products], scout_name },
+                        ])
+                    )
+                )
+            } catch (error) {
+                posthog.captureException(error)
+            } finally {
+                requested.forEach((id) => inFlight.delete(id))
+            }
         },
         removeReport: ({ reportId }) => {
             cache.removedWhilePageLoads?.add(reportId)

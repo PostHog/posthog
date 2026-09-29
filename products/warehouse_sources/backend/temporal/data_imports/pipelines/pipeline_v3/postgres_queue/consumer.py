@@ -50,6 +50,11 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     _group_by_key,
     _is_transient_queue_db_error,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.coalescing import (
+    CoalesceCaps,
+    CoalesceMember,
+    extends_set,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.messages import ExportSignalMessage
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
     _UNSET,
@@ -90,6 +95,7 @@ ConsumerConfig = BatchConsumerConfig
 VerifyOwnership = Callable[[], None]
 # Unlike the engine's ProcessBatchFn, the Delta sink also receives the per-batch ownership check.
 DeltaProcessBatchFn = Callable[[PendingBatch, VerifyOwnership | None], Coroutine[Any, Any, None]]
+DeltaProcessBatchesFn = Callable[[list[PendingBatch], VerifyOwnership | None], Coroutine[Any, Any, None]]
 
 # Ceiling for the queue-freshness probe, deliberately far below the sweep
 # timeout so a degraded probe can't starve the reconcile sweep it rides on.
@@ -177,6 +183,11 @@ EXPECTED_USER_ERROR_PATTERNS: tuple[str, ...] = (
 # with dead entries alone.
 JOB_STATUS_CACHE_TTL_SECONDS = 30
 JOB_STATUS_CACHE_MAX_ENTRIES = 1000
+
+
+def _first_delivery(batch: PendingBatch) -> bool:
+    # A redelivery may sit on a half-finished write; its idempotency check runs per batch.
+    return batch.latest_attempt == 0
 
 
 def _is_transient_queue_connection_drop(err: Exception, conn: psycopg.AsyncConnection[Any]) -> bool:
@@ -915,6 +926,35 @@ class DeltaBatchConsumerAdapter:
     ) -> None:
         return None
 
+    def coalesce_group(self, batches: list[PendingBatch]) -> list[list[PendingBatch]]:
+        """Cut the claimed batches of one group into the sets the sink loads as one write.
+
+        Only adjacent batches join, so every set keeps the claim order: the order the loader would
+        have taken the batches in one at a time.
+        """
+        caps = CoalesceCaps.from_settings()
+        sets: list[list[PendingBatch]] = []
+        current: list[PendingBatch] = []
+        current_members: list[CoalesceMember] = []
+        for batch in batches:
+            member = CoalesceMember.from_batch(batch)
+            if (
+                current
+                and _first_delivery(current[-1])
+                and _first_delivery(batch)
+                and extends_set(current_members, member, caps)
+            ):
+                current.append(batch)
+                current_members.append(member)
+                continue
+            if current:
+                sets.append(current)
+            current = [batch]
+            current_members = [member]
+        if current:
+            sets.append(current)
+        return sets
+
 
 class BatchConsumer(SharedBatchConsumer):
     def __init__(
@@ -924,9 +964,15 @@ class BatchConsumer(SharedBatchConsumer):
         health_reporter: Callable[[], None] | None = None,
         claim_sync_types: list[str] | None = None,
         claim_exclude_sync_types: list[str] | None = None,
+        process_batches: DeltaProcessBatchesFn | None = None,
     ) -> None:
         async def process_with_ownership_check(batch: PendingBatch) -> None:
             await process_batch(batch, self._make_verify_ownership(batch))
+
+        async def process_set_with_ownership_check(batches: list[PendingBatch]) -> None:
+            assert process_batches is not None
+            # One lease covers the whole set: every constituent shares the group.
+            await process_batches(batches, self._make_verify_ownership(batches[0]))
 
         super().__init__(
             config=config,
@@ -936,6 +982,7 @@ class BatchConsumer(SharedBatchConsumer):
                 claim_exclude_sync_types=claim_exclude_sync_types,
             ),
             health_reporter=health_reporter,
+            process_batches=process_set_with_ownership_check if process_batches is not None else None,
         )
 
     def _make_verify_ownership(self, batch: PendingBatch) -> Callable[[], None]:

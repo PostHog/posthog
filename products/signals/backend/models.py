@@ -42,6 +42,7 @@ from products.signals.backend.artefact_schemas import (
 )
 from products.signals.backend.enums import (
     ReportLinkKind,
+    ReportLinkWritePath,
     SignalSourceProduct,
     SignalSourceType,
     signal_source_product_choices,
@@ -1243,6 +1244,7 @@ class SignalReportArtefact(UUIDModel):
         IMPLEMENTATION_REPLACEMENT = "implementation_replacement"
         IMPLEMENTATION_HANDOVER = "implementation_handover"
         RANKING_SCORE = "ranking_score"
+        IMPACT_MEASUREMENT_PLAN = "impact_measurement_plan"
 
     # Every artefact is an append-only, point-in-time log entry — nothing is mutated in place by
     # the producers. The two sets below classify *what an entry means*, not how it is written:
@@ -1302,6 +1304,7 @@ class SignalReportArtefact(UUIDModel):
             ArtefactType.CHECK_SCHEDULED,
             ArtefactType.CHECK_EXPIRED,
             ArtefactType.CHECK_CANCELLED,
+            ArtefactType.IMPACT_MEASUREMENT_PLAN,
         }
     )
 
@@ -1696,6 +1699,7 @@ class SignalReportArtefact(UUIDModel):
         content: LogArtefactContent,
         attribution: ArtefactAttribution,
         claim_id: str | None = None,
+        write_path: ReportLinkWritePath | None = None,
     ) -> "SignalReportArtefact":
         """Append a log artefact (see `LOG_ARTEFACT_TYPES`) to a report and return it.
 
@@ -1708,6 +1712,7 @@ class SignalReportArtefact(UUIDModel):
         `report_link` is the typed, directed counterpart and gets no mirror row, because the
         direction is what it records. Its invariants are checked here, on the common write path,
         so every surface (the REST API, the MCP tools, a scout edit, the pipeline) gets them.
+        `write_path` names that surface on the `signals_report_linked` event.
         """
         if artefact_type_for(content) not in cls.LOG_ARTEFACT_TYPES:
             raise ValueError(f"{type(content).__name__} is not a log artefact content model")
@@ -1720,7 +1725,7 @@ class SignalReportArtefact(UUIDModel):
                     attribution=attribution,
                     claim_id=claim_id,
                 )
-            cls._capture_report_linked(artefact, content)
+            cls._capture_report_linked(artefact, content, write_path)
             cls._schedule_plan_rollup(artefact, content)
             return artefact
         artefact = cls._create(
@@ -1738,7 +1743,9 @@ class SignalReportArtefact(UUIDModel):
         return artefact
 
     @staticmethod
-    def _capture_report_linked(artefact: "SignalReportArtefact", content: ReportLink) -> None:
+    def _capture_report_linked(
+        artefact: "SignalReportArtefact", content: ReportLink, write_path: ReportLinkWritePath | None
+    ) -> None:
         """Count the link after it commits, from the one write path every producer shares.
 
         Scheduled on commit so a rolled-back write is never counted, and imported lazily to avoid a
@@ -1758,6 +1765,7 @@ class SignalReportArtefact(UUIDModel):
                 ),
                 actor_kind=artefact.actor_kind,
                 actor_agent=artefact.actor_agent,
+                write_path=write_path,
             )
 
         transaction.on_commit(_run)
@@ -1847,6 +1855,8 @@ class SignalReportArtefact(UUIDModel):
 
         Editing the latest `suggested_reviewers` row changes the report's canonical reviewers,
         so it re-evaluates auto-start the same way appending a new reviewers row does."""
+        if self.type == self.ArtefactType.IMPACT_MEASUREMENT_PLAN:
+            raise ArtefactContentValidationError("Append a new measurement version instead of editing one.")
         parsed = parse_artefact_content(self.type, content)
         # The `task` FK is the association and is creation-time only; an edit must not let
         # content.task_id drift away from it.
@@ -2150,8 +2160,8 @@ class SignalReportCheck(UUIDModel):
     transition to RESOLVED sets its `next_run_at`. That makes the resolve the clock for every kind of
     fix, including the ones that never had a pull request.
 
-    Terminal statuses are final. A check that passed, failed, errored out, expired, or was cancelled
-    is never rescheduled; the author writes a new check instead, so a result artefact always refers
+    Terminal statuses are final. A check that passed, failed, errored out, ended inconclusive,
+    expired, or was cancelled is never rescheduled; the author writes a new check instead, so a result artefact always refers
     to a row whose state explains it.
     """
 
@@ -2172,6 +2182,8 @@ class SignalReportCheck(UUIDModel):
         PASSED = "passed"
         FAILED = "failed"
         ERRORED = "errored"
+        # The runs worked but could not settle the claim. `last_outcome_reason` says why.
+        INCONCLUSIVE = "inconclusive"
         EXPIRED = "expired"
         CANCELLED = "cancelled"
 
@@ -2183,6 +2195,17 @@ class SignalReportCheck(UUIDModel):
         PASSED = "passed"
         FAILED = "failed"
         ERRORED = "errored"
+        INCONCLUSIVE = "inconclusive"
+
+    class InconclusiveReason(models.TextChoices):
+        # The data can arrive later: a rollout lag, a soak not complete, too few samples so far.
+        AWAITING_DATA = "awaiting_data"
+        # The data the check needs is not captured, so waiting does not help.
+        UNMEASURABLE = "unmeasurable"
+        # Only a person or another environment can do it: a device, SSH, staging, a test suite.
+        NEEDS_MANUAL_VERIFICATION = "needs_manual_verification"
+        # No merged fix or deploy time defines a post-fix window.
+        NO_FIX_TO_MEASURE = "no_fix_to_measure"
 
     # Environment-scoped, not project-scoped. `SignalReport` stores the environment's own team, and a
     # check has to sit on the same team as its report or the report's reads never find it and its
@@ -2216,8 +2239,13 @@ class SignalReportCheck(UUIDModel):
 
     status = models.CharField(max_length=20, choices=Status, default=Status.ACTIVE)
     consecutive_errors = models.PositiveIntegerField(default=0)
+    # Consecutive `awaiting_data` verdicts. Kept apart from `consecutive_errors`, because a run that
+    # waits on data did its job and must not spend the error budget.
+    consecutive_inconclusive = models.PositiveIntegerField(default=0, db_default=0)
     last_run_at = models.DateTimeField(null=True, blank=True)
     last_outcome = models.CharField(max_length=20, choices=Outcome, null=True, blank=True)
+    # Set only when `last_outcome` is `inconclusive`.
+    last_outcome_reason = models.CharField(max_length=30, choices=InconclusiveReason, null=True, blank=True)
     # When an `agent` check's scout run was dispatched, cleared as soon as a verdict is recorded.
     # It is what makes the dispatch closable: `scout-check-record-result` refuses a check no run is
     # waiting on, and the coordinator reads a stale value as a run that ended without answering.
@@ -2379,6 +2407,12 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     # `signals-scout-foo` gets a row (on the default schedule) on the next tick. A bare-named
     # skill is registered through the scout create endpoint instead.
     skill_name = models.CharField(max_length=200)
+    rubrics = models.JSONField(
+        null=True,
+        blank=True,
+        default=None,
+        help_text="Saved evaluation criteria and the latest background rubric proposal.",
+    )
     # What a person calls this scout, kept exactly as typed — spaces, capitalization, acronyms.
     # `skill_name` above stays the identity every other row keys on, so a rename touches only this
     # column. Blank means "no name of its own": every surface then derives a label from the slug.

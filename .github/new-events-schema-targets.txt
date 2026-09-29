@@ -32,6 +32,7 @@ products/mcp_analytics/backend/tests/test_dashboard_series.py
 products/mcp_analytics/backend/tests/test_harness_breakdown.py
 products/mcp_analytics/backend/tests/test_missing_capabilities.py
 products/mcp_analytics/backend/tests/test_model_breakdown.py
+products/mcp_analytics/backend/tests/test_protocol_version_breakdown.py
 products/mcp_analytics/backend/tests/test_tool_quality_tables.py
 products/mcp_analytics/backend/tests/test_tool_tables.py
 products/product_analytics/backend/hogql_queries
@@ -44,6 +45,7 @@ posthog/models/test/test_deletion_targets.py
 posthog/tasks/test/test_ai_observability_usage_report.py
 posthog/tasks/test/test_usage_report.py
 posthog/temporal/tests/test_clickhouse.py
+posthog/temporal/ai_observability/eval_reports/test/test_activities.py
 products/batch_exports/backend/tests/api/test_serializers.py
 products/batch_exports/backend/tests/temporal/destinations/test_http_batch_export_workflow.py
 products/batch_exports/backend/tests/temporal/pipeline/test_internal_stage.py

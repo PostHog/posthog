@@ -8,6 +8,9 @@ from django.test import override_settings
 import deltalake
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.deltalite_handles import (
+    DeltaLiteHandleCache,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
     TransientObjectStoreError,
 )
@@ -63,14 +66,81 @@ class TestGetDeltaTableCache:
 
         with patch(f"{self._MODULE}.deltalake.DeltaTable") as mock_delta_table:
             mock_delta_table.is_deltatable.return_value = True
-            mock_delta_table.side_effect = lambda table_uri, storage_options: MagicMock()
+            mock_delta_table.side_effect = lambda table_uri, storage_options: MagicMock(
+                version=MagicMock(return_value=1)
+            )
 
             stale = await ref.get_delta_table()
+            ref.note_deltalite_commit(9)
             getattr(ref, method)()
-            fresh = await ref.get_delta_table()
+            fresh = cast(MagicMock, await ref.get_delta_table())
 
         assert fresh is not stale
         assert mock_delta_table.call_count == 2
+        # The deltalite commit belonged to the dropped incarnation: the fresh open is current as is,
+        # and the old version must not outrank the new table's own.
+        fresh.update_incremental.assert_not_called()
+        assert ref.latest_known_version(fresh) == 1
+
+    @pytest.mark.asyncio
+    async def test_a_deltalite_commit_is_caught_up_on_the_next_read_only(self):
+        # deltalite commits past the delta-rs handle. A reader of the version or the file list
+        # (post-load, maintenance) must see that commit; a reader that opts out must not pay the
+        # log read for it; and the catch-up happens once, not on every later call.
+        ref = _openable_table_ref("s3://bucket/team/job/t")
+
+        with patch(f"{self._MODULE}.deltalake.DeltaTable") as mock_delta_table:
+            mock_delta_table.is_deltatable.return_value = True
+            mock_delta_table.side_effect = lambda table_uri, storage_options: MagicMock(
+                version=MagicMock(return_value=3)
+            )
+
+            handle = cast(MagicMock, await ref.get_delta_table())
+            ref.note_deltalite_commit(4)
+
+            assert await ref.get_delta_table(allow_stale=True) is handle
+            handle.update_incremental.assert_not_called()
+            assert ref.latest_known_version(handle) == 4
+
+            assert await ref.get_delta_table() is handle
+            handle.update_incremental.assert_called_once()
+            await ref.get_delta_table()
+            handle.update_incremental.assert_called_once()
+
+        assert mock_delta_table.call_count == 1
+
+    @parameterized.expand(
+        [
+            ("transient_blip", OSError("Generic S3 error: connection reset"), TransientObjectStoreError, False),
+            ("other_error", RuntimeError("something else went wrong"), RuntimeError, True),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_a_failed_catch_up_keeps_the_handle_behind(
+        self, _name: str, error: Exception, expected: type[Exception], captured: bool
+    ):
+        # A refresh that fails must not clear the mark, or the next reader would trust a snapshot
+        # that is known to be behind the log. Classification mirrors the open path so a transient
+        # blip is not reported as a defect.
+        ref = _openable_table_ref("s3://bucket/team/job/t")
+
+        with (
+            patch(f"{self._MODULE}.deltalake.DeltaTable") as mock_delta_table,
+            patch(f"{self._MODULE}.capture_exception") as capture,
+        ):
+            mock_delta_table.is_deltatable.return_value = True
+            mock_delta_table.side_effect = lambda table_uri, storage_options: MagicMock()
+
+            handle = cast(MagicMock, await ref.get_delta_table())
+            handle.update_incremental.side_effect = [error, None]
+            ref.note_deltalite_commit(4)
+
+            with pytest.raises(expected):
+                await ref.get_delta_table()
+            assert await ref.get_delta_table() is handle
+
+        assert handle.update_incremental.call_count == 2
+        assert capture.called is captured
 
     @pytest.mark.asyncio
     async def test_pop_never_opens_the_table(self):
@@ -441,3 +511,24 @@ class TestPurgeS3PrefixPermissionErrors:
                 await _purge_s3_prefix(MagicMock(), "s3://bucket/prefix")
 
         assert mock_once.await_count == expected_attempts
+
+
+class TestInvalidateDropsTheDeltaliteHandle:
+    _MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table"
+
+    @pytest.mark.asyncio
+    async def test_invalidating_the_ref_forgets_the_process_wide_handle(self):
+        # A reset or repartition swap replaces the table under the same URI. A deltalite handle
+        # that survives it would refresh the old snapshot with the new log's commits.
+        cache = DeltaLiteHandleCache(maxsize=2, opener=lambda uri, storage_options: MagicMock())
+        ref = _openable_table_ref("s3://bucket/team/job/t")
+
+        with patch(f"{self._MODULE}.get_handle_cache", return_value=cache):
+            await ref.get_table_uri()
+            with cache.lease("s3://bucket/team/job/t", storage_options={}, table_id="tid", table_version=1):
+                pass
+            assert "s3://bucket/team/job/t" in cache
+
+            ref.invalidate_cached_table()
+
+        assert "s3://bucket/team/job/t" not in cache

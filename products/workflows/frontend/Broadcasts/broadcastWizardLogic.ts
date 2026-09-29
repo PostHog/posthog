@@ -47,6 +47,7 @@ import {
     stateToRRule,
 } from '../Workflows/hogflows/steps/components/rrule-helpers'
 import { ResourceSaveQueue } from '../Workflows/resourceSaveQueue'
+import { confirmArchiveBroadcast, confirmDeleteBroadcast, restoreBroadcast } from './broadcastLifecycle'
 import {
     BroadcastStatus,
     StoppableBroadcast,
@@ -188,10 +189,16 @@ export interface broadcastWizardLogicActions {
         base: HogFlowApi | null
         broadcast: HogFlowApi
     }
+    archiveBroadcast: () => {
+        value: true
+    }
     collapseRun: (runId: string) => {
         runId: string
     }
     continueStep: () => {
+        value: true
+    }
+    deleteBroadcast: () => {
         value: true
     }
     draftAutosaved: (broadcast: HogFlowApi) => {
@@ -278,8 +285,14 @@ export interface broadcastWizardLogicActions {
     replayDeferredEdit: () => {
         value: true
     }
+    restoreBroadcast: () => {
+        value: true
+    }
     saveBroadcastFinished: (broadcast: HogFlowApi | null) => {
         broadcast: HogFlowApi | null
+    }
+    saveName: () => {
+        value: true
     }
     setAudienceProperties: (properties: AnyPropertyFilter[]) => {
         properties: AnyPropertyFilter[]
@@ -435,6 +448,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         prevStep: true,
         continueStep: true,
         setName: (name: string) => ({ name }),
+        saveName: true,
         setAudienceProperties: (properties: AnyPropertyFilter[]) => ({ properties }),
         setGoalEnabled: (enabled: boolean) => ({ enabled }),
         setConversion: (conversion: HogFlowConversionApi) => ({ conversion }),
@@ -467,6 +481,9 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         moveToDraft: true,
         moveToDraftFinished: true,
         duplicateBroadcast: true,
+        archiveBroadcast: true,
+        restoreBroadcast: true,
+        deleteBroadcast: true,
         duplicateBroadcastFinished: true,
     }),
 
@@ -1074,6 +1091,43 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             }
             actions.replayDeferredEdit()
         },
+        saveName: async () => {
+            // A new broadcast has no draft yet, and a live one is not renamed in place.
+            if (
+                !values.name.trim() ||
+                !values.broadcastId ||
+                !values.currentProjectId ||
+                values.broadcast?.status !== 'draft' ||
+                values.name === values.broadcast.name
+            ) {
+                return
+            }
+            const projectId = String(values.currentProjectId)
+            try {
+                await getSaveQueue(cache, values).run(async () => {
+                    actions.draftAutosaved(
+                        await patchWithoutClobbering(
+                            projectId,
+                            values.broadcastId!,
+                            { name: values.name },
+                            values.broadcast?.updated_at
+                        )
+                    )
+                })
+            } catch (error: any) {
+                if (error instanceof EditedElsewhereError) {
+                    // The rename stays local unless the other edit renamed it too, and the next save carries it.
+                    const attempted = values.name
+                    actions.applyExternalEdit(error.latest, values.broadcast)
+                    if (values.name !== attempted) {
+                        lemonToast.info("This broadcast was renamed somewhere else, so your new name wasn't saved.")
+                    }
+                } else {
+                    lemonToast.error(`Couldn't save the name: ${error?.detail || error?.message || 'unknown error'}`)
+                }
+            }
+            actions.replayDeferredEdit()
+        },
         saveBroadcastFinished: () => {
             actions.replayDeferredEdit()
         },
@@ -1362,6 +1416,23 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 )
             }
             actions.moveToDraftFinished()
+        },
+        archiveBroadcast: () => {
+            if (values.currentProjectId && values.broadcast) {
+                confirmArchiveBroadcast(String(values.currentProjectId), values.broadcast, actions.loadBroadcast)
+            }
+        },
+        restoreBroadcast: async () => {
+            if (values.currentProjectId && values.broadcast) {
+                await restoreBroadcast(String(values.currentProjectId), values.broadcast, actions.loadBroadcast)
+            }
+        },
+        deleteBroadcast: () => {
+            if (values.currentProjectId && values.broadcast) {
+                confirmDeleteBroadcast(String(values.currentProjectId), values.broadcast, () =>
+                    router.actions.push(urls.broadcasts())
+                )
+            }
         },
         duplicateBroadcast: async () => {
             if (!values.currentProjectId) {
