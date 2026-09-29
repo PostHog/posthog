@@ -47,9 +47,10 @@ export function ExperimentWizard(): JSX.Element {
     )
 
     // Pinned to the bottom of the scene, so the buttons and the no-code link stay in the same place on every step,
-    // however tall the step is. Back and the primary button take equal space, which keeps the link centered.
+    // however tall the step is. Back and the primary button take equal space, which keeps the link centered. The
+    // footer is its own container, so when the column is too narrow for one line the link wraps under the buttons.
     const footer = (
-        <div className="sticky bottom-0 z-10 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-primary bg-bg-light py-4">
+        <div className="@container sticky bottom-0 z-10 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-primary bg-bg-light py-4">
             <div className="flex flex-1 basis-0">
                 {!isFirstStep && (
                     <LemonButton type="secondary" onClick={prevStep}>
@@ -82,15 +83,21 @@ export function ExperimentWizard(): JSX.Element {
         </div>
     )
 
-    // The main column stays centered in the page, with the guide in a right-hand column that starts level with
-    // the form card. Sized off the container rather than the viewport, so the layout holds when the side panel
-    // narrows the scene. Below that width the guide stacks under the main column.
-    const mainColumn = 'w-full max-w-3xl min-w-0 justify-self-center space-y-6 @5xl:col-start-2 @5xl:max-w-none'
+    // Three layouts, sized off the container rather than the viewport so they hold when the side panel narrows the
+    // scene:
+    // - 1024px and wider (laptops and up): the form is centered, with the guide in the right-hand column level with
+    //   the form card. The left column is empty and always as wide as the right, so the side space shrinks evenly and
+    //   the form stays centered, narrowing only once both sides are at their minimum.
+    // - 672px to 1024px (tablets): the form and guide sit side by side and fill the width together, so the content
+    //   as a whole is centered.
+    // - Below 672px (phones): one centered column, with the guide under the form, and bottom padding after it.
+    const mainColumn =
+        'w-full max-w-3xl min-w-0 justify-self-center space-y-6 @2xl:col-start-1 @2xl:max-w-none @5xl:col-start-2'
     // The main column's second row fills the scene's height, and the footer adds its own bottom padding, so the
     // footer sits at the same height whether or not the step scrolls.
     return (
         <div className="@container flex flex-1 flex-col bg-bg-light">
-            <div className="grid flex-1 grid-cols-1 grid-rows-[auto_1fr_auto] gap-6 px-6 pt-6 @5xl:grid-cols-[minmax(0,1fr)_minmax(0,48rem)_minmax(16rem,1fr)] @5xl:grid-rows-[auto_1fr]">
+            <div className="grid flex-1 grid-cols-1 grid-rows-[auto_1fr_auto] gap-6 px-6 pt-6 pb-6 @2xl:pb-0 @2xl:grid-cols-[minmax(0,1fr)_14rem] @2xl:grid-rows-[auto_1fr] @5xl:grid-cols-[minmax(14rem,1fr)_minmax(0,48rem)_minmax(14rem,1fr)]">
                 <div className={mainColumn}>
                     {header}
                     {stepper}
@@ -99,7 +106,7 @@ export function ExperimentWizard(): JSX.Element {
                     {body}
                     {footer}
                 </div>
-                <aside className="w-full max-w-3xl min-w-0 justify-self-center @5xl:col-start-3 @5xl:row-start-2 @5xl:max-w-80 @5xl:justify-self-start">
+                <aside className="w-full max-w-3xl min-w-0 justify-self-center @2xl:col-start-2 @2xl:row-start-2 @2xl:max-w-80 @2xl:justify-self-start @5xl:col-start-3">
                     <ExperimentWizardGuide />
                 </aside>
             </div>
