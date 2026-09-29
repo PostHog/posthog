@@ -5,9 +5,11 @@ import { router } from 'kea-router'
 import { IconArrowLeft, IconInfo } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonInput, LemonSkeleton, Spinner, Tooltip } from '@posthog/lemon-ui'
 
+import { NotFound } from 'lib/components/NotFound'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -128,8 +130,13 @@ function ValidationPanel(): JSX.Element {
 }
 
 export function AutoresearchNewScene(): JSX.Element {
+    const isEnabled = useFeatureFlag('AUTORESEARCH')
     const { validation, isNewPipelineSubmitting, newPipeline, newPipelineErrors } = useValues(autoresearchNewLogic)
     const { submitNewPipeline, setNewPipelineValues } = useActions(autoresearchNewLogic)
+
+    if (!isEnabled) {
+        return <NotFound object="Autoresearch" caption="This feature is not enabled for your project." />
+    }
 
     const blockingError = validation?.warnings.some((w) => w.severity === 'error') ?? false
 
@@ -262,7 +269,11 @@ export function AutoresearchNewScene(): JSX.Element {
                     </div>
 
                     <div className="flex justify-end gap-2 mt-2">
-                        <LemonButton type="secondary" onClick={() => router.actions.push(urls.autoresearch())}>
+                        <LemonButton
+                            type="secondary"
+                            onClick={() => router.actions.push(urls.autoresearch())}
+                            data-attr="autoresearch-new-cancel"
+                        >
                             Cancel
                         </LemonButton>
                         <LemonButton
@@ -270,6 +281,7 @@ export function AutoresearchNewScene(): JSX.Element {
                             loading={isNewPipelineSubmitting}
                             disabledReason={blockingError ? 'Resolve blocking warnings before creating' : undefined}
                             onClick={() => submitNewPipeline()}
+                            data-attr="autoresearch-new-create"
                         >
                             Create model
                         </LemonButton>
