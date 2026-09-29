@@ -1,5 +1,5 @@
 from collections.abc import Iterator
-from typing import Any
+from typing import Any, cast
 
 from posthog.dataclasses import frozen
 
@@ -64,7 +64,7 @@ def sevdesk_source(
     endpoint_config = schema_for_resource(ENDPOINTS, endpoint)
     resource_endpoint: Endpoint = {
         "path": endpoint_config.path,
-        "params": endpoint_config.params,
+        "params": cast(dict[str, Any], endpoint_config.params),
         "data_selector": "objects",
         "data_selector_malformed_retryable": True,
         "paginator": {"type": "offset", "limit": PAGE_SIZE, "total_path": None},
