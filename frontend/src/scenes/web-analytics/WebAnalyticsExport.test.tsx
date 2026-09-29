@@ -11,7 +11,7 @@ import {
     WebVitalsQueryResponse,
 } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { PropertyMathType } from '~/types'
+import { InsightLogicProps, PropertyMathType } from '~/types'
 
 import { TileId, WebAnalyticsTile } from './common'
 import {
@@ -224,8 +224,8 @@ describe('WebAnalyticsExport adapters', () => {
 
         it('collects the web vitals tiles from their mounted data node logics', () => {
             initKeaTests()
-            const webVitalsInsightProps = { dashboardItemId: 'new-web-vitals-tile' }
-            const pathBreakdownInsightProps = { dashboardItemId: 'new-web-vitals-path-tile' }
+            const webVitalsInsightProps: InsightLogicProps = { dashboardItemId: 'new-web-vitals-tile' }
+            const pathBreakdownInsightProps: InsightLogicProps = { dashboardItemId: 'new-web-vitals-path-tile' }
             const tiles: WebAnalyticsTile[] = [
                 {
                     kind: 'query',
