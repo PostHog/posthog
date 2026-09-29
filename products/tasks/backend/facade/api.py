@@ -531,7 +531,9 @@ _TASK_RUN_PUBLIC_STATE_KEYS = frozenset(
 # `end_run_when_done` gates the sandbox's `finish` tool for workflow runs; a key this
 # filter drops never reaches the agent server, so the gate would silently do nothing.
 # `store_skills` is the acting user's skills-store listing, so it is for their sandbox only.
-_TASK_RUN_AGENT_STATE_KEYS = frozenset({"end_run_when_done", "initial_prompt_override", "store_skills", "systemPrompt"})
+_TASK_RUN_AGENT_STATE_KEYS = frozenset(
+    {"answer_charts_enabled", "end_run_when_done", "initial_prompt_override", "store_skills", "systemPrompt"}
+)
 
 
 def _public_task_run_state(state: dict | None, *, include_agent_keys: bool = False) -> dict:
@@ -2628,6 +2630,7 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "sandbox_ttl_seconds",
         "inactivity_timeout_seconds",
         "systemPrompt",
+        "answer_charts_enabled",
         "wizard_config",
         "wizard_head_branch",
         "use_modal_directory_resume_snapshots",

@@ -1,9 +1,6 @@
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
 
-from parameterized import parameterized
-
-from products.posthog_ai.backend.services.system_prompt.prompt import ANSWER_CHARTS_PROMPT, POSTHOG_AI_SYSTEM_PROMPT
+from products.posthog_ai.backend.services.system_prompt.prompt import POSTHOG_AI_SYSTEM_PROMPT
 from products.posthog_ai.backend.services.system_prompt.service import ClaudeCodeSystemPrompt, PromptService
 
 
@@ -63,13 +60,3 @@ class TestPostHogAISystemPrompt(APIBaseTest):
         assert "<billing_context>" not in prompt
         assert "<core_memory>" not in prompt
         assert "<project_context>" not in prompt
-
-    @parameterized.expand([(True,), (False,)])
-    def test_answer_charts_section_follows_the_flag(self, enabled: bool) -> None:
-        with patch(
-            "products.posthog_ai.backend.services.system_prompt.service.feature_enabled_or_false",
-            return_value=enabled,
-        ):
-            prompt = self._build()["append"]
-
-        assert (ANSWER_CHARTS_PROMPT in prompt) is enabled

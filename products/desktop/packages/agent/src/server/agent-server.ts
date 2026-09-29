@@ -225,6 +225,7 @@ export function buildCloudSessionSystemPrompt(
   cloudAppend: string,
   userPrompt: ClaudeCodeConfig["systemPrompt"],
   interactionOrigin?: string | null,
+  options: { answerCharts?: boolean } = {},
 ): string | { append: string } {
   const prompt = [
     typeof userPrompt === "string" ? userPrompt : userPrompt?.append,
@@ -235,6 +236,7 @@ export function buildCloudSessionSystemPrompt(
   const combinedPrompt = appendRichOutputPrompt(
     prependProductEngineerPrompt(prompt),
     interactionOrigin,
+    options,
   );
 
   return typeof userPrompt === "string"
@@ -2170,6 +2172,7 @@ export class AgentServer {
       slackThreadUrl,
       inboxReportUrl,
       runStateSystemPromptData,
+      runState?.answer_charts_enabled === true,
     );
     const codexInstructions =
       runtimeAdapter === "codex"
@@ -4297,6 +4300,7 @@ export class AgentServer {
     slackThreadUrl?: string | null,
     inboxReportUrl?: string | null,
     runStateSystemPrompt?: ClaudeCodeConfig["systemPrompt"],
+    answerCharts = false,
   ): string | { append: string } {
     const cloudAppend = this.buildCloudSystemPrompt(
       prUrl,
@@ -4310,6 +4314,7 @@ export class AgentServer {
       cloudAppend,
       userPrompt,
       this.isSlackReplyContext() ? "slack" : this.getCloudInteractionOrigin(),
+      { answerCharts },
     );
     return this.isSlackReplyContext()
       ? appendSte100Guidance(sessionPrompt)

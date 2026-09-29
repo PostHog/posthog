@@ -206,7 +206,9 @@ class SandboxSession(BaseSandboxService):
             )
             return None
 
-        system_prompt = PromptService(self.team, self.user).build()
+        prompt_service = PromptService(self.team, self.user)
+        system_prompt = prompt_service.build()
+        answer_charts_enabled = prompt_service.answer_charts_enabled()
 
         with lock_conversation_for_followup(str(self.conversation.id), self.team.pk) as locked:
             task_id = locked.task_id
@@ -231,6 +233,7 @@ class SandboxSession(BaseSandboxService):
                 extra_state={
                     "interaction_origin": POSTHOG_AI_INTERACTION_ORIGIN,
                     "systemPrompt": system_prompt,
+                    "answer_charts_enabled": answer_charts_enabled,
                     "initial_permission_mode": initial_permission_mode,
                     "inactivity_timeout_seconds": SANDBOX_INACTIVITY_TIMEOUT_SECONDS,
                 },
@@ -266,7 +269,9 @@ class SandboxSession(BaseSandboxService):
         deduped = context_service.prune_repeated_entity_refs(attached_context, prior=[])
         wrapped = context_service.wrap_user_message(content, deduped)
 
-        system_prompt = PromptService(self.team, self.user).build()
+        prompt_service = PromptService(self.team, self.user)
+        system_prompt = prompt_service.build()
+        answer_charts_enabled = prompt_service.answer_charts_enabled()
 
         created = tasks_facade.create_and_run_task(
             team=self.team,
@@ -293,6 +298,7 @@ class SandboxSession(BaseSandboxService):
         # merge limited to exactly these keys — model defaults must not leak into the bag.
         ph_state = PostHogAIRunState(
             system_prompt=system_prompt,
+            answer_charts_enabled=answer_charts_enabled,
             attached_context=attached_context,
             initial_permission_mode=initial_permission_mode,
             interaction_origin=POSTHOG_AI_INTERACTION_ORIGIN,
@@ -428,7 +434,9 @@ class SandboxSession(BaseSandboxService):
         if task is None:
             raise exceptions.ValidationError("This conversation has no backing task to resume.")
 
-        system_prompt = PromptService(self.team, self.user).build()
+        prompt_service = PromptService(self.team, self.user)
+        system_prompt = prompt_service.build()
+        answer_charts_enabled = prompt_service.answer_charts_enabled()
 
         with lock_conversation_for_followup(str(self.conversation.id), self.team.pk) as locked:
             current = locked.current_run
@@ -444,6 +452,7 @@ class SandboxSession(BaseSandboxService):
                 "resume_from_run_id": str(run.id),
                 "pending_user_message": wrapped,
                 "systemPrompt": system_prompt,
+                "answer_charts_enabled": answer_charts_enabled,
                 # The full, undeduped list — survives for the life of the new Run.
                 "attached_context": attached_context,
                 "initial_permission_mode": initial_permission_mode,

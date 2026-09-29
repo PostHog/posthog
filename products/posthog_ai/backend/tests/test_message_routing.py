@@ -110,13 +110,14 @@ class TestOpenSandboxMessage(APIBaseTest):
     def test_system_prompt_written_on_open_reaches_the_sandbox(self):
         task, run = self._stub_task()
         car, workflow, sysprompt = self._patches(task)
-        with car, workflow, sysprompt:
+        with car, workflow, sysprompt, patch.object(PromptService, "answer_charts_enabled", return_value=True):
             self._service().open({"content": "Why did checkout drop?", "trace_id": "trace-1"})
 
         detail = tasks_facade.get_task_run_detail(run.id, task.id, self.team.id, include_agent_state=True)
 
         assert detail is not None
         assert detail.state["systemPrompt"] == SYS_PROMPT
+        assert detail.state["answer_charts_enabled"] is True
 
     def test_handoff_detaches_previous_owner_conversation(self):
         new_owner = User.objects.create_user(

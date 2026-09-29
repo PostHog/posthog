@@ -24,6 +24,8 @@ class PostHogAIRunState(RunState):
     # Code's own system prompt (a suffix) instead of replacing it. See PromptService.build.
     system_prompt: ClaudeCodeSystemPrompt | None = Field(default=None, alias="systemPrompt")
     attached_context: list[AttachedContext] | None = None
+    # Tells the agent-server to add the answer charts guidance to the prompt. See PromptService.answer_charts_enabled.
+    answer_charts_enabled: bool | None = None
     # Set on a pre-warmed Run created with no pending user message: it tells the agent-server to
     # open the ACP session and idle awaiting the first ``user_message`` rather than starting a turn.
     # Keep this field alias-free: the warm-pool cap filters on the JSON key directly

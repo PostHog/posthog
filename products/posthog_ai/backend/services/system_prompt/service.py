@@ -21,7 +21,6 @@ from posthog.ph_client import feature_enabled_or_false
 
 from products.posthog_ai.backend.helpers import BaseSandboxService
 from products.posthog_ai.backend.services.system_prompt.prompt import (
-    ANSWER_CHARTS_PROMPT,
     POSTHOG_AI_SYSTEM_PROMPT,
     governed_metrics_catalog_prompt,
 )
@@ -53,11 +52,13 @@ class PromptService(BaseSandboxService):
         after Claude Code's own system prompt rather than replacing it.
         """
         prompt = POSTHOG_AI_SYSTEM_PROMPT + governed_metrics_catalog_prompt()
-        if self._answer_charts_enabled():
-            prompt += ANSWER_CHARTS_PROMPT
         return {"type": "preset", "preset": "claude_code", "append": prompt}
 
-    def _answer_charts_enabled(self) -> bool:
+    def answer_charts_enabled(self) -> bool:
+        """Whether the agent-server adds the answer charts guidance to the prompt.
+
+        The agent-server owns that guidance, so the Run state carries only this decision.
+        """
         return feature_enabled_or_false(
             ANSWER_CHARTS_FLAG,
             str(self.user.distinct_id),
