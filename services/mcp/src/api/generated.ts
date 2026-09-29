@@ -25905,6 +25905,11 @@ export namespace Schemas {
          * @nullable
          */
       source_type?: string | null;
+      /**
+         * How a sync issue's table is kept up to date, for example 'incremental' or 'webhook'. A webhook table is pushed to rather than pulled on a schedule. Null for other types.
+         * @nullable
+         */
+      sync_type?: string | null;
       /** Why it is unhealthy. One of: failed, disabled, degraded, billing_limit. */
       status: string;
       /**
@@ -25913,7 +25918,7 @@ export namespace Schemas {
          */
       error: string | null;
       /**
-         * When it last failed.
+         * When a sync issue's table last synced successfully. Null if it never has.
          * @nullable
          */
       failed_at: string | null;
@@ -48270,6 +48275,15 @@ export namespace Schemas {
       readonly notebook: string | null;
     }
 
+    export type FlagEvaluationsModeEnum = typeof FlagEvaluationsModeEnum[keyof typeof FlagEvaluationsModeEnum];
+
+
+    export const FlagEvaluationsModeEnum = {
+      Number0: 0,
+      Number1: 1,
+      Number2: 2,
+    } as const;
+
     export interface FlagValueItem {
       name: unknown;
     }
@@ -62553,6 +62567,11 @@ export namespace Schemas {
       readonly scanner_snapshot: ScannerSnapshot | null;
       /** Result data persisted on success; null until the observation succeeds. */
       readonly scanner_result: ScannerResult | null;
+      /**
+         * The scanner's prompt condensed into the one question it answers about a session. Null when the prompt has changed since this observation was scanned, since the question then describes a different prompt; read `scanner_snapshot.scanner_config.prompt` instead.
+         * @nullable
+         */
+      readonly prompt_question: string | null;
       /** Whether this observation came from the schedule, an on-demand request, a retry of a failed or ineligible observation, or a historical backfill.
        *
        * * `schedule` - Schedule
@@ -66443,6 +66462,8 @@ export namespace Schemas {
       creation_method?: ScannerCreationMethodEnum | null;
       /** Type-specific configuration. All scanner types require `prompt`; monitors add optional `allow_inconclusive`, classifiers add `tags`, scorers add `scale`, summarizers add optional `length`. */
       scanner_config: unknown;
+      /** The current prompt condensed by AI into the one question the scanner answers about a session. Falls back to the prompt's first line when no question matches the current prompt. */
+      readonly prompt_question: string;
       /** Persisted `RecordingsQuery` shape used to pick candidate sessions. `date_from`/`date_to` are stripped on save — the schedule controls time, not the user. */
       query?: unknown;
       /**
@@ -77642,6 +77663,8 @@ export namespace Schemas {
          */
       readonly user_access_level?: string | null;
       readonly managed_viewsets?: PatchedProjectBackwardCompatManagedViewsets;
+      /** Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table. */
+      readonly flag_evaluations_mode?: FlagEvaluationsModeEnum;
       revenue_analytics_config?: TeamRevenueAnalyticsConfig;
       marketing_analytics_config?: TeamMarketingAnalyticsConfig;
       customer_analytics_config?: TeamCustomerAnalyticsConfig;
@@ -77847,6 +77870,8 @@ export namespace Schemas {
       creation_method?: ScannerCreationMethodEnum | null;
       /** Type-specific configuration. All scanner types require `prompt`; monitors add optional `allow_inconclusive`, classifiers add `tags`, scorers add `scale`, summarizers add optional `length`. */
       scanner_config?: unknown;
+      /** The current prompt condensed by AI into the one question the scanner answers about a session. Falls back to the prompt's first line when no question matches the current prompt. */
+      readonly prompt_question?: string;
       /** Persisted `RecordingsQuery` shape used to pick candidate sessions. `date_from`/`date_to` are stripped on save — the schedule controls time, not the user. */
       query?: unknown;
       /**
@@ -82556,6 +82581,8 @@ export namespace Schemas {
          */
       readonly user_access_level: string | null;
       readonly managed_viewsets: ProjectBackwardCompatManagedViewsets;
+      /** Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table. */
+      readonly flag_evaluations_mode: FlagEvaluationsModeEnum;
       revenue_analytics_config?: TeamRevenueAnalyticsConfig;
       marketing_analytics_config?: TeamMarketingAnalyticsConfig;
       customer_analytics_config?: TeamCustomerAnalyticsConfig;
@@ -97861,6 +97888,12 @@ export namespace Schemas {
       max_feature_flags_override: number | null;
       /** The flag-count limit actually enforced for this team: the override when one is set, otherwise the global MAX_FEATURE_FLAGS_PER_TEAM setting. */
       effective_max_feature_flags: number;
+      /** Which table the $feature_flag_called data of this team's organization is read from. Every team of an organization shares one mode. 0 reads events, 1 and 2 read flag_evaluations. 2 is reserved for ingestion to stop writing $feature_flag_called to events. Ingestion ignores 2 until that support deploys, so 2 acts as 1 until then. This is the stored mode: while the FLAG_EVALUATIONS_USAGE_TAB_FORCE_EVENTS instance setting is on, an organization on 1 has its Usage tab read events anyway.
+       *
+       * * `0` - Events
+       * * `1` - Read flag evaluations
+       * * `2` - Flag evaluations only */
+      flag_evaluations_mode: FlagEvaluationsModeEnum;
       /** Number of feature flags the team has today, excluding soft-deleted ones, counted the same way the limit is enforced. */
       feature_flag_count: number;
     }
@@ -111513,6 +111546,15 @@ export namespace Schemas {
      */
     cutoff_days?: number;
     /**
+     * Which runs to return: 'import' for warehouse source syncs, 'model' for materialized view runs, 'all' for both. Defaults to 'all'.
+     *
+     * * `all` - all
+     * * `import` - import
+     * * `model` - model
+     * @minLength 1
+     */
+    kind?: DataWarehouseCompletedActivityRetrieveKind;
+    /**
      * Max rows to return. Capped at 50 server-side. Defaults to 20.
      */
     limit?: number;
@@ -111529,6 +111571,15 @@ export namespace Schemas {
      */
     outcome?: DataWarehouseCompletedActivityRetrieveOutcome;
     };
+
+    export type DataWarehouseCompletedActivityRetrieveKind = typeof DataWarehouseCompletedActivityRetrieveKind[keyof typeof DataWarehouseCompletedActivityRetrieveKind];
+
+
+    export const DataWarehouseCompletedActivityRetrieveKind = {
+      All: 'all',
+      Import: 'import',
+      Model: 'model',
+    } as const;
 
     export type DataWarehouseCompletedActivityRetrieveOutcome = typeof DataWarehouseCompletedActivityRetrieveOutcome[keyof typeof DataWarehouseCompletedActivityRetrieveOutcome];
 
