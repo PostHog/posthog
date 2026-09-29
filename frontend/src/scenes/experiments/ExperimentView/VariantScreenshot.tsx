@@ -65,10 +65,7 @@ export function VariantScreenshot({
     )
 }
 
-/**
- * Up to 5 screenshots for one variant: thumbnails, upload or paste, remove, and a full-size viewer.
- * Controlled, so it works on a saved experiment (`VariantScreenshot`) and on an unsaved draft (the wizard).
- */
+/** Controlled, so the wizard can use it on an unsaved draft, and `VariantScreenshot` on a saved experiment */
 export function VariantScreenshotEditor({
     mediaIds,
     onChange,
@@ -78,11 +75,8 @@ export function VariantScreenshotEditor({
 }: {
     mediaIds: string[]
     onChange: (mediaIds: string[]) => void
-    /** Called after a new screenshot is uploaded and added */
     onUploaded?: () => void
-    /** Shown next to "Screenshot N of M" in the full-size viewer */
     viewerTitle?: ReactNode
-    /** `small` matches the height of a medium input, for use inline in a form row */
     size?: 'small' | 'medium'
 }): JSX.Element {
     const [loadingImages, setLoadingImages] = useState<Record<string, boolean>>({})
@@ -91,8 +85,7 @@ export function VariantScreenshotEditor({
     const [isFocused, setIsFocused] = useState(false)
     const containerRef = useRef<HTMLDivElement>(null)
 
-    // `onUpload` is the callback from the render that started the upload. Read the props current when it finishes,
-    // or a screenshot removed while it was uploading comes back.
+    // `onUpload` comes from the render that started the upload, so read current props or a removed screenshot returns
     const latestPropsRef = useRef({ mediaIds, onChange, onUploaded })
     latestPropsRef.current = { mediaIds, onChange, onUploaded }
 
@@ -181,8 +174,7 @@ export function VariantScreenshotEditor({
     const heightClass = isSmall ? 'h-[calc(2.125rem+3px)]' : 'h-16'
     const widthClass = isSmall ? 'w-14' : getThumbnailWidth()
     const addWidthClass = isSmall ? 'w-[calc(2.125rem+3px)]' : widthClass
-    // In a form row, show only the first thumbnail (with a "+N" badge for the rest) at a fixed width, so adding
-    // screenshots never resizes the row or reflows the table around it. The viewer shows and removes the rest.
+    // In a form row, show one thumbnail at a fixed width so adding screenshots never resizes the table
     const visibleMediaIds = isSmall ? mediaIds.slice(0, 1) : mediaIds
     const hiddenCount = mediaIds.length - visibleMediaIds.length
 

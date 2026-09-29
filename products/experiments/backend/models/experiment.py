@@ -296,7 +296,6 @@ class Experiment(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMixi
             "has_description": bool(self.description),
             "has_conclusion_comment": bool(self.conclusion_comment),
             "variant_count": len(variants),
-            # Per-variant notes and screenshots, set in the create wizard or on the Variants tab
             "variants_with_notes_count": sum(
                 1 for note in variant_notes.values() if isinstance(note, str) and note.strip()
             )

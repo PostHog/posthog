@@ -476,7 +476,6 @@ describe('createExperimentLogic', () => {
                 variant_screenshot_media_ids: {},
             })
 
-            // A variant added later under a removed variant's key starts empty
             logic.actions.setFeatureFlagConfig({ variants: variantsWithKeys('control', 'test-2', 'test') })
             expect(logic.values.experiment.parameters.variant_notes).toEqual({ 'test-2': 'Express checkout' })
         })

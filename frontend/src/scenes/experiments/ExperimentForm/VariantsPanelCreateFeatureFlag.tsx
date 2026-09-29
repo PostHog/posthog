@@ -42,7 +42,6 @@ interface VariantsPanelCreateFeatureFlagProps {
     }) => void
     disabled?: boolean
     layout?: 'horizontal' | 'vertical'
-    /** Extra columns in the variants table after "Split", e.g. screenshots and notes */
     extraVariantColumns?: VariantColumn[]
 }
 
@@ -51,21 +50,17 @@ export interface VariantColumn {
     title: ReactNode
     render: (variant: MultivariateFlagVariant, index: number) => ReactNode
     className?: string
-    /** When the table is narrow, columns are added from a menu under the variant, e.g. "Add note" */
     menuLabel: string
-    /** Whether the variant already has a value, so the column shows without picking it from the menu */
     hasValue: (variant: MultivariateFlagVariant) => boolean
-    /** Whether the column applies to the variant at all, e.g. not before it has a key */
     isAvailable?: (variant: MultivariateFlagVariant) => boolean
 }
 
 const EQUAL_SPLIT_ADVICE =
     'We recommend an equal split between variants. The less traffic a variant gets, the longer it takes to reach reliable results.'
 
-// Below this width (px) extra columns won't fit beside the key and split, so they move to a line under each variant
+// Narrower than this, extra columns don't fit beside the key and split, so they move under each variant
 const VARIANT_TABLE_BREAKPOINTS = { 0: 'stacked', 560: 'inline' } as const
 
-/** Splits extra variant columns into inline table columns or a stacked line, based on the table's own width */
 export function useVariantColumnsLayout(columns: VariantColumn[]): {
     ref: RefCallback<HTMLDivElement> | RefObject<HTMLDivElement> | undefined
     inlineColumns: VariantColumn[]
@@ -79,11 +74,6 @@ export function useVariantColumnsLayout(columns: VariantColumn[]): {
     }
 }
 
-/**
- * When the table is too narrow for extra columns, they go under the variant's row instead. Each one is added
- * from a menu and shown with its title as a label, so it's clear what the field is. Columns that already have
- * a value show straight away.
- */
 export function StackedVariantColumnsRow({
     columns,
     variant,

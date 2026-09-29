@@ -6,11 +6,7 @@ import type { VariantColumn } from '../../ExperimentForm/VariantsPanelCreateFeat
 import { VariantScreenshotEditor } from '../../ExperimentView/VariantScreenshot'
 import { experimentWizardLogic } from '../experimentWizardLogic'
 
-/**
- * Screenshot and Notes columns for the wizard's variants table, matching the experiment's Variants tab.
- * Both are optional. They're stored on the draft's `parameters`, keyed by variant key, which is where the
- * Variants tab reads and edits them after saving.
- */
+/** Stored in the draft's `parameters`, where the experiment's Variants tab reads them after saving */
 export function useVariantDetailsColumns(): VariantColumn[] {
     const { experiment } = useValues(experimentWizardLogic)
     const { setVariantNote, setVariantScreenshots } = useActions(experimentWizardLogic)
@@ -51,9 +47,7 @@ export function useVariantDetailsColumns(): VariantColumn[] {
                         placeholder="What's different in this variant?"
                         value={notes[key] ?? ''}
                         onChange={(value) => setVariantNote(key, value)}
-                        // One row, matching the variant key input's height. LemonTextArea puts className on both
-                        // its bordered wrapper and the textarea, so scope the sizing to the textarea only.
-                        // It grows as the user types.
+                        // LemonTextArea puts className on its wrapper too, so size only the textarea
                         minRows={1}
                         className="[&.LemonTextArea]:!min-h-[calc(2.125rem+1px)] [&.LemonTextArea]:!py-[7px]"
                         data-attr="experiment-wizard-variant-notes"

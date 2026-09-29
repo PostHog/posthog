@@ -84,10 +84,7 @@ function pickVariantDetails<T>(details: Record<string, T>, keys: string[], previ
     return picked
 }
 
-/**
- * Keeps variant notes and screenshots attached to their variants when keys are renamed, and drops details that no
- * variant has. Pass `previousVariants` when the variants have just changed, to detect renames.
- */
+/** Keeps notes and screenshots with their variants through renames, and drops details no variant has */
 function alignVariantDetails(
     parameters: Experiment['parameters'],
     variants: Pick<MultivariateFlagVariant, 'key'>[],
@@ -292,8 +289,7 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
             {
                 setExperiment: (_, { experiment }) => experiment,
                 setExperimentValue: (state, { name, value }) => ({ ...state, [name]: value }),
-                // Merge into the current parameters, not a copy a component rendered with: a screenshot upload
-                // finishes after later edits, and would otherwise drop a note typed in the meantime.
+                // Merge into the current state: an upload that finishes after later edits would otherwise undo them
                 setVariantNote: (state, { variantKey, note }) => ({
                     ...state,
                     parameters: {

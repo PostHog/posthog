@@ -2292,7 +2292,6 @@ class TestExperimentService(APIBaseTest):
 
         metadata = experiment.get_analytics_metadata()
 
-        # Blank notes, empty screenshot lists, and screenshot values that aren't lists don't count
         assert metadata["variants_with_notes_count"] == 1
         assert metadata["variants_with_screenshots_count"] == 1
 
