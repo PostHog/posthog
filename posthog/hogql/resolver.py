@@ -1832,9 +1832,10 @@ class Resolver(CloningVisitor):
             field_type = field_type.type
         if not isinstance(field_type, ast.FieldType):
             return
-        alias = self._scope_alias_of(field_type.table_type)
-        if alias is not None:
-            expr.chain = [alias, expr.chain[-1]]
+        for alias, table_type in self._get_scope().tables.items():
+            if table_type is field_type.table_type:
+                expr.chain = [alias, expr.chain[-1]]
+                return
 
     def _scope_alias_of(self, table_type: ast.Type | None) -> Optional[str]:
         for alias, scope_table_type in self._get_scope().tables.items():
