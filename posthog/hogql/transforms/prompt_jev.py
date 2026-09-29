@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, cast
 
 from django.conf import settings
 
+import structlog
 from asgiref.sync import async_to_sync
 
 from posthog.schema import HogQLQueryResponse
@@ -37,6 +38,8 @@ if TYPE_CHECKING:
     from posthog.hogql.context import HogQLContext
 
     from posthog.models.team import Team
+
+logger = structlog.get_logger(__name__)
 
 MAX_ROWS = 1000
 MAX_INPUT_BYTES = 8192
@@ -126,6 +129,13 @@ class PromptJevRunner:
         try:
             result = await replace(self.client, timeout=min(remaining, 30)).adecide(state=state, questions=questions)
         except SystemOneRequestFailed as error:
+            # Log only the status, because the inputs and the gateway response body can hold customer data.
+            logger.warning(
+                "prompt_jev_gateway_failed",
+                team_id=self.team_id,
+                status_code=error.status_code,
+                reason=type(error).__name__,
+            )
             raise QueryError("Jev could not evaluate this query. Try again or select fewer rows.") from error
         decisions: dict[str, object] = {}
         for key, text in state.items():
