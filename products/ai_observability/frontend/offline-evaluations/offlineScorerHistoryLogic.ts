@@ -72,6 +72,9 @@ function readFilters(search: Record<string, unknown>): OfflineHistoryFilters {
             Object.assign(filters, { [key]: search[key] })
         }
     }
+    if (filters.compare_to === 'now') {
+        filters.compare_to = null
+    }
     if (!['none', 'previous', 'custom'].includes(filters.compare)) {
         filters.compare = 'none'
     }
@@ -609,7 +612,11 @@ export const offlineScorerHistoryLogic = kea<offlineScorerHistoryLogicType>([
     actionToUrl(({ props, values }) => ({
         setFilters: () => [
             urls.aiObservabilityOfflineScorerHistory(props.scorerId),
-            Object.fromEntries(Object.entries(values.filters).filter(([, value]) => value !== null && value !== '')),
+            Object.fromEntries(
+                Object.entries({ ...values.filters, compare_to: values.filters.compare_to ?? 'now' }).filter(
+                    ([, value]) => value !== null && value !== ''
+                )
+            ),
             {},
             { replace: true },
         ],

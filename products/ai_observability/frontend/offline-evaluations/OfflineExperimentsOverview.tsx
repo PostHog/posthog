@@ -37,6 +37,8 @@ export function OfflineExperimentsOverview(props: OfflineExperimentsLogicProps):
         suggestedScorersError,
         hasExperiments,
         trendFilters,
+        trendQueryKey,
+        trendXDomain,
         dateRange,
         cursorStack,
         refreshKey,
@@ -190,7 +192,9 @@ export function OfflineExperimentsOverview(props: OfflineExperimentsLogicProps):
                         {scorerIds.map((scorerId, index) => (
                             <OfflineOverviewTrend
                                 key={scorerId}
-                                hoverLogic={logic}
+                                overviewLogic={logic}
+                                trendQueryKey={trendQueryKey}
+                                xDomain={trendXDomain}
                                 colorOffset={index}
                                 teamId={props.teamId}
                                 timezone={props.timezone}

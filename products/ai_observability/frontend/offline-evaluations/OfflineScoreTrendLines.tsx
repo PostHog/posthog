@@ -8,15 +8,22 @@ export function OfflineScoreTrendLines(): JSX.Element {
     const { labels, series, scales, dimensions } = useChartLayout()
     const paths = useMemo(
         () =>
-            series.map((serie) => ({
-                key: serie.key,
-                color: serie.color,
-                path: line<[number, number]>().curve(curveMonotoneX)(
-                    serie.data.flatMap((value, index) =>
-                        Number.isFinite(value) ? [[scales.x(labels[index]), scales.y(value)] as [number, number]] : []
-                    )
-                ),
-            })),
+            series
+                .filter((serie) => !serie.visibility?.excluded)
+                .map((serie) => ({
+                    key: serie.key,
+                    color: serie.color,
+                    path: line<[number, number]>().curve(curveMonotoneX)(
+                        serie.data.flatMap((value, index): [number, number][] => {
+                            if (!Number.isFinite(value)) {
+                                return []
+                            }
+                            const x = scales.x(labels[index])
+                            const y = scales.y(value)
+                            return x !== undefined && Number.isFinite(x) && Number.isFinite(y) ? [[x, y]] : []
+                        })
+                    ),
+                })),
         [labels, series, scales.x, scales.y]
     )
 

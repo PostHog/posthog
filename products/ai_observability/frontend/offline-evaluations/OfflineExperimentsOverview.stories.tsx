@@ -146,6 +146,33 @@ export const SynchronizedHoverNarrow: Story = {
     ...SynchronizedHover,
     decorators: [SynchronizedHover.decorators, Narrow.decorators].flat().filter((decorator) => !!decorator),
 }
+export const AllTimeSynchronizedHover: Story = {
+    ...SynchronizedHover,
+    parameters: {
+        pageUrl: `${urls.aiObservabilityOfflineEvaluations()}?scores=${overviewScorers.map((scorer) => scorer.id).join(',')}&date_from=all`,
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team/ai_observability/offline_scorers/:id/history/': ({ params }) => {
+                    const scorerIndex = overviewScorers.findIndex((scorer) => scorer.id === params.id)
+                    const points = overviewHistory(overviewScorers[scorerIndex])
+                    const results =
+                        scorerIndex === 0
+                            ? points.slice(0, 3)
+                            : points.slice(0, scorerIndex === 1 ? 1 : 2).map((point, index) => ({
+                                  ...point,
+                                  experiment: {
+                                      ...point.experiment,
+                                      started_at: `2026-08-${scorerIndex === 1 ? '01' : 15 - index}T14:30:00Z`,
+                                  },
+                              }))
+                    return { count: results.length, next_cursor: null, results }
+                },
+            },
+        }),
+    ],
+}
 export const FilteredTrends: Story = {
     ...Narrow,
     parameters: {

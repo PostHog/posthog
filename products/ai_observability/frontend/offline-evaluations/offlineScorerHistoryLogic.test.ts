@@ -91,19 +91,52 @@ describe('offlineScorerHistoryLogic', () => {
             ...version,
             statuses: 'failed',
             run_source: 'ci',
+            compare: 'custom',
+            compare_to: 'now',
         })
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.filters).toMatchObject({
             version: OFFLINE_STORY_VERSION.id,
             statuses: 'failed',
             run_source: 'ci',
+            compare: 'custom',
+            compare_to: null,
         })
         expect(jest.mocked(api.aiObservabilityOfflineScorersHistoryList).mock.calls.at(-1)?.[2]).toMatchObject({
             scorer_version_ids: OFFLINE_STORY_VERSION.id,
             statuses: 'failed',
             run_source: 'ci',
         })
+        expect(logic.values.windows.comparison?.dateTo).toBe(logic.values.referenceTime)
     })
+
+    it.each(['now', 'a historical timestamp'])(
+        'preserves a custom comparison ending at %s when reopening its URL',
+        async (end) => {
+            const compareTo = end === 'now' ? null : dayjs().subtract(30, 'day').toISOString()
+            const logic = offlineScorerHistoryLogic({ scorerId: OFFLINE_STORY_DEFINITION.id, teamId: 1 })
+            const unmount = logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            await expectLogic(logic, () =>
+                logic.actions.setFilters({ compare: 'custom', compare_from: '-60d', compare_to: compareTo })
+            ).toFinishAllListeners()
+            expect(router.values.searchParams.compare_to).toBe(compareTo ?? 'now')
+            expect(logic.values.filters.compare_to).toBe(compareTo)
+            const savedUrl = router.values.location.pathname + router.values.location.search
+            unmount()
+
+            router.actions.push(savedUrl)
+            const reopened = offlineScorerHistoryLogic({ scorerId: OFFLINE_STORY_DEFINITION.id, teamId: 1 })
+            reopened.mount()
+            await expectLogic(reopened).toFinishAllListeners()
+            expect(reopened.values.filters).toMatchObject({
+                compare: 'custom',
+                compare_from: '-60d',
+                compare_to: compareTo,
+            })
+            expect(reopened.values.windows.comparison?.dateTo).toBe(compareTo ?? reopened.values.referenceTime)
+        }
+    )
 
     it.each([
         ['uploading', 5],

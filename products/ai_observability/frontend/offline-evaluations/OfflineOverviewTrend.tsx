@@ -1,4 +1,4 @@
-import { useActions, useValues, type BuiltLogic } from 'kea'
+import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
 import { IconChevronLeft, IconChevronRight } from '@posthog/icons'
@@ -6,7 +6,6 @@ import { LemonBanner, LemonButton, LemonCard, LemonSkeleton, LemonTag, Link } fr
 
 import { urls } from 'scenes/urls'
 
-import type { offlineExperimentsLogicType } from './offlineExperimentsLogic'
 import { offlineOverviewTrendLogic, type OfflineOverviewTrendLogicProps } from './offlineOverviewTrendLogic'
 import { OfflineScoreTrendChart } from './OfflineScoreTrendChart'
 import { formatOfflineScore, getOfflineHistoryCoverage, offlineScoreMetricLabel } from './offlineScoreTrends'
@@ -15,7 +14,7 @@ export function OfflineOverviewTrend(
     props: OfflineOverviewTrendLogicProps & {
         timezone: string
         colorOffset?: number
-        hoverLogic?: BuiltLogic<offlineExperimentsLogicType>
+        xDomain?: [number, number]
     }
 ): JSX.Element {
     const logic = offlineOverviewTrendLogic(props)
@@ -105,7 +104,8 @@ export function OfflineOverviewTrend(
                     {versionPoints.length ? (
                         <OfflineScoreTrendChart
                             heightClassName="h-36"
-                            hoverLogic={props.hoverLogic}
+                            hoverLogic={props.overviewLogic}
+                            xDomain={props.xDomain}
                             colorOffset={props.colorOffset}
                             timezone={props.timezone}
                             periods={[

@@ -67,6 +67,40 @@ describe('offlineExperimentsLogic', () => {
         expect(logic.values.hoveredTrend).toBeNull()
     })
 
+    it('shares all-time bounds across selected scorers and ignores history from another filter window', () => {
+        const logic = offlineExperimentsLogic(props)
+        logic.mount()
+        const [first, second] = overviewScorers
+        logic.actions.setScorerIds([first.id, second.id])
+        logic.actions.setFilters({ date_from: 'all' })
+        const queryKey = logic.values.trendQueryKey
+        const end = Date.parse(logic.values.dateRange!.dateTo)
+        const recent = Date.parse('2026-09-20T00:00:00Z')
+        const older = Date.parse('2026-08-01T00:00:00Z')
+
+        expect(logic.values.trendXDomain).toBeUndefined()
+        logic.actions.setTrendStart(first.id, queryKey, recent)
+        logic.actions.setTrendStart(second.id, queryKey, older)
+        expect(logic.values.trendXDomain).toEqual([older, end])
+
+        logic.actions.setFilters({ search: 'a run' })
+        expect(logic.values.trendXDomain).toEqual([older, end])
+        logic.actions.setScorerIds([first.id])
+        expect(logic.values.trendXDomain).toEqual([recent, end])
+
+        logic.actions.setFilters({ run_source: 'ci' })
+        expect(logic.values.trendXDomain).toBeUndefined()
+        logic.actions.setTrendStart(first.id, queryKey, older)
+        expect(logic.values.trendXDomain).toBeUndefined()
+        logic.actions.setTrendStart(first.id, logic.values.trendQueryKey, recent)
+        expect(logic.values.trendXDomain).toEqual([recent, end])
+
+        logic.actions.refresh()
+        expect(logic.values.trendXDomain).toBeUndefined()
+        logic.actions.setFilters({ date_from: '-7d' })
+        expect(logic.values.trendXDomain).toEqual([Date.parse(logic.values.dateRange!.dateFrom!), end])
+    })
+
     it.each(['new', 'saved empty', 'URL empty'])(
         'selects recent scorers when the selection is %s',
         async (selection) => {

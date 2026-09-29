@@ -9,6 +9,7 @@ import { cn } from 'lib/utils/css-classes'
 
 import type { OfflineHistoryPointApi } from '../generated/api.schemas'
 import type { offlineExperimentsLogicType } from './offlineExperimentsLogic'
+import { createOfflineScoreTrendTickFormatter } from './offlineScoreTrendAxis'
 import { OfflineScoreTrendCrosshair } from './OfflineScoreTrendCrosshair'
 import { OfflineScoreTrendLines } from './OfflineScoreTrendLines'
 import { buildOfflineTrendPanels, formatOfflineNumericScore, type OfflineTrendPeriod } from './offlineScoreTrends'
@@ -20,6 +21,7 @@ export interface OfflineScoreTrendChartProps {
     heightClassName?: string
     colorOffset?: number
     hoverLogic?: BuiltLogic<offlineExperimentsLogicType>
+    xDomain?: [number, number]
 }
 
 export function OfflineScoreTrendChart({
@@ -29,6 +31,7 @@ export function OfflineScoreTrendChart({
     heightClassName = 'h-64',
     colorOffset = 0,
     hoverLogic,
+    xDomain,
 }: OfflineScoreTrendChartProps): JSX.Element {
     const baseTheme = useChartTheme()
     const theme = useMemo(
@@ -40,7 +43,18 @@ export function OfflineScoreTrendChart({
         }),
         [baseTheme, colorOffset]
     )
-    const panels = useMemo(() => buildOfflineTrendPanels(periods), [periods])
+    const panels = useMemo(
+        () =>
+            buildOfflineTrendPanels(periods).map((panel) => {
+                const domain = !panel.elapsed && xDomain ? xDomain : panel.xDomain
+                return {
+                    ...panel,
+                    xDomain: domain,
+                    tickFormatter: createOfflineScoreTrendTickFormatter(domain, panel.elapsed, timezone),
+                }
+            }),
+        [periods, xDomain, timezone]
+    )
 
     if (panels.length === 0) {
         return <div className="text-muted p-8 text-center">No results in this period. Try a different date range.</div>
@@ -61,10 +75,7 @@ export function OfflineScoreTrendChart({
                                     xAxis: {
                                         domain: panel.xDomain,
                                         label: panel.elapsed ? 'Time from period start' : undefined,
-                                        tickFormatter: (value) =>
-                                            panel.elapsed
-                                                ? `${(value / 86400000).toLocaleString(undefined, { maximumFractionDigits: 1 })}d`
-                                                : dayjs(value).tz(timezone).format('MMM D'),
+                                        tickFormatter: panel.tickFormatter,
                                     },
                                     yAxis: {
                                         domain: panel.yDomain,

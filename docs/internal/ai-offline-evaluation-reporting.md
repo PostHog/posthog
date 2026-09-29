@@ -237,7 +237,9 @@ The card summary shows the latest experiment's score and scored-item count; outp
 Points are connected chronologically with smooth curves within each version and metric. Click a scorer title to open its history.
 Hovering over an overview chart shows a shared vertical guide at the same execution time across the other score charts.
 With a bounded date range, every chart uses that range, so the guide appears on each chart, including charts with different experiment dates.
-With all time, each chart spans only its own results, so a chart shows the guide only when its span contains the hovered time.
+With all time, the charts share a range from the earliest loaded result across the selected scorers to the common end time, including versions outside the currently displayed one.
+The shared guide stays aligned on sparse charts, including charts with a single result.
+Short date ranges show time-of-day labels, and short period comparisons show elapsed durations instead of rounded days.
 
 An experiment shows whole-run scorer summaries and an item table with every observed scorer version.
 Scroll horizontally to reach additional scorer columns.
@@ -252,6 +254,7 @@ Scorer management remains available for manual reviews when offline evaluations 
 With the offline feature enabled, a scorer timeline offers upload state, source, date range, comparison, and exact version filters.
 Its experiment table keeps names and coverage on one line, shows execution time in its own column, and opens run details with the arrow beside each name.
 Compare against a previous or custom period.
+Custom comparison periods ending now retain that end when their URL is shared or reloaded.
 Equal-length periods can share elapsed-time axes; unequal periods keep their actual date axes.
 Version creation copies the current stored configuration unchanged and requires refreshing after a concurrent version change.
 
