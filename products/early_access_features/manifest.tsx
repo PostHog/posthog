@@ -62,7 +62,7 @@ export const manifest: ProductManifest = {
         {
             path: 'Early access features',
             intents: [ProductKey.EARLY_ACCESS_FEATURES],
-            category: ProductItemCategory.FEATURES,
+            category: ProductItemCategory.PRODUCT_ENGINEERING,
             type: 'early_access_feature',
             href: urls.earlyAccessFeatures(),
             iconType: 'early_access_feature' as FileSystemIconType,

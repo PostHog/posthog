@@ -827,6 +827,14 @@ HOGQL_QUERY_HELP_TEXT = (
 )
 
 
+class BatchExportUnpauseRequestSerializer(serializers.Serializer):
+    backfill = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Whether to backfill the runs that the batch export missed while it was paused.",
+    )
+
+
 class BatchExportRequestSerializer(serializers.Serializer):
     """Request body for create/partial_update on BatchExportViewSet.
 
@@ -1459,14 +1467,6 @@ class BatchExportSerializer(serializers.ModelSerializer):
                 "export, or turned back on once an export moved to the standard '.parquet' extension."
             )
 
-        # The legacy `S3` type predates both the AwsS3/S3Compatible split and integration-backed
-        # credentials. Every row has been migrated off it, so it accepts no writes at all.
-        if destination_type == BatchExportDestination.Destination.S3:
-            raise serializers.ValidationError(
-                "The 'S3' destination type is deprecated and can no longer be used. "
-                "Use 'AwsS3' for AWS S3, or 'S3Compatible' for S3-compatible storage."
-            )
-
         merged_config = recursive_dict_merge(existing_config, config)
 
         # SSRF protection for HTTP batch exports
@@ -1974,6 +1974,7 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
             return queryset.exclude(destination__type="Workflows")
         return queryset
 
+    @extend_schema(request=None)
     @action(methods=["POST"], detail=True, required_scopes=["batch_export:write"])
     def pause(self, request: request.Request, *args, **kwargs) -> response.Response:
         """Pause a BatchExport."""
@@ -1998,16 +1999,20 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
 
         return response.Response({"paused": True})
 
+    @extend_schema(request=BatchExportUnpauseRequestSerializer)
     @action(methods=["POST"], detail=True, required_scopes=["batch_export:write"])
     def unpause(self, request: request.Request, *args, **kwargs) -> response.Response:
         """Unpause a BatchExport."""
         if not isinstance(request.user, User) or request.user.current_team is None:
             raise NotAuthenticated()
 
+        serializer = BatchExportUnpauseRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        backfill = serializer.validated_data["backfill"]
+
         user_id = request.user.distinct_id
         team_id = request.user.current_team.id
         note = f"Unpause requested by user {user_id} from team {team_id}"
-        backfill = request.data.get("backfill", False)
 
         batch_export = self.get_object()
         temporal = sync_connect()
@@ -2111,10 +2116,6 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
 
         result = destination_test.run_step(test_step)
         return response.Response(result.as_dict())
-
-
-class BatchExportOrganizationViewSet(BatchExportViewSet):
-    filter_rewrite_rules = {"organization_id": "team__organization_id"}
 
 
 @dataclass

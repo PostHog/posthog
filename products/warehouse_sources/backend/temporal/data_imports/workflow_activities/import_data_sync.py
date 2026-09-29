@@ -63,6 +63,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
     AnySource,
     ResumableSource,
     SimpleSource,
+    SourceExtractionNotImplementedError,
     error_message_matches,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.byte_bounded_extraction_flag import (
@@ -70,9 +71,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.byt
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.errors import (
     is_transient_egress_proxy_error,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.fanout_reuse_flag import (
-    is_fanout_warehouse_reuse_enabled,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.history_window import (
     history_start_for_schema,
@@ -151,6 +149,13 @@ def _get_external_data_schema(schema_id: uuid.UUID, team_id: int) -> ExternalDat
     )
 
 
+@database_sync_to_async_pool
+def _has_completed_schema_job(schema_id: uuid.UUID, team_id: int) -> bool:
+    return ExternalDataJob.objects.filter(
+        schema_id=schema_id, team_id=team_id, status=ExternalDataJob.Status.COMPLETED
+    ).exists()
+
+
 # An allow-list, not a deny-list: every sync type here leaves one row per key, and the reader
 # streams the table with no dedupe state. Append keeps a row per sync and CDC keeps change
 # history, so either would fan the child out once per duplicate. Webhook qualifies because its
@@ -206,9 +211,8 @@ async def _warehouse_parent_reuse_available(
     """Whether this run reads its fan-out parents from the warehouse instead of the parent API.
 
     Reuse is an optimization, never a requirement: any parent the child can't read falls the
-    whole run back to the legacy parent-API path, so enabling the flag can't break a schema
-    that syncs today. Sources consume the result via `SourceInputs.fanout_warehouse_reuse`;
-    this is the single feature-flag evaluation for the run.
+    whole run back to the legacy parent-API path, so it can't break a schema that syncs today.
+    Sources consume the result via `SourceInputs.fanout_warehouse_reuse`.
 
     A parent that is mid-sync doesn't force the fallback: `resolve_parent_table_ref` pins the
     read to the parent's last completed snapshot (Delta time travel), so a concurrent rewrite
@@ -216,8 +220,6 @@ async def _warehouse_parent_reuse_available(
     """
     required_parents = source.get_required_parent_schemas(schema.name)
     if not required_parents:
-        return False
-    if not await database_sync_to_async_pool(is_fanout_warehouse_reuse_enabled)(team_id):
         return False
 
     for parent_name in required_parents:
@@ -531,6 +533,8 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                 db_incremental_field_last_value_before_lookback=incremental_last_value_before_lookback,
                 history_start=history_start,
                 last_synced_at=schema.last_synced_at if use_stored_cursors else None,
+                schema_has_ever_synced=schema.last_synced_at is not None
+                or await _has_completed_schema_job(inputs.schema_id, inputs.team_id),
                 logger=logger,
                 job_id=inputs.run_id,
                 reset_pipeline=reset_pipeline,
@@ -624,6 +628,16 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                     consumer_manages_job_status=True,
                     skip_post_import_activities=True,
                 )
+            except SourceExtractionNotImplementedError as e:
+                # Web refuses to create a source whose implementation it does not have, so the
+                # stub is only reachable while this worker still runs the build from before the
+                # source shipped. Temporal's retry picks up a caught-up worker, so keep retrying
+                # and keep a rollout window out of error tracking.
+                await logger.awarning(
+                    "Source extraction is not implemented in this build, leaving retry to Temporal",
+                    source_type=source_type,
+                )
+                raise NonReportableError(SOURCE_ROLLOUT_IN_PROGRESS_MESSAGE) from e
             except Exception as e:
                 # Some sources connect to the remote during setup rather than lazily during
                 # the run — e.g. for a `mongodb+srv://` URI pymongo resolves the SRV DNS
@@ -680,6 +694,13 @@ def _get_models(
 INTEGRATION_CREDENTIAL_UNAVAILABLE_MESSAGE = (
     "A PostHog-managed credential for this source is temporarily unavailable. This sync will "
     "retry automatically — no action is needed on your side."
+)
+
+
+# What a customer reads while a newly shipped source is still rolling out across the workers.
+SOURCE_ROLLOUT_IN_PROGRESS_MESSAGE = (
+    "Support for this source is still rolling out. This sync will retry automatically, and no "
+    "action is needed on your side."
 )
 
 
