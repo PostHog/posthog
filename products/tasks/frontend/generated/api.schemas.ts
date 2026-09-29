@@ -1834,6 +1834,8 @@ export interface TaskRunDetailDTOApi {
      * @nullable
      */
     task_summary: string | null
+    /** Latest slug tags for this task, including tags inherited from an earlier run. */
+    task_tags: string[]
     state: TaskRunDetailDTOApiState
     readonly artifacts: readonly TaskRunArtifactResponseApi[]
     /** @nullable */
@@ -2021,6 +2023,7 @@ export interface PaginatedTaskListItemListApi {
  * * `task_analysis` - Task Analysis
  * * `workflow` - Workflow
  * * `space_setup` - Space Setup
+ * * `business_knowledge` - Business Knowledge
  */
 export type TaskOriginProductEnumApi = (typeof TaskOriginProductEnumApi)[keyof typeof TaskOriginProductEnumApi]
 
@@ -2048,6 +2051,7 @@ export const TaskOriginProductEnumApi = {
     TaskAnalysis: 'task_analysis',
     Workflow: 'workflow',
     SpaceSetup: 'space_setup',
+    BusinessKnowledge: 'business_knowledge',
 } as const
 
 /**
@@ -2106,7 +2110,8 @@ export interface TaskCreateApi {
      * * `signals_chat` - Signals Chat
      * * `task_analysis` - Task Analysis
      * * `workflow` - Workflow
-     * * `space_setup` - Space Setup */
+     * * `space_setup` - Space Setup
+     * * `business_knowledge` - Business Knowledge */
     origin_product?: TaskOriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -2333,7 +2338,8 @@ export interface TaskWriteApi {
      * * `signals_chat` - Signals Chat
      * * `task_analysis` - Task Analysis
      * * `workflow` - Workflow
-     * * `space_setup` - Space Setup */
+     * * `space_setup` - Space Setup
+     * * `business_knowledge` - Business Knowledge */
     origin_product?: TaskOriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -2467,7 +2473,8 @@ export interface PatchedTaskWriteApi {
      * * `signals_chat` - Signals Chat
      * * `task_analysis` - Task Analysis
      * * `workflow` - Workflow
-     * * `space_setup` - Space Setup */
+     * * `space_setup` - Space Setup
+     * * `business_knowledge` - Business Knowledge */
     origin_product?: TaskOriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -2584,7 +2591,7 @@ export interface TaskArtifactsResponseApi {
 export interface TaskCommentTargetApi {
     /** Stable target id. */
     id: string
-    /** Target type: task, artifact, or canvas. */
+    /** Target type: task, artifact, canvas, preview, or browser. */
     type: string
     /** Display name of the comment target. */
     name: string
@@ -2593,7 +2600,7 @@ export interface TaskCommentTargetApi {
 export interface TaskCommentSummaryApi {
     /** Root comment id. */
     id: string
-    /** Task, artifact, or canvas receiving the comment. */
+    /** Task, artifact, canvas, preview, or in-app browser page receiving the comment. */
     target: TaskCommentTargetApi
     /** Bounded excerpt of the root comment body. */
     content: string
@@ -2698,7 +2705,7 @@ export interface TaskCommentEntryApi {
 export interface TaskCommentDetailApi {
     /** Root comment id. */
     id: string
-    /** Task, artifact, or canvas receiving the comment. */
+    /** Task, artifact, canvas, preview, or in-app browser page receiving the comment. */
     target: TaskCommentTargetApi
     /** Whether the comment is resolved. */
     resolved: boolean
@@ -4369,6 +4376,13 @@ export interface PatchedTaskRunSetSummaryRequestApi {
      * @maxLength 1500
      */
     summary?: string
+    /**
+     * Complete set of slug tags that replaces the prior tags. The agent chooses the tags. Omit the field to keep the current tags. Send an empty list to remove them.
+     * @maxItems 10
+     * @items.maxLength 50
+     * @items.pattern ^[a-z0-9]+(?:-[a-z0-9]+)*$(?!\n)
+     */
+    tags?: string[]
 }
 
 export interface TaskRunStartRequestApi {
@@ -5750,6 +5764,7 @@ export type TasksListParams = {
      * * `task_analysis` - Task Analysis
      * * `workflow` - Workflow
      * * `space_setup` - Space Setup
+     * * `business_knowledge` - Business Knowledge
      * @minLength 1
      */
     exclude_origin_product?: TasksListExcludeOriginProduct
@@ -5891,6 +5906,7 @@ export const TasksListExcludeOriginProduct = {
     TaskAnalysis: 'task_analysis',
     Workflow: 'workflow',
     SpaceSetup: 'space_setup',
+    BusinessKnowledge: 'business_knowledge',
 } as const
 
 export type TasksListInternal = (typeof TasksListInternal)[keyof typeof TasksListInternal]

@@ -13,7 +13,7 @@ import { LLMProvider } from '../settings/llmProviderKeysLogic'
 export type EvaluationType = 'llm_judge' | 'hog' | 'sentiment'
 export type EvaluationTarget = 'generation' | 'trace' | 'session'
 export type EvaluationSettleStrategy = 'fixed_window' | 'inactivity'
-export type EvaluationOutputType = 'boolean' | 'sentiment' | 'numeric'
+export type EvaluationOutputType = 'boolean' | 'sentiment' | 'numeric' | 'categorical'
 export type EvaluationStatus = 'active' | 'paused' | 'error'
 export type EvaluationStatusReason =
     | 'provider_key_required'
@@ -91,13 +91,13 @@ export interface BaseEvaluationConfig {
 
 export interface LLMJudgeEvaluation extends BaseEvaluationConfig {
     evaluation_type: 'llm_judge'
-    output_type: 'boolean' | 'numeric'
+    output_type: 'boolean' | 'numeric' | 'categorical'
     evaluation_config: LLMJudgeEvaluationConfig
 }
 
 export interface HogEvaluation extends BaseEvaluationConfig {
     evaluation_type: 'hog'
-    output_type: 'boolean' | 'numeric'
+    output_type: 'boolean' | 'numeric' | 'categorical'
     evaluation_config: HogEvaluationConfig
 }
 
@@ -135,6 +135,7 @@ export interface EvaluationRun {
     result: boolean | null
     sentiment_label?: string | null
     sentiment_score?: number | null
+    categories?: string[] | null
     score?: number | null
     score_min?: number | null
     score_max?: number | null

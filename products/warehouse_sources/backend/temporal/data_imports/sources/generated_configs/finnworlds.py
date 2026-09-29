@@ -7,4 +7,5 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 @config.config
 class FinnworldsSourceConfig(config.Config):
     api_key: str
-    tickers: str
+    tickers: str | None = None
+    countries: str | None = None
