@@ -1,3 +1,4 @@
+import re
 import csv
 import json
 import time
@@ -613,12 +614,13 @@ class CSVConfig:
     PERSON_ID_HEADERS = ["person_id", "person-id", "Person .id"]
     DISTINCT_ID_HEADERS = ["distinct_id", "distinct-id"]
     EMAIL_HEADERS = ["email", "e-mail"]
+    EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
     # utf-8-sig strips the byte order mark that Excel and Google Sheets glue onto the first header
     ENCODING = "utf-8-sig"
 
     class ErrorMessages:
         EMPTY_FILE = "CSV file is empty. Please upload a CSV file with at least one row of data."
-        MISSING_ID_COLUMN = "Multi-column CSV must contain at least one column with a supported ID header: 'person_id', 'Person .id' (PostHog export format), 'distinct_id', 'distinct-id', or 'email'. Found columns: {columns}"
+        MISSING_ID_COLUMN = "Multi-column CSV must contain at least one column with a supported ID header: 'person_id', 'Person .id' (PostHog export format), 'distinct_id', 'distinct-id', or 'email'. Found columns: {columns}. To upload a list without a header, put one ID per line, or add an 'email' header row."
         NO_VALID_IDS = "CSV file contains no valid person IDs, distinct IDs, or email addresses. Please ensure your file has data rows with person IDs, distinct IDs, or email addresses."
         ENCODING_ERROR = "CSV file encoding is not supported. Please save your file as UTF-8 and try again."
         FORMAT_ERROR = "CSV file format is invalid. Please check your file format and try again."
@@ -1037,6 +1039,18 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         non_empty_cols = [col for col in first_row if col.strip()]
         return len(non_empty_cols) <= 1
 
+    def _is_headerless_email_list(self, first_row: list[str]) -> bool:
+        """A row such as `a@example.com,b@example.com` is a list of emails, not a header row"""
+        non_empty_cols = [col.strip() for col in first_row if col.strip()]
+        return len(non_empty_cols) > 0 and all(CSVConfig.EMAIL_PATTERN.match(col) for col in non_empty_cols)
+
+    def _extract_ids_all_cells(self, first_row: list[str], reader: Iterator[list[str]]) -> list[str]:
+        """Process a header-less CSV as a flat list of IDs, one per non-empty cell"""
+        ids = [cell.strip() for cell in first_row if cell.strip()]
+        for row in reader:
+            ids.extend(cell.strip() for cell in row if cell.strip())
+        return ids
+
     def _is_person_id_header(self, header: str) -> bool:
         """Check if header indicates person_id column"""
         person_id_headers_lower = [h.lower() for h in CSVConfig.PERSON_ID_HEADERS]
@@ -1187,6 +1201,11 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
                 self._validate_and_process_ids(ids, id_type, cohort, email_property_key)
             else:
                 result = self._find_id_column(first_row)
+
+                if result is None and self._is_headerless_email_list(first_row):
+                    ids = self._extract_ids_all_cells(first_row, reader)
+                    self._validate_and_process_ids(ids, "email", cohort)
+                    return
 
                 if result is None:
                     available_headers = [h.strip() for h in first_row if h.strip()]
