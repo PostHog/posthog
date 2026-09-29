@@ -9,13 +9,8 @@ export function useKeyboardNavigation<R extends HTMLElement = HTMLElement, I ext
     itemsRef: React.RefObject<React.RefObject<I>[]>
     options?: { enabled: boolean }
 } {
-    const focusedItemIndexRef = useRef(activeItemIndex)
     const referenceRef = useRef<R>(null)
     const itemsRef = useRef(Array.from({ length: itemCount }, () => createRef<I>()))
-
-    useEffect(() => {
-        focusedItemIndexRef.current = activeItemIndex
-    }, [activeItemIndex])
 
     function focus(itemIndex: number): void {
         if (itemIndex > -1) {
@@ -31,29 +26,28 @@ export function useKeyboardNavigation<R extends HTMLElement = HTMLElement, I ext
         }
 
         const handleKeyDown = (e: KeyboardEvent): void => {
-            if (
-                e.defaultPrevented ||
-                (e.target !== referenceRef.current && !itemsRef.current.some((item) => item.current === e.target))
-            ) {
+            const targetItemIndex = itemsRef.current.findIndex((item) => item.current === e.target)
+            if (e.defaultPrevented || (e.target !== referenceRef.current && targetItemIndex === -1)) {
                 return
             }
+            let fromIndex = targetItemIndex
             if (e.target === referenceRef.current) {
                 // A closed menu has no mounted items, so leave the key to the parent menu or the page.
                 if (!itemsRef.current.some((item) => item.current)) {
                     return
                 }
-                focusedItemIndexRef.current = activeItemIndex
+                fromIndex = activeItemIndex
             }
+            // Refs without a mounted button, such as a custom item, cannot take focus.
             if (e.key === 'ArrowDown') {
-                if (focusedItemIndexRef.current < itemCount - 1) {
-                    focusedItemIndexRef.current += 1
-                    focus(focusedItemIndexRef.current)
+                const nextIndex = itemsRef.current.findIndex((item, i) => i > fromIndex && item.current)
+                if (nextIndex > -1) {
+                    focus(nextIndex)
                     e.preventDefault()
                 }
             } else if (e.key === 'ArrowUp') {
-                if (focusedItemIndexRef.current >= 0) {
-                    focusedItemIndexRef.current -= 1
-                    focus(focusedItemIndexRef.current)
+                if (fromIndex >= 0) {
+                    focus(itemsRef.current.findLastIndex((item, i) => i < fromIndex && item.current))
                     e.preventDefault()
                 }
             }
@@ -68,7 +62,7 @@ export function useKeyboardNavigation<R extends HTMLElement = HTMLElement, I ext
         return () => {
             controller.abort()
         }
-    }, [itemCount, enabled, activeItemIndex])
+    }, [enabled, activeItemIndex])
 
     return { referenceRef, itemsRef }
 }

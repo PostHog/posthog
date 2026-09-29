@@ -115,6 +115,25 @@ describe('LemonMenu', () => {
         expect(screen.queryByText('Summary')).not.toBeInTheDocument()
     })
 
+    it('starts arrow navigation from a clicked item', async () => {
+        render(
+            <LemonMenu
+                items={[{ items: [{ label: 'First' }, { label: 'Second' }, false] }, { items: [{ label: 'Third' }] }]}
+                closeOnClickInside={false}
+            >
+                <LemonButton>Open</LemonButton>
+            </LemonMenu>
+        )
+
+        await userEvent.click(screen.getByText('Open'))
+        const second = (await screen.findByText('Second')).closest('button')!
+        await userEvent.click(second)
+        await userEvent.keyboard('{ArrowDown}')
+        expect(screen.getByText('Third').closest('button')).toHaveFocus()
+        await userEvent.keyboard('{ArrowUp}')
+        expect(second).toHaveFocus()
+    })
+
     it('navigates portal items after opening and reopening a menu', async () => {
         render(
             <div>
