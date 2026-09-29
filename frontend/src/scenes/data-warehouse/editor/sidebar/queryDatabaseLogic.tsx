@@ -3940,7 +3940,8 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
     })),
     listeners(({ actions, values, cache }) => ({
         retryTableFields: ({ tableName }) => {
-            cache.retriedTableNames = new Set([...(cache.retriedTableNames ?? []), tableName])
+            cache.retriedTableNames ??= new Set<string>()
+            cache.retriedTableNames.add(tableName)
             posthog.capture('sql-editor-columns-retry-clicked')
             actions.hydrateTableFields([tableName])
         },
