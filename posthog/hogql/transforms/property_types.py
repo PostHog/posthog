@@ -151,6 +151,8 @@ class PropertySwapper(CloningVisitor):
         ast.CompareOperationOp.LtEq,
     }
     _RANGE_FUNCTIONS: set[str] = {"greater", "greaterOrEquals", "less", "lessOrEquals"}
+    # Calls that return their datetime argument with its precision intact. toDate() and similar calls drop it.
+    _DATETIME_PRESERVING_FUNCTIONS: set[str] = {"plus", "minus", "assumeNotNull", "toTimeZone"}
 
     # A comparison under these calls still filters the rows of the enclosing WHERE, so pruning still applies to it.
     _BOOLEAN_CONNECTIVES: set[str] = {"and", "or", "not"}
@@ -655,13 +657,34 @@ class PropertySwapper(CloningVisitor):
                 inner.value = zoned
                 return expr
 
-        precision = 6 if isinstance(inner, ast.Constant) else 9
+        # A computed bound on an explicit sub-microsecond datetime keeps its precision, like a direct toDateTime64 call.
+        if PropertySwapper._has_sub_microsecond_datetime(inner):
+            return expr
+
+        # Precision 9 only covers 1900-2262. ClickHouse scales the column's part min/max up to the bound's
+        # precision for partition pruning, so a stored timestamp after 2262 overflows the comparison.
         new_call = ast.Call(
             name="toDateTime64",
-            args=[inner, ast.Constant(value=precision), ast.Constant(value=tz)],
+            args=[inner, ast.Constant(value=6), ast.Constant(value=tz)],
             type=PropertySwapper._datetime_call_type("toDateTime64", PropertySwapper._is_nullable_bound(inner)),
         )
         return PropertySwapper._replace_keeping_alias(expr, new_call)
+
+    @staticmethod
+    def _has_sub_microsecond_datetime(expr: ast.Expr) -> bool:
+        if isinstance(expr, ast.Alias):
+            return PropertySwapper._has_sub_microsecond_datetime(expr.expr)
+        if isinstance(expr, ast.ArithmeticOperation):
+            return any(PropertySwapper._has_sub_microsecond_datetime(side) for side in (expr.left, expr.right))
+        if not isinstance(expr, ast.Call):
+            return False
+        if expr.name == "toDateTime64" and len(expr.args) >= 2:
+            precision = expr.args[1]
+            if isinstance(precision, ast.Constant) and isinstance(precision.value, int) and precision.value > 6:
+                return True
+        if expr.name in PropertySwapper._DATETIME_PRESERVING_FUNCTIONS:
+            return any(PropertySwapper._has_sub_microsecond_datetime(arg) for arg in expr.args)
+        return False
 
     @staticmethod
     def _replace_keeping_alias(expr: ast.Expr, replacement: ast.Expr) -> ast.Expr:

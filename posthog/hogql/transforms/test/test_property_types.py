@@ -54,6 +54,7 @@ from posthog.hogql.type_system import ComparisonCompatibility
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models import PropertyDefinition, Team
+from posthog.models.event.deletion import events_data_tables_via_sync_execute
 from posthog.models.event.sql import EVENTS_PROPERTIES_JSON_TYPE, PERSON_PROPERTIES_JSON_TYPE
 from posthog.models.group.util import create_group
 from posthog.models.property.util import get_property_string_expr
@@ -1928,6 +1929,10 @@ class TestTimezoneIndexPruning(ClickhouseTestMixin, BaseTest):
         [
             ("to_date", "timestamp >= toDate('2024-03-01') AND timestamp < toDate('2024-03-02')"),
             (
+                "to_date_of_nanosecond_datetime",
+                "timestamp >= toDate(toDateTime64('2024-03-01 12:00:00', 9)) AND timestamp < toDate('2024-03-02')",
+            ),
+            (
                 "start_of_month",
                 "timestamp >= toStartOfMonth(toDateTime('2024-03-15 00:00:00')) AND timestamp < toDate('2024-03-02')",
             ),
@@ -1963,6 +1968,26 @@ class TestTimezoneIndexPruning(ClickhouseTestMixin, BaseTest):
 
         hogql = f"SELECT count() FROM events WHERE event = 'nano_test' AND timestamp >= {bound}"
         self._assert_correct_results(hogql, timezone="UTC", expected_count=1)
+
+    @parameterized.expand(
+        [
+            ("computed", "toDateTime('2024-04-01 00:00:00') + toIntervalMinute(30)"),
+            ("date", "toDate('2024-04-01')"),
+        ]
+    )
+    def test_bound_compares_with_timestamp_after_2262(self, _name, bound):
+        for timestamp in (datetime(2024, 3, 1, 12, 0, 0), datetime(2290, 1, 1, 0, 0, 0)):
+            _create_event(team=self.team, distinct_id="far_future_user", event="far_future_test", timestamp=timestamp)
+        flush_persons_and_events()
+        # The far-future part stays in ClickHouse across tests and would break any later scale-9 bound.
+        for table in events_data_tables_via_sync_execute():
+            self.addCleanup(
+                sync_execute,
+                f"ALTER TABLE {table} DELETE WHERE event = 'far_future_test' SETTINGS mutations_sync = 2",
+            )
+
+        hogql = f"SELECT count() FROM events WHERE event = 'far_future_test' AND timestamp < {bound}"
+        self._assert_correct_results(hogql, timezone="America/New_York", expected_count=1)
 
     def test_positive_utc_offset_does_not_drop_events(self):
         """Asia/Tokyo (UTC+9): midnight Tokyo = 15:00 UTC the previous day."""
