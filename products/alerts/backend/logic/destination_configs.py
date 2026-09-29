@@ -336,7 +336,6 @@ class PagerDutyDestination(DestinationSpec):
             "severity": {"value": data.get("pagerduty_severity") or PagerDutySeverity.CRITICAL.value},
             "custom_details": {"value": pagerduty_custom_details(event_kind_spec)},
             "links": {"value": pagerduty_links(event_kind_spec)},
-            "client_url": {"value": event_kind_spec.primary_action_url},
         }
 
     def read(self, inputs: dict[str, Any]) -> AlertDestinationData:

@@ -220,7 +220,6 @@ class TestPagerDutyDestination:
         assert firing["summary"]["value"] == "Insight alert firing: 30"
         assert firing["custom_details"]["value"] == {"Threshold": "30"}
         assert firing["links"]["value"] == [{"href": "https://example.com/insight", "text": "View insight"}]
-        assert firing["client_url"]["value"] == "https://example.com/insight"
 
     def test_severity_and_region_default_when_a_caller_leaves_them_out(self) -> None:
         inputs = _pagerduty_config(
