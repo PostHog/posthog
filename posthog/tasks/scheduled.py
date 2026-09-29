@@ -639,7 +639,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
 
     add_periodic_task_with_expiry(
         sender,
-        crontab(hour="*/6", minute="20"),
+        crontab(minute="*/5"),
         sweep_web_analytics_achievement_team_tracks.s(),
         name="web analytics achievements team-track sweep",
     )
