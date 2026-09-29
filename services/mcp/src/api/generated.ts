@@ -59660,6 +59660,7 @@ export namespace Schemas {
       QueryTimeout: 'query_timeout',
       QueryCapacityExceeded: 'query_capacity_exceeded',
       QueryMemoryLimitExceeded: 'query_memory_limit_exceeded',
+      QueryLimitExceeded: 'query_limit_exceeded',
       ServiceUnavailable: 'service_unavailable',
       InternalError: 'internal_error',
     } as const;

@@ -10,8 +10,13 @@ from rest_framework.exceptions import APIException, PermissionDenied
 from posthog.hogql.errors import TableAccessDeniedError
 
 from posthog.api.statement_timeout import is_query_canceled
-from posthog.errors import QueryErrorCategory, classify_query_error
-from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
+from posthog.errors import QueryErrorCategory, classify_query_error, wrap_clickhouse_query_error
+from posthog.exceptions import (
+    ClickHouseEstimatedQueryExecutionTimeTooLong,
+    ClickHouseQueryMemoryLimitExceeded,
+    ClickHouseQuerySizeExceeded,
+    ClickHouseQueryTimeOut,
+)
 
 from products.access_control.backend.facade.user_access_control import UserAccessControlError
 
@@ -25,6 +30,7 @@ class MCPToolErrorCode(StrEnum):
     QUERY_TIMEOUT = "query_timeout"
     QUERY_CAPACITY_EXCEEDED = "query_capacity_exceeded"
     QUERY_MEMORY_LIMIT_EXCEEDED = "query_memory_limit_exceeded"
+    QUERY_LIMIT_EXCEEDED = "query_limit_exceeded"
     SERVICE_UNAVAILABLE = "service_unavailable"
     INTERNAL_ERROR = "internal_error"
 
@@ -54,6 +60,7 @@ class MCPToolErrorDetails(BaseModel):
             "query_timeout": "The query timed out before it could finish.",
             "query_capacity_exceeded": "The query service is at capacity. Wait before retrying.",
             "query_memory_limit_exceeded": "The query ran out of memory. Use a shorter date range or narrower filters.",
+            "query_limit_exceeded": "The query exceeded an execution or size limit. Use a smaller or narrower query.",
             "service_unavailable": "The query service could not complete the request.",
             "internal_error": "The tool raised an internal error.",
         }[self.code]
@@ -79,6 +86,11 @@ class MCPToolErrorDetails(BaseModel):
                 isinstance(cause, OperationalError) and is_query_canceled(cause)
             ):
                 return cls(type="timeout", code=MCPToolErrorCode.QUERY_TIMEOUT, retry_strategy="once")
+            # Query-size failures share ClickHouse's syntax-error code. Normalize them
+            # before the input-error fallback so live and replayed failures agree.
+            query_error = wrap_clickhouse_query_error(cause)
+            if isinstance(query_error, (ClickHouseEstimatedQueryExecutionTimeTooLong, ClickHouseQuerySizeExceeded)):
+                return cls(type="api_5xx", code=MCPToolErrorCode.QUERY_LIMIT_EXCEEDED, retry_strategy="adjusted")
             category = classify_query_error(cause)
             if category == QueryErrorCategory.RATE_LIMITED:
                 return cls(type="rate_limited", code=MCPToolErrorCode.QUERY_CAPACITY_EXCEEDED, retry_strategy="once")

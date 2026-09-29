@@ -212,7 +212,7 @@ Register your new reference in [`products/posthog_ai/skills/querying-posthog-dat
 
 The AI tool invocation endpoint can return HTTP 200 with `success: false`. Check the tool outcome, not only the HTTP status. Failed results include an optional `error` object with a value-free `type`, stable `code`, and `retry_strategy` (`never`, `once`, or `adjusted`). The MCP server preserves these fields when it reports a failed call. Older backends without the object still produce a failed tool result.
 
-Recovery advice follows the original exception through query helper wrappers. Invalid input needs a corrected query; temporary capacity failures permit one unchanged retry. Query timeouts and memory limits require a narrower query. Unknown failures do not invite automatic retries. The server does not add a retry loop for tool-result failures.
+Recovery advice follows the original exception through query helper wrappers. Invalid input needs a corrected query; temporary capacity failures permit one unchanged retry. ClickHouse execution timeouts, estimated execution-time limits, query-size limits, and memory limits require a smaller or narrower query. Transport timeouts and cancelled PostgreSQL statements permit one unchanged retry. Unknown failures do not invite automatic retries. The server does not add a retry loop for tool-result failures.
 
 MCP analytics error fields contain the category and code, not the tool's free-text error message, which can contain caller data. Tool execution counts include `exec call` attempts rejected before dispatch when the target tool is known. `info` and `schema` requests remain discovery activity.
 

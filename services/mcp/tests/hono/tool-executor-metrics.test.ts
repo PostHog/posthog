@@ -112,6 +112,8 @@ describe('ToolExecutor metrics', () => {
         { tool: 'execute-sql', useSingleExec: true, type: 'timeout', code: 'query_timeout' },
         { tool: 'read-data-schema', useSingleExec: false, type: 'timeout', code: 'query_timeout' },
         { tool: 'read-data-schema', useSingleExec: true, type: 'timeout', code: 'query_timeout' },
+        { tool: 'execute-sql', useSingleExec: false, type: 'api_5xx', code: 'query_limit_exceeded' },
+        { tool: 'execute-sql', useSingleExec: true, type: 'api_5xx', code: 'query_limit_exceeded' },
     ])(
         'classifies backend result errors without capturing caller content: %j',
         async ({ tool, useSingleExec, type, code }) => {

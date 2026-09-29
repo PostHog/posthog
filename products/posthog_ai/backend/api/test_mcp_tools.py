@@ -14,7 +14,9 @@ from posthog.event_usage import EventSource
 from posthog.exceptions import (
     ClickHouseAtCapacity,
     ClickHouseClusterMemoryLimitExceeded,
+    ClickHouseEstimatedQueryExecutionTimeTooLong,
     ClickHouseQueryMemoryLimitExceeded,
+    ClickHouseQuerySizeExceeded,
     ClickHouseQueryTimeOut,
 )
 from posthog.models import Organization, Team
@@ -185,6 +187,8 @@ class TestMCPToolsAPI(APIBaseTest):
             (ClickHouseClusterMemoryLimitExceeded(), "rate_limited", "query_capacity_exceeded", "once"),
             (ClickHouseQueryTimeOut(), "timeout", "query_timeout", "adjusted"),
             (ClickHouseQueryMemoryLimitExceeded(), "api_5xx", "query_memory_limit_exceeded", "adjusted"),
+            (ClickHouseEstimatedQueryExecutionTimeTooLong(), "api_5xx", "query_limit_exceeded", "adjusted"),
+            (ClickHouseQuerySizeExceeded(), "api_5xx", "query_limit_exceeded", "adjusted"),
             (SocketTimeoutError("private host"), "timeout", "query_timeout", "once"),
             (NetworkError("private host"), "api_5xx", "service_unavailable", "once"),
             (APIException("Serialized query failure"), "api_5xx", "service_unavailable", "never"),
@@ -221,6 +225,10 @@ class TestMCPToolsAPI(APIBaseTest):
         elif retry_strategy == "never":
             self.assertNotIn("retry with adjusted inputs", data["content"])
             self.assertIn("Do not automatically retry", data["content"])
+        else:
+            self.assertIn("retry with adjusted inputs", data["content"])
+            self.assertNotIn("Do not automatically retry", data["content"])
+            self.assertNotIn("retry this operation once without changes", data["content"])
 
     @patch("ee.hogai.tools.execute_sql.mcp_tool.ExecuteSQLMCPTool.execute", new_callable=AsyncMock)
     def test_invoke_tool_unexpected_error_returns_internal_error(self, mock_execute):
