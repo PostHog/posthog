@@ -347,12 +347,20 @@ const styles = StyleSheet.create({
   },
   latest: {
     alignSelf: "center",
-    padding: 10,
+    justifyContent: "center",
+    minHeight: 44,
+    paddingHorizontal: 10,
+    paddingVertical: 12,
     marginBottom: 8,
     borderRadius: 20,
     backgroundColor: colors.surface,
   },
-  latestText: { fontFamily: fonts.sansMedium, color: colors.ink, fontSize: 14 },
+  latestText: {
+    fontFamily: fonts.sansMedium,
+    color: colors.ink,
+    fontSize: 14,
+    lineHeight: 20,
+  },
   composer: {
     paddingHorizontal: 12,
     paddingTop: 8,
