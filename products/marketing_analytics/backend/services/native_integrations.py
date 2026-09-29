@@ -21,6 +21,7 @@ NativeIntegration = Literal[
     "amazon_ads",
     "apple_ads",
     "openai_ads",
+    "rokt_ads",
     "google_ads",
     "meta_ads",
     "bing_ads",
@@ -38,6 +39,7 @@ NATIVE_TO_KEY: dict[NativeMarketingSource, NativeIntegration] = {
     NativeMarketingSource.AMAZON_ADS: "amazon_ads",
     NativeMarketingSource.APPLE_SEARCH_ADS: "apple_ads",
     NativeMarketingSource.OPEN_AI_ADS: "openai_ads",
+    NativeMarketingSource.ROKT_ADS: "rokt_ads",
     NativeMarketingSource.GOOGLE_ADS: "google_ads",
     NativeMarketingSource.META_ADS: "meta_ads",
     NativeMarketingSource.BING_ADS: "bing_ads",
@@ -58,6 +60,7 @@ EXTERNAL_SOURCE_TYPE_TO_NATIVE: dict[str, NativeMarketingSource] = {
     "AmazonAds": NativeMarketingSource.AMAZON_ADS,
     "AppleSearchAds": NativeMarketingSource.APPLE_SEARCH_ADS,
     "OpenAIAds": NativeMarketingSource.OPEN_AI_ADS,
+    "RoktAds": NativeMarketingSource.ROKT_ADS,
     "GoogleAds": NativeMarketingSource.GOOGLE_ADS,
     "MetaAds": NativeMarketingSource.META_ADS,
     "BingAds": NativeMarketingSource.BING_ADS,
@@ -73,6 +76,7 @@ DISPLAY_NAMES: dict[NativeMarketingSource, str] = {
     NativeMarketingSource.AMAZON_ADS: "Amazon Ads",
     NativeMarketingSource.APPLE_SEARCH_ADS: "Apple Ads",
     NativeMarketingSource.OPEN_AI_ADS: "OpenAI Ads",
+    NativeMarketingSource.ROKT_ADS: "Rokt Ads",
     NativeMarketingSource.GOOGLE_ADS: "Google Ads",
     NativeMarketingSource.META_ADS: "Meta Ads",
     NativeMarketingSource.BING_ADS: "Bing Ads",
@@ -102,6 +106,7 @@ NATIVE_SOURCE_FEATURE_FLAGS: dict[str, str] = {
     "AmazonAds": "marketing-analytics-amazon-ads",
     "AppleSearchAds": "marketing-analytics-apple-ads",
     "OpenAIAds": "marketing-analytics-openai-ads",
+    "RoktAds": "marketing-analytics-rokt-ads",
 }
 
 

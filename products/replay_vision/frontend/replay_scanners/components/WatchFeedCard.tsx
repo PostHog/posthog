@@ -2,7 +2,7 @@ import { useActions } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
 import { IconFlag, IconPlay, IconPlayFilled } from '@posthog/icons'
-import { LemonButton, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import posthog from 'lib/posthog-typed'
@@ -13,6 +13,7 @@ import { urls } from 'scenes/urls'
 import { CitedText, ObservationResultSummary, readResult } from '../../components/ObservationCard'
 import { ObservationThumbnail } from '../../components/ObservationThumbnail'
 import { ScannerTypeBadge } from '../../components/ScannerTypeBadge'
+import { UnviewedObservationTag } from '../../components/UnviewedObservationTag'
 import type { ReplayObservationApi, WatchFeedItemApi, WatchFeedReasonApi } from '../../generated/api.schemas'
 import { OBSERVATION_ORIGIN_PARAM, WATCH_FEED_ORIGIN } from '../../utils/breadcrumbs'
 import { citedTextToPlainText, citedTimestampRange } from '../../utils/citations'
@@ -253,8 +254,9 @@ export function WatchFeedCard({ item, position }: WatchFeedCardProps): JSX.Eleme
             className="@container relative border rounded bg-bg-light p-4 flex gap-4 hover:border-accent"
             data-attr="vision-watch-feed-card"
         >
+            {!observation.viewed && <span className="absolute inset-y-0 left-0 w-1 rounded-l bg-accent" aria-hidden />}
             {/* The thumbnail is the watch affordance, so the whole poster opens the clip modal.
-                The dot and the duration sit outside the poster, which clips its own overflow. */}
+                The New tag and the duration sit outside the poster, which clips its own overflow. */}
             <div className="relative hidden @md:block w-64 shrink-0 self-start">
                 <button
                     type="button"
@@ -276,13 +278,9 @@ export function WatchFeedCard({ item, position }: WatchFeedCardProps): JSX.Eleme
                         </span>
                     )}
                 </button>
+                {/* Sits above the button, so it lets clicks through to open the clip. */}
                 {!observation.viewed && (
-                    <Tooltip title="You haven't opened this observation yet">
-                        <span
-                            className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-accent border border-bg-light z-10"
-                            aria-label="Unviewed"
-                        />
-                    </Tooltip>
+                    <UnviewedObservationTag className="absolute top-1 left-1 z-10 pointer-events-none" />
                 )}
             </div>
             <div className="flex-1 min-w-0 flex flex-col gap-1.5">
@@ -295,7 +293,11 @@ export function WatchFeedCard({ item, position }: WatchFeedCardProps): JSX.Eleme
                     className="text-default after:absolute after:inset-0 after:content-['']"
                     data-attr="vision-watch-feed-card-body"
                 >
-                    <h3 className="text-sm font-semibold m-0 line-clamp-2">{headline?.title ?? scannerName}</h3>
+                    <h3 className="text-sm font-semibold m-0 line-clamp-2">
+                        {/* The tag hides with the thumbnail on narrow cards, so screen readers get it here. */}
+                        {!observation.viewed && <span className="sr-only">New: </span>}
+                        {headline?.title ?? scannerName}
+                    </h3>
                 </Link>
                 <div className="flex flex-wrap items-center gap-1 text-xs text-muted">
                     {person &&
@@ -325,7 +327,7 @@ export function WatchFeedCard({ item, position }: WatchFeedCardProps): JSX.Eleme
                         <CitedText text={headline.body.text} segments={headline.body.segments} />
                     </p>
                 )}
-                <div className="flex items-start gap-1.5 text-xs text-muted">
+                <div className="flex items-start gap-1.5 text-xs font-medium border-t pt-2">
                     <IconFlag className="mt-0.5 shrink-0 text-accent" aria-hidden />
                     <span>{watchReasonCopy(reason)}</span>
                 </div>

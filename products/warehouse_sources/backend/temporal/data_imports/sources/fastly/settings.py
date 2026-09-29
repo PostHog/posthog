@@ -3,6 +3,8 @@ from typing import Literal
 
 from posthog.dataclasses import frozen
 
+from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+
 # How each Fastly endpoint is fetched:
 # - "object":           GET returns a single object (e.g. /current_user).
 # - "service_list":     GET /service returns a page-paginated array (Link header for next page).
@@ -15,6 +17,11 @@ from posthog.dataclasses import frozen
 #                       opaque cursor rather than a Link header.
 # - "billing_usage_metrics": as "billing_list", but each page groups per-service rows under a usage
 #                       type, so the transport flattens them.
+# - "plain_list":       GET returns an unpaginated array (e.g. /datacenters).
+# - "json_api_list":    GET a JSON:API collection; rows sit under `data` with their fields split
+#                       across `attributes` and `relationships`, and the next page is a body link.
+# - "stats_list":       GET /stats returns one array of time buckets per service, keyed by service id.
+# - "origin_inspector": fan out over every service, reading its origin metrics timeseries.
 FastlyEndpointKind = Literal[
     "object",
     "service_list",
@@ -23,7 +30,27 @@ FastlyEndpointKind = Literal[
     "version_resource_child",
     "billing_list",
     "billing_usage_metrics",
+    "plain_list",
+    "json_api_list",
+    "stats_list",
+    "origin_inspector",
 ]
+
+# Fastly reports both metrics families in whole time buckets keyed by their start. The cursor is the
+# bucket start as a Unix timestamp, which is also what the `from` / `start` request params take, so a
+# watermark feeds straight back into the next sync with no reformatting.
+_BUCKET_START_INCREMENTAL_FIELDS: list[IncrementalField] = [
+    {
+        "label": "Bucket start",
+        "type": IncrementalFieldType.DateTime,
+        "field": "start_time",
+        "field_type": IncrementalFieldType.Integer,
+    },
+]
+
+# Fastly revises recently reported metrics, so each incremental run re-reads a trailing window
+# rather than freezing a bucket at the value it first had.
+METRICS_LOOKBACK_SECONDS = 3 * 24 * 60 * 60
 
 
 @frozen
@@ -45,6 +72,9 @@ class FastlyEndpointConfig:
     # "version_resource_child" only: a truthy field on a parent row that means its members cannot be
     # listed, so the transport must not request them.
     skip_parent_flag: str | None = None
+    # Empty means the endpoint has no server-side timestamp filter, so it is full refresh only.
+    incremental_fields: list[IncrementalField] = field(default_factory=list)
+    incremental_lookback_seconds: int | None = None
 
 
 # Version-scoped resource paths carry `{service_id}` and `{version}` placeholders that the
@@ -121,6 +151,45 @@ FASTLY_ENDPOINTS: dict[str, FastlyEndpointConfig] = {
         # A dictionary item has no id of its own; its key is unique within its dictionary.
         primary_keys=["service_id", "dictionary_id", "item_key"],
         description="The key/value rows held in each service's edge dictionaries.",
+    ),
+    "historical_stats": FastlyEndpointConfig(
+        name="historical_stats",
+        path="/stats",
+        kind="stats_list",
+        partition_key="start_time",
+        primary_keys=["service_id", "start_time"],
+        incremental_fields=_BUCKET_START_INCREMENTAL_FIELDS,
+        incremental_lookback_seconds=METRICS_LOOKBACK_SECONDS,
+        description="Daily traffic, cache hit ratio, bandwidth and error counts for every service.",
+    ),
+    "origin_inspector": FastlyEndpointConfig(
+        name="origin_inspector",
+        path="/metrics/origins/services/{service_id}",
+        kind="origin_inspector",
+        partition_key="start_time",
+        primary_keys=["service_id", "host", "start_time"],
+        incremental_fields=_BUCKET_START_INCREMENTAL_FIELDS,
+        incremental_lookback_seconds=METRICS_LOOKBACK_SECONDS,
+        # Origin Inspector is a paid upgrade enabled per service, so most accounts have it on no
+        # service and would sync an empty table.
+        should_sync_default=False,
+        description="Daily origin latency, status code and byte counts per origin host, for services with Origin Inspector enabled.",
+    ),
+    "service_authorizations": FastlyEndpointConfig(
+        name="service_authorizations",
+        path="/service-authorizations",
+        kind="json_api_list",
+        primary_keys=["id"],
+        description="Which users can reach which services, and the permission each one holds.",
+    ),
+    "pops": FastlyEndpointConfig(
+        name="pops",
+        path="/datacenters",
+        kind="plain_list",
+        # A POP carries no timestamp, and the list is small enough that one partition is right.
+        partition_key=None,
+        primary_keys=["code"],
+        description="Every Fastly POP, with the datacenter codes used in stats and origin metrics.",
     ),
     "invoices": FastlyEndpointConfig(
         name="invoices",

@@ -977,7 +977,7 @@ export class EmailService {
             from: from.name ? `"${from.name}" <${from.email}>` : from.email,
             to: params.to.name ? `"${params.to.name}" <${params.to.email}>` : params.to.email,
             subject: sanitizeEmailSubject(params.subject),
-            text: params.text,
+            ...(params.text ? { text: params.text } : {}),
             headers: { [AUTO_SUBMITTED_HEADER.Name!]: AUTO_SUBMITTED_HEADER.Value! },
             ...(params.html
                 ? {
@@ -1060,10 +1060,7 @@ export class EmailService {
                         Charset: 'UTF-8',
                     },
                     Body: {
-                        Text: {
-                            Data: params.text,
-                            Charset: 'UTF-8',
-                        },
+                        ...(params.text ? { Text: { Data: params.text, Charset: 'UTF-8' } } : {}),
                         ...htmlBody,
                     },
                 },
