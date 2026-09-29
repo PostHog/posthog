@@ -819,7 +819,7 @@ export const RowExpandedPinnedPropertiesError: Story = {
     render: () => <App />,
     parameters: {
         ...PINNED_ROW_PARAMETERS,
-        testOptions: { waitForSelector: `${PINNED_EXPANSION_SELECTOR} button:has-text("Try again")` },
+        testOptions: { waitForSelector: `${PINNED_EXPANSION_SELECTOR} .LemonBanner--error` },
     },
     decorators: pinnedRowDecorators({
         [ACCOUNT_PROPERTY_VALUES_ENDPOINT]: [500, { detail: 'Could not load pinned properties.' }],
