@@ -288,7 +288,7 @@ export const scoutRubricsLogic: LogicWrapper<scoutRubricsLogicType> = kea<scoutR
             },
         ],
         generationSubmitting: [false, { generationRequestStarted: () => true, generationFinished: () => false }],
-        generationContext: ['', { setGenerationContext: (_, { context }) => context, generationStarted: () => '' }],
+        generationContext: ['', { setGenerationContext: (_, { context }) => context }],
         generationError: [
             null as string | null,
             { generateSuggestions: () => null, generationFailed: (_, { message }) => message },
@@ -407,13 +407,23 @@ export const scoutRubricsLogic: LogicWrapper<scoutRubricsLogicType> = kea<scoutR
             actions.generationRequestStarted()
             const context = getContext()
             const disposables = cache.disposables
+            const submittedContext = values.generationContext.trim()
             try {
                 const document = await signalsScoutRubricsGenerate(String(props.teamId), props.configId, {
-                    context: values.generationContext.trim(),
+                    context: submittedContext,
                 })
                 if (!disposables.isDisposed && getContext() === context) {
                     cache.documentVersion = (cache.documentVersion ?? 0) + 1
                     actions.generationStarted(document)
+                    // When a generation is already active, the API returns it with the focus of the session that
+                    // started it. Clear the text only when the active generation received it.
+                    if (document.generation?.context === submittedContext) {
+                        actions.setGenerationContext('')
+                    } else if (submittedContext) {
+                        lemonToast.info(
+                            'Another session already started generating suggestions, so your focus was not used. It stays here for your next generation.'
+                        )
+                    }
                 }
             } catch (error) {
                 if (!disposables.isDisposed && getContext() === context) {

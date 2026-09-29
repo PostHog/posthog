@@ -2,6 +2,10 @@ import { waitFor } from '@testing-library/react'
 /* oxlint-disable react-hooks/rules-of-hooks -- useMocks is a test helper, not a React hook */
 import { expectLogic } from 'kea-test-utils'
 
+// Imported from the source module rather than the `@posthog/lemon-ui` barrel, so the spy below
+// replaces the method on the same `lemonToast` singleton the logic calls at runtime.
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -194,7 +198,7 @@ describe('scoutRubricsLogic', () => {
     })
 
     it.each(['', '  Check repeat findings carefully.  '])(
-        'keeps optional focus when generation fails and clears it after starting (%s)',
+        'keeps optional focus until a generation that received it starts (%s)',
         async (context) => {
             let release: (() => void) | undefined
             const pending = new Promise<void>((resolve) => {
@@ -228,7 +232,24 @@ describe('scoutRubricsLogic', () => {
             expect(logic.values.generationError).toBe('Generation is unavailable. Try again.')
             expect(logic.values.generationContext).toBe(context)
 
-            useMocks({ post: { [GENERATE_URL]: () => [202, makeDocument({ generation: makeGeneration('queued') })] } })
+            const toast = jest.spyOn(lemonToast, 'info').mockReturnValue('toast-1')
+            const otherSessionGeneration = { ...makeGeneration('queued'), context: 'Focus from another session.' }
+            useMocks({ post: { [GENERATE_URL]: () => [202, makeDocument({ generation: otherSessionGeneration })] } })
+            await expectLogic(logic, () => logic.actions.generateSuggestions()).toFinishAllListeners()
+            expect(logic.values.generationActive).toBe(true)
+            expect(logic.values.generationContext).toBe(context)
+            expect(toast).toHaveBeenCalledTimes(context.trim() ? 1 : 0)
+
+            document = makeDocument({ generation: { ...otherSessionGeneration, status: 'failed' } })
+            await expectLogic(logic, () => logic.actions.loadRubrics()).toFinishAllListeners()
+            useMocks({
+                post: {
+                    [GENERATE_URL]: async ({ request }) => {
+                        const { context: received } = (await request.json()) as { context: string }
+                        return [202, makeDocument({ generation: { ...makeGeneration('queued'), context: received } })]
+                    },
+                },
+            })
             await expectLogic(logic, () => logic.actions.generateSuggestions()).toFinishAllListeners()
             expect(logic.values.generationActive).toBe(true)
             expect(logic.values.generationError).toBe(null)
