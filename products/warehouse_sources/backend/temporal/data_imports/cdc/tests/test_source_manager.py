@@ -113,6 +113,7 @@ class _FakeS3:
         etags_at_delete: dict[str, str] | None = None,
         mtimes_at_delete: dict[str, dt.datetime] | None = None,
         listed_without_etags: bool = False,
+        store_without_etags: bool = False,
     ) -> None:
         self.files = dict(files)
         # Listed but gone by the time the reader opens them, as a concurrent retry leaves things.
@@ -126,6 +127,7 @@ class _FakeS3:
         self.etags_at_delete = etags_at_delete or {}
         self.mtimes_at_delete = mtimes_at_delete or {}
         self.listed_without_etags = listed_without_etags
+        self.store_without_etags = store_without_etags
 
     async def _ls(self, prefix, detail=True, refresh=False):
         # The manager must always bypass the fsspec dircache — capture writes through a different
@@ -150,7 +152,8 @@ class _FakeS3:
         assert refresh, "a check before a delete must not read a cached listing"
         if key not in self.files:
             raise FileNotFoundError(key)
-        return {"LastModified": self.mtimes_at_delete.get(key, self.mtimes.get(key, _OLD_MTIME))}
+        info = {"LastModified": self.mtimes_at_delete.get(key, self.mtimes.get(key, _OLD_MTIME))}
+        return info if self.store_without_etags else {**info, "ETag": f'"{self._current_etag(key)}"'}
 
     def split_path(self, path):
         bucket, _, key = path.partition("/")
@@ -750,15 +753,22 @@ class TestFloorDeletion:
 
         assert (s3.removed, s3.opened) == (([key], []) if deleted else ([], [key]))
 
-    @parameterized.expand([("unchanged", _OLD_MTIME, True), ("rewritten", _RECENT, False)])
+    @parameterized.expand(
+        [
+            ("unchanged", _OLD_MTIME, False, True),
+            ("rewritten", _RECENT, False, False),
+            ("store_returns_no_etag", _OLD_MTIME, True, False),
+        ]
+    )
     async def test_a_listing_without_etags_deletes_by_the_modification_time_seen_right_before(
-        self, _name: str, modified_at_delete: dt.datetime, deleted: bool
+        self, _name: str, modified_at_delete: dt.datetime, store_without_etags: bool, deleted: bool
     ) -> None:
         key = _key(11, 20)
         s3 = _FakeS3(
             {key: _parquet_bytes(_table([1], [20]))},
             mtimes_at_delete={key: modified_at_delete},
             listed_without_etags=True,
+            store_without_etags=store_without_etags,
         )
         await _collect(s3, deletion_floor=20, proof=ListingProof(listed_at=_NOW, tail={}))
 

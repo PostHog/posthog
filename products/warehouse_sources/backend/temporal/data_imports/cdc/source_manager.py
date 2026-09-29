@@ -723,24 +723,29 @@ class CDCSourceManager:
         already holds. At the floor the proof covers the listed bytes, and a retry can replace them with
         unread rows of the same transaction while this run reads earlier files. So the delete is
         conditioned on the listed ETag, and a file that no longer matches is kept and read.
-        A listing without an ETag falls back to the modification time, checked right before the delete.
+        A listing without an ETag falls back to the modification time, checked right before the delete,
+        and to the ETag that same check returns. A store that returns no ETag at all never deletes here.
         """
         if self._deletion_floor is None or file.span.end_seq < self._deletion_floor:
             await s3._rm(file.key)
             return True
-        if file.etag is None:
+        etag = file.etag
+        if etag is None:
             try:
                 info = await s3._info(file.key, refresh=True)
             except FileNotFoundError:
                 return False
             if file.modified is None or info.get("LastModified") != file.modified:
                 return False
+            current = info.get("ETag")
+            etag = current.strip('"') if isinstance(current, str) and current else None
+            if etag is None:
+                return False
         bucket, key, _ = s3.split_path(file.key)
-        condition = {} if file.etag is None else {"IfMatch": f'"{file.etag}"'}
         s3.invalidate_cache(file.key)
         client = await s3.get_s3(bucket)
         try:
-            await client.delete_object(Bucket=bucket, Key=key, **condition)
+            await client.delete_object(Bucket=bucket, Key=key, IfMatch=f'"{etag}"')
         except ClientError as error:
             if error.response.get("Error", {}).get("Code") in ("PreconditionFailed", "NoSuchKey"):
                 return False
