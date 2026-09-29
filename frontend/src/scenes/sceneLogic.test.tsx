@@ -638,6 +638,14 @@ describe('sceneLogic', () => {
                 Scene.OrganizationDeactivated,
             ],
             [
+                'sends a deactivated member on an unknown path to the block page',
+                { is_active: false },
+                {},
+                '/no-such-page',
+                urls.organizationDeactivated(),
+                Scene.OrganizationDeactivated,
+            ],
+            [
                 'opens billing for a deactivated member',
                 { is_active: false },
                 {},

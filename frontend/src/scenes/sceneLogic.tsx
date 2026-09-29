@@ -1133,6 +1133,12 @@ export const sceneLogic = kea<sceneLogicType>([
         }
 
         mapping['/*'] = (_, __, { method }) => {
+            // This route skips `openScene`, so it applies the organization block itself, as the server does.
+            const { currentOrganizationBlockPage, isPathOpenWhileBlocked } = organizationLogic.values
+            if (currentOrganizationBlockPage && !isPathOpenWhileBlocked(router.values.location.pathname)) {
+                router.actions.replace(currentOrganizationBlockPage)
+                return
+            }
             return actions.loadScene(Scene.Error404, undefined, emptySceneParams, method)
         }
 
