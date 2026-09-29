@@ -50,7 +50,10 @@ export function EvaluationRunsTable(): JSX.Element {
         runsBackfillId,
     } = useValues(llmEvaluationLogic)
     const { refreshEvaluationRuns, setRunsDates } = useActions(llmEvaluationLogic)
-    const showOutcomeFilters = evaluation?.output_type === 'numeric' || evaluationSupportsRunOutcomes(evaluation)
+    const showOutcomeFilters =
+        evaluation?.output_type === 'numeric' ||
+        evaluation?.output_type === 'categorical' ||
+        evaluationSupportsRunOutcomes(evaluation)
     const showSentimentFilters = evaluation?.evaluation_type === 'sentiment'
     // Every run in this table belongs to `evaluation`, so its polarity applies to the whole column.
     const trueIsFailure = !!evaluation && evaluationIsDetector(evaluation)
@@ -113,6 +116,7 @@ export function EvaluationRunsTable(): JSX.Element {
                     run={run}
                     trueIsFailure={trueIsFailure}
                     passingRule={evaluation?.output_config.passing_rule}
+                    categoryOptions={evaluation?.output_config.options}
                 />
             ),
             sorter: (a, b) => compareEvaluationResults(b, a, { trueIsFailure }),

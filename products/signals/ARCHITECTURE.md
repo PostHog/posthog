@@ -670,6 +670,29 @@ Per-scout binding for the headless **Signals agent**: one row per `(team, skill_
 | `created_by`           | FK → User (nullable) | Audit pointer                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `enabled_by`           | FK → User (nullable) | Who last flipped `enabled` — tracked because enablement drives spend.                                                                                                                                                                                                                                                                                                                                                                       |
 
+#### Scout rubrics
+
+The nullable `rubrics` JSON field stores a scout's evaluation criteria and revision, plus its latest suggestion request and result.
+Until the first save, the editor supplies enabled shared defaults for evidence, clarity, actionability, priority, instructions, and memory use.
+Each criterion contains an identifier, description, passing condition, applicability, and enabled state.
+These are definitions for later evaluations; saving them does not score runs or change scout execution.
+
+The rubric editor and `/api/projects/{team_id}/signals/scout/rubrics/{config_id}/` endpoints require a staff user in project 2.
+The API lives in `backend/presentation/scout_rubrics.py` and calls `backend/facade/rubrics.py`; rubric persistence and generation dispatch stay in `backend/scout_harness/rubrics.py`.
+`PUT` replaces the criteria only when the supplied revision matches, returning `409` for stale edits.
+Every save must include all shared defaults. Owners can edit or disable them, but cannot remove them.
+`POST .../generate/` queues the `generate-scout-rubrics` Temporal workflow and returns the active request when one already exists.
+The backend supplies current instructions, bounded reference text from the exact skill version and recent run summaries to a background session.
+The session requests no project-read MCP scopes because that context is supplied up front. The shared sandbox's internal credentials and tool access remain an accepted limitation of the staff-only v0.
+The first request drafts complete criteria using effective defaults and disabled choices. A second request supplies the complete saved rubric and selects whole draft items by index, without rewriting them.
+One conditional format correction is shared across both steps. The generator does not inspect historical transcripts or full reports.
+Criteria explain the required result in plain language, with specific source references where needed to preserve complex conditions and exceptions. Later evaluations must include those reference instructions alongside the rubric.
+The generation prompt ends with writing guidance and a short example for the scout's owner. The selection step also writes an owner-facing summary; it cannot change the selected criteria.
+Its task identifiers, status, and validated result persist on the config so the user can leave the page and return later.
+Completion preserves saved criteria, rejects results from replaced requests, and requires explicit user selection and saving to adopt suggestions.
+Expired or terminal requests reject late worker updates. An update to an expired request records the failure and completion time.
+A request that cannot start, because of the daily limit or a dispatch failure, restores the last completed suggestions.
+
 ### `SignalScoutRun`
 
 Thin bridge from a Tasks `TaskRun` to the scout skill that ran inside it: one scout-domain row per scheduled agent run that links its `TaskRun` to the skill it executed. Status, timing, error context, and the full chat log live on the `TaskRun`; emitted findings are `Signal` / `SignalReport` rows written by `emit_signal()`. This row carries only the scout-specific fields that need to be queryable as real columns.
