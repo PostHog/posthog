@@ -3378,6 +3378,67 @@ class TestSessionReplayObservationViewSet(_VisionAPITestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.json()["id"], str(observation.id))
 
+    def test_retrieve_resolves_every_id_the_scanner_list_returns(self) -> None:
+        inline_scanner = self._create_scanner(name="one-off", origin=ScannerOrigin.INLINE, inline_key="one-off")
+        for scanner in (self.scanner_a, inline_scanner):
+            self._create_observation(scanner, "sess-1")
+            self._create_observation(scanner, "sess-2")
+
+        for scanner in (self.scanner_a, inline_scanner):
+            listed = self.client.get(self.observations_url(str(scanner.id))).json()["results"]
+            self.assertEqual(len(listed), 2)
+            for row in listed:
+                for url in (
+                    f"{self.session_observations_url}{row['id']}/",
+                    f"{self.observations_url(str(scanner.id))}{row['id']}/",
+                ):
+                    resp = self.client.get(url)
+                    self.assertEqual(resp.status_code, 200, (url, resp.json()))
+                    self.assertEqual(resp.json()["id"], row["id"])
+
+    @parameterized.expand(
+        [
+            # The head of a real id spliced onto another row's tail, as an agent copying list rows produces.
+            ("mistyped_tail", "01a0aaaa-bbbb-7ccc-8ddd-0000000000ff", ["01a0aaaa-bbbb-7ccc-8ddd-000000000001"]),
+            ("no_row_that_millisecond", "01a0cccc-bbbb-7ccc-8ddd-000000000001", []),
+        ]
+    )
+    def test_retrieve_unknown_id_names_readable_ids_from_the_same_millisecond(
+        self, _name: str, requested_id: str, expected_ids: list[str]
+    ) -> None:
+        ReplayObservation.objects.create(
+            id=uuid.UUID("01a0aaaa-bbbb-7ccc-8ddd-000000000001"),
+            scanner=self.scanner_a,
+            session_id="sess-1",
+            scanner_snapshot=_snapshot_for(self.scanner_a),
+            triggered_by=ObservationTrigger.SCHEDULE,
+        )
+        other_team = Team.objects.create(organization=Organization.objects.create(name="other"), name="other-team")
+        other_scanner = self._create_scanner(team=other_team, name="theirs")
+        ReplayObservation.objects.create(
+            id=uuid.UUID("01a0aaaa-bbbb-7ccc-8ddd-000000000002"),
+            scanner=other_scanner,
+            session_id="sess-1",
+            scanner_snapshot=_snapshot_for(other_scanner),
+            triggered_by=ObservationTrigger.SCHEDULE,
+        )
+
+        resp = self.client.get(f"{self.session_observations_url}{requested_id}/")
+
+        self.assertEqual(resp.status_code, 404)
+        detail = resp.json()["detail"]
+        for expected_id in expected_ids:
+            self.assertIn(expected_id, detail)
+        self.assertNotIn("01a0aaaa-bbbb-7ccc-8ddd-000000000002", detail)
+        if not expected_ids:
+            self.assertIn("List the observations again", detail)
+
+    def test_retrieve_malformed_id_says_it_is_not_an_observation_id(self) -> None:
+        resp = self.client.get(f"{self.session_observations_url}01a0aaaa-bbbb-7ccc-8ddd-ae99-000000000001/")
+
+        self.assertEqual(resp.status_code, 404)
+        self.assertIn("not an observation id", resp.json()["detail"])
+
     def test_retrieve_exposes_same_scanner_prev_next_neighbors(self) -> None:
         now = timezone.now()
         old = self._create_observation(self.scanner_a, "s-old")
