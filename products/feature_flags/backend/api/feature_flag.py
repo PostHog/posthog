@@ -4084,8 +4084,10 @@ class FeatureFlagViewSet(
                     "selects enabled flags that the stale filter matches, so a disabled flag is never "
                     "STALE. A flag matches when its last recorded `$feature_flag_called` event is more "
                     f"than {STALE_FLAG_THRESHOLD_DAYS} days old, or when it has no recorded event, is at "
-                    f"least {STALE_FLAG_THRESHOLD_DAYS} days old and is rolled out to everyone. An SDK "
-                    "that sends no such event leaves no record, so a STALE flag can still be in use."
+                    f"least {STALE_FLAG_THRESHOLD_DAYS} days old and serves one result to everyone through "
+                    "a release condition at 100% with no property filters. A flag with an empty `groups` "
+                    "list does not match, even when its `status` reads STALE. An SDK that sends no "
+                    "`$feature_flag_called` event leaves no record, so a STALE flag can still be in use."
                 ),
             ),
             OpenApiParameter(
