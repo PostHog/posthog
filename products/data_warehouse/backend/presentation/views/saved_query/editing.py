@@ -61,7 +61,8 @@ def _view_types_validation_error(e: Exception) -> serializers.ValidationError:
     # Column inference runs the HogQL-to-ClickHouse path, so a raw exception can carry stack
     # traces, internal table or column names, and S3 URIs. Surface only the errors already marked
     # user-safe; reduce everything else to its class name. Mirrors validate_query below, which
-    # keeps the full cause in error tracking and logs instead of the response.
+    # keeps the full cause in error tracking and logs instead of the response. Callers skip error
+    # tracking for the user-safe errors, because they are mistakes in the user's own SQL.
     if isinstance(e, ExposedHogQLError | ExposedCHQueryError):
         return serializers.ValidationError(f"Failed to retrieve types for view: {e}")
     return serializers.ValidationError(f"Failed to retrieve types for view: unexpected {type(e).__name__}")
@@ -290,7 +291,8 @@ class DataWarehouseSavedQuerySerializer(
 
                 view.external_tables = view.get_s3_tables(database=self.context["database"])
             except Exception as e:
-                capture_exception(e)
+                if not isinstance(e, ExposedHogQLError | ExposedCHQueryError):
+                    capture_exception(e)
                 logger.exception("Failed to retrieve types for view %s", view.name)
                 raise _view_types_validation_error(e)
 
@@ -415,7 +417,8 @@ class DataWarehouseSavedQuerySerializer(
             except (RecursionError, ResolutionCycleError):
                 raise serializers.ValidationError("Model contains a cycle")
             except Exception as e:
-                capture_exception(e)
+                if not isinstance(e, ExposedHogQLError | ExposedCHQueryError):
+                    capture_exception(e)
                 logger.exception("Failed to retrieve types for view %s", probe.name)
                 raise _view_types_validation_error(e)
 

@@ -15,6 +15,7 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.errors import CHQueryErrorTypeMismatch
 from posthog.models import ActivityLog
 
 from products.data_modeling.backend.facade.api import UnsatisfiableFrequencyError, mark_node_suspended, suspension_state
@@ -1866,6 +1867,43 @@ class TestSavedQuery(APIBaseTest):
         saved_query_row = DataWarehouseSavedQuery.objects.get(id=saved_query["id"])
         self.assertTrue(saved_query_row.deleted)
         self.assertEqual(saved_query_row.name, "event_view")
+
+    @parameterized.expand(
+        [
+            (
+                "user_safe_error",
+                CHQueryErrorTypeMismatch("Mismatched number of columns in UNION ALL", code=258),
+                False,
+                "Failed to retrieve types for view: Mismatched number of columns in UNION ALL",
+            ),
+            (
+                "unexpected_error",
+                RuntimeError("s3://internal-bucket/path"),
+                True,
+                "Failed to retrieve types for view: unexpected RuntimeError",
+            ),
+        ]
+    )
+    def test_create_captures_only_unexpected_column_inference_errors(
+        self, _name: str, error: Exception, expect_captured: bool, expected_detail: str
+    ) -> None:
+        with (
+            patch.object(DataWarehouseSavedQuery, "get_columns", side_effect=error),
+            patch(
+                "products.data_warehouse.backend.presentation.views.saved_query.editing.capture_exception"
+            ) as mock_capture,
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+                {
+                    "name": "event_view",
+                    "query": {"kind": "HogQLQuery", "query": "select event as event from events LIMIT 100"},
+                },
+            )
+
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertEqual(response.json()["detail"], expected_detail)
+        self.assertEqual(mock_capture.called, expect_captured)
 
     def test_create_with_activity_log(self):
         response = self.client.post(
