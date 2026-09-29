@@ -2,6 +2,8 @@ from datetime import UTC, datetime, timedelta
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
+from django.test import SimpleTestCase
+
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.metrics.kafka_metrics import KAFKA_METRICS_TABLE_NAME, METRICS_KAFKA_METRICS_TABLE_SQL
 
@@ -39,7 +41,7 @@ class TestFetchLiveMetricsCheckpoint(ClickhouseTestMixin, APIBaseTest):
         assert fetch_live_metrics_checkpoint(self.team) is None
 
 
-class TestResolveAlertDateTo(APIBaseTest):
+class TestResolveAlertDateTo(SimpleTestCase):
     def test_a_fresh_checkpoint_clamps_and_a_stale_one_is_ignored(self) -> None:
         due_at = datetime(2026, 9, 29, 10, 0, tzinfo=UTC)
         assert resolve_alert_date_to(due_at, None) == due_at

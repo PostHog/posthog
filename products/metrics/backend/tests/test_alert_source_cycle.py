@@ -31,7 +31,8 @@ class TestMetricsAlertEvaluation(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.cutoff = datetime(2026, 9, 29, 10, tzinfo=UTC)
-        self.due_at = self.cutoff - timedelta(minutes=1)
+        # Aligned to the five-minute bucket grid the default configuration evaluates on.
+        self.due_at = self.cutoff - timedelta(minutes=5)
 
     def _configuration(self, **overrides) -> PlatformAlertConfiguration:
         defaults = {
@@ -111,25 +112,75 @@ class TestMetricsAlertEvaluation(APIBaseTest):
         assert query.call_args.kwargs["request"].date_to == self.due_at
 
     def test_the_window_is_anchored_on_the_due_slot_with_an_explicit_interval(self) -> None:
-        configuration = self._configuration(window_minutes=15, evaluation_periods=3)
+        due_at = self.cutoff - timedelta(minutes=15)
+        configuration = self._configuration(window_minutes=15, evaluation_periods=3, next_check_at=due_at)
 
         _, query = self._run(
-            configuration, series=[_series([50.0, 50.0, 50.0], end=self.due_at, step=timedelta(minutes=15))]
+            configuration, series=[_series([50.0, 50.0, 50.0], end=due_at, step=timedelta(minutes=15))]
         )
 
         request = query.call_args.kwargs["request"]
         assert request.interval == "minute_15"
-        assert request.date_from == self.due_at - timedelta(minutes=45)
-        assert request.date_to == self.due_at
+        assert request.date_from == due_at - timedelta(minutes=45)
+        assert request.date_to == due_at
 
-    def test_a_fresh_checkpoint_clamps_the_window_end(self) -> None:
+    def test_a_fresh_checkpoint_clamps_the_window_end_to_a_complete_bucket(self) -> None:
         configuration = self._configuration()
         checkpoint = self.due_at - timedelta(seconds=30)
+        complete = self.due_at - timedelta(minutes=5)
 
-        evaluation, query = self._run(configuration, checkpoint=checkpoint)
+        evaluation, query = self._run(
+            configuration, checkpoint=checkpoint, series=[_series([500.0], end=complete, step=timedelta(minutes=5))]
+        )
 
-        assert query.call_args.kwargs["request"].date_to == checkpoint
-        assert evaluation.previews[0].evaluation_key == f"{configuration.id}:window:{checkpoint.isoformat()}"
+        assert query.call_args.kwargs["request"].date_to == complete
+        assert evaluation.previews[0].evaluation_key == f"{configuration.id}:window:{complete.isoformat()}"
+
+    def test_a_due_time_inside_a_bucket_evaluates_the_last_complete_bucket(self) -> None:
+        configuration = self._configuration(next_check_at=self.due_at + timedelta(seconds=30))
+
+        _, query = self._run(configuration)
+
+        assert query.call_args.kwargs["request"].date_to == self.due_at
+
+    def test_a_missing_current_bucket_is_not_read_from_an_older_point(self) -> None:
+        configuration = self._configuration()
+        with team_scope(self.team.id):
+            PlatformAlert.objects.create(
+                team=self.team, configuration=configuration, grouping_key="", state=PlatformAlert.State.FIRING
+            )
+        stale = [_series([500.0], end=self.due_at - timedelta(minutes=5), step=timedelta(minutes=5))]
+
+        evaluation, _ = self._run(configuration, series=stale)
+
+        assert evaluation.previews == ()
+        assert evaluation.outcomes[0].new_state == "firing"
+
+    def test_the_query_cap_is_split_across_the_clauses(self) -> None:
+        configuration = self._configuration(
+            source_config={
+                "type": "MetricsAlertSource",
+                "clauses": [
+                    {"name": "errors", "metric_name": "e", "aggregation": "sum"},
+                    {"name": "requests", "metric_name": "r", "aggregation": "sum"},
+                ],
+                "formula": "errors / requests",
+            }
+        )
+
+        _, query = self._run(
+            configuration,
+            series=[
+                MetricSeries(
+                    labels={},
+                    points=(MetricPoint(time=(self.due_at - timedelta(minutes=5)).isoformat(), value=0.5),),
+                    metric_name=None,
+                    clause="formula",
+                )
+            ],
+        )
+
+        assert query.call_args.kwargs["query_settings"].max_execution_time <= MAX_QUERY_SECONDS // 2
 
     def test_a_stale_checkpoint_is_ignored(self) -> None:
         configuration = self._configuration()

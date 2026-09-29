@@ -26,6 +26,7 @@ from products.metrics.backend.facade.enums import AttributeScope, FilterOp, Metr
 from products.metrics.backend.formula import evaluate, parse_formula
 from products.metrics.backend.metric_query_runner import (
     _INTERVAL_LADDER,
+    _QUERY_SETTINGS,
     MetricQueryRunner,
     _active_since_expr,
     _align_to_interval,
@@ -1857,4 +1858,7 @@ class TestQuerySettingsPassthrough(APIBaseTest):
                 date_to=anchor,
                 query_settings=custom,
             ).run()
-        assert execute.call_args.kwargs["settings"] is custom
+        merged = execute.call_args.kwargs["settings"]
+        assert merged.max_execution_time == 7
+        assert merged.timeout_overflow_mode == "throw"
+        assert merged.max_bytes_to_read == _QUERY_SETTINGS.max_bytes_to_read

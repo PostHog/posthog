@@ -60,7 +60,7 @@ async def test_a_metrics_alert_fires_end_to_end_through_the_platform(environment
     """The whole chain the tick would run: source evaluation, the platform's record activity, and
     the abandoned delivery preview child. Only the metrics query itself is replaced."""
     cutoff = dt.datetime(2026, 9, 29, 10, tzinfo=dt.UTC)
-    due_at = cutoff - dt.timedelta(minutes=1)
+    due_at = cutoff - dt.timedelta(minutes=5)
 
     def _seed() -> tuple[int, str]:
         organization = Organization.objects.create(name="metrics alerts")

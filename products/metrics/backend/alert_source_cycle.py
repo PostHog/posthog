@@ -14,7 +14,7 @@ and this module does not pretend to batch.
 
 import time
 from collections.abc import Sequence
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 from uuid import UUID
 
@@ -72,6 +72,10 @@ from products.metrics.backend.facade.contracts import (
     MetricSeries,
 )
 from products.metrics.backend.facade.enums import AttributeScope, FilterOp, MetricAggregation, MetricType
+
+# Private to the product's query runner. The alert must end its window on the same bucket boundary the
+# runner starts its buckets on, or the current window is a partial bucket.
+from products.metrics.backend.metric_query_runner import _align_to_interval
 
 logger = structlog.get_logger(__name__)
 
@@ -182,13 +186,20 @@ def _request(source: MetricsAlertSource, check: PlatformAlertCheckInput, date_to
     )
 
 
-def _values_newest_first(series: MetricSeries, evaluation_periods: int) -> tuple[float | None, ...]:
-    values = [point.value for point in series.points]
-    values.reverse()
-    values = values[:evaluation_periods]
-    # A bucket the query did not return is unknown, not zero: a gauge with no sample has no value.
-    values.extend([None] * (evaluation_periods - len(values)))
-    return tuple(values)
+def _bucket_instant(time: str) -> float:
+    parsed = datetime.fromisoformat(time)
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.timestamp()
+
+
+def _values_newest_first(
+    series: MetricSeries, evaluation_periods: int, *, window_end: datetime, window: timedelta
+) -> tuple[float | None, ...]:
+    """The value of each expected window, newest first, read by bucket time rather than by list
+    position: a bucket the query did not return is unknown, not the next older bucket and not zero."""
+    by_instant = {_bucket_instant(point.time): point.value for point in series.points}
+    return tuple(by_instant.get((window_end - window * (index + 1)).timestamp()) for index in range(evaluation_periods))
 
 
 def _breached(value: float | None, threshold_count: int, threshold_operator: str) -> bool | None:
@@ -367,8 +378,14 @@ def _evaluate_one(
     *,
     now: datetime,
     muted: bool,
+    window_end: datetime,
 ) -> AlertCheckOutcome:
-    values = _values_newest_first(_select_series(series, source), check.evaluation_periods)
+    values = _values_newest_first(
+        _select_series(series, source),
+        check.evaluation_periods,
+        window_end=window_end,
+        window=timedelta(minutes=check.window_minutes),
+    )
     flags = tuple(_breached(value, check.threshold_count, check.threshold_operator) for value in values)
     current, *prior = flags
     if current is None:
@@ -421,19 +438,26 @@ def _evaluate_check(
     query_seconds: int,
     muted: bool,
 ) -> Decision:
-    date_to = resolve_alert_date_to(check.next_check_at or now, checkpoint)
+    # The last complete bucket at or before the due time, so a due time or a checkpoint inside a bucket
+    # never evaluates a partial window.
+    date_to = _align_to_interval(
+        resolve_alert_date_to(check.next_check_at or now, checkpoint),
+        WINDOW_TO_INTERVAL[check.window_minutes],
+        tzinfo=team.timezone_info,
+    )
     try:
         source = parse_source(check.source_config)
         series = run_metric_query(
             team=team,
             request=_request(source, check, date_to),
             query_settings=HogQLGlobalSettings(
-                max_execution_time=query_seconds,
+                # Every clause is its own query, so the cap is split so the whole check stays under it.
+                max_execution_time=max(1, query_seconds // len(source.clauses)),
                 # A partial result could resolve an alert that is breaching, so a slow query fails.
                 timeout_overflow_mode="throw",
             ),
         )
-        outcome = _evaluate_one(check, series, source, now=now, muted=muted)
+        outcome = _evaluate_one(check, series, source, now=now, muted=muted, window_end=date_to)
     except Exception as error:
         logger.exception("Failed to evaluate a metrics alert", check_id=str(check.id), error=str(error))
         outcome = _failed(check, error, now=now, muted=muted)
