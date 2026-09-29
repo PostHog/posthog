@@ -34,6 +34,25 @@ def test_correlation_property_values_returns_valid_properties():
     mock_capture_exception.assert_not_called()
 
 
+def test_correlation_property_values_keeps_valid_properties_after_malformed_one():
+    filter = Filter(
+        data={
+            "funnel_correlation_property_values": [
+                {"key": "before", "value": "ok", "type": "event"},
+                {"key": "$pageview", "type": "behavioral", "value": "performed_event"},
+                {"key": "after", "value": "ok", "type": "event"},
+            ]
+        }
+    )
+
+    with patch("posthog.models.filters.mixins.funnel.capture_exception") as mock_capture_exception:
+        properties = filter.correlation_property_values
+
+    assert properties is not None
+    assert [property.key for property in properties] == ["before", "after"]
+    mock_capture_exception.assert_called_once()
+
+
 def test_correlation_property_values_accepts_json_string_input():
     filter = Filter(
         data={
