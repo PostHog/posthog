@@ -15,12 +15,14 @@ import os
 import re
 import json
 import shlex
+import functools
 import threading
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterable
 from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass, field
 from enum import Enum
+from pathlib import Path
 from types import TracebackType
 from typing import TYPE_CHECKING, Any, Protocol, Self
 
@@ -51,6 +53,23 @@ from products.tasks.backend.logic.services.sandbox_config import (
 
 if TYPE_CHECKING:
     from products.tasks.backend.temporal.process_task.utils import McpServerConfig
+
+
+SANDBOX_BASE_DOCKERFILE_PATH = Path(__file__).resolve().parents[2] / "sandbox" / "images" / "Dockerfile.sandbox-base"
+
+
+def read_pinned_agent_version(dockerfile_path: Path) -> str | None:
+    try:
+        source = dockerfile_path.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    match = re.search(r"^ARG AGENT_VERSION=(\S+)", source, re.MULTILINE)
+    return match.group(1) if match else None
+
+
+@functools.cache
+def pinned_agent_version() -> str | None:
+    return read_pinned_agent_version(SANDBOX_BASE_DOCKERFILE_PATH)
 
 
 @frozen
