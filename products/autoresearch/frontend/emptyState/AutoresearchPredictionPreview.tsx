@@ -58,8 +58,8 @@ export function AutoresearchPredictionPreview(_: { mode: ProductEmptyStateMode }
                     ))}
                 </div>
                 <div className="mt-2 rounded border border-primary px-2 py-1.5 text-xs text-secondary">
-                    Written back as the <span className="font-semibold text-primary">predicted_p_converted</span> person
-                    property
+                    Written back as a person property, for example{' '}
+                    <span className="font-semibold text-primary">predicted_p_converted</span>
                 </div>
             </div>
         </div>
