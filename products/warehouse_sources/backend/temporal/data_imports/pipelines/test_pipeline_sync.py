@@ -407,10 +407,12 @@ class TestValidateSchemaAndUpdateTable:
         assert not table.columns
         assert table.created_via == DataWarehouseTableCreatedVia.SOURCE
 
-    def _linked_table(self, team, schema, job, *, queryable_folder: str) -> DataWarehouseTable:
+    def _linked_table(
+        self, team, schema, job, *, queryable_folder: str, storage_name: str | None = None
+    ) -> DataWarehouseTable:
         names = resolve_table_and_folder_names(schema.name, schema.resolved_s3_folder_name)
         table = DataWarehouseTable.objects.create(
-            name=build_table_name(job.pipeline, names.table_storage_name),
+            name=build_table_name(job.pipeline, storage_name or names.table_storage_name),
             format=DataWarehouseTableFormat.DeltaS3Wrapper,
             url_pattern="s3://bucket/orders_v1/*.parquet",
             team=team,
@@ -447,6 +449,34 @@ class TestValidateSchemaAndUpdateTable:
         assert table.queryable_folder == "s3://bucket/orders_v2"
         # A reported 0 must not zero a table that was just republished.
         assert table.row_count == 150
+
+    def test_a_schema_linked_to_its_cdc_companion_gets_its_own_table(self, team):
+        schema, job = self._schema_and_job(team)
+        companion = self._linked_table(
+            team, schema, job, queryable_folder="orders_cdc__query_a", storage_name="orders_cdc"
+        )
+
+        with (
+            patch.object(DataWarehouseTable, "get_columns", return_value={}),
+            patch.object(DataWarehouseTable, "get_count", return_value=150),
+        ):
+            async_to_sync(validate_schema_and_update_table)(
+                run_id=str(job.id),
+                team_id=team.pk,
+                schema_id=schema.id,
+                row_count=10,
+                table_format=DataWarehouseTableFormat.DeltaS3Wrapper,
+                queryable_folder="orders__query_a",
+            )
+
+        schema.refresh_from_db()
+        companion.refresh_from_db()
+        assert schema.table is not None
+        assert (schema.table.name, schema.table.queryable_folder) == (
+            build_table_name(job.pipeline, "orders"),
+            "orders__query_a",
+        )
+        assert companion.queryable_folder == "orders_cdc__query_a"
 
     @pytest.mark.parametrize(
         ("recorded_active", "expect_restart"),

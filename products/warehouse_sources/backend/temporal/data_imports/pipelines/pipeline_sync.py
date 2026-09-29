@@ -33,6 +33,7 @@ from products.warehouse_sources.backend.models.external_data_schema import (
 )
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.models.util import hogql_type_name_for_clickhouse_type
+from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import companion_resource_name
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.db_retry import (
     retry_on_operational_error,
@@ -327,6 +328,13 @@ async def validate_schema_and_update_table(
             # minutes, surfacing as "idle in transaction" connections that stalled vacuum and
             # exhausted the connection pool.
             table_created: DataWarehouseTable | None = external_data_schema.table
+            # cdc_only links the schema to its `_cdc` companion table. Reusing that link after a switch
+            # to a mode that writes the consolidated table would publish the consolidated data under the
+            # companion's record, and the consolidated table would never get a record of its own.
+            if table_created is not None and table_created.name == build_table_name(
+                job.pipeline, companion_resource_name(_schema_name)
+            ):
+                table_created = None
 
             if table_created is None:
                 # The ServerException handler below can leave a created table unlinked, so look for
