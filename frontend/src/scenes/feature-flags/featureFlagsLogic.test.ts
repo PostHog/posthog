@@ -718,6 +718,24 @@ describe('rows in config version 2', () => {
         expect(update).toHaveBeenCalledWith(expect.stringContaining('/feature_flags/1'), { active: false })
     })
 
+    it('offers archive only for a v1 row when disabling, and disables a v2 row with its version', async () => {
+        logic.actions.loadFeatureFlags()
+        await expectLogic(logic).toDispatchActions(['loadFeatureFlagsSuccess'])
+        const openDialog = jest.spyOn(LemonDialog, 'open').mockImplementation(() => {})
+        const update = jest
+            .spyOn(api, 'update')
+            .mockImplementation(async (_url, payload) => ({ ...V2_ROW, ...(payload as object) }))
+
+        logic.actions.toggleFeatureFlagActive(1, false)
+        logic.actions.toggleFeatureFlagActive(2, false)
+        expect(openDialog.mock.calls[0][0].secondaryButton?.children).toBe('Disable and archive')
+        expect(openDialog.mock.calls[1][0].secondaryButton).toBeNull()
+
+        openDialog.mock.calls[1][0].primaryButton?.onClick?.(undefined as any)
+        await expectLogic(logic).toFinishAllListeners()
+        expect(update).toHaveBeenCalledWith(expect.stringContaining('/feature_flags/2'), { active: false, version: 7 })
+    })
+
     it('refetches a v2 row whose version was stale instead of retrying', async () => {
         // The conflicting write replaced the document, so the row must show it, not only its version.
         const changedElsewhere = {

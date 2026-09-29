@@ -27,6 +27,7 @@ import {
     REMOTE_CONFIGURATION_LIBRARIES,
 } from './FeatureFlagCodeOptions'
 import { featureFlagConditionWarningLogic } from './featureFlagConditionWarningLogic'
+import { isV1FeatureFlagConfig } from './featureFlagConfigFormat'
 
 function FeatureFlagInstructionsFooter({ documentationLink }: { documentationLink: string }): JSX.Element {
     return (
@@ -97,6 +98,8 @@ export function CodeInstructions({
         })
     )
     const hasUnsupportedFeatures = !!localEvalWarning
+    // Local evaluation definitions leave out flags in any other config version, so SDKs evaluate them remotely.
+    const unsupportedConfigForLocalEval = !!featureFlag && !isV1FeatureFlagConfig(featureFlag.filters)
 
     const { reportFlagsCodeExampleInteraction, reportFlagsCodeExampleLanguage } = useActions(eventUsageLogic)
     const getDocumentationLink = (): string => {
@@ -164,7 +167,7 @@ export function CodeInstructions({
             setShowPayloadCode(false)
         }
 
-        if (featureFlag?.ensure_experience_continuity) {
+        if (featureFlag?.ensure_experience_continuity || unsupportedConfigForLocalEval) {
             setShowLocalEvalCode(false)
         }
     }, [selectedLanguage, featureFlag]) // oxlint-disable-line react-hooks/exhaustive-deps
@@ -311,9 +314,11 @@ export function CodeInstructions({
                                     ? 'Local evaluation is only available in server-side libraries'
                                     : featureFlag?.ensure_experience_continuity
                                       ? "Local evaluation doesn't work for flags that persist across authentication steps"
-                                      : hasUnsupportedFeatures
-                                        ? `Local evaluation is unavailable for this flag due to unsupported features: ${localEvalWarning}`
-                                        : 'Show code for local evaluation'
+                                      : unsupportedConfigForLocalEval
+                                        ? "Local evaluation doesn't support this flag's config format yet, so SDKs evaluate it remotely"
+                                        : hasUnsupportedFeatures
+                                          ? `Local evaluation is unavailable for this flag due to unsupported features: ${localEvalWarning}`
+                                          : 'Show code for local evaluation'
                             }
                         >
                             <div className="flex items-center gap-1">
@@ -329,6 +334,7 @@ export function CodeInstructions({
                                         remoteConfiguration ||
                                         !LOCAL_EVALUATION_LIBRARIES.includes(selectedOption.key) ||
                                         !!featureFlag?.ensure_experience_continuity ||
+                                        unsupportedConfigForLocalEval ||
                                         hasUnsupportedFeatures
                                     }
                                 />

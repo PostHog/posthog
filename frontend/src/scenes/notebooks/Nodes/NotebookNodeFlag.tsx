@@ -82,7 +82,8 @@ function FeatureFlagNotebookActions({ attributes }: NotebookNodeProps<FeatureFla
                     }
                 },
             },
-            canCreateEarlyAccessFeature
+            // A flag in another config version cannot adopt a feature, but one linked elsewhere still opens.
+            canCreateEarlyAccessFeature || (hasEarlyAccessFeatures && !isV1FeatureFlagConfig(featureFlag.filters))
                 ? {
                       text: `${hasEarlyAccessFeatures ? 'View' : 'Create'} early access feature`,
                       icon: <IconRocket />,

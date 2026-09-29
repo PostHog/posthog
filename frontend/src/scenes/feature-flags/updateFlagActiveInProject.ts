@@ -75,13 +75,16 @@ export async function updateFlagActiveInProject({
     flagId: number
     active: boolean
     version?: number
-    /** The row's stored document; a row in another config version is fetched for its version when none is given. */
+    /** The row's stored document. Without a version, a row in another config version or of unknown format is fetched first. */
     filters?: FeatureFlagConfig
 }): Promise<FeatureFlagApi | null> {
     const actionDescription = `${active ? 'enable' : 'disable'} this feature flag`
     try {
-        if (version === undefined && filters && !isV1FeatureFlagConfig(filters)) {
-            version = (await featureFlagsRetrieve(String(teamId), flagId)).version
+        if (version === undefined && !(filters && isV1FeatureFlagConfig(filters))) {
+            const stored = await featureFlagsRetrieve(String(teamId), flagId)
+            if (!isV1FeatureFlagConfig(stored.filters as FeatureFlagConfig | undefined)) {
+                version = stored.version
+            }
         }
         const updatedFlag = await featureFlagsPartialUpdate(String(teamId), flagId, {
             active,

@@ -149,10 +149,9 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
         editFeatureFlag,
         createStaticCohort,
         setSelectedTab,
-        updateFlag,
-        saveFeatureFlag,
         saveDescriptionInline,
         saveTagsInline,
+        saveSidebarTags,
         updateFeatureFlagArchived,
         refreshFeatureFlagAfterAgentChange,
     } = useActions(featureFlagLogic)
@@ -345,26 +344,19 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                             <FeatureFlagEvaluationContexts
                                 tags={featureFlag.tags}
                                 evaluationContexts={featureFlag.evaluation_contexts || []}
-                                onSave={(updatedTags, updatedEvaluationContexts) => {
-                                    const updatedFlag = {
-                                        ...featureFlag,
-                                        tags: updatedTags,
-                                        evaluation_contexts: updatedEvaluationContexts,
-                                    }
-                                    updateFlag(updatedFlag)
-                                    saveFeatureFlag(updatedFlag)
-                                }}
+                                onSave={(updatedTags, updatedEvaluationContexts) =>
+                                    saveSidebarTags(updatedTags, updatedEvaluationContexts)
+                                }
+                                evaluationContextsDisabledReason={
+                                    isV1Config ? null : "Evaluation contexts can't be changed on this flag yet."
+                                }
                                 tagsAvailable={tags.filter((tag: string) => !featureFlag.tags?.includes(tag))}
                                 flagId={featureFlag.id}
                                 context="sidebar"
                             />
                         ) : (
                             <SceneTags
-                                onSave={(tags) => {
-                                    const updatedFlag = { ...featureFlag, tags }
-                                    updateFlag(updatedFlag)
-                                    saveFeatureFlag(updatedFlag)
-                                }}
+                                onSave={(tags) => saveSidebarTags(tags)}
                                 canEdit
                                 tags={featureFlag.tags}
                                 tagsAvailable={tags.filter((tag: string) => !featureFlag.tags?.includes(tag))}
