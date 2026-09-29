@@ -50,13 +50,20 @@ export function sidebarRows({
   work,
   collapsed,
   working,
+  known = new Map(),
 }: {
   layout: LayoutState;
   work: WorkPage;
   collapsed: Set<string>;
   working: Set<string>;
+  /** Open tasks outside the recent page, fetched on their own. */
+  known?: Map<string, Task>;
 }): SidebarRow[] {
-  const byId = new Map((work.tasks ?? []).map((task) => [task.id, task]));
+  const listed = new Set((work.tasks ?? []).map((task) => task.id));
+  const byId = new Map([
+    ...known,
+    ...(work.tasks ?? []).map((task): [string, Task] => [task.id, task]),
+  ]);
   const taskRow = (
     taskId: string | null,
     paneId: string | null,
@@ -84,7 +91,7 @@ export function sidebarRows({
     if (workspacePanes.length === 1) {
       const [pane] = workspacePanes;
       if (pane.taskId === null) rows.push(taskRow(null, pane.id, false));
-      else if (byId.has(pane.taskId)) singlePaneOf.set(pane.taskId, pane.id);
+      else if (listed.has(pane.taskId)) singlePaneOf.set(pane.taskId, pane.id);
       else unlisted.push(taskRow(pane.taskId, pane.id, false));
       return;
     }
