@@ -1200,13 +1200,13 @@ expect.
   ┌─────────────────────────┐
   │  WrappedEvent           │
   │                         │
-  │  event: Event {         │      ┌───────────────────────┐
-  │    event, uuid,         │      │  Event::Options       │
-  │    distinct_id,         │      │    cookieless_mode     │
-  │    timestamp,           │      │    disable_skew_adjust │
-  │    session_id?,         │      │    product_tour_id     │
-  │    window_id?,          │      │    process_person_prof │
-  │    options ─────────────┼─────▶└───────────────────────┘
+  │  event: Event {         │      ┌────────────────────────────┐
+  │    event, uuid,         │      │  Event::Options            │
+  │    distinct_id,         │      │    cookieless_mode         │
+  │    timestamp,           │      │    disable_skew_correction │
+  │    session_id?,         │      │    product_tour_id         │
+  │    window_id?,          │      │    process_person_profile  │
+  │    options ─────────────┼─────▶└────────────────────────────┘
   │    properties (RawValue)│
   │  }                      │
   │  uuid: Uuid (pre-parsed)│
@@ -1297,7 +1297,7 @@ Fields intentionally omitted vs the legacy `RawEvent`:
 
 ### IP redaction
 
-`capture_internal` requests (PostHog's own telemetry) have their IP
+`capture_internal` requests (events the Django app sends on behalf of a customer team) have their IP
 redacted to `127.0.0.1` in both `serialize` (the `ip` field on
 `IngestionEvent`) and `partition_key` (cookieless mode).
 
