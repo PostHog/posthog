@@ -43,8 +43,8 @@ export interface editorSizingLogicValues {
     queryPaneDesiredSize: number | null // resizerLogic
     sidebarDesiredSize: number | null // resizerLogic
     sourceNavigatorDesiredSize: number | null // resizerLogic
-    biSidePaneWidth: number
     biEditorResizerProps: ResizerLogicProps
+    biSidePaneWidth: number
     databaseTreeResizerProps: ResizerLogicProps
     databaseTreeWidth: number
     databaseTreeWillCollapse: boolean

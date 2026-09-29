@@ -399,12 +399,12 @@ export interface biEditorLogicMeta {
             posthogTables: DatabaseSchemaTable[],
             databaseConnectionId: string | null
         ) => BIDataSource[]
+        generatedQuery: (config: BIConfig) => BIQueryBuildResult | null
+        sortOptions: (config: BIConfig) => BISortOption[]
         chartFits: (config: BIConfig) => Partial<Record<ChartDisplayType, BIChartFit>>
         dataPaneFields: (config: BIConfig, allTables: DatabaseSchemaTable[]) => BIDataPaneFields
         dataPaneFieldsLoading: (config: BIConfig, tableFieldsStatus: TableFieldsStatus) => boolean
         filteredDataPaneFields: (dataPaneFields: BIDataPaneFields, dataPaneSearch: string) => BIDataPaneFields
-        generatedQuery: (config: BIConfig) => BIQueryBuildResult | null
-        sortOptions: (config: BIConfig) => BISortOption[]
     }
 }
 
