@@ -4,11 +4,11 @@ from ipaddress import ip_address
 from uuid import uuid4
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import patch
 
 from django.test import override_settings
 
-import aiohttp
+import httpx
 
 from posthog.llm.system_one import NoulAnswer, NoulQuestion
 from posthog.models import Team
@@ -30,13 +30,8 @@ from products.ai_observability.backend.llm.system_one import (
 )
 
 
-def _response(status: int, body: dict[str, object] | str = "") -> MagicMock:
-    response = MagicMock(status=status, headers={}, content_length=None)
-    response.__aenter__.return_value = response
-    response.content.iter_chunked.return_value.__aiter__.return_value = [
-        (json.dumps(body) if isinstance(body, dict) else body).encode()
-    ]
-    return response
+def _response(status: int, body: dict[str, object] | str = "") -> httpx.Response:
+    return httpx.Response(status, content=json.dumps(body) if isinstance(body, dict) else body)
 
 
 @pytest.fixture(autouse=True)
@@ -87,8 +82,7 @@ def test_system_one_key_validation(status: int, expected_state: str) -> None:
         },
     )
     with (
-        patch("aiohttp.ClientSession.request", new_callable=AsyncMock, return_value=response) as request,
-        patch("aiohttp.ClientTimeout", wraps=aiohttp.ClientTimeout) as timeout,
+        patch("httpx.HTTPTransport.handle_request", return_value=response) as request,
     ):
         state, message = Client.validate_key(
             "system_one", "example-token", base_url="https://decisions.example.com/v1", model="custom-model"
@@ -96,15 +90,15 @@ def test_system_one_key_validation(status: int, expected_state: str) -> None:
 
     assert state == expected_state
     assert (message is None) == (expected_state == "ok")
-    assert request.call_args.args[1] == "https://decisions.example.com/v1/systemone"
-    assert request.call_args.kwargs["headers"]["Authorization"] == "Bearer example-token"
-    assert timeout.call_args.kwargs["total"] == 10
+    assert str(request.call_args.args[0].url) == "https://decisions.example.com/v1/systemone"
+    assert request.call_args.args[0].headers["Authorization"] == "Bearer example-token"
+    assert request.call_args.args[0].extensions["timeout"] == {"connect": 10, "read": 10, "write": 10, "pool": 10}
 
 
-@pytest.mark.parametrize("error", [aiohttp.ClientConnectionError("Connection refused"), TimeoutError()])
+@pytest.mark.parametrize("error", [httpx.ConnectError("Connection refused"), httpx.ReadTimeout("Timed out")])
 def test_transport_failures_are_retryable_connection_errors(error: Exception) -> None:
     with (
-        patch("aiohttp.ClientSession.request", new_callable=AsyncMock, side_effect=error),
+        patch("httpx.HTTPTransport.handle_request", side_effect=error),
         pytest.raises(ProviderConnectionError),
     ):
         SystemOneClient.evaluate(
@@ -127,7 +121,7 @@ def test_system_one_rejects_invalid_probabilities(probability: object) -> None:
         },
     )
     with (
-        patch("aiohttp.ClientSession.request", new_callable=AsyncMock, return_value=response),
+        patch("httpx.HTTPTransport.handle_request", return_value=response),
         pytest.raises(StructuredOutputParseError),
     ):
         SystemOneClient.evaluate(
@@ -144,7 +138,7 @@ def test_system_one_rate_limits_are_retryable(status: int) -> None:
     response = _response(status)
     response.headers["Retry-After"] = "15"
     with (
-        patch("aiohttp.ClientSession.request", new_callable=AsyncMock, return_value=response),
+        patch("httpx.HTTPTransport.handle_request", return_value=response),
         pytest.raises(SystemOneRateLimitError) as error,
     ):
         SystemOneClient.evaluate(
@@ -176,7 +170,7 @@ def test_unavailable_usage_does_not_discard_a_valid_answer(
             "usage": usage,
         },
     )
-    with patch("aiohttp.ClientSession.request", new_callable=AsyncMock, return_value=response):
+    with patch("httpx.HTTPTransport.handle_request", return_value=response):
         result = SystemOneClient.evaluate(
             api_key="example-token",
             base_url="https://decisions.example.com/v1",
@@ -195,7 +189,7 @@ def test_unavailable_usage_does_not_discard_a_valid_answer(
 )
 def test_official_endpoint_is_blocked(base_url: str) -> None:
     with (
-        patch("aiohttp.ClientSession.request", new_callable=AsyncMock) as request,
+        patch("httpx.HTTPTransport.handle_request") as request,
         pytest.raises(SystemOneEndpointBlockedError, match="hosted endpoint is not available"),
     ):
         SystemOneClient.evaluate(
@@ -219,7 +213,7 @@ def test_system_one_requires_every_requested_answer(answers: dict[str, object]) 
         },
     )
     with (
-        patch("aiohttp.ClientSession.request", new_callable=AsyncMock, return_value=response),
+        patch("httpx.HTTPTransport.handle_request", return_value=response),
         pytest.raises(StructuredOutputParseError),
     ):
         SystemOneClient.evaluate(
@@ -238,6 +232,7 @@ def test_system_one_requires_every_requested_answer(answers: dict[str, object]) 
     "status,message,error_type",
     [
         (200, "<html>Bad gateway</html>", StructuredOutputParseError),
+        (302, "Redirect", SystemOneEndpointBlockedError),
         (401, "Invalid key", AuthenticationError),
         (403, "Access denied", ModelPermissionError),
         (500, "Unavailable", ProviderConnectionError),
@@ -248,8 +243,9 @@ def test_system_one_requires_every_requested_answer(answers: dict[str, object]) 
 )
 def test_system_one_preserves_error_categories(status: int, message: str, error_type: type[Exception]) -> None:
     response = _response(status, message)
+    response.headers["Location"] = "https://other.example.com/systemone"
     with (
-        patch("aiohttp.ClientSession.request", new_callable=AsyncMock, return_value=response),
+        patch("httpx.HTTPTransport.handle_request", return_value=response),
         pytest.raises(error_type),
     ):
         SystemOneClient.evaluate(
@@ -262,6 +258,8 @@ def test_system_one_preserves_error_categories(status: int, message: str, error_
 
 
 @override_settings(
+    DEBUG=False,
+    TEST=False,
     AI_GATEWAY_URL="https://gateway.example.com/v1",
     AI_GATEWAY_API_KEY="example-gateway-key",
     TYPESAFE_API_KEY="example-instance-key",
@@ -277,8 +275,15 @@ def test_custom_endpoint_and_model(api_key: str) -> None:
             "latency_ms": 42,
         },
     )
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        assert request.url.host == "8.8.8.8"
+        assert request.headers["Host"] == "decisions.example.com"
+        assert request.extensions["sni_hostname"] == "decisions.example.com"
+        return response
+
     with (
-        patch("aiohttp.ClientSession.request", new_callable=AsyncMock, return_value=response) as request,
+        patch("httpx.HTTPTransport.handle_request", side_effect=respond) as request,
         patch("posthog.egress.typesafe.transport.consume_typesafe_sync") as budget,
         patch("posthog.egress.typesafe.observability.typesafe_egress.record_response") as telemetry,
     ):
@@ -292,9 +297,9 @@ def test_custom_endpoint_and_model(api_key: str) -> None:
                 "applicable": NoulQuestion(instructions="Relevant?"),
             },
         )
-    assert request.call_args.args[1] == "https://decisions.example.com/v1/systemone"
-    assert request.call_args.kwargs["headers"].get("Authorization") == (f"Bearer {api_key}" if api_key else None)
-    assert request.call_args.kwargs["json"]["model"] == "custom-model"
+    assert str(request.call_args.args[0].url) == "https://decisions.example.com/v1/systemone"
+    assert request.call_args.args[0].headers.get("Authorization") == (f"Bearer {api_key}" if api_key else None)
+    assert json.loads(request.call_args.args[0].content)["model"] == "custom-model"
     budget.assert_not_called()
     telemetry.assert_not_called()
     assert result.model == "custom-model-revision"
@@ -314,18 +319,19 @@ def test_custom_endpoint_and_model(api_key: str) -> None:
     ],
 )
 def test_invalid_endpoint_is_rejected_before_sending_credentials(base_url: str) -> None:
-    with patch("aiohttp.ClientSession.request", new_callable=AsyncMock) as request:
+    with patch("httpx.HTTPTransport.handle_request") as request:
         state, _ = SystemOneClient.validate_key("example-token", base_url=base_url, model="custom-model")
     assert state == "error"
     request.assert_not_called()
 
 
-def test_private_endpoint_is_blocked() -> None:
+@pytest.mark.parametrize("base_url", ["https://127.0.0.1/v1", "https://decisions.example.com/v1"])
+def test_private_endpoint_is_blocked(base_url: str) -> None:
     with (
         override_settings(DEBUG=False, TEST=False),
         patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("127.0.0.1")}),
-        patch("aiohttp.ClientSession.request", new_callable=AsyncMock) as request,
+        patch("httpx.HTTPTransport.handle_request") as request,
     ):
-        state, _ = SystemOneClient.validate_key("example-token", base_url="https://127.0.0.1/v1", model="custom-model")
+        state, _ = SystemOneClient.validate_key("example-token", base_url=base_url, model="custom-model")
     assert state == "error"
     request.assert_not_called()

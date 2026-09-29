@@ -3,12 +3,13 @@ from ipaddress import ip_address
 from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import AsyncMock, MagicMock, Mock, patch
+from unittest.mock import Mock, patch
 
 from django.core.cache import cache
 from django.test import SimpleTestCase
 from django.utils import timezone
 
+import httpx
 from parameterized import parameterized
 from rest_framework import serializers, status
 
@@ -189,7 +190,7 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
                 "products.ai_observability.backend.llm.system_one.get_feature_flag_or_none",
                 return_value=operation != "prevalidate",
             ),
-            patch("aiohttp.ClientSession.request", new_callable=AsyncMock) as request,
+            patch("httpx.HTTPTransport.handle_request") as request,
         ):
             if operation == "create":
                 response = self.client.post(
@@ -259,7 +260,7 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
         mock_validate.assert_called_once_with(provider, "sk-test-key-12345", team_id=self.team.id, **expected_config)
 
     @patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("8.8.8.8")})
-    @patch("aiohttp.ClientSession.request", new_callable=AsyncMock)
+    @patch("httpx.HTTPTransport.handle_request")
     @patch("products.ai_observability.backend.llm.system_one.get_feature_flag_or_none", return_value=True)
     def test_custom_system_one_connection_round_trip(self, _flag: Mock, request: Mock, _dns: Mock) -> None:
         body = json.dumps(
@@ -271,11 +272,8 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
         ).encode()
         response_status = 200
 
-        def respond(*_args: object, **_kwargs: object) -> MagicMock:
-            response = MagicMock(status=response_status, headers={}, content_length=None)
-            response.__aenter__.return_value = response
-            response.content.iter_chunked.return_value.__aiter__.return_value = [body]
-            return response
+        def respond(*_args: object, **_kwargs: object) -> httpx.Response:
+            return httpx.Response(response_status, content=body)
 
         request.side_effect = respond
         url = f"/api/environments/{self.team.id}/llm_analytics/provider_keys/"
@@ -295,7 +293,7 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
         self.assertEqual(Client.list_models("system_one", **key.provider_extra_kwargs()), ["custom-model"])
         model_config = LLMModelConfiguration(provider="system_one", model="custom-model", provider_key=key)
         self.assertEqual(model_config.get_available_models(), ["custom-model"])
-        self.assertNotIn("Authorization", request.call_args.kwargs["headers"])
+        self.assertNotIn("Authorization", request.call_args.args[0].headers)
         request.reset_mock()
         response = self.client.patch(f"{url}{key.id}/", {"base_url": "https://other.example.com/v1"})
         self.assertEqual(response.status_code, 400)
@@ -317,10 +315,10 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
         self.assertEqual(response.status_code, 200, response.data)
         key.refresh_from_db()
         self.assertEqual(key.encrypted_config["base_url"], "https://other.example.com/v1")
-        self.assertEqual(request.call_args.kwargs["headers"]["Authorization"], "Bearer fake-token")
+        self.assertEqual(request.call_args.args[0].headers["Authorization"], "Bearer fake-token")
         response = self.client.post(f"{url}{key.id}/validate/")
         self.assertEqual(response.status_code, 200, response.data)
-        self.assertEqual(request.call_args.args[1], "https://other.example.com/v1/systemone")
+        self.assertEqual(str(request.call_args.args[0].url), "https://other.example.com/v1/systemone")
 
     @patch("products.ai_observability.backend.api.provider_keys.validate_provider_key")
     def test_can_create_provider_key_with_set_as_active(self, mock_validate):

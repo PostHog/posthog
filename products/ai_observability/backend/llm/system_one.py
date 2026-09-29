@@ -1,12 +1,12 @@
-import json
 import math
-import asyncio
 from collections.abc import Mapping
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from urllib.parse import urlsplit
 
 from django.conf import settings
+
+import httpx
 
 from posthog.llm.system_one import (
     JsonValue,
@@ -20,7 +20,7 @@ from posthog.llm.system_one import (
 from posthog.models import Team
 from posthog.ph_client import get_feature_flag_or_none
 from posthog.security.pinned_requests import SSRFBlockedError
-from posthog.security.url_validation import has_authority_bypass_chars
+from posthog.security.url_validation import has_authority_bypass_chars, validate_url_and_pin_ips
 
 from products.ai_observability.backend.llm.errors import (
     AuthenticationError,
@@ -33,6 +33,7 @@ from products.ai_observability.backend.llm.errors import (
     StructuredOutputParseError,
     is_context_window_error_message,
 )
+from products.ai_observability.backend.llm.providers._diagnostics import tagged_http_client
 
 
 def system_one_evaluations_enabled(team_id: int, *, base_url: str) -> bool:
@@ -116,39 +117,31 @@ class SystemOneClient:
         base_url: str,
         timeout: float = 60,
     ) -> SystemOneResult:
-        import aiohttp  # noqa: PLC0415 -- Keep aiohttp off the Django startup path.
-
-        from posthog.security.pinned_aiohttp import (  # noqa: PLC0415 -- Keep aiohttp off the Django startup path.
-            ResponseLimitExceeded,
-            pinned_request,
-        )
-
         try:
             base_url = SystemOneClient.normalize_base_url(base_url)
         except ValueError as error:
             raise SystemOneEndpointBlockedError(str(error)) from error
         try:
-            response = asyncio.run(
-                pinned_request(
-                    "POST",
+            verdict = validate_url_and_pin_ips(base_url)
+            if not verdict.allowed:
+                raise SSRFBlockedError(verdict.reason)
+            with tagged_http_client(
+                timeout=timeout, pin=(base_url, verdict.pinned_ips), follow_redirects=False
+            ) as client:
+                response = client.post(
                     f"{base_url}/systemone",
                     headers={"Authorization": f"Bearer {api_key}"} if api_key else {},
                     json=build_system_one_body(state=state, questions=questions, model=model),
-                    timeout=timeout,
-                    read_body_statuses=(200, 422),
                 )
-            )
         except SSRFBlockedError as error:
             raise SystemOneEndpointBlockedError("This endpoint is not allowed. Use a public HTTPS endpoint.") from error
-        except (aiohttp.ClientError, TimeoutError) as error:
+        except httpx.RequestError as error:
             raise ProviderConnectionError("Could not reach the System One endpoint. Try again.") from error
-        except ResponseLimitExceeded as error:
-            raise StructuredOutputParseError("The endpoint response exceeded its limits.") from error
 
         status = response.status_code
         if status == 200:
             try:
-                return parse_system_one_response(json.loads(response.content), questions)
+                return parse_system_one_response(response.json(), questions)
             except (ValueError, SystemOneRequestFailed) as error:
                 raise StructuredOutputParseError(
                     "The endpoint returned an invalid System One response. Check compatibility."
@@ -165,9 +158,7 @@ class SystemOneClient:
             raise ProviderConnectionError("The System One endpoint is temporarily unavailable. Try again.")
         if 300 <= status < 400:
             raise SystemOneEndpointBlockedError("The endpoint redirected the request. Use its final HTTPS URL.")
-        if status == 413 or (
-            status == 422 and is_context_window_error_message(response.content.decode(errors="replace"))
-        ):
+        if status == 413 or (status == 422 and is_context_window_error_message(response.text)):
             raise ContextWindowExceededError("This input exceeds the endpoint's size limit. Reduce the input.")
         raise SystemOneRequestRejectedError(
             "The endpoint rejected the evaluation request. Check the model and criteria."

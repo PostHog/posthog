@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.test import override_settings
 
+import httpx
 import posthoganalytics
 from asgiref.sync import async_to_sync, sync_to_async
 from parameterized import parameterized
@@ -142,9 +143,7 @@ def test_system_one_judge_emits_boolean_probability_without_reasoning(
         },
         "usage": usage,
     }
-    response = MagicMock(status=200, headers={}, content_length=None)
-    response.__aenter__.return_value = response
-    response.content.iter_chunked.return_value.__aiter__.return_value = [json.dumps(response_body).encode()]
+    response = httpx.Response(200, json=response_body)
     evaluation = {
         "id": "test-evaluation",
         "name": "Politeness",
@@ -157,7 +156,7 @@ def test_system_one_judge_emits_boolean_probability_without_reasoning(
         patch(
             "posthog.temporal.ai_observability.evaluation_llm_judge.system_one_evaluations_enabled", return_value=True
         ),
-        patch("aiohttp.ClientSession.request", new_callable=AsyncMock, return_value=response) as request,
+        patch("httpx.HTTPTransport.handle_request", return_value=response) as request,
     ):
         spec.return_value.resolve.return_value = resolved
         result = call_llm_judge(
@@ -167,8 +166,8 @@ def test_system_one_judge_emits_boolean_probability_without_reasoning(
             allows_na=allows_na,
         )
 
-    assert request.call_args.args[1] == f"{base_url}/systemone"
-    assert request.call_args.kwargs["json"]["model"] == model
+    assert str(request.call_args.args[0].url) == f"{base_url}/systemone"
+    assert json.loads(request.call_args.args[0].content)["model"] == model
     assert result["verdict"] is verdict
     assert result["reasoning"] == ""
     assert result.get("probability") == (probability if verdict is not None else None)
@@ -191,7 +190,7 @@ def test_system_one_numeric_mapping_is_not_enabled() -> None:
         patch(
             "posthog.temporal.ai_observability.evaluation_llm_judge.system_one_evaluations_enabled", return_value=True
         ),
-        patch("aiohttp.ClientSession.request", new_callable=AsyncMock) as request,
+        patch("httpx.HTTPTransport.handle_request") as request,
     ):
         spec.return_value.resolve.return_value = MagicMock(provider="system_one")
         result = call_llm_judge(
@@ -214,7 +213,7 @@ def test_system_one_restricted_connection_does_not_send_evaluation_data(base_url
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
         patch("products.ai_observability.backend.llm.system_one.Team.objects.only") as teams,
         patch("products.ai_observability.backend.llm.system_one.get_feature_flag_or_none", return_value=flag),
-        patch("aiohttp.ClientSession.request", new_callable=AsyncMock) as request,
+        patch("httpx.HTTPTransport.handle_request") as request,
     ):
         teams.return_value.get.return_value = Team(id=1, organization_id=uuid.uuid4(), uuid=uuid.uuid4())
         spec.return_value.resolve.return_value = MagicMock(
@@ -246,16 +245,14 @@ def test_system_one_rejections_distinguish_blocked_endpoints_from_bad_inputs(
         provider="system_one",
         encrypted_config={"api_key": "example-token", "base_url": "https://decisions.example.com/v1"},
     )
-    response = MagicMock(status=status, headers={}, content_length=None)
-    response.__aenter__.return_value = response
-    response.content.iter_chunked.return_value.__aiter__.return_value = [b"Invalid request"]
+    response = httpx.Response(status, text="Invalid request")
     with (
         patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("8.8.8.8")}),
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
         patch(
             "posthog.temporal.ai_observability.evaluation_llm_judge.system_one_evaluations_enabled", return_value=True
         ),
-        patch("aiohttp.ClientSession.request", new_callable=AsyncMock, return_value=response),
+        patch("httpx.HTTPTransport.handle_request", return_value=response),
     ):
         spec.return_value.resolve.return_value = MagicMock(
             provider="system_one", model="example-judge-v1", provider_key=key, is_byok=True
@@ -290,9 +287,8 @@ def test_system_one_rate_limit_retries_without_disabling_the_evaluation() -> Non
             "posthog.temporal.ai_observability.evaluation_llm_judge.system_one_evaluations_enabled", return_value=True
         ),
         patch(
-            "aiohttp.ClientSession.request",
-            new_callable=AsyncMock,
-            return_value=MagicMock(status=429, headers={"Retry-After": "15"}),
+            "httpx.HTTPTransport.handle_request",
+            return_value=httpx.Response(429, headers={"Retry-After": "15"}),
         ),
         pytest.raises(ApplicationError) as error,
     ):
