@@ -58,6 +58,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers 
     incremental_type_to_initial_value,
     incremental_type_to_operator,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import SourceCursorManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
     open_ssh_tunnel,
     pinned_host_kwargs,
@@ -108,6 +109,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.p
     iterate_partitions,
     list_child_partitions,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.xmin_cursor import XminCursor
 from products.warehouse_sources.backend.types import IncrementalFieldType, PartitionSettings
 
 # Sources created after this date must use SSL/TLS connections
@@ -3496,8 +3498,7 @@ def postgres_source(
     enabled_columns: Optional[list[str]] = None,
     row_filters: Optional[list[ValidatedRowFilter]] = None,
     is_xmin: bool = False,
-    xmin_last_value: Optional[int] = None,
-    xmin_num_wraparound: Optional[int] = None,
+    xmin_cursor: Optional[SourceCursorManager[XminCursor]] = None,
     byte_bounded_extraction: bool = False,
     activity_attempt: int = 1,
     resumable_source_manager: Optional[ResumableSourceManager[KeysetResumeState]] = None,
@@ -3571,8 +3572,9 @@ def postgres_source(
         setup_connection_dropped_errors = 0
         # Captured once at sync start on the row-serving connection (see `_capture_xmin_ceiling`).
         # Re-derived on each setup retry, which is harmless — a later ceiling just reads a slightly
-        # wider window. Persisted only at job completion (see the pipeline's xmin advance).
+        # wider window. Staged on `xmin_cursor` below, and persisted only once the run's rows are durable.
         xmin_bounds: XminBounds | None = None
+        stored_xmin = xmin_cursor.load() if xmin_cursor is not None else None
         while True:
             # Opening the setup connection can itself hit a transient drop ("server closed the
             # connection unexpectedly", idle cull, failover) — the same class of error the read
@@ -3619,7 +3621,12 @@ def postgres_source(
 
                         # Capture the xmin ceiling on this row-serving connection before streaming.
                         if is_xmin:
-                            xmin_bounds = _capture_xmin_ceiling(cursor, xmin_last_value, xmin_num_wraparound, logger)
+                            xmin_bounds = _capture_xmin_ceiling(
+                                cursor,
+                                stored_xmin.ceiling_xid if stored_xmin is not None else None,
+                                stored_xmin.num_wraparound if stored_xmin is not None else None,
+                                logger,
+                            )
 
                         try:
                             logger.debug("Checking if source is a read replica...")
@@ -4565,6 +4572,15 @@ def postgres_source(
 
     name = NamingConvention.normalize_identifier(table_name)
 
+    if xmin_cursor is not None and xmin_bounds is not None:
+        xmin_cursor.stage(
+            XminCursor(
+                ceiling_xid=xmin_bounds.upper,
+                ceiling_xid8=xmin_bounds.ceiling_xid8,
+                num_wraparound=xmin_bounds.num_wraparound,
+            )
+        )
+
     return SourceResponse(
         name=name,
         items=lambda: get_rows(chunk_size),
@@ -4573,9 +4589,6 @@ def postgres_source(
         partition_size=partition_settings.partition_size if partition_settings else None,
         rows_to_sync=rows_to_sync,
         has_duplicate_primary_keys=has_duplicate_primary_keys,
-        xmin_ceiling_xid=xmin_bounds.upper if xmin_bounds is not None else None,
-        xmin_ceiling_xid8=xmin_bounds.ceiling_xid8 if xmin_bounds is not None else None,
-        xmin_num_wraparound=xmin_bounds.num_wraparound if xmin_bounds is not None else None,
         # Both halves, because a run that seeks without a persistable key still cannot hand its
         # position to another pod, and one that could checkpoint but reads through a server cursor
         # has no position to hand over. `supports_resume` defaults to True, so this must be explicit.
