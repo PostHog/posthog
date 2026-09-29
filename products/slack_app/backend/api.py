@@ -1340,6 +1340,15 @@ def _app_mention_ignore_reason(event: dict[str, Any]) -> str | None:
     """
     if event.get("edited") or event.get("subtype") == "message_changed":
         return "edit"
+    return _mention_content_ignore_reason(event)
+
+
+def _mention_content_ignore_reason(event: dict[str, Any]) -> str | None:
+    """The gates on who wrote a mention and what it says.
+
+    A plain mention and an edited mention that runs must pass the same gates, so both read
+    this one list. A gate added here applies to both.
+    """
     authorship = _app_authorship_ignore_reason(event)
     if authorship:
         return authorship
@@ -1381,11 +1390,9 @@ def _edited_mention_ignore_cause(event: dict[str, Any], slack_team_id: str) -> s
     # itself, so the pipeline would read the wrong ts, user and text from the envelope.
     if event.get("subtype") == "message_changed":
         return "message_changed_envelope"
-    authorship = _app_authorship_ignore_reason(event)
-    if authorship:
-        return authorship
-    if _every_mention_is_a_path_segment(event):
-        return "path_mention"
+    content_reason = _mention_content_ignore_reason(event)
+    if content_reason:
+        return content_reason
     cache_key = _message_handled_cache_key(slack_team_id, event)
     if cache_key is None:
         return "no_message_ts"
