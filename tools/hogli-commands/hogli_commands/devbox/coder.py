@@ -101,10 +101,9 @@ _RESERVED_LABEL_SUFFIXES: tuple[str, ...] = tuple(s for s in REGION_NAME_SUFFIXE
 
 # Per-user Coder secret holding the SSH public key used to sign commits inside
 # workspaces. Injected as the POSTHOG_GIT_SIGNING_KEY env var on every workspace
-# start (including coder task runs); the workspace template reads it to populate
-# user.signingkey. The matching private key never leaves 1Password. The `GIT_`
-# prefix is reserved by Coder, so the workspace-side env name cannot start with
-# it.
+# start; the workspace template reads it to populate user.signingkey. The
+# matching private key never leaves 1Password. The `GIT_` prefix is reserved by
+# Coder, so the workspace-side env name cannot start with it.
 GIT_SIGNING_KEY_SECRET = "POSTHOG_GIT_SIGNING_KEY"
 
 
@@ -675,8 +674,8 @@ def _diagnose_blocked_route(
             cause="No peer on your tailnet advertises subnet routes.",
             next_step=(
                 f"Either you are not on the '{EXPECTED_TAILNET}' tailnet (check "
-                "the name above), or your account has not been added to the "
-                f"Tailscale policy yet. See {_TAILSCALE_RUNBOOK_URL} for both, "
+                "the name above), or your account is outside `group:employees` "
+                f"in the Tailscale policy. See {_TAILSCALE_RUNBOOK_URL} for both, "
                 "then reach out to Team DevEx with the facts below."
             ),
             facts=facts,
@@ -698,9 +697,9 @@ def _diagnose_blocked_route(
         cause="TCP is blocked despite an online subnet router on your tailnet.",
         next_step=(
             "A non-Tailscale VPN or a local firewall is likely intercepting, "
-            "or the Tailscale policy does not grant your account devbox "
-            f"access. Disable other VPNs and see {_TAILSCALE_RUNBOOK_URL} to "
-            "confirm policy membership, or reach out to Team DevEx."
+            "or your account is outside `group:employees` in the Tailscale "
+            f"policy. Disable other VPNs and see {_TAILSCALE_RUNBOOK_URL}, or "
+            "reach out to Team DevEx."
         ),
         facts=facts,
     )
@@ -1284,7 +1283,7 @@ def _start_app_param(start_app: bool | None) -> dict[str, str]:
 
 def create_workspace(
     name: str,
-    disk_size: int,
+    disk_size: int | None,
     git_name: str | None = None,
     git_email: str | None = None,
     dotfiles_uri: str | None = None,
@@ -1316,10 +1315,11 @@ def create_workspace(
     ``resolve_template_preset``; pass ``NO_PRESET`` to opt out.
     """
     parameters: dict[str, str] = {
-        DISK_SIZE_PARAMETER: str(disk_size),
         "repo": repo,
         WORKSPACE_REGION_PARAMETER: region,
     }
+    if disk_size is not None:
+        parameters[DISK_SIZE_PARAMETER] = str(disk_size)
     if git_name:
         parameters[GIT_NAME_PARAMETER] = git_name
     if git_email:
@@ -1639,32 +1639,6 @@ def logs_replace(name: str, follow: bool) -> None:
     if follow:
         args.append("--follow")
 
-    _run_or_exit(args)
-
-
-def create_task(
-    prompt: str | None,
-    *,
-    task_name: str | None = None,
-    quiet: bool = False,
-    template: str = DEFAULT_TEMPLATE,
-) -> None:
-    """Create a Coder task on the given workspace template.
-
-    When ``prompt`` is None, ``--stdin`` is passed so coder reads the prompt
-    from the parent process's stdin; otherwise it is forwarded as the
-    positional input argument. Execs into the coder CLI so stdin, stdout,
-    and the exit code flow through unchanged.
-    """
-    args = ["coder", "task", "create", "--template", template]
-    if task_name:
-        args += ["--name", task_name]
-    if quiet:
-        args.append("--quiet")
-    if prompt is None:
-        args.append("--stdin")
-    else:
-        args.append(prompt)
     _run_or_exit(args)
 
 

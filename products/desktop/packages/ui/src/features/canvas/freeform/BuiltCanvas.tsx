@@ -2,17 +2,20 @@ import { assertCanvasCapability } from "@posthog/core/canvas/canvasCapabilities"
 import {
   type CanvasCommentHighlight,
   type CanvasNavIntent,
-  type CanvasTextSelection,
   type CanvasTheme,
   canvasToHostMessageSchema,
 } from "@posthog/core/canvas/freeformSchemas";
 import type { CanvasCapabilities } from "@posthog/shared";
+import { isSafeGitHubPullRequestUrl } from "@posthog/shared";
 import { logger } from "@posthog/ui/shell/logger";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { useThemeStore } from "@posthog/ui/shell/themeStore";
 import { useEffect, useLayoutEffect, useRef } from "react";
 import { createCanvasHostMessageRouter } from "./canvasHostMessageRouter";
-import { translateCanvasTextSelection } from "./canvasSelection";
+import {
+  type HostCanvasTextSelection,
+  translateCanvasTextSelection,
+} from "./canvasSelection";
 
 const log = logger.scope("built-canvas");
 const EMPTY_COMMENT_HIGHLIGHTS: CanvasCommentHighlight[] = [];
@@ -105,7 +108,7 @@ export interface BuiltCanvasProps {
   onReady?: () => void;
   onRendered?: () => void;
   onNavigate?: (intent: CanvasNavIntent) => void;
-  onTextSelection?: (selection: CanvasTextSelection | null) => void;
+  onTextSelection?: (selection: HostCanvasTextSelection | null) => void;
   onCommentActivate?: (id: string) => void;
   commentHighlights?: CanvasCommentHighlight[];
   clearTextSelectionKey?: number;
@@ -205,10 +208,12 @@ export function BuiltCanvas({
         onCommentActivate: (id) => latest.current.onCommentActivate?.(id),
       }),
       hasUserActivation: () => navigator.userActivation?.isActive === true,
-      // Built artifacts run arbitrary published code, so an external open asks
-      // first even after the activation + throttle gates pass.
+      // Only validated GitHub PR links skip confirmation after the gesture gate.
       openExternal: (url) => {
-        if (window.confirm(`Open this link in your browser?\n\n${url}`)) {
+        if (
+          isSafeGitHubPullRequestUrl(url) ||
+          window.confirm(`Open this link in your browser?\n\n${url}`)
+        ) {
           openExternalUrl(url);
         }
       },

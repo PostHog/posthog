@@ -45,6 +45,7 @@ from .types import (
     RASTERIZE_RENDER_TIMEOUT,
     BuildRasterizationResult,
     FinalizeRasterizationInput,
+    RasterizationActivityInput,
     RasterizationActivityOutput,
     RasterizeRecordingInputs,
     RecordRasterizationFailureInput,
@@ -93,8 +94,9 @@ class RasterizeRecordingWorkflow(PostHogWorkflow):
             # Count runs, not attempts: only the final scheduled attempt is a failed run.
             if self._is_final_attempt():
                 _record_outcome(RASTERIZATION_FAILED_COUNTER, inputs)
-                if wf.patched(_RECORD_FAILURE_PATCH):
-                    await self._record_failure(inputs, exc, error_code)
+                # Only an asset has somewhere to record the reason; a caller-built render reports its own.
+                if inputs.exported_asset_id is not None and wf.patched(_RECORD_FAILURE_PATCH):
+                    await self._record_failure(inputs.exported_asset_id, exc, error_code)
             await self._maybe_bump_stuck_counter(error_code)
             raise
         await self._maybe_clear_stuck_counter()
@@ -111,7 +113,7 @@ class RasterizeRecordingWorkflow(PostHogWorkflow):
         max_attempts = cls._max_attempts()
         return max_attempts is not None and 0 < max_attempts <= wf.info().attempt
 
-    async def _record_failure(self, inputs: RasterizeRecordingInputs, exc: BaseException, error_code: str) -> None:
+    async def _record_failure(self, exported_asset_id: int, exc: BaseException, error_code: str) -> None:
         """Write the renderer's own reason onto the asset before the workflow fails.
 
         Swallows its own errors: losing the reason is worse than the render failing, but masking the
@@ -122,7 +124,7 @@ class RasterizeRecordingWorkflow(PostHogWorkflow):
             await wf.execute_activity(
                 record_rasterization_failure,
                 RecordRasterizationFailureInput(
-                    exported_asset_id=inputs.exported_asset_id,
+                    exported_asset_id=exported_asset_id,
                     error_code=error_code,
                     error_message=truncate_for_temporal_payload(str(cause), MAX_ERROR_MESSAGE_CHARS),
                 ),
@@ -180,6 +182,13 @@ class RasterizeRecordingWorkflow(PostHogWorkflow):
             wf.logger.warning("rasterize.stuck_counter_clear_failed", extra={"error": str(exc)})
 
     async def _run(self, inputs: RasterizeRecordingInputs) -> RasterizationActivityOutput:
+        if inputs.render_input is not None:
+            # A caller-built render has no asset to prepare from or finalize onto.
+            result = await self._render(inputs, inputs.render_input)
+            self._phase = "done"
+            return result
+
+        assert inputs.exported_asset_id is not None  # one of the two, per RasterizeRecordingInputs
         retry_policy = common.RetryPolicy(maximum_attempts=3)
 
         self._phase = "preparing"
@@ -196,21 +205,7 @@ class RasterizeRecordingWorkflow(PostHogWorkflow):
 
         assert prep.activity_input is not None  # tagged-union invariant
 
-        self._phase = "rendering"
-        # Plain dict from Node.js across the cross-language boundary.
-        raw_result: dict[str, Any] = await wf.execute_activity(
-            "rasterize-recording",
-            prep.activity_input.model_dump(exclude_none=True),
-            # Reading a Django setting inside a workflow body is normally banned (it is not part of
-            # recorded history); it is tolerated here because Temporal does not replay-check the
-            # task-queue attribute, and a mid-flight change only redirects retries.
-            task_queue=settings.RASTERIZATION_TASK_QUEUE,
-            start_to_close_timeout=RASTERIZE_RENDER_TIMEOUT,
-            heartbeat_timeout=dt.timedelta(seconds=30),
-            retry_policy=common.RetryPolicy(maximum_attempts=RASTERIZE_RENDER_MAX_ATTEMPTS),
-        )
-
-        result = RasterizationActivityOutput.model_validate(raw_result)
+        result = await self._render(inputs, prep.activity_input)
 
         self._phase = "finalizing"
         await wf.execute_activity(
@@ -226,3 +221,21 @@ class RasterizeRecordingWorkflow(PostHogWorkflow):
 
         self._phase = "done"
         return result
+
+    async def _render(
+        self, inputs: RasterizeRecordingInputs, activity_input: RasterizationActivityInput
+    ) -> RasterizationActivityOutput:
+        self._phase = "rendering"
+        # Plain dict from Node.js across the cross-language boundary.
+        raw_result: dict[str, Any] = await wf.execute_activity(
+            "rasterize-recording",
+            activity_input.model_dump(exclude_none=True),
+            # Reading a Django setting inside a workflow body is normally banned (it is not part of
+            # recorded history); it is tolerated here because Temporal does not replay-check the
+            # task-queue attribute, and a mid-flight change only redirects retries.
+            task_queue=inputs.task_queue or settings.RASTERIZATION_TASK_QUEUE,
+            start_to_close_timeout=RASTERIZE_RENDER_TIMEOUT,
+            heartbeat_timeout=dt.timedelta(seconds=30),
+            retry_policy=common.RetryPolicy(maximum_attempts=RASTERIZE_RENDER_MAX_ATTEMPTS),
+        )
+        return RasterizationActivityOutput.model_validate(raw_result)

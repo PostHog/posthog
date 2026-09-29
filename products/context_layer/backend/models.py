@@ -1,5 +1,6 @@
 from django.db import models
 
+from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import uuid7
 
 
@@ -42,3 +43,19 @@ class ContextLayerConfig(models.Model):
 
     class Meta:
         db_table = "context_layer_config"
+
+
+class WikiPageProposal(TeamScopedRootMixin):
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    created_by = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    task_id = models.UUIDField()
+    path = models.CharField(max_length=512)
+    original_content = models.TextField()
+    content = models.TextField()
+    base_head = models.CharField(max_length=64)
+    created_at = models.DateTimeField(auto_now_add=True)
+    applied_head = models.CharField(max_length=64, blank=True, default="")
+
+    class Meta:
+        indexes = [models.Index(fields=["created_by", "-created_at"], name="wiki_proposal_author_created")]

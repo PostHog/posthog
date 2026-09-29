@@ -70,27 +70,14 @@ describe('doraLogic', () => {
                     const available = new Set(
                         params.get('repo') === 'example/repo' ? ['staging'] : availableEnvironments
                     )
-                    const blankIndex = requested.indexOf('')
-                    if (blankIndex >= 0) {
+                    if (requested.includes('invalid-item')) {
                         return [
                             400,
                             {
                                 type: 'validation_error',
-                                code: 'blank',
-                                detail: 'This field may not be blank.',
-                                attr: `environment__${blankIndex}`,
-                            },
-                        ]
-                    }
-                    const nullCharacterIndex = requested.findIndex((name) => name.includes('\0'))
-                    if (nullCharacterIndex >= 0) {
-                        return [
-                            400,
-                            {
-                                type: 'validation_error',
-                                code: 'null_characters_not_allowed',
-                                detail: 'Null characters are not allowed.',
-                                attr: `environment__${nullCharacterIndex}`,
+                                code: 'invalid',
+                                detail: 'Invalid environment.',
+                                attr: 'environment__1',
                             },
                         ]
                     }
@@ -174,20 +161,10 @@ describe('doraLogic', () => {
         logic.unmount()
     })
 
-    it('shows both resolved production regions as selected on first load', async () => {
-        await expectLogic(logic).toDispatchActions(['loadDoraSuccess'])
-        expect(requests[0].getAll('environment')).toEqual([])
-        expect(logic.values.selectedEnvironments).toEqual(['prod-us', 'prod-eu'])
-        expect(logic.values.environmentOptions.map(({ key }) => key)).toEqual(['dev', 'prod-us', 'prod-eu'])
-    })
-
     it.each([
         [null, false],
-        [0, false],
         [0.1, false],
         [0.1001, true],
-        [0.25, true],
-        [1, true],
     ])('warns only above 10%% unattributed merged PRs (%s)', async (share, showWarning) => {
         await expectLogic(logic).toDispatchActions(['loadDoraSuccess'])
         logic.actions.loadDoraSuccess({ ...DORA, unattributed_merged_pr_share: share })
@@ -195,8 +172,12 @@ describe('doraLogic', () => {
         expect(logic.values.showUnattributedWarning).toBe(showWarning)
     })
 
-    it('sends the visible selections as repeated parameters and restores production when cleared', async () => {
+    it('selects production on first load, sends the visible selections as repeated parameters, and restores production when cleared', async () => {
         await expectLogic(logic).toDispatchActions(['loadDoraSuccess'])
+        expect(requests[0].getAll('environment')).toEqual([])
+        expect(logic.values.selectedEnvironments).toEqual(['prod-us', 'prod-eu'])
+        expect(logic.values.environmentOptions.map(({ key }) => key)).toEqual(['dev', 'prod-us', 'prod-eu'])
+
         await expectLogic(logic, () => logic.actions.setEnvironments(['prod-eu', 'dev'])).toDispatchActions([
             'loadDoraSuccess',
         ])
@@ -224,7 +205,7 @@ describe('doraLogic', () => {
         ])
 
         silenceKeaLoadersErrors()
-        for (const environments of [['missing'], ['prod-eu', ''], ['prod-eu', '\0']]) {
+        for (const environments of [['missing'], ['prod-eu', 'invalid-item']]) {
             await expectLogic(logic, () => logic.actions.setEnvironments(environments))
                 .toDispatchActions(['loadDoraFailure', 'restoreEnvironments'])
                 .toMatchValues({

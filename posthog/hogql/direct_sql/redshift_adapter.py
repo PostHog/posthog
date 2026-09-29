@@ -131,6 +131,11 @@ class RedshiftAdapter:
 
     def execute(self, request: DirectQueryRequest) -> DirectQueryResult:
         source = request.source
+        from products.warehouse_sources.backend.facade.source_management import (
+            HostNotAllowedError,
+            TemporaryHostResolutionError,
+        )
+
         redshift_implementation, source_config = self.validate_source_config(source, request.team)
         source_schema = source_config.schema
         settings = request.settings
@@ -147,7 +152,7 @@ class RedshiftAdapter:
             with request.timings.measure("redshift_execute"), observe_direct_query("redshift"):
                 # `connect` opens the SSH tunnel (if any) and applies the shared Redshift SSL
                 # conventions in one place.
-                with redshift_implementation.connect(source_config) as connection:
+                with redshift_implementation.connect(source_config, team_id=request.team.pk) as connection:
                     # One round trip for the session setup: statement_timeout is a validated int
                     # (milliseconds) so inlining it is injection-safe, and the search_path
                     # identifier is escaped. Multi-statement execute is fine with no parameters.
@@ -163,7 +168,13 @@ class RedshiftAdapter:
                         # as an empty result instead of raising on fetch, mirroring Postgres.
                         description = cursor.description or []
                         results = _fetch_capped_redshift_rows(cursor) if description else []
-        except (psycopg.Error, BaseSSHTunnelForwarderError, ExposedHogQLError) as error:
+        except (
+            psycopg.Error,
+            BaseSSHTunnelForwarderError,
+            ExposedHogQLError,
+            HostNotAllowedError,
+            TemporaryHostResolutionError,
+        ) as error:
             span.set_attribute("error_type", error.__class__.__name__)
             if request.debug:
                 return DirectQueryResult(results=[], types=[], print_columns=[], error=postgres_error_to_message(error))

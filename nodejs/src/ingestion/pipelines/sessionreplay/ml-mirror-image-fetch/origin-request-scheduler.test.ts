@@ -1,3 +1,5 @@
+import { register } from 'prom-client'
+
 import { createRecordingTopHog } from '~/tests/helpers/tophog'
 
 import { HostBudget, HostBudgetOptions } from './host-budget'
@@ -27,6 +29,7 @@ describe('OriginRequestScheduler', () => {
     })
 
     it('keeps concurrent request start times at least one second apart', async () => {
+        register.resetMetrics()
         const budget = new HostBudget(OPTIONS)
         budget.setCrawlDelay(ORIGIN.origin, 1_000, Date.now())
         const recordingTopHog = createRecordingTopHog()
@@ -46,7 +49,26 @@ describe('OriginRequestScheduler', () => {
                 [7, 42]
             )
         )
+        await jest.advanceTimersByTimeAsync(0)
+        const active = register.getSingleMetric('ml_image_fetch_stage_active')!
+        expect((await active.get()).values).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({ labels: { stage: 'image_origin_crawl_delay' }, value: 2 }),
+                expect.objectContaining({ labels: { stage: 'image_http' }, value: 0 }),
+            ])
+        )
         await jest.runAllTimersAsync()
+        expect((await active.get()).values.every(({ value }) => value === 0)).toBe(true)
+        const durations = await register.getSingleMetric('ml_image_fetch_stage_duration_seconds')!.get()
+        expect(durations.values).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    metricName: 'ml_image_fetch_stage_duration_seconds_sum',
+                    labels: { stage: 'image_origin_crawl_delay' },
+                    value: 3,
+                }),
+            ])
+        )
 
         expect(await Promise.all(requests)).toEqual([
             { ran: true, value: undefined },

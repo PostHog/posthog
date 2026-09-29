@@ -1,0 +1,126 @@
+[
+ {
+  "Plan": {
+   "Node Type": "Expression",
+   "Node Id": "Expression_568",
+   "Description": "(Project names + (Before ORDER BY + Projection) [lifted up part])",
+   "Plans": [
+    {
+     "Node Type": "Limit",
+     "Node Id": "Limit_562",
+     "Description": "preliminary LIMIT",
+     "Plans": [
+      {
+       "Node Type": "Sorting",
+       "Node Id": "Sorting_561",
+       "Description": "Sorting for ORDER BY",
+       "Plans": [
+        {
+         "Node Type": "Expression",
+         "Node Id": "Expression_566",
+         "Description": "(Before ORDER BY + Projection)",
+         "Plans": [
+          {
+           "Node Type": "Filter",
+           "Node Id": "Filter_558",
+           "Description": "HAVING",
+           "Plans": [
+            {
+             "Node Type": "MergingAggregated",
+             "Node Id": "MergingAggregated_557",
+             "Plans": [
+              {
+               "Node Type": "Union",
+               "Node Id": "Union_551",
+               "Plans": [
+                {
+                 "Node Type": "CreatingSets",
+                 "Node Id": "CreatingSets_579",
+                 "Description": "Create sets before main query execution",
+                 "Plans": [
+                  {
+                   "Node Type": "Aggregating",
+                   "Node Id": "Aggregating_511",
+                   "Plans": [
+                    {
+                     "Node Type": "Expression",
+                     "Node Id": "Expression_510",
+                     "Description": "Before GROUP BY",
+                     "Plans": [
+                      {
+                       "Node Type": "Filter",
+                       "Node Id": "Filter_578",
+                       "Description": "(WHERE + Change column names to column identifiers)",
+                       "Plans": [
+                        {
+                         "Node Type": "ReadFromMergeTree",
+                         "Node Id": "ReadFromMergeTree_507",
+                         "Description": "posthog.sharded_session_replay_events",
+                         "Indexes": [
+                          {
+                           "Type": "Min-Max",
+                           "Keys": [
+                            "min_first_timestamp"
+                           ],
+                           "Condition": "and((min_first_timestamp in (-Inf, '1789058701.088805']), (min_first_timestamp in ['1788418800', +Inf)))",
+                           "Initial Parts": 217,
+                           "Selected Parts": 26,
+                           "Initial Granules": 2164629,
+                           "Selected Granules": 59554
+                          },
+                          {
+                           "Type": "Partition",
+                           "Keys": [
+                            "toYYYYMM(min_first_timestamp)"
+                           ],
+                           "Condition": "and((toYYYYMM(min_first_timestamp) in (-Inf, 202609]), (toYYYYMM(min_first_timestamp) in [202609, +Inf)))",
+                           "Initial Parts": 26,
+                           "Selected Parts": 26,
+                           "Initial Granules": 59554,
+                           "Selected Granules": 59554
+                          },
+                          {
+                           "Type": "PrimaryKey",
+                           "Keys": [
+                            "toDate(min_first_timestamp)",
+                            "team_id",
+                            "session_id"
+                           ],
+                           "Condition": "and((session_id notIn 49327-element set), and(and((session_id in 197773-element set), (session_id in 61-element set)), and((toDate(min_first_timestamp) in (-Inf, 20706]), and((toDate(min_first_timestamp) in [20699, +Inf)), (team_id in [2, 2])))))",
+                           "Search Algorithm": "generic exclusion search",
+                           "Initial Parts": 26,
+                           "Selected Parts": 26,
+                           "Initial Granules": 59554,
+                           "Selected Granules": 163
+                          }
+                         ]
+                        }
+                       ]
+                      }
+                     ]
+                    }
+                   ]
+                  }
+                 ]
+                },
+                {
+                 "Node Type": "ReadFromRemote",
+                 "Node Id": "ReadFromRemote_550",
+                 "Description": "Read from remote replica"
+                }
+               ]
+              }
+             ]
+            }
+           ]
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  }
+ }
+]

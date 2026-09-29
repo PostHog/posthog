@@ -198,6 +198,78 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
    rate drops materially (toward ≤50%) on frozen-PR evals with the valid-finding set intact (item 5's
    coverage matrix as the guard); kill if valid findings drop with the noise.
 
+### ✅ BUILT 2026-09-11 — resolution replies: one verdict sentence, a divider, a few lines (feedback-driven)
+
+- **What.** The resolution prompt (`prompts/thread_resolution/prompt.jinja`, `<reply_shape>`) fixes the reply's shape:
+  one verdict sentence, a blank line, `---`, then at most 3 short lines (5 for `escalate`), written in Simplified
+  Technical English via the `writing-simplified-technical-english` skill the sandbox image already carries (the
+  review and validation prompts adopted it 2026-08-13, PR #80776). Follow-up turns carry a one-line reminder and the
+  `reply` schema description says the same. Test and lint output leave the reply: the driver posts the verdict's
+  `verification` field under it as a collapsed "How this was verified" block (`_verification_section`,
+  `temporal/resolution.py`), after the commit link, and inserts the blank line GitHub needs before a `---` the model
+  wrote directly under its verdict (`_normalize_reply_divider`; without it the verdict renders as a heading). A reply
+  past the shape (more than 5 support lines or 150 visible words) is folded, not cut or rejected: the verdict and the
+  first lines stay visible, the rest goes under a collapsed "More detail" block, and a warning logs the drift
+  (`_fold_overlong_reply`). Rejecting was ruled out in review: a schema limit fails the turn parser with no correction
+  path, so a landed fix commit would get no reply. Review also flagged that publishing `verification` opens a
+  credential channel: the sandbox holds the GitHub token and a PostHog personal API key, the git remote carries the
+  token inline, and nothing inspected the body before it posted (the reply had the same gap on master). The posted
+  body is now scrubbed of credential shapes last (`tools/redaction.py`: PostHog secret prefixes `phx_`/`phs_`/
+  `pha_`/`phr_` and the per-run `phe_` AI gateway token, GitHub `gh?_`/`github_pat_` tokens, `x-access-token` clone URLs; `phc_` project tokens are public
+  and stay), with a warning logged, and the prompt asks for a summary rather than raw command output. The review
+  stage runs the same scrub over the review body and every inline finding comment (`_post_github_review`), since
+  its sandboxes hold the same tokens. Comparing against live token values was ruled out as overengineering: the
+  sandbox's copies can differ from what the delivery step could fetch, and the shapes already cover every
+  credential type the sandbox holds. The resolution-criteria
+  skill's step 4 no longer asks for "how it was verified" in the reply (new canonical version).
+- **Why.** Dogfood feedback on PR #97753: four replies of 5 to 7 paragraphs each, walls of text nobody reads. The
+  prompt asked for a self-contained answer plus how it was verified, and the model over-delivered; the
+  `verification` field was stored and shown nowhere. The shape lives in the prompt, not the editable criteria
+  skill, because it is format rather than judgment and a team edit cannot lose it.
+- **Not changed.** Finding comments (STE since 2026-08-13; their validator bullets sit collapsed) and the finding
+  comment's layout, which repeats its text inside the copy-paste AI prompt block. Trimming that is a rendering
+  follow-up in `publish_review.py`, not a prompt one.
+- **Check.** No live e2e. A throwaway one-shot harness rendered the real opener for five invented threads (one per
+  outcome) plus invented investigation notes and the two skills inline, and asked `claude-opus-5` @ xhigh for the
+  verdict, three runs per outcome. 15/15 replies matched the shape: verdict sentence, blank line before `---`,
+  ≤3 support lines (≤5 for escalate), no test output in the reply, 33 to 116 words (the flagged replies ran 300 to
+  400). Watch the next dogfood resolution run for drift after a long in-sandbox investigation, which the one-shot
+  cannot reproduce.
+
+### ✅ BUILT 2026-09-17: Flash mode uses Luna medium for review and validation
+
+- **What.** The Code review page's **Review in Flash mode** action sends `run_mode=flash` for one review turn.
+  `FLASH_ARM` uses `gpt-5.6-luna` at `medium` reasoning effort with the Codex runtime and `full-access` permission mode.
+  The perspective reviews, blind-spot sweep, and validator share that arm.
+  Chunking, selection, and deduplication keep their Sonnet one-shots.
+  Flash prompts instruct the agent to fetch pinned review and validation skills over MCP with `skill-get`, as full reviews do.
+- **Why.** The [Flash experiment](https://github.com/PostHog/posthog/blob/1f09ba3e98adb9d23c8c63cff6d9978ed6a9ba17/products/review_hog/eval/experiments/2026-09-flash-mode/FINAL_REPORT.md) compared five configurations, with two runs each on one frozen PR.
+  Those benchmark runs used inlined skill bodies.
+  Luna medium posted three distinct serious issues per run for $0.59, compared with 1.5 for $0.30 at low.
+  Its false-comment share was 53%, so it remains a budget choice with permissive validation.
+  Xhigh improved coverage but cost $3.32 per run.
+- **Turn isolation.** Flash leaves the report's stored tier and arm unchanged so later full reviews use their normal configuration.
+  The mode travels in the workflow payload to each stage, and telemetry reads the same arm-selection helpers as execution.
+  Cached perspective results carry the reviewer model, preventing a full Sol review from reusing Luna findings.
+  The existing join-on-running and already-reviewed rules still allow only one review per commit.
+- **Publishing.** Flash prefixes status, promotion, review-body, and inline comments with `FLASH MODE - Faster, but stupid, use regular ReviewHog for a heavy review` followed by a newline.
+  It never chains comment resolution.
+  The UI and generated MCP trigger accept the mode; the CLI exposes it through `run_review --review-mode flash`.
+- **Gateway access.** Luna already belongs to the `review_hog` model allowance.
+  Flash requires no additional gateway permissions.
+
+### ✅ BUILT 2026-09-03 — comment layout back to description-first (reverses the 2026-07-17 validation-first order)
+
+User call: the issue description reads first, the validator's verdict second.
+Reading order is now claim (title) → what the issue is (description) → why it's real (validation) → fix / AI prompt.
+Applied in both renderers (`_format_issue_comment` in `publish_review.py`, `_render_off_diff_section` in `prepare_validation_markdown.py`); the order tests in both suites flipped with it.
+Template-level and reversible, same as the original move.
+
+- **Follow-up from review (2026-09-11).** The validator prompt, the `argumentation` field description, and the
+  regenerated `issue_validation/schema.json` now describe the description as sitting _above_ the verdict, and keep
+  the "bullets stand on their own" rule on its order-independent reason (a reader can expand them alone, and later
+  pipeline steps read them without the description).
+
 ### ✅ BUILT 2026-08-27 — reviewer tier by PR origin and Signals priority (agent PRs review cheaper; branch-only inbox reviews retired; resolver on Opus 5)
 
 - **What.** The reviewer's effort is no longer one fleet-wide pin. Each `ReviewReport` is placed in a **review

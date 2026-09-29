@@ -1,7 +1,7 @@
 import datetime
 from typing import Any, Optional, Union
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, QueryMatchingTest
 from unittest import mock
 
@@ -120,7 +120,7 @@ class TestDashboardTiles(APIBaseTest, QueryMatchingTest):
             "xxs": {"x": "0", "y": "0", "w": "2", "h": "5"},
         }
 
-    @freeze_time("2022-04-01 12:45")
+    @time_machine.travel("2022-04-01 12:45", tick=False)
     @override_settings(IN_UNIT_TESTING=True)
     def test_can_create_a_single_text_tile(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
@@ -135,7 +135,7 @@ class TestDashboardTiles(APIBaseTest, QueryMatchingTest):
 
     @override_settings(IN_UNIT_TESTING=True)
     def test_can_update_a_single_text_tile(self) -> None:
-        with freeze_time("2022-04-01 12:45") as frozen_time:
+        with time_machine.travel("2022-04-01 12:45", tick=False) as frozen_time:
             dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
 
             dashboard_id, dashboard_json = self.dashboard_api.create_text_tile(dashboard_id, text="hello world")
@@ -144,7 +144,7 @@ class TestDashboardTiles(APIBaseTest, QueryMatchingTest):
             assert len(dashboard_json["tiles"]) == 2
             tile_ids = sorted([tile["id"] for tile in dashboard_json["tiles"]])
 
-            frozen_time.tick(delta=datetime.timedelta(hours=10))
+            frozen_time.shift(datetime.timedelta(hours=10))
             other_user = User.objects.create_and_join(organization=self.organization, email="", password="")
             self.client.force_login(other_user)
             updated_tile = {**dashboard_json["tiles"][0]}
@@ -306,7 +306,7 @@ class TestDashboardTiles(APIBaseTest, QueryMatchingTest):
 
         assert dashboard_json["tiles"][0]["transparent_background"] is True
 
-    @freeze_time("2022-04-01 12:45")
+    @time_machine.travel("2022-04-01 12:45", tick=False)
     @override_settings(IN_UNIT_TESTING=True)
     def test_created_by_cannot_be_set_to_user_outside_organization(self) -> None:
         other_org = Organization.objects.create(name="other org")

@@ -21,13 +21,15 @@ import type {
     ContentAutopilotSiteDiscoveryRequestApi,
     ContentAutopilotSiteDiscoveryResponseApi,
     ContentAutopilotSiteProfileApi,
-    CustomBotRuleApi,
     GeneratePathCleaningSuggestionResponseApi,
+    HeatmapCapturePagesApi,
+    HeatmapCaptureSettingsApi,
     HeatmapEventsResponseApi,
     HeatmapPreflightRequestApi,
     HeatmapPreflightResponseApi,
     HeatmapPrewarmRequestApi,
     HeatmapScreenshotResponseApi,
+    HeatmapScreenshotSettingsApi,
     HeatmapScreenshotsContentRetrieveParams,
     HeatmapsEventsRetrieveParams,
     HeatmapsListParams,
@@ -39,6 +41,8 @@ import type {
     PaginatedContentAutopilotSiteProfileListApi,
     PaginatedWebAnalyticsFilterPresetListApi,
     PatchedContentAutopilotSiteProfileApi,
+    PatchedHeatmapCaptureSettingsRequestApi,
+    PatchedHeatmapScreenshotSettingsRequestApi,
     PatchedSavedHeatmapRequestApi,
     PatchedWebAnalyticsFilterPresetApi,
     PreviewPathCleaningSuggestionResponseApi,
@@ -49,6 +53,7 @@ import type {
     SavedHeatmapListResponseApi,
     SavedHeatmapRequestApi,
     SavedListParams,
+    WebAnalyticsBotRuleApi,
     WebAnalyticsContentAutopilotProfilesListParams,
     WebAnalyticsContentAutopilotProposalsListParams,
     WebAnalyticsContentAutopilotRunsListParams,
@@ -77,6 +82,82 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
+
+export const getHeatmapCapturePagesRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/heatmap_capture/pages/`
+}
+
+export const heatmapCapturePagesRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<HeatmapCapturePagesApi> => {
+    return apiMutator<HeatmapCapturePagesApi>(getHeatmapCapturePagesRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getHeatmapCaptureSettingsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/heatmap_capture/settings/`
+}
+
+export const heatmapCaptureSettingsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<HeatmapCaptureSettingsApi> => {
+    return apiMutator<HeatmapCaptureSettingsApi>(getHeatmapCaptureSettingsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getHeatmapCaptureSettingsUpdateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/heatmap_capture/settings/`
+}
+
+export const heatmapCaptureSettingsUpdate = async (
+    projectId: string,
+    patchedHeatmapCaptureSettingsRequestApi?: PatchedHeatmapCaptureSettingsRequestApi,
+    options?: RequestInit
+): Promise<HeatmapCaptureSettingsApi> => {
+    return apiMutator<HeatmapCaptureSettingsApi>(getHeatmapCaptureSettingsUpdateUrl(projectId), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedHeatmapCaptureSettingsRequestApi),
+    })
+}
+
+export const getHeatmapScreenshotSettingsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/heatmap_screenshot/settings/`
+}
+
+export const heatmapScreenshotSettingsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<HeatmapScreenshotSettingsApi> => {
+    return apiMutator<HeatmapScreenshotSettingsApi>(getHeatmapScreenshotSettingsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getHeatmapScreenshotSettingsUpdateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/heatmap_screenshot/settings/`
+}
+
+export const heatmapScreenshotSettingsUpdate = async (
+    projectId: string,
+    patchedHeatmapScreenshotSettingsRequestApi?: PatchedHeatmapScreenshotSettingsRequestApi,
+    options?: RequestInit
+): Promise<HeatmapScreenshotSettingsApi> => {
+    return apiMutator<HeatmapScreenshotSettingsApi>(getHeatmapScreenshotSettingsUpdateUrl(projectId), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedHeatmapScreenshotSettingsRequestApi),
+    })
+}
 
 export const getHeatmapScreenshotsContentRetrieveUrl = (
     projectId: string,
@@ -302,7 +383,7 @@ export const getSavedCaptureCreateUrl = (projectId: string) => {
 }
 
 /**
- * Persist screenshots captured client-side by the on-page toolbar as a completed screenshot heatmap. No headless render is enqueued: the toolbar runs in the user's authenticated browser, so this is the path for pages behind a login that Browserless cannot reach. Send one 'image'+'width', or 'images'+'widths' parallel arrays to store several viewport widths on one heatmap (the toolbar re-lays out the page at each width and captures it, matching the widths the server renders). The image bytes are stored and served only through the authenticated content endpoint. The heatmap's data URL is set to the captured URL.
+ * Persist screenshots captured client-side by the on-page toolbar as a completed screenshot heatmap. No headless render is enqueued: the toolbar runs in the user's authenticated browser, so this is the path for pages behind a login that Browserless cannot reach. Send one 'image'+'width', or 'images'+'widths' parallel arrays to store several viewport widths on one heatmap (the toolbar re-lays out the page at each width and captures it, matching the widths the server renders). The image bytes are stored and served only through the authenticated content endpoint. The optional data URL selects which pages supply the overlay data and defaults to the captured URL.
  */
 export const savedCaptureCreate = async (
     projectId: string,
@@ -323,6 +404,9 @@ export const savedCaptureCreate = async (
         savedHeatmapCaptureRequestApi.widths.forEach((value) => formData.append(`widths`, value.toString()))
     }
     formData.append(`url`, savedHeatmapCaptureRequestApi.url)
+    if (savedHeatmapCaptureRequestApi.data_url !== undefined) {
+        formData.append(`data_url`, savedHeatmapCaptureRequestApi.data_url)
+    }
     if (savedHeatmapCaptureRequestApi.name !== undefined) {
         formData.append(`name`, savedHeatmapCaptureRequestApi.name)
     }
@@ -565,7 +649,7 @@ export const getWebAnalyticsAchievementsRecordVisitUrl = (projectId: string) => 
 }
 
 /**
- * Idempotently records that the requesting user opened Web analytics today (team-local date) and schedules a debounced achievement recompute. Intended to be called once per session.
+ * Idempotently records that the requesting user opened Web analytics today (team-local date) and refreshes the user's per-user achievement tracks. Intended to be called once per session.
  * @summary Record a Web analytics visit
  */
 export const webAnalyticsAchievementsRecordVisit = async (
@@ -589,8 +673,8 @@ export const getWebAnalyticsBotRulesListUrl = (projectId: string) => {
 export const webAnalyticsBotRulesList = async (
     projectId: string,
     options?: RequestInit
-): Promise<CustomBotRuleApi[]> => {
-    return apiMutator<CustomBotRuleApi[]>(getWebAnalyticsBotRulesListUrl(projectId), {
+): Promise<WebAnalyticsBotRuleApi[]> => {
+    return apiMutator<WebAnalyticsBotRuleApi[]>(getWebAnalyticsBotRulesListUrl(projectId), {
         ...options,
         method: 'GET',
     })
@@ -601,19 +685,19 @@ export const getWebAnalyticsBotRulesCreateUrl = (projectId: string) => {
 }
 
 /**
- * Add one bot rule to the project. The pattern is rejected if it cannot run, because a broken rule would break every query that classifies traffic for the project.
+ * Add one bot rule to the project. A rule combines one or more single-property conditions with AND or OR. A pattern is rejected if it cannot run, because a broken rule would break every query that classifies traffic for the project.
  * @summary Create a custom bot rule
  */
 export const webAnalyticsBotRulesCreate = async (
     projectId: string,
-    customBotRuleApi: NonReadonly<CustomBotRuleApi>,
+    webAnalyticsBotRuleApi: NonReadonly<WebAnalyticsBotRuleApi>,
     options?: RequestInit
-): Promise<CustomBotRuleApi> => {
-    return apiMutator<CustomBotRuleApi>(getWebAnalyticsBotRulesCreateUrl(projectId), {
+): Promise<WebAnalyticsBotRuleApi> => {
+    return apiMutator<WebAnalyticsBotRuleApi>(getWebAnalyticsBotRulesCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(customBotRuleApi),
+        body: JSON.stringify(webAnalyticsBotRuleApi),
     })
 }
 

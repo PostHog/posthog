@@ -40,6 +40,21 @@ class TestLogQuerySettings(ClickhouseTestMixin, APIBaseTest):
         sql = self._get_clickhouse_sql_for("SELECT * FROM logs LIMIT 10")
         assert f"max_bytes_to_read=" in sql.replace(" ", "")
 
+    @parameterized.expand(
+        [
+            ("free", None, 50_000_000_000),
+            ("paid", [{"key": "recordings_file_export"}], 150_000_000_000),
+            ("enterprise", [{"key": "role_based_access"}], 150_000_000_000),
+        ]
+    )
+    def test_user_query_on_logs_table_scales_max_bytes_to_read_by_plan_tier(
+        self, _name: str, available_product_features: list[dict[str, str]] | None, expected_bytes: int
+    ) -> None:
+        self.team.organization.available_product_features = available_product_features
+        self.team.organization.save()
+        sql = self._get_clickhouse_sql_for("SELECT * FROM logs LIMIT 10")
+        assert f"max_bytes_to_read={expected_bytes}" in sql.replace(" ", "")
+
     def test_user_query_on_logs_table_has_throw_overflow_mode(self):
         sql = self._get_clickhouse_sql_for("SELECT * FROM logs LIMIT 10")
         assert "read_overflow_mode" in sql

@@ -3,7 +3,7 @@ from datetime import UTC, date, datetime
 from typing import Any
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest import mock
 
 import requests
@@ -213,7 +213,7 @@ class TestIncrementalFromDate:
         assert params[0]["from_date"] == "2024-03-04"
 
     @parameterized.expand([("archive",), ("crypto",)])
-    @freeze_time("2026-06-15T12:00:00Z")
+    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_first_sync_applies_lookback_floor(self, endpoint: str, MockSession: mock.MagicMock) -> None:
         # Without a watermark the first sync must floor at the trailing lookback window instead of

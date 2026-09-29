@@ -43,9 +43,22 @@ class TestGetSchemas:
             ("stock_list", False),
             ("company_profiles", False),
             ("income_statements", False),
+            ("key_metrics", False),
+            ("ratios", False),
+            ("key_metrics_ttm", False),
+            ("ratios_ttm", False),
+            ("dividends", False),
+            ("earnings", False),
             ("historical_prices", True),
             ("earnings_calendar", True),
             ("dividends_calendar", True),
+            ("available_exchanges", False),
+            ("available_sectors", False),
+            ("available_industries", False),
+            ("splits", False),
+            ("market_capitalization", False),
+            ("historical_market_capitalization", True),
+            ("institutional_positions_summary", False),
         ]
     )
     def test_incremental_support_matches_date_window(self, endpoint: str, expected_incremental: bool) -> None:
@@ -53,6 +66,13 @@ class TestGetSchemas:
         assert schemas[endpoint].supports_incremental is expected_incremental
         # supports_append tracks incremental here (date-windowed endpoints can append).
         assert schemas[endpoint].supports_append is expected_incremental
+
+    def test_request_amplifying_table_is_off_by_default(self) -> None:
+        # One request per symbol per quarter would exhaust a small key on the first sync, so the
+        # user opts in rather than out.
+        schemas = {s.name: s for s in FinancialModellingSource().get_schemas(MagicMock(), team_id=1)}
+        assert schemas["institutional_positions_summary"].should_sync_default is False
+        assert schemas["splits"].should_sync_default is True
 
     def test_names_filter(self) -> None:
         schemas = FinancialModellingSource().get_schemas(MagicMock(), team_id=1, names=["historical_prices"])

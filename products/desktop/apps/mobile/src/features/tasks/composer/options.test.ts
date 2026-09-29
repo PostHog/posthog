@@ -40,13 +40,13 @@ describe("mobile composer options", () => {
       id: "model",
       name: "Model",
       type: "select",
-      currentValue: "claude-opus-5",
+      currentValue: "claude-opus-5-5",
       options: [
         { value: "claude-sonnet-5", name: "Claude Sonnet 5" },
-        { value: "claude-opus-5", name: "Claude Opus 5" },
+        { value: "claude-opus-5-5", name: "Claude Opus 5.5" },
         {
-          value: "claude-fable-5",
-          name: "Claude Fable 5",
+          value: "claude-fable-5-1",
+          name: "Claude Fable 5.1",
           _meta: restrictedModelMeta(),
         },
       ],
@@ -69,16 +69,16 @@ describe("mobile composer options", () => {
           effortLabel: "High",
         },
         {
-          model: "claude-opus-5",
+          model: "claude-opus-5-5",
           effort: "medium",
-          modelLabel: "Claude Opus 5",
+          modelLabel: "Claude Opus 5.5",
           effortLabel: "Medium",
         },
         {
-          model: "claude-opus-5",
+          model: "claude-opus-5-5",
           effort: "xhigh",
-          modelLabel: "Claude Opus 5",
-          effortLabel: "Extra High",
+          modelLabel: "Claude Opus 5.5",
+          effortLabel: "Extra high",
         },
       ]);
     });
@@ -102,8 +102,8 @@ describe("mobile composer options", () => {
         name: "Anthropic",
         options: [
           {
-            value: "claude-opus-5",
-            name: "Claude Opus 5",
+            value: "claude-opus-5-5",
+            name: "Claude Opus 5.5",
             _meta: { [HARNESS_META]: "claude" },
           },
         ],
@@ -153,8 +153,8 @@ describe("mobile composer options", () => {
         name: "Anthropic",
         options: [
           {
-            value: "claude-opus-5",
-            name: "Claude Opus 5",
+            value: "claude-opus-5-5",
+            name: "Claude Opus 5.5",
             _meta: restrictedModelMeta(),
           },
         ],
@@ -166,8 +166,8 @@ describe("mobile composer options", () => {
         name: "Anthropic",
         options: [
           {
-            value: "claude-opus-5",
-            label: "Claude Opus 5",
+            value: "claude-opus-5-5",
+            label: "Claude Opus 5.5",
             description: undefined,
             disabled: true,
           },

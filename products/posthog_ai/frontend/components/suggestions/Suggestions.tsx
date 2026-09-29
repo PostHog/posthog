@@ -18,6 +18,7 @@ export interface SuggestionItem {
     content: string
     /** When true the caller should fill the input and let the user finish typing; otherwise submit directly. */
     requiresUserInput?: boolean
+    dataAttr?: string
 }
 
 export interface SuggestionGroup {
@@ -159,6 +160,7 @@ function SuggestionsButtons({
                                 icon={group.icon}
                                 tooltip={disabled ? undefined : group.tooltip}
                                 disabled={disabled}
+                                data-attr={group.suggestions.length === 1 ? group.suggestions[0]?.dataAttr : undefined}
                             >
                                 {group.label}
                             </LemonButton>
@@ -217,6 +219,7 @@ function SuggestionsDropdown({ className }: SuggestionsDropdownProps): JSX.Eleme
                     type="tertiary"
                     fullWidth
                     onClick={() => handleSelect(suggestion)}
+                    data-attr={suggestion.dataAttr}
                 >
                     <span className="font-normal">{suggestion.content}</span>
                 </LemonButton>

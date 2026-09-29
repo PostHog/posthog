@@ -1,7 +1,6 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
-import { loginTelemetryLogic } from 'scenes/authentication/shared/loginTelemetryLogic'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
@@ -18,14 +17,15 @@ describe('login2FALogic', () => {
         initKeaTests()
     })
 
-    // Kea mounts this logic alongside the telemetry logic these pages use, so the guard is that a
-    // mount alone asks nothing. The server rejects the question outside a pending 2FA session.
+    // Kea mounts this logic alongside anything that references its actions, which can happen on any
+    // page, so a mount alone must ask nothing. The server rejects the question outside a pending 2FA
+    // session.
     it.each([
         ['the login page', urls.login()],
         ['the password reset page', urls.passwordReset()],
     ])('does not ask which 2FA methods exist on %s', async (_name, url) => {
         router.actions.push(url)
-        loginTelemetryLogic().mount()
+        login2FALogic().mount()
 
         await expectLogic(login2FALogic).toFinishAllListeners()
 
@@ -46,7 +46,7 @@ describe('login2FALogic', () => {
 
     it('asks again on every arrival at the 2FA step, so a passkey stays offered', async () => {
         router.actions.push(urls.login())
-        loginTelemetryLogic().mount()
+        login2FALogic().mount()
 
         router.actions.push(urls.login2FA())
         await expectLogic(login2FALogic).toFinishAllListeners()

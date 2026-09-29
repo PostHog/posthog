@@ -53,8 +53,22 @@ def metric_reads_for_ids(team_id: int, metric_ids: Collection[UUID]) -> dict[UUI
 
 
 def live_metric_summaries(team_id: int) -> list[MetricSummary]:
-    metrics = Metric.objects.for_team(team_id).filter(deleted=False).order_by("created_at", "id")
+    metrics = (
+        Metric.objects.for_team(team_id)
+        .filter(deleted=False)
+        .only("id", "name", "display_name", "definition", "referenced_table_names")
+        .order_by("created_at", "id")
+    )
     return [_summary(metric) for metric in metrics]
+
+
+def live_metric_ids(team_id: int) -> list[UUID]:
+    """The ids of this team's metrics that still exist, as one query.
+
+    Reads one column, so a caller that only needs to know which metrics are alive never hydrates a
+    definition or the free text beside it.
+    """
+    return list(Metric.objects.for_team(team_id).filter(deleted=False).values_list("id", flat=True))
 
 
 def metric_names_for_ids(team_id: int, metric_ids: Collection[UUID]) -> dict[UUID, str]:

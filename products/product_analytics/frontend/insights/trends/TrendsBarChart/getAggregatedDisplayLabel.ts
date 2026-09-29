@@ -1,9 +1,10 @@
 import { formatBreakdownLabel, getDisplayNameFromEntityFilter } from 'scenes/insights/utils'
-import type { IndexedTrendResult } from 'scenes/trends/types'
 
 import { FormatPropertyValueForDisplayFunction } from '~/models/propertyDefinitionsModel'
 import { BreakdownFilter } from '~/queries/schema/schema-general'
 import { CohortType } from '~/types'
+
+import type { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
 
 import { humanizeSeriesLabel } from '../shared/humanizeSeriesLabel'
 

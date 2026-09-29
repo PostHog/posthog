@@ -22,6 +22,11 @@ from products.mcp_store.backend.agents import (
     get_built_in_agent,
     is_builtin_agent_enforcement_enabled,
 )
+from products.mcp_store.backend.connector_approvals import (
+    ConnectorApprovalBinding,
+    consume_connector_approval,
+    issue_connector_approval,
+)
 from products.mcp_store.backend.facade.contracts import ActiveInstallation, ConnectorCallOutcome, ConnectorTool
 from products.mcp_store.backend.gateway import (
     agent_grant_owner_label,
@@ -38,7 +43,12 @@ from products.mcp_store.backend.models import (
 )
 from products.mcp_store.backend.policy import GatewayCaller, PolicyContext, is_read_only_connector_tool
 from products.mcp_store.backend.proxy import record_tool_call_audit, resolve_call_decision, validate_installation_auth
-from products.mcp_store.backend.tools import ToolCallError, ToolsFetchError, call_upstream_tool
+from products.mcp_store.backend.tools import (
+    ToolCallError,
+    ToolsFetchError,
+    call_upstream_tool,
+    resync_installation_tools,
+)
 
 # Re-exported for the presentation layer ("presentation must use facade"
 # import-linter contract): the single MCP URL policy entry point — shared SSRF
@@ -564,6 +574,22 @@ def member_server_tools(team_id: int, user_id: int, server_host: str) -> list[Co
     return tools
 
 
+def _registered_tool(installation: MCPServerInstallation, tool_name: str) -> MCPServerInstallationTool | None:
+    """The installation's row for one tool, re-listing upstream once on a miss.
+
+    A connection whose connect-time listing never landed holds no rows at all,
+    and a call it cannot resolve against policy is refused. A row marked removed
+    counts as a miss too, so a tool the upstream server brings back under the
+    same name is picked up here rather than waiting for "Refresh tools".
+    """
+
+    rows = installation.tools.filter(tool_name=tool_name).order_by("-last_seen_at", "-id")
+    tool = rows.first()
+    if (tool is None or tool.removed_at is not None) and resync_installation_tools(installation):
+        tool = rows.first()
+    return tool
+
+
 def _member_access_outcome(
     installation: MCPServerInstallation, team_id: int, user_id: int
 ) -> ConnectorCallOutcome | None:
@@ -597,6 +623,8 @@ def call_member_server_tool(
     *,
     actor_label: str = "",
     allow_writes: bool = True,
+    approval_token: str | None = None,
+    approval_context: str = "",
 ) -> ConnectorCallOutcome:
     """Call one tool on the server at ``server_host`` with the member's own
     connection (or the team's shared one). Runs the same policy resolution
@@ -609,7 +637,7 @@ def call_member_server_tool(
     if access_outcome is not None:
         return access_outcome
 
-    tool = installation.tools.filter(tool_name=tool_name).order_by("-last_seen_at", "-id").first()
+    tool = _registered_tool(installation, tool_name)
     if tool is None:
         return ConnectorCallOutcome(
             status="tool_missing", detail=f"Tool '{tool_name}' is not registered for this connection."
@@ -627,13 +655,40 @@ def call_member_server_tool(
         else None
     )
     decision, block_reason = resolve_call_decision(tool, policy_context)
+    pending_approval_token = None
+    if block_reason == "needs_approval":
+        if policy_context is not None and policy_context.resolve(tool.tool_name, tool.annotations).locked:
+            decision, block_reason = "blocked", "disabled"
+        else:
+            binding = ConnectorApprovalBinding(
+                team_id=team_id,
+                user_id=user_id,
+                installation_id=str(installation.id),
+                server_url=installation.url,
+                tool_name=tool_name,
+                arguments=arguments,
+                scope=approval_context,
+            )
+            if approval_token is None:
+                pending_approval_token = issue_connector_approval(binding)
+            elif consume_connector_approval(approval_token, binding):
+                decision, block_reason = "approved", None
+            else:
+                decision, block_reason = "blocked", "invalid_approval"
     if gateway_server is not None:
         record_tool_call_audit(installation, gateway_server, caller, actor_label, tool_name, decision)
     if block_reason == "removed":
         return ConnectorCallOutcome(status="tool_missing", detail=f"Tool '{tool_name}' is no longer available.")
     if block_reason == "needs_approval":
         return ConnectorCallOutcome(
-            status="blocked", detail=f"Tool '{tool_name}' needs your approval in Settings → MCP servers."
+            status="needs_approval",
+            detail=f"Tool '{tool_name}' needs your approval before this call can run.",
+            approval_token=pending_approval_token,
+        )
+    if block_reason == "invalid_approval":
+        return ConnectorCallOutcome(
+            status="blocked",
+            detail="Approval expired, was already used, or does not match this call. Request approval again.",
         )
     if block_reason is not None:
         return ConnectorCallOutcome(status="blocked", detail=f"Tool '{tool_name}' is turned off by team policy.")

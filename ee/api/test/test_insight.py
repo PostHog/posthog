@@ -2,7 +2,7 @@ import datetime
 from datetime import timedelta
 from typing import Optional, cast
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import FuzzyInt, snapshot_postgres_queries
 
 from django.test import override_settings
@@ -46,12 +46,12 @@ class TestInsightEnterpriseAPI(APILicensedTest):
 
     @override_settings(IN_UNIT_TESTING=True)
     def test_can_add_and_remove_tags(self) -> None:
-        with freeze_time("2012-01-14T03:21:34.000Z"):
+        with time_machine.travel("2012-01-14T03:21:34.000Z", tick=False):
             insight_id, response_data = self.dashboard_api.create_insight({"name": "a created dashboard"})
         insight_short_id = response_data["short_id"]
         self.assertEqual(response_data["tags"], [])
 
-        with freeze_time("2012-01-14T03:21:35.000Z"):
+        with time_machine.travel("2012-01-14T03:21:35.000Z", tick=False):
             add_tags_response = self.client.patch(
                 # tags are displayed in order of insertion
                 f"/api/projects/{self.team.id}/insights/{insight_id}",
@@ -60,7 +60,7 @@ class TestInsightEnterpriseAPI(APILicensedTest):
 
         self.assertEqual(sorted(add_tags_response.json()["tags"]), ["1", "2", "3"])
 
-        with freeze_time("2012-01-14T03:21:36.000Z"):
+        with time_machine.travel("2012-01-14T03:21:36.000Z", tick=False):
             remove_tags_response = self.client.patch(
                 f"/api/projects/{self.team.id}/insights/{insight_id}", {"tags": ["3"]}
             )
@@ -132,11 +132,11 @@ class TestInsightEnterpriseAPI(APILicensedTest):
         )
 
     def test_update_insight_can_include_tags_when_licensed(self) -> None:
-        with freeze_time("2012-01-14T03:21:34.000Z") as frozen_time:
+        with time_machine.travel("2012-01-14T03:21:34.000Z", tick=False) as frozen_time:
             insight_id, insight = self.dashboard_api.create_insight({"name": "insight name"})
             short_id = insight["short_id"]
 
-            frozen_time.tick(delta=timedelta(minutes=10))
+            frozen_time.shift(timedelta(minutes=10))
 
             response = self.client.patch(
                 f"/api/projects/{self.team.id}/insights/{insight_id}",

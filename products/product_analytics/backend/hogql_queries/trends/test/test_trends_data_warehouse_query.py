@@ -1,7 +1,7 @@
 from datetime import datetime
 from pathlib import Path
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import (
     BaseTest,
     ClickhouseTestMixin,
@@ -10,6 +10,7 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
+from unittest.mock import patch
 
 from django.test import override_settings
 
@@ -35,9 +36,10 @@ from posthog.schema import (
 
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
-from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.query import execute_hogql_query, sync_execute
 from posthog.hogql.timings import HogQLTimings
 
+from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.instance_setting import override_instance_config
 
@@ -153,7 +155,7 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
             ],
         )
 
-        with freeze_time("2023-01-07"):
+        with time_machine.travel("2023-01-07", tick=False):
             response = self.get_response(trends_query=trends_query)
 
         assert response.columns is not None
@@ -204,7 +206,10 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
             ],
         )
 
-        with override_instance_config("AGGREGATE_BY_DISTINCT_IDS_TEAMS", f"{self.team.pk}"), freeze_time("2023-01-07"):
+        with (
+            override_instance_config("AGGREGATE_BY_DISTINCT_IDS_TEAMS", f"{self.team.pk}"),
+            time_machine.travel("2023-01-07", tick=False),
+        ):
             response = self.get_response(trends_query=trends_query)
 
         assert response.columns is not None
@@ -229,7 +234,7 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
             ],
         )
 
-        with freeze_time("2023-01-07"):
+        with time_machine.travel("2023-01-07", tick=False):
             response = self.get_response(trends_query=trends_query)
 
         assert response.columns is not None
@@ -255,7 +260,7 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
             ],
         )
 
-        with freeze_time("2023-01-07"):
+        with time_machine.travel("2023-01-07", tick=False):
             response = self.get_response(trends_query=trends_query)
 
         assert response.columns is not None
@@ -298,12 +303,28 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
             ],
         )
 
-        with freeze_time("2023-01-07"):
+        with time_machine.travel("2023-01-07", tick=False):
             response = self.get_response(trends_query=trends_query)
 
         assert response.columns is not None
         assert set(response.columns).issubset({"date", "total"})
         return response.results[0][1][0]
+
+    def test_trends_over_a_view_tags_the_saved_query(self):
+        from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+
+        real_sync_execute = sync_execute
+        captured: list[list[str] | None] = []
+
+        def spy(*args, **kwargs):
+            captured.append(get_query_tags().saved_query_ids)
+            return real_sync_execute(*args, **kwargs)
+
+        with patch("posthog.hogql.query.sync_execute", side_effect=spy):
+            self._avg_view_setup("avg")
+
+        saved_query = DataWarehouseSavedQuery.objects.get(team=self.team, name="saved_view")
+        assert captured[-1] == [str(saved_query.pk)]
 
     def test_trends_view_avg(self):
         assert self._avg_view_setup("avg") == 3.5
@@ -330,7 +351,7 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
             properties=[DataWarehousePropertyFilter(key="prop_1", value="a", operator=PropertyOperator.EXACT)],
         )
 
-        with freeze_time("2023-01-07"):
+        with time_machine.travel("2023-01-07", tick=False):
             response = self.get_response(trends_query=trends_query)
 
         assert response.columns is not None
@@ -356,7 +377,7 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
             breakdownFilter=BreakdownFilter(breakdown_type=BreakdownType.DATA_WAREHOUSE, breakdown="prop_1"),
         )
 
-        with freeze_time("2023-01-07"):
+        with time_machine.travel("2023-01-07", tick=False):
             response = self.get_response(trends_query=trends_query)
 
         assert response.columns is not None
@@ -394,7 +415,7 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
             ),
         )
 
-        with freeze_time("2023-01-07"):
+        with time_machine.travel("2023-01-07", tick=False):
             response = TrendsQueryRunner(team=self.team, query=trends_query).calculate()
 
         assert len(response.results) == 4
@@ -442,7 +463,7 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
             ),
         )
 
-        with freeze_time("2023-01-07"):
+        with time_machine.travel("2023-01-07", tick=False):
             response = TrendsQueryRunner(team=self.team, query=trends_query).calculate()
 
         assert len(response.results) == 2
@@ -550,7 +571,7 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
             ),
         )
 
-        with freeze_time("2023-01-07"):
+        with time_machine.travel("2023-01-07", tick=False):
             response = self.get_response(trends_query=trends_query)
 
         assert response.columns is not None
@@ -605,7 +626,7 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
             breakdownFilter=BreakdownFilter(breakdown_type=BreakdownType.DATA_WAREHOUSE, breakdown="prop_2"),
         )
 
-        with freeze_time("2023-01-07"):
+        with time_machine.travel("2023-01-07", tick=False):
             response = TrendsQueryRunner(team=self.team, query=trends_query).calculate()
         assert len(response.results) == 4
 
@@ -647,7 +668,7 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
             breakdownFilter=BreakdownFilter(breakdown_type=BreakdownType.DATA_WAREHOUSE, breakdown="prop_2"),
         )
 
-        with freeze_time("2023-01-07"):
+        with time_machine.travel("2023-01-07", tick=False):
             response = TrendsQueryRunner(team=self.team, query=trends_query).calculate()
         assert len(response.results) == 4
 
@@ -671,7 +692,7 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
             breakdownFilter=BreakdownFilter(breakdown_type=BreakdownType.DATA_WAREHOUSE, breakdown="prop_1"),
         )
 
-        with freeze_time("2023-01-07"):
+        with time_machine.travel("2023-01-07", tick=False):
             response = self.get_response(trends_query=trends_query)
 
         assert response.columns is not None
@@ -699,7 +720,7 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
             trendsFilter=TrendsFilter(display=display_type),
         )
 
-        with freeze_time("2023-01-07"):
+        with time_machine.travel("2023-01-07", tick=False):
             response = self.get_response(trends_query)
 
         assert response.columns is not None
@@ -747,7 +768,7 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
             ],
         )
 
-        with freeze_time("2023-01-07"):
+        with time_machine.travel("2023-01-07", tick=False):
             response = self.get_response(trends_query=trends_query)
 
         assert response.columns is not None
@@ -784,7 +805,7 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
             ],
         )
 
-        with freeze_time("2023-01-07"):
+        with time_machine.travel("2023-01-07", tick=False):
             response = TrendsQueryRunner(team=self.team, query=trends_query).calculate()
 
         self.assertEqual(1, len(response.results))
@@ -822,7 +843,7 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
             ],
         )
 
-        with freeze_time("2023-01-07"):
+        with time_machine.travel("2023-01-07", tick=False):
             response = TrendsQueryRunner(team=self.team, query=trends_query).calculate()
 
         self.assertEqual(2, len(response.results))
@@ -866,7 +887,7 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
             ],
         )
 
-        with freeze_time("2023-01-07"):
+        with time_machine.travel("2023-01-07", tick=False):
             TrendsQueryRunner(team=self.team, query=trends_query).calculate()
 
     @override_settings(IN_UNIT_TESTING=True)
@@ -898,7 +919,7 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
             ],
         )
 
-        with freeze_time("2023-01-07"):
+        with time_machine.travel("2023-01-07", tick=False):
             response = TrendsQueryRunner(team=self.team, query=trends_query).calculate()
 
         # 3 of 5 rows have timestamps in range (2023-01-01, 2023-01-02, 2023-01-04)
@@ -969,7 +990,7 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
             ],
         )
 
-        with freeze_time("2023-01-07"):
+        with time_machine.travel("2023-01-07", tick=False):
             response = TrendsQueryRunner(team=self.team, query=trends_query).calculate()
 
         assert len(response.results) == 1
@@ -1007,7 +1028,7 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
             ),
         )
 
-        with freeze_time("2023-01-07"):
+        with time_machine.travel("2023-01-07", tick=False):
             with self.assertRaises(ExposedHogQLError):
                 TrendsQueryRunner(team=self.team, query=trends_query).calculate()
 
@@ -1045,6 +1066,6 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
             ),
         )
 
-        with freeze_time("2023-01-07"):
+        with time_machine.travel("2023-01-07", tick=False):
             with self.assertRaises(ExposedHogQLError):
                 TrendsQueryRunner(team=self.team, query=trends_query).calculate()

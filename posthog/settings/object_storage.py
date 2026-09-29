@@ -107,6 +107,26 @@ INBOX_RANKING_TRAINING_LOOKBACK_DAYS = get_from_env("INBOX_RANKING_TRAINING_LOOK
 INBOX_RANKING_TRAINING_HOLDOUT_DAYS = get_from_env("INBOX_RANKING_TRAINING_HOLDOUT_DAYS", 7, type_cast=int)
 INBOX_RANKING_AUTO_PROMOTE = get_from_env("INBOX_RANKING_AUTO_PROMOTE", False, type_cast=str_to_bool)
 INBOX_RANKING_PROMOTION_MIN_DAYS = get_from_env("INBOX_RANKING_PROMOTION_MIN_DAYS", 3, type_cast=int)
+# The family whose champion the serving manifest serves. The scoring sweep reads the manifest
+# from the deployment's own object store, so this is the only place the served family is chosen.
+INBOX_RANKING_SERVED_FAMILY = os.getenv("INBOX_RANKING_SERVED_FAMILY", "report_embeddings")
+# Scorer (products/signals/backend/ranking/scorer.py): report ids per ClickHouse vector read. A
+# larger call is paged at this size.
+INBOX_RANKING_SCORING_BATCH_SIZE = get_from_env("INBOX_RANKING_SCORING_BATCH_SIZE", 500, type_cast=int)
+# Scoring sweep (products/signals/backend/ranking/sweep.py). Off by default: the schedule still
+# ticks, but the activity returns before it reads or writes anything. The max age keeps the vector
+# read inside a few weekly partitions and well inside the 3-month vector TTL. The per-tick cap
+# makes the first run after enabling drain the backlog over several ticks.
+INBOX_RANKING_SCORING_ENABLED = get_from_env("INBOX_RANKING_SCORING_ENABLED", False, type_cast=str_to_bool)
+INBOX_RANKING_SCORING_INTERVAL_MINUTES = get_from_env("INBOX_RANKING_SCORING_INTERVAL_MINUTES", 15, type_cast=int)
+INBOX_RANKING_SCORING_MAX_AGE_DAYS = get_from_env("INBOX_RANKING_SCORING_MAX_AGE_DAYS", 30, type_cast=int)
+INBOX_RANKING_SCORING_MAX_REPORTS_PER_TICK = get_from_env(
+    "INBOX_RANKING_SCORING_MAX_REPORTS_PER_TICK", 2000, type_cast=int
+)
+# Shadow dag (products/signals/dags/inbox_ranking/shadow): how many daily scores partitions back
+# the read looks for a score that already existed when a list was served. A report is scored on
+# the day it is born, so this bounds how old a report can be and still be graded.
+INBOX_RANKING_SHADOW_SCORE_LOOKBACK_DAYS = get_from_env("INBOX_RANKING_SHADOW_SCORE_LOOKBACK_DAYS", 60, type_cast=int)
 
 # Identity matching scratch storage (products/growth `identity_matching_job`). The job writes
 # per-run Parquet objects via ClickHouse `INSERT INTO FUNCTION s3(...)` and the read API globs
@@ -156,3 +176,11 @@ if TEST or DEBUG:
     )
 else:
     DICTIONARY_STAGING_S3_ENDPOINT = os.getenv("DICTIONARY_STAGING_S3_ENDPOINT", "") or None
+
+# Replay Vision labeling benchmark. Frozen cases are written under this bucket and prefix; an empty bucket
+# disables the build. The prefix must sit outside the exports lifecycle rule, since a benchmark version is kept.
+REPLAY_VISION_BENCHMARK_BUCKET = os.getenv("REPLAY_VISION_BENCHMARK_BUCKET", "")
+REPLAY_VISION_BENCHMARK_PREFIX = os.getenv("REPLAY_VISION_BENCHMARK_PREFIX", "replay-vision-benchmark")
+# The labeling suite's benchmark export API (MLHog labeling/replay/EXPORT.md), and a read-scoped `lbl_` token for it.
+REPLAY_VISION_BENCHMARK_LABELING_URL = os.getenv("REPLAY_VISION_BENCHMARK_LABELING_URL", "")
+REPLAY_VISION_BENCHMARK_LABELING_TOKEN = os.getenv("REPLAY_VISION_BENCHMARK_LABELING_TOKEN", "")

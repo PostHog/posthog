@@ -13,9 +13,15 @@ from django.conf import settings
 import requests
 import structlog
 
-from posthog.egress.github.transport import github_request
+from posthog.egress.github.transport import GitHubRateLimitError, github_request
 from posthog.egress.limiter.policies import Priority
-from posthog.models.github_integration_base import GitHubIntegrationBase, GitHubIntegrationError
+from posthog.egress.transport.transport import EgressBudgetExhausted
+from posthog.models.github_integration_base import (
+    GitHubIntegrationBase,
+    GitHubIntegrationError,
+    _is_safe_github_repo_path,
+)
+from posthog.models.integration.github_audit import GitHubAudit
 from posthog.models.user import User
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
 from posthog.sync import database_sync_to_async
@@ -25,22 +31,27 @@ from . import common, model, refresh_tracking
 logger = structlog.get_logger(__name__)
 
 
-# `owner/repo`, single slash, no traversal. Used to keep repo/ref/sha values out of GitHub API URL
-# paths where a crafted value (e.g. `../../other-repo/contents/x?ref=y`) could redirect the
-# authenticated request to a different endpoint.
-_GITHUB_REPO_PATH_RE = re.compile(r"^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$")
-
 _GITHUB_REF_RE = re.compile(r"^[A-Za-z0-9._\-/]+$")
 
 _GITHUB_COMMIT_SHA_RE = re.compile(r"^[0-9a-fA-F]{7,40}$")
+
+# GitHub's own login rule: alphanumerics and single hyphens, never leading or trailing. Keeps a
+# crafted login out of the collaborator-permission URL path.
+_GITHUB_LOGIN_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}$")
 
 # Upper bound on the diff text we return, to keep a pathological diff (generated/vendored
 # files) from bloating the JSON response and worker memory. ~1 MB of text.
 _MAX_DIFF_CHARS = 1_000_000
 
 
-def _is_safe_github_repo_path(repo_path: str) -> bool:
-    return ".." not in repo_path and bool(_GITHUB_REPO_PATH_RE.fullmatch(repo_path))
+def _bounded_diff_response(diff_text: str) -> dict[str, Any]:
+    truncated = len(diff_text) > _MAX_DIFF_CHARS
+    if truncated:
+        diff_text = diff_text[:_MAX_DIFF_CHARS] + "\n\n… diff truncated (too large to display in full) …\n"
+    return {"success": True, "diff": diff_text, "truncated": truncated}
+
+
+_MAX_FILE_CONTENTS_BYTES = 10 * 1024 * 1024
 
 
 def _is_safe_github_ref(ref: str) -> bool:
@@ -76,6 +87,7 @@ class GitHubUserAuthorization:
     refresh_token: str | None = field(repr=False)
     access_token_expires_in: int | None
     refresh_token_expires_in: int | None
+    identity_verified_at: int = field(default_factory=lambda: int(time.time()))
 
 
 @dataclass(frozen=True)
@@ -193,6 +205,11 @@ class GitHubIntegration(GitHubIntegrationBase):
                 "created_by": created_by,
             },
         )
+
+        if created:
+            GitHubAudit.project(integration, created_by).record(
+                "created", customer_visible=True, after_commit=True, outcome="connected"
+            )
 
         if integration.errors:
             integration.errors = ""
@@ -321,13 +338,27 @@ class GitHubIntegration(GitHubIntegrationBase):
         check below interpolates it into an authenticated ``GET /repos/{repository}``. Reject anything
         that isn't a plain ``owner/repo`` first, so a crafted value (``owner/repo/contents/x?ref=y``)
         can't steer that authenticated request to a different GitHub endpoint as a probe.
+
+        An installation whose probe runs out of egress budget or hits GitHub's rate limit is
+        skipped. When no other installation covers the repository, that first error is raised.
         """
         if not _is_safe_github_repo_path(repository):
             return None
+        exhausted: Exception | None = None
         for integration in model.Integration.objects.filter(team_id=team_id, kind="github").order_by("id"):
             github = cls(integration, source=source, priority=priority)
-            if github.installation_can_access_repository(repository):
+            try:
+                covers = github.installation_can_access_repository(repository)
+            except (EgressBudgetExhausted, GitHubRateLimitError) as e:
+                # A team's first installation being out of budget must not hide a later one that
+                # covers the repository. The first error is kept and raised only when none does,
+                # so a caller that has no reader still sees why.
+                exhausted = exhausted or e
+                continue
+            if covers:
                 return github
+        if exhausted is not None:
+            raise exhausted
         return None
 
     def __init__(
@@ -399,6 +430,72 @@ class GitHubIntegration(GitHubIntegrationBase):
 
         return {"number": issue["number"], "repository": repository}
 
+    def close_issue(self, repository: str, number: int, *, completed: bool = False) -> None:
+        """Close an issue with the reason that matches the report outcome. Raises on failure."""
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+
+        response = self.api_request(
+            "PATCH",
+            f"/repos/{repo_path}/issues/{number}",
+            endpoint="/repos/{owner}/{repo}/issues/{issue_number}",
+            json_body={"state": "closed", "state_reason": "completed" if completed else "not_planned"},
+        )
+        if response.status_code != 200:
+            raise GitHubIntegrationError(
+                f"GitHubIntegration: failed to close issue {repo_path}#{number}: {response.text[:300]}",
+                status_code=response.status_code,
+            )
+
+    def get_collaborator_permission(self, repository: str, username: str) -> str:
+        """The user's effective permission on the repo: ``admin``, ``write``, ``read`` or ``none``.
+
+        GitHub's legacy ``permission`` field folds ``maintain`` into ``write`` and ``triage`` into
+        ``read``, which is the granularity a "can this person change the repo" gate needs. A 404
+        means no access at all. Every other non-200 raises, so a caller can fail closed rather than
+        read a blank response as a denial.
+        """
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+        if not _is_safe_github_repo_path(repo_path) or not _GITHUB_LOGIN_RE.fullmatch(username):
+            raise GitHubIntegrationError(f"GitHubIntegration: unsafe collaborator lookup for {repo_path}")
+
+        response = self.api_request(
+            "GET",
+            f"/repos/{repo_path}/collaborators/{username}/permission",
+            endpoint="/repos/{owner}/{repo}/collaborators/{username}/permission",
+        )
+        if response.status_code == 404:
+            return "none"
+        if response.status_code != 200:
+            raise GitHubIntegrationError(
+                f"GitHubIntegration: failed to read {username} permission on {repo_path}: {response.text[:300]}",
+                status_code=response.status_code,
+            )
+        return response.json().get("permission") or "none"
+
+    def _get_issue_by_number(self, repo_path: str, repository_name: str, issue_number: int) -> dict[str, Any] | None:
+        response = self.api_request(
+            "GET",
+            f"/repos/{repo_path}/issues/{issue_number}",
+            endpoint="/repos/{owner}/{repo}/issues/{issue_number}",
+        )
+        if response.status_code not in {200, 404}:
+            raise GitHubIntegrationError(
+                f"GitHubIntegration: failed to retrieve issue {repo_path}#{issue_number}: {response.text[:300]}",
+                status_code=response.status_code,
+            )
+        if response.status_code == 404:
+            return None
+
+        issue = response.json()
+        if issue.get("pull_request"):
+            return None
+        return {
+            "id": str(issue_number),
+            "title": issue.get("title") or f"#{issue_number}",
+            "url": issue.get("html_url") or "",
+            "external_context": {"repository": repository_name, "number": issue_number},
+        }
+
     def search_issues(self, repository: str, query: str, *, limit: int = 25) -> list[dict[str, Any]]:
         """Search existing GitHub issues in a repository for the link-existing flow."""
         repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
@@ -408,6 +505,12 @@ class GitHubIntegration(GitHubIntegrationBase):
         # `repository` is stored bare in external_context so build_external_issue_url can re-prefix
         # the org, matching what create_issue persists.
         repository_name = repo_path.split("/", 1)[1]
+
+        issue_number_match = re.fullmatch(r"#?([1-9][0-9]{0,9})", query.strip())
+        if issue_number_match:
+            issue = self._get_issue_by_number(repo_path, repository_name, int(issue_number_match.group(1)))
+            if issue:
+                return [issue]
 
         # Quote the user's text so search syntax in it (qualifiers like repo:, operators like OR)
         # is matched literally instead of rewriting the query, which would fill the result page
@@ -760,11 +863,26 @@ class GitHubIntegration(GitHubIntegrationBase):
         # Cap the diff we return: a branch touching generated/vendored files can produce a diff of
         # many MB, which would bloat the JSON response and worker memory. Truncate with a marker so
         # the consumer can tell the diff was cut rather than silently showing a partial diff.
-        diff_text = response.text
-        truncated = len(diff_text) > _MAX_DIFF_CHARS
-        if truncated:
-            diff_text = diff_text[:_MAX_DIFF_CHARS] + "\n\n… diff truncated (too large to display in full) …\n"
-        return {"success": True, "diff": diff_text, "truncated": truncated}
+        return _bounded_diff_response(response.text)
+
+    def get_pull_request_diff(self, repository: str, pr_number: int) -> dict[str, Any]:
+        """Return the durable unified diff GitHub stores for a pull request."""
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+        if not _is_safe_github_repo_path(repo_path) or pr_number < 1:
+            return {"success": False, "error": "Invalid pull request reference.", "status_code": 400}
+
+        try:
+            response = self.api_request(
+                "GET",
+                f"/repos/{repo_path}/pulls/{pr_number}",
+                endpoint="/repos/{owner}/{repo}/pulls/{pull_number}",
+                headers={"Accept": "application/vnd.github.diff"},
+            )
+        except GitHubIntegrationError:
+            return {"success": False, "error": "Could not reach GitHub.", "status_code": 502}
+        if response.status_code != 200:
+            return {"success": False, "error": response.text, "status_code": response.status_code}
+        return _bounded_diff_response(response.text)
 
     def update_file(
         self, repository: str, file_path: str, content: str, commit_message: str, branch: str, sha: str | None = None
@@ -816,13 +934,14 @@ class GitHubIntegration(GitHubIntegrationBase):
                 "status_code": response.status_code,
             }
 
-    def get_file_contents(self, repository: str, file_path: str, ref: str | None = None) -> dict[str, Any] | None:
-        """Read a file's decoded text and blob SHA at ``ref`` (default branch when omitted).
+    def get_file_entry(self, repository: str, file_path: str, ref: str | None = None) -> dict[str, Any] | None:
+        """Read a file's blob SHA and size at ``ref``, and its text when GitHub sends it inline.
 
-        Returns ``{"content": str, "sha": str}``, or ``None`` when the file does not
-        exist — a missing file is a normal state, not an error. The SHA lets a caller
-        pass it straight to ``update_file`` for a conflict-safe write. Counterpart to
-        ``update_file``, kept here so URL and token handling stay inside the client.
+        Returns ``{"sha": str, "size": int, "content": str | None}``, or ``None`` when the file does
+        not exist. ``content`` is None above the contents API's 1 MB inline limit, so read it with
+        ``get_blob_text``. A blob SHA names the bytes it holds, so a caller that has already read a
+        SHA can skip that read.
+        Raises ``GitHubIntegrationError`` rather than return a partial or oversized file.
         """
         repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
 
@@ -840,7 +959,63 @@ class GitHubIntegration(GitHubIntegrationBase):
                 status_code=response.status_code,
             )
         payload = response.json()
-        return {"content": base64.b64decode(payload["content"]).decode("utf-8"), "sha": payload["sha"]}
+        size = payload["size"]
+        if size > _MAX_FILE_CONTENTS_BYTES:
+            raise GitHubIntegrationError(
+                f"{file_path} in {repository} is {size} bytes, over the {_MAX_FILE_CONTENTS_BYTES} byte limit"
+            )
+        if payload["encoding"] == "none":
+            # The contents API omits content above 1 MB.
+            return {"sha": payload["sha"], "size": size, "content": None}
+        content = base64.b64decode(payload["content"])
+        if len(content) != size:
+            raise GitHubIntegrationError(f"Read {len(content)} of {size} bytes of {file_path} from {repository}")
+        return {"sha": payload["sha"], "size": size, "content": content.decode("utf-8")}
+
+    def get_blob_text(self, repository: str, blob_sha: str, size: int) -> str:
+        """Stream one blob's text by its SHA, refusing anything that is not exactly ``size`` bytes."""
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+
+        blob_response = self.api_request(
+            "GET",
+            f"/repos/{repo_path}/git/blobs/{blob_sha}",
+            endpoint="/repos/{owner}/{repo}/git/blobs/{file_sha}",
+            headers={"Accept": "application/vnd.github.raw+json"},
+            stream=True,
+        )
+        try:
+            if blob_response.status_code != 200:
+                raise GitHubIntegrationError(
+                    f"Failed to read blob {blob_sha} from {repository}: {blob_response.text}",
+                    status_code=blob_response.status_code,
+                )
+            content = bytearray()
+            for chunk in blob_response.iter_content(chunk_size=64 * 1024):
+                content += chunk
+                if len(content) > size:
+                    break
+        finally:
+            blob_response.close()
+        if len(content) != size:
+            raise GitHubIntegrationError(f"Read {len(content)} of {size} bytes of blob {blob_sha} from {repository}")
+        return content.decode("utf-8")
+
+    def get_file_contents(self, repository: str, file_path: str, ref: str | None = None) -> dict[str, Any] | None:
+        """Read a file's decoded text and blob SHA at ``ref`` (default branch when omitted).
+
+        Returns ``{"content": str, "sha": str}``, or ``None`` when the file does not
+        exist — a missing file is a normal state, not an error. The SHA lets a caller
+        pass it straight to ``update_file`` for a conflict-safe write. Counterpart to
+        ``update_file``, kept here so URL and token handling stay inside the client.
+        Raises ``GitHubIntegrationError`` rather than return a partial or oversized file.
+        """
+        entry = self.get_file_entry(repository, file_path, ref=ref)
+        if entry is None:
+            return None
+        content = entry["content"]
+        if content is None:
+            content = self.get_blob_text(repository, entry["sha"], entry["size"])
+        return {"content": content, "sha": entry["sha"]}
 
     def create_pull_request(
         self, repository: str, title: str, body: str, head_branch: str, base_branch: str | None = None

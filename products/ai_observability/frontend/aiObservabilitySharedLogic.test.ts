@@ -1,7 +1,11 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import { runInThisContext } from 'node:vm'
 
 import { productSetupStatusLogic } from 'lib/components/ProductEmptyState/productSetupStatusLogic'
+import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
@@ -103,6 +107,40 @@ describe('aiObservabilitySharedLogic', () => {
             expect(payload.dateFrom).toBe('-30d')
             expect(payload.dateTo).toBe('-1d')
             expect(payload.shouldFilterTestAccounts).toBe(true)
+        })
+    })
+
+    // A DataTable `person` cell mounts this logic on any scene, so a URL write on mount lands there.
+    describe('test-account default and the URL', () => {
+        beforeEach(() => {
+            jest.clearAllMocks()
+            mockHasRecentAIEvents.mockResolvedValue(false)
+            initKeaTests(true, { ...MOCK_DEFAULT_TEAM, test_account_filters_default_checked: true })
+        })
+
+        it("leaves another scene's URL alone when mounted there", async () => {
+            const drillDown = { kind: 'DataTableNode', source: { kind: 'ActorsQuery', select: ['person'] } }
+            router.actions.push(urls.insightNew({ query: drillDown as any }))
+            const { pathname, search, hash } = router.values.location
+
+            const logic = aiObservabilitySharedLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.shouldFilterTestAccounts).toBe(false)
+            expect(router.values.location).toMatchObject({ pathname, search, hash })
+        })
+
+        it('applies the default on its own route without dropping the hash', async () => {
+            router.actions.push(urls.aiObservabilityTraces(), {}, { panel: 'max' })
+
+            const logic = aiObservabilitySharedLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.shouldFilterTestAccounts).toBe(true)
+            expect(router.values.searchParams.filter_test_accounts).toBe(true)
+            expect(router.values.hashParams.panel).toBe('max')
         })
     })
 

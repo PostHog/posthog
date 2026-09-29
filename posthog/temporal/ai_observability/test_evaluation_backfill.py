@@ -24,12 +24,14 @@ from posthog.temporal.ai_observability.evaluation_backfill import (
     EvaluationBackfillWorkflow,
     FindCandidatesInputs,
     FindCandidatesOutput,
+    MeasureRemainderInputs,
     PrepareTickOutput,
     TickAction,
     advance_evaluation_backfill_cursor_activity,
     child_workflow_name_and_id,
     fail_evaluation_backfill_activity,
     find_evaluation_backfill_candidates_activity,
+    measure_evaluation_backfill_remainder_activity,
     prepare_evaluation_backfill_tick_activity,
 )
 from posthog.temporal.ai_observability.evaluation_workflow_activities import (
@@ -38,7 +40,7 @@ from posthog.temporal.ai_observability.evaluation_workflow_activities import (
 )
 from posthog.temporal.ai_observability.run_aggregate_evaluation import RunAggregateEvaluationInputs
 
-from products.ai_observability.backend.backfill_candidates import BackfillCandidate, CandidatePage
+from products.ai_observability.backend.backfill_candidates import BackfillCandidate, BackfillScope, CandidatePage
 from products.ai_observability.backend.models.evaluation_backfill import EvaluationBackfill, EvaluationBackfillStatus
 from products.ai_observability.backend.models.evaluations import Evaluation
 
@@ -109,7 +111,8 @@ def _found(candidates: list[CandidatePayload], *, exhausted: bool = False) -> Fi
 
 async def _run(mocks: _BackfillMocks, inputs: EvaluationBackfillInputs | None = None):
     # `workflow.logger` reaches into the workflow runtime, which isn't set up here.
-    fake_logger = type("Logger", (), {"exception": staticmethod(lambda *_a, **_kw: None)})()
+    noop = staticmethod(lambda *_a, **_kw: None)
+    fake_logger = type("Logger", (), {"exception": noop, "warning": noop})()
     with (
         patch("temporalio.workflow.logger", fake_logger),
         patch("temporalio.workflow.execute_activity", side_effect=mocks.execute_activity),
@@ -191,6 +194,23 @@ class TestEvaluationBackfillWorkflow:
         assert (advance.dispatched_delta, advance.skipped_delta) == (2, 1)
 
     @pytest.mark.asyncio
+    async def test_a_start_failure_counts_as_failed(self) -> None:
+        mocks = _BackfillMocks(
+            activity_results={
+                prepare_evaluation_backfill_tick_activity: _tick(),
+                find_evaluation_backfill_candidates_activity: _found(
+                    [_candidate("u1"), _candidate("u2"), _candidate("u3")]
+                ),
+            },
+            child_errors_for_ids={"llma-hog-eval-E-u2-ingestion": RuntimeError("temporal refused the start")},
+        )
+
+        await _run(mocks)
+
+        advance = _advance_input(mocks)
+        assert (advance.dispatched_delta, advance.skipped_delta, advance.failed_delta) == (2, 0, 1)
+
+    @pytest.mark.asyncio
     async def test_exhausted_page_finishes_without_continue_as_new(self) -> None:
         mocks = _BackfillMocks(
             activity_results={
@@ -203,6 +223,10 @@ class TestEvaluationBackfillWorkflow:
         continue_as_new = await _run(mocks)
 
         assert _advance_input(mocks).exhausted
+        called = _called(mocks)
+        assert called.index(measure_evaluation_backfill_remainder_activity) > called.index(
+            advance_evaluation_backfill_cursor_activity
+        )
         continue_as_new.assert_not_called()
 
     @pytest.mark.asyncio
@@ -419,7 +443,12 @@ def _activity_inputs(backfill_data) -> EvaluationBackfillInputs:
 
 
 def _advance(
-    backfill_data, *, dispatched_delta: int = 1, skipped_delta: int = 0, exhausted: bool = False
+    backfill_data,
+    *,
+    dispatched_delta: int = 1,
+    skipped_delta: int = 0,
+    failed_delta: int = 0,
+    exhausted: bool = False,
 ) -> AdvanceCursorInputs:
     return AdvanceCursorInputs(
         backfill_id=str(backfill_data["backfill"].id),
@@ -430,12 +459,53 @@ def _advance(
         new_cursor_unit_id="u3",
         dispatched_delta=dispatched_delta,
         skipped_delta=skipped_delta,
+        failed_delta=failed_delta,
         exhausted=exhausted,
     )
 
 
 @pytest.mark.django_db(transaction=True)
 class TestEvaluationBackfillActivities:
+    @pytest.mark.parametrize(
+        "dispatched,skipped,failed,rerun,counted,expected",
+        [
+            (1, 15, 0, False, 14, 0),
+            (3000, 0, 0, False, 3000, 0),
+            (1, 0, 0, False, 5, 4),
+            (0, 3, 1, False, 1, 1),
+            (0, 3, 1, False, 0, 0),
+            (0, 3, 1, True, 1, 0),
+        ],
+    )
+    def test_remainder_discounts_every_unit_the_run_covered(
+        self,
+        backfill_data,
+        dispatched: int,
+        skipped: int,
+        failed: int,
+        rerun: bool,
+        counted: int,
+        expected: int,
+    ) -> None:
+        _update_backfill(
+            backfill_data,
+            dispatched_count=dispatched,
+            skipped_count=skipped,
+            failed_count=failed,
+            rerun_existing=rerun,
+        )
+
+        with patch(
+            "posthog.temporal.ai_observability.evaluation_backfill.count_backfill_candidates",
+            return_value=BackfillScope(to_evaluate=counted, already_judged=0),
+        ):
+            async_to_sync(measure_evaluation_backfill_remainder_activity)(
+                MeasureRemainderInputs(backfill_id=str(backfill_data["backfill"].id), team_id=backfill_data["team"].id)
+            )
+
+        backfill_data["backfill"].refresh_from_db()
+        assert backfill_data["backfill"].remaining_count == expected
+
     @pytest.mark.parametrize("status", [EvaluationBackfillStatus.COMPLETED, EvaluationBackfillStatus.CANCELLED, None])
     def test_prepare_returns_finished_for_missing_or_terminal_row(self, backfill_data, status) -> None:
         inputs = _activity_inputs(backfill_data)
@@ -534,13 +604,14 @@ class TestEvaluationBackfillActivities:
         assert result.exhausted
 
     def test_advance_is_idempotent_on_retry(self, backfill_data) -> None:
-        advance = _advance(backfill_data, dispatched_delta=3, skipped_delta=1)
+        advance = _advance(backfill_data, dispatched_delta=3, skipped_delta=1, failed_delta=2)
 
         first = async_to_sync(advance_evaluation_backfill_cursor_activity)(advance)
         second = async_to_sync(advance_evaluation_backfill_cursor_activity)(advance)
 
         backfill_data["backfill"].refresh_from_db()
-        assert (backfill_data["backfill"].dispatched_count, backfill_data["backfill"].skipped_count) == (3, 1)
+        row = backfill_data["backfill"]
+        assert (row.dispatched_count, row.skipped_count, row.failed_count) == (3, 1, 2)
         assert backfill_data["backfill"].cursor_unit_id == "u3"
         assert not first.finished
         # The second call matched nothing because the first already moved the cursor. Reading that

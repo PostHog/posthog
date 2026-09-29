@@ -52,7 +52,7 @@ export function hasProseBeyondAttachments(content: EditorContent): boolean {
   );
 }
 
-const ABSOLUTE_FILE_TAG_REGEX = /<file\s+path="([^"]+)"\s*\/>/g;
+export const ABSOLUTE_FILE_TAG_REGEX = /<file\s+path="([^"]+)"\s*\/>/g;
 const FOLDER_TAG_REGEX = /<folder\s+path="[^"]+"\s*\/>/g;
 const FOLDER_TAG_PATH_REGEX = /<folder\s+path="([^"]+)"\s*\/>/g;
 const TEXT_EXTENSIONS = new Set([
@@ -134,7 +134,7 @@ function unique<T>(values: T[]): T[] {
   return Array.from(new Set(values));
 }
 
-function normalizePromptText(prompt: string): string {
+export function normalizePromptText(prompt: string): string {
   return prompt.replace(/\n{3,}/g, "\n\n").trim();
 }
 
@@ -179,6 +179,22 @@ const TRAILING_ATTACHMENT_SUMMARY_REGEX = new RegExp(
 
 export function stripTrailingAttachmentSummary(text: string): string {
   return text.replace(TRAILING_ATTACHMENT_SUMMARY_REGEX, "").trim();
+}
+
+/** Strips the trailing attachment summary only when every file it names is in `labels`. */
+export function stripAttachmentSummaryOf(
+  text: string,
+  labels: ReadonlySet<string>,
+): string {
+  const summary = text.match(TRAILING_ATTACHMENT_SUMMARY_REGEX)?.[0];
+  if (!summary) return text;
+  const names = summary
+    .trim()
+    .slice(ATTACHMENT_SUMMARY_PREFIX.length)
+    .split(", ");
+  return names.every((name) => labels.has(name))
+    ? stripTrailingAttachmentSummary(text)
+    : text;
 }
 
 export function buildCloudTaskDescription(

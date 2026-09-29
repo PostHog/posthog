@@ -89,6 +89,12 @@ class TestEncodeProject:
             ("group/project", "group%2Fproject"),
             ("/group/sub/project/", "group%2Fsub%2Fproject"),
             ("  group/project  ", "group%2Fproject"),
+            # A pasted project URL resolves to the same path, so validation and every sync request
+            # address the project the user is looking at.
+            ("https://gitlab.com/group/project", "group%2Fproject"),
+            ("https://gitlab.example.com/group/sub/project/", "group%2Fsub%2Fproject"),
+            ("https://gitlab.com/group/project/-/merge_requests", "group%2Fproject"),
+            ("https://gitlab.com/group/project.git", "group%2Fproject"),
         ],
     )
     def test_encode_project(self, raw, expected):
@@ -239,7 +245,9 @@ class TestValidateCredentials:
         [
             (200, True, None),
             (401, False, "Invalid GitLab personal access token"),
-            (404, False, "not found"),
+            # A 404 can't tell a missing project from one the token can't see, so the message has to
+            # carry the next step rather than dead-ending on "not accessible".
+            (404, False, "not accessible with this token. Check the spelling and that your token has read access"),
         ],
     )
     def test_status_code_mapping(self, status_code, expected_valid, expected_msg_substr):
@@ -283,7 +291,7 @@ class TestValidateCredentials:
     @pytest.mark.parametrize(
         "project",
         [
-            "https://gitlab.com/mygroup/",  # pasted URL
+            "https://gitlab.com/mygroup/",  # pasted URL naming a group rather than a project
             "mygroup",  # bare group, no project and not a numeric id
             "some-dashboard",  # bare name
             "/myproject",  # leading slash: encodes to an empty group segment
@@ -297,6 +305,22 @@ class TestValidateCredentials:
         valid, msg = validate_credentials("https://gitlab.com", "tok", project)
         assert valid is False
         assert "group/project" in (msg or "")
+
+    @pytest.mark.parametrize(
+        "project",
+        [
+            "https://gitlab.com/mygroup/myproject",
+            "https://gitlab.com/mygroup/myproject/-/issues",
+            "https://gitlab.com/mygroup/myproject.git",
+        ],
+    )
+    def test_pasted_project_url_reaches_the_api(self, project):
+        # The URL names the project unambiguously, so it must resolve rather than dead-end on the
+        # format check.
+        with self._patch_session(_response(status_code=200)) as patched:
+            valid, _ = validate_credentials("https://gitlab.com", "tok", project)
+            assert valid is True
+            assert patched.return_value.get.call_args.args[0].endswith("/projects/mygroup%2Fmyproject")
 
     def test_numeric_project_id_is_not_rejected_as_malformed(self):
         # A bare numeric id is a valid GitLab project reference, so it must reach the API rather

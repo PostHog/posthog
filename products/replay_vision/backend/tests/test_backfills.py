@@ -630,7 +630,16 @@ class TestBackfillsApi(APIBaseTest):
         # rather than the microseconds between scanner creation and this request.
         self.scanner.last_swept_at = timezone.now() - dt.timedelta(days=2)
         self.scanner.save(update_fields=["last_swept_at"])
-        response = self.client.post(f"{self.base_url}/", self._window_body(), format="json")
+        cost = 7 * observation_credits_for_model(self.scanner.model)
+        response = self.client.post(
+            f"{self.base_url}/", {**self._window_body(), "max_total_credits": cost - 1}, format="json"
+        )
+        assert response.status_code == 400, response.json()
+        assert not ReplayScannerBackfill.objects.for_team(self.team.id).filter(scanner=self.scanner).exists()
+
+        response = self.client.post(
+            f"{self.base_url}/", {**self._window_body(), "max_total_credits": cost}, format="json"
+        )
         assert response.status_code == 201, response.json()
         body = response.json()
         assert body["total_count"] == 7
@@ -645,7 +654,9 @@ class TestBackfillsApi(APIBaseTest):
         assert backfill.credits_per_observation > 0
         assert mock_upsert.await_count == 1
 
-        response = self.client.post(f"{self.base_url}/", self._window_body(), format="json")
+        response = self.client.post(
+            f"{self.base_url}/", {**self._window_body(), "max_total_credits": cost}, format="json"
+        )
         assert response.status_code == 400
         assert "active backfill" in response.json()["detail"]
 
@@ -782,6 +793,26 @@ class TestBackfillsApi(APIBaseTest):
         assert response.status_code == 200
         row = response.json()["results"][0]
         assert (row["succeeded_count"], row["failed_count"], row["in_flight_count"]) == (1, 1, 1)
+
+    def test_list_pages_tied_created_at_rows_without_loss_or_repeats(self) -> None:
+        # Backfills created in the same instant tie on created_at, so only the id term keeps the pages
+        # from dropping or repeating a row.
+        ids = [uuid.UUID(f"0199000{n}-0000-7000-8000-000000000000") for n in range(8)]
+        for backfill_id in ids:
+            _make_backfill(self.scanner, id=backfill_id, status=BackfillStatus.COMPLETED)
+        # created_at is auto_now_add, so force the tie afterwards. One row at a time in descending id
+        # order, so the physical row order disagrees with the order the endpoint owes.
+        tied_at = timezone.now()
+        for backfill_id in sorted(ids, reverse=True):
+            ReplayScannerBackfill.objects.for_team(self.team.id).filter(id=backfill_id).update(created_at=tied_at)
+
+        paged_ids: list[uuid.UUID] = []
+        for offset in (0, 2, 4, 6):
+            response = self.client.get(f"{self.base_url}/?limit=2&offset={offset}")
+            assert response.status_code == 200
+            paged_ids += [uuid.UUID(row["id"]) for row in response.json()["results"]]
+
+        assert paged_ids == sorted(ids)
 
 
 # BackfillScannerWorkflow (mocked-Temporal)

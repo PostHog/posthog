@@ -16,6 +16,10 @@ If the app is not running, the OS launches it and the link is queued until the r
 
 Links can also be dispatched from inside the app: the `deepLink.open` tRPC route forwards a URL through the same handlers, with no OS hop. Remote announcement CTAs use this — author payloads with the production scheme; dev builds swap in their scheme automatically.
 
+## Report references in the app
+
+Report references in agent messages open the full report page in the current app, including inside task chats. They do not open a general object preview or an external browser. The hover card's explicit **Open in PostHog** action still opens the web page.
+
 ## User-facing links
 
 These are the deep links you would share with someone or wire up from another tool.

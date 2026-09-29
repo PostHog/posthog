@@ -5,6 +5,7 @@ import { urls } from 'scenes/urls'
 
 import { SignalReport } from '../../types'
 import { deriveHeadline, parsePrUrlParts } from '../../utils/reportPresentation'
+import { primaryReportPullRequest } from '../../utils/reportPullRequests'
 import { hasKnownSourceProduct, knownSourceProductEntries, SourceProductIconRow } from '../badges/sourceProductIcons'
 import { resolveRunVariant, RunStatusIndicator, type RunVariant } from './runStatusVariant'
 
@@ -48,7 +49,7 @@ function prRef(prUrl: string | null | undefined): string | null {
 
 export function AgentRunCard({ report }: { report: SignalReport }): JSX.Element {
     const hasSource = hasKnownSourceProduct(report.source_products)
-    const pr = prRef(report.implementation_pr_url)
+    const pr = prRef(primaryReportPullRequest(report).url)
     const variant = resolveRunVariant(report.status)
     const timestampSource = pickTimestamp(report, variant)
     const headline = deriveHeadline(report.summary)

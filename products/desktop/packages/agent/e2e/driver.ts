@@ -15,8 +15,13 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-// @ts-expect-error - runtime ESM export resolved by vitest
-import { ClientSideConnection, ndJsonStream } from "@agentclientprotocol/sdk";
+import {
+  ClientSideConnection,
+  ndJsonStream,
+  type ReadTextFileResponse,
+  type RequestPermissionResponse,
+  type WriteTextFileResponse,
+} from "@agentclientprotocol/sdk";
 import { createAcpConnection } from "../src/adapters/acp-connection";
 import { Logger } from "../src/utils/logger";
 import { type Adapter, E2E } from "./config";
@@ -87,6 +92,7 @@ export function openConnection(opts: {
   cwd: string;
   codexOptions?: Record<string, unknown>;
   onStructuredOutput?: (output: Record<string, unknown>) => Promise<void>;
+  onQuestion?: () => Promise<void>;
 }): E2EConnection {
   const { adapter, cwd } = opts;
   // Sweep before every codex spawn so one leaked process (holding the
@@ -104,7 +110,7 @@ export function openConnection(opts: {
         data: p?.update,
       });
     },
-    async requestPermission(p: any): Promise<unknown> {
+    async requestPermission(p: any): Promise<RequestPermissionResponse> {
       events.push({
         kind: "requestPermission",
         data: {
@@ -114,6 +120,13 @@ export function openConnection(opts: {
           codeToolKind: p?.toolCall?._meta?.codeToolKind,
         },
       });
+      if (p?.toolCall?._meta?.codeToolKind === "question") {
+        await opts.onQuestion?.();
+      }
+      // Accepting a plan starts extra model turns outside the test's scenario.
+      if (p?.toolCall?.kind === "switch_mode") {
+        return { outcome: { outcome: "cancelled" } };
+      }
       const options = p?.options ?? [];
       const allow =
         options.find(
@@ -123,10 +136,10 @@ export function openConnection(opts: {
         outcome: { outcome: "selected", optionId: allow?.optionId ?? "allow" },
       };
     },
-    async readTextFile(p: any): Promise<unknown> {
+    async readTextFile(p: any): Promise<ReadTextFileResponse> {
       return { content: await fsp.readFile(resolve(cwd, p.path), "utf8") };
     },
-    async writeTextFile(p: any): Promise<unknown> {
+    async writeTextFile(p: any): Promise<WriteTextFileResponse> {
       await fsp.writeFile(resolve(cwd, p.path), p.content);
       return {};
     },
@@ -197,6 +210,7 @@ export async function openSession(opts: {
   cwd: string;
   codexOptions?: Record<string, unknown>;
   onStructuredOutput?: (output: Record<string, unknown>) => Promise<void>;
+  onQuestion?: () => Promise<void>;
   meta: Record<string, unknown>;
 }): Promise<OpenSession> {
   const c = openConnection(opts);

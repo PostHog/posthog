@@ -72,6 +72,16 @@ describe('customerAnalyticsSceneLogic', () => {
             expectLogic(logic).toMatchValues({ activeTab: 'accounts' })
         })
 
+        // Regression: the date and test-account writers rebuilt the URL from the path and the
+        // search params alone, so they silently dropped the Accounts tab's `#view=` state.
+        it('keeps the view hash when writing filter_test_accounts back to the URL', () => {
+            router.actions.push(urls.customerAnalyticsAccounts(), {}, { view: { assignmentStatus: 'assigned' } })
+
+            logic.actions.setFilterTestAccounts(false)
+
+            expect(router.values.hashParams.view).toEqual({ assignmentStatus: 'assigned' })
+        })
+
         it('reads filter_test_accounts from URL', () => {
             expectLogic(logic).toMatchValues({
                 filterTestAccounts: true,

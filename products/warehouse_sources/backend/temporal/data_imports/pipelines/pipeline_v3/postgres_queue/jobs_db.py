@@ -17,6 +17,9 @@ from __future__ import annotations
 
 import json
 import time
+import threading
+from collections.abc import Iterator
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
@@ -28,6 +31,23 @@ BATCH_TABLE = "sourcebatch"
 STATUS_TABLE = "sourcebatchstatus"
 STATUS_VIEW = "v_latest_source_batch_status"
 LEASE_TABLE = "sourcegrouplease"
+
+# Lock order for `sourcegrouplease`: a statement that locks more than one lease row
+# must take those locks in ascending (team_id, schema_id).
+#
+# Four paths write this table concurrently across the fleet: the claim upsert in
+# `get_unprocessed_and_lock`, the heartbeat `renew_lease`, the `unlock_for_batches`
+# delete, and the shutdown `release_all_owned_leases`. Postgres locks rows in whatever
+# order the plan happens to emit them, so two pods whose group sets overlap can lock the
+# same rows in opposite orders and deadlock. That also takes down single-row writers
+# caught in the cycle, because a waiter holds an ExclusiveLock on the tuple it is queued
+# for while it waits. `renew_lease` can therefore be a link in a cycle it did not cause.
+#
+# Single-row statements (`renew_lease`, `delete_expired_lease`,
+# `try_acquire_reconcile_sweep_slot`) satisfy the order for free. Multi-row statements
+# have to force it, either with `ORDER BY team_id, schema_id` on the rows an upsert
+# reads, or with an ordered `FOR UPDATE` sub-select that takes every lock before the
+# delete runs.
 
 # Default group-lease validity window, in seconds. The consumer renews the
 # lease on its heartbeat (~every grace/3); a group whose owner stops renewing
@@ -71,6 +91,11 @@ TAKEOVER_STALE_THRESHOLD_SECONDS = 6 * 60 * 60
 # window, which is already far past any sane alert threshold.
 FRESHNESS_WINDOW_SECONDS = 48 * 60 * 60
 FRESHNESS_WINDOW = f"{FRESHNESS_WINDOW_SECONDS} seconds"
+
+# How many of the deepest (team_id, schema_id) groups the depth probe's
+# concentration share covers. Small enough that a near-1 share means a handful
+# of tenants own the queue, large enough that one bursty tenant does not.
+DEPTH_TOP_GROUPS = 5
 
 
 class _Unset:
@@ -373,6 +398,119 @@ def _state_claim_candidates_sql(sync_type_scope: str = "") -> str:
     """
 
 
+def _orphaned_candidate_runs_sql() -> str:
+    """Runs holding a ``failed`` batch that still have claimable batches behind it.
+
+    Split out from its caller so the plan-shape test can EXPLAIN exactly what runs,
+    the same way :func:`_state_claim_candidates_sql` is pinned.
+    """
+    return f"""
+        WITH stuck_runs AS (
+            SELECT
+                b.run_uuid,
+                b.team_id,
+                b.schema_id,
+                MIN(b.created_at) AS oldest_created_at,
+                count(*) AS non_terminal_batches
+            FROM {BATCH_TABLE} b
+            WHERE b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+              AND b.latest_state IN ('pending', 'waiting_retry')
+            GROUP BY b.run_uuid, b.team_id, b.schema_id
+        )
+        SELECT r.run_uuid, r.team_id, r.schema_id, r.non_terminal_batches
+        FROM stuck_runs r
+        WHERE EXISTS (
+            SELECT 1
+            FROM {BATCH_TABLE} bf
+            WHERE bf.run_uuid = r.run_uuid
+              AND bf.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+              AND bf.latest_state = 'failed'
+            OFFSET 0
+        )
+        ORDER BY r.oldest_created_at ASC
+        LIMIT %(limit)s
+    """
+
+
+def _queue_depth_sql() -> str:
+    """Queue depth and how it is spread over (team_id, schema_id) groups, in one scan.
+
+    The claimable set is the same as ``sb_claimable_idx`` covers: 'pending' or
+    'waiting_retry' inside ``CLAIM_ELIGIBILITY_INTERVAL``. The per-run and
+    per-group gates below are not filters on that scan. The scan is aggregated
+    into runs first, so the failed-run probe costs one ``sb_run_gate_idx``
+    descent per run, and then into groups, so the executing probe costs one
+    ``sb_schema_busy_idx`` descent per group. Both probes keep
+    ``PARTITION_PRUNING_INTERVAL`` because they must see every row that still
+    exists, the same as the claim query's gates.
+
+    ``batches`` per group keeps every claimable row, so the depth total stays
+    what the claim query could scan. ``live_batches`` drops the runs that hold a
+    failed batch: the claim query refuses those, so they are neither waiting for
+    a slot nor waiting behind their group. Without that split a leaked run reads
+    as capacity demand forever, which is the same distortion that made the age
+    gauge exclude them.
+
+    Split out from its caller so the plan-shape test can EXPLAIN exactly what
+    runs, the way :func:`_state_claim_candidates_sql` is pinned.
+    """
+    return f"""
+        WITH claimable_runs AS (
+            SELECT b.team_id, b.schema_id, b.run_uuid, count(*) AS batches
+            FROM {BATCH_TABLE} b
+            WHERE b.created_at > now() - interval '{CLAIM_ELIGIBILITY_INTERVAL}'
+              AND b.latest_state IN ('pending', 'waiting_retry')
+            GROUP BY b.team_id, b.schema_id, b.run_uuid
+        ),
+        gated_runs AS (
+            SELECT
+                r.team_id,
+                r.schema_id,
+                r.batches,
+                EXISTS (
+                    SELECT 1
+                    FROM {BATCH_TABLE} b_failed
+                    WHERE b_failed.run_uuid = r.run_uuid
+                      AND b_failed.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                      AND b_failed.latest_state = 'failed'
+                ) AS blocked
+            FROM claimable_runs r
+        ),
+        groups AS (
+            SELECT
+                g.team_id,
+                g.schema_id,
+                sum(g.batches) AS batches,
+                coalesce(sum(g.batches) FILTER (WHERE NOT g.blocked), 0) AS live_batches
+            FROM gated_runs g
+            GROUP BY g.team_id, g.schema_id
+        ),
+        ranked AS (
+            SELECT
+                g.batches,
+                g.live_batches,
+                EXISTS (
+                    SELECT 1
+                    FROM {BATCH_TABLE} b_busy
+                    WHERE b_busy.team_id = g.team_id
+                      AND b_busy.schema_id = g.schema_id
+                      AND b_busy.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                      AND b_busy.latest_state = 'executing'
+                ) AS executing,
+                row_number() OVER (ORDER BY g.live_batches DESC) AS depth_rank
+            FROM groups g
+        )
+        SELECT
+            coalesce(sum(batches), 0) AS claimable_batches,
+            count(*) FILTER (WHERE live_batches > 0) AS claimable_groups,
+            coalesce(sum(live_batches), 0) AS live_batches,
+            coalesce(sum(live_batches) FILTER (WHERE depth_rank <= %(top_groups)s), 0) AS top_groups_batches,
+            coalesce(sum(live_batches) FILTER (WHERE NOT executing), 0) AS slot_waiting_batches,
+            coalesce(sum(live_batches) FILTER (WHERE executing), 0) AS serialized_batches
+        FROM ranked
+    """
+
+
 def _stranded_candidate_runs_sql() -> str:
     """Candidate selection for the stranded-run sweep: aggregate first, then gate per run.
 
@@ -387,6 +525,22 @@ def _stranded_candidate_runs_sql() -> str:
     The ``OFFSET 0`` in the failed-run gate is an optimization fence: without
     it the planner flattens the subquery back into that same hash anti-join.
     It changes no semantics; the plan-shape test pins the probe.
+
+    Loader progress anywhere in a (team_id, schema_id) group spares every run
+    in it. The loader serializes a group and claims its batches oldest-first,
+    so a run queued behind a long sibling makes no progress of its own until
+    the sibling drains, however many hours that takes. An active-state
+    transition in the group inside the stale window means the group is being
+    drained and its other runs are waiting their turn, not abandoned. Only
+    'executing', 'succeeded' and 'waiting_retry' count, as in
+    ``supersede_other_runs``: a 'failed' write is the reconcile sweep's own
+    output, and heartbeats refresh the status log but not ``state_changed_at``,
+    so a wedged-but-heartbeating loader cannot shield a group forever (its live
+    lease already protects it while it heartbeats). The group lease cannot
+    stand in for this check: the loader releases it between claim windows, so
+    a busy group is lease-less for an instant many times an hour. The probe
+    runs once per group rather than once per run, because a genuinely stale
+    group answers only after reading every batch it holds.
     """
     return f"""
         WITH stranded_runs AS (
@@ -396,6 +550,17 @@ def _stranded_candidate_runs_sql() -> str:
               AND b.created_at <= now() - make_interval(secs => %(stale)s)
               AND b.latest_state IN ('pending', 'waiting', 'waiting_retry', 'executing')
             GROUP BY b.run_uuid, b.team_id, b.schema_id
+        ),
+        progressing_groups AS (
+            SELECT g.team_id, g.schema_id
+            FROM (SELECT DISTINCT team_id, schema_id FROM stranded_runs) g
+            WHERE EXISTS (
+                SELECT 1 FROM {BATCH_TABLE} bp
+                WHERE bp.team_id = g.team_id AND bp.schema_id = g.schema_id
+                  AND bp.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                  AND bp.latest_state IN ('executing', 'succeeded', 'waiting_retry')
+                  AND bp.state_changed_at > now() - make_interval(secs => %(stale)s)
+            )
         )
         SELECT r.run_uuid, r.team_id, r.schema_id
         FROM stranded_runs r
@@ -410,6 +575,10 @@ def _stranded_candidate_runs_sql() -> str:
                 AND bf.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
                 AND bf.latest_state = 'failed'
               OFFSET 0
+          )
+          AND NOT EXISTS (
+              SELECT 1 FROM progressing_groups p
+              WHERE p.team_id = r.team_id AND p.schema_id = r.schema_id
           )
         -- Oldest-batch-first, so the window can't be starved by an arbitrary set of
         -- not-yet-stale runs the outer HAVING later rejects: the longest-stranded runs
@@ -546,6 +715,20 @@ class StrandedRunRef:
 
 
 @dataclass(frozen=True, slots=True)
+class OrphanedRunRef:
+    """A run holding a ``failed`` batch that still has non-terminal batches behind it.
+
+    Carries no ``job_id``: the job is already terminal by the time a run reaches
+    this state, so the only work left is terminalizing the queue rows.
+    """
+
+    run_uuid: str
+    team_id: int
+    schema_id: str
+    non_terminal_batches: int
+
+
+@dataclass(frozen=True, slots=True)
 class RunActivitySummary:
     """Queue DB activity for a holder's run, used by the lock takeover decision matrix."""
 
@@ -583,6 +766,147 @@ class GroupLease:
     updated_at: datetime
     expires_at: datetime
     is_live: bool
+
+
+@dataclass(frozen=True, slots=True)
+class QueueFreshness:
+    """What one freshness probe reads off the pending set.
+
+    Three numbers rather than one because they fail differently: the age says
+    how far the queue head has fallen behind, the blocked count says how much
+    of the table can never move, and the group count says how widely the lag
+    is spread. An alert on the age alone cannot tell one wedged tenant from a
+    fleet-wide stall.
+    """
+
+    # None when nothing claimable is waiting.
+    oldest_age_seconds: float | None
+    blocked_batches: int
+    backlogged_groups: int
+
+
+@dataclass(frozen=True, slots=True)
+class QueueDepth:
+    """What one depth probe reads off the claimable set.
+
+    The total alone cannot tell a few (team_id, schema_id) groups draining one
+    batch at a time from a fleet that has run out of loader slots: the loader
+    serializes each group by design, so a deep queue with idle slots is normal
+    when the depth sits in a handful of groups. The other four numbers separate
+    those two readings.
+    """
+
+    claimable_batches: int
+    claimable_groups: int
+    # 0..1 share of those batches held by the DEPTH_TOP_GROUPS deepest groups; 0 when empty.
+    top_groups_claimable_share: float
+    # Batches whose group has nothing executing: they start as soon as a slot frees.
+    slot_waiting_batches: int
+    # Batches whose group already has a batch executing: they wait for their own group.
+    serialized_batches: int
+
+
+# Idle sync connections kept per queue DB for the worker-thread lease checks. Sized to the loader's
+# group concurrency: every in-flight batch checks its lease a few times, and each check used to dial
+# a fresh connection.
+SYNC_POOL_MAX_IDLE = 16
+
+
+class _SyncConnectionPool:
+    """A small pool of autocommit connections for callers that run outside the event loop.
+
+    Connections are handed out LIFO so the warm ones stay in use and are checked for liveness on
+    the way out; one the server dropped while idle is closed instead of reused. Callers that hit an
+    error mid-query discard the connection through `discard`, since the pool cannot tell a broken
+    session from a healthy one until it fails.
+    """
+
+    def __init__(self, database_url: str, *, connect_timeout_seconds: int, max_idle: int = SYNC_POOL_MAX_IDLE) -> None:
+        self._database_url = database_url
+        self._connect_timeout_seconds = connect_timeout_seconds
+        self._max_idle = max_idle
+        self._lock = threading.Lock()
+        self._idle: list[psycopg.Connection[Any]] = []
+
+    def _checkout(self) -> psycopg.Connection[Any]:
+        while True:
+            with self._lock:
+                conn = self._idle.pop() if self._idle else None
+            if conn is None:
+                return psycopg.connect(
+                    self._database_url, autocommit=True, connect_timeout=self._connect_timeout_seconds
+                )
+            if not conn.closed and not conn.broken:
+                return conn
+            self._close_quietly(conn)
+
+    def _checkin(self, conn: psycopg.Connection[Any]) -> None:
+        if conn.closed or conn.broken:
+            self._close_quietly(conn)
+            return
+        with self._lock:
+            if len(self._idle) < self._max_idle:
+                self._idle.append(conn)
+                return
+        self._close_quietly(conn)
+
+    def discard(self, conn: psycopg.Connection[Any]) -> None:
+        """Take `conn` out of circulation: the caller saw it fail and nothing should reuse it."""
+        with self._lock:
+            if conn in self._idle:
+                self._idle.remove(conn)
+        self._close_quietly(conn)
+
+    @contextmanager
+    def connection(self) -> Iterator[psycopg.Connection[Any]]:
+        conn = self._checkout()
+        try:
+            yield conn
+        finally:
+            if not conn.closed:
+                self._checkin(conn)
+
+    @property
+    def idle_count(self) -> int:
+        with self._lock:
+            return len(self._idle)
+
+    @staticmethod
+    def _close_quietly(conn: psycopg.Connection[Any]) -> None:
+        with suppress(Exception):
+            conn.close()
+
+
+_SYNC_POOLS: dict[tuple[str, int], _SyncConnectionPool] = {}
+_SYNC_POOLS_LOCK = threading.Lock()
+
+
+def _sync_connection_pool(database_url: str, connect_timeout_seconds: int) -> _SyncConnectionPool:
+    key = (database_url, connect_timeout_seconds)
+    with _SYNC_POOLS_LOCK:
+        pool = _SYNC_POOLS.get(key)
+        if pool is None:
+            pool = _SyncConnectionPool(database_url, connect_timeout_seconds=connect_timeout_seconds)
+            _SYNC_POOLS[key] = pool
+        return pool
+
+
+def _lease_is_held(conn: psycopg.Connection[Any], *, team_id: int, schema_id: str, owner_token: str) -> bool:
+    with conn.cursor() as cur:
+        cur.execute(
+            f"""
+            SELECT EXISTS (
+                SELECT 1 FROM {LEASE_TABLE}
+                WHERE team_id = %(team_id)s
+                  AND schema_id = %(schema_id)s
+                  AND owner_token = %(owner)s
+                  AND expires_at > now()
+            )
+            """,
+            {"team_id": team_id, "schema_id": schema_id, "owner": owner_token},
+        )
+        row = cur.fetchone()
+        return bool(row and row[0])
 
 
 class BatchQueue:
@@ -697,7 +1021,9 @@ class BatchQueue:
         Uses a MATERIALIZED CTE so that candidate selection (with LIMIT) is
         fully resolved before the lease claim runs. ``candidate_groups`` is
         ``SELECT DISTINCT`` because ``INSERT ... ON CONFLICT DO UPDATE`` cannot
-        affect the same (team_id, schema_id) row twice in one statement.
+        affect the same (team_id, schema_id) row twice in one statement, and it
+        is ordered and materialized so the upsert takes its lease-row locks in
+        the fleet-wide order (see the lock-order note above).
 
         ``retry_backoff_base_seconds`` gates the ``waiting_retry`` branch on
         ``state_changed_at``: a batch is only eligible when
@@ -772,8 +1098,9 @@ class BatchQueue:
                     FROM {BATCH_TABLE} b
                     JOIN narrow n ON n.id = b.id AND n.created_at = b.created_at
                 ),
-                candidate_groups AS (
+                candidate_groups AS MATERIALIZED (
                     SELECT DISTINCT team_id, schema_id FROM candidates
+                    ORDER BY team_id, schema_id
                 ),
                 claimed AS (
                     INSERT INTO {LEASE_TABLE} (team_id, schema_id, owner_token, expires_at, acquired_at, updated_at)
@@ -930,7 +1257,11 @@ class BatchQueue:
 
         The ``expires_at > now()`` predicate makes a lapsed lease unrenewable, so an owner
         whose lease expired (e.g. a >TTL queue-DB blip during a long write) can't resurrect
-        it and finish over a batch the recovery sweep has already re-queued."""
+        it and finish over a batch the recovery sweep has already re-queued.
+
+        One row per call, so this satisfies the lease lock order (see the note above)
+        without doing anything: it can only ever wait, never hold one lease row while
+        queueing for another."""
         async with conn.cursor() as cur:
             await cur.execute(
                 f"""
@@ -1003,24 +1334,23 @@ class BatchQueue:
         owner_token: str,
         connect_timeout_seconds: int = 10,
     ) -> bool:
-        """Sync counterpart of verify_advisory_lock: the Delta write runs in a worker thread
-        that can't share the group's async connection, so use a short-lived sync one."""
-        with psycopg.connect(database_url, autocommit=True, connect_timeout=connect_timeout_seconds) as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    f"""
-                    SELECT EXISTS (
-                        SELECT 1 FROM {LEASE_TABLE}
-                        WHERE team_id = %(team_id)s
-                          AND schema_id = %(schema_id)s
-                          AND owner_token = %(owner)s
-                          AND expires_at > now()
-                    )
-                    """,
-                    {"team_id": team_id, "schema_id": schema_id, "owner": owner_token},
-                )
-                row = cur.fetchone()
-                return bool(row and row[0])
+        """Sync counterpart of verify_advisory_lock: the Delta write runs in a worker thread that
+        can't share the group's async connection, so it borrows one from a small sync pool.
+
+        A connection the queue DB dropped while idle (a pooler cull, a failover) surfaces as an
+        OperationalError on first use; that connection is discarded and the query runs once more
+        on a fresh one, so a stale pool entry cannot read as a lost lease.
+        """
+        pool = _sync_connection_pool(database_url, connect_timeout_seconds)
+        for attempt in (1, 2):
+            with pool.connection() as conn:
+                try:
+                    return _lease_is_held(conn, team_id=team_id, schema_id=schema_id, owner_token=owner_token)
+                except psycopg.OperationalError:
+                    pool.discard(conn)
+                    if attempt == 2:
+                        raise
+        raise AssertionError("unreachable")
 
     @staticmethod
     async def get_stale_executing(
@@ -1123,6 +1453,7 @@ class BatchQueue:
         job_id: str,
         current_run_uuid: str,
         progress_stale_seconds: int = TAKEOVER_STALE_THRESHOLD_SECONDS,
+        spare_runs_with_progress: bool = True,
     ) -> int:
         """Mark non-terminal batches from *stalled* older runs of the same job as superseded.
 
@@ -1142,11 +1473,19 @@ class BatchQueue:
 
         A spared run that stalls later is not re-checked here (this fires once, at the
         new run's first batch); the reconcile sweep's stranded-run pass owns that case.
+
+        ``spare_runs_with_progress=False`` drops the sparing rule. Pass it when the
+        incoming run overwrites the table regardless, which is a fresh non-resume
+        ``full_refresh``: its batch 0 writes with ``mode="overwrite"`` (``should_overwrite_table``
+        in ``load/processor.py``, applied in the full_refresh branch of ``core/delta/writer.py``),
+        so every row an older attempt loaded is discarded the moment this run starts. Sparing
+        those runs protects nothing, and leaves their batches to drain through the serial
+        per-(team, schema) gate — holding the queue head for hours to write data that has
+        already been thrown away. Incremental and CDC keep the sparing rule, because their
+        partially merged work survives into the new run.
         """
-        cursor = conn.execute(
-            _bulk_fail_dual_write_sql(
-                f"""b.job_id = %(job_id)s AND b.run_uuid != %(current_run_uuid)s
-                AND NOT EXISTS (
+        progress_guard = (
+            f"""AND NOT EXISTS (
                     SELECT 1
                     FROM {BATCH_TABLE} b_live
                     WHERE b_live.run_uuid = b.run_uuid
@@ -1154,6 +1493,13 @@ class BatchQueue:
                         AND b_live.latest_state IN ('executing', 'succeeded', 'waiting_retry')
                         AND b_live.state_changed_at > now() - make_interval(secs => %(progress_stale)s)
                 )"""
+            if spare_runs_with_progress
+            else ""
+        )
+        cursor = conn.execute(
+            _bulk_fail_dual_write_sql(
+                f"""b.job_id = %(job_id)s AND b.run_uuid != %(current_run_uuid)s
+                {progress_guard}"""
             ),
             {
                 "job_id": job_id,
@@ -1251,6 +1597,56 @@ class BatchQueue:
         ]
 
     @staticmethod
+    async def get_runs_with_orphaned_batches(
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        limit: int,
+    ) -> list[OrphanedRunRef]:
+        """Runs that hold a ``failed`` batch and still have non-terminal batches behind it.
+
+        Those batches are stuck in both directions: the claim query refuses any
+        run with a failed batch, and the stranded sweep excludes the same runs
+        because ``get_failed_runs`` is supposed to own them. It cannot reach all
+        of them. It is ``ORDER BY failed_at DESC LIMIT n`` inside a lookback,
+        with no gate for runs it has already swept, so every sweep re-picks the
+        same newest runs; once a failure ages past the lookback its leftovers
+        are unreachable until the retention prune, days later.
+
+        This pass closes that gap and cannot starve: oldest-first, and a run
+        leaves the set as soon as its batches go terminal. Normally it returns
+        nothing — the set is non-empty only when the newest-first pass has
+        fallen behind.
+
+        Shaped like :func:`_stranded_candidate_runs_sql`: aggregate the bounded
+        claimable scan into runs first, then one ``sb_run_gate_idx`` probe per
+        candidate run. Gating the raw batch rows instead turns the failed probe
+        into a hash anti-join whose hash side is every failed batch in the
+        window, which is exactly the shape that melted down under a failure
+        storm. The ``OFFSET 0`` fence is what holds the probe shape.
+
+        The candidate states are exactly ``sb_claimable_idx``'s, and must stay
+        that way. Widening them to every non-terminal state (adding 'waiting'
+        and 'executing') puts the scan outside that partial index, and the
+        planner answers it with a parallel sequential scan of every partition
+        instead — 12x the cost on the production queue, once every reconcile
+        interval. It also loses nothing: a blocked batch is one no consumer
+        could claim, and 'executing' rows belong to the stale-executing sweep.
+        """
+        async with conn.cursor(row_factory=dict_row) as cur:
+            await cur.execute(_orphaned_candidate_runs_sql(), {"limit": limit})
+            rows = await cur.fetchall()
+
+        return [
+            OrphanedRunRef(
+                run_uuid=row["run_uuid"],
+                team_id=row["team_id"],
+                schema_id=row["schema_id"],
+                non_terminal_batches=row["non_terminal_batches"],
+            )
+            for row in rows
+        ]
+
+    @staticmethod
     async def get_stale_stranded_runs(
         conn: psycopg.AsyncConnection[Any],
         *,
@@ -1265,7 +1661,9 @@ class BatchQueue:
         without this the batches strand until the retention prune (days later).
 
         Staleness is *loader progress only*: the newest status write across the run, or — when the
-        loader never claimed anything — the oldest batch's age. Batch inserts (producer activity)
+        loader never claimed anything — the oldest batch's age. Progress on any sibling run of the same
+        (team_id, schema_id) group also spares the run: the loader drains a group one run at a time, so
+        a run queued behind a long sibling is waiting, not abandoned. Batch inserts (producer activity)
         deliberately do not reset the clock, mirroring ``get_run_activity_summary``, so a live producer
         streaming into a dead loader still reads as stale. A live group lease means a pod is actively
         working the group (making progress, or the recovery sweep reclaims it on lease expiry), so those
@@ -1317,54 +1715,104 @@ class BatchQueue:
         ]
 
     @staticmethod
-    async def get_oldest_unclaimed_batch_age_seconds(
+    async def get_queue_freshness(
         conn: psycopg.AsyncConnection[Any],
-    ) -> float | None:
-        """Age in seconds of the oldest batch no consumer has ever picked up, or None when none are waiting.
+        *,
+        backlog_threshold_seconds: int,
+    ) -> QueueFreshness:
+        """Three readings off one scan of the pending set, bounded to ``FRESHNESS_WINDOW``.
 
-        'pending' means no status row yet — this is the queue's data-freshness
-        signal, and it rises whenever loading stalls regardless of the cause.
-        Answered from the claimable partial index; bounded to
-        ``FRESHNESS_WINDOW`` so the reported age saturates instead of scanning
-        unbounded history.
+        ``oldest_age_seconds`` excludes batches whose run already holds a
+        ``failed`` batch. The claim query refuses those (see
+        ``_state_claim_candidates_sql``) and the stranded sweep skips them too,
+        so nothing can ever pick them up: counting them made the gauge report
+        the age of an abandoned row rather than the queue's lag, and it grew at
+        exactly one second per second until retention pruned it.
+        ``get_oldest_non_terminal_batch_age_seconds`` already excludes them for
+        the same reason.
+
+        ``blocked_batches`` keeps that excluded population visible in its own
+        lane, so a leak still shows up somewhere instead of disappearing.
+
+        ``backlogged_groups`` is the breadth companion to the age: the age is a
+        fleet-wide max, so one wedged (team, schema) pins it and a fleet-wide
+        alert cannot tell one stuck tenant from a real stall. Counting the
+        groups past the threshold separates those.
         """
         async with conn.cursor() as cur:
             await cur.execute(
                 f"""
-                SELECT EXTRACT(EPOCH FROM (now() - min(b.created_at)))
-                FROM {BATCH_TABLE} b
-                WHERE b.created_at > now() - interval '{FRESHNESS_WINDOW}'
-                  AND b.latest_state = 'pending'
-                """
+                WITH pending AS (
+                    SELECT
+                        b.team_id,
+                        b.schema_id,
+                        b.created_at,
+                        EXISTS (
+                            SELECT 1
+                            FROM {BATCH_TABLE} b_failed
+                            WHERE b_failed.run_uuid = b.run_uuid
+                                AND b_failed.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                                AND b_failed.latest_state = 'failed'
+                        ) AS blocked
+                    FROM {BATCH_TABLE} b
+                    WHERE b.created_at > now() - interval '{FRESHNESS_WINDOW}'
+                      AND b.latest_state = 'pending'
+                )
+                SELECT
+                    EXTRACT(EPOCH FROM (now() - min(created_at) FILTER (WHERE NOT blocked))),
+                    count(*) FILTER (WHERE blocked),
+                    count(DISTINCT (team_id, schema_id)) FILTER (
+                        WHERE NOT blocked
+                          AND created_at <= now() - make_interval(secs => %(backlog_threshold)s)
+                    )
+                FROM pending
+                """,
+                {"backlog_threshold": backlog_threshold_seconds},
             )
             row = await cur.fetchone()
-        if row is None or row[0] is None:
-            return None
-        return float(row[0])
+        if row is None:
+            return QueueFreshness(oldest_age_seconds=None, blocked_batches=0, backlogged_groups=0)
+        return QueueFreshness(
+            oldest_age_seconds=float(row[0]) if row[0] is not None else None,
+            blocked_batches=int(row[1] or 0),
+            backlogged_groups=int(row[2] or 0),
+        )
 
     @staticmethod
-    async def get_claimable_batch_count(conn: psycopg.AsyncConnection[Any]) -> int:
-        """How many batches are state-eligible for claiming right now (queue depth).
+    async def get_queue_depth(conn: psycopg.AsyncConnection[Any]) -> QueueDepth:
+        """How many batches are state-eligible for claiming right now, and where they sit.
 
-        The depth companion to :meth:`get_oldest_unclaimed_batch_age_seconds`:
-        the claim's per-run, schema-busy, and lease gates are deliberately not
-        applied (they need per-row probes; this must stay one cheap partial-index
-        scan), and neither is the retry-backoff gate (it needs the fleet's backoff
-        config, and this probe stays parameter-free), so the count reads slightly
-        high. Bounded by ``CLAIM_ELIGIBILITY_INTERVAL`` to match what the claim
-        query can see.
+        The depth companion to :meth:`get_queue_freshness`. ``claimable_batches``
+        applies none of the claim's per-run, schema-busy, or lease gates (those
+        need per-row probes, and this must stay one partial-index scan), nor the
+        retry-backoff gate (it needs the fleet's backoff config, and this probe
+        stays parameter-free), so the count reads slightly high. Bounded by
+        ``CLAIM_ELIGIBILITY_INTERVAL`` to match what the claim query can see.
+
+        The other four fields exclude batches whose run holds a failed batch, the
+        same population :meth:`get_queue_freshness` reports as ``blocked_batches``,
+        so ``slot_waiting_batches + serialized_batches`` is the depth minus those.
+        See :func:`_queue_depth_sql` for why.
         """
         async with conn.cursor() as cur:
-            await cur.execute(
-                f"""
-                SELECT count(*)
-                FROM {BATCH_TABLE} b
-                WHERE b.created_at > now() - interval '{CLAIM_ELIGIBILITY_INTERVAL}'
-                  AND b.latest_state IN ('pending', 'waiting_retry')
-                """
-            )
+            await cur.execute(_queue_depth_sql(), {"top_groups": DEPTH_TOP_GROUPS})
             row = await cur.fetchone()
-        return int(row[0]) if row else 0
+        if row is None:
+            return QueueDepth(
+                claimable_batches=0,
+                claimable_groups=0,
+                top_groups_claimable_share=0.0,
+                slot_waiting_batches=0,
+                serialized_batches=0,
+            )
+        live_batches = int(row[2])
+        return QueueDepth(
+            claimable_batches=int(row[0]),
+            claimable_groups=int(row[1]),
+            top_groups_claimable_share=int(row[3]) / live_batches if live_batches else 0.0,
+            slot_waiting_batches=int(row[4]),
+            serialized_batches=int(row[5]),
+        )
 
     @staticmethod
     def get_oldest_non_terminal_batch_age_seconds(
@@ -1423,8 +1871,13 @@ class BatchQueue:
         The ``owner_token`` predicate is load-bearing: if this owner's lease
         already expired and another pod reclaimed the group, the delete must be
         a no-op rather than removing the new owner's lease.
+
+        The ordered ``FOR UPDATE`` sub-select takes every row lock before the
+        delete runs, so this honors the fleet-wide lease lock order (see the
+        note above). A bare multi-row ``DELETE`` locks in plan order instead,
+        which is what let this statement deadlock against a concurrent claim.
         """
-        pairs = list({(b.team_id, b.schema_id) for b in batches})
+        pairs = sorted({(b.team_id, b.schema_id) for b in batches})
         if not pairs:
             return
         team_ids = [team_id for team_id, _ in pairs]
@@ -1432,10 +1885,16 @@ class BatchQueue:
         await conn.execute(
             f"""
             DELETE FROM {LEASE_TABLE}
-            WHERE owner_token = %(owner)s
-              AND (team_id, schema_id) IN (
-                  SELECT * FROM unnest(%(team_ids)s::bigint[], %(schema_ids)s::varchar[])
-              )
+            WHERE id IN (
+                SELECT l.id
+                FROM {LEASE_TABLE} l
+                WHERE l.owner_token = %(owner)s
+                  AND (l.team_id, l.schema_id) IN (
+                      SELECT * FROM unnest(%(team_ids)s::bigint[], %(schema_ids)s::varchar[])
+                  )
+                ORDER BY l.team_id, l.schema_id
+                FOR UPDATE
+            )
             """,
             {"owner": owner_token, "team_ids": team_ids, "schema_ids": schema_ids},
         )
@@ -1446,9 +1905,22 @@ class BatchQueue:
         *,
         owner_token: str,
     ) -> None:
-        """Delete every group lease held by ``owner_token``. Used for best-effort cleanup on shutdown."""
+        """Delete every group lease held by ``owner_token``. Used for best-effort cleanup on shutdown.
+
+        Ordered ``FOR UPDATE`` for the same reason as :meth:`unlock_for_batches`: a pod
+        shutting down releases many groups at once, against a fleet still claiming them.
+        """
         await conn.execute(
-            f"DELETE FROM {LEASE_TABLE} WHERE owner_token = %(owner)s",
+            f"""
+            DELETE FROM {LEASE_TABLE}
+            WHERE id IN (
+                SELECT id
+                FROM {LEASE_TABLE}
+                WHERE owner_token = %(owner)s
+                ORDER BY team_id, schema_id
+                FOR UPDATE
+            )
+            """,
             {"owner": owner_token},
         )
 
@@ -1658,16 +2130,23 @@ class BatchQueue:
         """
         if not pairs:
             return 0
+        ordered = sorted(pairs)
         cursor = conn.execute(
             f"""
             DELETE FROM {LEASE_TABLE}
-            WHERE (team_id, schema_id) IN (
-                SELECT * FROM unnest(%(team_ids)s::bigint[], %(schema_ids)s::varchar[])
+            WHERE id IN (
+                SELECT l.id
+                FROM {LEASE_TABLE} l
+                WHERE (l.team_id, l.schema_id) IN (
+                    SELECT * FROM unnest(%(team_ids)s::bigint[], %(schema_ids)s::varchar[])
+                )
+                ORDER BY l.team_id, l.schema_id
+                FOR UPDATE
             )
             """,
             {
-                "team_ids": [team_id for team_id, _ in pairs],
-                "schema_ids": [schema_id for _, schema_id in pairs],
+                "team_ids": [team_id for team_id, _ in ordered],
+                "schema_ids": [schema_id for _, schema_id in ordered],
             },
         )
         return cursor.rowcount or 0

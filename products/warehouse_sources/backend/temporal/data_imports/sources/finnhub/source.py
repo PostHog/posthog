@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -110,7 +108,7 @@ class FinnhubSource(SimpleSource[FinnhubSourceConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.FINNHUB,
+            name=ExternalDataSourceType.FINNHUB,
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="Finnhub",
             releaseStatus=ReleaseStatus.ALPHA,
@@ -118,7 +116,7 @@ class FinnhubSource(SimpleSource[FinnhubSourceConfig]):
 
 Create a free API key in your [Finnhub dashboard](https://finnhub.io/dashboard).
 
-Per-company tables (company profile, quote, company news, basic financials, recommendation trends, earnings surprises) are synced for each ticker you list in **Symbols**. Market-wide tables (stock symbols, market news, IPO calendar, earnings calendar, countries) sync without any symbols.
+Per-company tables (company profile, quote, company news, basic financials, recommendation trends, earnings surprises, stock candles, as-reported financials, SEC filings, insider transactions) are synced for each ticker you list in **Symbols**. Market-wide tables (stock symbols, market news, IPO calendar, earnings calendar, countries) sync without any symbols.
 
 Note: the free tier is rate limited to 60 requests/minute, and some endpoints require a paid plan.""",
             iconPath="/static/services/finnhub.png",

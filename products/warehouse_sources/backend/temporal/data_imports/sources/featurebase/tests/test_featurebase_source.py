@@ -4,15 +4,11 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import (
-    ExternalDataSourceType as SchemaExternalDataSourceType,
-    ReleaseStatus,
-    SourceFieldInputConfig,
-)
-
+from products.warehouse_sources.backend.facade.source_config import ReleaseStatus, SourceFieldInputConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.featurebase.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.featurebase.source import FeaturebaseSource
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.featurebase.source"
 
@@ -42,7 +38,7 @@ class TestFeaturebaseSource:
 
     def test_source_config_is_released_with_api_key_field(self) -> None:
         config = self.source.get_source_config
-        assert config.name == SchemaExternalDataSourceType.FEATUREBASE
+        assert config.name == ExternalDataSourceType.FEATUREBASE
         # unreleasedSource hides the connector from every user; a finished source must not carry it.
         assert not config.unreleasedSource
         assert config.releaseStatus == ReleaseStatus.ALPHA
@@ -79,6 +75,16 @@ class TestFeaturebaseSource:
             ("admins", False, False),
             ("companies", False, False),
             ("contacts", False, False),
+            # Conversations list takes no sort or timestamp param, so it is full refresh only;
+            # tickets sweep newest-first on updatedAt.
+            ("conversations", False, False),
+            ("tickets", True, False),
+            ("ticket_statuses", False, False),
+            ("ticket_categories", False, False),
+            ("conversation_tags", False, False),
+            # Surveys and their responses take no sort or timestamp param either.
+            ("surveys", False, False),
+            ("survey_responses", False, False),
             ("post_voters", False, False),
         ]
     )

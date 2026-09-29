@@ -1,4 +1,5 @@
 import type {
+    ScoutCostsApi,
     ScoutSuggestionItemApi,
     ScoutSuggestionSetApi,
     SignalScoutConfigApi,
@@ -32,10 +33,12 @@ const MOCK_SCOUT_OWNERS = [
 function makeMockScout(overrides: MockScoutOverrides): SignalScoutConfigApi {
     return {
         scout_origin: 'canonical',
+        scout_role: 'specialist',
         owners: [],
         enabled: true,
         status: 'active',
         pause_reason: null,
+        deprecation: null,
         emit: true,
         run_interval_minutes: 1440,
         run_cron_schedule: null,
@@ -46,6 +49,7 @@ function makeMockScout(overrides: MockScoutOverrides): SignalScoutConfigApi {
         last_run_at: null,
         consecutive_failure_count: 0,
         status_changed_at: null,
+        status_changed_by: null,
         auto_pause_exempt: false,
         tags: [],
         mcp_gateway_server_ids: [],
@@ -53,6 +57,7 @@ function makeMockScout(overrides: MockScoutOverrides): SignalScoutConfigApi {
         source_product: null,
         source_id: null,
         created_at: '2026-06-11T09:00:00Z',
+        updated_at: '2026-06-11T09:00:00Z',
         ...overrides,
     }
 }
@@ -106,6 +111,34 @@ export function mockScoutRuns(configs: SignalScoutConfigApi[]): SignalScoutRunSu
             }
         })
     )
+}
+
+/**
+ * One scout's runs a day apart, all quiet, none of them from the last two days. A folded group of
+ * these carries the long date form at both ends of its header, because `humanFriendlyDetailedTime`
+ * keeps the short "Today" and "Yesterday" forms for the last two days only. That is the widest
+ * that header ever gets.
+ */
+export function mockDailyQuietRuns(config: SignalScoutConfigApi): SignalScoutRunSummaryApi[] {
+    return Array.from({ length: 6 }, (_, runIndex) => {
+        const startedAt = MOCK_NOW_MS - (runIndex + 2) * 24 * HOUR_MS
+        return {
+            run_id: `${config.skill_name}-daily-run-${runIndex}`,
+            skill_name: config.skill_name,
+            skill_version: 1,
+            status: 'completed' as const,
+            created_at: new Date(startedAt).toISOString(),
+            started_at: new Date(startedAt).toISOString(),
+            completed_at: new Date(startedAt + 12 * 60000).toISOString(),
+            task_url: null,
+            summary: 'Swept the window and found nothing worth filing.',
+            emitted_count: 0,
+            emitted_finding_ids: [],
+            emitted_report_ids: [],
+            edited_report_ids: [],
+            metadata: {},
+        }
+    })
 }
 
 export const mockLargeScoutFleet: SignalScoutConfigApi[] = [
@@ -187,6 +220,15 @@ export const mockLargeScoutFleet: SignalScoutConfigApi[] = [
         status: 'pending_pause',
         pause_reason: 'ignored',
     }),
+    makeMockScout({
+        id: 'scout-operational',
+        skill_name: 'signals-scout-inbox-validation',
+        description: 'whether the fixes shipped from this inbox actually held',
+        scout_role: 'operational',
+        auto_pause_exempt: true,
+        run_interval_minutes: 60,
+        last_run_at: '2026-06-10T23:00:00Z',
+    }),
 ]
 
 function makeMockSuggestion(
@@ -242,5 +284,26 @@ export function mockScoutSuggestionSet(overrides: Partial<ScoutSuggestionSetApi>
         fleet_snapshot: mockScoutConfigs.map((config) => config.skill_name),
         items: mockScoutSuggestions,
         ...overrides,
+    }
+}
+
+/**
+ * A cost row per scout, cycling the three cases the surfaces have to tell apart: a scout that spent
+ * and filed reports, one that spent and filed nothing, and one whose runs had no spend attributed.
+ */
+export function mockScoutCosts(configs: SignalScoutConfigApi[]): ScoutCostsApi {
+    return {
+        window_days: 7,
+        available: true,
+        scouts: configs.map((config, index) => {
+            const unpriced = index % 3 === 2
+            return {
+                skill_name: config.skill_name,
+                spend_usd: unpriced ? 0 : 1.68 + index * 4.2,
+                run_count: 14 + index,
+                priced_run_count: unpriced ? 0 : 14,
+                reports_touched: index % 3 === 1 ? 0 : 11,
+            }
+        }),
     }
 }

@@ -1,8 +1,5 @@
 """Mailgun integration helpers for conversations email channel."""
 
-import hmac
-import time
-import hashlib
 from typing import Any, TypedDict
 
 import requests
@@ -14,9 +11,17 @@ logger = structlog.get_logger(__name__)
 
 MAILGUN_API_BASE = "https://api.mailgun.net/v3"
 
-WEBHOOK_TIMESTAMP_MAX_AGE_SECONDS = 300  # 5 minutes
-
 MAILGUN_SEND_TIMEOUT = 30  # seconds
+
+
+def get_email_webhook_signing_key() -> str | None:
+    """The Mailgun account signing key the route endpoints verify with.
+
+    Injected into the ingress provider rather than read there, because the instance setting
+    belongs to this product and nothing under `posthog/ingress/` imports a product. The scheme
+    calls this on every request, and `get_instance_setting` is cached.
+    """
+    return get_instance_setting("CONVERSATIONS_EMAIL_WEBHOOK_SIGNING_KEY")
 
 
 class MailgunDnsRecord(TypedDict, total=False):
@@ -72,36 +77,6 @@ class MailgunTransientError(MailgunError):
     """Retriable failure — 429, 5xx, or any pre-response RequestException (connection,
     timeout, chunked-encoding). Callers should bounce these back through Celery retry.
     """
-
-
-def validate_webhook_signature(token: str, timestamp: str, signature: str) -> bool:
-    """Verify inbound Mailgun webhook authenticity via HMAC-SHA256.
-
-    Also rejects timestamps older than 5 minutes to prevent replay attacks.
-    """
-    # Uncomment this to allow debugging in development
-    # if settings.DEBUG:
-    #    return True
-
-    signing_key = get_instance_setting("CONVERSATIONS_EMAIL_WEBHOOK_SIGNING_KEY")
-    if not signing_key:
-        return False
-
-    # Reject stale timestamps
-    try:
-        ts = int(timestamp)
-    except (ValueError, TypeError):
-        return False
-    if abs(time.time() - ts) > WEBHOOK_TIMESTAMP_MAX_AGE_SECONDS:
-        return False
-
-    expected = hmac.new(
-        key=signing_key.encode("utf-8"),
-        msg=f"{timestamp}{token}".encode(),
-        digestmod=hashlib.sha256,
-    ).hexdigest()
-
-    return hmac.compare_digest(expected, signature)
 
 
 def _get_api_key() -> str:

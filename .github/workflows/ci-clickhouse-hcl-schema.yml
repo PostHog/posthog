@@ -58,7 +58,7 @@ jobs:
 
     # Cross-repo compose gate: posthog-cloud-infra composes vendored base layers
     # from this repo (roles/shared, roles/data/shared, growing per role). This
-    # job asks cloud-infra to compose against the PR head and fails if a patch
+    # job asks cloud-infra to compose against the PR merge commit and fails if a patch
     # no longer resolves there. It cannot catch golden movement — a legitimate
     # shared-layer change shifts cloud goldens at the next base-ref bump, and
     # that bump PR owns the regen.
@@ -98,7 +98,16 @@ jobs:
               if: steps.app-token.outcome == 'success'
               env:
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
-                  POSTHOG_REF: ${{ github.event.pull_request.head.sha }}
+                  # On a pull_request event github.sha is the merge commit, not
+                  # the head. cloud-infra vendors layers from this ref while its own
+                  # layers track posthog master, so a head that predates a
+                  # master-side layer change composes against a cloud-infra that
+                  # already expects it, and every unrebased PR goes red for a change
+                  # it does not contain. The merge commit is what the PR lands as.
+                  #
+                  # A sha, not refs/pull/N/merge: cloud-infra's gate rejects any
+                  # posthog_ref that is not 40 hex chars.
+                  POSTHOG_REF: ${{ github.sha }}
                   PR_NUMBER: ${{ github.event.pull_request.number }}
               run: |
                   set -euo pipefail

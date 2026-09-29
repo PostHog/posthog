@@ -73,6 +73,7 @@ class KlaviyoValuesReportConfig:
     # Campaign and flow reports require a conversion metric on every request; form and segment
     # reports do not accept one, so their requests must omit it and skip the /metrics lookup.
     requires_conversion_metric: bool = True
+    list_all_ids_path: Optional[str] = None
 
     def __post_init__(self) -> None:
         # Klaviyo requires a timeframe and accepts only one form of it, so a config that sets both
@@ -527,8 +528,9 @@ KLAVIYO_ENDPOINTS: dict[str, KlaviyoEndpointConfig] = {
         ),
         description=(
             "Klaviyo's own computed performance statistics per campaign message over the last 365 "
-            "days, replaced in full on every sync. Conversion statistics use the conversion metric "
-            "recorded in the conversion_metric_id column"
+            "days, replaced in full on every sync. Needs a value-tracking conversion metric (such as "
+            "Placed Order); set one on the source if your account has none. Conversion statistics use "
+            "the conversion metric recorded in the conversion_metric_id column"
         ),
     ),
     "flow_values_reports": KlaviyoEndpointConfig(
@@ -544,8 +546,9 @@ KLAVIYO_ENDPOINTS: dict[str, KlaviyoEndpointConfig] = {
         ),
         description=(
             "Klaviyo's own computed performance statistics per flow message over the last 365 days, "
-            "replaced in full on every sync. Conversion statistics use the conversion metric recorded "
-            "in the conversion_metric_id column"
+            "replaced in full on every sync. Needs a value-tracking conversion metric (such as Placed "
+            "Order); set one on the source if your account has none. Conversion statistics use the "
+            "conversion metric recorded in the conversion_metric_id column"
         ),
     ),
     # Series reports carry the same statistics as the values reports above, but bucketed weekly over
@@ -571,8 +574,10 @@ KLAVIYO_ENDPOINTS: dict[str, KlaviyoEndpointConfig] = {
         ),
         description=(
             "Klaviyo's own flow-message performance statistics bucketed by week over the last 51 "
-            "weeks, one row per flow message per week. Weeks stay in the table after Klaviyo stops "
-            "returning them"
+            "weeks, one row per flow message per week. Needs a value-tracking conversion metric (such "
+            "as Placed Order); set one on the source if your account has none. Conversion statistics "
+            "use the conversion metric recorded in the conversion_metric_id column. Weeks stay in the "
+            "table after Klaviyo stops returning them"
         ),
     ),
     # Form and segment reports need no conversion metric, so they sync even for keys scoped only to
@@ -588,10 +593,12 @@ KLAVIYO_ENDPOINTS: dict[str, KlaviyoEndpointConfig] = {
             timeframe_key=VALUES_REPORT_TIMEFRAME_KEY,
             group_by=["form_id"],
             requires_conversion_metric=False,
+            list_all_ids_path="/forms",
         ),
         description=(
             "Klaviyo's own signup-form performance statistics per form over the last 365 days, "
-            "replaced in full on every sync"
+            "replaced in full on every sync. A form with no activity in the window is listed with "
+            "zero counts and no submit rate."
         ),
     ),
     "segment_values_reports": KlaviyoEndpointConfig(

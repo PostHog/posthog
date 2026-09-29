@@ -50,14 +50,7 @@ async fn ad_hoc_handler(
     State(context): State<Arc<AppContext>>,
     Json(request): Json<AdHocEmbeddingRequest>,
 ) -> Result<Json<AdHocEmbeddingResponse>, StatusCode> {
-    match handle_ad_hoc_request(context, request).await {
-        Ok(response) => Ok(Json(response)),
-        Err(e) => {
-            // TODO - this is a hack until I do a proper pass and add real error enums
-            error!("Ad hoc embedding request failed: {:?}", e);
-            Err(StatusCode::INTERNAL_SERVER_ERROR)
-        }
-    }
+    handle_ad_hoc_request(context, request).await
 }
 
 #[derive(Deserialize)]

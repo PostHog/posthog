@@ -1,23 +1,17 @@
 import type { IconProps } from "@phosphor-icons/react";
-import { extractRepoSelectionRepository } from "@posthog/core/inbox/artefacts";
 import type { SignalReport } from "@posthog/shared/types";
 import { InboxDetailFrameView } from "@posthog/ui/features/inbox/components/InboxDetailFrameView";
 import {
   SignalsList,
   SignalsListSkeleton,
 } from "@posthog/ui/features/inbox/components/SignalsList";
-import type { InboxListRoute } from "@posthog/ui/features/inbox/hooks/useInboxBackTarget";
 import { useInboxReportDismissAction } from "@posthog/ui/features/inbox/hooks/useInboxReportDismissAction";
-import {
-  useInboxReportArtefacts,
-  useInboxReportSignals,
-} from "@posthog/ui/features/inbox/hooks/useInboxReports";
-import type { ComponentType, ReactNode } from "react";
+import { useInboxReportReadState } from "@posthog/ui/features/inbox/hooks/useInboxReportReadState";
+import { useInboxReportSignals } from "@posthog/ui/features/inbox/hooks/useInboxReports";
+import { type ComponentType, type ReactNode, useEffect } from "react";
 
 interface InboxDetailFrameProps {
   report: SignalReport;
-  backTo: InboxListRoute | (string & {});
-  backLabel: string;
   showDismiss?: boolean;
   showMetadata?: boolean;
   fallbackTitle: string;
@@ -43,8 +37,6 @@ interface InboxDetailFrameProps {
 
 export function InboxDetailFrame({
   report,
-  backTo,
-  backLabel,
   fallbackTitle,
   breadcrumb,
   metaPrefix,
@@ -61,11 +53,15 @@ export function InboxDetailFrame({
   showMetadata = true,
   children,
 }: InboxDetailFrameProps): React.JSX.Element {
+  const { enabled: readStateEnabled, setRead } = useInboxReportReadState(
+    report.id,
+  );
+  useEffect(() => {
+    if (readStateEnabled) setRead(true);
+  }, [readStateEnabled, setRead]);
   const { data: signalsResp } = useInboxReportSignals(report.id);
   const signals = signalsResp?.signals ?? [];
   const signalsLoaded = signalsResp !== undefined;
-  const { data: artefactsResp } = useInboxReportArtefacts(report.id);
-  const runRepository = extractRepoSelectionRepository(artefactsResp?.results);
   const { actionButton: dismissButton, dialog: dismissDialog } =
     useInboxReportDismissAction(report);
 
@@ -89,8 +85,6 @@ export function InboxDetailFrame({
   return (
     <InboxDetailFrameView
       report={report}
-      backTo={backTo}
-      backLabel={backLabel}
       fallbackTitle={fallbackTitle}
       breadcrumb={breadcrumb}
       metaPrefix={metaPrefix}
@@ -103,7 +97,6 @@ export function InboxDetailFrame({
       evidenceSection={evidenceSection}
       evidenceCount={evidenceCount}
       evidenceContent={evidenceContent}
-      runRepository={runRepository}
       aboveEvidence={aboveEvidence}
       secondaryTab={secondaryTab}
       showMetadata={showMetadata}

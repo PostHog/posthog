@@ -420,6 +420,31 @@ describe("TaskRunEventStreamSender", () => {
       ],
       acceptedMethod: "small",
     },
+    {
+      name: "when text still exceeds the limit after removing widget metadata",
+      senderOptions: { maxEventBytes: 600 },
+      events: [
+        {
+          type: "notification",
+          notification: {
+            method: "session/update",
+            params: {
+              update: {
+                sessionUpdate: "tool_call_update",
+                rawOutput: {
+                  content: [{ type: "text", text: "x".repeat(1000) }],
+                  _meta: {
+                    "com.posthog.mcp/app_data": { rows: "y".repeat(1000) },
+                  },
+                },
+              },
+            },
+          },
+        },
+        { type: "notification", notification: { method: "small" } },
+      ],
+      acceptedMethod: "small",
+    },
   ])(
     "drops events before assigning sequence $name",
     async ({ senderOptions, events, acceptedMethod }) => {
@@ -450,6 +475,77 @@ describe("TaskRunEventStreamSender", () => {
         },
         { type: STREAM_COMPLETE_CONTROL_TYPE, final_seq: 1 },
       ]);
+    },
+  );
+
+  it.each<[string, number]>([
+    ["tool_call", 10],
+    ["tool_call_update", 10],
+    ["tool_call", 1000],
+    ["tool_call_update", 1000],
+  ])(
+    "preserves %s with %s bytes of optional widget data",
+    async (sessionUpdate, dataBytes) => {
+      const requestBodies: string[] = [];
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+          const body = await readRequestBody(init);
+          requestBodies.push(body);
+          return responseForBody(body);
+        }),
+      );
+      const appData = { rows: "x".repeat(dataBytes) };
+      const event = {
+        type: "notification",
+        notification: {
+          method: "session/update",
+          params: {
+            update: {
+              sessionUpdate,
+              toolCallId: "query-1",
+              status: "completed",
+              _meta: { posthog: { toolName: "mcp__posthog__exec" } },
+              rawOutput: {
+                content: [{ type: "text", text: "Query completed" }],
+                _meta: {
+                  "com.posthog.mcp/app_data": appData,
+                  resourceUri: "ui://query",
+                },
+              },
+            },
+          },
+        },
+      };
+      const sender = createSender({ maxEventBytes: 600 });
+      sender.enqueue(event);
+      sender.enqueue({
+        type: "notification",
+        notification: { method: "next" },
+      });
+      await sender.stop();
+
+      const sent = parseLines(requestBodies[1]);
+      const expected = structuredClone(event);
+      if (dataBytes > 600) {
+        Reflect.deleteProperty(
+          expected.notification.params.update.rawOutput._meta,
+          "com.posthog.mcp/app_data",
+        );
+      }
+      expect(sent).toEqual([
+        { seq: 1, event: expected },
+        {
+          seq: 2,
+          event: { type: "notification", notification: { method: "next" } },
+        },
+        { type: STREAM_COMPLETE_CONTROL_TYPE, final_seq: 2 },
+      ]);
+      expect(
+        event.notification.params.update.rawOutput._meta[
+          "com.posthog.mcp/app_data"
+        ],
+      ).toBe(appData);
     },
   );
 

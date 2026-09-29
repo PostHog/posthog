@@ -8,16 +8,11 @@ from asgiref.sync import async_to_sync
 from posthog.models import Organization, Team
 from posthog.redis import get_client
 
-from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination
+from products.batch_exports.backend.billing import NON_BILLABLE_DESTINATIONS
+from products.batch_exports.backend.models.batch_export import BatchExport
 from products.batch_exports.backend.temporal.batch_exports import check_is_over_limit
 
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, list_limited_team_attributes
-
-# Destinations excluded from rows exported billing, and thus from the billing check.
-NON_BILLABLE_DESTINATIONS = [
-    BatchExportDestination.Destination.HTTP,
-    BatchExportDestination.Destination.WORKFLOWS,
-]
 
 
 class Command(BaseCommand):

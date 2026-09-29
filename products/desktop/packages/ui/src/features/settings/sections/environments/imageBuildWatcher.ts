@@ -31,6 +31,8 @@ function notifyBuildResult(image: SandboxCustomImage): void {
     : undefined;
   if (image.status === "ready") {
     bus.notify({
+      reason: "image_build",
+      debug: { imageId: image.id, status: image.status },
       body: `Image "${image.name}" is ready (v${image.version})`,
       target,
       toast: { level: "success" },
@@ -38,6 +40,8 @@ function notifyBuildResult(image: SandboxCustomImage): void {
     return;
   }
   bus.notify({
+    reason: "image_build",
+    debug: { imageId: image.id, status: image.status },
     body: `Image "${image.name}" build failed: ${imageFailureDetail(image).split("\n")[0]}`,
     target,
     toast: { level: "error" },

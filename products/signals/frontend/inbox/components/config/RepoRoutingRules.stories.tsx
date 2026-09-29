@@ -50,7 +50,7 @@ function Block({ rules = RULES, withGithub = true }: { rules?: typeof RULES; wit
     useStorybookMocks({
         get: {
             '/api/projects/:team_id/tasks/repo_routing_rules/': rules,
-            '/api/environments/:team_id/integrations/': { results: withGithub ? [GITHUB_INTEGRATION] : [] },
+            '/api/projects/:team_id/integrations/': { results: withGithub ? [GITHUB_INTEGRATION] : [] },
             '/api/environments/:team_id/integrations/:id/github_repos/': {
                 repositories: [
                     { id: 1, name: 'posthog.com', full_name: 'posthog/posthog.com' },

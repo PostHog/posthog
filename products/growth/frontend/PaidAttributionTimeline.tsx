@@ -2,8 +2,9 @@ import { IconArrowRight, IconExternal, IconTarget } from '@posthog/icons'
 import { LemonButton, LemonTable, LemonTableColumns, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
-import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { urls } from 'scenes/urls'
+
+import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
 
 import type { IdentityMatchingLinkApi, IdentityMatchingPersonApi } from './generated/api.schemas'
 import {

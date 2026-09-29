@@ -1,8 +1,7 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldFileUploadConfig,
@@ -10,7 +9,6 @@ from posthog.schema import (
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -81,7 +79,7 @@ class FirebaseSource(ResumableSource[FirebaseSourceConfig, FirebaseResumeConfig]
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.FIREBASE,
+            name=ExternalDataSourceType.FIREBASE,
             category=DataWarehouseSourceCategory.DATABASES,
             label="Firebase",
             caption="""Connect a Firebase project to pull Cloud Firestore collections, Firebase Auth users, and Realtime Database paths into the PostHog Data warehouse.
@@ -89,7 +87,7 @@ class FirebaseSource(ResumableSource[FirebaseSourceConfig, FirebaseResumeConfig]
 Create a service account key in the Firebase console under Project settings, Service accounts, Generate new private key, then upload that JSON file here. Grant the service account **Firebase Viewer** to read Auth users, **Cloud Datastore Viewer** to read Firestore, and **Firebase Realtime Database Viewer** to read the Realtime Database.""",
             iconPath="/static/services/firebase.png",
             docsUrl="https://posthog.com/docs/cdp/sources/firebase",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["firestore", "rtdb", "gcp", "nosql"],
             fields=cast(
                 list[FieldType],

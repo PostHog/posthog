@@ -3,8 +3,6 @@ import { memo } from 'react'
 
 import { LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
 
-import { TZLabel } from 'lib/components/TZLabel'
-import { dayjs } from 'lib/dayjs'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
@@ -24,43 +22,59 @@ interface StatRowItem {
     valueClassName?: string
 }
 
-function StatRow({ items, isLoading }: { items: StatRowItem[]; isLoading?: boolean }): JSX.Element {
+function StatRow({
+    items,
+    isLoading,
+    controls,
+}: {
+    items: StatRowItem[]
+    isLoading?: boolean
+    controls?: React.ReactNode
+}): JSX.Element {
     return (
-        <div className="flex flex-wrap sm:flex-nowrap items-stretch border rounded bg-bg-light/40">
-            {items.map((item, index) => (
-                <div
-                    key={item.title}
-                    className={`flex-1 min-w-[160px] px-3 py-2 flex flex-col items-center text-center ${
-                        index > 0 ? 'sm:border-l border-border' : ''
-                    }`}
-                >
-                    <div className="text-xs font-semibold uppercase text-text-secondary">{item.title}</div>
-                    {isLoading ? (
-                        <>
-                            <LemonSkeleton className="h-6 w-16 mt-1" />
-                            <LemonSkeleton className="h-3 w-24 mt-1" />
-                        </>
-                    ) : (
-                        <>
-                            <div className={`text-2xl font-semibold leading-tight ${item.valueClassName ?? ''}`}>
-                                {item.value}
-                            </div>
-                            <div className="text-xs text-text-secondary">{item.description}</div>
-                        </>
-                    )}
-                </div>
-            ))}
+        <div className="flex flex-col @min-[56rem]/survey-performance:flex-row @min-[56rem]/survey-performance:items-center gap-x-8 gap-y-3">
+            <dl className="flex flex-1 flex-wrap items-baseline gap-x-8 gap-y-3 m-0">
+                {items.map((item) => (
+                    <div
+                        key={item.title}
+                        className="flex w-full @min-[40rem]/survey-performance:w-auto items-baseline justify-between gap-2"
+                    >
+                        <dt className="text-sm text-secondary">{item.title}</dt>
+                        <dd className="m-0">
+                            {isLoading ? (
+                                <LemonSkeleton className="h-6 w-16" />
+                            ) : (
+                                <Tooltip title={item.description}>
+                                    <span className={`text-xl font-semibold tabular-nums ${item.valueClassName ?? ''}`}>
+                                        {item.value}
+                                    </span>
+                                </Tooltip>
+                            )}
+                        </dd>
+                    </div>
+                ))}
+            </dl>
+            {controls}
         </div>
     )
 }
 
-function UsersCount({ stats, rates }: { stats: SurveyStats; rates: SurveyRates }): JSX.Element {
+function UsersCount({
+    stats,
+    rates,
+    controls,
+}: {
+    stats: SurveyStats
+    rates: SurveyRates
+    controls?: React.ReactNode
+}): JSX.Element {
     const uniqueUsersShown = stats[SurveyEventName.SHOWN].unique_persons
     const uniqueUsersSent = stats[SurveyEventName.SENT].unique_persons
     const { answerFilterHogQLExpression } = useValues(surveyLogic)
     const filterNote = answerFilterHogQLExpression ? ' · filtered' : ''
     return (
         <StatRow
+            controls={controls}
             items={[
                 {
                     title: 'Shown',
@@ -69,13 +83,13 @@ function UsersCount({ stats, rates }: { stats: SurveyStats; rates: SurveyRates }
                     valueClassName: 'text-text-primary',
                 },
                 {
-                    title: 'Responses',
+                    title: answerFilterHogQLExpression ? 'Responses (filtered)' : 'Responses',
                     value: humanFriendlyNumber(uniqueUsersSent),
                     description: `Unique users${filterNote}`,
-                    valueClassName: 'text-success',
+                    valueClassName: 'text-text-primary',
                 },
                 {
-                    title: 'Conversion',
+                    title: 'Response rate',
                     value: `${humanFriendlyNumber(rates.unique_users_response_rate)}%`,
                     description: `${humanFriendlyNumber(uniqueUsersSent)} / ${humanFriendlyNumber(uniqueUsersShown)}`,
                     valueClassName: 'text-primary',
@@ -85,7 +99,15 @@ function UsersCount({ stats, rates }: { stats: SurveyStats; rates: SurveyRates }
     )
 }
 
-function ResponsesCount({ stats, rates }: { stats: SurveyStats; rates: SurveyRates }): JSX.Element {
+function ResponsesCount({
+    stats,
+    rates,
+    controls,
+}: {
+    stats: SurveyStats
+    rates: SurveyRates
+    controls?: React.ReactNode
+}): JSX.Element {
     const impressions = stats[SurveyEventName.SHOWN].total_count
     const sent = stats[SurveyEventName.SENT].total_count
     const { answerFilterHogQLExpression } = useValues(surveyLogic)
@@ -93,6 +115,7 @@ function ResponsesCount({ stats, rates }: { stats: SurveyStats; rates: SurveyRat
 
     return (
         <StatRow
+            controls={controls}
             items={[
                 {
                     title: 'Shown',
@@ -101,13 +124,13 @@ function ResponsesCount({ stats, rates }: { stats: SurveyStats; rates: SurveyRat
                     valueClassName: 'text-text-primary',
                 },
                 {
-                    title: 'Responses',
+                    title: answerFilterHogQLExpression ? 'Responses (filtered)' : 'Responses',
                     value: humanFriendlyNumber(sent),
                     description: `Responses${filterNote}`,
-                    valueClassName: 'text-success',
+                    valueClassName: 'text-text-primary',
                 },
                 {
-                    title: 'Conversion',
+                    title: 'Response rate',
                     value: `${humanFriendlyNumber(rates.response_rate)}%`,
                     description: `${humanFriendlyNumber(sent)} / ${humanFriendlyNumber(impressions)}`,
                     valueClassName: 'text-primary',
@@ -174,7 +197,7 @@ function SurveyStatsStackedBar({
         {
             count: onlySeen,
             label: 'Unanswered',
-            colorClass: 'bg-brand-blue',
+            colorClass: 'bg-muted',
             tooltip: getTooltip(onlySeen, total, filterByDistinctId),
         },
     ]
@@ -183,73 +206,22 @@ function SurveyStatsStackedBar({
 }
 
 function SurveyStatsContainer({ children }: { children: React.ReactNode }): JSX.Element {
-    const { filterSurveyStatsByDistinctId, processedSurveyStats, survey } = useValues(surveyLogic)
-    const { setFilterSurveyStatsByDistinctId } = useActions(surveyLogic)
+    const { survey } = useValues(surveyLogic)
 
     const isPubliclyShareable = survey.type === SurveyType.ExternalSurvey
 
     return (
-        <div className="flex flex-col gap-1">
-            <div className="flex items-center gap-2 justify-between">
-                <h3 className="mb-0">Survey performance</h3>
-                <div className="flex items-center gap-2">
-                    {isPubliclyShareable && (
-                        <CopySurveyLink
-                            surveyId={survey.id}
-                            enableIframeEmbedding={survey.enable_iframe_embedding ?? false}
-                        />
-                    )}
-                    {processedSurveyStats && processedSurveyStats[SurveyEventName.SHOWN].total_count > 0 && (
-                        <LemonSwitch
-                            checked={filterSurveyStatsByDistinctId}
-                            onChange={(checked) => setFilterSurveyStatsByDistinctId(checked)}
-                            tooltip="If enabled, each user will only be counted once, even if they have multiple responses."
-                            label="Count each person once"
-                        />
-                    )}
-                </div>
-            </div>
-            {survey.start_date && (
-                <div className="flex flex-wrap items-center gap-2 text-xs text-secondary">
-                    <span
-                        className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ${
-                            survey.end_date ? 'bg-danger/10 text-danger' : 'bg-success/10 text-success'
-                        }`}
-                    >
-                        <span
-                            className={`h-1.5 w-1.5 rounded-full ${
-                                survey.end_date ? 'bg-danger' : 'bg-success animate-pulse'
-                            }`}
-                        />
-                        {survey.end_date ? 'Ended' : 'Active'}
-                    </span>
-                    <span className="text-border-dark">•</span>
-                    <Tooltip title={<TZLabel time={survey.start_date} />}>
-                        <span>Started {dayjs(survey.start_date).fromNow()}</span>
-                    </Tooltip>
-                    {survey.end_date && (
-                        <>
-                            <span className="text-border-dark">•</span>
-                            <Tooltip title={<TZLabel time={survey.end_date} />}>
-                                <span>Ended {dayjs(survey.end_date).fromNow()}</span>
-                            </Tooltip>
-                        </>
-                    )}
+        <section aria-label="Survey performance" className="@container/survey-performance flex flex-col gap-4">
+            {isPubliclyShareable && (
+                <div className="flex justify-end">
+                    <CopySurveyLink
+                        surveyId={survey.id}
+                        enableIframeEmbedding={survey.enable_iframe_embedding ?? false}
+                    />
                 </div>
             )}
-            <div className="flex flex-col gap-3">{children}</div>
-        </div>
-    )
-}
-
-function DemoStatsContainer({ children }: { children: React.ReactNode }): JSX.Element {
-    return (
-        <div className="flex flex-col gap-1">
-            <div className="flex items-center gap-2 justify-between">
-                <h3 className="mb-0">Survey performance</h3>
-            </div>
-            <div className="flex flex-col gap-3">{children}</div>
-        </div>
+            <div className="flex flex-col gap-4">{children}</div>
+        </section>
     )
 }
 
@@ -270,7 +242,7 @@ function SurveyStatsSummarySkeleton(): JSX.Element {
                         description: `Unique ${pluralize(0, 'user', 'users', false)}`,
                     },
                     {
-                        title: 'Conversion',
+                        title: 'Response rate',
                         value: '0%',
                         description: '0 / 0',
                     },
@@ -285,20 +257,23 @@ export function SurveyStatsSummaryWithData({
     processedSurveyStats,
     surveyRates,
     isLoading = false,
+    outcomes,
 }: {
     processedSurveyStats: SurveyStats
     surveyRates: SurveyRates
     isLoading?: boolean
+    outcomes?: React.ComponentProps<typeof SurveyResponseBreakdown>['outcomes']
 }): JSX.Element {
     if (isLoading) {
         return <SurveyStatsSummarySkeleton />
     }
 
     return (
-        <DemoStatsContainer>
+        <section aria-label="Survey performance" className="@container/survey-performance flex flex-col gap-4">
             <UsersCount stats={processedSurveyStats} rates={surveyRates} />
             <SurveyStatsStackedBar stats={processedSurveyStats} filterByDistinctId={true} />
-        </DemoStatsContainer>
+            {outcomes && <SurveyResponseBreakdown outcomes={outcomes} />}
+        </section>
     )
 }
 
@@ -312,6 +287,8 @@ export const SurveyStatsSummary = memo(function SurveyStatsSummary(): JSX.Elemen
         resultsRequeryInProgress,
         surveyResponseOutcomes,
     } = useValues(surveyLogic)
+
+    const { setFilterSurveyStatsByDistinctId } = useActions(surveyLogic)
 
     if (
         !processedSurveyStats &&
@@ -328,14 +305,28 @@ export const SurveyStatsSummary = memo(function SurveyStatsSummary(): JSX.Elemen
         )
     }
 
+    const countToggle =
+        processedSurveyStats[SurveyEventName.SHOWN].total_count > 0 ? (
+            <Tooltip title="Count each person once in the performance metrics, even if they see or respond to the survey multiple times. When off, count every view and response. Response completion always counts individual submissions.">
+                <div>
+                    <LemonSwitch
+                        data-attr="survey-stats-count-person-once"
+                        checked={filterSurveyStatsByDistinctId}
+                        onChange={(checked) => setFilterSurveyStatsByDistinctId(checked)}
+                        label="Count each person once"
+                    />
+                </div>
+            </Tooltip>
+        ) : null
+
     return (
         <SurveyStatsContainer>
             {surveyRates && (
                 <>
                     {filterSurveyStatsByDistinctId ? (
-                        <UsersCount stats={processedSurveyStats} rates={surveyRates} />
+                        <UsersCount stats={processedSurveyStats} rates={surveyRates} controls={countToggle} />
                     ) : (
-                        <ResponsesCount stats={processedSurveyStats} rates={surveyRates} />
+                        <ResponsesCount stats={processedSurveyStats} rates={surveyRates} controls={countToggle} />
                     )}
                 </>
             )}

@@ -11,6 +11,7 @@ from posthog.models.file_system.constants import DEFAULT_SURFACE
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
+from posthog.models.tagged_items_relation import Taggable
 from posthog.models.utils import RootTeamMixin, UUIDModel
 
 from products.feature_flags.backend.facade.filters import (
@@ -46,7 +47,7 @@ ExposureFreezeBlocker = (
 )
 
 
-class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.Model):
+class Experiment(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.Model):
     class ExperimentType(models.TextChoices):
         WEB = "web", "web"
         PRODUCT = "product", "product"
@@ -152,8 +153,21 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
     # is skipped when the team has several — never inferred.
     repository = models.CharField(max_length=255, null=True, blank=True)
 
+    # A started experiment's rule ID selects v2 analysis; legacy experiments keep both fields null.
+    feature_flag_rule_id = models.UUIDField(null=True, blank=True)
+    # The immutable first-start snapshot preserves the rule and relevant flag context after winner shipping.
+    feature_flag_rule_snapshot = models.JSONField(null=True, blank=True)
+
     class Meta:
         db_table = "posthog_experiment"
+        constraints = [
+            # Rule IDs are UUIDs that no later experiment may reuse, so uniqueness is global, not per team.
+            models.UniqueConstraint(
+                fields=["feature_flag_rule_id"],
+                condition=models.Q(feature_flag_rule_id__isnull=False),
+                name="posthog_experiment_feature_flag_rule_id_uniq",
+            )
+        ]
 
     def __str__(self):
         return self.name or "Untitled"
@@ -282,9 +296,6 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
             "created_at": self.created_at,
         }
 
-    def get_stats_config(self, key: str):
-        return self.stats_config.get(key) if self.stats_config else None
-
     @classmethod
     def get_file_system_unfiled(cls, team: "Team", surface: str = DEFAULT_SURFACE) -> QuerySet["Experiment"]:
         base_qs = cls.objects.filter(team=team).exclude(deleted=True)
@@ -355,12 +366,10 @@ LEGACY_METRIC_KINDS: frozenset[str] = frozenset({"ExperimentTrendsQuery", "Exper
 
 def experiment_has_legacy_metrics(experiment: "Experiment") -> bool:
     """Check if experiment uses legacy metric formats."""
-    # Check inline metrics
     all_metrics = (experiment.metrics or []) + (experiment.metrics_secondary or [])
     if any(m.get("kind") in LEGACY_METRIC_KINDS for m in all_metrics):
         return True
 
-    # Check saved metrics
     if experiment.experimenttosavedmetric_set.filter(saved_metric__query__kind__in=LEGACY_METRIC_KINDS).exists():
         return True
 
@@ -402,7 +411,7 @@ class ExperimentHoldout(ModelActivityMixin, RootTeamMixin, models.Model):
         return self.filters[0]["rollout_percentage"] if self.filters else None
 
 
-class ExperimentSavedMetric(ModelActivityMixin, RootTeamMixin, models.Model):
+class ExperimentSavedMetric(Taggable, ModelActivityMixin, RootTeamMixin, models.Model):
     name = models.CharField(max_length=400)
     description = models.CharField(max_length=400, null=True, blank=True)
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
@@ -535,6 +544,9 @@ class ExperimentMetricsRecalculation(TeamScopedRootMixin, UUIDModel):
         EXPERIMENT_LAUNCH = "experiment_launch", "Experiment Launch"
         EXPERIMENT_STOP = "experiment_stop", "Experiment Stop"
         EXPERIMENT_UPDATE = "experiment_update", "Experiment Update"
+        # Written by the daily timeseries workflow, not by a user: a completed run assembled from the
+        # timeseries points of one daily run, so the latest read serves fresh data without a recompute.
+        TIMESERIES_SYNC = "timeseries_sync", "Timeseries Sync"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     experiment = models.ForeignKey("Experiment", on_delete=models.CASCADE)

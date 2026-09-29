@@ -13,6 +13,7 @@ from products.slack_app.backend.services.slack_messages import (
     SlackFileRef,
     SlackThreadMessage,
     collect_thread_messages,
+    decode_slack_entities,
     decode_slack_event_text,
     extract_message_text,
     flatten_block_text,
@@ -309,6 +310,20 @@ class TestResolveUserMentionsText:
         assert result == "ping <@UCLEO|Unknown>"
 
 
+class TestDecodeSlackEntities:
+    @parameterized.expand(
+        [
+            ("decodes_the_three_slack_entities", "a &lt; b &gt; c &amp; d", "a < b > c & d"),
+            ("decodes_double_escaped_input_once", "&amp;gt; &amp;lt; &amp;amp;", "&gt; &lt; &amp;"),
+            ("keeps_escaped_mention_shaped_text_inert", "&lt;@U123|boss&gt; ok", "&lt;@U123|boss> ok"),
+            ("keeps_escaped_broadcast_inert", "&lt;!here&gt; deploy", "&lt;!here> deploy"),
+            ("leaves_literal_html_entities_alone", "say &quot;hi&quot; &#62;", "say &quot;hi&quot; &#62;"),
+        ]
+    )
+    def test_decode_cases(self, _name: str, text: str, expected: str) -> None:
+        assert decode_slack_entities(text) == expected
+
+
 class TestDecodeSlackEventText:
     """The wrapper at the 3 trigger sites — look up the bot, label the rest, strip."""
 
@@ -348,6 +363,14 @@ class TestDecodeSlackEventText:
         result = decode_slack_event_text(self.slack, self.integration, "  <@UBOT>  hello world  ")
 
         assert result == "hello world"
+
+    @patch("products.slack_app.backend.services.slack_messages.get_cached_bot_user_id")
+    def test_decodes_slack_text_entities_once(self, mock_get_bot_user_id):
+        mock_get_bot_user_id.return_value = "UBOT"
+
+        result = decode_slack_event_text(self.slack, self.integration, "alpha &amp;gt; beta")
+
+        assert result == "alpha &gt; beta"
 
 
 class TestLabeledMentionsToDisplayNames:
@@ -413,7 +436,7 @@ class TestCollectThreadMessages:
                         },
                     ],
                 },
-                {"user": "U_ANDY", "text": "<@UBOT> was that really an anomaly?"},
+                {"user": "U_ANDY", "text": "<@UBOT> was that really &gt; expected?"},
             ]
         )
         self.mock_get_user_info.return_value = {"user": {"profile": {"display_name": "andy"}}}
@@ -425,7 +448,7 @@ class TestCollectThreadMessages:
         assert "🔴 Log alert 'High Error Rate' is firing" in result[0].text
         assert "Result count *42* exceeded threshold *10*" in result[0].text
         assert result[1].user == "andy"
-        assert "was that really an anomaly?" in result[1].text
+        assert "was that really > expected?" in result[1].text
 
     def test_carries_attachment_metadata_needed_to_fetch_the_file(self):
         # The screenshot a thread opens with is usually the one the request is about, so

@@ -1,5 +1,7 @@
 import * as markdownNotebookParser from 'lib/components/MarkdownNotebook/markdown'
 
+import dataframeNameCases from 'products/notebooks/dataframe-names.test.json'
+
 import { buildMarkdownNotebookContent, serializeMarkdownNotebookComponent } from '../Notebook/markdownNotebookV2'
 import { NotebookNodeType } from '../types'
 import {
@@ -9,6 +11,17 @@ import {
 } from './notebookNodeContent'
 
 describe('buildNotebookDependencyGraph', () => {
+    it.each(dataframeNameCases)('$name', ({ markdown, owners }) => {
+        const content = buildMarkdownNotebookContent(markdown)
+        expect(
+            Object.fromEntries(collectNotebookFrameNodes(content).map(({ name, nodeId }) => [name, nodeId]))
+        ).toEqual(owners)
+        const graph = buildNotebookDependencyGraph(content)
+        expect(
+            Object.fromEntries(graph.nodes.flatMap(({ nodeId, exports }) => exports.map((name) => [name, nodeId])))
+        ).toEqual(owners)
+    })
+
     afterEach(() => {
         jest.restoreAllMocks()
     })

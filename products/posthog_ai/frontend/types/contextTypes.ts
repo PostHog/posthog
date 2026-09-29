@@ -15,10 +15,18 @@ export interface AttachedContextItem {
     key?: string | number
     /** Optional human-readable label. */
     label?: string
+    /**
+     * Self-contained HTML the composer shows as an attachment thumbnail above the context chips, in a
+     * sandboxed iframe. Display only: it never enters the context blocks, so the agent still fetches the
+     * resource by `key`.
+     */
+    previewHtml?: string
     /** Free-text payload (used when there's no keyed resource, e.g. type 'text'). */
     value?: string
     /** Rendered into the context blocks as usual but never shown as a composer chip (so not dismissable either). */
     hidden?: boolean
+    /** Whether the user can dismiss the item from the composer. Defaults to true. */
+    dismissible?: boolean
     /**
      * Items sharing a `dismissGroup` are dismissed together: closing any chip in the group also
      * detaches the group's hidden items, so a chip never claims control it doesn't have. Dismissal

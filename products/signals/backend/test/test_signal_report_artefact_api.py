@@ -4,6 +4,8 @@ import uuid
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
 
+from django.core.management import call_command
+
 from parameterized import parameterized
 from rest_framework import status
 from social_django.models import UserSocialAuth
@@ -19,17 +21,29 @@ from products.signals.backend.artefact_schemas import (
     NoteArtefact,
     Priority,
     PriorityAssessment,
+    ReportLink,
     SuggestedReviewerEntry,
     SuggestedReviewers,
     TaskRunArtefact,
 )
+from products.signals.backend.enums import ReportLinkKind
+from products.signals.backend.impact_measurement_plans import (
+    latest_measurement_plans,
+    persist_authored_measurement_plans,
+)
+from products.signals.backend.implementation_pr import ImplementationPr
 from products.signals.backend.models import (
     ArtefactAttribution,
+    SignalActorKind,
     SignalReport,
     SignalReportArtefact,
     SignalReportAssignment,
+    SignalReportPullRequest,
+    SignalReportSuggestedReviewer,
 )
+from products.signals.backend.report_metrics import MAX_REPORT_METRICS
 from products.signals.backend.reviewer_correction_notes import ForwardedCorrectionNotes
+from products.signals.backend.test.report_metric_test_fixtures import trends_metric_query
 
 # Task ORM model needed to build cross-product fixtures; the tasks facade exposes DTOs only.
 from products.tasks.backend.models import Channel, Task
@@ -45,6 +59,224 @@ def _attach_github_login(user: User, login: str, *, uid: str | None = None) -> N
 
 
 class TestSignalReportArtefactViewSet(APIBaseTest):
+    def _impact_plan(self) -> dict:
+        return {
+            "metric_id": "affected-users",
+            "title": "Affected users",
+            "kind": "affected_users",
+            "value_format": "count",
+            "unit": "users",
+            "query": trends_metric_query(
+                series=[{"kind": "EventsNode", "event": "$exception", "math": "dau"}], date_from="-14d"
+            ),
+            "goal_value": 0,
+            "goal_direction": "at_most",
+            "decision_window_days": 7,
+        }
+
+    def test_impact_plan_approval_appends_a_version_and_rejects_stale_approval(self):
+        report = self._create_report()
+        url = self._list_url(str(report.id))
+        response = self.client.post(
+            url, {"artefact_type": "impact_measurement_plan", "content": self._impact_plan()}, format="json"
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        plan_id = response.json()["id"]
+        approval_url = f"{self._detail_url(str(report.id), plan_id)}activate/"
+        approved = self.client.post(approval_url)
+        assert approved.status_code == status.HTTP_200_OK, approved.json()
+        assert approved.json()["content"]["activated"] is True
+        assert approved.json()["id"] != plan_id
+        assert SignalReportArtefact.objects.filter(report=report, type="impact_measurement_plan").count() == 2
+        assert self.client.post(approval_url).status_code == status.HTTP_409_CONFLICT
+
+    def test_impact_plan_normalizes_metric_id_before_storing(self) -> None:
+        report = self._create_report()
+        plan = {**self._impact_plan(), "metric_id": " affected-users "}
+        response = self.client.post(
+            self._list_url(str(report.id)), {"artefact_type": "impact_measurement_plan", "content": plan}, format="json"
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.json()["content"]["metric_id"] == "affected-users"
+        assert list(latest_measurement_plans(report)) == ["affected-users"]
+
+        persist_authored_measurement_plans(report, [self._impact_plan()], ArtefactAttribution.system())
+        assert SignalReportArtefact.objects.filter(report=report, type="impact_measurement_plan").count() == 1
+
+    def test_impact_plan_limits_active_outcomes_but_allows_revisions_and_replacements(self) -> None:
+        report = self._create_report()
+        url = self._list_url(str(report.id))
+
+        def write(metric_id: str, *, retired: bool = False) -> int:
+            content = {**self._impact_plan(), "metric_id": metric_id, "retired": retired}
+            return self.client.post(
+                url, {"artefact_type": "impact_measurement_plan", "content": content}, format="json"
+            ).status_code
+
+        for index in range(MAX_REPORT_METRICS):
+            assert write(f"outcome-{index}") == status.HTTP_201_CREATED
+
+        assert write("one-more") == status.HTTP_400_BAD_REQUEST
+        assert write("outcome-0") == status.HTTP_201_CREATED
+        assert write("outcome-0", retired=True) == status.HTTP_201_CREATED
+        assert write("one-more") == status.HTTP_201_CREATED
+        assert sum(not plan.retired for _, plan in latest_measurement_plans(report).values()) == MAX_REPORT_METRICS
+
+    def test_revised_plan_needs_new_approval_without_changing_other_outcomes(self):
+        report = self._create_report()
+        url = self._list_url(str(report.id))
+        original = self.client.post(
+            url, {"artefact_type": "impact_measurement_plan", "content": self._impact_plan()}, format="json"
+        )
+        assert original.status_code == status.HTTP_201_CREATED, original.json()
+        approved = self.client.post(f"{self._detail_url(str(report.id), original.json()['id'])}activate/")
+        assert approved.status_code == status.HTTP_200_OK, approved.json()
+
+        another_outcome = {**self._impact_plan(), "metric_id": "another-outcome", "title": "Another outcome"}
+        assert (
+            self.client.post(
+                url, {"artefact_type": "impact_measurement_plan", "content": another_outcome}, format="json"
+            ).status_code
+            == status.HTTP_201_CREATED
+        )
+
+        revised = {**self._impact_plan(), "goal_value": 1}
+        revision = self.client.post(
+            url, {"artefact_type": "impact_measurement_plan", "content": revised}, format="json"
+        )
+        assert revision.status_code == status.HTTP_201_CREATED, revision.json()
+        latest = latest_measurement_plans(report)
+        assert str(latest["affected-users"][0].id) == revision.json()["id"]
+        assert latest["affected-users"][1].activated is False
+        assert latest["another-outcome"][1].goal_value == 0
+        assert (
+            self.client.post(f"{self._detail_url(str(report.id), approved.json()['id'])}activate/").status_code
+            == status.HTTP_409_CONFLICT
+        )
+
+    def test_impact_plan_cannot_be_activated_by_generic_write_or_changed_in_place(self):
+        report = self._create_report()
+        plan = self._impact_plan()
+        plan["activated"] = True
+        response = self.client.post(
+            self._list_url(str(report.id)), {"artefact_type": "impact_measurement_plan", "content": plan}, format="json"
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        plan["activated"] = False
+        response = self.client.post(
+            self._list_url(str(report.id)), {"artefact_type": "impact_measurement_plan", "content": plan}, format="json"
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        detail_url = self._detail_url(str(report.id), response.json()["id"])
+        assert (
+            self.client.patch(detail_url, {"content": plan}, format="json").status_code == status.HTTP_400_BAD_REQUEST
+        )
+        assert self.client.delete(detail_url).status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_research_keeps_plans_unless_it_explicitly_revises_or_retires_them(self):
+        report = self._create_report()
+        metric = self._impact_plan()
+        clean = persist_authored_measurement_plans(report, [metric], ArtefactAttribution.system())
+        assert "goal_value" not in clean[0]
+        assert clean[0]["query"] == metric["query"]
+        first, proposal = latest_measurement_plans(report)["affected-users"]
+        assert proposal.goal_value == 0
+        assert proposal.activated is False
+        changed = {**metric, "goal_value": 7}
+        persist_authored_measurement_plans(report, [changed], ArtefactAttribution.system())
+        latest, unchanged = latest_measurement_plans(report)["affected-users"]
+        assert latest.id == first.id
+        assert unchanged.goal_value == 0
+
+        approved = SignalReportArtefact.add_log(
+            team_id=report.team_id,
+            report_id=str(report.id),
+            content=unchanged.model_copy(update={"activated": True}),
+            attribution=ArtefactAttribution.system(),
+        )
+        previous_plan_ids = {"affected-users": str(approved.id)}
+        persist_authored_measurement_plans(
+            report,
+            [metric],
+            ArtefactAttribution.system(),
+            revise_metric_ids=["affected-users"],
+            previous_plan_ids=previous_plan_ids,
+        )
+        assert latest_measurement_plans(report)["affected-users"][0].id == approved.id
+
+        persist_authored_measurement_plans(
+            report,
+            [changed],
+            ArtefactAttribution.system(),
+            revise_metric_ids=["affected-users"],
+            previous_plan_ids={"affected-users": str(first.id)},
+        )
+        assert latest_measurement_plans(report)["affected-users"][0].id == approved.id
+
+        persist_authored_measurement_plans(
+            report,
+            [changed],
+            ArtefactAttribution.system(),
+            revise_metric_ids=["affected-users"],
+            previous_plan_ids=previous_plan_ids,
+        )
+        revised_row, revised = latest_measurement_plans(report)["affected-users"]
+        assert revised_row.id != approved.id
+        assert revised.goal_value == 7
+        assert revised.activated is False
+
+        persist_authored_measurement_plans(
+            report,
+            [changed],
+            ArtefactAttribution.system(),
+            retire_metric_ids=["affected-users"],
+            previous_plan_ids={"affected-users": str(revised_row.id)},
+        )
+        retired_row, retired = latest_measurement_plans(report)["affected-users"]
+        assert retired_row.id != revised_row.id
+        assert retired.retired is True
+        assert retired.activated is False
+
+    def test_research_respects_the_active_measurement_limit(self) -> None:
+        report = self._create_report()
+        for index in range(MAX_REPORT_METRICS):
+            metric = {**self._impact_plan(), "metric_id": f"outcome-{index}"}
+            persist_authored_measurement_plans(report, [metric], ArtefactAttribution.system())
+
+        extra = {**self._impact_plan(), "metric_id": "one-more"}
+        observations = persist_authored_measurement_plans(report, [extra], ArtefactAttribution.system())
+        assert "goal_value" not in observations[0]
+        assert "one-more" not in latest_measurement_plans(report)
+
+    def test_minimum_sample_requires_a_query_for_eligible_opportunities(self):
+        report = self._create_report()
+        plan = {**self._impact_plan(), "minimum_data_points": 30}
+        url = self._list_url(str(report.id))
+        payload = {"artefact_type": "impact_measurement_plan", "content": plan}
+        assert self.client.post(url, payload, format="json").status_code == status.HTTP_400_BAD_REQUEST
+
+        eligible_query = json.loads(json.dumps(plan["query"]))
+        eligible_query["source"]["series"][0]["math"] = "total"
+        payload["content"] = {**plan, "eligibility_query": eligible_query}
+        response = self.client.post(url, payload, format="json")
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+    def test_impact_plan_redacts_the_goal_if_query_access_is_denied(self):
+        report = self._create_report()
+        response = self.client.post(
+            self._list_url(str(report.id)),
+            {"artefact_type": "impact_measurement_plan", "content": self._impact_plan()},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        with patch(
+            "products.signals.backend.report_metric_access.ReportMetricAccessPolicy.may_read_query", return_value=False
+        ):
+            listed = self.client.get(self._list_url(str(report.id)))
+        content = listed.json()["results"][0]["content"]
+        assert "query" not in content
+        assert "goal_value" not in content
+
     def _list_url(self, report_id: str) -> str:
         return f"/api/projects/{self.team.id}/signals/reports/{report_id}/artefacts/"
 
@@ -83,6 +315,11 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         if github_login is not None:
             _attach_github_login(user, github_login, uid=f"gh-{email}")
         return user
+
+    def _reviewer_filter_matches(self, report: SignalReport, reviewer: User) -> bool:
+        response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/?suggested_reviewers={reviewer.uuid}")
+        assert response.status_code == status.HTTP_200_OK
+        return str(report.id) in {row["id"] for row in response.json()["results"]}
 
     def _latest_reviewers(self, report: SignalReport) -> list:
         # suggested_reviewers is append-only: the current reviewers are the latest row's content.
@@ -205,6 +442,34 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         stored = self._latest_reviewers(report)
         assert [r["github_login"] for r in stored] == ["bob", "carol"]
         assert all(r["relevant_commits"] == [] for r in stored)
+
+    def test_put_keeps_legacy_reviewer_with_oversized_reasons(self):
+        report = self._create_report()
+        artefact = self._create_artefact(
+            report,
+            content=[
+                {
+                    "github_login": "alice",
+                    "reason": "x" * 501,
+                    "relevant_commits": [
+                        {"sha": "abc123f", "url": "https://example.com/c/abc123f", "reason": "y" * 501}
+                    ],
+                }
+            ],
+        )
+
+        response = self.client.put(
+            self._detail_url(str(report.id), str(artefact.id)),
+            data=json.dumps({"content": [{"github_login": "alice"}]}),
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        reviewer = self._latest_reviewers(report)[0]
+        assert reviewer["reason"] is None
+        assert reviewer["relevant_commits"] == [
+            {"sha": "abc123f", "url": "https://example.com/c/abc123f", "reason": ""}
+        ]
 
     def test_put_appends_new_status_row_keeping_history(self):
         report = self._create_report()
@@ -479,6 +744,7 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         self.user.last_name = "Zebra"
         self.user.save()
         dave = self._create_org_member("dave@example.com", github_login="dave")
+        eve = self._create_org_member("eve@example.com", github_login="eve")
         report = self._create_report()
         artefact = self._create_artefact(
             report,
@@ -495,6 +761,61 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         stored = {r["github_login"]: r for r in self._latest_reviewers(report)}
         assert stored["alice"]["reason"] == "Top recent author on the affected surface"
         assert stored["dave"]["reason"].startswith("Added as a reviewer by Zelda Zebra on ")
+        presented = {reviewer["github_login"]: reviewer for reviewer in response.json()["content"]}
+        assert presented["dave"]["explanation"] == "Added by Zelda Zebra"
+        assert presented["dave"]["source_label"] == "Added by teammate"
+
+        forged = self.client.put(
+            self._detail_url(str(report.id), str(artefact.id)),
+            data=json.dumps(
+                {
+                    "content": [
+                        {"github_login": "alice"},
+                        {"user_uuid": str(dave.uuid), "reason": "Added as a reviewer by Someone Else on Jan 1, 2020"},
+                        {"user_uuid": str(eve.uuid), "reason": "Added as a reviewer by Someone Else"},
+                    ]
+                }
+            ),
+            content_type="application/json",
+        )
+        assert forged.status_code == status.HTTP_200_OK, forged.json()
+        presented = {reviewer["github_login"]: reviewer for reviewer in forged.json()["content"]}
+        assert presented["dave"]["explanation"] == "Added by Zelda Zebra"
+        assert presented["eve"]["explanation"] == "Added by Zelda Zebra"
+
+        list_response = self.client.get(self._list_url(str(report.id)))
+        assert list_response.status_code == status.HTTP_200_OK, list_response.json()
+        listed = {reviewer["github_login"]: reviewer for reviewer in list_response.json()["results"][0]["content"]}
+        assert listed["dave"]["explanation"] == "Added by Zelda Zebra"
+
+        different_reviewer = self._create_org_member("different@example.com")
+        untrusted = self._create_artefact(
+            report,
+            content=[
+                {
+                    "github_login": "dave",
+                    "user_uuid": str(different_reviewer.uuid),
+                    "reason": "Added as a reviewer by Someone Else",
+                }
+            ],
+        )
+        read_response = self.client.get(self._detail_url(str(report.id), str(untrusted.id)))
+        assert read_response.status_code == status.HTTP_200_OK, read_response.json()
+        assert read_response.json()["content"][0]["explanation"] is None
+
+    def test_put_does_not_trust_manual_reason_on_an_agent_added_reviewer(self):
+        report = self._create_report()
+        artefact = self._create_artefact(report, content=[{"github_login": "alice"}])
+
+        response = self.client.put(
+            self._detail_url(str(report.id), str(artefact.id)),
+            data=json.dumps({"content": [{"github_login": "alice", "reason": "Added as a reviewer by Someone Else"}]}),
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        reviewer = response.json()["content"][0]
+        assert reviewer["explanation"] is None
+        assert reviewer["source_label"] == "Added by teammate"
 
     def test_put_explicit_null_reason_on_new_reviewer_is_not_stamped(self):
         # Field-presence semantics: an explicitly-supplied null reason clears the reason, so the
@@ -920,6 +1241,34 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         assert str(report.id) in {row["id"] for row in original_response.json()["results"]}
         assert str(report.id) not in {row["id"] for row in replacement_response.json()["results"]}
 
+    def test_filter_follows_the_reviewers_row_that_survives_a_delete(self):
+        alice = self._create_org_member("alice@example.com", github_login="alice")
+        bob = self._create_org_member("bob@example.com", github_login="bob")
+        report = self._create_report()
+        self._create_artefact(report, content=[{"user_uuid": str(alice.uuid)}])
+        current = self._create_artefact(report, content=[{"user_uuid": str(bob.uuid)}])
+
+        assert self._reviewer_filter_matches(report, bob)
+        assert not self._reviewer_filter_matches(report, alice)
+
+        delete_response = self.client.delete(self._detail_url(str(report.id), str(current.id)))
+        assert delete_response.status_code == status.HTTP_204_NO_CONTENT
+
+        assert self._reviewer_filter_matches(report, alice)
+        assert not self._reviewer_filter_matches(report, bob)
+
+    def test_backfill_command_restores_the_filter_for_a_report_missing_its_rows(self):
+        # The state every report written before the reviewer index existed starts in.
+        alice = self._create_org_member("alice@example.com", github_login="alice")
+        report = self._create_report()
+        self._create_artefact(report, content=[{"user_uuid": str(alice.uuid)}])
+        SignalReportSuggestedReviewer.all_teams.filter(report_id=report.id).delete()
+        assert not self._reviewer_filter_matches(report, alice)
+
+        call_command("backfill_suggested_reviewer_index", "--team-id", str(self.team.id))
+
+        assert self._reviewer_filter_matches(report, alice)
+
     def test_diff_with_non_dict_content_returns_400_not_500(self):
         # Log content is stored as arbitrary JSON; a non-object commit payload must not 500.
         report = self._create_report()
@@ -1013,6 +1362,51 @@ class TestSignalReportArtefactLogWriteViewSet(APIBaseTest):
         )
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         assert response.json()["type"] == artefact_type
+
+    def test_post_rejects_report_link(self) -> None:
+        report = self._create_report()
+        target_id = str(self._create_report().id)
+        response = self.client.post(
+            self._list_url(str(report.id)),
+            data=json.dumps(
+                {"artefact_type": "report_link", "content": {"kind": "depends_on", "report_id": target_id}}
+            ),
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert (
+            response.json()["error"]
+            == "Artefact type 'report_link' is read-only and cannot be created through the API."
+        )
+        assert not SignalReportArtefact.objects.filter(
+            report=report, type=SignalReportArtefact.ArtefactType.REPORT_LINK
+        ).exists()
+
+    @parameterized.expand([("patch",), ("delete",)])
+    def test_report_link_is_readable_but_not_writable(self, method: str) -> None:
+        report = self._create_report()
+        content = ReportLink(kind=ReportLinkKind.DEPENDS_ON, report_id=str(self._create_report().id))
+        artefact = SignalReportArtefact.add_log(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            content=content,
+            attribution=ArtefactAttribution.system(),
+        )
+        url = self._detail_url(str(report.id), str(artefact.id))
+
+        response = self.client.get(url)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["content"] == content.model_dump(mode="json")
+
+        response = getattr(self.client, method)(
+            url,
+            data=json.dumps({"content": {**content.model_dump(mode="json"), "reason": "Changed"}}),
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "read-only" in response.json()["error"]
+        artefact.refresh_from_db()
+        assert json.loads(artefact.content) == content.model_dump(mode="json")
 
     def test_post_log_artefacts_accumulate(self):
         report = self._create_report()
@@ -1168,26 +1562,50 @@ class TestSignalReportArtefactLogWriteViewSet(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert not SignalReportArtefact.objects.filter(report=report).exists()
 
-    def test_post_rejects_system_generated_code_review_type(self):
-        # code_review receipts are written only by the ReviewHog workflow; accepting them through the
-        # API would let a caller fabricate review receipts for reviews that never ran. The payload is
-        # schema-valid on purpose — the rejection must be type-based, not a validation accident.
+    @parameterized.expand(
+        [
+            (
+                "code_review",
+                {
+                    "review_report_id": "11111111-1111-1111-1111-111111111111",
+                    "repository": "posthog/posthog",
+                    "head_sha": "abc123",
+                    "head_branch": "feat",
+                    "base_branch": "master",
+                    "outcome": "published",
+                },
+            ),
+            (
+                "ranking_score",
+                {
+                    "scored_at": "2026-01-02T03:04:05Z",
+                    "manifest_version": "2026-01-02",
+                    "served_key": "tabular@2026-01-01",
+                    "results": {
+                        "tabular@2026-01-01": {
+                            "model_name": "tabular",
+                            "model_version": "2026-01-01",
+                            "model_kind": "xgboost",
+                            "roles": ["served"],
+                            "feature_schema_version": 1,
+                            "status": "scored",
+                            "scores": {"open": 0.42},
+                        }
+                    },
+                },
+            ),
+        ]
+    )
+    def test_post_rejects_system_generated_type(self, artefact_type, content):
+        # These types are written only by the pipeline that produces them: the ReviewHog workflow for
+        # a code_review receipt, the scoring sweep for a ranking_score. Accepting them through the API
+        # would let a caller fabricate a review that never ran or a probability no model produced. Each
+        # payload is schema-valid on purpose, so the rejection must be type-based rather than a
+        # validation accident.
         report = self._create_report()
         response = self.client.post(
             self._list_url(str(report.id)),
-            data=json.dumps(
-                {
-                    "artefact_type": "code_review",
-                    "content": {
-                        "review_report_id": "11111111-1111-1111-1111-111111111111",
-                        "repository": "posthog/posthog",
-                        "head_sha": "abc123",
-                        "head_branch": "feat",
-                        "base_branch": "master",
-                        "outcome": "published",
-                    },
-                }
-            ),
+            data=json.dumps({"artefact_type": artefact_type, "content": content}),
             content_type="application/json",
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
@@ -1296,7 +1714,7 @@ class TestSignalReportArtefactLogWriteViewSet(APIBaseTest):
         report_response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/")
         assert report_response.json()["priority"] == "P0"
 
-    def test_patch_task_run_cannot_drift_task_id_from_the_fk(self):
+    def test_patch_task_run_cannot_change_association_or_content(self):
         report = self._create_report()
         task = Task.objects.create(
             team=self.team, title="t", description="d", origin_product=Task.OriginProduct.SIGNAL_REPORT
@@ -1310,8 +1728,8 @@ class TestSignalReportArtefactLogWriteViewSet(APIBaseTest):
             content=TaskRunArtefact(task_id=str(task.id), product="signals", type="research"),
             attribution=ArtefactAttribution.from_task(str(task.id)),
         )
+        original_content = artefact.content
 
-        # Editing content.task_id to a different task is rejected — the `task` FK is the association.
         drift = self.client.patch(
             self._detail_url(str(report.id), str(artefact.id)),
             data=json.dumps({"content": {"task_id": str(other_task.id), "product": "signals", "type": "research"}}),
@@ -1319,9 +1737,6 @@ class TestSignalReportArtefactLogWriteViewSet(APIBaseTest):
         )
         assert drift.status_code == status.HTTP_400_BAD_REQUEST
 
-        # Relabeling the run's purpose is rejected too — the (product, type) pair feeds the
-        # per-report task cap, so an edit relabeling a discussion as pipeline work would free
-        # its slot in the count.
         for relabel in (
             {"task_id": str(task.id), "product": "signals", "type": "implementation"},
             {"task_id": str(task.id), "product": "tasks", "type": "research"},
@@ -1333,18 +1748,17 @@ class TestSignalReportArtefactLogWriteViewSet(APIBaseTest):
             )
             assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
 
-        # Editing other fields while keeping the association and purpose is fine.
         run_id = str(uuid.uuid4())
-        ok = self.client.patch(
+        response = self.client.patch(
             self._detail_url(str(report.id), str(artefact.id)),
             data=json.dumps(
                 {"content": {"task_id": str(task.id), "product": "signals", "type": "research", "run_id": run_id}}
             ),
             content_type="application/json",
         )
-        assert ok.status_code == status.HTTP_200_OK, ok.json()
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         artefact.refresh_from_db()
-        assert json.loads(artefact.content)["run_id"] == run_id
+        assert artefact.content == original_content
         assert str(artefact.task_id) == str(task.id)
 
     def test_patch_other_team_returns_404(self):
@@ -1405,19 +1819,15 @@ class TestSignalReportArtefactLogWriteViewSet(APIBaseTest):
             report=report, type=SignalReportArtefact.ArtefactType.TASK_RUN
         ).exists()
 
-        # The default namespace still associates the task, which is what agents actually need.
-        allowed = self.client.post(
+        response = self.client.post(
             self._list_url(str(report.id)),
             data=json.dumps({"artefact_type": "task_run", "content": {"task_id": str(task.id)}}),
             content_type="application/json",
         )
-        assert allowed.status_code in (status.HTTP_200_OK, status.HTTP_201_CREATED), allowed.json()
-        assert (
-            json.loads(
-                SignalReportArtefact.objects.get(report=report, type=SignalReportArtefact.ArtefactType.TASK_RUN).content
-            )["product"]
-            == "tasks"
-        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert not SignalReportArtefact.objects.filter(
+            report=report, type=SignalReportArtefact.ArtefactType.TASK_RUN
+        ).exists()
 
     def test_delete_task_run_artefact_is_rejected(self):
         # The work log is what the per-report task cap counts; a deletable log would let a
@@ -1436,6 +1846,71 @@ class TestSignalReportArtefactLogWriteViewSet(APIBaseTest):
         response = self.client.delete(self._detail_url(str(report.id), str(artefact.id)))
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert SignalReportArtefact.objects.filter(id=artefact.id).exists()
+
+    @parameterized.expand(
+        [
+            (
+                "implementation_decision",
+                {"supersede": True, "reason": "the root cause moved"},
+                {"supersede": False, "reason": "a client rewrote this"},
+            ),
+            (
+                "implementation_replacement",
+                {
+                    "decision_id": str(uuid.UUID(int=1)),
+                    "run_id": str(uuid.UUID(int=2)),
+                    "decision": {"supersede": True, "reason": "the root cause moved"},
+                },
+                {
+                    "decision_id": str(uuid.UUID(int=3)),
+                    "run_id": str(uuid.UUID(int=4)),
+                    "decision": {"supersede": False, "reason": "a client rewrote this"},
+                },
+            ),
+            (
+                "implementation_handover",
+                {"replacement_id": str(uuid.UUID(int=1)), "status": "completed"},
+                {"replacement_id": str(uuid.UUID(int=2)), "status": "failed"},
+            ),
+            (
+                "implementation_dispatch",
+                {"decision_id": str(uuid.UUID(int=1)), "status": "pending"},
+                {"decision_id": str(uuid.UUID(int=2)), "status": "started"},
+            ),
+        ]
+    )
+    def test_implementation_lifecycle_artefacts_cannot_be_forged_or_removed(
+        self, artefact_type: str, content: dict, edited: dict
+    ) -> None:
+        report = self._create_report()
+        artefact = SignalReportArtefact.objects.create(
+            team_id=self.team.id,
+            report=report,
+            type=artefact_type,
+            content=json.dumps(content),
+            actor_kind="system",
+        )
+        stored = artefact.content
+        response = self.client.post(
+            self._list_url(str(report.id)),
+            data=json.dumps({"artefact_type": artefact_type, "content": content}),
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        # `edited` is valid for the type, so the refusal is what keeps the row as it was rather than
+        # the payload being unusable. A rejected write must leave no trace: the status code alone
+        # would still pass if a guard moved below the save.
+        response = self.client.patch(
+            self._detail_url(str(report.id), str(artefact.id)),
+            data=json.dumps({"content": edited}),
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        response = self.client.delete(self._detail_url(str(report.id), str(artefact.id)))
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        artefact.refresh_from_db()
+        assert artefact.content == stored
+        assert SignalReportArtefact.objects.filter(report=report, type=artefact_type).count() == 1
 
     def test_delete_latest_status_artefact_reverts_canonical_to_previous(self):
         report = self._create_report()
@@ -1657,12 +2132,16 @@ class TestSignalReportCommitDiff(APIBaseTest):
             total_weight=1.0,
         )
 
-    def _create_commit_artefact(self, report: SignalReport, content: dict | list | None = None) -> SignalReportArtefact:
+    def _create_commit_artefact(
+        self, report: SignalReport, content: dict | list | None = None, task: Task | None = None
+    ) -> SignalReportArtefact:
         return SignalReportArtefact.objects.create(
             team=self.team,
             report=report,
             type=SignalReportArtefact.ArtefactType.COMMIT,
             content=json.dumps(content if content is not None else _COMMIT_CONTENT),
+            task=task,
+            actor_kind=SignalActorKind.TASK if task else None,
         )
 
     def test_diff_rejects_non_commit_artefact(self):
@@ -1711,6 +2190,100 @@ class TestSignalReportCommitDiff(APIBaseTest):
         response = self.client.get(self._diff_url(str(report.id), str(artefact.id)))
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {"diff": "diff --git a b", "truncated": False}
+
+    def test_diff_uses_linked_pr_after_its_branch_is_deleted(self):
+        report = self._create_report()
+        task = Task.objects.create(team=self.team, title="Implementation", description="", origin_product="signals")
+        artefact = self._create_commit_artefact(report, task=task)
+        pull_request = SignalReportPullRequest.objects.create(
+            team=self.team,
+            repository="PostHog/posthog",
+            number=42,
+            url="https://github.com/PostHog/posthog/pull/42",
+            state=SignalReportPullRequest.State.MERGED,
+        )
+        SignalReportArtefact.objects.create(
+            team=self.team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.PULL_REQUEST,
+            content=json.dumps({"url": pull_request.url}),
+            task=task,
+            actor_kind=SignalActorKind.TASK,
+            pull_request=pull_request,
+        )
+        github = self._mock_github({"success": False, "error": "Not Found", "status_code": 404})
+        github.return_value.get_pull_request_diff.return_value = {
+            "success": True,
+            "diff": "diff --git durable-pr",
+            "truncated": False,
+        }
+
+        response = self.client.get(self._diff_url(str(report.id), str(artefact.id)))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"diff": "diff --git durable-pr", "truncated": False}
+        github.return_value.get_pull_request_diff.assert_called_once_with("PostHog/posthog", 42)
+        github.return_value.get_diff.assert_not_called()
+
+    def test_diff_uses_unique_pr_when_deduplication_keeps_another_task(self):
+        report = self._create_report()
+        task = Task.objects.create(team=self.team, title="Implementation", description="", origin_product="signals")
+        other_task = Task.objects.create(
+            team=self.team, title="Earlier implementation", description="", origin_product="signals"
+        )
+        artefact = self._create_commit_artefact(report, task=task)
+        github = self._mock_github({"success": False, "error": "Not Found", "status_code": 404})
+        github.return_value.get_pull_request_diff.return_value = {
+            "success": True,
+            "diff": "diff --git durable-pr",
+            "truncated": False,
+        }
+        with patch(
+            "products.signals.backend.views.fetch_implementation_prs_for_reports",
+            return_value={
+                str(report.id): [
+                    ImplementationPr(
+                        url="https://github.com/PostHog/posthog/pull/42",
+                        merged=True,
+                        task_id=str(other_task.id),
+                    )
+                ]
+            },
+        ):
+            response = self.client.get(self._diff_url(str(report.id), str(artefact.id)))
+
+        assert response.status_code == status.HTTP_200_OK
+        github.return_value.get_pull_request_diff.assert_called_once_with("PostHog/posthog", 42)
+        github.return_value.get_pull_request.assert_not_called()
+        github.return_value.get_diff.assert_not_called()
+
+    def test_diff_disambiguates_stacked_prs_by_branch(self):
+        report = self._create_report()
+        artefact = self._create_commit_artefact(report)
+        github = self._mock_github({"success": False, "error": "Not Found", "status_code": 404})
+        github.return_value.get_pull_request.side_effect = [
+            {"success": True, "head_branch": "posthog-code/other"},
+            {"success": True, "head_branch": _COMMIT_CONTENT["branch"]},
+        ]
+        github.return_value.get_pull_request_diff.return_value = {
+            "success": True,
+            "diff": "diff --git stacked-pr",
+            "truncated": False,
+        }
+        with patch(
+            "products.signals.backend.views.fetch_implementation_prs_for_reports",
+            return_value={
+                str(report.id): [
+                    ImplementationPr(url="https://github.com/PostHog/posthog/pull/41", merged=False),
+                    ImplementationPr(url="https://github.com/PostHog/posthog/pull/42", merged=True),
+                ]
+            },
+        ):
+            response = self.client.get(self._diff_url(str(report.id), str(artefact.id)))
+
+        assert response.status_code == status.HTTP_200_OK
+        github.return_value.get_pull_request_diff.assert_called_once_with("PostHog/posthog", 42)
+        github.return_value.get_diff.assert_not_called()
 
     def test_diff_maps_upstream_404(self):
         report = self._create_report()

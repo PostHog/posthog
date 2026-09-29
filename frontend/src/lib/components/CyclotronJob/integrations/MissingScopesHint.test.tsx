@@ -45,7 +45,7 @@ describe('MissingScopesHint', () => {
     ])('given %s', async (_name, scope, expectHint) => {
         useMocks({
             get: {
-                '/api/environments/:team_id/integrations': () => [200, { results: [slackIntegration(scope)] }],
+                '/api/projects/:team_id/integrations': () => [200, { results: [slackIntegration(scope)] }],
             },
         })
         initKeaTests()
@@ -70,7 +70,7 @@ describe('MissingScopesHint', () => {
         let loads = 0
         useMocks({
             get: {
-                '/api/environments/:team_id/integrations': () => {
+                '/api/projects/:team_id/integrations': () => {
                     loads += 1
                     return [200, { results: [] }]
                 },

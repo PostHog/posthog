@@ -48,6 +48,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         onRecordingDeleted,
         playNextRecording,
         skipToFirstMatchingEvent,
+        exposureSkipExperimentId,
     } = props
 
     const playerRef = useRef<HTMLDivElement>(null)
@@ -69,6 +70,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         onRecordingDeleted,
         playNextRecording,
         skipToFirstMatchingEvent,
+        exposureSkipExperimentId,
     }
 
     return (

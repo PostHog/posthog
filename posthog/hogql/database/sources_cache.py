@@ -57,6 +57,7 @@ def sources_weight(sources: "HogQLDatabaseSources") -> int:
             len(sources.saved_queries),
             len(sources.endpoint_saved_queries),
             len(sources.revenue_views),
+            len(sources.revenue_source_handles),
             len(sources.warehouse_tables),
             len(sources.data_warehouse_joins),
             len(sources.data_warehouse_expressions),

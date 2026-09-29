@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from products.alerts.backend.destination_configs import DestinationType, EventKindSpec
+from products.alerts.backend.facade.contracts import DestinationType, EventKindSpec
 
 EventKind = Literal["firing", "resolved", "broken", "errored", "match"]
 VISION_DESTINATION_TYPES = (DestinationType.SLACK, DestinationType.WEBHOOK)
@@ -140,6 +140,7 @@ EVENT_KIND_CONFIG: dict[EventKind, EventKindSpec] = {
                 "scanner_id": "{event.properties.scanner_id}",
                 "scanner_name": "{event.properties.scanner_name}",
                 "matched_count": "{event.properties.matched_count}",
+                "summary": "{event.properties.summary_text}",
                 "observation_ids": "{event.properties.observation_ids}",
                 "observations_url": _OBSERVATIONS_URL,
                 "alert_url": _ALERT_URL,
@@ -159,9 +160,3 @@ VISION_ALERT_SLACK_CONTEXT_ELEMENTS = (
     "Scanner: {event.properties.scanner_name_mrkdwn}",
     "Project: <{project.url}|{project.name}>",
 )
-
-
-def escape_slack_mrkdwn(text: str) -> str:
-    """User-editable values interpolated into Slack mrkdwn must not carry control
-    syntax like <!channel> or <url|label>; webhooks keep the raw value."""
-    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")

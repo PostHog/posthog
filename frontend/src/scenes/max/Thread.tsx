@@ -75,18 +75,18 @@ import {
 } from 'products/posthog_ai/frontend/api/logics'
 import {
     AssistantFailureMessage,
-    ContextUsageBar,
+    ContextUsageChip,
     MarkdownMessage,
     MessageTemplate,
     ReasoningAnswer,
     RecordingsWidget,
-    ReplayVisionScanWidget,
     ThreadView,
     TurnFeedbackActions,
     type TurnTrailer,
 } from 'products/posthog_ai/frontend/api/primitives'
 import { LogEntry } from 'products/posthog_ai/frontend/lib/parse-logs'
 import { isPiTaskRuntime } from 'products/posthog_ai/frontend/types/taskTypes'
+import { ReplayVisionScanWidget } from 'products/replay_vision/frontend/posthogAi/ReplayVisionScanWidget'
 
 import { LangGraphActivity, ShimmeringContent } from './components/Activity'
 import { FeedbackDisplay } from './components/FeedbackDisplay'
@@ -405,8 +405,8 @@ export function SandboxComposerSurfaces(): JSX.Element | null {
             logic={runStreamLogic}
             props={{ streamKey: sandboxConversationKey, conversationId: sandboxConversationKey }}
         >
-            <div className="w-full max-w-180 self-center mx-auto">
-                <ContextUsageBar />
+            <div className="w-full max-w-180 self-center mx-auto flex justify-end">
+                <ContextUsageChip />
             </div>
         </BindLogic>
     )

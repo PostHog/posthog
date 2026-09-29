@@ -226,7 +226,8 @@ def _rebuild_batch(redis: redis_lib.Redis, team_ids: list[int]) -> dict[int, boo
     results: dict[int, bool] = {}
     for team_id in team_ids:
         team = teams_by_id.get(team_id)
-        if team is None:
+        # batch_load leaves out a team whose own build failed.
+        if team is None or team_id not in payloads:
             results[team_id] = _record_result(redis, team_id, ok=False)
             continue
         payload = payloads[team_id]

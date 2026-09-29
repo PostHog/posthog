@@ -2,7 +2,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from temporalio.client import WorkflowExecutionStatus
@@ -481,7 +481,7 @@ class TestTakeOverStaleRunningJob:
         mock_conn_cls.connect.side_effect = RuntimeError("connection refused")
         assert self._run() is False
 
-    @freeze_time("2026-01-01T12:00:00Z")
+    @time_machine.travel("2026-01-01T12:00:00Z", tick=False)
     @patch(f"{MODULE}._release_and_acquire", return_value=True)
     @patch(f"{MODULE}.update_external_job_status")
     @patch(f"{MODULE}.BatchQueue")

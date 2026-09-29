@@ -108,8 +108,7 @@ export function useInboxReportDismissAction(
           <Button
             type="button"
             variant="outline"
-            size="icon-xs"
-            className="h-7 w-7"
+            size="icon-sm"
             aria-label="Dismiss this report for everyone in the project"
             disabled={isPending}
             onClick={() => setOpen(true)}

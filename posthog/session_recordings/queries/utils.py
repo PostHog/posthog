@@ -1,5 +1,5 @@
 import re
-from typing import NamedTuple
+from typing import Any, NamedTuple
 
 import structlog
 import posthoganalytics
@@ -8,6 +8,7 @@ from rest_framework.exceptions import ValidationError
 from posthog.schema import (
     ActionsNode,
     CohortPropertyFilter,
+    DataWarehouseNode,
     EventPropertyFilter,
     EventsNode,
     FilterLogicalOperator,
@@ -23,7 +24,9 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.property import action_to_expr
 
-from posthog.models import Team
+from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_DATA_WAREHOUSE
+from posthog.hogql_queries.legacy_compatibility.clean_properties import clean_entity_properties
+from posthog.models import Entity, Team
 from posthog.types import AnyPropertyFilter
 
 from products.actions.backend.models.action import Action
@@ -43,6 +46,22 @@ def is_anonymous_cohort_fix_enabled(team: Team) -> bool:
     """
     try:
         return bool(posthoganalytics.feature_enabled(ANONYMOUS_USER_COHORT_FIX_FLAG, str(team.pk)))
+    except Exception:
+        return False
+
+
+REPLAY_PERSON_PROPERTY_CHECK_FLAG = "replay-list-person-property-check"
+
+
+def is_person_property_check_enabled(team: Team) -> bool:
+    """Gate for the post-selection person-property check on the recordings list.
+
+    When on, sessions whose person matches the positive form of a negative person-property
+    filter are dropped from the fetched page. This closes the PoE-mode gap where a session
+    with no events can never enter the events-based negative blocklist.
+    """
+    try:
+        return bool(posthoganalytics.feature_enabled(REPLAY_PERSON_PROPERTY_CHECK_FLAG, str(team.pk)))
     except Exception:
         return False
 
@@ -90,6 +109,18 @@ def is_group_property(p: AnyPropertyFilter) -> bool:
 def is_cohort_property(p: AnyPropertyFilter) -> bool:
     p_type = getattr(p, "type", None)
     return bool(p_type and "cohort" in p_type)
+
+
+def is_negative_prop(prop: AnyPropertyFilter) -> bool:
+    if not hasattr(prop, "operator"):
+        return False
+    if prop.operator in NEGATIVE_OPERATORS:
+        return True
+    # NOT_IN is intentionally omitted from NEGATIVE_OPERATORS for event/person filters
+    # (it has different semantics there), but for cohort filters it IS the negative form.
+    if is_cohort_property(prop) and prop.operator == PropertyOperator.NOT_IN:
+        return True
+    return False
 
 
 def is_session_property(p: AnyPropertyFilter) -> bool:
@@ -166,6 +197,30 @@ def _strip_person_and_event_and_cohort_properties(
 
 def poe_is_active(team: Team) -> bool:
     return team.person_on_events_mode is not None and team.person_on_events_mode != PersonsOnEventsMode.DISABLED
+
+
+def _node_from_entity(raw_entity: dict[str, Any]) -> EventsNode | ActionsNode | DataWarehouseNode:
+    entity = Entity(raw_entity)
+    # Replay selects sessions and never aggregates, so the entity's math fields have no effect on
+    # the node and are left out.
+    shared: dict[str, Any] = {
+        "name": entity.name,
+        "custom_name": entity.custom_name,
+        "properties": clean_entity_properties(raw_entity.get("properties")),
+    }
+
+    if entity.type == TREND_FILTER_TYPE_ACTIONS:
+        return ActionsNode(id=entity.id, **shared)
+    if entity.type == TREND_FILTER_TYPE_DATA_WAREHOUSE:
+        return DataWarehouseNode(
+            id=entity.id,
+            id_field=entity.id_field,
+            distinct_id_field=entity.distinct_id_field,
+            timestamp_field=entity.timestamp_field,
+            table_name=entity.table_name,
+            **shared,
+        )
+    return EventsNode(event=entity.id, **shared)
 
 
 def _entity_to_expr(entity: EventsNode | ActionsNode, team: Team) -> ast.Expr:

@@ -106,12 +106,6 @@ export interface stepWaitUntilTimeWindowLogicActions {
                   }[]
               }
             | {
-                  reason?: string | undefined
-              }
-            | {
-                  type: 'schedule'
-              }
-            | {
                   conditions: {
                       filters: {
                           actions?: any[] | undefined
@@ -120,12 +114,18 @@ export interface stepWaitUntilTimeWindowLogicActions {
                       }
                       name?: string | undefined
                   }[]
-                  delay_duration?: string | undefined
+              }
+            | {
+                  reason?: string | undefined
+              }
+            | {
+                  type: 'schedule'
               }
             | {
                   filters: {
                       all_roles_unassigned?: boolean | undefined
                       assigned_to_user_ids?: number[] | undefined
+                      assignment_status?: 'all' | 'assigned' | 'unassigned' | undefined
                       audience_type?: 'accounts' | 'persons' | undefined
                       properties: any[]
                       tag_names?: string[] | undefined
@@ -403,12 +403,6 @@ export interface stepWaitUntilTimeWindowLogicActions {
                   }[]
               }
             | {
-                  reason?: string | undefined
-              }
-            | {
-                  type: 'schedule'
-              }
-            | {
                   conditions: {
                       filters: {
                           actions?: any[] | undefined
@@ -417,7 +411,12 @@ export interface stepWaitUntilTimeWindowLogicActions {
                       }
                       name?: string | undefined
                   }[]
-                  delay_duration?: string | undefined
+              }
+            | {
+                  reason?: string | undefined
+              }
+            | {
+                  type: 'schedule'
               }
             | {
                   filters: {
@@ -440,6 +439,7 @@ export interface stepWaitUntilTimeWindowLogicActions {
                   filters: {
                       all_roles_unassigned?: boolean | undefined
                       assigned_to_user_ids?: number[] | undefined
+                      assignment_status?: 'all' | 'assigned' | 'unassigned' | undefined
                       audience_type?: 'accounts' | 'persons' | undefined
                       properties: any[]
                       tag_names?: string[] | undefined

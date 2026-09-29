@@ -6,11 +6,12 @@ import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedAr
 import { TeamMembershipLevel } from 'lib/constants'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { capitalizeFirstLetter, wordPluralize } from 'lib/utils/strings'
-import { GroupsIntroduction } from 'scenes/groups/GroupsIntroduction'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { groupsModel } from '~/models/groupsModel'
 import { CustomerAnalyticsConfig } from '~/queries/schema/schema-general'
+
+import { GroupsIntroduction } from 'products/groups/frontend/components/GroupsIntroduction'
 
 import { CustomPropertiesConfig } from './CustomPropertiesConfig'
 import { RelationshipsConfig } from './RelationshipsConfig'

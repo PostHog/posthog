@@ -1,7 +1,7 @@
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import patch
 
@@ -71,7 +71,7 @@ from products.customer_analytics.backend.test.factories import create_account, c
 from products.notebooks.backend.models import Notebook, ResourceNotebook
 
 
-@freeze_time("2026-01-15T12:00:00Z")
+@time_machine.travel("2026-01-15T12:00:00Z", tick=False)
 class TestAccountsTableQueryRunner(BaseTest):
     def _run(self, query: AccountsTableQuery) -> AccountsTableQueryResponse:
         return AccountsTableQueryRunner(query=query, team=self.team, user=self.user).calculate()

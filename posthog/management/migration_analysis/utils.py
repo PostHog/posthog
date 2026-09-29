@@ -334,6 +334,17 @@ def _extract_model_name_from_table(table_name: str, app_label: Optional[str] = N
     return model_name
 
 
+def _field_owns_column(state_field_name: str, column_name: str) -> bool:
+    """True when a field removed from Django state owns the column a later migration drops.
+
+    A foreign key needs the suffix: state calls the field `owner`, and the column it owns is
+    `owner_id`. Django refuses a second field named `owner_id` on a model that already has
+    `owner`, so the suffix cannot match a different field by accident.
+    """
+    state_field_name = state_field_name.lower()
+    return column_name.lower() in (state_field_name, f"{state_field_name}_id")
+
+
 def _migration_removed_from_state(
     migration: Any, target_type: str, model_name: str, field_name: Optional[str] = None
 ) -> bool:
@@ -378,7 +389,7 @@ def _migration_removed_from_state(
                 if (
                     removed_model_name.lower() == model_name.lower()
                     and field_name
-                    and removed_field_name.lower() == field_name.lower()
+                    and _field_owns_column(removed_field_name, field_name)
                 ):
                     return True
 

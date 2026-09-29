@@ -1,9 +1,12 @@
+import hashlib
+import secrets
 from typing import cast
 from urllib.parse import quote, urlencode, urlparse
+from uuid import UUID
 
 from django.conf import settings
 from django.core import signing
-from django.db import transaction
+from django.db import connection, transaction
 from django.http import HttpResponse, HttpResponseRedirect
 
 import structlog
@@ -13,6 +16,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.exceptions_capture import capture_exception
+from posthog.helpers.oauth_pending_connection import shared_cookie_domain
 from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_integration import OrganizationIntegration
@@ -31,10 +35,14 @@ ALLOWED_REDIRECT_DOMAINS = {
 
 CONNECT_SESSION_TIMEOUT = 600  # 10 minutes
 CONNECT_SALT = "vercel_connect"
+CONNECT_NONCE_COOKIE_PREFIX = "ph_vercel_connect_"
+CONNECT_NONCE_COOKIE_PATH = "/api/vercel/connect"
+SESSION_INVALID_MESSAGE = "Session expired or invalid. Please try linking again from Vercel."
+_BROWSER_NONCE_KEY = "browser_nonce"
 
 
-def _sign_connect_session(data: dict) -> str:
-    return encrypt_payload(data, salt=CONNECT_SALT, jti=True)
+def _sign_connect_session(data: dict, browser_nonce: str) -> str:
+    return encrypt_payload({**data, _BROWSER_NONCE_KEY: browser_nonce}, salt=CONNECT_SALT, jti=True)
 
 
 def _load_connect_session(token: str) -> dict:
@@ -42,6 +50,59 @@ def _load_connect_session(token: str) -> dict:
         return decrypt_payload(token, salt=CONNECT_SALT, ttl=CONNECT_SESSION_TIMEOUT)
     except InvalidToken:
         raise signing.BadSignature("Invalid or expired token")
+
+
+def _browser_nonce_cookie_name(browser_nonce: str) -> str:
+    # One cookie per link flow, so a second flow in the same browser does not replace the first flow's cookie.
+    return CONNECT_NONCE_COOKIE_PREFIX + hashlib.sha256(browser_nonce.encode()).hexdigest()[:16]
+
+
+def _set_browser_nonce_cookie(request: Request, response: HttpResponse, browser_nonce: str) -> None:
+    response.set_cookie(
+        _browser_nonce_cookie_name(browser_nonce),
+        browser_nonce,
+        max_age=CONNECT_SESSION_TIMEOUT,
+        path=CONNECT_NONCE_COOKIE_PATH,
+        # The link page can run on the other cloud region, so the cookie must reach both regions.
+        domain=shared_cookie_domain(request),
+        secure=settings.SESSION_COOKIE_SECURE,
+        httponly=True,
+        samesite="Lax",
+    )
+
+
+def _clear_browser_nonce_cookie(request: Request, response: HttpResponse, browser_nonce: str) -> None:
+    response.delete_cookie(
+        _browser_nonce_cookie_name(browser_nonce),
+        path=CONNECT_NONCE_COOKIE_PATH,
+        domain=shared_cookie_domain(request),
+        samesite="Lax",
+    )
+
+
+def _load_browser_bound_session(request: Request, token: str) -> dict:
+    try:
+        session = _load_connect_session(token)
+    except signing.BadSignature:
+        raise exceptions.ValidationError(SESSION_INVALID_MESSAGE)
+
+    session_nonce = session.get(_BROWSER_NONCE_KEY)
+    if not isinstance(session_nonce, str):
+        reason = "token_without_nonce"
+    else:
+        cookie_nonce = request.COOKIES.get(_browser_nonce_cookie_name(session_nonce), "")
+        if not cookie_nonce:
+            reason = "missing_cookie"
+        elif secrets.compare_digest(cookie_nonce.encode(), session_nonce.encode()):
+            return session
+        else:
+            reason = "nonce_mismatch"
+
+    capture_exception(
+        Exception("Vercel connect: session used by a browser that did not start it"),
+        {"reason": reason, "integration": "vercel"},
+    )
+    raise exceptions.ValidationError(SESSION_INVALID_MESSAGE)
 
 
 def _mark_token_used(jti: str) -> bool:
@@ -83,6 +144,48 @@ def _is_installation_orphaned(integration: OrganizationIntegration) -> bool:
         return not client.check_installation_active(installation_id)
     except APIError:
         return False
+
+
+def _lock_vercel_links(organization_id: UUID) -> None:
+    # Serializes orphan cleanup with link creation for one organization. The lock is transaction-scoped,
+    # so call it inside `transaction.atomic()` and never around the Vercel network call.
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", [f"vercel-connect:{organization_id}"])
+
+
+def _mapped_team_ids(integration: OrganizationIntegration) -> set[int] | None:
+    mapping = integration.config.get("environment_mapping")
+    if not mapping:
+        return None
+    return {team_id for team_id in mapping.values() if isinstance(team_id, int)}
+
+
+def _delete_orphaned_integration(integration: OrganizationIntegration) -> None:
+    with transaction.atomic():
+        _lock_vercel_links(integration.organization_id)
+        if not OrganizationIntegration.objects.filter(pk=integration.pk).exists():
+            return
+
+        # A resource records its team, not its installation, so a resource is safe to delete only when no
+        # other installation claims its team. A resource left behind blocks the next link attempt, because
+        # `complete` rejects a team that still has one.
+        claimed_team_ids: set[int] = set()
+        for sibling in OrganizationIntegration.objects.filter(
+            organization_id=integration.organization_id,
+            kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
+        ).exclude(pk=integration.pk):
+            sibling_team_ids = _mapped_team_ids(sibling)
+            if sibling_team_ids is None:
+                # A sibling without a mapping may own any team, so no resource is safe to delete.
+                integration.delete()
+                return
+            claimed_team_ids |= sibling_team_ids
+
+        Integration.objects.filter(
+            team__organization_id=integration.organization_id,
+            kind=Integration.IntegrationKind.VERCEL,
+        ).exclude(team_id__in=claimed_team_ids).delete()
+        integration.delete()
 
 
 class VercelConnectCallbackViewSet(viewsets.GenericViewSet):
@@ -131,6 +234,7 @@ class VercelConnectCallbackViewSet(viewsets.GenericViewSet):
             )
             raise exceptions.AuthenticationFailed("Vercel authentication failed")
 
+        browser_nonce = secrets.token_urlsafe(32)
         session_token = _sign_connect_session(
             {
                 "access_token": token_response.access_token,
@@ -140,16 +244,20 @@ class VercelConnectCallbackViewSet(viewsets.GenericViewSet):
                 "team_id": token_response.team_id,
                 "configuration_id": configuration_id,
                 "next_url": next_url,
-            }
+            },
+            browser_nonce=browser_nonce,
         )
 
         link_url = f"/connect/vercel/link?{urlencode({'session': session_token})}"
 
         if not request.user.is_authenticated:
             login_url = f"/login?next={quote(link_url)}"
-            return HttpResponseRedirect(redirect_to=login_url)
+            response = HttpResponseRedirect(redirect_to=login_url)
         else:
-            return HttpResponseRedirect(redirect_to=link_url)
+            response = HttpResponseRedirect(redirect_to=link_url)
+
+        _set_browser_nonce_cookie(request, response, browser_nonce)
+        return response
 
 
 class EnvironmentMappingSerializer(serializers.Serializer):
@@ -183,10 +291,7 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
         preview_team_id = env_mapping.get("preview", production_team_id)
         development_team_id = env_mapping.get("development", production_team_id)
 
-        try:
-            cached_data = _load_connect_session(session_key)
-        except signing.BadSignature:
-            raise exceptions.ValidationError("Session expired or invalid. Please try linking again from Vercel.")
+        cached_data = _load_browser_bound_session(request, session_key)
 
         jti = cached_data.get("jti")
         if not jti or not _mark_token_used(jti):
@@ -219,7 +324,7 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
                     organization_id=str(organization_id),
                     integration="vercel",
                 )
-                existing.delete()
+                _delete_orphaned_integration(existing)
             else:
                 raise exceptions.ValidationError(
                     "This organization already has a Vercel integration. "
@@ -241,7 +346,8 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
         production_team = teams_by_id[production_team_id]
 
         with transaction.atomic():
-            OrganizationIntegration.objects.create(
+            _lock_vercel_links(organization.id)
+            org_integration = OrganizationIntegration.objects.create(
                 organization=organization,
                 kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
                 integration_id=installation_id,
@@ -281,7 +387,7 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
         from ee.vercel.integration import VercelIntegration
 
         production_resource = resources[production_team_id]
-        secrets = self._build_env_secrets(teams_by_id, production_team_id, preview_team_id, development_team_id)
+        env_secrets = self._build_env_secrets(teams_by_id, production_team_id, preview_team_id, development_team_id)
 
         client = VercelAPIClient(bearer_token=cached_data["access_token"])
         import_result = client.import_resource(
@@ -289,15 +395,28 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
             resource_id=str(production_resource.pk),
             product_id="posthog",
             name=production_team.name,
-            secrets=secrets,
+            secrets=env_secrets,
         )
         if not import_result.success:
             logger.error(
                 "Failed to import resource to Vercel",
                 error=import_result.error,
+                status_code=import_result.status_code,
+                error_detail=import_result.error_detail,
                 installation_id=installation_id,
                 resource_id=str(production_resource.pk),
                 integration="vercel",
+            )
+            with transaction.atomic():
+                org_integration.delete()
+                for resource in resources.values():
+                    resource.delete()
+            if import_result.status_code is not None:
+                raise exceptions.ValidationError(
+                    f"Vercel rejected the link (HTTP {import_result.status_code}). Start the link again from Vercel."
+                )
+            raise exceptions.ValidationError(
+                f"Vercel did not accept the link ({import_result.error}). Start the link again from Vercel."
             )
 
         VercelIntegration.bulk_sync_feature_flags_to_vercel(production_team)
@@ -311,7 +430,7 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
             integration="vercel",
         )
 
-        return Response(
+        response = Response(
             {
                 "status": "linked",
                 "organization_id": str(organization_id),
@@ -320,6 +439,8 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
             },
             status=201,
         )
+        _clear_browser_nonce_cookie(request, response, cached_data[_BROWSER_NONCE_KEY])
+        return response
 
     @staticmethod
     def _build_env_secrets(
@@ -339,9 +460,9 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
         all_same = production_id == preview_id == development_id
         host = absolute_uri()
 
-        secrets: list[dict] = []
+        env_secrets: list[dict] = []
         for prefix in CLIENT_ENV_PREFIXES:
-            secrets.append(
+            env_secrets.append(
                 {
                     "name": f"{prefix}POSTHOG_PROJECT_TOKEN",
                     "value": prod_team.api_token,
@@ -357,8 +478,8 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
                     ),
                 }
             )
-            secrets.append({"name": f"{prefix}POSTHOG_HOST", "value": host})
-        return secrets
+            env_secrets.append({"name": f"{prefix}POSTHOG_HOST", "value": host})
+        return env_secrets
 
     @decorators.action(detail=False, methods=["get"], url_path="session")
     def session_info(self, request: Request) -> Response:
@@ -366,10 +487,7 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
         if not session_key:
             raise exceptions.ValidationError("Missing session parameter")
 
-        try:
-            cached_data = _load_connect_session(session_key)
-        except signing.BadSignature:
-            raise exceptions.ValidationError("Session expired or invalid. Please try linking again from Vercel.")
+        cached_data = _load_browser_bound_session(request, session_key)
 
         user = cast(User, request.user)
         memberships = OrganizationMembership.objects.filter(
@@ -395,7 +513,7 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
                     organization_id=str(org_id),
                     integration="vercel",
                 )
-                integration.delete()
+                _delete_orphaned_integration(integration)
                 orphaned_org_ids.add(org_id)
 
         teams_by_org: dict = {}

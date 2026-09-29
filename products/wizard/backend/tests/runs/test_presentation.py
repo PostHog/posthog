@@ -69,6 +69,12 @@ class TestWizardRunViewSet(APIBaseTest):
                 "id": response.json()["id"],
                 "team_id": self.team.id,
                 "created_by_id": self.user.id,
+                "created_by": {
+                    "id": self.user.id,
+                    "first_name": self.user.first_name,
+                    "last_name": self.user.last_name,
+                    "email": self.user.email,
+                },
                 "environment": "local",
                 "workspace": {"type": "local_folder", "project_name": "example-project"},
                 "program": {
@@ -128,6 +134,38 @@ class TestWizardRunViewSet(APIBaseTest):
 
         self.assertEqual(first.status_code, status.HTTP_200_OK)
         self.assertEqual(second.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
+    def test_list_runs_filters_by_status(self) -> None:
+        run_ids = []
+        for project_name in ("first-project", "second-project", "third-project"):
+            response = self.client.post(
+                self._url(),
+                {
+                    "program_id": "posthog-integration",
+                    "environment": "local",
+                    "workspace": {"type": "local_folder", "project_name": project_name},
+                },
+                format="json",
+            )
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+            run_ids.append(response.json()["id"])
+
+        WizardRun.objects.for_team(self.team.id).filter(id=run_ids[0]).update(status="running")
+        WizardRun.objects.for_team(self.team.id).filter(id=run_ids[1]).update(status="completed")
+
+        response = self.client.get(f"{self._url()}?status=created,running&limit=1")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 2)
+        self.assertEqual([run["id"] for run in response.json()["results"]], [run_ids[2]])
+
+        completed_response = self.client.get(f"{self._url()}?status=completed")
+        self.assertEqual(completed_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(completed_response.json()["count"], 1)
+        self.assertEqual([run["id"] for run in completed_response.json()["results"]], [run_ids[1]])
+
+        invalid_response = self.client.get(f"{self._url()}?status=unknown")
+        self.assertEqual(invalid_response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_create_requires_program_id(self) -> None:
         response = self.client.post(

@@ -39,6 +39,10 @@ RUNS_SELECT_FIELDS = [
     "feedback_stats",
 ]
 
+# The fields holding a run's raw prompt and completion. They carry nearly all of a run's size, so
+# `_fetch_runs_page` gives them up as a last resort when one run stays over the response cap.
+RUNS_HEAVY_SELECT_FIELDS = ("inputs", "outputs")
+
 
 @dataclass(frozen=False)  # mutability is unused (always constructed fresh); explicit per house convention
 class LangSmithEndpointConfig:

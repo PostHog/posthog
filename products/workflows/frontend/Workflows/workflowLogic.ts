@@ -25,6 +25,7 @@ import { userLogic } from 'scenes/userLogic'
 import { AccessControlLevel, HogFunctionTemplateType } from '~/types'
 
 import { resourceEditedLogic } from 'products/notifications/frontend/resourceEditedLogic'
+import { hogFlowsResumeEmailSending } from 'products/workflows/frontend/generated/api'
 
 import type { ResourceEditedEvent, UserBasicType, UserType } from '../../../../frontend/src/types'
 import { getRegisteredTriggerTypes } from './hogflows/registry/triggers/triggerTypeRegistry'
@@ -50,14 +51,17 @@ import {
     type HogFlowSchedule,
 } from './hogflows/types'
 import { openPublishConfirmDialog } from './PublishImpactDialog'
+import { ResourceSaveQueue } from './resourceSaveQueue'
 import { prepareWorkflowDuplicate } from './workflowDuplication'
 import { workflowSceneLogic } from './workflowSceneLogic'
 import { workflowsLogic } from './workflowsLogic'
+import { parseWorkflowTriggerPrefill } from './workflowTriggerPrefill'
 
 export interface WorkflowLogicProps {
     id?: string
     templateId?: string
     editTemplateId?: string
+    triggerPrefill?: string
 }
 
 export const TRIGGER_NODE_ID = 'trigger_node'
@@ -100,7 +104,7 @@ export const NEW_WORKFLOW: HogFlow = {
             type: 'continue',
         },
     ],
-    conversion: { window_minutes: null, filters: [] },
+    conversion: { filters: [] },
     exit_condition: 'exit_only_at_end',
     version: 1,
     status: 'draft',
@@ -210,10 +214,13 @@ export interface workflowLogicValues {
     autoSaveBlockedByValidation: boolean
     autoSaveEnabled: boolean
     currentSchedule: HogFlowSchedule | null
-    deferredResourceEdited: ResourceEditedEvent | null
     discardDisabledReason: string | undefined
     draftActionPending: 'discard' | 'publish' | null
     edgesByActionId: Record<string, HogFlowEdge[]>
+    emailSendingPauseRequiresSupport: boolean
+    emailSendingPaused: boolean
+    emailSendingPausedByStaff: boolean
+    emailSendingPausedReason: string
     externallyEdited: boolean
     hasStagedDraft: boolean
     hasUnsavedChanges: boolean
@@ -239,6 +246,7 @@ export interface workflowLogicValues {
         | false
         | null
     publishDisabledReason: string | undefined
+    resumeEmailSendingPending: boolean
     saveAttemptedActionIds: string[] | null
     saveBaseUpdatedAt: string | null
     scheduleConfigSources: {
@@ -287,6 +295,9 @@ export interface workflowLogicActions {
     }
     confirmPublishDraft: (confirmToken: string) => {
         confirmToken: string
+    }
+    confirmResumeEmailSending: () => {
+        value: true
     }
     discardChanges: () => {
         value: true
@@ -339,7 +350,6 @@ export interface workflowLogicActions {
                                     }
                                     name?: string | undefined
                                 }[]
-                                delay_duration?: string | undefined
                             }
                             created_at?: number | undefined
                             description: string
@@ -758,6 +768,7 @@ export interface workflowLogicActions {
                                       filters: {
                                           all_roles_unassigned?: boolean | undefined
                                           assigned_to_user_ids?: number[] | undefined
+                                          assignment_status?: 'all' | 'assigned' | 'unassigned' | undefined
                                           audience_type?: 'accounts' | 'persons' | undefined
                                           properties: any[]
                                           tag_names?: string[] | undefined
@@ -994,7 +1005,7 @@ export interface workflowLogicActions {
                                   }[]
                                 | undefined
                             filters: any
-                            window_minutes: number | null
+                            window?: string | undefined
                         }
                       | undefined
                   created_at: string
@@ -1033,6 +1044,7 @@ export interface workflowLogicActions {
                             filters: {
                                 all_roles_unassigned?: boolean | undefined
                                 assigned_to_user_ids?: number[] | undefined
+                                assignment_status?: 'all' | 'assigned' | 'unassigned' | undefined
                                 audience_type?: 'accounts' | 'persons' | undefined
                                 properties: any[]
                                 tag_names?: string[] | undefined
@@ -1194,7 +1206,6 @@ export interface workflowLogicActions {
                                     }
                                     name?: string | undefined
                                 }[]
-                                delay_duration?: string | undefined
                             }
                             created_at?: number | undefined
                             description: string
@@ -1613,6 +1624,7 @@ export interface workflowLogicActions {
                                       filters: {
                                           all_roles_unassigned?: boolean | undefined
                                           assigned_to_user_ids?: number[] | undefined
+                                          assignment_status?: 'all' | 'assigned' | 'unassigned' | undefined
                                           audience_type?: 'accounts' | 'persons' | undefined
                                           properties: any[]
                                           tag_names?: string[] | undefined
@@ -1849,7 +1861,7 @@ export interface workflowLogicActions {
                                   }[]
                                 | undefined
                             filters: any
-                            window_minutes: number | null
+                            window?: string | undefined
                         }
                       | undefined
                   created_at: string
@@ -1888,6 +1900,7 @@ export interface workflowLogicActions {
                             filters: {
                                 all_roles_unassigned?: boolean | undefined
                                 assigned_to_user_ids?: number[] | undefined
+                                assignment_status?: 'all' | 'assigned' | 'unassigned' | undefined
                                 audience_type?: 'accounts' | 'persons' | undefined
                                 properties: any[]
                                 tag_names?: string[] | undefined
@@ -2053,12 +2066,6 @@ export interface workflowLogicActions {
                   }[]
               }
             | {
-                  reason?: string | undefined
-              }
-            | {
-                  type: 'schedule'
-              }
-            | {
                   conditions: {
                       filters: {
                           actions?: any[] | undefined
@@ -2067,12 +2074,18 @@ export interface workflowLogicActions {
                       }
                       name?: string | undefined
                   }[]
-                  delay_duration?: string | undefined
+              }
+            | {
+                  reason?: string | undefined
+              }
+            | {
+                  type: 'schedule'
               }
             | {
                   filters: {
                       all_roles_unassigned?: boolean | undefined
                       assigned_to_user_ids?: number[] | undefined
+                      assignment_status?: 'all' | 'assigned' | 'unassigned' | undefined
                       audience_type?: 'accounts' | 'persons' | undefined
                       properties: any[]
                       tag_names?: string[] | undefined
@@ -2350,6 +2363,9 @@ export interface workflowLogicActions {
     resetWorkflow: (values?: HogFlow) => {
         values?: HogFlow
     }
+    resumeEmailSending: () => {
+        value: true
+    }
     saveWorkflow: (updates: HogFlow) => HogFlow
     saveWorkflowFailure: (
         error: string,
@@ -2371,14 +2387,14 @@ export interface workflowLogicActions {
     setAutoSaveEnabled: (enabled: boolean) => {
         enabled: boolean
     }
-    setDeferredResourceEdited: (event: ResourceEditedEvent | null) => {
-        event: ResourceEditedEvent | null
-    }
     setDraftActionPending: (pending: 'discard' | 'publish' | null) => {
         pending: 'discard' | 'publish' | null
     }
     setExternallyEdited: (externallyEdited: boolean) => {
         externallyEdited: boolean
+    }
+    setResumeEmailSendingPending: (pending: boolean) => {
+        pending: boolean
     }
     setSaveBaseUpdatedAt: (updatedAt: string | null) => {
         updatedAt: string | null
@@ -2432,12 +2448,6 @@ export interface workflowLogicActions {
                   }[]
               }
             | {
-                  reason?: string | undefined
-              }
-            | {
-                  type: 'schedule'
-              }
-            | {
                   conditions: {
                       filters: {
                           actions?: any[] | undefined
@@ -2446,12 +2456,18 @@ export interface workflowLogicActions {
                       }
                       name?: string | undefined
                   }[]
-                  delay_duration?: string | undefined
+              }
+            | {
+                  reason?: string | undefined
+              }
+            | {
+                  type: 'schedule'
               }
             | {
                   filters: {
                       all_roles_unassigned?: boolean | undefined
                       assigned_to_user_ids?: number[] | undefined
+                      assignment_status?: 'all' | 'assigned' | 'unassigned' | undefined
                       audience_type?: 'accounts' | 'persons' | undefined
                       properties: any[]
                       tag_names?: string[] | undefined
@@ -2778,6 +2794,7 @@ export interface workflowLogicActions {
         filters: {
             all_roles_unassigned?: boolean | undefined
             assigned_to_user_ids?: number[] | undefined
+            assignment_status?: 'all' | 'assigned' | 'unassigned' | undefined
             audience_type?: 'accounts' | 'persons' | undefined
             properties: any[]
             tag_names?: string[] | undefined
@@ -2847,6 +2864,7 @@ export interface workflowLogicMeta {
                                 filters: {
                                     all_roles_unassigned?: boolean | undefined
                                     assigned_to_user_ids?: number[] | undefined
+                                    assignment_status?: 'all' | 'assigned' | 'unassigned' | undefined
                                     audience_type?: 'accounts' | 'persons' | undefined
                                     properties: any[]
                                     tag_names?: string[] | undefined
@@ -2969,6 +2987,10 @@ export interface workflowLogicMeta {
             hogFunctionTemplatesById: Record<string, HogFunctionTemplateType>
         ) => HogFlow
         hasStagedDraft: (originalWorkflow: HogFlow | null) => boolean
+        emailSendingPaused: (originalWorkflow: HogFlow | null) => boolean
+        emailSendingPausedReason: (originalWorkflow: HogFlow | null) => string
+        emailSendingPausedByStaff: (originalWorkflow: HogFlow | null) => boolean
+        emailSendingPauseRequiresSupport: (originalWorkflow: HogFlow | null) => boolean
         showDraftActions: (originalWorkflow: HogFlow | null) => boolean
         publishDisabledReason: (
             hasStagedDraft: boolean,
@@ -2990,11 +3012,36 @@ export type workflowLogicType = MakeLogicType<
     workflowLogicMeta
 >
 
+function getSaveQueue(
+    cache: Record<string, any>,
+    values: workflowLogicType['values'],
+    props: WorkflowLogicProps
+): ResourceSaveQueue {
+    return (cache.saveQueue ??= new ResourceSaveQueue({
+        resourceType: 'HogFlow',
+        getResourceId: () => props.id,
+        // Draft writes don't bump the live updated_at, and the event carries the newer of the two
+        // stamps, so compare against the newer one we loaded.
+        getLoadedStamp: () => {
+            const { updated_at, draft_updated_at } = values.originalWorkflow ?? {}
+            return draft_updated_at && updated_at && dayjs(draft_updated_at).isAfter(dayjs(updated_at))
+                ? draft_updated_at
+                : updated_at
+        },
+        // The loader flag clears when the first of a queued pair lands, so count unfinished saves too.
+        isBusy: () =>
+            values.originalWorkflowLoading ||
+            ((cache.saveContexts as SaveContext[] | undefined) ?? []).length > 0 ||
+            !!values.draftActionPending,
+    }))
+}
+
 export const workflowLogic = kea<workflowLogicType>([
     path((key) => ['products', 'workflows', 'frontend', 'Workflows', 'workflowLogic', key]),
     props({ id: 'new' } as WorkflowLogicProps),
     key(
-        (props) => `workflow-${props.id || 'new'}-${props.templateId || 'default'}-${props.editTemplateId || 'default'}`
+        (props) =>
+            `workflow-${props.id || 'new'}-${props.templateId || 'default'}-${props.editTemplateId || 'default'}-${props.triggerPrefill || 'default'}`
     ),
     connect(() => ({
         values: [userLogic, ['user'], projectLogic, ['currentProjectId']],
@@ -3046,8 +3093,10 @@ export const workflowLogic = kea<workflowLogicType>([
         discardDraft: true,
         confirmDiscardDraft: true,
         setDraftActionPending: (pending: 'publish' | 'discard' | null) => ({ pending }),
-        setDeferredResourceEdited: (event: ResourceEditedEvent | null) => ({ event }),
         replayDeferredResourceEdited: true,
+        resumeEmailSending: true,
+        confirmResumeEmailSending: true,
+        setResumeEmailSendingPending: (pending: boolean) => ({ pending }),
     }),
     loaders(({ props, values, actions, cache }) => ({
         originalWorkflow: [
@@ -3079,6 +3128,16 @@ export const workflowLogic = kea<workflowLogicType>([
                             delete (newWorkflow as any).created_by
 
                             return newWorkflow
+                        }
+                        const triggerConfig = parseWorkflowTriggerPrefill(props.triggerPrefill)
+                        if (triggerConfig) {
+                            const prefilled: HogFlow = {
+                                ...NEW_WORKFLOW,
+                                actions: NEW_WORKFLOW.actions.map((action) =>
+                                    action.type === 'trigger' ? { ...action, config: triggerConfig } : action
+                                ),
+                            }
+                            return prefilled
                         }
                         return { ...NEW_WORKFLOW }
                     }
@@ -3170,12 +3229,23 @@ export const workflowLogic = kea<workflowLogicType>([
                         const liveBase = latest?.updated_at
                         // Draft writes race against other draft writes, not the live row, so the staleness
                         // baseline follows the routing: the draft's own stamp once one is staged.
-                        const loadedBase = stagingDraft ? (latest?.draft_updated_at ?? liveBase) : liveBase
+                        const includesStagedDraft =
+                            !stagingDraft && !isStatusTransition && latest?.status !== 'active' && !!latest?.draft
+                        const newestBase =
+                            latest?.draft_updated_at && liveBase && dayjs(latest.draft_updated_at).isAfter(liveBase)
+                                ? latest.draft_updated_at
+                                : liveBase
+                        const loadedBase = stagingDraft
+                            ? (latest?.draft_updated_at ?? liveBase)
+                            : includesStagedDraft
+                              ? newestBase
+                              : liveBase
 
                         try {
                             const result = await api.hogFlows.updateHogFlow(props.id, {
                                 ...payload,
                                 ...(stagingDraft ? { stage_draft: true } : {}),
+                                ...(includesStagedDraft ? { includes_staged_draft: true } : {}),
                                 // A staged save's metadata still writes live; fence that write with the
                                 // live stamp so it can't overwrite a concurrent metadata edit the
                                 // draft-stamp baseline wouldn't catch.
@@ -3207,18 +3277,9 @@ export const workflowLogic = kea<workflowLogicType>([
                         }
                     }
 
-                    // Saves run one at a time. Every save fences on `base_updated_at`, taken from the
-                    // newest server copy this editor knows about. A save that starts while another is
-                    // still in flight carries a baseline the server has already moved past, so it comes
-                    // back 409 and the user sees the "updated elsewhere" banner for their own edit. The
-                    // reported case is a click on "Save draft" as the auto-save debounce fires.
-                    const previous = (cache.saveChain as Promise<unknown> | undefined) ?? Promise.resolve()
-                    const current = previous.then(runSave, runSave)
-                    cache.saveChain = current.then(
-                        () => undefined,
-                        () => undefined
-                    )
-                    return current
+                    // The reported case for queueing: a click on "Save draft" as the auto-save debounce
+                    // fires would otherwise send two saves with the same baseline, and the second 409s.
+                    return getSaveQueue(cache, values, props).run(runSave)
                 },
             },
         ],
@@ -3267,9 +3328,9 @@ export const workflowLogic = kea<workflowLogicType>([
 
                 actions.saveWorkflow(values)
                 // Hold the form in its submitting state until the save lands, so the save button
-                // keeps a loading state and cannot fire a second save. The loader assigns
-                // `saveChain` while it handles the action above, so this reads the current save.
-                await cache.saveChain
+                // keeps a loading state and cannot fire a second save. The loader created the queue
+                // while it handled the action above.
+                await (cache.saveQueue as ResourceSaveQueue | undefined)?.whenIdle()
             },
         },
     })),
@@ -3424,13 +3485,10 @@ export const workflowLogic = kea<workflowLogicType>([
                 setDraftActionPending: (_, { pending }) => pending,
             },
         ],
-        // A resource_edited event parked while our own save/reload was in flight. Replayed once the
-        // flight settles, so a genuine external edit landing in that window is reconciled instead of
-        // dropped. Latest event wins: the comparison is against timestamps, so older ones are moot.
-        deferredResourceEdited: [
-            null as ResourceEditedEvent | null,
+        resumeEmailSendingPending: [
+            false,
             {
-                setDeferredResourceEdited: (_, { event }) => event,
+                setResumeEmailSendingPending: (_, { pending }) => pending,
             },
         ],
     }),
@@ -3748,6 +3806,28 @@ export const workflowLogic = kea<workflowLogicType>([
             (originalWorkflow: HogFlow | null): boolean => !!originalWorkflow?.draft,
         ],
 
+        // Read off the saved row, never the editor form: a pause is server state and the form is
+        // whatever the author has typed since.
+        emailSendingPaused: [
+            (s) => [s.originalWorkflow],
+            (originalWorkflow: HogFlow | null): boolean => !!originalWorkflow?.email_sending_paused_at,
+        ],
+        emailSendingPausedReason: [
+            (s) => [s.originalWorkflow],
+            (originalWorkflow: HogFlow | null): string => originalWorkflow?.email_sending_paused_reason ?? '',
+        ],
+        // "staff" means only PostHog staff can lift the pause, so the banner hides the resume button.
+        emailSendingPausedByStaff: [
+            (s) => [s.originalWorkflow],
+            (originalWorkflow: HogFlow | null): boolean => originalWorkflow?.email_sending_paused_by === 'staff',
+        ],
+        // Covers staff pauses and repeat pauses (re-tripped soon after a resume): no resume button.
+        emailSendingPauseRequiresSupport: [
+            (s) => [s.originalWorkflow],
+            (originalWorkflow: HogFlow | null): boolean =>
+                originalWorkflow?.email_sending_pause_requires_support === true,
+        ],
+
         // A staged draft outlives the edits made after it, so the draft actions stay mounted while
         // the form is dirty. Gating them on a clean form made them appear and disappear on every
         // auto-save cycle.
@@ -3825,42 +3905,8 @@ export const workflowLogic = kea<workflowLogicType>([
             actions.setSchedules(values.schedules)
         },
         resourceEdited: ({ event }) => {
-            // Another channel (a second UI tab, MCP, or the API) saved this workflow. React only to
-            // events for the workflow we currently have open.
-            if (event.resource_type !== 'HogFlow' || event.resource_id !== props.id) {
-                return
-            }
-            // Our own save/reload is mid-flight, or a publish/discard is about to reload: the emit
-            // for our own write can beat its HTTP response back to us, and reacting to that echo
-            // against the stale baseline flashes the conflict banner at ourselves. Park the event
-            // instead of reacting; once the flight settles it replays against the fresh baseline,
-            // where our own echo compares equal (ignored) and a genuine concurrent edit is still
-            // strictly newer (reconciled).
-            // `originalWorkflowLoading` alone is not enough here. It is one boolean for the whole
-            // loader, so the first save of a queued pair clears it while the second still runs, and
-            // that second save's own echo would then read as somebody else's edit. Count the saves
-            // this editor still has outstanding instead.
-            const savesInFlight = ((cache.saveContexts as SaveContext[] | undefined) ?? []).length
-            if (values.originalWorkflowLoading || savesInFlight > 0 || values.draftActionPending) {
-                actions.setDeferredResourceEdited(event)
-                return
-            }
-            // Draft writes don't bump the live updated_at (the emit broadcasts the newer of the two
-            // stamps), so compare against the newest stamp we loaded or a staged edit from another
-            // channel would go unnoticed.
-            let loadedUpdatedAt = values.originalWorkflow?.updated_at
-            const loadedDraftUpdatedAt = values.originalWorkflow?.draft_updated_at
-            if (
-                loadedDraftUpdatedAt &&
-                loadedUpdatedAt &&
-                dayjs(loadedDraftUpdatedAt).isAfter(dayjs(loadedUpdatedAt))
-            ) {
-                loadedUpdatedAt = loadedDraftUpdatedAt
-            }
-            // Strictly-newer comparison rather than equality: equal means the event is the echo of our
-            // own save (originalWorkflow already carries that updated_at), so we ignore it. Only a server
-            // copy that is genuinely ahead of what we loaded is a real external edit.
-            if (!loadedUpdatedAt || !dayjs(event.updated_at).isAfter(dayjs(loadedUpdatedAt))) {
+            // Another channel (a second UI tab, MCP, or the API) saved this workflow.
+            if (getSaveQueue(cache, values, props).classify(event) !== 'external') {
                 return
             }
             // Server wins while auto-save can flush the local buffer: unsaved edits are then at most
@@ -3918,6 +3964,42 @@ export const workflowLogic = kea<workflowLogicType>([
                 actions.loadWorkflow()
             } finally {
                 actions.setDraftActionPending(null)
+            }
+        },
+        resumeEmailSending: () => {
+            if (!props.id || props.id === 'new' || values.resumeEmailSendingPending) {
+                return
+            }
+            LemonDialog.open({
+                title: 'Resume email sending?',
+                description:
+                    'Send again from this workflow. If it keeps drawing spam complaints or hitting addresses that do not exist, sending pauses again on its own within a couple of hours.',
+                primaryButton: {
+                    children: 'Resume sending',
+                    onClick: () => actions.confirmResumeEmailSending(),
+                },
+                secondaryButton: {
+                    children: 'Cancel',
+                },
+            })
+        },
+        confirmResumeEmailSending: async () => {
+            // Also guards the dialog's close-animation window, where a fast double-click on the
+            // confirm button dispatches twice.
+            if (!props.id || props.id === 'new' || values.resumeEmailSendingPending) {
+                return
+            }
+            actions.setResumeEmailSendingPending(true)
+            try {
+                await hogFlowsResumeEmailSending(String(values.currentProjectId), props.id)
+                lemonToast.success('Email sending resumed')
+            } catch {
+                lemonToast.error('Could not resume email sending. Please try again.')
+            } finally {
+                actions.setResumeEmailSendingPending(false)
+                // Reload either way: on success to clear the banner, on failure because another
+                // editor may have resumed it already.
+                actions.loadWorkflow()
             }
         },
         discardDraft: () => {
@@ -4013,9 +4095,8 @@ export const workflowLogic = kea<workflowLogicType>([
             actions.replayDeferredResourceEdited()
         },
         replayDeferredResourceEdited: () => {
-            const deferred = values.deferredResourceEdited
+            const deferred = getSaveQueue(cache, values, props).takeDeferred()
             if (deferred) {
-                actions.setDeferredResourceEdited(null)
                 actions.resourceEdited(deferred)
             }
         },

@@ -208,6 +208,38 @@ class TestFanOut:
         assert (_url("/users/10"), None) not in session.requests
 
     @mock.patch(CLIENT_SESSION_PATCH)
+    def test_prize_inventory_reads_a_body_without_a_paging_envelope(self, mock_session) -> None:
+        # /prizes/inventory/{promotion_id} returns the whole prize-type catalog with no `paging`
+        # key at all, unlike every other Easypromos list endpoint.
+        inventory_url = _url("/prizes/inventory/10")
+        session = _FakeSession(
+            {
+                (PROMOS_URL, None): _body([{"id": 10}], None),
+                (inventory_url, None): {"items": [{"id": 1, "name": "Voucher", "qty": 5, "given": 2}]},
+            }
+        )
+        mock_session.return_value = session
+        rows = _rows("prize_inventory", _make_manager())
+        assert rows == [{"id": 1, "name": "Voucher", "qty": 5, "given": 2, "promotion_id": 10}]
+        assert session.requests == [(PROMOS_URL, None), (inventory_url, None)]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_unpaginated_endpoint_does_not_follow_a_cursor(self, mock_session) -> None:
+        # An endpoint declared unpaginated must stop after one request even when the response does
+        # carry a next cursor — following it would re-read the same catalog forever.
+        inventory_url = _url("/prizes/inventory/10")
+        session = _FakeSession(
+            {
+                (PROMOS_URL, None): _body([{"id": 10}], None),
+                (inventory_url, None): _body([{"id": 1}], 7),
+            }
+        )
+        mock_session.return_value = session
+        rows = _rows("prize_inventory", _make_manager())
+        assert rows == [{"id": 1, "promotion_id": 10}]
+        assert (inventory_url, 7) not in session.requests
+
+    @mock.patch(CLIENT_SESSION_PATCH)
     def test_checkpoint_records_fanout_progress(self, mock_session) -> None:
         mock_session.return_value = _FakeSession(
             {

@@ -37,15 +37,24 @@ export function initPostHog(appName: string, appVersion: string): void {
     }
 
     log('Initializing PostHog client', { token: POSTHOG_TOKEN, host: POSTHOG_HOST, appName, appVersion })
-    client = new PostHog(POSTHOG_TOKEN, { host: POSTHOG_HOST })
-    client.register({
-        $mcp_app_name: appName,
-        $mcp_app_version: appVersion,
-        // Stamped once per loaded app document. Host notifications currently arrive at
-        // twice the connection count, and this separates a host that delivers each
-        // notification twice from a host that mounts the app twice.
-        $mcp_app_instance_id: newInstanceId(),
-    })
+    try {
+        // posthog-js-lite reads localStorage during construction, which can fail in a sandboxed iframe.
+        client = new PostHog(POSTHOG_TOKEN, { host: POSTHOG_HOST })
+    } catch (error) {
+        log('PostHog client initialization failed', error)
+        client = null
+        return
+    }
+
+    try {
+        client.register({
+            $mcp_app_name: appName,
+            $mcp_app_version: appVersion,
+            $mcp_app_instance_id: newInstanceId(),
+        })
+    } catch (error) {
+        log('PostHog register failed', error)
+    }
 }
 
 function newInstanceId(): string {

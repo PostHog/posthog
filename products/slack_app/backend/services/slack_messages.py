@@ -36,6 +36,7 @@ from slack_sdk.http_retry.builtin_handlers import RateLimitErrorRetryHandler
 
 from posthog.dataclasses import frozen
 from posthog.models.integration import Integration, SlackIntegration
+from posthog.slack.formatting import escape_slack_mrkdwn
 from posthog.utils import absolute_uri
 
 from products.slack_app.backend.services.model_catalogue import describe_run_model
@@ -115,6 +116,43 @@ def resolve_user_mentions_text(
     return resolved
 
 
+# A `&lt;` that would begin a mention (`<@`) or broadcast (`<!`) token stays escaped:
+# decoded user text must never mint a token that downstream mention handling or the
+# outbound relay could turn into a real ping.
+_RE_DECODABLE_LT = re.compile(r"&lt;(?![@!])")
+
+
+def decode_slack_entities(text: str) -> str:
+    """Decode the three entities Slack escapes in message text: `&`, `<`, `>`.
+
+    Slack escapes only these three
+    (https://docs.slack.dev/messaging/formatting-message-text#escaping), so three
+    targeted replaces rather than `html.unescape`, which would also decode entities
+    the user typed literally. `&amp;` decodes last so a user-typed literal `&lt;`
+    (wire form `&amp;lt;`) comes out as `&lt;` instead of double-decoding to `<`.
+    """
+    text = _RE_DECODABLE_LT.sub("<", text)
+    return text.replace("&gt;", ">").replace("&amp;", "&")
+
+
+def _resolve_and_decode(
+    slack: SlackIntegration,
+    integration: Integration,
+    text: str,
+    *,
+    strip_bot_user_id: str | None = None,
+) -> str:
+    """Resolve mentions, then decode escaped entities: the one order that is safe.
+
+    Mention resolution must run first so its regex only ever sees genuine
+    wire-format tokens; the decode guard then keeps user-typed text from minting
+    new ones behind it. Every inbound path goes through here so no path can
+    apply one step without the other.
+    """
+    resolved = resolve_user_mentions_text(slack, integration, text, strip_bot_user_id=strip_bot_user_id)
+    return decode_slack_entities(resolved)
+
+
 def decode_slack_event_text(slack: SlackIntegration, integration: Integration, text: str) -> str:
     """Strip the bot's own self-mention from a Slack event and label the rest for the agent.
 
@@ -123,9 +161,13 @@ def decode_slack_event_text(slack: SlackIntegration, integration: Integration, t
     `<@U…>` reference with a `|displayname` label so the agent can echo the
     token verbatim to ping the user back. Centralised here so a new trigger
     handler can't drift back into the original mention-eating bug.
+
+    Also decodes Slack's escaped entities, because this text feeds task titles and
+    descriptions that render in the PostHog UI, where an undecoded `&gt;` shows up
+    literally.
     """
     bot_user_id = get_cached_bot_user_id(slack, integration)
-    return resolve_user_mentions_text(slack, integration, text, strip_bot_user_id=bot_user_id).strip()
+    return _resolve_and_decode(slack, integration, text, strip_bot_user_id=bot_user_id).strip()
 
 
 def labeled_mentions_to_display_names(text: str) -> str:
@@ -153,6 +195,11 @@ def normalize_labeled_mentions_to_bare(text: str) -> str:
     broadcast/subteam refs (`<!…>`), and URL links (`<https://…|label>`) keep their labels.
     """
     return _RE_LABELED_USER_MENTION.sub(r"<@\1>", text)
+
+
+def mentions_slack_user(text: str, slack_user_id: str) -> bool:
+    """Whether `text` already mentions this user, in the bare `<@U…>` or labeled `<@U…|name>` form."""
+    return re.search(rf"<@{re.escape(slack_user_id)}(\|[^>]*)?>", text) is not None
 
 
 def flatten_block_text(node: Any) -> list[str]:
@@ -543,7 +590,7 @@ def collect_thread_messages(
             SlackThreadMessage(
                 user=username,
                 user_id=user_id or "",
-                text=resolve_user_mentions_text(slack, integration, extract_message_text(msg)),
+                text=_resolve_and_decode(slack, integration, extract_message_text(msg)),
                 ts=msg.get("ts") or "",
                 files_json=encode_slack_file_refs(parse_slack_file_refs(msg.get("files"))),
             )
@@ -629,11 +676,13 @@ class RunFooter:
     """
 
     task_url: str | None = None
-    desktop_url: str | None = None
     model: str | None = None
     reasoning_effort: str | None = None
     run_id: str | None = None
     task_id: str | None = None
+    # The project the thread's task belongs to, so a reader can tell which project's
+    # data the answer was drawn from.
+    project: str | None = None
 
     def has_content(self) -> bool:
         """Whether this would render as anything.
@@ -643,18 +692,65 @@ class RunFooter:
         keeps meaning "None-coalesce" and cannot silently discard a partial instance.
         The ids are not part of the answer — they say nothing on their own.
         """
-        return any((self.task_url, self.desktop_url, self.model))
+        return any((self.task_url, self.model, self.project))
 
 
-def load_run_footer(run_id: str | UUID | None) -> RunFooter:
+def _project_name(team_id: int, *, integration_id: int | None, created_by_id: int | None) -> str | None:
+    """The project a run answered from, named only where the name tells the opener
+    something they could not already assume.
+
+    The run's own team is the project, so the name needs no join through the thread
+    mapping: a task, its mapping and every run on it belong to one project. A workspace
+    offering the opener a single project has nothing to disambiguate, and the name would
+    then repeat under every reply while never changing.
+    """
+    from posthog.models.team.team import Team  # noqa: PLC0415 — keeps the model off this module's import path
+    from posthog.models.user import User  # noqa: PLC0415
+
+    from products.slack_app.backend.services.integration_resolver import multiple_accessible_projects  # noqa: PLC0415
+
+    if integration_id is None or created_by_id is None:
+        return None
+    try:
+        # The id is the install this reply posts through, read off stored thread state
+        # rather than off the message, and all this reads from the row is the Slack
+        # workspace it belongs to.
+        integration = (
+            Integration.objects.filter(pk=integration_id)  # nosemgrep: idor-lookup-without-team
+            .only("integration_id")
+            .first()
+        )
+        user = User.objects.filter(pk=created_by_id).first()
+        if integration is None or user is None:
+            return None
+        if not multiple_accessible_projects(slack_team_id=integration.integration_id, user=user):
+            return None
+        team = Team.objects.filter(pk=team_id).only("name").first()
+    except Exception:
+        # Its own guard, not the caller's: a failed lookup must cost the reader one
+        # segment, not the links and the model with it.
+        logger.warning(
+            "slack_app_footer_project_lookup_failed",
+            team_id=team_id,
+            integration_id=integration_id,
+            exc_info=True,
+        )
+        return None
+    return team.name if team else None
+
+
+def load_run_footer(run_id: str | UUID | None, *, integration_id: int | None) -> RunFooter:
     """Describe a run for the footer.
 
     Never raises: the footer is the last thing added to an answer that is already
     written, so failing to describe the run must not cost the reader the answer.
 
-    Describes the run in full, links included. Whether the reader gets the desktop link
-    is ``viewer_has_code_access``'s question, asked where the reader is known; the web
-    link is for everyone, since the task page enforces access itself.
+    The task link is for everyone, since the task page enforces access itself. It is the
+    only link: the task page carries its own link into PostHog Desktop.
+
+    ``integration_id`` is the install the reply is posted through, and the workspace
+    behind it is what the project segment is judged against. Required rather than
+    defaulted, so a new caller cannot drop the segment without saying so.
     """
     # Deferred so the tasks product stays off this module's import path, matching
     # `model_catalogue`.
@@ -672,17 +768,45 @@ def load_run_footer(run_id: str | UUID | None) -> RunFooter:
             run_id=str(run.id),
             task_id=str(run.task_id),
             task_url=_task_url(run.team_id, run.task_id, run.id),
-            # The web bridge page, not the raw `posthog-code://` scheme: it redirects into the
-            # desktop app when installed and offers a download when not, so a reader without
-            # the app lands somewhere useful instead of a dead link. It also picks the right
-            # scheme (prod vs dev) client-side, which a server-minted scheme link can't.
-            desktop_url=_desktop_bridge_url(run.task_id),
             model=state.model,
             reasoning_effort=state.reasoning_effort,
+            project=_project_name(
+                run.team_id,
+                integration_id=integration_id,
+                created_by_id=run.created_by_id,
+            ),
         )
     except Exception:
         logger.exception("slack_app_run_footer_load_failed", run_id=str(run_id))
         return RunFooter()
+
+
+def _run_context_segments(footer: RunFooter) -> list[str]:
+    """What the run is, as footer segments: the model, then the project it answered from.
+
+    Shared by the reply footer and the progress message so the two cannot describe one
+    run differently, and so the escaping below has a single home.
+    """
+    segments: list[str] = []
+    if footer.model:
+        segments.append(describe_run_model(footer.model, footer.reasoning_effort))
+    if footer.project:
+        # A project name is tenant text in a `mrkdwn` block, so `<!channel>` broadcasts
+        # and `<url|label>` renders a link the reader reads as the bot's. Escaped here
+        # rather than on the way in, so `RunFooter.project` stays the plain name.
+        segments.append(f"Project: *{escape_slack_mrkdwn(footer.project)}*")
+    return segments
+
+
+def run_context_block(footer: RunFooter) -> dict[str, Any] | None:
+    """The run's project and model as a standalone `context` block, or `None` when
+    neither is known.
+
+    What a message that is still working can say about its run: the links the reply
+    footer carries lead to an answer that does not exist yet.
+    """
+    segments = _run_context_segments(footer)
+    return context_block(" · ".join(segments)) if segments else None
 
 
 def reply_footer_block(footer: RunFooter, configure_url: str | None = None) -> dict[str, Any] | None:
@@ -694,11 +818,8 @@ def reply_footer_block(footer: RunFooter, configure_url: str | None = None) -> d
     """
     segments: list[str] = []
     if footer.task_url:
-        segments.append(f"<{footer.task_url}|View on web>")
-    if footer.desktop_url:
-        segments.append(f"<{footer.desktop_url}|View on desktop>")
-    if footer.model:
-        segments.append(describe_run_model(footer.model, footer.reasoning_effort))
+        segments.append(f"<{footer.task_url}|View session>")
+    segments.extend(_run_context_segments(footer))
     if configure_url:
         segments.append(f"<{configure_url}|Configure>")
     if not segments:
@@ -811,6 +932,11 @@ def thread_permalink(slack: SlackIntegration, channel: str, thread_ts: str) -> s
     return None
 
 
+def section_block(text: str) -> dict[str, Any]:
+    """One block of mrkdwn body text."""
+    return {"type": "section", "text": {"type": "mrkdwn", "text": text}}
+
+
 def context_block(text: str) -> dict[str, Any]:
     """A line of muted supporting text.
 
@@ -855,13 +981,6 @@ def _task_url(team_id: int, task_id: UUID, run_id: UUID) -> str:
     # `unfurl=false` asks our own link unfurler to leave this one alone: the footer already
     # says what the card would, right next to the link.
     return _public_url(f"/project/{team_id}/tasks/{task_id}?runId={run_id}&{UNFURL_OPT_OUT_PARAM}=false")
-
-
-def _desktop_bridge_url(task_id: UUID) -> str:
-    # `/code/task/<id>` is the public bridge scene (see `CodeTaskLink`), not the desktop
-    # app's own route. `unfurl=false` keeps our unfurler off it — the footer already names
-    # the run right beside the link.
-    return _public_url(f"/code/task/{task_id}?{UNFURL_OPT_OUT_PARAM}=false")
 
 
 def _public_url(path: str) -> str:

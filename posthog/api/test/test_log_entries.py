@@ -1,6 +1,6 @@
 from datetime import UTC, datetime, timedelta
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 
 from rest_framework import status
@@ -72,7 +72,7 @@ class TestLogEntries(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "results": [],
         }
 
-    @freeze_time("2023-09-23 12:00:00")
+    @time_machine.travel("2023-09-23 12:00:00", tick=False)
     def test_returns_log_entries(self):
         """Test the simple case of fetching a log entry."""
         self.create_log_for_function(level="info", timestamp="2023-09-22 01:00:00")

@@ -1,8 +1,7 @@
 import pytest
 from unittest.mock import MagicMock, patch
 
-from posthog.schema import ReleaseStatus
-
+from products.warehouse_sources.backend.facade.source_config import ReleaseStatus
 from products.warehouse_sources.backend.temporal.data_imports.sources.digitalocean.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.digitalocean.source import DigitalOceanSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.digitalocean import (
@@ -79,22 +78,36 @@ class TestDigitalOceanValidateCredentials:
 
 class TestDigitalOceanSourceForPipeline:
     @pytest.mark.parametrize(
-        "endpoint,expected_pk,expects_partition",
+        "endpoint,expected_pk,expected_partition_key",
         [
-            pytest.param("droplets", ["id"], True, id="droplets_id_pk_partitioned"),
-            pytest.param("domains", ["name"], False, id="domains_name_pk_no_partition"),
-            pytest.param("reserved_ips", ["ip"], False, id="reserved_ips_ip_pk_no_partition"),
+            pytest.param("droplets", ["id"], "created_at", id="droplets_id_pk_partitioned"),
+            pytest.param("domains", ["name"], None, id="domains_name_pk_no_partition"),
+            pytest.param("reserved_ips", ["ip"], None, id="reserved_ips_ip_pk_no_partition"),
             pytest.param(
                 "billing_history",
                 ["date", "type", "amount", "description"],
-                False,
+                None,
                 id="billing_history_composite_pk",
+            ),
+            # Fan-out children key on their parent as well as their own id, because neither a
+            # DNS record id nor a database event id is documented as unique across parents, and
+            # a backup has no id at all.
+            pytest.param("project_resources", ["project_id", "urn"], "assigned_at", id="project_resources_parent_pk"),
+            pytest.param("domain_records", ["domain_name", "id"], None, id="domain_records_parent_pk"),
+            pytest.param(
+                "database_backups",
+                ["database_cluster_uuid", "created_at"],
+                "created_at",
+                id="database_backups_parent_pk",
+            ),
+            pytest.param(
+                "database_events", ["database_cluster_uuid", "id"], "create_time", id="database_events_parent_pk"
             ),
         ],
     )
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.digitalocean.source.digitalocean_source")
     def test_plumbs_primary_keys_and_partitioning(
-        self, mock_source: MagicMock, endpoint: str, expected_pk: list[str], expects_partition: bool
+        self, mock_source: MagicMock, endpoint: str, expected_pk: list[str], expected_partition_key: str | None
     ) -> None:
         resource = MagicMock()
         resource.name = endpoint
@@ -110,10 +123,10 @@ class TestDigitalOceanSourceForPipeline:
 
         assert response.name == endpoint
         assert response.primary_keys == expected_pk
-        if expects_partition:
-            # Partition only on the stable created_at timestamp, never on keyless resources.
+        if expected_partition_key:
+            # Partition only on a stable creation timestamp, never on keyless resources.
             assert response.partition_mode == "datetime"
-            assert response.partition_keys == ["created_at"]
+            assert response.partition_keys == [expected_partition_key]
         else:
             assert response.partition_mode is None
 

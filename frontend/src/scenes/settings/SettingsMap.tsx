@@ -25,7 +25,7 @@ import { GitHub, Linear, Slack } from 'scenes/integrations/definitions'
 import { BounceRateDurationSetting } from 'scenes/settings/environment/BounceRateDuration'
 import { BounceRatePageViewModeSetting } from 'scenes/settings/environment/BounceRatePageViewMode'
 import { CookielessServerHashModeSetting } from 'scenes/settings/environment/CookielessServerHashMode'
-import { CustomBotDefinitions } from 'scenes/settings/environment/CustomBotDefinitions'
+import { CustomBotRules } from 'scenes/settings/environment/CustomBotRules'
 import { CustomChannelTypes } from 'scenes/settings/environment/CustomChannelTypes'
 import { DeadClicksAutocaptureSettings } from 'scenes/settings/environment/DeadClicksAutocaptureSettings'
 import { MaxChangelogSettings } from 'scenes/settings/environment/MaxChangelogSettings'
@@ -52,11 +52,12 @@ import {
 } from '~/layout/navigation-3000/sidepanel/panels/access_control/RolesAccessControls'
 import { AccessControlLevel, AccessControlResourceType, AvailableFeature, Realm } from '~/types'
 
+import { LearnFromSupportSetting } from 'products/business_knowledge/frontend/settings/LearnFromSupportSetting'
 import { AISection } from 'products/conversations/frontend/scenes/settings/AISection'
 import { GeneralSection } from 'products/conversations/frontend/scenes/settings/GeneralSection'
 import { NotificationsSection } from 'products/conversations/frontend/scenes/settings/NotificationsSection'
 import { ZendeskImportSection } from 'products/conversations/frontend/scenes/settings/ZendeskImportSection'
-import { CustomerAnalyticsEventStream } from 'products/customer_analytics/frontend/components/EventStream/CustomerAnalyticsEventStream'
+import { CustomerAnalyticsNotifications } from 'products/customer_analytics/frontend/components/TaskDigest/CustomerAnalyticsNotifications'
 import { AccountTrackRules } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/account/AccountTrackRules'
 import { CustomerAnalyticsAccountConfig } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/account/CustomerAnalyticsAccountConfig'
 import {
@@ -65,16 +66,19 @@ import {
 } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/account/WarehousePersonPropertiesSetting'
 import { CalendarSyncConfig } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/calendar/CalendarSyncConfig'
 import { CustomerAnalyticsDashboardEvents } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/events/CustomerAnalyticsDashboardEvents'
+import { DataQualityGateToggle } from 'products/data_quality/frontend/settings/DataQualityGateToggle'
 import { ExceptionAutocaptureToggle } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/exception_autocapture/ExceptionAutocaptureSettings'
 import { SuppressionRules } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/suppression_rules/SuppressionRules'
 import { MAX_LOOKBACK_DAYS, MIN_LOOKBACK_DAYS } from 'products/experiments/frontend/constants'
 import { LogsAlertingSection } from 'products/logs/frontend/components/LogsAlerting/LogsAlertingSection'
 import { LogsMetricRulesSection } from 'products/logs/frontend/components/LogsMetricRules/LogsMetricRulesSection'
-import { LogsRetentionSection } from 'products/logs/frontend/components/LogsRetention/LogsRetentionSection'
 import { LogsSamplingSection } from 'products/logs/frontend/components/LogsSampling/LogsSamplingSection'
-import { LogsFeatureFlagKeys } from 'products/logs/frontend/logsFeatureFlagKeys'
+import { TracingRetentionSettingsBlock } from 'products/tracing/frontend/components/TracingRetention/TracingRetentionSettings'
+import { HeatmapCaptureSettings } from 'products/web_analytics/frontend/heatmaps/components/HeatmapCaptureSettings'
+import { HeatmapScreenshotCookieSettings } from 'products/web_analytics/frontend/heatmaps/components/HeatmapScreenshotCookieSettings'
 import { WorkflowsEmailTrackingConsentSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsEmailTrackingConsentSettings'
 import { WorkflowsEngagementEventsSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsEngagementEventsSettings'
+import { WorkflowsTaskLimitsSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsTaskLimitsSettings'
 
 import { IntegrationsList } from '../../lib/integrations/IntegrationsList'
 import {
@@ -118,9 +122,11 @@ import {
     LogsCaptureSettings,
     LogsJsonParseSettings,
     LogsPiiScrubSettings,
-    LogsRetentionSettings,
+    LogsRetentionSettingsBlock,
 } from './environment/LogsCaptureSettings'
 import { LogsDistinctIdAttributeKeys } from './environment/LogsDistinctIdAttributeKeys'
+import { LogsJsonParseAttributeSettings } from './environment/LogsJsonParseAttributeSettings'
+import { LogsPatternMessageKeys } from './environment/LogsPatternMessageKeys'
 import { LogsSessionIdAttributeKeys } from './environment/LogsSessionIdAttributeKeys'
 import { ManagedReverseProxy } from './environment/ManagedReverseProxy'
 import { MarketingAnalyticsSettingsWrapper } from './environment/MarketingAnalyticsSettingsWrapper'
@@ -191,7 +197,7 @@ import {
     HomepageSetting,
     SidebarItemsSetting,
     SidebarLayoutSetting,
-    SidebarMyToolsSetting,
+    SidebarMyProductsSetting,
 } from './user/SidebarSettings'
 import { ThemeSwitcher } from './user/ThemeSwitcher'
 import { TwoFactorSettings } from './user/TwoFactorSettings'
@@ -328,7 +334,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description:
                     'Add your own crawlers and scripts to the bots PostHog already detects, so you can tell them apart from real visitors.',
                 docsUrl: 'https://posthog.com/docs/web-analytics/bot-detection',
-                component: <CustomBotDefinitions />,
+                component: <CustomBotRules />,
                 keywords: ['bot', 'crawler', 'spider', 'scraper', 'user agent', 'ai'],
             },
             {
@@ -472,6 +478,23 @@ export const SETTINGS_MAP: SettingSection[] = [
     },
     {
         level: 'environment',
+        id: 'environment-data-quality',
+        title: 'Data quality',
+        flag: 'DATA_QUALITY_CHECKS',
+        group: 'Products',
+        settings: [
+            {
+                id: 'data-quality-materialization-gate',
+                title: 'Materialization on failing checks',
+                description:
+                    'When an error-severity check fails, the materialized view keeps serving its previous version instead of being replaced. Applies to every materialized view in this project.',
+                component: <DataQualityGateToggle />,
+                keywords: ['data quality', 'check', 'materialization', 'materialized view', 'block', 'gate'],
+            },
+        ],
+    },
+    {
+        level: 'environment',
         id: 'environment-customer-analytics',
         title: 'Customer analytics',
         flag: 'CUSTOMER_ANALYTICS',
@@ -528,12 +551,11 @@ export const SETTINGS_MAP: SettingSection[] = [
             },
             {
                 id: 'customer-analytics-event-stream',
-                title: 'Event stream',
-                description:
-                    "Stream selected customers' events to a Slack channel of your choice in real time. Each team member configures their own stream: pick your events and channel here, then add customers from their account profiles.",
-                component: <CustomerAnalyticsEventStream />,
-                flag: ['CUSTOMER_ANALYTICS', 'CUSTOMER_ANALYTICS_CSP'],
-                keywords: ['event', 'stream', 'live', 'slack', 'accounts'],
+                title: 'Notifications',
+                description: 'Configure your task digest emails and customer event stream for this project.',
+                component: <CustomerAnalyticsNotifications />,
+                flag: 'CUSTOMER_ANALYTICS',
+                keywords: ['notifications', 'email', 'digest', 'tasks', 'event', 'stream', 'live', 'slack', 'accounts'],
             },
             {
                 id: 'customer-analytics-person-properties',
@@ -862,6 +884,33 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <HeatmapsSettings />,
                 keywords: ['click map', 'scroll', 'rage click', 'mouse', 'touch'],
             },
+            {
+                id: 'heatmap-screenshot-cookie',
+                title: 'Screenshot request cookie',
+                description:
+                    'Heatmap backgrounds are screenshots of your site. Generate a value your screenshots send as a cookie, so bot protection can tell them apart from other headless browsers and allow them.',
+                docsUrl: 'https://posthog.com/docs/toolbar/heatmaps',
+                component: <HeatmapScreenshotCookieSettings />,
+                keywords: [
+                    'waf',
+                    'bot protection',
+                    'firewall',
+                    'cloudflare',
+                    'screenshot',
+                    'blocked',
+                    'allowlist',
+                    'cookie',
+                ],
+            },
+            {
+                id: 'heatmaps-capture',
+                title: 'Heatmap capture URLs',
+                description: 'Choose which pages send heatmap data: every page, or only the URLs you list.',
+                docsUrl: 'https://posthog.com/docs/toolbar/heatmaps',
+                platformSupport: FEATURE_SUPPORT.heatmaps,
+                component: <HeatmapCaptureSettings />,
+                keywords: ['allow list', 'allowlist', 'url', 'capture', 'restrict'],
+            },
         ],
     },
     {
@@ -890,6 +939,16 @@ export const SETTINGS_MAP: SettingSection[] = [
                 keywords: ['json', 'parse', 'structured', 'format'],
             },
             {
+                id: 'logs-json-parse-attribute',
+                title: 'JSON parse log attribute',
+                description:
+                    'Choose a log attribute containing JSON to make its nested fields available in filters. This works independently of JSON parse logs.',
+                docsUrl: 'https://posthog.com/docs/logs/logs-config',
+                component: <LogsJsonParseAttributeSettings />,
+                flag: 'LOGS_JSON_ATTRIBUTE_PARSING',
+                keywords: ['json', 'parse', 'attributes', 'nested', 'structured'],
+            },
+            {
                 id: 'logs-pii-scrub',
                 title: 'PII scrubbing',
                 description:
@@ -913,6 +972,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                     "The log attributes PostHog reads to identify which person a log belongs to. A log is linked when any of these attributes matches one of the person's distinct IDs. Defaults to posthogDistinctId, the key the JavaScript and React Native SDKs auto-attach. Add keys only if your backend pipeline emits the person identifier under different attributes.",
                 component: <LogsDistinctIdAttributeKeys />,
                 keywords: ['log', 'person', 'distinct', 'attribute', 'pivot', 'profile', 'link'],
+            },
+            {
+                id: 'logs-pattern-message-keys',
+                title: 'Pattern message extraction',
+                description:
+                    'Choose which JSON keys provide the message used to group logs into patterns. Keys are matched literally at the top level, in order. This does not change the stored log body.',
+                component: <LogsPatternMessageKeys />,
+                keywords: ['log', 'pattern', 'message', 'extract', 'json', 'group'],
             },
             {
                 id: 'logs-session-id-attribute-keys',
@@ -940,8 +1007,8 @@ export const SETTINGS_MAP: SettingSection[] = [
                         setting at most once per 24 hours.
                     </span>
                 ),
-                component: <LogsRetentionSettings />,
-                keywords: ['retention', 'storage', 'delete', 'ttl'],
+                component: <LogsRetentionSettingsBlock />,
+                keywords: ['retention', 'storage', 'delete', 'ttl', 'rules', 'filter', 'keep', 'expire'],
             },
             {
                 id: 'logs-drop-rules',
@@ -959,15 +1026,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <LogsMetricRulesSection />,
                 flag: 'METRICS',
                 keywords: ['metric', 'metrics', 'log-based', 'generate', 'count', 'aggregate', 'logs to metrics'],
-            },
-            {
-                id: 'logs-retention-rules',
-                title: 'Retention rules',
-                description:
-                    "Keep matching logs longer or shorter than the environment default using ordered rules. The first matching rule sets a log's retention; retention is applied at ingest.",
-                component: <LogsRetentionSection />,
-                flag: LogsFeatureFlagKeys.retentionRules,
-                keywords: ['retention', 'storage', 'ttl', 'rules', 'filter', 'keep', 'expire'],
             },
             {
                 id: 'logs-alerting',
@@ -1319,6 +1377,24 @@ export const SETTINGS_MAP: SettingSection[] = [
     },
     {
         level: 'environment',
+        id: 'environment-business-knowledge',
+        title: 'Business knowledge',
+        group: 'Products',
+        flag: 'PRODUCT_BUSINESS_KNOWLEDGE',
+        settings: [
+            {
+                id: 'business-knowledge-learn-from-support',
+                title: 'Self-learning',
+                description:
+                    'When on, PostHog learns reusable answers from public human replies on resolved support tickets.',
+                component: <LearnFromSupportSetting />,
+                docsUrl: 'https://posthog.com/docs/business-knowledge/learn-from-support',
+                keywords: ['business', 'knowledge', 'support', 'learn', 'ticket', 'resolved'],
+            },
+        ],
+    },
+    {
+        level: 'environment',
         id: 'environment-surveys',
         title: 'Surveys',
         group: 'Products',
@@ -1349,7 +1425,7 @@ export const SETTINGS_MAP: SettingSection[] = [
         id: 'environment-tracing',
         title: 'Tracing',
         group: 'Products',
-        flag: ['TRACING', 'TRACING_SESSION_PERSON_LINKS'],
+        flag: 'TRACING',
         settings: [
             {
                 id: 'tracing-distinct-id-attribute-keys',
@@ -1365,6 +1441,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 searchDescription:
                     "The span attributes PostHog reads to identify which person a trace belongs to. A span is linked when any of these attributes holds one of the person's distinct IDs. Defaults to posthogDistinctId. Add keys only if your pipeline emits the person identifier under different attributes.",
                 component: <TracingDistinctIdAttributeKeys />,
+                flag: 'TRACING_SESSION_PERSON_LINKS',
                 keywords: ['trace', 'span', 'person', 'distinct', 'attribute', 'pivot', 'profile', 'link'],
             },
             {
@@ -1381,7 +1458,22 @@ export const SETTINGS_MAP: SettingSection[] = [
                 searchDescription:
                     'The span attributes PostHog reads to identify which session a trace belongs to, checked in order with the first match winning, followed by other common session ID attributes. Defaults to sessionId. Add keys only if your pipeline emits the session ID under different attributes.',
                 component: <TracingSessionIdAttributeKeys />,
+                flag: 'TRACING_SESSION_PERSON_LINKS',
                 keywords: ['trace', 'span', 'session', 'replay', 'attribute', 'link'],
+            },
+            {
+                id: 'tracing-retention',
+                title: 'Retention',
+                description: (
+                    <span>
+                        How long to keep spans before they are automatically deleted.{' '}
+                        <strong>Changes only affect the retention for new spans</strong>. You can only change this
+                        setting at most once per 24 hours.
+                    </span>
+                ),
+                component: <TracingRetentionSettingsBlock />,
+                flag: 'TRACING_SETTINGS_RETENTION',
+                keywords: ['retention', 'storage', 'delete', 'ttl', 'rules', 'filter', 'keep', 'expire', 'span'],
             },
         ],
     },
@@ -1517,6 +1609,15 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'opt-in',
                     'opt-out',
                 ],
+            },
+            {
+                id: 'workflows-ai-task-limits',
+                title: 'AI task limits',
+                description:
+                    'How many AI tasks your workflows can create in a rolling 24 hours. One limit applies to each workflow on its own, the other to every workflow in the project together. Leave a limit empty to use the default. Set it to zero to pause task creation. Contact support to raise a limit above 500 per workflow or 2,500 per project.',
+                component: <WorkflowsTaskLimitsSettings />,
+                flag: 'WORKFLOW_AI_TASK_ACTION',
+                keywords: ['workflows', 'ai', 'task', 'agent', 'limit', 'rate', 'cap', 'daily', 'spend', 'pause'],
             },
         ],
     },
@@ -1756,7 +1857,6 @@ export const SETTINGS_MAP: SettingSection[] = [
         id: 'environment-secret-api-keys',
         title: 'Project secret API keys',
         flag: 'PROJECT_SECRET_API_KEYS',
-        requiresReauthentication: true,
         settings: [
             {
                 id: 'environment-secret-api-keys',
@@ -1929,6 +2029,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                 keywords: ['sso', 'saml', 'single sign-on', 'identity provider'],
             },
             {
+                id: 'oidc-configuration',
+                title: 'OIDC single sign-on',
+                description: 'Authenticate members through your identity provider with OpenID Connect (OIDC).',
+                component: <IdentityProviderFeatureSection configScope={ConfigScopeEnumApi.Oidc} />,
+                flag: 'SSO_SETTINGS_REDESIGN',
+                keywords: ['sso', 'oidc', 'openid connect', 'single sign-on', 'identity provider'],
+            },
+            {
                 id: 'scim-configuration',
                 title: 'SCIM provisioning',
                 description:
@@ -2034,8 +2142,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description:
                     'Choose which email notifications your members receive. Anything you set here they cannot change back themselves.',
                 component: <NotificationGovernanceSetting />,
-                flag: 'ORG_NOTIFICATION_GOVERNANCE',
-                allowForTeam: (t) => (t?.effective_membership_level ?? 0) >= OrganizationMembershipLevel.Admin,
+                organizationAdminOnly: true,
                 keywords: ['notification', 'email', 'member', 'lock', 'digest', 'pipeline'],
             },
         ],
@@ -2086,6 +2193,7 @@ export const SETTINGS_MAP: SettingSection[] = [
         // Temporary migration surface: reachable only from the access control
         // settings banner, never from the settings navigation or search
         hideFromNavigation: true,
+        unavailableFallback: { sectionId: 'organization-roles', label: 'Go to access control settings' },
         settings: [
             {
                 id: 'organization-access-resolution-preview',
@@ -2243,10 +2351,12 @@ export const SETTINGS_MAP: SettingSection[] = [
             },
             {
                 id: 'sidebar-auto-suggest',
-                title: 'Automatically suggest new tools',
+                title: 'Automatically suggest new products',
                 description:
-                    "When we detect you are using a new tool, we'll automatically add it to your sidebar as a suggestion. We might also suggest tools that are related to the ones you are using when we launch a new one.",
+                    "When we detect you are using a new product, we'll automatically add it to your sidebar as a suggestion. We might also suggest products that are related to the ones you are using when we launch a new one.",
                 component: <SidebarAutoSuggestSetting />,
+                // Suggestions land in custom products, which the simple sidebar does not show.
+                flag: '!SIMPLE_SIDEPANEL',
                 keywords: ['sidebar', 'suggest', 'products', 'apps', 'tools', 'auto'],
             },
             {
@@ -2292,7 +2402,8 @@ export const SETTINGS_MAP: SettingSection[] = [
         level: 'user',
         id: 'user-navigation',
         title: 'Navigation',
-        flag: 'UI_CUSTOMIZATION',
+        // The simple sidebar edits these inline, from its own customize dialog.
+        flag: ['UI_CUSTOMIZATION', '!SIMPLE_SIDEPANEL'],
         settings: [
             {
                 id: 'homepage',
@@ -2319,11 +2430,11 @@ export const SETTINGS_MAP: SettingSection[] = [
             },
             {
                 id: 'sidebar-my-tools',
-                title: 'My Tools',
+                title: 'My products',
                 description:
-                    'Choose which tools appear in the My Tools section of your sidebar. This selection applies to the current project.',
-                component: <SidebarMyToolsSetting />,
-                keywords: ['sidebar', 'tools', 'products', 'apps', 'my tools', 'customize'],
+                    'Choose which products appear in the My products section of your sidebar. This selection applies to the current project.',
+                component: <SidebarMyProductsSetting />,
+                keywords: ['sidebar', 'tools', 'products', 'apps', 'my tools', 'my products', 'customize'],
             },
         ],
     },
