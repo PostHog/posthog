@@ -282,6 +282,16 @@ class TestLogsHogConditions(LogsAlertEvaluationTestCase):
         assert by_id[healthy.id].new_state == "firing"
 
 
+class TestLogsOnCallLifecycle(LogsAlertEvaluationTestCase):
+    def test_a_late_evaluation_counts_as_missed(self) -> None:
+        late = self._configuration(next_check_at=self.cutoff - timedelta(minutes=30))
+
+        with patch(f"{_MODULE}.increment_missed_evaluations") as missed:
+            self._run(late)
+
+        assert missed.call_count == 1
+
+
 class TestEvaluationTimeoutLadder(SimpleTestCase):
     """Constants only, so this takes no database."""
 

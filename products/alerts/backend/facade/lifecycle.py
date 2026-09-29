@@ -46,6 +46,27 @@ class NotificationAction(Enum):
     BROKEN = "broken"
 
 
+class IncidentAction(Enum):
+    """What a paging destination does about this transition. Independent of cooldown, repeat
+    interval, snooze and quiet hours, which hold announcements: a mute never leaves an incident
+    open, and a cooldown never keeps one open past the recovery that should close it."""
+
+    NONE = "none"
+    OPEN = "open"
+    CLOSE = "close"
+
+
+_FIRING_STATES = frozenset({AlertState.FIRING, AlertState.PENDING_RESOLVE})
+
+
+def _incident(before: AlertState, after: AlertState) -> IncidentAction:
+    if before not in _FIRING_STATES and after == AlertState.FIRING:
+        return IncidentAction.OPEN
+    if before in _FIRING_STATES and after in (AlertState.NOT_FIRING, AlertState.BROKEN):
+        return IncidentAction.CLOSE
+    return IncidentAction.NONE
+
+
 class InvalidTransition(Exception):
     """Raised by control-plane transitions when the pre-condition isn't met."""
 
@@ -117,6 +138,8 @@ class CheckInput:
     is_inconclusive: bool = False
     error_message: str | None = None
     is_transient_error: bool = False
+    # The current window had no value at all. `AlertSnapshot.no_data_policy` decides what that means.
+    no_data: bool = False
     # A mute the machine cannot see for itself, such as a schedule restriction the source
     # resolves against the team's timezone. Read only under `mute_gates_notification_only`, so a
     # source that sets it against another policy is silently unmuted.
@@ -137,6 +160,10 @@ class AlertSnapshot:
     datapoints_to_alarm: int = 1
     # Breach flags of the most recent prior checks, newest first (excludes the current one).
     recent_events_breached: tuple[bool, ...] = ()
+    # Resolve only when the current window and the newest N prior windows are all clear.
+    keep_firing_windows: int = 0
+    # "inconclusive" keeps state and announces nothing; "clear" and "breach" read a missing value as one.
+    no_data_policy: str = "inconclusive"
 
 
 class StatefulSnapshot(Protocol):
@@ -160,6 +187,7 @@ class AlertCheckOutcome:
     disable: bool = False
     # What a mute held back, so a muted fire is distinguishable from a check that said nothing.
     muted_notification: NotificationAction = NotificationAction.NONE
+    incident: IncidentAction = IncidentAction.NONE
 
 
 @dataclass(frozen=True)
@@ -172,6 +200,7 @@ class ControlPlaneOutcome:
 
     new_state: AlertState
     consecutive_failures: int
+    incident: IncidentAction = IncidentAction.NONE
 
 
 Outcome = AlertCheckOutcome | ControlPlaneOutcome
@@ -253,6 +282,12 @@ def evaluate_alert_check(
             policy=policy,
         )
 
+    if check.no_data:
+        if snapshot.no_data_policy == "inconclusive":
+            check = replace(check, is_inconclusive=True)
+        else:
+            check = replace(check, threshold_breached=snapshot.no_data_policy == "breach")
+
     if check.is_inconclusive:
         return AlertCheckOutcome(
             new_state=snapshot.state,
@@ -301,6 +336,9 @@ def evaluate_alert_check(
             new_state = AlertState.FIRING
             if policy.renotify_while_firing:
                 notification = NotificationAction.FIRE
+        elif any(snapshot.recent_events_breached[: snapshot.keep_firing_windows]):
+            # A clear window right after a breached one is not a recovery yet.
+            new_state = AlertState.FIRING
         else:
             new_state = AlertState.NOT_FIRING
             if policy.notify_resolve:
@@ -328,6 +366,7 @@ def evaluate_alert_check(
         consecutive_failures=0,
         update_last_notified_at=update_last_notified_at,
         error_message=None,
+        incident=_incident(snapshot.state, new_state),
     )
     return _muted(outcome) if muted else outcome
 
@@ -371,6 +410,7 @@ def evaluate_alert_failure(
             update_last_notified_at=False,
             error_message=error_message,
             disable=policy.disable_when_broken,
+            incident=_incident(snapshot.state, AlertState.BROKEN),
         )
 
     # Notify once per error streak (0 -> 1), not on every failed check. Using the
@@ -405,6 +445,7 @@ def apply_broken_config(snapshot: StatefulSnapshot) -> ControlPlaneOutcome:
     return ControlPlaneOutcome(
         new_state=AlertState.BROKEN,
         consecutive_failures=snapshot.consecutive_failures,
+        incident=_incident(snapshot.state, AlertState.BROKEN),
     )
 
 
@@ -414,6 +455,7 @@ def apply_disable(snapshot: StatefulSnapshot) -> ControlPlaneOutcome:
     return ControlPlaneOutcome(
         new_state=AlertState.NOT_FIRING,
         consecutive_failures=snapshot.consecutive_failures,
+        incident=_incident(snapshot.state, AlertState.NOT_FIRING),
     )
 
 
@@ -438,7 +480,11 @@ def apply_threshold_change(snapshot: StatefulSnapshot, *, preserve_snoozed_state
             new_state=AlertState.SNOOZED,
             consecutive_failures=snapshot.consecutive_failures,
         )
-    return ControlPlaneOutcome(new_state=AlertState.NOT_FIRING, consecutive_failures=0)
+    return ControlPlaneOutcome(
+        new_state=AlertState.NOT_FIRING,
+        consecutive_failures=0,
+        incident=_incident(snapshot.state, AlertState.NOT_FIRING),
+    )
 
 
 def _is_within_cooldown(

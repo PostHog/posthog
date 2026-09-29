@@ -138,3 +138,12 @@ def increment_condition_failures(source: str, reason: str) -> None:
         "alerts_platform_condition_failures_total",
         "Hog condition runs that reached no answer, by reason",
     ).add(1)
+
+
+def increment_missed_evaluations(source: str) -> None:
+    """A check evaluated more than two cadences after its due time. The platform is behind, and a
+    person must learn that before a customer notices silence."""
+    get_metric_meter({"source": source}).create_counter(
+        "alerts_platform_missed_evaluations_total",
+        "Checks evaluated more than two cadences late, by source",
+    ).add(1)

@@ -500,3 +500,64 @@ class TestMetricsHogConditions(MetricsAlertEvaluationTestCase):
         with team_scope(self.team.id):
             second.refresh_from_db()
         assert second.next_check_at == self.due_at
+
+
+class TestMetricsOnCallLifecycle(MetricsAlertEvaluationTestCase):
+    def test_a_late_evaluation_counts_as_missed(self) -> None:
+        on_time = self._configuration(next_check_at=self.due_at)
+        late = self._configuration(next_check_at=self.due_at - timedelta(minutes=20))
+
+        with patch(f"{_MODULE}.increment_missed_evaluations") as missed:
+            self._run(on_time)
+            self._run(late)
+
+        assert missed.call_count == 1
+
+    def test_the_no_data_policy_comes_from_the_source_config(self) -> None:
+        configuration = self._configuration(
+            source_config={
+                "type": "MetricsAlertSource",
+                "clauses": [{"name": "a", "metric_name": "m1", "aggregation": "sum"}],
+                "no_data_policy": "breach",
+            }
+        )
+
+        evaluation, _ = self._run(configuration, series=[_series([None], end=self.due_at, step=timedelta(minutes=5))])
+
+        assert [t.notification for p in evaluation.previews for t in p.transitions] == ["fire"]
+
+    def test_keep_firing_windows_comes_from_the_source_config(self) -> None:
+        configuration = self._configuration(
+            evaluation_periods=2,
+            source_config={
+                "type": "MetricsAlertSource",
+                "clauses": [{"name": "a", "metric_name": "m1", "aggregation": "sum"}],
+                "keep_firing_windows": 1,
+            },
+        )
+        with team_scope(self.team.id):
+            PlatformAlert.objects.create(
+                team=self.team, configuration=configuration, grouping_key="", state=PlatformAlert.State.FIRING
+            )
+
+        evaluation, _ = self._run(
+            configuration, series=[_series([1.0, 500.0], end=self.due_at, step=timedelta(minutes=5))]
+        )
+
+        assert evaluation.outcomes[0].new_state == "firing"
+        assert evaluation.previews == ()
+
+    def test_a_first_fire_opens_an_incident_and_a_clear_closes_it_even_inside_cooldown(self) -> None:
+        configuration = self._configuration(cooldown_minutes=60)
+
+        fired, _ = self._run(configuration)
+        self._record(fired)
+        with team_scope(self.team.id):
+            configuration.next_check_at = self.due_at
+            configuration.save(update_fields=["next_check_at"])
+        cleared, _ = self._run(configuration, series=[_series([1.0], end=self.due_at, step=timedelta(minutes=5))])
+
+        assert (fired.outcomes[0].incident, fired.previews[0].transitions[0].incident) == ("open", "open")
+        # The resolve announcement is held by the cooldown; the incident still closes.
+        assert cleared.previews == ()
+        assert cleared.outcomes[0].incident == "close"

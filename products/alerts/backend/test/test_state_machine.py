@@ -10,7 +10,12 @@ from products.alerts.backend.facade.lifecycle import (
     AlertSnapshot,
     AlertState,
     CheckInput,
+    IncidentAction,
     NotificationAction,
+    apply_broken_config,
+    apply_disable,
+    apply_snooze,
+    apply_threshold_change,
     evaluate_alert_check,
 )
 
@@ -347,3 +352,116 @@ class TestPolicyDecisionTable:
             error_message="query failed",
             disable=expected_disable,
         )
+
+
+NO_DATA = CheckInput(threshold_breached=False, no_data=True)
+
+
+class TestOnCallLifecycle:
+    @parameterized.expand(
+        [
+            (
+                "no_keep_firing_resolves_on_first_clear",
+                0,
+                (True, True),
+                AlertState.NOT_FIRING,
+                NotificationAction.RESOLVE,
+            ),
+            ("one_window_still_breached_holds", 1, (True, False), AlertState.FIRING, NotificationAction.NONE),
+            ("one_window_clear_resolves", 1, (False, True), AlertState.NOT_FIRING, NotificationAction.RESOLVE),
+            ("two_windows_one_breached_holds", 2, (False, True), AlertState.FIRING, NotificationAction.NONE),
+            (
+                "two_windows_all_clear_resolves",
+                2,
+                (False, False, True),
+                AlertState.NOT_FIRING,
+                NotificationAction.RESOLVE,
+            ),
+        ]
+    )
+    def test_keep_firing_windows_holds_the_resolve_until_every_window_is_clear(
+        self, _name: str, windows: int, prior: tuple[bool, ...], state: AlertState, notification: NotificationAction
+    ) -> None:
+        outcome = evaluate_alert_check(
+            snapshot(state=AlertState.FIRING, keep_firing_windows=windows, recent_events_breached=prior),
+            CLEAR,
+            NOW,
+            policy=LOGS_ALERT_POLICY,
+        )
+
+        assert (outcome.new_state, outcome.notification) == (state, notification)
+
+    @parameterized.expand(
+        [
+            (
+                "inconclusive_keeps_firing",
+                "inconclusive",
+                AlertState.FIRING,
+                AlertState.FIRING,
+                NotificationAction.NONE,
+            ),
+            (
+                "inconclusive_keeps_not_firing",
+                "inconclusive",
+                AlertState.NOT_FIRING,
+                AlertState.NOT_FIRING,
+                NotificationAction.NONE,
+            ),
+            ("clear_resolves", "clear", AlertState.FIRING, AlertState.NOT_FIRING, NotificationAction.RESOLVE),
+            ("clear_stays_quiet", "clear", AlertState.NOT_FIRING, AlertState.NOT_FIRING, NotificationAction.NONE),
+            ("breach_fires", "breach", AlertState.NOT_FIRING, AlertState.FIRING, NotificationAction.FIRE),
+            ("breach_keeps_firing", "breach", AlertState.FIRING, AlertState.FIRING, NotificationAction.NONE),
+        ]
+    )
+    def test_no_data_policy_decides_the_breach(
+        self, _name: str, policy: str, before: AlertState, after: AlertState, notification: NotificationAction
+    ) -> None:
+        outcome = evaluate_alert_check(
+            snapshot(state=before, no_data_policy=policy), NO_DATA, NOW, policy=LOGS_ALERT_POLICY
+        )
+
+        assert (outcome.new_state, outcome.notification) == (after, notification)
+
+    def test_incident_opens_on_the_first_fire_and_is_not_gated_by_cooldown_or_mute(self) -> None:
+        gated = evaluate_alert_check(
+            snapshot(last_notified_at=IN_COOLDOWN, snooze_until=SNOOZING),
+            BREACH,
+            NOW,
+            policy=PLATFORM_LOGS_ALERT_POLICY,
+        )
+        continuing = evaluate_alert_check(snapshot(state=AlertState.FIRING), BREACH, NOW, policy=LOGS_ALERT_POLICY)
+
+        assert gated.notification == NotificationAction.NONE
+        assert gated.incident == IncidentAction.OPEN
+        assert continuing.incident == IncidentAction.NONE
+
+    @parameterized.expand(
+        [
+            ("clear_check", lambda s: evaluate_alert_check(s, CLEAR, NOW, policy=LOGS_ALERT_POLICY)),
+            ("disable", apply_disable),
+            ("broken_config", apply_broken_config),
+            ("threshold_change", apply_threshold_change),
+            ("fifth_failure", lambda s: evaluate_alert_check(s, ERROR, NOW, policy=LOGS_ALERT_POLICY)),
+        ]
+    )
+    def test_incident_closes_when_the_alert_leaves_firing(self, _name: str, transition) -> None:
+        firing = snapshot(state=AlertState.FIRING, last_notified_at=IN_COOLDOWN, consecutive_failures=4)
+
+        outcome = transition(firing)
+
+        assert outcome.incident == IncidentAction.CLOSE
+
+    @parameterized.expand(
+        [
+            ("snooze_keeps_it_open", apply_snooze),
+            (
+                "a_transient_error_keeps_it_open",
+                lambda s: evaluate_alert_check(s, TRANSIENT_ERROR, NOW, policy=LOGS_ALERT_POLICY),
+            ),
+            ("a_first_error_keeps_it_open", lambda s: evaluate_alert_check(s, ERROR, NOW, policy=LOGS_ALERT_POLICY)),
+        ]
+    )
+    def test_incident_stays_open_while_the_alert_is_still_firing(self, _name: str, transition) -> None:
+        outcome = transition(snapshot(state=AlertState.FIRING))
+
+        assert outcome.incident == IncidentAction.NONE

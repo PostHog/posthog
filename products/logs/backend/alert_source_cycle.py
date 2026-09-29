@@ -60,6 +60,7 @@ from products.alerts.backend.facade.platform_metrics import (
     increment_checks_skipped,
     increment_condition_failures,
     increment_deliveries_deferred,
+    increment_missed_evaluations,
     increment_notifications_muted,
     increment_state_transition,
     record_batch_duration,
@@ -189,6 +190,8 @@ def _record_check_metrics(
         lag_ms = int((now - check.next_check_at).total_seconds() * 1000)
         if lag_ms > 0:
             safe_record(record_scheduler_lag, SourceKind.LOGS.value, lag_ms)
+        if lag_ms > 2 * check.check_interval_minutes * 60 * 1000:
+            safe_record(increment_missed_evaluations, SourceKind.LOGS.value)
 
 
 def _verdict(
@@ -225,7 +228,13 @@ def _verdict(
 
 
 def _recorded(
-    check: PlatformAlertCheckInput, *, new_state: str, notified: bool, consecutive_failures: int, disable: bool = False
+    check: PlatformAlertCheckInput,
+    *,
+    new_state: str,
+    notified: bool,
+    consecutive_failures: int,
+    disable: bool = False,
+    incident: str = "none",
 ) -> PlatformAlertOutcome:
     return PlatformAlertOutcome(
         configuration_id=check.id,
@@ -233,6 +242,7 @@ def _recorded(
         notified=notified,
         consecutive_failures=consecutive_failures,
         disable=disable,
+        incident=incident,
     )
 
 
@@ -244,6 +254,7 @@ def _delivery(check: PlatformAlertCheckInput, outcome: AlertCheckOutcome, *, win
         notified=outcome.update_last_notified_at,
         consecutive_failures=outcome.consecutive_failures,
         disable=outcome.disable,
+        incident=outcome.incident.value,
     )
     if outcome.notification == NotificationAction.NONE:
         return recorded, None
@@ -262,7 +273,9 @@ def _delivery(check: PlatformAlertCheckInput, outcome: AlertCheckOutcome, *, win
         destination_names=tuple(destination.name for destination in destinations),
         # One transition with an empty grouping key. Logs does not group yet, and delivery
         # reads a list either way, so fan-out changes this call and nothing downstream.
-        transitions=(GroupTransition(grouping_key="", notification=outcome.notification.value),),
+        transitions=(
+            GroupTransition(grouping_key="", notification=outcome.notification.value, incident=outcome.incident.value),
+        ),
     )
 
 
@@ -358,6 +371,7 @@ def _held(check: PlatformAlertCheckInput, outcome: ControlPlaneOutcome, *, skip:
         new_state=outcome.new_state.value,
         notified=False,
         consecutive_failures=outcome.consecutive_failures,
+        incident=outcome.incident.value,
     )
     _record_check_metrics(
         check, new_state=outcome.new_state.value, notification=NotificationAction.NONE, skip=skip, now=now
