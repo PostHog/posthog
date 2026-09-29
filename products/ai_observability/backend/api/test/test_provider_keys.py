@@ -1418,7 +1418,9 @@ class TestLLMProviderKeyValidationViewSet(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["state"], "ok")
-        mock_validate.assert_called_once_with("openai_compatible", "custom-key-123", team_id=self.team.id, base_url="https://8.8.8.8/v1")
+        mock_validate.assert_called_once_with(
+            "openai_compatible", "custom-key-123", team_id=self.team.id, base_url="https://8.8.8.8/v1"
+        )
 
     @patch("products.ai_observability.backend.api.provider_keys.validate_provider_key")
     def test_pre_validate_openai_compatible_attributes_base_url_errors(self, mock_validate):

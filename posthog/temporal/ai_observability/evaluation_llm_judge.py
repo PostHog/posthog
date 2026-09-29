@@ -49,11 +49,6 @@ from products.ai_observability.backend.llm.errors import (
     StructuredOutputParseError,
     UnsupportedModelError,
 )
-from products.ai_observability.backend.models.evaluation_configs import (
-    CategoricalOutputConfig,
-    NumericOutputConfig,
-    NumericScoreOutOfBounds,
-)
 from products.ai_observability.backend.llm.system_one import (
     SystemOneClient,
     SystemOneEndpointBlockedError,
@@ -62,6 +57,11 @@ from products.ai_observability.backend.llm.system_one import (
     system_one_evaluations_enabled,
 )
 from products.ai_observability.backend.llm.types import CompletionResponse
+from products.ai_observability.backend.models.evaluation_configs import (
+    CategoricalOutputConfig,
+    NumericOutputConfig,
+    NumericScoreOutOfBounds,
+)
 from products.ai_observability.backend.text_repr.formatters import add_line_numbers, reduce_by_uniform_sampling
 
 logger = structlog.get_logger(__name__)
