@@ -10,7 +10,7 @@ Defaults are intentionally useful: last 7 days, test accounts filtered out, aggr
 - `dateRange`: time range for impact counts and latest-event metadata. Defaults to last 7 days.
 - `includeSparkline`: set true only if a trend/sparkline helps answer the user. When true, `volumeResolution` defaults to 12 if not provided.
 - `volumeResolution`: number of volume buckets when sparkline data is needed.
-- `includeBreakdown`: set true when the user asks where, for whom, or on which platforms the issue happens. It adds one aggregate over all matching events: the most common paths, screens, browsers, OS, libraries, library versions, and app versions with a count for each, the number of events with a `$session_id`, and up to 5 sample `$session_id` values. It covers at most the last 30 days of `dateRange`; `range_limited` is true when it covers less than you asked for. Empty dimensions are left out.
+- `includeBreakdown`: set true when the user asks where, for whom, or on which platforms the issue happens. It returns the same breakdowns as the issue page, over all matching events: the most common paths (or URLs, when events have no path, as with backend SDKs), screens, browsers, OS, libraries, library versions, and app versions, each with a count, and up to 5 `$session_id` values with the most events. It covers at most the last 30 days of `dateRange`; `range_limited` is true when it covers less than you asked for. Empty dimensions are left out.
 
 # Next steps
 

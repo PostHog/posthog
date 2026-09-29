@@ -10,7 +10,14 @@ from rest_framework import status, viewsets
 from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 
-from posthog.schema import DateRange, ErrorTrackingIssueAssignee, ErrorTrackingQuery, EventsQuery
+from posthog.schema import (
+    CachedErrorTrackingBreakdownsQueryResponse,
+    DateRange,
+    ErrorTrackingBreakdownsQuery,
+    ErrorTrackingIssueAssignee,
+    ErrorTrackingQuery,
+    EventsQuery,
+)
 
 from posthog.hogql.errors import ResolutionError
 
@@ -19,6 +26,8 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.hogql_queries.events_query_runner import EventsQueryRunner
+from posthog.hogql_queries.query_runner import ExecutionMode
+from posthog.models import User
 
 from products.error_tracking.backend.facade import (
     api as facade_api,
@@ -27,8 +36,10 @@ from products.error_tracking.backend.facade import (
 from products.error_tracking.backend.facade.query_utils import (
     CONTEXT_EVENT_SELECTS,
     DEFAULT_EVENT_CONTEXT_INCLUDES,
-    ISSUE_BREAKDOWN_SELECTS,
+    ISSUE_BREAKDOWN_PROPERTIES,
+    ISSUE_BREAKDOWN_QUERY_VALUES,
     ISSUE_FIELDS,
+    breakdown_query_date_range,
     build_date_range,
     build_event_selects,
     build_impact,
@@ -49,7 +60,6 @@ from products.error_tracking.backend.facade.query_utils import (
     map_issue_breakdown,
     normalize_volume_resolution,
     pick_fields,
-    resolve_breakdown_range,
 )
 from products.error_tracking.backend.presentation.views.query_serializers import (
     ErrorTrackingIssueBreakdownSerializer,
@@ -229,34 +239,32 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     def _issue_breakdown(
         self, request: ValidatedRequest, issue_id: str, date_range: dict[str, object], filter_test_accounts: bool
     ) -> dict[str, object]:
-        date_from, date_to, range_limited = resolve_breakdown_range(date_range, self.team.timezone_info, now())
-        query = EventsQuery(
-            kind="EventsQuery",
-            event="$exception",
-            select=list(ISSUE_BREAKDOWN_SELECTS.values()),
-            where=build_issue_where(issue_id),
-            filterTestAccounts=filter_test_accounts,
-            after=date_from.isoformat(),
-            before=date_to.isoformat(),
-            limit=1,
-            tags={"productKey": "error_tracking"},
+        breakdown_date_range, range_limited = breakdown_query_date_range(date_range, self.team.timezone_info, now())
+        # The same query as the breakdowns on the issue page, so agents and people see the same numbers. It goes
+        # through the query cache, and HogQL masks restricted properties, so such a dimension comes back empty.
+        runner = query_facade.ErrorTrackingBreakdownsQueryRunner(
+            team=self.team,
+            query=ErrorTrackingBreakdownsQuery(
+                kind="ErrorTrackingBreakdownsQuery",
+                issueId=issue_id,
+                breakdownProperties=ISSUE_BREAKDOWN_PROPERTIES,
+                dateRange=DateRange(**breakdown_date_range),
+                filterTestAccounts=filter_test_accounts,
+                maxValuesPerProperty=ISSUE_BREAKDOWN_QUERY_VALUES,
+                tags={"productKey": "error_tracking"},
+            ),
         )
-        # Unlike the context event query, a failure here is not hidden: the caller asked for the breakdown, and a
-        # restricted property must return an error instead of a partial breakdown.
         with tags_context(product=Product.ERROR_TRACKING, feature=Feature.QUERY):
-            try:
-                data = (
-                    EventsQueryRunner(team=self.team, query=query, user=request.user)
-                    .calculate()
-                    .model_dump(mode="json")
-                )
-            except ResolutionError as error:
-                raise ValidationError(str(error)) from error
+            response = runner.run(
+                execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE, user=cast(User, request.user)
+            )
+        if not isinstance(response, CachedErrorTrackingBreakdownsQueryResponse):
+            raise ValidationError("The issue breakdown could not be calculated.")
         breakdown = {
-            "date_from": date_from,
-            "date_to": date_to,
+            "date_from": runner.date_from,
+            "date_to": runner.date_to,
             "range_limited": range_limited,
-            **map_issue_breakdown(data),
+            **map_issue_breakdown(response.model_dump(mode="json").get("results") or {}),
         }
         return ErrorTrackingIssueBreakdownSerializer(instance=breakdown).data
 

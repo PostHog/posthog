@@ -8143,7 +8143,7 @@ export const ErrorTrackingQueryIssueCreateBody = () => zod.object({
         .boolean()
         .default(errorTrackingQueryIssueCreateBodyIncludeBreakdownDefault)
         .describe(
-            'Set true to include an aggregate over all matching events: the most common paths, screens, browsers, OS, libraries, library versions, and app versions with a count for each, plus session coverage and sample $session_id values. Covers at most the last 30 days of dateRange. Adds one aggregate query, so request it only to answer where, for whom, or on which platforms the issue happens. Defaults to false.'
+            'Set true to include the issue page breakdowns: the most common paths (or URLs when events have no path), screens, browsers, OS, libraries, library versions, and app versions, each with a count, plus the sessions with the most events. Covers at most the last 30 days of dateRange. Adds one aggregate query, so request it only to answer where, for whom, or on which platforms the issue happens. Defaults to false.'
         ),
 })
 

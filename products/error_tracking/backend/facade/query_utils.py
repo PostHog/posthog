@@ -97,40 +97,25 @@ PROPERTY_COLUMN_NAMES = {
 ISSUE_BREAKDOWN_TOP_VALUES = 5
 ISSUE_BREAKDOWN_MAX_DAYS = 30
 MAX_BREAKDOWN_VALUE_CHARS = 200
-# Only read properties that ClickHouse stores as materialized columns. A property without a materialized column
+# Ask for more values than the response returns: NULL and empty values can take a slot, and they are dropped.
+ISSUE_BREAKDOWN_QUERY_VALUES = ISSUE_BREAKDOWN_TOP_VALUES + 2
+# Dimension name in the response -> event property. All of them have materialized columns. A property without one
 # makes the query read the whole properties blob, which holds the exception payload. On a high-volume issue that
 # multiplies the bytes read by about 40, for example with $trace_id or $exception_handled.
-# The path comes from $current_url because backend SDKs set $current_url but not $pathname.
 ISSUE_BREAKDOWN_DIMENSIONS = {
-    "path": "path(toString(properties.$current_url))",
-    "screen": "properties.$screen_name",
-    "browser": "properties.$browser",
-    "os": "properties.$os",
-    "library": "properties.$lib",
-    "library_version": "properties.$lib_version",
-    "app_version": "properties.$app_version",
+    "path": "$pathname",
+    "url": "$current_url",
+    "screen": "$screen_name",
+    "browser": "$browser",
+    "os": "$os",
+    "library": "$lib",
+    "library_version": "$lib_version",
+    "app_version": "$app_version",
 }
-
-
-def non_empty(expression: str) -> str:
-    # Aggregate functions skip NULL arguments, so a map from empty to NULL keeps empty values out of the results.
-    return f"nullIf(toString({expression}), '')"
-
-
-def top_values_with_counts(expression: str) -> str:
-    """Rank the most common non-empty values of an expression, with an approximate count for each value.
-
-    The 'counts' mode returns (value, count, error) tuples, so all dimensions share one aggregate query.
-    """
-    return f"topK({ISSUE_BREAKDOWN_TOP_VALUES}, 3, 'counts')({non_empty(expression)})"
-
-
-ISSUE_BREAKDOWN_SELECTS = {
-    "occurrences": "count()",
-    "events_with_session": f"count({non_empty('properties.$session_id')})",
-    "sample_session_ids": f"groupUniqArray({ISSUE_BREAKDOWN_TOP_VALUES})({non_empty('properties.$session_id')})",
-    **{f"top_{name}": top_values_with_counts(expression) for name, expression in ISSUE_BREAKDOWN_DIMENSIONS.items()},
-}
+ISSUE_BREAKDOWN_SESSION_PROPERTY = "$session_id"
+ISSUE_BREAKDOWN_PROPERTIES = [*ISSUE_BREAKDOWN_DIMENSIONS.values(), ISSUE_BREAKDOWN_SESSION_PROPERTY]
+# Labels the breakdowns query uses for a missing value.
+BREAKDOWN_EMPTY_VALUES = {"", "$$_posthog_breakdown_null_$$"}
 
 
 def build_event_selects(includes: list[str]) -> list[str]:
@@ -562,33 +547,60 @@ def resolve_breakdown_range(
     return date_from, date_to, False
 
 
-def map_top_values(value: object) -> list[dict[str, object]]:
-    if not isinstance(value, list):
-        return []
-    top_values: list[dict[str, object]] = []
-    for item in value:
-        if not isinstance(item, list | tuple) or len(item) < 2 or item[0] in (None, ""):
-            continue
-        count = item[1] if isinstance(item[1], int) else 0
-        top_values.append({"value": truncate_text(str(item[0]), MAX_BREAKDOWN_VALUE_CHARS), "count": count})
-    return top_values
+def breakdown_query_date_range(
+    date_range: dict[str, object], timezone_info: ZoneInfo, now: datetime
+) -> tuple[dict[str, str | None], bool]:
+    """Build the date range for the breakdowns query and say whether the 30-day limit made it shorter.
 
-
-def map_issue_breakdown(data: dict[str, object]) -> dict[str, object]:
-    rows = data.get("results")
-    row = rows[0] if isinstance(rows, list) and rows else None
-    values = row if isinstance(row, list) else []
-    by_key = {key: values[index] if index < len(values) else None for index, key in enumerate(ISSUE_BREAKDOWN_SELECTS)}
-    occurrences = by_key["occurrences"]
-    events_with_session = by_key["events_with_session"]
-    session_ids = by_key["sample_session_ids"]
-    top_values = {name: map_top_values(by_key[f"top_{name}"]) for name in ISSUE_BREAKDOWN_DIMENSIONS}
+    A range within the limit keeps the requested strings, so a relative range such as -7d gives the same query, and
+    the same cache key, on every call. A relative date_to is sent resolved: the breakdowns query reads it forward.
+    """
+    date_from, date_to, range_limited = resolve_breakdown_range(date_range, timezone_info, now)
+    raw_date_from = date_range.get("date_from")
     return {
-        "occurrences": occurrences if isinstance(occurrences, int) else 0,
-        "events_with_session": events_with_session if isinstance(events_with_session, int) else 0,
-        "sample_session_ids": [str(item) for item in session_ids if item not in (None, "")]
-        if isinstance(session_ids, list)
-        else [],
+        "date_from": date_from.isoformat() if range_limited else str(raw_date_from),
+        "date_to": date_to.isoformat() if date_range.get("date_to") else None,
+    }, range_limited
+
+
+def as_count(value: object) -> int:
+    # The breakdowns query returns counts as floats.
+    return int(value) if isinstance(value, int | float) and not isinstance(value, bool) else 0
+
+
+def breakdown_values(results: dict[str, object], prop: str, limit: int) -> list[dict[str, object]]:
+    property_result = as_record(results.get(prop))
+    raw_values = property_result.get("values") if property_result else None
+    values: list[dict[str, object]] = []
+    for item in raw_values if isinstance(raw_values, list) else []:
+        record = as_record(item)
+        value = record.get("value") if record else None
+        count = record.get("count") if record else None
+        if not isinstance(value, str) or value in BREAKDOWN_EMPTY_VALUES:
+            continue
+        values.append({"value": truncate_text(value, MAX_BREAKDOWN_VALUE_CHARS), "count": as_count(count)})
+    return values[:limit]
+
+
+def map_issue_breakdown(results: dict[str, object]) -> dict[str, object]:
+    """Map ErrorTrackingBreakdownsQuery results to the compact breakdown of the issue tool."""
+    totals = [
+        as_count(record.get("total_count"))
+        for prop in ISSUE_BREAKDOWN_PROPERTIES
+        if (record := as_record(results.get(prop))) is not None
+    ]
+    top_values = {
+        name: breakdown_values(results, prop, ISSUE_BREAKDOWN_TOP_VALUES)
+        for name, prop in ISSUE_BREAKDOWN_DIMENSIONS.items()
+    }
+    # The URL only matters when there is no path: backend SDKs set $current_url but not $pathname.
+    if top_values["path"]:
+        top_values["url"] = []
+    sessions = breakdown_values(results, ISSUE_BREAKDOWN_SESSION_PROPERTY, ISSUE_BREAKDOWN_TOP_VALUES)
+    return {
+        # Each event adds one row for each property, so every property has the same total.
+        "occurrences": max(totals, default=0),
+        "sample_session_ids": [session["value"] for session in sessions],
         # Leave out empty dimensions: backend SDKs send no browser or OS, and web SDKs send no screen name.
         "top_values": {name: items for name, items in top_values.items() if items},
     }

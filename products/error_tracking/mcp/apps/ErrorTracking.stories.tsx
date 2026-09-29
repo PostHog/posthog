@@ -90,7 +90,6 @@ const issueWithBreakdown: ErrorIssueData = {
         date_to: '2025-12-18T00:00:00Z',
         range_limited: false,
         occurrences: 1240,
-        events_with_session: 1180,
         sample_session_ids: ['0193a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b', '0193a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5c'],
         top_values: {
             path: [

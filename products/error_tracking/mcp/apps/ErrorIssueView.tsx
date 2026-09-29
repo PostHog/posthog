@@ -18,13 +18,13 @@ export interface ErrorIssueBreakdown {
     date_to: string
     range_limited: boolean
     occurrences: number
-    events_with_session: number
     sample_session_ids: string[]
     top_values: Partial<Record<ErrorIssueBreakdownDimension, ErrorIssueBreakdownValue[]>>
 }
 
 export type ErrorIssueBreakdownDimension =
     | 'path'
+    | 'url'
     | 'screen'
     | 'browser'
     | 'os'
@@ -34,6 +34,7 @@ export type ErrorIssueBreakdownDimension =
 
 const breakdownLabels: Record<ErrorIssueBreakdownDimension, string> = {
     path: 'Paths',
+    url: 'URLs',
     screen: 'Screens',
     browser: 'Browsers',
     os: 'OS',
@@ -118,10 +119,6 @@ export function ErrorIssueView({ issue }: ErrorIssueViewProps): ReactElement {
                                                 value: formatBreakdownValues(issue.breakdown?.top_values[dimension]),
                                             })
                                         ),
-                                        {
-                                            label: 'Events with a session',
-                                            value: String(issue.breakdown.events_with_session),
-                                        },
                                         {
                                             label: 'Sample session IDs',
                                             value: issue.breakdown.sample_session_ids.join(', '),

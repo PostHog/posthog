@@ -193,10 +193,10 @@ class ErrorTrackingIssueQueryRequestSerializer(serializers.Serializer):
         required=False,
         default=False,
         help_text=(
-            "Set true to include an aggregate over all matching events: the most common paths, screens, browsers, "
-            "OS, libraries, library versions, and app versions with a count for each, plus session coverage and "
-            "sample $session_id values. Covers at most the last 30 days of dateRange. Adds one aggregate query, so "
-            "request it only to answer where, for whom, or on which platforms the issue happens. Defaults to false."
+            "Set true to include the issue page breakdowns: the most common paths (or URLs when events have no path), "
+            "screens, browsers, OS, libraries, library versions, and app versions, each with a count, plus the "
+            "sessions with the most events. Covers at most the last 30 days of dateRange. Adds one aggregate query, "
+            "so request it only to answer where, for whom, or on which platforms the issue happens. Defaults to false."
         ),
     )
 
@@ -337,7 +337,7 @@ class ErrorTrackingLatestReleaseSerializer(serializers.Serializer):
 
 class ErrorTrackingBreakdownValueSerializer(serializers.Serializer):
     value = serializers.CharField(help_text="Property value.")
-    count = serializers.IntegerField(help_text="Approximate number of matching events with this value.")
+    count = serializers.IntegerField(help_text="Number of matching events with this value.")
 
 
 def breakdown_values_field(help_text: str) -> serializers.ListField:
@@ -345,7 +345,11 @@ def breakdown_values_field(help_text: str) -> serializers.ListField:
 
 
 class ErrorTrackingBreakdownTopValuesSerializer(serializers.Serializer):
-    path = breakdown_values_field("Most common URL paths from $current_url, most frequent first.")
+    path = breakdown_values_field("Most common $pathname values, most frequent first.")
+    url = breakdown_values_field(
+        "Most common $current_url values, most frequent first. Returned only when events have no $pathname, as with "
+        "backend SDKs."
+    )
     screen = breakdown_values_field("Most common $screen_name values, most frequent first.")
     browser = breakdown_values_field("Most common $browser values, most frequent first.")
     os = breakdown_values_field("Most common $os values, most frequent first.")
@@ -361,9 +365,9 @@ class ErrorTrackingIssueBreakdownSerializer(serializers.Serializer):
         help_text="True when the requested range was longer than 30 days and the breakdown covers only the last 30."
     )
     occurrences = serializers.IntegerField(help_text="Matching exception events in the breakdown range.")
-    events_with_session = serializers.IntegerField(help_text="Matching events that have a $session_id.")
     sample_session_ids = serializers.ListField(
-        child=serializers.CharField(), help_text="Up to 5 $session_id values, for session recording lookups."
+        child=serializers.CharField(),
+        help_text="Up to 5 $session_id values with the most matching events, for session recording lookups.",
     )
     top_values = ErrorTrackingBreakdownTopValuesSerializer(
         help_text="Most common values for each dimension. A dimension with no values is left out."

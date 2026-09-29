@@ -25,6 +25,7 @@ from products.access_control.backend.property_access_control import PropertyAcce
 from products.error_tracking.backend.facade.query_utils import (
     ISSUE_BREAKDOWN_TOP_VALUES,
     MAX_STACK_FRAMES,
+    breakdown_query_date_range,
     build_issue_event_where,
     build_issue_filters,
     build_search_query,
@@ -154,23 +155,68 @@ def test_resolve_breakdown_range_limits_the_range_to_30_days(
     assert (date_from, date_to, range_limited) == (expected_from, expected_to, expected_limited)
 
 
-def test_map_issue_breakdown_drops_empty_dimensions_and_truncates_values() -> None:
+def test_map_issue_breakdown_drops_empty_values_and_dimensions() -> None:
     long_path = "/" + "a" * 500
-    # One row in ISSUE_BREAKDOWN_SELECTS order: counts, sample sessions, then one topK column per dimension.
-    row: list[object] = [4, 2, ["session-1", ""], [[long_path, 3, 0], ["", 1, 0]], [], [["Chrome", 4, 0]]]
-    row += [[] for _ in range(4)]
+    null_label = "$$_posthog_breakdown_null_$$"
+    results: dict[str, object] = {
+        "$pathname": {
+            "values": [{"value": long_path, "count": 3}, {"value": null_label, "count": 1}],
+            "total_count": 4,
+        },
+        "$current_url": {"values": [{"value": "https://example.test/a", "count": 3}], "total_count": 4},
+        "$browser": {"values": [{"value": "Chrome", "count": 4}], "total_count": 4},
+        "$os": {"values": [{"value": null_label, "count": 4}], "total_count": 4},
+        "$session_id": {
+            "values": [{"value": null_label, "count": 2}, {"value": "session-1", "count": 2}],
+            "total_count": 4,
+        },
+    }
 
-    breakdown = map_issue_breakdown({"results": [row]})
+    breakdown = map_issue_breakdown(results)
 
     assert breakdown["occurrences"] == 4
-    assert breakdown["events_with_session"] == 2
     assert breakdown["sample_session_ids"] == ["session-1"]
     top_values = cast(dict[str, Any], breakdown["top_values"])
+    # The URL is left out when the events have a path, and a dimension with only missing values is left out.
     assert set(top_values) == {"path", "browser"}
     assert top_values["browser"] == [{"value": "Chrome", "count": 4}]
     assert len(top_values["path"]) == 1
     assert top_values["path"][0]["count"] == 3
     assert len(top_values["path"][0]["value"]) == 200
+
+
+def test_map_issue_breakdown_returns_urls_when_events_have_no_path() -> None:
+    results: dict[str, object] = {
+        "$pathname": {"values": [{"value": "", "count": 2}], "total_count": 2},
+        "$current_url": {"values": [{"value": "https://api.example.test/orders", "count": 2}], "total_count": 2},
+    }
+
+    top_values = cast(dict[str, Any], map_issue_breakdown(results)["top_values"])
+
+    assert top_values == {"url": [{"value": "https://api.example.test/orders", "count": 2}]}
+
+
+@parameterized.expand(
+    [
+        ("relative_range_keeps_the_request", {"date_from": "-7d"}, {"date_from": "-7d", "date_to": None}, False),
+        (
+            "long_range_is_limited",
+            {"date_from": "-90d"},
+            {"date_from": (BREAKDOWN_NOW - timedelta(days=30)).isoformat(), "date_to": None},
+            True,
+        ),
+        (
+            "relative_date_to_is_resolved",
+            {"date_from": "-7d", "date_to": "-1d"},
+            {"date_from": "-7d", "date_to": (BREAKDOWN_NOW - timedelta(days=1)).isoformat()},
+            False,
+        ),
+    ]
+)
+def test_breakdown_query_date_range(
+    _name: str, date_range: dict[str, object], expected: dict[str, object], expected_limited: bool
+) -> None:
+    assert breakdown_query_date_range(date_range, ZoneInfo("UTC"), BREAKDOWN_NOW) == (expected, expected_limited)
 
 
 class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
@@ -756,13 +802,21 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
     @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
     def test_issue_detail_breakdown_aggregates_matching_events(self) -> None:
         self.create_issue()
-        for url, session_id, lib in [
-            ("https://example.test/checkout?step=1", "session-id-1", "web"),
-            ("https://example.test/checkout?step=2", "session-id-2", "web"),
-            ("https://example.test/cart", "", "posthog-python"),
+        for pathname, session_id, lib in [
+            ("/checkout", "session-id-1", "web"),
+            ("/checkout", "session-id-1", "web"),
+            ("/cart", "session-id-2", "web"),
+            ("/cart", "", "posthog-python"),
+            ("/cart", "", "posthog-python"),
         ]:
             self.create_exception_event(
-                properties={"$current_url": url, "$session_id": session_id, "$browser": "Chrome", "$lib": lib}
+                properties={
+                    "$pathname": pathname,
+                    "$current_url": f"https://example.test{pathname}",
+                    "$session_id": session_id,
+                    "$browser": "Chrome",
+                    "$lib": lib,
+                }
             )
         self.create_exception_event(
             issue_id="01936e7f-d7ff-7314-b2d4-7627981e34f1",
@@ -779,27 +833,27 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
 
         assert response.status_code == 200
         breakdown = response.json()["breakdown"]
-        assert breakdown["occurrences"] == 3
-        assert breakdown["events_with_session"] == 2
+        assert breakdown["occurrences"] == 5
         assert breakdown["range_limited"] is False
-        assert sorted(breakdown["sample_session_ids"]) == ["session-id-1", "session-id-2"]
+        # Sessions with the most events first; events without a session are not a session.
+        assert breakdown["sample_session_ids"] == ["session-id-1", "session-id-2"]
         top_values = breakdown["top_values"]
-        # The path drops the query string, so both checkout URLs count as one page.
-        assert top_values["path"] == [{"value": "/checkout", "count": 2}, {"value": "/cart", "count": 1}]
-        assert top_values["browser"] == [{"value": "Chrome", "count": 3}]
-        assert top_values["library"] == [{"value": "web", "count": 2}, {"value": "posthog-python", "count": 1}]
-        assert "os" not in top_values
-        assert "screen" not in top_values
+        assert top_values["path"] == [{"value": "/cart", "count": 3}, {"value": "/checkout", "count": 2}]
+        assert top_values["browser"] == [{"value": "Chrome", "count": 5}]
+        assert top_values["library"] == [{"value": "web", "count": 3}, {"value": "posthog-python", "count": 2}]
+        # The URL repeats the path here, and no event has an OS or a screen name.
+        assert set(top_values) == {"path", "browser", "library"}
 
     @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
     def test_issue_detail_breakdown_keeps_empty_values_out_of_top_values(self) -> None:
         self.create_issue()
-        urls = [f"https://example.test/page-{index}" for index in range(ISSUE_BREAKDOWN_TOP_VALUES)]
-        for url in urls:
-            self.create_exception_event(properties={"$current_url": url})
-        # More events have no URL than have any single real URL, so an empty value would take a slot if ranked.
+        for index in range(ISSUE_BREAKDOWN_TOP_VALUES):
+            self.create_exception_event(properties={"$pathname": f"/page-{index}"})
+        # More events have an empty or no path than have any single real path, so a missing value would take a
+        # slot if the query ranked it and the response kept it.
         for _ in range(ISSUE_BREAKDOWN_TOP_VALUES):
-            self.create_exception_event(properties={"$current_url": ""})
+            self.create_exception_event(properties={"$pathname": ""})
+            self.create_exception_event()
         flush_persons_and_events()
 
         response = self.client.post(
@@ -813,13 +867,13 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         assert sorted(paths) == sorted(f"/page-{index}" for index in range(ISSUE_BREAKDOWN_TOP_VALUES))
 
     @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
-    def test_issue_detail_breakdown_honors_user_property_access(self) -> None:
+    def test_issue_detail_breakdown_masks_restricted_properties(self) -> None:
         self.organization.available_product_features = [
             {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
         ]
         self.organization.save()
         property_definition = PropertyDefinition.objects.create(
-            team=self.team, name="$current_url", type=PropertyDefinition.Type.EVENT
+            team=self.team, name="$pathname", type=PropertyDefinition.Type.EVENT
         )
         PropertyAccessControl.objects.create(
             team=self.team,
@@ -828,7 +882,7 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
             organization_member=self.organization_membership,
         )
         self.create_issue()
-        self.create_exception_event(properties={"$current_url": "https://example.test/checkout"})
+        self.create_exception_event(properties={"$pathname": "/checkout", "$browser": "Chrome"})
         flush_persons_and_events()
 
         response = self.client.post(
@@ -837,8 +891,11 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
             format="json",
         )
 
-        assert response.status_code == 400
-        assert "Access to property '$current_url' is restricted" in str(response.json())
+        assert response.status_code == 200
+        top_values = response.json()["breakdown"]["top_values"]
+        assert "path" not in top_values
+        assert "/checkout" not in str(response.json())
+        assert top_values["browser"] == [{"value": "Chrome", "count": 1}]
 
     @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
     def test_issue_events_returns_plural_exception_arrays_and_truncates_summary_text(self) -> None:

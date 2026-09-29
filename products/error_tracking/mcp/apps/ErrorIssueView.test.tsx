@@ -55,7 +55,6 @@ describe('ErrorIssueView', () => {
                         date_to: '2026-04-24T00:00:00Z',
                         range_limited: true,
                         occurrences: 3,
-                        events_with_session: 2,
                         sample_session_ids: ['session-1'],
                         top_values: { path: [{ value: '/checkout', count: 3 }] },
                     },
