@@ -212,10 +212,11 @@ class TestPgOutputDecoder:
 
     @parameterized.expand(
         [
-            ("key_changed", b"K", [("t", "41"), None], {"id": 41}),
-            ("key_unchanged", b"K", [("t", "42"), None], None),
-            ("full_identity_row", b"O", [("t", "41"), ("t", "Alice")], {"id": 41, "name": "Alice"}),
-            ("no_old_tuple", b"K", None, None),
+            ("key_changed", b"K", [("t", "41"), None], ["id"], {"id": 41}),
+            ("key_unchanged", b"K", [("t", "42"), None], ["id"], None),
+            ("full_identity_row_keeps_only_the_key", b"O", [("t", "41"), ("t", "Alice")], ["id"], {"id": 41}),
+            ("no_old_tuple", b"K", None, ["id"], None),
+            ("table_without_a_splittable_key", b"K", [("t", "41"), None], None, None),
         ]
     )
     def test_update_with_old_key(
@@ -223,9 +224,12 @@ class TestPgOutputDecoder:
         _name: str,
         old_marker: bytes,
         old_values: list[tuple[str, str] | None] | None,
+        key_change_columns: list[str] | None,
         expected_previous: dict[str, object] | None,
     ) -> None:
         decoder = PgOutputDecoder()
+        if key_change_columns is not None:
+            decoder.set_key_change_columns({"public.users": key_change_columns})
         columns = [("id", _OID_INT4, -1), ("name", _OID_TEXT, -1)]
         decoder.decode_message(_make_relation(1, "public", "users", columns, key_columns={"id"}), "0/100")
 
@@ -577,6 +581,7 @@ class TestTransactionBufferGuard:
 
     def _decoder_with_relation(self) -> PgOutputDecoder:
         decoder = PgOutputDecoder()
+        decoder.set_key_change_columns({"public.users": ["id"]})
         decoder.decode_message(_make_relation(1, "public", "users", self._COLUMNS, key_columns={"id"}), "0/1")
         return decoder
 

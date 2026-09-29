@@ -194,8 +194,8 @@ class CDCExtractActivity:
         self.cdc_schemas: list[ExternalDataSchema] = []
         self.schema_by_name: dict[str, ExternalDataSchema] = {}
         self.pk_columns_by_table: dict[str, list[str]] = {}
-        # Tables whose key updates stay upserts, see `_split_key_change`.
-        self.deferrable_key_tables: set[str] = set()
+        # Merge keys that no two source rows can share, the only ones `_split_key_change` splits on.
+        self.split_key_columns: dict[str, list[str]] = {}
         # Missing entry = sync all columns; otherwise the set is the projection (always includes PKs).
         self.enabled_columns_by_table: dict[str, set[str]] = {}
         self.adapter: typing.Any = None
@@ -593,7 +593,19 @@ class CDCExtractActivity:
                 self._update_schema_sync_type_config(schema, updates={"primary_key_columns": queried_pks[schema.name]})
 
         self.log.info("pk_columns_loaded", tables=list(self.pk_columns_by_table.keys()))
-        self.deferrable_key_tables = self._query_deferrable_key_tables(list(cdc_table_names))
+        enforced_keys = self._query_enforced_unique_keys(list(cdc_table_names))
+        self.split_key_columns = {
+            table: key_columns
+            for table, key_columns in self.pk_columns_by_table.items()
+            if any(unique_columns <= set(key_columns) for unique_columns in enforced_keys.get(table, []))
+        }
+        self.reader.set_key_change_columns(
+            {
+                event_name: self.split_key_columns[schema_name]
+                for event_name, schema_name in self._build_event_name_map().items()
+                if schema_name in self.split_key_columns
+            }
+        )
 
         for schema in self.cdc_schemas:
             enabled = schema.enabled_columns
@@ -626,13 +638,14 @@ class CDCExtractActivity:
                 resolved[relations_by_name[relation]] = pk_columns
         return resolved
 
-    def _query_deferrable_key_tables(self, table_names: list[str]) -> set[str]:
-        """Schema names whose table has a deferrable primary key or unique constraint."""
-        found: set[str] = set()
+    def _query_enforced_unique_keys(self, table_names: list[str]) -> dict[str, list[frozenset[str]]]:
+        """Enforced unique column sets per schema name, see `get_enforced_unique_keys`."""
+        resolved: dict[str, list[frozenset[str]]] = {}
         for namespace, relations_by_name in self._catalog_names(table_names).items():
-            for relation in self.reader.get_deferrable_key_tables(namespace, list(relations_by_name)):
-                found.add(relations_by_name[relation])
-        return found
+            queried = self.reader.get_enforced_unique_keys(namespace, list(relations_by_name))
+            for relation, unique_keys in queried.items():
+                resolved[relations_by_name[relation]] = unique_keys
+        return resolved
 
     def _catalog_names(self, table_names: list[str]) -> dict[str, dict[str, str]]:
         """Group schema names by source namespace, mapping each bare relation name back to its schema name."""
@@ -673,18 +686,17 @@ class CDCExtractActivity:
         table and open in the history table. The delete carries only the old key, like a Postgres
         delete under the default replica identity, so delete enrichment fills the rest of the row.
 
-        A table with a deferrable key constraint keeps upserting on the new key instead. Two of its
-        rows can swap keys in one transaction, and then the second row's delete would remove the key
-        the first row's insert took.
+        Only a merge key that an immediately enforced unique index covers is split. Any other key can
+        be held by two rows at once: a deferrable constraint allows it until the transaction commits,
+        and a key the user chose may not be unique at all. The second row's delete would then remove
+        a key that a row still holds, so such a table keeps upserting on the new key instead.
         """
         if event.previous_values is None:
             return (event,)
         # The batcher neither writes the previous values nor counts them toward its flush size.
         current = dataclasses.replace(event, previous_values=None)
-        key_columns = self.pk_columns_by_table.get(event.table_name, [])
-        if event.table_name in self.deferrable_key_tables or not any(
-            column in event.previous_values for column in key_columns
-        ):
+        key_columns = self.split_key_columns.get(event.table_name, [])
+        if not any(column in event.previous_values for column in key_columns):
             return (current,)
         old_key = {column: event.previous_values.get(column, event.columns.get(column)) for column in key_columns}
         removed = ChangeEvent(

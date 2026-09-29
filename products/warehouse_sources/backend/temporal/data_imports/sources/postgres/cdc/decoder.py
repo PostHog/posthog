@@ -210,6 +210,10 @@ class PgOutputDecoder:
         # so a caller that handles truncates mid-transaction never purges ahead of the changes before
         # them.
         self._tx_truncated_tables: list[str] = []
+        # Per qualified table name, the key columns whose old values an update reports. Under REPLICA
+        # IDENTITY FULL the old row holds every column, and keeping the rest would grow every spilled
+        # transaction for values nothing reads.
+        self._key_change_columns: dict[str, frozenset[str]] = {}
         self._last_commit_end_lsn: str | None = None
 
     def decode_message(self, data: bytes, lsn: str) -> Iterable[ChangeEvent]:
@@ -435,8 +439,11 @@ class PgOutputDecoder:
                 columns[col_name] = old_columns[col_name]
                 omitted.discard(col_name)
 
+        key_change_columns = self._key_change_columns.get(relation.qualified_name, frozenset())
         previous_values = {
-            name: value for name, value in old_columns.items() if name in columns and columns[name] != value
+            name: value
+            for name, value in old_columns.items()
+            if name in key_change_columns and name in columns and columns[name] != value
         }
         self._buffer_event(
             ChangeEvent(
@@ -502,6 +509,9 @@ class PgOutputDecoder:
                 self._tx_truncated_tables.append(relation.qualified_name)
 
     # --- Helpers ---
+
+    def set_key_change_columns(self, columns_by_table: Mapping[str, Iterable[str]]) -> None:
+        self._key_change_columns = {table: frozenset(columns) for table, columns in columns_by_table.items()}
 
     def get_key_columns(self, table_name: str) -> list[str]:
         """Return the column names forming the replica identity key, or [] if there is no usable one.

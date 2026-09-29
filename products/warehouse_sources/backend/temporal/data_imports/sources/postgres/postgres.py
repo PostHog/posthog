@@ -1019,29 +1019,43 @@ def get_primary_key_columns(conn: psycopg.Connection, schema: str, table_names: 
     return result
 
 
-def get_tables_with_deferrable_keys(conn: psycopg.Connection, schema: str, table_names: list[str]) -> set[str]:
-    """Tables with a primary key or unique constraint declared DEFERRABLE.
+def get_enforced_unique_keys(
+    conn: psycopg.Connection, schema: str, table_names: list[str]
+) -> dict[str, list[frozenset[str]]]:
+    """Column sets of each table's unique indexes that Postgres enforces on every row as it is written.
 
-    Postgres checks such a constraint at the end of the statement or transaction instead of per row,
-    so only these tables can hold one key in two rows for part of a transaction, as a key swap does.
+    A deferrable constraint is checked only at the end of the statement or transaction, a partial index
+    leaves the rows outside its predicate free, and an expression index constrains no plain column. Those
+    are left out, so a set returned here can never be held by two rows at once.
     """
     if not table_names:
-        return set()
+        return {}
     with conn.cursor() as cur:
         cur.execute(
             """
-            SELECT DISTINCT c.relname
-            FROM pg_constraint con
-            JOIN pg_class c ON c.oid = con.conrelid
+            SELECT c.relname, i.indexrelid, a.attname
+            FROM pg_index i
+            JOIN pg_class c ON c.oid = i.indrelid
             JOIN pg_namespace n ON n.oid = c.relnamespace
-            WHERE con.contype IN ('p', 'u')
-              AND con.condeferrable
+            JOIN pg_attribute a
+              ON a.attrelid = c.oid AND a.attnum = ANY((i.indkey::int2[])[0:i.indnkeyatts - 1])
+            WHERE i.indisunique
+              AND i.indimmediate
+              AND i.indisvalid
+              AND i.indpred IS NULL
+              AND i.indexprs IS NULL
               AND n.nspname = %s
               AND c.relname = ANY(%s)
             """,
             (schema, table_names),
         )
-        return {row[0] for row in cur}
+        columns_by_index: dict[tuple[str, int], set[str]] = {}
+        for table, index_id, column in cur:
+            columns_by_index.setdefault((table, index_id), set()).add(column)
+    keys: dict[str, list[frozenset[str]]] = {}
+    for (table, _index_id), columns in columns_by_index.items():
+        keys.setdefault(table, []).append(frozenset(columns))
+    return keys
 
 
 def get_leading_index_columns(

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Literal, Protocol, Self
@@ -132,7 +132,9 @@ class CDCStreamReader(Protocol):
 
     def get_primary_key_columns(self, schema_name: str, table_names: list[str]) -> dict[str, list[str]]: ...
 
-    def get_deferrable_key_tables(self, schema_name: str, table_names: list[str]) -> set[str]: ...
+    def get_enforced_unique_keys(self, schema_name: str, table_names: list[str]) -> dict[str, list[frozenset[str]]]: ...
+
+    def set_key_change_columns(self, columns_by_table: Mapping[str, Iterable[str]]) -> None: ...
 
     def get_decoder_key_columns(self, table_name: str) -> list[str]: ...
 

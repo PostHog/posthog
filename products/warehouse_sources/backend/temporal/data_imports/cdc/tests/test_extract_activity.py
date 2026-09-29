@@ -1506,8 +1506,11 @@ class _ScriptedReader:
     def get_decoder_key_columns(self, table):
         return []
 
-    def get_deferrable_key_tables(self, schema, tables):
-        return set()
+    def get_enforced_unique_keys(self, schema, tables):
+        return {}
+
+    def set_key_change_columns(self, columns_by_table):
+        pass
 
     def clear_truncated_tables(self):
         self.truncated_tables = []
@@ -1786,24 +1789,25 @@ class TestBufferedIngressCapture:
 
     @parameterized.expand(
         [
-            ("key_changed", ["id"], {"id": 1}, set(), [("D", 1, None), ("I", 2, 7)]),
+            ("key_changed", ["id"], [{"id"}], {"id": 1}, [("D", 1, None), ("I", 2, 7)]),
             (
                 "one_column_of_a_composite_key_changed",
                 ["id", "tenant_id"],
+                [{"id"}],
                 {"id": 1},
-                set(),
                 [("D", 1, 7), ("I", 2, 7)],
             ),
-            ("other_column_changed", ["id"], {"name": "Alice"}, set(), [("U", 2, 7)]),
-            ("key_changed_on_a_deferrable_key", ["id"], {"id": 1}, {"users"}, [("U", 2, 7)]),
+            ("other_column_changed", ["id"], [{"id"}], {"name": "Alice"}, [("U", 2, 7)]),
+            ("no_enforced_unique_index", ["id"], [], {"id": 1}, [("U", 2, 7)]),
+            ("unique_index_wider_than_the_merge_key", ["id"], [{"id", "tenant_id"}], {"id": 1}, [("U", 2, 7)]),
         ]
     )
     def test_an_update_that_changes_the_key_removes_the_old_key(
         self,
         _name: str,
         primary_key: list[str],
+        enforced_unique_keys: list[set[str]],
         previous_values: dict[str, object],
-        deferrable_key_tables: set[str],
         expected_rows: list[tuple[str, int, int | None]],
     ) -> None:
         source = _make_source()
@@ -1817,12 +1821,17 @@ class TestBufferedIngressCapture:
         )
 
         with _capture_harness(source, [schema], [update]) as capture:
-            capture.reader.get_deferrable_key_tables.return_value = deferrable_key_tables
+            capture.reader.get_enforced_unique_keys.return_value = {
+                "users": [frozenset(columns) for columns in enforced_unique_keys]
+            }
             capture.extract()
 
         buffered = capture.buffer.write_batch.call_args.kwargs["table"]
         rows = zip(*(buffered.column(name).to_pylist() for name in (CDC_OP_COLUMN, "id", "tenant_id")))
         assert list(rows) == expected_rows
+        splits = any(set(columns) <= set(primary_key) for columns in enforced_unique_keys)
+        key_change_columns = capture.reader.set_key_change_columns.call_args.args[0]
+        assert key_change_columns.get("public.users") == (primary_key if splits else None)
         assert set(buffered.column(CDC_SEQ_COLUMN).to_pylist()) == {0x200}
 
     def test_wal_events_reach_the_schema_they_belong_to(self):

@@ -144,6 +144,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.p
     _tunnel_with_handshake_translation,
     _xmin_capable_tables_from_conn,
     filter_postgres_incremental_fields,
+    get_enforced_unique_keys,
     get_foreign_keys,
     get_leading_index_columns,
     get_postgres_row_count,
@@ -8108,6 +8109,45 @@ class TestGetLeadingIndexColumns:
 
         result = get_leading_index_columns(connection, "public", ["orders"])
         assert result is None
+
+
+class TestGetEnforcedUniqueKeys:
+    @pytest.mark.django_db
+    def test_returns_only_the_unique_indexes_postgres_checks_on_every_row(self) -> None:
+        with django_connection.cursor() as cursor:
+            for ddl in (
+                "CREATE TABLE uk_plain_pk (id int PRIMARY KEY, v text)",
+                "CREATE TABLE uk_deferrable_pk (id int PRIMARY KEY DEFERRABLE, v text)",
+                "CREATE TABLE uk_pk_and_deferrable_unique (id int PRIMARY KEY, pos int UNIQUE DEFERRABLE)",
+                "CREATE TABLE uk_no_key (id int, v text)",
+                "CREATE TABLE uk_partial (id int, active bool)",
+                "CREATE UNIQUE INDEX ON uk_partial (id) WHERE active",
+                "CREATE TABLE uk_expression (email text)",
+                "CREATE UNIQUE INDEX ON uk_expression (lower(email))",
+                "CREATE TABLE uk_covering (a int, b int, c int)",
+                "CREATE UNIQUE INDEX ON uk_covering (a, b) INCLUDE (c)",
+            ):
+                cursor.execute(ddl)
+            django_connection.ensure_connection()
+            result = get_enforced_unique_keys(
+                cast(Any, django_connection.connection),
+                "public",
+                [
+                    "uk_plain_pk",
+                    "uk_deferrable_pk",
+                    "uk_pk_and_deferrable_unique",
+                    "uk_no_key",
+                    "uk_partial",
+                    "uk_expression",
+                    "uk_covering",
+                ],
+            )
+
+        assert result == {
+            "uk_plain_pk": [frozenset({"id"})],
+            "uk_pk_and_deferrable_unique": [frozenset({"id"})],
+            "uk_covering": [frozenset({"a", "b"})],
+        }
 
 
 class TestHasDuplicatePrimaryKeys:
