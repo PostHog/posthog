@@ -500,6 +500,8 @@ describe('LogsIngestionConsumer', () => {
                 team_id: team.id.toString(),
                 'json-parse': 'false',
                 'retention-days': DEFAULT_LOGS_RETENTION_DAYS.toString(),
+                source_topic: messages[0].topic,
+                source_partition: messages[0].partition.toString(),
             })
         })
 
@@ -522,6 +524,8 @@ describe('LogsIngestionConsumer', () => {
                 team_id: team.id.toString(),
                 'json-parse': 'false',
                 'retention-days': DEFAULT_LOGS_RETENTION_DAYS.toString(),
+                source_topic: messages[0].topic,
+                source_partition: messages[0].partition.toString(),
             })
         })
 
@@ -555,6 +559,8 @@ describe('LogsIngestionConsumer', () => {
                 team_id: team.id.toString(),
                 'json-parse': 'false',
                 'retention-days': '30',
+                source_topic: messages[0].topic,
+                source_partition: messages[0].partition.toString(),
             })
         })
     })

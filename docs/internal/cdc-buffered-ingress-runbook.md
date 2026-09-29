@@ -354,8 +354,33 @@ long since advanced past those changes.
 **If files expire before they are consumed, the changes are gone.** There is no partial recovery.
 The only fix is a full `reset_pipeline` re-snapshot for that schema.
 
+A table's own sync does that re-snapshot. When it starts and the table last consumed the buffer
+longer ago than files are kept (`cdc_buffer_expired_before_consumption`), it stands down for the tick
+and hands the reset to capture, which resets the table once the sync has finished and starts the
+snapshot. So a table that resumes after a long stop, such as a billing block lifting, re-snapshots
+instead of loading on past changes it never saw.
+
+Only a run that listed the buffer, or re-seeded the table with a snapshot, counts as having consumed
+it — and only once every table that run writes finished. A `both` run whose history lane never
+completed landed those changes on the consolidated table alone, so it leaves the history table owed
+and does not count.
+
 Watch the age of the oldest unconsumed file per schema, not the file count. A schema with few files
 that are all thirteen days old is in trouble; one with thousands of fresh files is fine.
+
+**The billing limit is the usual cause, and the sweeper stops it.** Capture has no billing check, so it
+keeps reading the slot and writing the buffer while the limit blocks every consume run. Once a table
+has been blocked by the billing limit for longer than the buffer keeps files, and the team is still
+over the limit, the slot sweeper (`cleanup_orphan_slots_activity`) marks the source broken with reason
+`billing_limit_expired`. A PostHog-managed slot with auto-drop on is dropped and the schedules are
+paused, on the same terms as the critical-lag safety net. If that drop is refused — an active slot,
+a missing grant — the source is left running and the next sweep retries it, because pausing capture
+behind a live slot is what makes WAL grow. Any other slot is left to its owner and capture keeps
+advancing it, so the customer's WAL does not grow. Once the team is back under the limit, a dropped
+slot needs Repair CDC, which recreates it and re-snapshots every table. A kept slot needs nothing: the
+sweeper lifts its marker, and each table's next sync finds its buffer expired and re-snapshots on its
+own. Only a table's own sync runs count toward the 14 days. Capture records a Failed job on every table
+when it fails, and those rows do not restart the count.
 
 ## Retried capture attempts
 

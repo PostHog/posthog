@@ -1,13 +1,23 @@
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
+import posthog from 'posthog-js'
 import { useEffect } from 'react'
 
 import { LemonBanner, Link } from '@posthog/lemon-ui'
 
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { getEventPropertiesForExperiment } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
+
+import type { Experiment } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
 import type { ExperimentWarning } from '../experimentLogic'
+
+function reportExperimentInconsistencyWarningShown(experiment: Experiment, warningKey: string): void {
+    posthog.capture('experiment inconsistency warning shown', {
+        ...getEventPropertiesForExperiment(experiment),
+        warning_key: warningKey,
+    })
+}
 
 function warningCaption(key: ExperimentWarning['key']): string {
     switch (key) {
@@ -74,13 +84,12 @@ function WarningDetail({
 
 export function ExperimentWarningBanner(): JSX.Element | null {
     const { experimentWarning, experiment } = useValues(experimentLogic)
-    const { reportExperimentInconsistencyWarningShown } = useActions(eventUsageLogic)
 
     useEffect(() => {
         if (experimentWarning) {
             reportExperimentInconsistencyWarningShown(experiment, experimentWarning.key)
         }
-    }, [reportExperimentInconsistencyWarningShown, experimentWarning, experiment])
+    }, [experimentWarning, experiment])
 
     if (!experimentWarning) {
         return null

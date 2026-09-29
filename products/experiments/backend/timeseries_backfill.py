@@ -18,8 +18,8 @@ from posthog.clickhouse.client.connection import Workload
 
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.experiments.backend.hogql_queries.utils import sanitize_non_finite
+from products.experiments.backend.metric_resolution import build_metric
 from products.experiments.backend.models.experiment import ExperimentMetricResult, ExperimentTimeseriesRecalculation
-from products.experiments.backend.temporal.metric_resolution import build_metric
 
 logger = structlog.get_logger(__name__)
 

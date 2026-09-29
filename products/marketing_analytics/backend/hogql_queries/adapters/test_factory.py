@@ -550,10 +550,21 @@ class TestNativeCampaignTableResolution(FactoryTestMixin, BaseTest):
         assert config.campaign_table is campaign
         assert config.stats_table is stats
 
+    @parameterized.expand([("plain", ""), ("prefixed", "example_")])
+    def test_rokt_report_supplies_both_campaign_and_stats(self, _name: str, prefix: str) -> None:
+        source = Mock(id="rokt-source", source_type="RoktAds")
+        table = DataWarehouseTable(name=f"{prefix}roktads_campaignperformance")
+        config = self._make_factory()._create_native_config(
+            source, [table], NativeMarketingSource.ROKT_ADS, HierarchicalNativeAdsConfig
+        )
+        assert config is not None
+        assert config.campaign_table is table
+        assert config.stats_table is table
+
 
 class TestNativeSourceKillSwitch(SimpleTestCase):
     @parameterized.expand([(False,), (True,)])
-    def test_factory_excludes_disabled_source_without_affecting_google(self, enabled: bool) -> None:
+    def test_factory_excludes_disabled_sources_from_discovery_and_validation(self, enabled: bool) -> None:
         team = Team(id=1)
         factory = MarketingSourceFactory.__new__(MarketingSourceFactory)
         factory.context = Mock(spec=QueryContext, team=team)
@@ -561,7 +572,7 @@ class TestNativeSourceKillSwitch(SimpleTestCase):
         factory._warehouse_tables = []
         factory._external_sources = []
         factory._tables_by_source_id = {}
-        for source_type in ("GoogleAds", "AppleSearchAds", "OpenAIAds", "AmazonAds"):
+        for source_type in ("GoogleAds", "AppleSearchAds", "OpenAIAds", "AmazonAds", "RoktAds"):
             source = ExternalDataSource(source_type=source_type)
             patterns = TABLE_PATTERNS[NativeMarketingSource(source_type)]
             tables = [
@@ -579,6 +590,9 @@ class TestNativeSourceKillSwitch(SimpleTestCase):
             adapters = factory.create_adapters()
 
         assert [adapter.get_source_type() for adapter in adapters] == (
-            ["GoogleAds", "AppleSearchAds", "OpenAIAds", "AmazonAds"] if enabled else ["GoogleAds"]
+            ["GoogleAds", "AppleSearchAds", "OpenAIAds", "AmazonAds", "RoktAds"] if enabled else ["GoogleAds"]
         )
+        errors = factory.get_validation_errors(adapters)
+        assert set(errors) == ({adapter.config.source_id for adapter in adapters[1:]} if enabled else set())
+        assert all(messages for messages in errors.values())
         factory.logger.exception.assert_not_called()

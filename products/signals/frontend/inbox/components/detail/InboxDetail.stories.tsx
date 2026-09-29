@@ -90,10 +90,41 @@ const successfulPrChecks = {
 
 const detailMocks = mswDecorator({
     get: {
-        '/api/projects/:id/signals/reports/:reportId/artefacts': (req) => [
-            200,
-            mockArtefacts(req.params.reportId as string),
-        ],
+        '/api/projects/:id/signals/reports/:reportId/artefacts': (req) => {
+            const reportId = req.params.reportId as string
+            const artefacts = mockArtefacts(reportId)
+            if (reportId !== reportTabReports[0].id) {
+                return [200, artefacts]
+            }
+            return [
+                200,
+                {
+                    ...artefacts,
+                    count: artefacts.count + 1,
+                    results: [
+                        {
+                            id: `${reportId}-impact`,
+                            type: 'impact_measurement_plan',
+                            content: {
+                                metric_id: reportMetricsFixture[0].metric_id,
+                                title: reportMetricsFixture[0].title,
+                                kind: reportMetricsFixture[0].kind,
+                                query: reportMetricsFixture[0].query,
+                                value_format: reportMetricsFixture[0].value_format,
+                                unit: reportMetricsFixture[0].unit,
+                                goal_value: 50,
+                                goal_direction: 'at_most',
+                                goal_grain: 'per_interval',
+                                decision_window_days: 7,
+                                activated: false,
+                            },
+                            created_at: '2026-08-29T00:00:00Z',
+                        },
+                        ...artefacts.results,
+                    ],
+                },
+            ]
+        },
         '/api/projects/:id/signals/reports/:reportId/artefacts/:artefactId/diff/': () => [200, mockBranchDiff()],
         '/api/projects/:id/signals/reports/:reportId/signals': (req) => [
             200,
@@ -236,6 +267,58 @@ export const ReportWithMetrics: Story = {
                         'Set the form errors before the early return so the existing error rendering works again, and give the button a disabled reason while the request is in flight.',
                     ].join('\n\n'),
                     metrics: reportMetricsFixture,
+                })}
+            />
+        </Frame>
+    ),
+}
+
+export const ReportWithExpectedImpact: Story = {
+    parameters: {
+        mockDate: '2026-08-29',
+        featureFlags: {
+            [FEATURE_FLAGS.INBOX_REDESIGN]: true,
+            [FEATURE_FLAGS.SIGNALS_REPORT_METRICS]: true,
+            [FEATURE_FLAGS.SIGNALS_EXPECTED_IMPACT_DISPLAY]: true,
+        },
+    },
+    render: () => (
+        <Frame>
+            <ReportDetail
+                report={makeReport({
+                    ...reportTabReports[0],
+                    title: 'Creating an API key does nothing when validation fails',
+                    summary: [
+                        'People cannot finish setup when the API key form hides validation errors.',
+                        '## Problem',
+                        'The form does not show the error after the Create key button is clicked.',
+                        '## Expected impact',
+                        'After the fix, fewer people should click Create key without getting a response.',
+                        '## Solution',
+                        'Show the validation error in the form.',
+                    ].join('\n\n'),
+                    metrics: reportMetricsFixture.slice(0, 1),
+                })}
+            />
+        </Frame>
+    ),
+}
+
+export const ReportExpectedImpactPending: Story = {
+    parameters: {
+        featureFlags: {
+            [FEATURE_FLAGS.INBOX_REDESIGN]: true,
+            [FEATURE_FLAGS.SIGNALS_EXPECTED_IMPACT_DISPLAY]: true,
+        },
+    },
+    render: () => (
+        <Frame>
+            <ReportDetail
+                report={makeReport({
+                    ...reportTabReports[0],
+                    status: SignalReportStatus.IN_PROGRESS,
+                    summary: null,
+                    metrics: [],
                 })}
             />
         </Frame>
