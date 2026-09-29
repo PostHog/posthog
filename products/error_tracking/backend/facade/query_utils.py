@@ -7,6 +7,7 @@ from zoneinfo import ZoneInfo
 
 from posthog.hogql.escape_sql import escape_hogql_string
 
+from posthog.dataclasses import frozen
 from posthog.utils import relative_date_parse
 
 MAX_NORMALIZED_TEXT_CHARS = 1000
@@ -525,13 +526,19 @@ def extract_latest_release(event_properties: dict[str, object]) -> dict[str, obj
     )
 
 
-def resolve_breakdown_range(
-    date_range: dict[str, object], timezone_info: ZoneInfo, now: datetime
-) -> tuple[datetime, datetime, bool]:
+@frozen
+class BreakdownRange:
+    date_from: datetime
+    date_to: datetime
+    # True when the limit made the range shorter than the request.
+    range_limited: bool
+
+
+def resolve_breakdown_range(date_range: dict[str, object], timezone_info: ZoneInfo, now: datetime) -> BreakdownRange:
     """Resolve the breakdown range and limit it to the last ISSUE_BREAKDOWN_MAX_DAYS days before its end.
 
     The breakdown aggregates every matching event, so its cost grows with the range. The limit keeps the cost
-    bounded. The third value is true when the limit made the range shorter than the request.
+    bounded.
     """
     raw_date_to = date_range.get("date_to")
     date_to = relative_date_parse(str(raw_date_to), timezone_info, now=now) if raw_date_to else now
@@ -543,8 +550,8 @@ def resolve_breakdown_range(
     )
     earliest = date_to - timedelta(days=ISSUE_BREAKDOWN_MAX_DAYS)
     if date_from is None or date_from < earliest:
-        return earliest, date_to, True
-    return date_from, date_to, False
+        return BreakdownRange(date_from=earliest, date_to=date_to, range_limited=True)
+    return BreakdownRange(date_from=date_from, date_to=date_to, range_limited=False)
 
 
 def breakdown_query_date_range(
@@ -555,12 +562,12 @@ def breakdown_query_date_range(
     A range within the limit keeps the requested strings, so a relative range such as -7d gives the same query, and
     the same cache key, on every call. A relative date_to is sent resolved: the breakdowns query reads it forward.
     """
-    date_from, date_to, range_limited = resolve_breakdown_range(date_range, timezone_info, now)
+    resolved = resolve_breakdown_range(date_range, timezone_info, now)
     raw_date_from = date_range.get("date_from")
     return {
-        "date_from": date_from.isoformat() if range_limited else str(raw_date_from),
-        "date_to": date_to.isoformat() if date_range.get("date_to") else None,
-    }, range_limited
+        "date_from": resolved.date_from.isoformat() if resolved.range_limited else str(raw_date_from),
+        "date_to": resolved.date_to.isoformat() if date_range.get("date_to") else None,
+    }, resolved.range_limited
 
 
 def as_count(value: object) -> int:

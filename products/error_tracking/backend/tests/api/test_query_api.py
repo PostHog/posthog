@@ -25,6 +25,7 @@ from products.access_control.backend.property_access_control import PropertyAcce
 from products.error_tracking.backend.facade.query_utils import (
     ISSUE_BREAKDOWN_TOP_VALUES,
     MAX_STACK_FRAMES,
+    BreakdownRange,
     breakdown_query_date_range,
     build_issue_event_where,
     build_issue_filters,
@@ -150,9 +151,9 @@ def test_resolve_breakdown_range_limits_the_range_to_30_days(
     expected_to: datetime,
     expected_limited: bool,
 ) -> None:
-    date_from, date_to, range_limited = resolve_breakdown_range(date_range, ZoneInfo("UTC"), BREAKDOWN_NOW)
-
-    assert (date_from, date_to, range_limited) == (expected_from, expected_to, expected_limited)
+    assert resolve_breakdown_range(date_range, ZoneInfo("UTC"), BREAKDOWN_NOW) == BreakdownRange(
+        date_from=expected_from, date_to=expected_to, range_limited=expected_limited
+    )
 
 
 def test_map_issue_breakdown_drops_empty_values_and_dimensions() -> None:
