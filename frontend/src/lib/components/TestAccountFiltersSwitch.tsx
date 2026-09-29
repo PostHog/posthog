@@ -76,7 +76,7 @@ export function TestAccountFilterSwitch({
                         disabledReason below actively sends people here when no filters are set up.
                         Callers that can configure the filters in place pass onConfigure instead. */}
                     <LemonButton
-                        icon={showNewTabIcon ? <IconExternal /> : <IconGear />}
+                        icon={showNewTabIcon ? <IconExternal className="size-3.5" /> : <IconGear />}
                         size="small"
                         noPadding
                         className="ml-1"
