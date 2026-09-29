@@ -54,6 +54,8 @@ from posthog.uuidt import UUIDT
 from products.actions.backend.models.action import Action
 
 TARGET_EVENT = "report_shared"
+# The horizon the printed follow-up commands use.
+HORIZON_DAYS = 30
 ACTION_NAME = "Shared a report externally"
 
 PERSONAS: dict[str, dict[str, float]] = {
@@ -286,10 +288,14 @@ class Command(BaseCommand):
                 process_person_profile=True,
                 timeout=30,
             )
-            if not result.succeeded():
+            # A warning means capture stored the event with person processing switched off, so its $identify
+            # never reaches personhog. succeeded() ignores warnings on purpose; a seed cannot.
+            if not result.succeeded() or result.warnings:
                 raise CommandError(
-                    f"capture rejected {len(result.dropped)} dropped / {len(result.retried)} retried event(s): "
-                    f"{result.error or result.status_code}"
+                    f"capture failed: {len(result.dropped)} dropped, {len(result.retried)} retried, "
+                    f"{len(result.unaccounted)} unaccounted, {len(result.warnings)} warned event(s): "
+                    f"{result.error or result.status_code}. "
+                    "Earlier batches were ingested; re-seed into a fresh team or with a new --seed."
                 )
             batch = []
 
@@ -314,9 +320,13 @@ class Command(BaseCommand):
 
         if options["users"] < 1:
             raise CommandError("--users must be at least 1.")
-        # Sign-ups are drawn between 10 days ago and --days ago.
-        if options["days"] <= 10:
-            raise CommandError("--days must be more than 10.")
+        # Sign-ups are drawn between 10 days ago and --days ago, and the labeler only admits a person seen before the horizon.
+        if options["days"] <= HORIZON_DAYS:
+            raise CommandError(f"--days must be more than the {HORIZON_DAYS}-day horizon the follow-up commands use.")
+        # Capture accepts events past this cutoff and ingestion then drops them, which would orphan the early $identify.
+        threshold = team.drop_events_older_than
+        if threshold is not None and timedelta(days=options["days"] + 1) > threshold:
+            raise CommandError(f"--days reaches past this team's drop_events_older_than ({threshold}).")
 
         seed: int = options["seed"]
         rng = random.Random(seed)
@@ -350,30 +360,41 @@ class Command(BaseCommand):
         else:
             self._write_via_capture(team, users)
 
+        steps_json = [
+            {
+                "event": TARGET_EVENT,
+                "properties": [{"key": "share_type", "type": "event", "value": ["external"], "operator": "exact"}],
+            }
+        ]
+        # Action rows live on the project's root team; a child environment would miss them and duplicate the action.
         action, created = Action.objects.get_or_create(
-            team=team,
+            team=team.parent_team or team,
             name=ACTION_NAME,
             deleted=False,
             defaults={
                 "description": f"`{TARGET_EVENT}` with share_type = external. Seeded by autoresearch_seed_demo.",
-                "steps_json": [
-                    {
-                        "event": TARGET_EVENT,
-                        "properties": [
-                            {"key": "share_type", "type": "event", "value": ["external"], "operator": "exact"}
-                        ],
-                    }
-                ],
+                "steps_json": steps_json,
             },
         )
+        if created:
+            action_status = "created"
+        elif action.steps_json != steps_json:
+            # The action-target path trains on these steps, so a stale same-name action would train the wrong target.
+            action.steps_json = steps_json
+            action.save()
+            action_status = "steps reset to the seeded definition"
+        else:
+            action_status = "already existed"
 
         self.stdout.write(self.style.SUCCESS(f"\n✓ Wrote {len(users)} persons and {total_events} events."))
-        self.stdout.write(f"  Action '{ACTION_NAME}' id={action.pk} ({'created' if created else 'already existed'})")
-        self.stdout.write("\nNext:")
+        self.stdout.write(f"  Action '{ACTION_NAME}' id={action.pk} ({action_status})")
+        member = team.all_users_with_access().order_by("pk").first()
+        user_id = str(member.pk) if member else "<USER_ID>"
+        self.stdout.write("\nNext, once ingestion has caught up (it runs asynchronously):")
         self.stdout.write(
-            f"  CLICKHOUSE_DATABASE=posthog python manage.py autoresearch_validate --team-id {team_id} --target {TARGET_EVENT} --horizon 30 --user-id 1"
+            f"  CLICKHOUSE_DATABASE=posthog python manage.py autoresearch_validate --team-id {team_id} --target {TARGET_EVENT} --horizon {HORIZON_DAYS} --user-id {user_id}"
         )
         self.stdout.write(
             f"  CLICKHOUSE_DATABASE=posthog python manage.py autoresearch_train --create --team-id {team_id} "
-            f"--target {TARGET_EVENT} --name 'Report sharing prediction' --horizon 30 --user-id 1 --stub"
+            f"--target {TARGET_EVENT} --name 'Report sharing prediction' --horizon {HORIZON_DAYS} --user-id {user_id} --stub"
         )
