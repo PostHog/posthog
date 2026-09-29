@@ -1,3 +1,4 @@
+import re
 import json
 import time
 import asyncio
@@ -17,6 +18,7 @@ from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.transforms.prompt_jev import PromptJevBudget, PromptJevRunner
 
+from posthog.clickhouse.client import sync_execute
 from posthog.models.team import Team
 
 
@@ -144,6 +146,7 @@ class TestPromptJev(SimpleTestCase):
         assert isinstance(node, ast.Call)
         runner = PromptJevRunner(team_id=1, distinct_id=None)
         runner.deadline = time.monotonic() - 1
+        self.assertEqual(runner.source_timeout(), 1)
         with patch("httpx.AsyncClient.post") as post, self.assertRaisesRegex(QueryError, "time limit"):
             runner.evaluate(PromptJevCall.parse(node), ["refund"])
         post.assert_not_called()
@@ -242,6 +245,14 @@ class TestPromptJevQuery(ClickhouseTestMixin, APIBaseTest):
                 "WITH classified AS (SELECT __preview_promptJev('refund', 'Refund?') AS p) SELECT a.p, b.p FROM classified a CROSS JOIN classified b",
                 [(0.9, 0.9)],
             ),
+            (
+                "WITH a AS (SELECT __preview_promptJev('refund', 'Refund?') AS p), b AS (SELECT p FROM a) SELECT p FROM b",
+                [(0.9,)],
+            ),
+            (
+                "SELECT label FROM (SELECT __preview_promptJev(body, 'Refund?') AS label FROM (SELECT label AS body FROM (SELECT 'refund' AS label)))",
+                [(0.9,)],
+            ),
             ("SELECT __preview_promptJev(NULL, 'Refund?') AS p", [(None,)]),
             ("SELECT __preview_promptJev('hello', 'Refund?') AS p LIMIT 0", []),
             (
@@ -260,10 +271,41 @@ class TestPromptJevQuery(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
+            ("WITH unused AS (SELECT __preview_promptJev('refund', 'Refund?') AS p) SELECT 1",),
+            ("WITH a AS (SELECT __preview_promptJev('refund', 'Refund?') AS p), b AS (SELECT p FROM a) SELECT 1",),
+        ]
+    )
+    def test_unused_ctes_send_no_requests(self, query: str) -> None:
+        with patch("httpx.AsyncClient.post") as post:
+            response = execute_hogql_query(query, self.team, user=self.user)
+        self.assertEqual(response.results, [(1,)])
+        post.assert_not_called()
+
+    def test_source_scan_stays_within_the_inference_deadline(self) -> None:
+        with (
+            patch("httpx.AsyncClient.post", side_effect=gateway_response),
+            patch("posthog.hogql.query.sync_execute", wraps=sync_execute) as execute,
+        ):
+            execute_hogql_query("SELECT __preview_promptJev('refund', 'Refund?') AS p", self.team, user=self.user)
+        timeouts = [
+            int(seconds)
+            for call in execute.call_args_list
+            for seconds in re.findall(r"max_execution_time=(\d+)", call.args[0])
+        ]
+        self.assertEqual(len(timeouts), 2)
+        self.assertLessEqual(max(timeouts), 60)
+
+    @parameterized.expand(
+        [
             ("SELECT __preview_promptJev('a', 'q')", "named SELECT"),
             ("SELECT __preview_promptJev('a', 'q') AS p ORDER BY p", "outside"),
             ("SELECT __preview_promptJev('a', 'q') AS p WHERE p > 0.5", "outer query"),
+            ("SELECT labl FROM (SELECT __preview_promptJev('refund', 'Refund?') AS label)", "labl"),
             ("SELECT __preview_promptJev(toString(number), 'q') AS p FROM numbers(1001)", "at most 1000"),
+            (
+                "SELECT __preview_promptJev(toString(number), 'Topic?') AS a, __preview_promptJev(toString(number), 'Tone?') AS b FROM numbers(600)",
+                "query budget",
+            ),
         ]
     )
     def test_rejects_unsafe_query_shapes_before_inference(self, query: str, message: str) -> None:

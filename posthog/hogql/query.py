@@ -172,6 +172,7 @@ class HogQLQueryExecutor:
         self._direct_source: Optional[ExternalDataSource] = None
         self._direct_source_resolved = False
         self._prompt_jev_tables: list[PromptJevTable] = []
+        self._prompt_jev_warehouse_sources: list[WarehouseSourceUsage] = []
         self._executing = False
 
     @tracer.start_as_current_span("HogQLQueryExecutor._parse_query")
@@ -580,6 +581,8 @@ class HogQLQueryExecutor:
             sources = extract_warehouse_sources(self._get_select_query_type())
         except Exception:
             sources = []
+        # __preview_promptJev source queries read their tables in separate executions.
+        sources = list({source.id: source for source in [*sources, *self._prompt_jev_warehouse_sources]}.values())
         self.used_data_warehouse_sources = sources
         return sources
 
@@ -714,23 +717,51 @@ class HogQLQueryExecutor:
 
         validate_prompt_jev_access(self.team)
         PromptJevBudget().visit(self.select_query)
+        # The resolver types __preview_promptJev calls without model output, so an invalid query fails before any model call.
+        Resolver(
+            context=dataclasses.replace(
+                self.context,
+                team_id=self.team.pk,
+                team=self.team,
+                user=self.user,
+                enable_select_queries=True,
+                modifiers=self.query_modifiers,
+                database=self.context.database
+                or Database.create_for(
+                    team=self.team,
+                    user=self.user,
+                    user_access_control=self.context.user_access_control,
+                    modifiers=self.query_modifiers,
+                    timings=self.timings,
+                    bypass_warehouse_access_control=self.context.bypass_warehouse_access_control,
+                    trigger="executor",
+                ),
+                warnings=[],
+                notices=[],
+                errors=[],
+            ),
+            dialect="clickhouse",
+        ).visit(clone_expr(self.select_query, True))
         self._prompt_jev_tables = []
+        runner = PromptJevRunner(team_id=self.team.pk, distinct_id=self.user.distinct_id if self.user else None)
 
         def execute_source(query: ast.SelectQuery) -> HogQLQueryResponse:
+            settings = get_default_hogql_global_settings(self.team.pk, self.settings)
+            timeout = runner.source_timeout()
+            settings.max_execution_time = min(settings.max_execution_time or timeout, timeout)
             executor = dataclasses.replace(
                 self,
                 query=query,
+                settings=settings,
                 context=dataclasses.replace(self.context, limit_top_select=False),
-                limit_context=LimitContext.SAVED_QUERY,
+                limit_context=LimitContext.QUERY,
             )
             executor._prompt_jev_tables = self._prompt_jev_tables
-            return executor.execute()
+            response = executor.execute()
+            self._prompt_jev_warehouse_sources.extend(executor.used_data_warehouse_sources)
+            return response
 
-        planner = PromptJevPlanner(
-            execute=execute_source,
-            runner=PromptJevRunner(team_id=self.team.pk, distinct_id=self.user.distinct_id if self.user else None),
-            tables=self._prompt_jev_tables,
-        )
+        planner = PromptJevPlanner(execute=execute_source, runner=runner, tables=self._prompt_jev_tables)
         with self.timings.measure("__preview_promptJev"):
             self.select_query = planner.visit(self.select_query)
         if PromptJevFinder.contains(self.select_query):

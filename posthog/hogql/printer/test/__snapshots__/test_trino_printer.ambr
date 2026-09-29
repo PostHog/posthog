@@ -304,6 +304,7 @@
       '__preview_getTrafficCategory',
       '__preview_getTrafficType',
       '__preview_isBot',
+      '__preview_promptJev',
       '_defaultChannelType',
       '_domainType',
       'embedText',
