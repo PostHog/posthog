@@ -1,5 +1,7 @@
 import posthog from 'posthog-js'
 
+import { type BrandColor, colors as brand } from '@posthog/brand/colors'
+
 import { LifecycleToggle } from '~/types'
 
 import { LemonTagType } from './lemon-ui/LemonTag'
@@ -65,6 +67,47 @@ const FALLBACK_DATA_COLOR_THEME_COLORS = [
     '#a56eff',
     '#30d5c8',
 ] as const
+
+// Order keeps neighbors distinct. Low-contrast hues use "darker" so lines stay visible on white.
+const BRAND_DATA_COLOR_PICKS: [BrandColor, 'core' | 'darker'][] = [
+    [brand.cobalt, 'core'],
+    [brand.tangerine, 'core'],
+    [brand.green, 'darker'],
+    [brand.purple, 'core'],
+    [brand.yellow, 'darker'],
+    [brand['corn-blue'], 'darker'],
+    [brand.coral, 'core'],
+    [brand.teal, 'darker'],
+    [brand.lime, 'darker'],
+    [brand.blue, 'core'],
+    [brand.violet, 'core'],
+    [brand.lemon, 'darker'],
+    [brand.coral, 'darker'],
+    [brand.violet, 'darker'],
+    [brand.blue, 'darker'],
+]
+
+function mixHex(from: string, to: string, amount: number): string {
+    const channel = (hex: string, i: number): number => parseInt(hex.slice(i, i + 2), 16)
+    return `#${[1, 3, 5]
+        .map((i) =>
+            Math.round(channel(from, i) * (1 - amount) + channel(to, i) * amount)
+                .toString(16)
+                .padStart(2, '0')
+        )
+        .join('')}`
+}
+
+export const BRAND_DATA_COLORS: readonly string[] = BRAND_DATA_COLOR_PICKS.map(([color, tone]) => color[tone])
+
+export const BRAND_PASTEL_DATA_COLORS: readonly string[] = BRAND_DATA_COLOR_PICKS.map(([color, tone]) =>
+    mixHex(color[tone], color.lighter, 0.35)
+)
+
+/** Palette for the `brand-data-colors` flag value, or null when the flag is off. */
+export function getBrandDataColors(flagValue: string | boolean | undefined): readonly string[] | null {
+    return flagValue === 'pastel' ? BRAND_PASTEL_DATA_COLORS : flagValue ? BRAND_DATA_COLORS : null
+}
 
 export const FALLBACK_DATA_COLOR_THEME: DataColorTheme = FALLBACK_DATA_COLOR_THEME_COLORS.reduce(
     (theme, color, index) => {

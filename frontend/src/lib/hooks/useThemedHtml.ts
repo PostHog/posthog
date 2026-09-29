@@ -2,6 +2,9 @@ import { useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useEffect } from 'react'
 
+import { dataColorVars, getBrandDataColors } from 'lib/colors'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { themeLogic } from 'lib/logic/themeLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 
@@ -9,6 +12,8 @@ export function useThemedHtml(overflowHidden = true, forcedTheme: 'light' | 'dar
     const { isDarkModeOn, customCss } = useValues(themeLogic)
     const { sceneConfig } = useValues(sceneLogic)
     const isDarkTheme = forcedTheme ? forcedTheme === 'dark' : isDarkModeOn
+    const { featureFlags } = useValues(featureFlagLogic)
+    const brandDataColors = getBrandDataColors(featureFlags[FEATURE_FLAGS.BRAND_DATA_COLORS])
 
     const CUSTOM_THEME_STYLES_ID = 'ph-custom-theme-styles'
 
@@ -27,6 +32,14 @@ export function useThemedHtml(overflowHidden = true, forcedTheme: 'light' | 'dar
             document.head.appendChild(newStyle)
         }
     }, [customCss, isDarkTheme])
+
+    useEffect(() => {
+        dataColorVars.forEach((name, index) =>
+            brandDataColors
+                ? document.body.style.setProperty(`--${name}`, brandDataColors[index])
+                : document.body.style.removeProperty(`--${name}`)
+        )
+    }, [brandDataColors])
 
     useEffect(() => {
         // overflow-hidden since each area handles scrolling individually (e.g. navbar, scene, side panel)

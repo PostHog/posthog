@@ -1,8 +1,10 @@
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
-import { FALLBACK_DATA_COLOR_THEME } from 'lib/colors'
+import { BRAND_DATA_COLORS, BRAND_PASTEL_DATA_COLORS, FALLBACK_DATA_COLOR_THEME } from 'lib/colors'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dataThemeLogic } from 'lib/logic/dataThemeLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { initKeaTests } from '~/test/init'
@@ -48,5 +50,25 @@ describe('dataThemeLogic', () => {
 
         await expectLogic(logic).toDispatchActions(['loadThemesFailure']).toMatchValues({ themes: [] })
         expect(logic.values.getTheme(undefined)).toEqual(FALLBACK_DATA_COLOR_THEME)
+    })
+
+    it.each([
+        [false, 1, '#111111'],
+        [true, 1, BRAND_DATA_COLORS[0]],
+        ['pastel', 1, BRAND_PASTEL_DATA_COLORS[0]],
+        [true, 2, '#222222'],
+    ])('with brand flag %s, theme %s resolves preset-1 to %s', async (flagOn, themeId, expected) => {
+        window.POSTHOG_RENDER_QUERY_PAYLOAD = {
+            themes: [
+                { id: 1, name: 'Default Theme', colors: ['#111111'], is_global: true },
+                { id: 2, name: 'Custom', colors: ['#222222'], is_global: false },
+            ],
+        } as any
+        initKeaTests()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.BRAND_DATA_COLORS]: flagOn })
+        logic = dataThemeLogic()
+        logic.mount()
+
+        expect(logic.values.getTheme(themeId)?.['preset-1']).toEqual(expected)
     })
 })
