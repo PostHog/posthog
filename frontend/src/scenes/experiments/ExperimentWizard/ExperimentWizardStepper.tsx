@@ -74,6 +74,8 @@ export function ExperimentWizardStepper({
                                         : 'cursor-pointer hover:bg-fill-button-tertiary-hover active:scale-[0.98]'
                                 )}
                                 aria-current={isCurrent ? 'step' : undefined}
+                                // Other steps' labels are hidden on narrow screens, so name the button here
+                                aria-label={step.label}
                             >
                                 {hasErrors ? (
                                     <IconErrorOutline className="size-5 text-danger" />
@@ -94,7 +96,9 @@ export function ExperimentWizardStepper({
 
                                 <span
                                     className={cn(
-                                        'text-sm transition-colors duration-150',
+                                        'text-sm whitespace-nowrap transition-colors duration-150',
+                                        // Four labels don't fit a narrow screen, so only the current one shows there
+                                        !isCurrent && 'hidden @2xl:inline',
                                         isCurrent && 'font-semibold text-primary',
                                         isCompleted && !hasErrors && 'font-medium text-primary',
                                         (!isCompleted || hasErrors) && !isCurrent && 'text-secondary'
