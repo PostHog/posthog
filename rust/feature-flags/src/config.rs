@@ -563,9 +563,12 @@ pub struct Config {
     // - Hash key override writes retry a transient error and a foreign key violation, which
     //   occurs when a person is deleted during the write. A statement that hits this timeout is
     //   not retried.
-    // - Default: 1000ms (1 second)
+    // - Hash key override inserts have a longer latency tail than person reads. A timed-out insert
+    //   returns an error for every experience continuity flag in the response, so this timeout is
+    //   longer than the persons reader timeout.
+    // - Default: 2000ms (2 seconds)
     // - This timeout is enforced server-side and properly kills queries
-    #[envconfig(default = "1000")]
+    #[envconfig(default = "2000")]
     pub writer_statement_timeout_ms: u64,
 
     // How often to report database pool metrics (seconds)

@@ -395,8 +395,8 @@ mod tests {
         &[
             (pool_names::NON_PERSONS_READER, 2000),
             (pool_names::PERSONS_READER, 1000),
-            (pool_names::PERSONS_WRITER, 1000),
-            (pool_names::NON_PERSONS_WRITER, 1000),
+            (pool_names::PERSONS_WRITER, 2000),
+            (pool_names::NON_PERSONS_WRITER, 2000),
         ]
     )]
     #[case::behavioral_cohorts_configured(
@@ -407,14 +407,14 @@ mod tests {
         &[
             (pool_names::NON_PERSONS_READER, 2000),
             (pool_names::PERSONS_READER, 1000),
-            (pool_names::PERSONS_WRITER, 1000),
-            (pool_names::NON_PERSONS_WRITER, 1000),
+            (pool_names::PERSONS_WRITER, 2000),
+            (pool_names::NON_PERSONS_WRITER, 2000),
             (pool_names::BEHAVIORAL_COHORTS, 1000),
         ]
     )]
     #[case::sum_equals_request_timeout(
-        &[("ACQUIRE_TIMEOUT_SECS", "3"), ("PERSONS_READER_STATEMENT_TIMEOUT_MS", "1500")],
-        &[(pool_names::NON_PERSONS_READER, 2000), (pool_names::PERSONS_READER, 1500)]
+        &[("ACQUIRE_TIMEOUT_SECS", "2"), ("PERSONS_READER_STATEMENT_TIMEOUT_MS", "2500")],
+        &[(pool_names::PERSONS_READER, 2500)]
     )]
     #[case::longer_request_timeout(
         &[("ACQUIRE_TIMEOUT_SECS", "4"), ("REQUEST_TIMEOUT_MS", "7000")],

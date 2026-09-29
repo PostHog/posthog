@@ -371,7 +371,7 @@ Queries exceeding 500ms are logged at WARN level with timing information.
 | `TEST_BEFORE_ACQUIRE`                     | true     | Validate connections before use                                  |
 | `NON_PERSONS_READER_STATEMENT_TIMEOUT_MS` | 2000     | Statement timeout for non-persons reads                          |
 | `PERSONS_READER_STATEMENT_TIMEOUT_MS`     | 1000     | Statement timeout for persons reads                              |
-| `WRITER_STATEMENT_TIMEOUT_MS`             | 1000     | Statement timeout for writes                                     |
+| `WRITER_STATEMENT_TIMEOUT_MS`             | 2000     | Statement timeout for writes                                     |
 | `BEHAVIORAL_COHORTS_READ_DATABASE_URL`    | empty    | Behavioral cohorts database (enables realtime cohort evaluation) |
 
 ### Tuning guidance
