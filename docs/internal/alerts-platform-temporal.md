@@ -280,7 +280,8 @@ the clause whose series is evaluated. The window rules differ from logs below th
   sorted labels, empty for an ungrouped query, so an ungrouped source keeps its single row. Each label set fires,
   resolves and mutes on its own; the configuration keeps the schedule and takes the worst failure count of its
   groups. One preview per configuration carries one transition per group that has a notification.
-- Groups are capped at `MAX_GROUPS_PER_CONFIGURATION` (100). Past the cap the first 100 label sets by key are
+- Groups are capped at `MAX_GROUPS_PER_CONFIGURATION` (50, below the query facade's per-clause series cap so an
+  overflow is always visible). Past the cap the first 50 label sets by key are
   evaluated and the overflow is recorded as a failed check on the root group, so a cap never reads as "nothing is
   wrong". A label set the platform remembers and the query no longer returns is inconclusive for its group, not
   dropped, so a firing group is never stranded.

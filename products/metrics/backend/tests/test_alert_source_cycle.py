@@ -18,6 +18,7 @@ from products.metrics.backend.alert_source_cycle import (
     MAX_QUERY_SECONDS,
     evaluate_metrics_batch,
 )
+from products.metrics.backend.facade.api import MAX_SERIES_PER_CLAUSE
 from products.metrics.backend.facade.contracts import MetricPoint, MetricSeries
 
 _MODULE = "products.metrics.backend.alert_source_cycle"
@@ -273,6 +274,45 @@ class TestMetricsAlertEvaluation(APIBaseTest):
         by_key = {o.grouping_key: o.new_state for o in second.outcomes}
         assert by_key[grouping_key_for({"service_name": "api"})] == "firing"
         assert by_key[grouping_key_for({"service_name": "web"})] == "not_firing"
+
+    def test_a_configuration_snooze_mutes_every_group(self) -> None:
+        configuration = self._configuration()
+        with team_scope(self.team.id):
+            PlatformAlert.objects.create(
+                team=self.team,
+                configuration=configuration,
+                grouping_key="",
+                snooze_until=self.cutoff + timedelta(hours=1),
+            )
+
+        evaluation, _ = self._run(configuration, series=self._grouped(api=500.0, web=500.0))
+
+        assert evaluation.previews == ()
+        assert {o.grouping_key: o.new_state for o in evaluation.outcomes if o.grouping_key} == {
+            grouping_key_for({"service_name": "api"}): "firing",
+            grouping_key_for({"service_name": "web"}): "firing",
+        }
+
+    def test_a_vanished_group_does_not_keep_an_old_failure_count_after_a_successful_check(self) -> None:
+        configuration = self._configuration(consecutive_failures=2)
+        first, _ = self._run(configuration, series=self._grouped(api=500.0, web=500.0))
+        self._record(first)
+        with team_scope(self.team.id):
+            configuration.next_check_at = self.due_at
+            configuration.consecutive_failures = 2
+            configuration.save(update_fields=["next_check_at", "consecutive_failures"])
+
+        second, _ = self._run(configuration, series=self._grouped(api=500.0, web=None)[:1])
+        self._record(second)
+
+        assert {o.consecutive_failures for o in second.outcomes} == {0}
+        with team_scope(self.team.id):
+            configuration.refresh_from_db()
+        assert configuration.consecutive_failures == 0
+
+    def test_the_group_cap_sits_below_the_query_facades_series_cap(self) -> None:
+        # The facade truncates each clause at MAX_SERIES_PER_CLAUSE, so a cap at or above it could never see overflow.
+        assert MAX_GROUPS_PER_CONFIGURATION < MAX_SERIES_PER_CLAUSE
 
     def test_group_overflow_is_recorded_as_an_error_on_the_root_group(self) -> None:
         configuration = self._configuration()

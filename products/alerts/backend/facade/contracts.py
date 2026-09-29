@@ -8,6 +8,7 @@ contract check watches this file to decide whether they must retest.
 from __future__ import annotations
 
 import json
+import hashlib
 from dataclasses import field
 from datetime import datetime
 from enum import StrEnum
@@ -86,16 +87,22 @@ class SourceEvaluationInputs:
 
 
 # A grouped configuration holds one runtime row per label set. Past this many the overflow is
-# recorded as an error on the root group, so a cap never reads as "nothing is wrong".
-MAX_GROUPS_PER_CONFIGURATION: Final[int] = 100
+# recorded as an error on the root group, so a cap never reads as "nothing is wrong". It sits
+# below the metrics query facade's per-clause series cap, or an overflow could never be seen.
+MAX_GROUPS_PER_CONFIGURATION: Final[int] = 50
+GROUPING_KEY_MAX_LENGTH: Final[int] = 255
 
 
 def grouping_key_for(labels: dict[str, str]) -> str:
     """The identity of one label set. Empty for an ungrouped result, so an ungrouped source keeps
-    the single row it has today. Sorted, so the key does not depend on label order."""
+    the single row it has today. Sorted, so the key does not depend on label order. A label set
+    too long for the column is keyed by its digest; the labels themselves travel on the transition."""
     if not labels:
         return ""
-    return json.dumps(sorted(labels.items()), separators=(",", ":"))
+    key = json.dumps(sorted(labels.items()), separators=(",", ":"))
+    if len(key) > GROUPING_KEY_MAX_LENGTH:
+        return "sha256:" + hashlib.sha256(key.encode()).hexdigest()
+    return key
 
 
 @frozen

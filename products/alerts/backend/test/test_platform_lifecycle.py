@@ -150,7 +150,9 @@ class TestGroupedPlatformAlerts(APIBaseTest):
         api, web = grouping_key_for({"service_name": "api"}), grouping_key_for({"service_name": "web"})
 
         record_outcomes(
-            self.team.id, [self._group_outcome(api), self._group_outcome(web, new_state="not_firing", notified=False)], self.cutoff
+            self.team.id,
+            [self._group_outcome(api), self._group_outcome(web, new_state="not_firing", notified=False)],
+            self.cutoff,
         )
 
         assert self._states() == {api: "firing", web: "not_firing"}
@@ -170,7 +172,9 @@ class TestGroupedPlatformAlerts(APIBaseTest):
     def test_due_checks_carries_every_group_state(self) -> None:
         api, web = grouping_key_for({"service_name": "api"}), grouping_key_for({"service_name": "web"})
         record_outcomes(
-            self.team.id, [self._group_outcome(api), self._group_outcome(web, new_state="not_firing", notified=False)], self.cutoff
+            self.team.id,
+            [self._group_outcome(api), self._group_outcome(web, new_state="not_firing", notified=False)],
+            self.cutoff,
         )
 
         later = self.cutoff + timedelta(minutes=10)
@@ -219,3 +223,13 @@ class TestGroupedPlatformAlerts(APIBaseTest):
     def test_grouping_keys_are_stable_across_label_order(self) -> None:
         assert grouping_key_for({"b": "2", "a": "1"}) == grouping_key_for({"a": "1", "b": "2"})
         assert grouping_key_for({}) == ""
+
+    def test_a_long_label_set_gets_a_key_that_fits_the_column(self) -> None:
+        long_labels = {"url": "x" * 400, "service_name": "api"}
+        key = grouping_key_for(long_labels)
+
+        assert len(key) <= 255
+        assert key == grouping_key_for(dict(reversed(list(long_labels.items()))))
+        assert key != grouping_key_for({"url": "y" * 400, "service_name": "api"})
+        record_outcomes(self.team.id, [self._group_outcome(key)], self.cutoff)
+        assert self._states() == {key: "firing"}

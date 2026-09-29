@@ -14,6 +14,7 @@ and this module does not pretend to batch.
 
 import time
 from collections.abc import Sequence
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 from uuid import UUID
@@ -233,14 +234,19 @@ def _root_group(check: PlatformAlertCheckInput) -> PlatformAlertGroupState:
 
 
 def _group_of(check: PlatformAlertCheckInput, grouping_key: str) -> PlatformAlertGroupState:
-    """The runtime state of one label set. A label set seen for the first time starts not firing."""
-    for group in check.groups:
-        if group.grouping_key == grouping_key:
-            return group
+    """The runtime state of one label set. A label set seen for the first time starts not firing.
+
+    A snooze on the root row is the configuration's snooze, so every group inherits it: a person
+    who mutes the alert mutes all of its services.
+    """
     if grouping_key == "":
         return _root_group(check)
+    root_snooze = check.snooze_until
+    for group in check.groups:
+        if group.grouping_key == grouping_key:
+            return replace(group, snooze_until=group.snooze_until or root_snooze)
     return PlatformAlertGroupState(
-        grouping_key=grouping_key, state="not_firing", last_notified_at=None, snooze_until=None
+        grouping_key=grouping_key, state="not_firing", last_notified_at=None, snooze_until=root_snooze
     )
 
 
@@ -267,6 +273,9 @@ class _GroupDecision:
     labels: dict[str, str]
     value: float | None
     outcome: AlertCheckOutcome
+    # A group the query did not answer this cycle. Its outcome carries no verdict on the
+    # configuration's health, so it must not decide the failure counter.
+    inconclusive: bool = False
 
 
 # Every outcome a configuration produced this cycle, and what delivery would announce for them.
@@ -384,13 +393,17 @@ def _recorded(
 def _delivery(check: PlatformAlertCheckInput, decisions: Sequence[_GroupDecision], *, window_end: datetime) -> Decision:
     """What the platform records for every group, and the one preview that announces the groups
     with a notification. One message per configuration is #1264's default fan-in."""
+    # The configuration's counter follows the groups the query answered; an inconclusive group
+    # repeats the old value and must not keep a cleared failure alive.
+    answered = [d for d in decisions if not d.inconclusive]
+    failures = max(d.outcome.consecutive_failures for d in answered) if answered else check.consecutive_failures
     outcomes = tuple(
         _recorded(
             check,
             grouping_key=decision.group.grouping_key,
             new_state=decision.outcome.new_state.value,
             notified=decision.outcome.update_last_notified_at,
-            consecutive_failures=decision.outcome.consecutive_failures,
+            consecutive_failures=failures if decision.inconclusive else decision.outcome.consecutive_failures,
             disable=decision.outcome.disable,
         )
         for decision in decisions
@@ -464,7 +477,7 @@ def _inconclusive(
     outcome = _verdict(
         check, group, CheckInput(threshold_breached=False, is_inconclusive=True, muted=muted), (), now=now, skip=None
     )
-    return _GroupDecision(group=group, labels={}, value=None, outcome=outcome)
+    return _GroupDecision(group=group, labels={}, value=None, outcome=outcome, inconclusive=True)
 
 
 def _evaluate_groups(
