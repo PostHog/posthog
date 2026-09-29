@@ -57,8 +57,11 @@ async function tokenRequest(
   return (await response.json()) as OAuthTokens;
 }
 
+// With `signup`, the browser opens account creation first and lands on the
+// authorize page afterwards, so a new user ends up signed in to the app.
 export async function signInWithOAuth(
   region: CloudRegion,
+  signup = false,
 ): Promise<OAuthTokens> {
   const host = CLOUD_HOSTS[region];
   const request = new AuthSession.AuthRequest({
@@ -68,8 +71,11 @@ export async function signInWithOAuth(
     usePKCE: true,
     extraParams: { required_access_level: "project" },
   });
-  const result = await request.promptAsync({
-    authorizationEndpoint: `${host}/oauth/authorize`,
+  const discovery = { authorizationEndpoint: `${host}/oauth/authorize` };
+  const authUrl = await request.makeAuthUrlAsync(discovery);
+  const next = encodeURIComponent(authUrl.slice(host.length));
+  const result = await request.promptAsync(discovery, {
+    url: signup ? `${host}/signup?next=${next}` : authUrl,
   });
   if (result.type !== "success" || !result.params.code) {
     throw new Error(

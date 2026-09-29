@@ -1,187 +1,142 @@
+import { useRouter } from "expo-router";
 import { useState } from "react";
 import {
-  ActivityIndicator,
-  KeyboardAvoidingView,
-  Platform,
+  Image,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
-  TextInput,
+  useWindowDimensions,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Glass } from "@/components/Glass";
 import { Logomark } from "@/components/Icons";
-import { DEV_EMAIL, DEV_PASSWORD } from "@/config";
-import { type Region, useAuth } from "@/lib/auth";
 import { colors, fonts, radius } from "@/lib/theme";
 
-const REGIONS: Array<{ key: Region; label: string }> = [
-  ...(__DEV__ ? [{ key: "local" as const, label: "Local" }] : []),
-  { key: "us", label: "US Cloud" },
-  { key: "eu", label: "EU Cloud" },
+const SLIDES = [
+  {
+    image: require("../../assets/hoggies/remote-work.png"),
+    title: "Code on the go",
+    body: "Kick off a task from the couch and watch the agent work through it, tool call by tool call.",
+  },
+  {
+    image: require("../../assets/hoggies/im-the-driver.png"),
+    title: "Steer your self-driving agents",
+    body: "Swipe through what the agents found overnight. Dismiss the noise, start a task on the rest.",
+  },
+  {
+    image: require("../../assets/hoggies/coding-group.png"),
+    title: "See what your team is shipping",
+    body: "Every space, every task, every finished run, in one feed you can read between meetings.",
+  },
 ];
 
-export default function LoginScreen() {
-  const login = useAuth((s) => s.login);
-  const loginWithOAuth = useAuth((s) => s.loginWithOAuth);
-  const [region, setRegion] = useState<Region>(__DEV__ ? "local" : "us");
-  const [email, setEmail] = useState(__DEV__ ? DEV_EMAIL : "");
-  const [password, setPassword] = useState(__DEV__ ? DEV_PASSWORD : "");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const canSubmit = region !== "local" || (!!email && !!password);
+// The landing carousel: three things the app is for, then one way in.
+export default function LandingScreen() {
+  const router = useRouter();
+  const insets = useSafeAreaInsets();
+  const { width } = useWindowDimensions();
+  const [index, setIndex] = useState(0);
 
-  const submit = async (): Promise<void> => {
-    if (busy) return;
-    setBusy(true);
-    setError(null);
-    try {
-      if (region === "local") await login(email.trim(), password);
-      else await loginWithOAuth(region);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setBusy(false);
-    }
-  };
+  const onScrollEnd = (event: NativeSyntheticEvent<NativeScrollEvent>): void =>
+    setIndex(Math.round(event.nativeEvent.contentOffset.x / width));
 
   return (
-    <KeyboardAvoidingView
-      style={styles.root}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
-    >
-      <View style={styles.hero}>
-        <Logomark size={72} />
+    <View style={styles.root}>
+      <View style={[styles.brand, { paddingTop: insets.top + 24 }]}>
+        <Logomark size={36} />
         <Text style={styles.wordmark}>PostHog</Text>
       </View>
-      <Glass style={styles.segment}>
-        {REGIONS.map((option) => {
-          const active = option.key === region;
-          return (
-            <Pressable
-              key={option.key}
-              onPress={() => {
-                setRegion(option.key);
-                setError(null);
-              }}
-              style={[styles.segmentItem, active && styles.segmentActive]}
-            >
-              <Text
-                style={[styles.segmentText, active && styles.segmentTextActive]}
-              >
-                {option.label}
-              </Text>
-            </Pressable>
-          );
-        })}
-      </Glass>
-      {region === "local" ? (
-        <Glass style={styles.card}>
-          <TextInput
-            value={email}
-            onChangeText={setEmail}
-            placeholder="Email"
-            placeholderTextColor={colors.inkMute}
-            autoCapitalize="none"
-            autoCorrect={false}
-            keyboardType="email-address"
-            textContentType="username"
-            style={styles.input}
-          />
-          <View style={styles.divider} />
-          <TextInput
-            value={password}
-            onChangeText={setPassword}
-            placeholder="Password"
-            placeholderTextColor={colors.inkMute}
-            secureTextEntry
-            textContentType="password"
-            onSubmitEditing={submit}
-            style={styles.input}
-          />
-        </Glass>
-      ) : null}
-      {error ? <Text style={styles.error}>{error}</Text> : null}
-      <Pressable
-        onPress={submit}
-        disabled={busy || !canSubmit}
-        style={({ pressed }) => [
-          (busy || !canSubmit) && { opacity: 0.4 },
-          pressed && { opacity: 0.7 },
-        ]}
+      <ScrollView
+        horizontal
+        pagingEnabled
+        showsHorizontalScrollIndicator={false}
+        onMomentumScrollEnd={onScrollEnd}
+        style={styles.pager}
       >
-        <Glass interactive tint="rgba(255,92,28,0.9)" style={styles.button}>
-          {busy ? (
-            <ActivityIndicator color="#FFFFFF" />
-          ) : (
-            <Text style={styles.buttonText}>
-              {region === "local" ? "Sign in" : "Sign in with PostHog"}
-            </Text>
-          )}
-        </Glass>
-      </Pressable>
-    </KeyboardAvoidingView>
+        {SLIDES.map((slide) => (
+          <View key={slide.title} style={[styles.slide, { width }]}>
+            <Image
+              source={slide.image}
+              style={styles.hoggie}
+              resizeMode="contain"
+            />
+            <Text style={styles.title}>{slide.title}</Text>
+            <Text style={styles.body}>{slide.body}</Text>
+          </View>
+        ))}
+      </ScrollView>
+      <View style={[styles.footer, { paddingBottom: insets.bottom + 20 }]}>
+        <View style={styles.dots}>
+          {SLIDES.map((slide, i) => (
+            <View
+              key={slide.title}
+              style={[styles.dot, i === index && styles.dotActive]}
+            />
+          ))}
+        </View>
+        <Pressable
+          onPress={() => router.push("/signin")}
+          style={({ pressed }) => pressed && { opacity: 0.7 }}
+        >
+          <Glass interactive tint="rgba(255,92,28,0.9)" style={styles.button}>
+            <Text style={styles.buttonText}>Get started</Text>
+          </Glass>
+        </Pressable>
+      </View>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  root: {
-    flex: 1,
-    backgroundColor: colors.bg,
-    justifyContent: "center",
-    paddingHorizontal: 28,
-    gap: 18,
-  },
-  hero: { alignItems: "center", gap: 6, marginBottom: 14 },
-  wordmark: { fontFamily: fonts.serif, fontSize: 36, color: colors.ink },
-  card: { borderRadius: radius.card, overflow: "hidden" },
-  segment: {
+  root: { flex: 1, backgroundColor: colors.bg },
+  brand: {
     flexDirection: "row",
-    borderRadius: radius.pill,
-    padding: 4,
-    overflow: "hidden",
-  },
-  segmentItem: {
-    flex: 1,
-    paddingVertical: 9,
-    borderRadius: radius.pill,
     alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
   },
-  segmentActive: { backgroundColor: colors.dark },
-  segmentText: {
-    fontFamily: fonts.sansMedium,
-    fontSize: 14,
-    color: colors.inkSoft,
+  wordmark: { fontFamily: fonts.serif, fontSize: 24, color: colors.ink },
+  pager: { flex: 1 },
+  slide: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 36,
+    gap: 14,
   },
-  segmentTextActive: { color: colors.darkText },
-  input: {
-    fontFamily: fonts.sans,
-    fontSize: 17,
+  hoggie: { width: 260, height: 260, marginBottom: 10 },
+  title: {
+    fontFamily: fonts.sansBold,
+    fontSize: 28,
+    lineHeight: 34,
     color: colors.ink,
-    paddingHorizontal: 18,
-    paddingVertical: 16,
-  },
-  divider: {
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: colors.line,
-    marginHorizontal: 18,
-  },
-  error: {
-    color: colors.danger,
-    fontFamily: fonts.sans,
-    fontSize: 13,
-    lineHeight: 18,
     textAlign: "center",
   },
+  body: {
+    fontFamily: fonts.sans,
+    fontSize: 16,
+    lineHeight: 23,
+    color: colors.inkSoft,
+    textAlign: "center",
+  },
+  footer: { paddingHorizontal: 28, gap: 22 },
+  dots: { flexDirection: "row", justifyContent: "center", gap: 8 },
+  dot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: colors.line,
+  },
+  dotActive: { backgroundColor: colors.ink, width: 22 },
   button: {
     borderRadius: radius.pill,
-    paddingVertical: 16,
+    paddingVertical: 17,
     alignItems: "center",
     overflow: "hidden",
   },
-  buttonText: {
-    color: colors.darkText,
-    fontSize: 16,
-    fontFamily: fonts.sansSemi,
-  },
+  buttonText: { color: "#FFFFFF", fontSize: 17, fontFamily: fonts.sansSemi },
 });
