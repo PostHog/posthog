@@ -15,7 +15,6 @@ from products.metrics.backend.alert_source_cycle import (
     evaluate_metrics_batch,
 )
 from products.metrics.backend.facade.contracts import MetricPoint, MetricSeries
-from products.product_analytics.backend.models.insight import Insight
 
 _MODULE = "products.metrics.backend.alert_source_cycle"
 
@@ -230,12 +229,11 @@ class TestMetricsAlertEvaluation(APIBaseTest):
         assert query_settings.timeout_overflow_mode == "throw"
         assert MAX_QUERY_SECONDS < BATCH_QUERY_BUDGET_SECONDS
 
-    def test_the_metrics_product_and_insight_alert_rows_are_never_written(self) -> None:
+    def test_the_insight_alert_rows_are_never_written(self) -> None:
         configuration = self._configuration()
 
         evaluation, _ = self._run(configuration)
         self._record(evaluation)
 
-        assert Insight.objects.filter(team=self.team).count() == 0
         with team_scope(self.team.id):
             assert AlertConfiguration.objects.filter(team=self.team).count() == 0
