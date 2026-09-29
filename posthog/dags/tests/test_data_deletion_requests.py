@@ -2450,15 +2450,16 @@ def test_get_property_removal_shards_narrows_person_properties_on_flag_evaluatio
 
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "hogql_predicate,expected_surviving_browsers",
+    "hogql_predicate,execution_mode",
     [
-        ("properties.$browser = 'Chrome'", ["Firefox"]),
+        ("properties.$browser = 'Chrome'", ExecutionMode.IMMEDIATE),
+        ("properties.$browser = 'Chrome'", ExecutionMode.DEFERRED),
         # flag_evaluations stores no person properties, so this predicate cannot run there.
-        ("person.properties.email = 'someone@example.com'", None),
+        ("person.properties.email = 'someone@example.com'", ExecutionMode.IMMEDIATE),
     ],
 )
 def test_execute_event_deletion_applies_hogql_predicate_to_flag_evaluations(
-    cluster: ClickhouseCluster, hogql_predicate: str, expected_surviving_browsers: list[str] | None
+    cluster: ClickhouseCluster, hogql_predicate: str, execution_mode: ExecutionMode
 ) -> None:
     from posthog.models.organization import Organization
     from posthog.models.team import Team
@@ -2466,13 +2467,15 @@ def test_execute_event_deletion_applies_hogql_predicate_to_flag_evaluations(
     org = Organization.objects.create(name="test-org-flag-evaluations-hogql")
     team = Team.objects.create(organization=org, name="test-team-flag-evaluations-hogql")
     now = datetime.now()
+    chrome_uuid = uuid4()
 
     cluster.any_host(_truncate_flag_evaluations).result()
+    cluster.any_host(_truncate_adhoc_events_deletion).result()
     cluster.any_host(
         partial(
             _insert_flag_evaluations_with_properties,
             [
-                (team.id, "someone", '{"$browser": "Chrome"}', str(uuid4()), now, now),
+                (team.id, "someone", '{"$browser": "Chrome"}', str(chrome_uuid), now, now),
                 (team.id, "someone", '{"$browser": "Firefox"}', str(uuid4()), now, now),
             ],
         )
@@ -2485,15 +2488,20 @@ def test_execute_event_deletion_applies_hogql_predicate_to_flag_evaluations(
         end_time=now + timedelta(minutes=1),
         events=[FLAG_EVALUATIONS_SOURCE_EVENT],
         hogql_predicate=hogql_predicate,
+        execution_mode=execution_mode.value,
     )
-    if expected_surviving_browsers is None:
+    if hogql_predicate.startswith("person."):
         with pytest.raises(dagster.Failure, match="cannot be deleted"):
             execute_event_deletion(build_op_context(), cluster, deletion_ctx)
+    elif execution_mode == ExecutionMode.DEFERRED:
+        execute_event_deletion(build_op_context(), cluster, deletion_ctx)
+        assert cluster.any_host(partial(_adhoc_pending_uuids, team.id)).result() == {chrome_uuid}
     else:
         execute_event_deletion(build_op_context(), cluster, deletion_ctx)
-        assert cluster.any_host(partial(_flag_evaluation_browsers, team.id)).result() == expected_surviving_browsers
+        assert cluster.any_host(partial(_flag_evaluation_browsers, team.id)).result() == ["Firefox"]
 
     cluster.any_host(_truncate_flag_evaluations).result()
+    cluster.any_host(_truncate_adhoc_events_deletion).result()
 
 
 @pytest.mark.django_db
