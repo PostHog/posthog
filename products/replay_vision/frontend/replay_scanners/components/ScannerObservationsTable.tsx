@@ -18,6 +18,7 @@ import { NumericRangeFilterPill } from '../../components/NumericRangeFilterPill'
 import { ObservationStatusTag } from '../../components/ObservationCard'
 import { ObservationRetryButton } from '../../components/ObservationRetryButton'
 import { ObservationThumbnail } from '../../components/ObservationThumbnail'
+import { UnviewedObservationTag } from '../../components/UnviewedObservationTag'
 import type { ReplayObservationApi } from '../../generated/api.schemas'
 import { observationDetailUrl } from '../../observations/replayObservationLogic'
 import { markSimilarSearchIntent, searchTabUrl, similarSearchUrl } from '../../search/observationQueries'
@@ -162,17 +163,7 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                     >
                         <div className="relative">
                             <ObservationThumbnail observation={obs} className="w-40 @7xl/observations:w-52" />
-                            {!obs.viewed && (
-                                <LemonTag
-                                    type="primary"
-                                    size="small"
-                                    // The primary tag is transparent by default, which lets the frame show through.
-                                    className="absolute top-1 left-1 shadow-sm bg-surface-primary!"
-                                    title="You haven't opened this observation yet."
-                                >
-                                    New
-                                </LemonTag>
-                            )}
+                            {!obs.viewed && <UnviewedObservationTag className="absolute top-1 left-1" />}
                         </div>
                     </Tooltip>
                 </Link>

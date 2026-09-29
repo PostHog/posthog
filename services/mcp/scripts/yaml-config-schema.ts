@@ -30,6 +30,11 @@ export const ToolConfigSchema = z
         /** Path to a file containing the tool description (resolved relative to the YAML file). Mutually exclusive with `description`. */
         description_file: z.string().optional(),
         /**
+         * Override the file-level `category` for this tool. Use it when a tool belongs to another
+         * product than the file, so `$mcp_tool_category` groups it under that product.
+         */
+        category: z.string().trim().min(1).optional(),
+        /**
          * One-line selection hint injected into the system prompt catalog.
          * Describes *when to pick this tool*, not what it does. Currently only
          * surfaced for `query-*` tools in the query tool catalog.
@@ -182,6 +187,8 @@ export const ToolConfigSchema = z
          * retires (`feature_flag_behavior: 'disable'`), so a call to the retired
          * name reports the successor instead of reading as an unknown tool.
          */
+        /** Hide the tool whenever this flag is on, independent of `feature_flag`; see `hidden_when_flag_on` in toolDefinitions. */
+        hidden_when_flag_on: z.string().optional(),
         superseded_by: z.array(z.string()).optional(),
         /** Extra guidance appended to the successor message, for a redirect a bare tool name cannot carry. */
         redirect_hint: z.string().optional(),
@@ -580,6 +587,8 @@ export const QueryWrapperToolConfigSchema = z
          * retires (`feature_flag_behavior: 'disable'`), so a call to the retired
          * name reports the successor instead of reading as an unknown tool.
          */
+        /** Hide the tool whenever this flag is on, independent of `feature_flag`; see `hidden_when_flag_on` in toolDefinitions. */
+        hidden_when_flag_on: z.string().optional(),
         superseded_by: z.array(z.string()).optional(),
         /** Extra guidance appended to the successor message, for a redirect a bare tool name cannot carry. */
         redirect_hint: z.string().optional(),

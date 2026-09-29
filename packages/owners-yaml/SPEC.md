@@ -117,16 +117,18 @@ The format only names these owners.
 It does not define when a path is an addition.
 It does not define what a consumer does with the owners of additions.
 A consumer decides both, for example from the change set of a pull request.
+A resolver that can see the repository helps with the first: resolved against the version before a change, each path that the change adds carries `added`, the new part of that path (section 4, step 6).
 
 1. A string is a list with one entry. Each entry MUST be a non-empty string, as in 3.1.
 2. An empty list means that the file or the rule names no owners of additions. A file or a rule with no owners of additions MAY leave the key out.
 3. Any other value, including `null`, is an error. The file or the rule then names no owners of additions, as with an empty list, and its other fields still apply.
 4. `additions` does not change `owners`. A path with owners of additions and no owners is still unowned.
 5. For the other fields, the nearest file wins. `additions` is different: the entries of every file in section 4, step 3 and of every matching rule stay in the result. Only `inherit: false` removes the entries of ancestor files (section 3.3), at file level or through a rule.
-6. A consumer that asks about a new directory SHOULD resolve the path of the directory itself, not a path below it.
+6. A consumer that asks about a new directory SHOULD use the owners of additions of the directory itself, not of a path below it.
    Section 4, step 2 stops at the parent of that path.
    So the ownership file of the new directory does not apply.
    A rule `match: '/*'` in the parent matches each direct child.
+   `added` (section 4, step 6) gives the new directory and its owners of additions for any path below it.
 7. A rule `match: '/docs/'` matches each path below `docs`, at any depth. It does not match `docs` itself (section 3.5, rule 4). The owners of additions for `docs` come from the other fields and rules on the walk to `docs`, as for any other path.
 
 ## 4. Resolution
@@ -157,6 +159,7 @@ To resolve a path `P`:
    - `source`: the path of the file that set the owners, or none.
    - `slack`: the channel from section 5.2, for the requested purpose.
    - `additions`: the result additions, in the order they were appended.
+   - `added`: only when the resolver can see which paths the repository holds, and the repository does not hold `P`. Take the ancestors of `P` from the root down. `N` is the first ancestor that the repository does not hold as a directory, or `P` itself when it holds all of them as directories. `added` is `N` and the `additions` of the resolution of `N`. Otherwise, `added` is none.
 
 A path is unowned when `owners` is empty and `unowned_by_design` is `false`.
 
@@ -197,7 +200,7 @@ flowchart TD
     reset --> merge[Merge owners, status, and additions as in 4.1]
     merge --> more{More directories?}
     more -- yes --> walk
-    more -- no --> done([Return owners, unowned_by_design, status, source, slack, additions])
+    more -- no --> done([Return owners, unowned_by_design, status, source, slack, additions, added])
 ```
 
 ### 4.3 Conformance
@@ -292,7 +295,7 @@ In `owners-yaml`, both `owners resolve --json` and `python -m owners_yaml` imple
 
 1. On success, the resolver MUST write one JSON object to standard output and exit with status 0.
 2. Each key MUST be a requested path after normalization (section 4, step 1). Two requests that normalize to the same path produce one key.
-3. Each value MUST be an object with the members `owners`, `status`, `slack`, and `source`. It SHOULD also have the member `additions`. The members are:
+3. Each value MUST be an object with the members `owners`, `status`, `slack`, and `source`. It SHOULD also have the members `additions` and `added`. The members are:
 
    | Member      | Type             | Value                                                                              |
    | ----------- | ---------------- | ---------------------------------------------------------------------------------- |
@@ -301,6 +304,7 @@ In `owners-yaml`, both `owners resolve --json` and `python -m owners_yaml` imple
    | `slack`     | string or `null` | The channel for the requested purpose.                                             |
    | `source`    | string or `null` | The repository-relative path of the file that set the owners.                      |
    | `additions` | array of strings | The resolved owners of additions (section 3.6), in the order of section 4, step 6. |
+   | `added`     | object or `null` | `{"path": N, "additions": [...]}` from section 4, step 6, or `null`.               |
 
 4. A path that is unowned by design has an empty `owners` array and a non-null `source`. An unowned path has an empty `owners` array and a `null` source.
 5. An unowned path is not an error.
@@ -317,7 +321,7 @@ In `owners-yaml`, both `owners resolve --json` and `python -m owners_yaml` imple
 1. A consumer MUST ignore members that it does not know.
 2. A resolver MAY add members to a value.
 3. Removing a member, renaming it, or changing its meaning requires a new version of this specification.
-4. A consumer MUST treat a missing `additions` member as an empty array. A resolver that predates the member leaves it out.
+4. A consumer MUST treat a missing `additions` member as an empty array, and a missing `added` member as `null`. A resolver that predates a member leaves it out.
 5. For the Python library, the names exported from the top-level `owners_yaml` package are the public API. Submodules can change between minor releases.
 
 ## 8. The owners-yaml reference implementation
@@ -327,6 +331,7 @@ This section describes the reference implementation. It is not part of the forma
 - It reads the alias files the root `owners.yaml` declares. PostHog's own repository declares `product.yaml`.
 - It removes the placeholder owner `team-CHANGEME` from every `owners` and `additions` list. Section 4 allows this removal.
 - Its linter reports schema errors, reserved locations, directories with both an `owners.yaml` and an alias file, rules that name a tracked directory without the trailing `/`, rule patterns that match no tracked file, and the number of unowned files. With `--live`, it also checks team slugs and person handles against the GitHub organization.
+- It reports `added` when its source can tell whether the repository holds a path, as its disk source does (`TreeSource`). A source that reads only the ownership files reports none. It treats a symbolic link as a file, as git does.
 - Its CODEOWNERS export covers test files only: `test_*.py` and `*_test.py` for pytest, and `*.test.*` or `*.spec.*` with a `.js`, `.jsx`, `.ts`, or `.tsx` extension for Jest. The `codeowners` setting accepts these keys:
 
   | Key                  | Meaning                                                                                                                                          |
@@ -473,3 +478,4 @@ rules:
 - **1**, amended (2026-09): Section 3.5 adds `[...]` character classes. No pattern that was valid before the amendment changes meaning. Section 6 gives `alias_files` the default `[product.yaml]`, so a root file that does not declare the key now has one alias file instead of none.
 - **1**, amended (2026-09): Section 7.1 adds the producer to the resolver request, so a consumer can reach a team's per-producer `notifications` mapping through an entrypoint. No ownership file changes meaning.
 - **1**, amended (unreleased): Section 3.4 applies every matching rule, field by field. Before, the last matching rule replaced the earlier ones. Section 3.6 adds the optional `additions` field. Section 7.2 adds the `additions` member, and a consumer treats a missing member as empty (section 7.4). Section 4 step 1 removes a trailing `/`, so a request for `docs/` resolves the same as `docs`.
+- **1**, amended (unreleased): Section 4, step 6 adds `added`: for a path that the repository does not hold, the first part of it that the repository does not hold as a directory, with its owners of additions. Section 7.2 adds the `added` member, and a consumer treats a missing member as `null` (section 7.4). No ownership file changes meaning.

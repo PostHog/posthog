@@ -206,6 +206,8 @@ export class ImageBatcher {
      * a batch that throws discards what it staged. Sizing is a throughput question, not a correctness one.
      */
     private readonly seenRefs: RefDedupCache
+    /** The copy that holds each ref's seen mark until its hand-off is written, so only the current owner can clear the mark, even after the cache evicts and re-marks the ref. */
+    private readonly unwrittenMarkOwners = new Map<string, ScrubbedRef>()
     /**
      * The batch currently in flight, so shutdown can interrupt it.
      *
@@ -481,8 +483,9 @@ export class ImageBatcher {
                     // Marked here rather than on completion: a staged image is a local that a thrown
                     // batch discards, so a ref marked before retirement could be skipped on replay
                     // without ever having been persisted.
-                    if (ready.source === 'bytes') {
+                    if (!this.seenRefs.has(ready.ref)) {
                         this.seenRefs.add(ready.ref)
+                        this.unwrittenMarkOwners.set(ready.ref, ready)
                     }
                     staged[retired] = null
                     stagedCount -= 1
@@ -597,6 +600,11 @@ export class ImageBatcher {
             ImageScrubConsumerMetrics.incBatchFailed('write')
             throw error
         }
+        for (const image of handoff.images) {
+            if (this.unwrittenMarkOwners.get(image.ref) === image) {
+                this.unwrittenMarkOwners.delete(image.ref)
+            }
+        }
         // Observed on success only, so an S3 incident's retry budgets do not read as slow writes.
         ImageScrubConsumerMetrics.observeWrite((performance.now() - startedAt) / 1000)
     }
@@ -655,16 +663,21 @@ export class ImageBatcher {
                 } else {
                     urlLocationByRef.set(ref, candidate)
                 }
+                // Copies in one batch all stay planned, so a later valid copy still stores when an earlier one fails validation.
+                if (this.seenRefs.has(ref)) {
+                    ImageScrubConsumerMetrics.incDeduped('pod', 'url')
+                    continue
+                }
                 planned.push(candidate)
                 continue
             }
             if (inlineRefs.has(ref)) {
-                ImageScrubConsumerMetrics.incDeduped('batch')
+                ImageScrubConsumerMetrics.incDeduped('batch', 'inline')
                 continue
             }
             inlineRefs.add(ref)
             if (this.seenRefs.has(ref)) {
-                ImageScrubConsumerMetrics.incDeduped('pod')
+                ImageScrubConsumerMetrics.incDeduped('pod', 'inline')
                 continue
             }
             planned.push(candidate)
@@ -674,9 +687,10 @@ export class ImageBatcher {
 
     /** A ref that was marked seen but never persisted would be deduped away unwritten if its partition came back here. */
     private forgetUnwritten(images: ScrubbedRef[]): void {
-        for (const { ref, source } of images) {
-            if (source === 'bytes') {
-                this.seenRefs.delete(ref)
+        for (const image of images) {
+            if (this.unwrittenMarkOwners.get(image.ref) === image) {
+                this.unwrittenMarkOwners.delete(image.ref)
+                this.seenRefs.delete(image.ref)
             }
         }
     }
@@ -870,11 +884,14 @@ export class ImageBatcher {
                       )
                   )
                 : new Map()
+            // A strongly consistent read finds no month key only after a team or month deletion, which a conditional put never reverses, so every later copy of these refs is dropped the same way.
             const keyed = handoff.images.filter(
                 ({ image }) =>
                     image.sessionMonth === undefined ||
                     imageKeys.has(tableKeyString(imageKeyId(Number(image.teamId), image.sessionMonth!)))
             )
+            const keyedSet = new Set(keyed)
+            this.forgetUnwritten(handoff.images.filter((item) => !keyedSet.has(item)))
             const inlineItems = keyed.filter(
                 (item): item is ScrubbedRef & { image: ScrubbedImage } => item.source === 'bytes'
             )

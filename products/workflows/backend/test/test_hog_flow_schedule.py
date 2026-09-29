@@ -11,13 +11,13 @@ import requests
 from parameterized import parameterized
 from rest_framework import status
 
-from products.workflows.backend.api.hog_flow import (
-    HOG_FLOW_RUN_IDEMPOTENCY_IN_PROGRESS,
-    _hog_flow_run_idempotency_cache_key,
-)
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
 from products.workflows.backend.models.hog_flow_schedule import HogFlowSchedule
+from products.workflows.backend.presentation.views.hog_flow import (
+    HOG_FLOW_RUN_IDEMPOTENCY_IN_PROGRESS,
+    _hog_flow_run_idempotency_cache_key,
+)
 from products.workflows.backend.utils.rrule_utils import compute_next_occurrences
 
 BATCH_TRIGGER = {
@@ -434,7 +434,7 @@ class TestProcessDueSchedules(APIBaseTest):
 
 
 @override_settings(INTERNAL_API_SECRET="test-secret")
-@unittest.mock.patch("products.workflows.backend.api.hog_flow.create_hog_flow_scheduled_invocation")
+@unittest.mock.patch("products.workflows.backend.presentation.views.hog_flow.create_hog_flow_scheduled_invocation")
 class TestProcessDueScheduleTriggers(APIBaseTest):
     INTERNAL_URL = "/api/internal/hog_flows/process_due_schedules"
 
@@ -542,7 +542,7 @@ class TestProcessDueScheduleTriggers(APIBaseTest):
         assert len(response.json()["processed"]) == 0
 
 
-@unittest.mock.patch("products.workflows.backend.api.hog_flow.create_hog_flow_scheduled_invocation")
+@unittest.mock.patch("products.workflows.backend.presentation.views.hog_flow.create_hog_flow_scheduled_invocation")
 class TestHogFlowRun(APIBaseTest):
     def _create_workflow(self, workflow_status="active", trigger_type="schedule", variables=None):
         return HogFlow.objects.create(

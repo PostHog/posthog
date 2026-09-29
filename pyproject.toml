@@ -3,7 +3,7 @@
 [project]
 name = "posthog"
 version = "0.0.0"
-requires-python = "==3.13.13" # Pin full version to control Python upgrades explicitly
+requires-python = "==3.14.7" # Pin full version to control Python upgrades explicitly
 # Prefer ~= (compat) over >= (floor). Only pin exact versions (==) when necessary.
 #
 # ~= signals to others (security, devex, dependabot) that deps can be updated within
@@ -95,7 +95,7 @@ dependencies = [
     "natsort==8.4.0",
     "nh3==0.3.5",
     "numpy~=2.3.2",
-    "openai==1.109.1",
+    "openai==2.30.0",
     "openpyxl==3.1.5",
     "orjson==3.11.9",
     "ormsgpack~=1.12",
@@ -141,7 +141,7 @@ dependencies = [
     "statshog==1.0.6",
     "stripe==12.2.0",
     "structlog==25.5.0",
-    "temporalio==1.24.0",
+    "temporalio==1.33.0",
     "tenacity==9.1.4",
     "tiktoken==0.12.*",
     "tldextract~=5.1",
@@ -210,7 +210,7 @@ dependencies = [
     "braintrust-core>=0.0.59,<1",
     "wrapt==1.17.3",
     "limits==5.8.0",
-    "deltalite==0.1.8",
+    "deltalite==0.1.9",
     "posthog-hogland==0.4.1",
 ]
 
@@ -473,10 +473,10 @@ indent = 4
 ignore = "H021,H023,H016,H030"
 
 [tool.dagster]
-python_version = "3.13"
+python_version = "3.14"
 
 [tool.mypy]
-python_version = "3.13"
+python_version = "3.14"
 plugins = [
     "mypy_django_plugin.main",
     "mypy_drf_plugin.main",
@@ -524,10 +524,10 @@ django_settings_module = "posthog.settings"
 [tool.pyright]
 venvPath = ".flox/cache"
 venv = "venv"
-pythonVersion = "3.13"
+pythonVersion = "3.14"
 
 [tool.ty.environment]
-python-version = "3.13"
+python-version = "3.14"
 
 [tool.ty.src]
 exclude = [
@@ -724,6 +724,49 @@ ignore_imports = [
     # (warehouse_sources, data_modeling, data_tools, cdp, revenue_analytics, batch_exports)
     # directly. Thin each viewset to parse -> facade -> serialize and delete each entry.
     # backend:contract-check stays off until this list is empty.
+    # TODO: workflows presentation wave — the moved viewsets still reach in-product internals and
+    # sibling products (cdp, cohorts, feature_flags, messaging) directly. Thin each viewset to
+    # parse -> facade -> serialize and delete each entry. backend:contract-check stays off until
+    # this list is empty. Only delete entries here: a new import from these views goes through
+    # the facade.
+    "products.workflows.backend.presentation.views.hog_flow -> products.cdp.backend.models.hog_function_template",
+    "products.workflows.backend.presentation.views.hog_flow -> products.cohorts.backend.models.cohort",
+    "products.workflows.backend.presentation.views.hog_flow -> products.cohorts.backend.models.util",
+    "products.workflows.backend.presentation.views.hog_flow -> products.feature_flags.backend.person_sampling",
+    "products.workflows.backend.presentation.views.hog_flow -> products.feature_flags.backend.user_blast_radius",
+    "products.workflows.backend.presentation.views.hog_flow -> products.messaging.backend.api.design_operations",
+    "products.workflows.backend.presentation.views.hog_flow -> products.messaging.backend.api.design_validation",
+    "products.workflows.backend.presentation.views.hog_flow -> products.messaging.backend.api.message_templates",
+    "products.workflows.backend.presentation.views.hog_flow -> products.messaging.backend.models",
+    "products.workflows.backend.presentation.views.hog_flow -> products.messaging.backend.unlayer",
+    "products.workflows.backend.presentation.views.hog_flow -> products.workflows.backend.metrics",
+    "products.workflows.backend.presentation.views.hog_flow -> products.workflows.backend.models.hog_flow.hog_flow",
+    "products.workflows.backend.presentation.views.hog_flow -> products.workflows.backend.models.hog_flow_batch_job",
+    "products.workflows.backend.presentation.views.hog_flow -> products.workflows.backend.models.hog_flow_revision",
+    "products.workflows.backend.presentation.views.hog_flow -> products.workflows.backend.models.hog_flow_schedule",
+    "products.workflows.backend.presentation.views.hog_flow -> products.workflows.backend.models.team_workflows_config",
+    "products.workflows.backend.presentation.views.hog_flow -> products.workflows.backend.models.workflow_proposal",
+    "products.workflows.backend.presentation.views.hog_flow -> products.workflows.backend.providers.ses",
+    "products.workflows.backend.presentation.views.hog_flow -> products.workflows.backend.services.account_audience",
+    "products.workflows.backend.presentation.views.hog_flow -> products.workflows.backend.services.audience_v2",
+    "products.workflows.backend.presentation.views.hog_flow -> products.workflows.backend.services.batch_audience",
+    "products.workflows.backend.presentation.views.hog_flow -> products.workflows.backend.services.email_sending_attribution",
+    "products.workflows.backend.presentation.views.hog_flow -> products.workflows.backend.services.timing_reschedule",
+    "products.workflows.backend.presentation.views.hog_flow -> products.workflows.backend.services.wait_clock_conditions",
+    "products.workflows.backend.presentation.views.hog_flow -> products.workflows.backend.services.workflow_email_health",
+    "products.workflows.backend.presentation.views.hog_flow -> products.workflows.backend.tasks.hog_flows",
+    "products.workflows.backend.presentation.views.hog_flow -> products.workflows.backend.utils.batch_trigger_limit",
+    "products.workflows.backend.presentation.views.hog_flow -> products.workflows.backend.utils.durations",
+    "products.workflows.backend.presentation.views.hog_flow -> products.workflows.backend.utils.email_sending_tiers",
+    "products.workflows.backend.presentation.views.hog_flow -> products.workflows.backend.utils.rrule_utils",
+    "products.workflows.backend.presentation.views.hog_flow_batch_job -> products.workflows.backend.models.hog_flow_batch_job",
+    "products.workflows.backend.presentation.views.hog_flow_template -> products.cdp.backend.models.hog_function_template",
+    "products.workflows.backend.presentation.views.hog_flow_template -> products.workflows.backend.models.hog_flow.hog_flow_template",
+    "products.workflows.backend.presentation.views.hog_flow_template -> products.workflows.backend.templates",
+    "products.workflows.backend.presentation.views.workflow_scout_runs -> products.workflows.backend.models",
+    "products.workflows.backend.presentation.views.workflow_scout_runs -> products.workflows.backend.service_jwt",
+    "products.workflows.backend.presentation.views.workflow_tasks -> products.workflows.backend.models",
+    "products.workflows.backend.presentation.views.workflow_tasks -> products.workflows.backend.service_jwt",
     # TODO: access-control presentation wave — the consolidated RBAC viewsets carry their ORM
     # access with them. Thin them to parse -> facade -> serialize and delete each entry.
     "products.access_control.backend.presentation.access_control -> products.access_control.backend.models.access_control",
@@ -806,10 +849,6 @@ ignore_imports = [
     "products.web_analytics.backend.routes -> products.web_analytics.backend.api.web_analytics_achievements",
     "products.web_analytics.backend.routes -> products.web_analytics.backend.api.web_analytics_filter_preset",
     "products.web_analytics.backend.routes -> products.web_analytics.backend.api.web_analytics_path_cleaning_suggestions",
-    "products.workflows.backend.routes -> products.workflows.backend.api.hog_flow",
-    "products.workflows.backend.routes -> products.workflows.backend.api.hog_flow_template",
-    "products.workflows.backend.routes -> products.workflows.backend.api.workflow_scout_runs",
-    "products.workflows.backend.routes -> products.workflows.backend.api.workflow_tasks",
 ]
 
 # webhook_consumers.py is the one module core reads (through posthog.ingress.dispatch.loading)
@@ -849,6 +888,7 @@ ignore_imports = [
     "products.logs.backend.facade.retention_views -> products.logs.backend.presentation.views.retention_api",
     "products.managed_warehouse.backend.facade.api -> products.managed_warehouse.backend.presentation.views",
     "products.tasks.backend.facade.api -> products.tasks.backend.presentation.serializers",
+    "products.workflows.backend.facade.api -> products.workflows.backend.presentation.views.hog_flow",
     "products.billing_alerts.backend.facade.api -> rest_framework",
     "products.dashboards.backend.facade.api -> rest_framework",
     "products.experiments.backend.facade.api -> rest_framework",

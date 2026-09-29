@@ -38,7 +38,7 @@ async def test_run_cleanup_does_not_call_get_delta_table_and_does_not_mask_impor
     pipeline._resumable_source_manager = None
     pipeline._resource = cast(SourceResponse, object())
     delta_table_ref = AsyncMock()
-    delta_table_ref.get_delta_table.cache_pop.return_value = None
+    delta_table_ref.pop_cached_table.return_value = None
     pipeline._delta_table_ref = delta_table_ref
 
     class ImportError_(Exception):
@@ -52,7 +52,7 @@ async def test_run_cleanup_does_not_call_get_delta_table_and_does_not_mask_impor
     # run()'s finally `del self._delta_table_ref`s afterward, so assert on the captured
     # reference rather than re-reading it off `pipeline`.
     delta_table_ref.get_delta_table.assert_not_called()
-    delta_table_ref.get_delta_table.cache_pop.assert_called_once_with(delta_table_ref)
+    delta_table_ref.pop_cached_table.assert_called_once_with()
 
 
 @pytest.mark.asyncio
@@ -178,7 +178,7 @@ def _runnable_pipeline(manager: ResumableSourceManager[_Cursor], items) -> Pipel
     pipeline._is_incremental = False
     pipeline._reset_pipeline = False
     delta_table_ref = AsyncMock()
-    delta_table_ref.get_delta_table.cache_pop.return_value = None
+    delta_table_ref.pop_cached_table.return_value = None
     pipeline._delta_table_ref = delta_table_ref
     pipeline._sinks = MagicMock(clear=AsyncMock())
     pipeline._shutdown_monitor = MagicMock()

@@ -25,7 +25,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.evolution import evolve_delta_schema
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.ops import (
+    DELTA_TABLE_PROPERTIES,
     delta_merge_spill_kwargs,
+    ensure_table_properties,
     execute_with_conflict_retry,
 )
 from products.warehouse_sources.backend.temporal.data_imports.workload_report import report_buffer_bytes, report_phase
@@ -91,30 +93,80 @@ def _deltalite_write_stats(stats: Any) -> dict[str, int | float | str | bool]:
     return fields
 
 
-def commit_matches(commit: dict[str, Any], match: dict[str, str]) -> bool:
-    """Return True iff every (k, v) in `match` is present in this commit's metadata.
+def _delta_table_identity(delta_table: deltalake.DeltaTable, table_ref: "DeltaTableRef") -> tuple[str, int] | None:
+    """The (table id, version) a delta-rs handle observes, or None when it cannot say.
 
-    Handles both the flat layout (delta-rs 1.x inlines custom_metadata onto the
-    top-level commit dict) and a nested `userMetadata` key (older/other layouts).
+    None makes the deltalite write open a fresh handle instead of trusting a cached one: reuse is
+    only safe when the caller can prove which table the cached snapshot belongs to. The version is
+    the newest `table_ref` knows of, so a handle that a deltalite commit left behind does not make
+    the cached deltalite handle look ahead of the live log.
     """
-    if all(commit.get(k) == v for k, v in match.items()):
-        return True
+    try:
+        # Typed as object: a test double stands in for the handle here, and its attributes are not
+        # the str and int the delta-rs stubs promise.
+        table_id: object = delta_table.metadata().id
+        version: object = table_ref.latest_known_version(delta_table)
+    except Exception:  # noqa: BLE001 - an unreadable identity only costs a fresh open
+        return None
+    if not isinstance(table_id, str) or not isinstance(version, int):
+        return None
+    return table_id, version
 
+
+def _committed_version(stats: Any) -> int | None:
+    """The table version a deltalite ``UpsertStats`` reports, or None from a double without one."""
+    version = getattr(stats, "version", None)
+    return version if isinstance(version, int) else None
+
+
+def _commit_metadata_layouts(commit: dict[str, Any]) -> list[dict[str, Any]]:
+    """The places a commit's custom metadata can live: inlined onto the commit dict (delta-rs 1.x)
+    or nested under `userMetadata` as a dict or a JSON string (older/other layouts)."""
+    layouts: list[dict[str, Any]] = [commit]
     raw = commit.get("userMetadata")
-    if raw is None:
-        return False
-
     if isinstance(raw, str):
         try:
             nested = json.loads(raw)
         except (json.JSONDecodeError, ValueError):
-            return False
+            nested = None
+        if isinstance(nested, dict):
+            layouts.append(nested)
     elif isinstance(raw, dict):
-        nested = raw
-    else:
-        return False
+        layouts.append(raw)
+    return layouts
 
-    return all(nested.get(k) == v for k, v in match.items())
+
+def commit_matches(commit: dict[str, Any], match: dict[str, str]) -> bool:
+    """Return True iff every (k, v) in `match` is present in this commit's metadata."""
+    return any(all(layout.get(k) == v for k, v in match.items()) for layout in _commit_metadata_layouts(commit))
+
+
+def commit_members_tag(members: Sequence[tuple[str, int]]) -> str:
+    """The `members` commit tag for a set that spans runs: `run_uuid:batch_index` per member."""
+    return ",".join(f"{run_uuid}:{batch_index}" for run_uuid, batch_index in members)
+
+
+def commit_covers_batch(commit: dict[str, Any], run_uuid: str, batch_index: int) -> bool:
+    """Whether this commit wrote `batch_index` of `run_uuid`, alone or as one member of a set.
+
+    A write of several batches is tagged with the head's run and index under `run_uuid` and
+    `batch_index`, the head run's members under `batch_indexes`, and every member of every run under
+    `members` when the set spans runs, so a member's redelivery has to look in all three.
+    """
+    wanted = str(batch_index)
+    wanted_member = f"{run_uuid}:{wanted}"
+    for layout in _commit_metadata_layouts(commit):
+        members = layout.get("members")
+        if isinstance(members, str) and wanted_member in members.split(","):
+            return True
+        if layout.get("run_uuid") != run_uuid:
+            continue
+        if layout.get("batch_index") == wanted:
+            return True
+        indexes = layout.get("batch_indexes")
+        if isinstance(indexes, str) and wanted in indexes.split(","):
+            return True
+    return False
 
 
 class DeltaWriter:
@@ -181,6 +233,9 @@ class DeltaWriter:
         try:
             import deltalite
 
+            from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.deltalite_handles import (
+                get_handle_cache,
+            )
             from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.memory_governor import (
                 get_governor,
             )
@@ -197,6 +252,9 @@ class DeltaWriter:
                 if use_partitioning and PARTITION_KEY in data.column_names
                 else None
             )
+            # The delta-rs handle was opened from the live log this batch, so it says which table
+            # (and which version of it) a cached deltalite handle must match to be reused.
+            live_identity = _delta_table_identity(existing_delta_table, self._table)
 
             # Capacity planning: size this upsert's knobs to a fixed per-upsert slice of pod memory,
             # so all MAX_CONCURRENT_ACTIVITIES upserts on this process are guaranteed to fit. deltalite
@@ -205,8 +263,7 @@ class DeltaWriter:
             # mpp=1 (governor logs a capacity_exceeded ops signal).
             async with get_governor().admit(source_bytes=data.nbytes, n_partitions=n_partitions) as adm:
 
-                def _upsert(upsert_kwargs: dict[str, int] = adm.upsert_kwargs) -> Any:
-                    table = deltalite.DeltaLiteTable.open(uri, storage_options)
+                def _run_upsert(table: Any, upsert_kwargs: dict[str, int]) -> Any:
                     return table.upsert(
                         data,
                         list(normalized_primary_keys),
@@ -214,6 +271,15 @@ class DeltaWriter:
                         commit_metadata=commit_metadata,
                         **upsert_kwargs,
                     )
+
+                def _upsert(upsert_kwargs: dict[str, int] = adm.upsert_kwargs) -> Any:
+                    if live_identity is None:
+                        return _run_upsert(deltalite.DeltaLiteTable.open(uri, storage_options), upsert_kwargs)
+                    table_id, table_version = live_identity
+                    with get_handle_cache().lease(
+                        uri, storage_options=storage_options, table_id=table_id, table_version=table_version
+                    ) as table:
+                        return _run_upsert(table, upsert_kwargs)
 
                 started = time.perf_counter()
                 stats = await asyncio.to_thread(_upsert)
@@ -228,14 +294,16 @@ class DeltaWriter:
                 pass
             return False
 
-        # Committed — the real table is now deltalite's output. NOTHING past this point may raise into
-        # the caller: an exception here would leave `deltalite_wrote` unset and either fail/retry the
-        # sync or re-run the delta-rs MERGE on top of deltalite's already-committed write. So every
-        # post-commit step (handle refresh, log, metric) is wrapped best-effort and we always return True.
+        # Committed — the real table is now deltalite's output. The delta-rs handle is not refreshed
+        # here: that costs a log listing per batch, and most batches never read the handle's version
+        # or file list again. The ref refreshes it on the next `get_delta_table` call instead.
+        self._table.note_deltalite_commit(_committed_version(stats))
+
+        # NOTHING past this point may raise into the caller: an exception here would leave
+        # `deltalite_wrote` unset and either fail/retry the sync or re-run the delta-rs MERGE on top of
+        # deltalite's already-committed write. So every post-commit step (log, metric) is wrapped
+        # best-effort and we always return True.
         try:
-            # Refresh the in-memory delta-rs handle to deltalite's new version so the table returned by
-            # write (and any subsequent reads) reflects the real state.
-            await asyncio.to_thread(existing_delta_table.update_incremental)
             # Structured, parseable stats (parity with the old `Delta Merge Stats: {json}` line): every
             # UpsertStats field becomes its own log key, plus the wall-clock duration. `_deltalite_write_stats`
             # enumerates the pyo3 getters, so fields added crate-side later (e.g. per-phase timings) flow
@@ -483,6 +551,7 @@ class DeltaWriter:
                     storage_options=storage_options,
                     partition_by=PARTITION_KEY if use_partitioning else None,
                     mode="ignore",
+                    configuration=DELTA_TABLE_PROPERTIES,
                 )
 
             if mode == "append":
@@ -494,11 +563,13 @@ class DeltaWriter:
                 # column's type in place.
                 data = align_incoming_decimals_to_delta(data, delta_table.schema())
 
+            # Bound outside the lambdas: mypy does not carry the None narrowing into a closure.
+            overwrite_target = delta_table
             try:
                 await execute_with_conflict_retry(
                     delta_table,
                     lambda: _write_deltalake(
-                        delta_table,
+                        overwrite_target,
                         data,
                         partition_by=PARTITION_KEY if use_partitioning else None,
                         mode=mode,
@@ -515,7 +586,7 @@ class DeltaWriter:
                 await execute_with_conflict_retry(
                     delta_table,
                     lambda: _write_deltalake(
-                        delta_table,
+                        overwrite_target,
                         data,
                         partition_by=None,
                         mode=mode,
@@ -537,6 +608,7 @@ class DeltaWriter:
                     storage_options=storage_options,
                     partition_by=PARTITION_KEY if use_partitioning else None,
                     mode="ignore",
+                    configuration=DELTA_TABLE_PROPERTIES,
                 )
             else:
                 # An append re-casts each source column to its stored type, same as a merge. A decimal
@@ -548,10 +620,11 @@ class DeltaWriter:
 
             await self._logger.adebug(f"write: write_type = append")
 
+            append_target = delta_table
             await execute_with_conflict_retry(
                 delta_table,
                 lambda: _write_deltalake(
-                    delta_table,
+                    append_target,
                     data,
                     partition_by=PARTITION_KEY if use_partitioning else None,
                     mode="append",
@@ -562,8 +635,16 @@ class DeltaWriter:
                 self._logger,
             )
 
-        delta_table = await self._table.get_delta_table()
+        # After a deltalite write the handle is one commit behind the log. The property check reads
+        # only the table configuration, which deltalite never changes, and the commit it may make
+        # goes through delta-rs's own conflict check, which rejects a commit built on a superseded
+        # metadata and lets `execute_with_conflict_retry` refresh and retry. The returned handle
+        # carries the same lag; a caller that needs the version or the file list must read them
+        # through `get_delta_table()`, which catches the handle up.
+        delta_table = await self._table.get_delta_table(allow_stale=True)
         assert delta_table is not None
+
+        await ensure_table_properties(delta_table, self._logger)
 
         return delta_table
 
@@ -592,10 +673,12 @@ class DeltaWriter:
 
         return False
 
-    async def has_batch_been_committed(self, run_uuid: str, batch_index: int) -> bool:
-        """Check whether a specific (run_uuid, batch_index) has already been committed to delta.
+    async def has_batch_been_committed(self, run_uuid: str, batch_index: int, *, scan_limit: int = 50) -> bool:
+        """Check whether a specific (run_uuid, batch_index) has already been committed to delta,
+        on its own or as a member of a coalesced write (see `commit_covers_batch`)."""
+        delta_table = await self._table.get_delta_table()
+        if delta_table is None:
+            return False
 
-        Thin wrapper around `has_commit_with_metadata` so callers don't need to know
-        the metadata schema used for idempotency tagging.
-        """
-        return await self.has_commit_with_metadata({"run_uuid": run_uuid, "batch_index": str(batch_index)})
+        history = await asyncio.to_thread(delta_table.history, limit=scan_limit)
+        return any(commit_covers_batch(commit, run_uuid, batch_index) for commit in history)
