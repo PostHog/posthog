@@ -5,6 +5,7 @@ import {
   Editor,
   type KeyId,
   matchesKey,
+  stripTerminalSequences,
   type TUI,
 } from "@earendil-works/pi-tui";
 
@@ -29,7 +30,7 @@ export function isAppKey(sequence: string): boolean {
 }
 
 const PASTE_START = "\u001b[200~";
-const REVERSE_VIDEO = "\u001b[7m";
+const PLAIN_RULE = /^─+$/;
 
 // Text a person types or pastes, as opposed to navigation and control keys.
 export function isTyping(sequence: string): boolean {
@@ -79,13 +80,14 @@ export class Composer {
 
   render(width: number, focused: boolean): string[] {
     this.editor.focused = focused;
-    // pi always draws an inverse cursor block; only the focused pane should show one.
-    return this.editor
+    const lines = this.editor
       .render(width)
-      .map((line) =>
-        focused
-          ? line.replace(CURSOR_MARKER, "")
-          : line.replaceAll(REVERSE_VIDEO, ""),
-      );
+      .map((line) => line.replace(CURSOR_MARKER, ""));
+    // pi closes the input with a second rule; the pane edge already does that job.
+    const bottomRule = lines.findLastIndex(
+      (line, index) =>
+        index > 0 && PLAIN_RULE.test(stripTerminalSequences(line)),
+    );
+    return bottomRule > 0 ? lines.toSpliced(bottomRule, 1) : lines;
   }
 }

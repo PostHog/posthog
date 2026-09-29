@@ -287,3 +287,14 @@ export function saveLayout(
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, JSON.stringify(state));
 }
+
+// Cell sizes along a split: whole rows or columns, with each cell after the first carrying its one-cell divider.
+export function splitSizes(total: number, count: number): number[] {
+  const content = Math.max(0, total - (count - 1));
+  const base = Math.floor(content / count);
+  const extra = content % count;
+  return Array.from(
+    { length: count },
+    (_, index) => base + (index < extra ? 1 : 0) + (index > 0 ? 1 : 0),
+  );
+}

@@ -63,8 +63,11 @@ export function Pane({
   picker: { index: number; dismissed: Set<string> };
   focused: boolean;
 }): ReactElement {
-  const body = useRef(null);
-  const { width, height } = useBoxMetrics(body);
+  // A split can hand a pane half a row; the title stays on top and the chat on the bottom, so the spare row falls between them.
+  const pane = useRef(null);
+  const paneSize = useBoxMetrics(pane);
+  const width = Math.max(0, paneSize.width - 2);
+  const height = Math.max(0, paneSize.height - 1);
   const { view, loadOlder } = useRunView(runs, task);
   const transcript = useMemo(
     () =>
@@ -161,11 +164,18 @@ export function Pane({
   }
 
   return (
-    <Box flexGrow={1} flexDirection="column" paddingX={1} overflow="hidden">
+    <Box
+      ref={pane}
+      flexGrow={1}
+      flexDirection="column"
+      justifyContent="space-between"
+      paddingX={1}
+      overflow="hidden"
+    >
       <Text bold={focused} dimColor={!focused} wrap="truncate-end">
         {title}
       </Text>
-      <Box ref={body} flexGrow={1} flexDirection="column" overflow="hidden">
+      <Box height={height} flexDirection="column" overflow="hidden">
         <Box
           flexGrow={1}
           flexDirection="column"

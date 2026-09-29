@@ -16,6 +16,7 @@ import {
   paneIds,
   saveLayout,
   splitFocused,
+  splitSizes,
 } from "./layout";
 
 const focusedTask = (state: LayoutState): string | null => {
@@ -231,4 +232,17 @@ describe("layout", () => {
     writeFileSync(path, "{not json");
     expect(loadLayout(path).workspaces).toHaveLength(1);
   });
+
+  it.each([
+    ["even rows", 23, 2, [11, 12]],
+    ["odd rows", 24, 2, [12, 12]],
+    ["three columns", 100, 3, [33, 34, 33]],
+  ])(
+    "splits %s into whole cells, each divider taking one",
+    (_, total, count, sizes) => {
+      const cells = splitSizes(total, count);
+      expect(cells).toEqual(sizes);
+      expect(cells.reduce((sum, size) => sum + size, 0)).toBe(total);
+    },
+  );
 });

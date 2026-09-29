@@ -73,13 +73,18 @@ describe("Composer", () => {
     ).not.toContain("hi");
   });
 
-  it("draws its cursor only while its pane has focus", () => {
+  it("draws a rule above the input and none below", () => {
     const composer = new Composer(
       () => {},
       () => {},
     );
     composer.handleInput("x");
-    expect(composer.render(30, true).join("")).toContain("\x1b[7m");
-    expect(composer.render(30, false).join("")).not.toContain("\x1b[7m");
+    const lines = composer
+      .render(30, true)
+      .map((line) => stripTerminalSequences(line).trim());
+
+    expect(lines[0]).toMatch(/^─+$/);
+    expect(lines.slice(1).some((line) => /^─+$/.test(line))).toBe(false);
+    expect(lines).toContain("x");
   });
 });
