@@ -1,3 +1,7 @@
+from random import Random
+
+from unittest.mock import patch
+
 from django.http import HttpRequest
 from django.test import RequestFactory, SimpleTestCase, override_settings
 
@@ -16,18 +20,40 @@ from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryTimeOut, Que
 class TestQueryRetryAfter(SimpleTestCase):
     @parameterized.expand(
         [
-            ("capacity", ClickHouseAtCapacity(), 503, "30"),
-            ("timeout", ClickHouseQueryTimeOut(), 504, None),
-            ("single_flight_follower", QueryRanConcurrently(), 503, None),
+            ("capacity", ClickHouseAtCapacity, 0, 503, "57"),
+            ("capacity_minimum", ClickHouseAtCapacity, 31, 503, "30"),
+            ("capacity_maximum", ClickHouseAtCapacity, 2, 503, "60"),
+            ("timeout", ClickHouseQueryTimeOut, 0, 504, None),
+            ("single_flight_follower", QueryRanConcurrently, 0, 503, None),
         ]
     )
     def test_retry_after_is_only_advertised_for_capacity(
-        self, _name: str, exception: APIException, expected_status: int, expected_retry_after: str | None
+        self,
+        _name: str,
+        exception_type: type[APIException],
+        seed: int,
+        expected_status: int,
+        expected_retry_after: str | None,
     ) -> None:
-        response = exception_handler(exception, {"request": RequestFactory().post("/api/projects/1/query/")})
+        with patch("random.randint", side_effect=Random(seed).randint):
+            response = exception_handler(exception_type(), {"request": RequestFactory().post("/api/projects/1/query/")})
         assert response is not None
         self.assertEqual(response.status_code, expected_status)
         self.assertEqual(response.get("Retry-After"), expected_retry_after)
+
+    def test_capacity_retry_after_varies_between_errors_but_is_stable_for_each_error(self) -> None:
+        with patch("random.randint", side_effect=Random(0).randint):
+            for expected_retry_after in ("57", "42", "54"):
+                exception = ClickHouseAtCapacity(detail="Try again later.", code="busy")
+                for _ in range(2):
+                    response = exception_handler(
+                        exception, {"request": RequestFactory().post("/api/projects/1/query/")}
+                    )
+                    assert response is not None
+                    self.assertEqual(response.status_code, 503)
+                    self.assertEqual(response["Retry-After"], expected_retry_after)
+                    self.assertEqual(response.data["detail"], "Try again later.")
+                    self.assertEqual(response.data["code"], "busy")
 
 
 @override_settings(SITE_URL="https://us.posthog.com")

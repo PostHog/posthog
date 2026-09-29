@@ -1,3 +1,4 @@
+import random
 from typing import Any, Optional, Protocol, TypedDict
 
 from django.http.request import HttpRequest
@@ -84,10 +85,14 @@ class DatabaseSchemaUnavailable(APIException):
 
 class ClickHouseAtCapacity(APIException):
     status_code = 503
-    wait = 30
     default_detail = (
         "Queries are a little too busy right now. We're working to free up resources. Please try again later."
     )
+
+    def __init__(self, detail: Optional[str] = None, code: Optional[str] = None) -> None:
+        super().__init__(detail=detail, code=code)
+        # Spread retries across requests while keeping a minimum recovery window.
+        self.wait = random.randint(30, 60)
 
 
 class QueryRanConcurrently(APIException):
