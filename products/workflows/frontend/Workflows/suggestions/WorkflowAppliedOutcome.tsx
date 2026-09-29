@@ -42,7 +42,7 @@ export function WorkflowAppliedOutcome({
     proposal: WorkflowProposalApi
     outcome: WorkflowProposalOutcomeApi
 }): JSX.Element {
-    const published = outcome.versions ?? []
+    const published = outcome.versions
     // Only versions that sent something can carry a rate, and a zero bar for one that never ran reads as a drop.
     const charted = published.filter((version) => version.guardrails[0]?.n || version.target.n)
     // The live version and what each version changed come from every published version, not only the
