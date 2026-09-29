@@ -729,10 +729,10 @@ class HogQLQueryExecutor:
             runner=PromptJevRunner(team_id=self.team.pk, distinct_id=self.user.distinct_id if self.user else None),
             tables=self._prompt_jev_tables,
         )
-        with self.timings.measure("prompt_jev"):
+        with self.timings.measure("promptJev"):
             self.select_query = planner.visit(self.select_query)
         if PromptJevFinder.contains(self.select_query):
-            raise QueryError("Use prompt_jev in a named SELECT column and filter its results in an outer query.")
+            raise QueryError("Use promptJev in a named SELECT column and filter its results in an outer query.")
 
     def _prepare_execution(self, *, embedded_select: bool = False) -> _PreparedExecution:
         self.context.referenced_saved_query_ids.clear()
@@ -751,7 +751,7 @@ class HogQLQueryExecutor:
         self._process_placeholders()
         if PromptJevFinder.contains(self.select_query):
             if embedded_select or not self._executing or self.connection_id is not None:
-                raise QueryError("prompt_jev requires a ClickHouse-backed query execution and cannot be embedded.")
+                raise QueryError("promptJev requires a ClickHouse-backed query execution and cannot be embedded.")
             self._evaluate_prompt_jev()
         if embedded_select:
             _EmbeddedSelectSettingsValidator().visit(self.select_query)

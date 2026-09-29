@@ -39,14 +39,14 @@ def gateway_response(_url: str, *, json: dict, headers: dict) -> httpx.Response:
 class TestPromptJev(SimpleTestCase):
     @parameterized.expand(
         [
-            ("prompt_jev('a', '')", "non-empty"),
-            ("prompt_jev('a', instructions)", "literal"),
-            ("prompt_jev('a', 'q', choice := ['a', 'a'])", "unique"),
-            ("prompt_jev('a', 'q', choice := ['a'])", "between 2"),
-            ("prompt_jev('a', 'q', batch_size := 0)", "between 1"),
-            ("prompt_jev('a', 'q', noul := ['yes', 'no'])", "exactly"),
-            ("prompt_jev('a', 'q', choice := ['a','b'], noul := ['true','false'])", "either"),
-            ("prompt_jev('a', 'q', score := ['a','b'])", "supports"),
+            ("promptJev('a', '')", "non-empty"),
+            ("promptJev('a', instructions)", "literal"),
+            ("promptJev('a', 'q', choice := ['a', 'a'])", "unique"),
+            ("promptJev('a', 'q', choice := ['a'])", "between 2"),
+            ("promptJev('a', 'q', batch_size := 0)", "between 1"),
+            ("promptJev('a', 'q', noul := ['yes', 'no'])", "exactly"),
+            ("promptJev('a', 'q', choice := ['a','b'], noul := ['true','false'])", "either"),
+            ("promptJev('a', 'q', score := ['a','b'])", "supports"),
         ]
     )
     def test_invalid_arguments(self, query: str, message: str) -> None:
@@ -56,7 +56,7 @@ class TestPromptJev(SimpleTestCase):
             PromptJevCall.parse(node)
 
     def test_batches_deduplicates_and_skips_nulls(self) -> None:
-        node = parse_expr("prompt_jev(body, 'Refund?', batch_size := 2)")
+        node = parse_expr("promptJev(body, 'Refund?', batch_size := 2)")
         assert isinstance(node, ast.Call)
         spec = PromptJevCall.parse(node)
         runner = PromptJevRunner(team_id=123, distinct_id="test-user")
@@ -71,14 +71,14 @@ class TestPromptJev(SimpleTestCase):
 
     @parameterized.expand([(42, "must be text"), ("x" * 8193, "8 KiB")])
     def test_rejects_invalid_input_before_network(self, value: object, message: str) -> None:
-        node = parse_expr("prompt_jev(body, 'Refund?')")
+        node = parse_expr("promptJev(body, 'Refund?')")
         assert isinstance(node, ast.Call)
         with patch("httpx.Client.post") as post, self.assertRaisesRegex(QueryError, message):
             PromptJevRunner(team_id=1, distinct_id=None).evaluate(PromptJevCall.parse(node), [value])
         post.assert_not_called()
 
     def test_gateway_failure_does_not_return_a_decision(self) -> None:
-        node = parse_expr("prompt_jev('refund', 'Refund?')")
+        node = parse_expr("promptJev('refund', 'Refund?')")
         assert isinstance(node, ast.Call)
         with (
             patch("httpx.Client.post", return_value=httpx.Response(429)),
@@ -104,7 +104,7 @@ class TestPromptJevQuery(ClickhouseTestMixin, APIBaseTest):
                 {
                     "query": {
                         "kind": "HogQLQuery",
-                        "query": "SELECT prompt_jev(properties.message, 'Refund?') AS probability FROM events WHERE event = 'jev_test_message' LIMIT 10",
+                        "query": "SELECT promptJev(properties.message, 'Refund?') AS probability FROM events WHERE event = 'jev_test_message' LIMIT 10",
                     }
                 },
             )
@@ -115,19 +115,19 @@ class TestPromptJevQuery(ClickhouseTestMixin, APIBaseTest):
     @parameterized.expand(
         [
             (
-                "SELECT probability FROM (SELECT prompt_jev('refund please', 'Refund?') AS probability) WHERE probability > 0.5",
+                "SELECT probability FROM (SELECT promptJev('refund please', 'Refund?') AS probability) WHERE probability > 0.5",
                 [(0.9,)],
             ),
             (
-                "SELECT result.choice, count() FROM (SELECT prompt_jev(body, 'Route?', choice := ['billing', 'other']) AS result FROM (SELECT arrayJoin(['refund', 'hello', 'refund']) AS body)) GROUP BY result.choice ORDER BY result.choice",
+                "SELECT result.choice, count() FROM (SELECT promptJev(body, 'Route?', choice := ['billing', 'other']) AS result FROM (SELECT arrayJoin(['refund', 'hello', 'refund']) AS body)) GROUP BY result.choice ORDER BY result.choice",
                 [("billing", 2), ("other", 1)],
             ),
             (
-                "WITH classified AS (SELECT prompt_jev('refund', 'Refund?') AS p) SELECT a.p, b.p FROM classified a CROSS JOIN classified b",
+                "WITH classified AS (SELECT promptJev('refund', 'Refund?') AS p) SELECT a.p, b.p FROM classified a CROSS JOIN classified b",
                 [(0.9, 0.9)],
             ),
-            ("SELECT prompt_jev(NULL, 'Refund?') AS p", [(None,)]),
-            ("SELECT prompt_jev('hello', 'Refund?') AS p LIMIT 0", []),
+            ("SELECT promptJev(NULL, 'Refund?') AS p", [(None,)]),
+            ("SELECT promptJev('hello', 'Refund?') AS p LIMIT 0", []),
         ]
     )
     def test_sql_decisions(self, query: str, expected: list) -> None:
@@ -138,10 +138,10 @@ class TestPromptJevQuery(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("SELECT prompt_jev('a', 'q')", "named SELECT"),
-            ("SELECT prompt_jev('a', 'q') AS p ORDER BY p", "outside"),
-            ("SELECT prompt_jev('a', 'q') AS p WHERE p > 0.5", "outer query"),
-            ("SELECT prompt_jev(toString(number), 'q') AS p FROM numbers(1001)", "at most 1000"),
+            ("SELECT promptJev('a', 'q')", "named SELECT"),
+            ("SELECT promptJev('a', 'q') AS p ORDER BY p", "outside"),
+            ("SELECT promptJev('a', 'q') AS p WHERE p > 0.5", "outer query"),
+            ("SELECT promptJev(toString(number), 'q') AS p FROM numbers(1001)", "at most 1000"),
         ]
     )
     def test_rejects_unsafe_query_shapes_before_inference(self, query: str, message: str) -> None:
@@ -152,5 +152,5 @@ class TestPromptJevQuery(ClickhouseTestMixin, APIBaseTest):
     @override_settings(HOGQL_PROMPT_JEV_ENABLED=False)
     def test_disabled(self) -> None:
         with patch("httpx.Client.post") as post, self.assertRaisesRegex(QueryError, "disabled"):
-            execute_hogql_query("SELECT prompt_jev('a', 'q') AS p", self.team, user=self.user)
+            execute_hogql_query("SELECT promptJev('a', 'q') AS p", self.team, user=self.user)
         post.assert_not_called()
