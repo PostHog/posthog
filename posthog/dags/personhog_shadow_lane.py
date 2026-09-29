@@ -1,0 +1,346 @@
+"""Operate the personhog shadow validation lane.
+
+The shadow lane is a second consumer group on the team 2 events topic whose
+worker runs with PERSONS_STORE_MODE=shadow: every person write goes through
+both the legacy direct-to-Postgres path and the personhog path, into a
+dedicated persons-shadow database. Validation runs compare the two paths'
+tables afterwards, so each run must start from identical (empty) state on
+both sides.
+
+This module holds the shared plumbing (Kubernetes scaling, shadow DB access,
+the table inventory) and the start job. The stop/drain/compare job lives in
+personhog_shadow_drift.py.
+
+The Dagster service account needs get/patch on deployments and
+deployments/scale plus list on pods in the lane namespace, and the lane's
+ArgoCD Applications
+must ignore Deployment spec.replicas, or ArgoCD self-heal reverts every scale
+these jobs apply. Both are charts-side prerequisites.
+"""
+
+import os
+import time
+from collections.abc import Callable
+from contextlib import closing
+from urllib.parse import parse_qs, urlparse
+
+import dagster
+import psycopg2
+import psycopg2.extras
+from kubernetes import (
+    client as k8s_client,
+    config as k8s_config,
+)
+from pydantic import Field
+
+from posthog.dags.common import JobOwners
+
+SHADOW_NAMESPACE = "ingestion-analytics-team2-shadow"
+SHADOW_CONSUMER_DEPLOYMENT = "ingestion-analytics-team2-shadow-consumer"
+SHADOW_PROCESSOR_DEPLOYMENT = "ingestion-analytics-team2-shadow-processor"
+SHADOW_DB_URL_ENV_VAR = "PERSONS_SHADOW_DB_URL"
+
+# Every table the lane writes, per path. The reset truncates both lists in one
+# statement so a validation run starts from state where "row missing on one
+# side" can only mean drift. Kept in sync with rust/persons_migrations/.
+LEGACY_STATE_TABLES = [
+    "posthog_person",
+    "posthog_persondistinctid",
+    "posthog_personlessdistinctid",
+    "posthog_featureflaghashkeyoverride",
+    "posthog_personoverridemapping",
+    "posthog_personoverride",
+    "posthog_pendingpersonoverride",
+    "posthog_flatpersonoverride",
+    "posthog_group",
+    "posthog_grouptypemapping",
+]
+PERSONHOG_STATE_TABLES = [
+    "personhog_person_tmp",
+    "personhog_persondistinctid_tmp",
+    "personhog_featureflaghashkeyoverride_tmp",
+    "lifecycle_op",
+    "lifecycle_op_person",
+    "lifecycle_op_tmp",
+    "lifecycle_op_person_tmp",
+    "person_pg_cleanup_queue",
+    "person_tombstone_publish_queue",
+]
+
+
+def require_shadow_dsn(connection_url: str) -> None:
+    """Refuse a DSN that does not look like the persons-shadow cluster.
+
+    The reset truncates person tables. The only structural difference between
+    the shadow DSN and the production persons DSN is the cluster name, so this
+    guard is what stands between a misconfigured env var and truncating
+    production state.
+    """
+    parsed = urlparse(connection_url)
+    # psycopg2 also accepts libpq key/value strings ("host=... dbname=..."),
+    # which urlparse leaves whole in .path, so every check below would see an
+    # empty authority and pass on "shadow" appearing in any field.
+    if parsed.scheme not in ("postgres", "postgresql"):
+        raise dagster.Failure(
+            description=(
+                "Connection URL must be a postgres:// or postgresql:// URI. "
+                "Refusing a key/value DSN whose target the guard cannot check."
+            )
+        )
+    # libpq resolves the connection target from more than the URL authority:
+    # host, hostaddr, dbname, and service query parameters override it, and a
+    # comma in the host names several servers. Any of those lets a URL carry
+    # a shadow-looking hostname while connecting elsewhere, so reject them
+    # instead of trying to validate what libpq would do.
+    overrides = {"host", "hostaddr", "dbname", "service"} & set(parse_qs(parsed.query))
+    if overrides:
+        raise dagster.Failure(
+            description=(
+                f"Connection URL overrides its target through query parameters ({', '.join(sorted(overrides))}). "
+                "Refusing a DSN whose effective target can differ from its hostname."
+            )
+        )
+    hostname = parsed.hostname or ""
+    if "," in (parsed.netloc or ""):
+        raise dagster.Failure(
+            description="Connection URL names several hosts. Refusing a DSN with more than one target."
+        )
+    identity = f"{hostname}/{parsed.path.lstrip('/')}"
+    if "shadow" not in identity:
+        raise dagster.Failure(
+            description=(
+                f"Connection target {identity!r} does not contain 'shadow'. "
+                "Refusing to operate on a database that is not the persons-shadow cluster."
+            )
+        )
+
+
+def shadow_db_connection(env_var: str) -> psycopg2.extensions.connection:
+    connection_url = os.environ.get(env_var)
+    if not connection_url:
+        raise dagster.Failure(
+            description=(
+                f"Environment variable {env_var} is not set on the Dagster deployment. "
+                "It must hold the persons-shadow database connection URL."
+            )
+        )
+    require_shadow_dsn(connection_url)
+    return psycopg2.connect(connection_url, cursor_factory=psycopg2.extras.RealDictCursor, connect_timeout=10)
+
+
+def _load_k8s_config() -> None:
+    try:
+        k8s_config.load_incluster_config()
+    except k8s_config.ConfigException:
+        k8s_config.load_kube_config()
+
+
+def apps_api() -> k8s_client.AppsV1Api:
+    _load_k8s_config()
+    return k8s_client.AppsV1Api()
+
+
+def deployment_pod_count(apps: k8s_client.AppsV1Api, namespace: str, name: str) -> int:
+    """Count the deployment's pods straight from the pod list.
+
+    status.replicas lags a fresh scale and leaves out terminating pods, which
+    can still write during their grace period, so the reset guard cannot rely
+    on it.
+    """
+    deployment = apps.read_namespaced_deployment(name=name, namespace=namespace)
+    if deployment.spec.replicas:
+        return deployment.spec.replicas
+    selector = ",".join(f"{key}={value}" for key, value in deployment.spec.selector.match_labels.items())
+    pods = k8s_client.CoreV1Api().list_namespaced_pod(namespace=namespace, label_selector=selector)
+    return len(pods.items)
+
+
+def scale_deployment(apps: k8s_client.AppsV1Api, namespace: str, name: str, replicas: int) -> None:
+    apps.patch_namespaced_deployment_scale(name=name, namespace=namespace, body={"spec": {"replicas": replicas}})
+
+
+def deployment_ready_replicas(apps: k8s_client.AppsV1Api, namespace: str, name: str) -> int:
+    deployment = apps.read_namespaced_deployment(name=name, namespace=namespace)
+    return deployment.status.ready_replicas or 0
+
+
+def wait_for_quiescence(
+    read_write_counter: Callable[[], int],
+    *,
+    poll_seconds: float,
+    stable_checks: int,
+    timeout_seconds: float,
+    sleep: Callable[[float], None] = time.sleep,
+    on_progress: Callable[[str], None] | None = None,
+) -> int:
+    """Poll a monotonic write counter until it holds still for stable_checks consecutive polls.
+
+    Returns the number of polls taken. Raises TimeoutError when the counter is
+    still moving at the deadline.
+    """
+    deadline = time.monotonic() + timeout_seconds
+    last = read_write_counter()
+    stable = 0
+    polls = 1
+    while stable < stable_checks:
+        if time.monotonic() >= deadline:
+            raise TimeoutError(f"write counter still moving after {timeout_seconds}s (last value {last})")
+        sleep(poll_seconds)
+        current = read_write_counter()
+        polls += 1
+        if current == last:
+            stable += 1
+        else:
+            if on_progress is not None:
+                on_progress(f"writes still landing: counter moved {last} -> {current}")
+            stable = 0
+            last = current
+    return polls
+
+
+def read_shadow_write_counter(connection: psycopg2.extensions.connection) -> int:
+    """Sum the whole database's tuple-write counters.
+
+    The shadow database serves only the lane, so a stable sum means every
+    writer has drained; a table allowlist would silently go stale when the
+    lane gains a table. The connection must be in autocommit so each poll is
+    its own transaction and reads a fresh pg_stat snapshot instead of the
+    first transaction's cached one.
+    """
+    with connection.cursor() as cursor:
+        # The identity service's lifecycle GC deletes completed lifecycle_op
+        # rows past retention on a timer, and it keeps running while the lane
+        # is scaled to zero. After a run longer than the retention window those
+        # deletes land every sweep, so counting them would never let the wait
+        # settle. They remove nothing the reset would otherwise keep.
+        cursor.execute(
+            "SELECT COALESCE(SUM(n_tup_ins + n_tup_upd"
+            " + CASE WHEN relname LIKE 'lifecycle\\_op%' THEN 0 ELSE n_tup_del END), 0) AS writes"
+            " FROM pg_stat_user_tables"
+        )
+        return int(cursor.fetchone()["writes"])
+
+
+class ShadowLaneStartConfig(dagster.Config):
+    reset_state: bool = False
+    # Bounded so a typo in run config cannot request enough pods to eat the
+    # nodepool. The team2 lane peaks at 16 of each.
+    consumer_replicas: int = Field(default=4, gt=0, le=32)
+    processor_replicas: int = Field(default=8, gt=0, le=32)
+    namespace: str = SHADOW_NAMESPACE
+    consumer_deployment: str = SHADOW_CONSUMER_DEPLOYMENT
+    processor_deployment: str = SHADOW_PROCESSOR_DEPLOYMENT
+    shadow_db_env_var: str = SHADOW_DB_URL_ENV_VAR
+    ready_timeout_seconds: int = 600
+    # How long the reset waits for in-flight writes to stop before truncating.
+    reset_settle_poll_seconds: int = 10
+    reset_settle_stable_checks: int = 3
+    reset_settle_timeout_seconds: int = 600
+
+
+def _reset_shadow_state(
+    context: dagster.OpExecutionContext, config: ShadowLaneStartConfig, apps: k8s_client.AppsV1Api
+) -> None:
+    for deployment in (config.consumer_deployment, config.processor_deployment):
+        pods = deployment_pod_count(apps, config.namespace, deployment)
+        if pods > 0:
+            raise dagster.Failure(
+                description=(
+                    f"Deployment {deployment} still wants or has {pods} pod(s). "
+                    "A reset while consumers run would leave the two paths inconsistent. "
+                    "Run the stop-and-compare job first, then start with reset_state."
+                )
+            )
+
+    tables = LEGACY_STATE_TABLES + PERSONHOG_STATE_TABLES
+    with closing(shadow_db_connection(config.shadow_db_env_var)) as connection:
+        connection.autocommit = True
+
+        # The lane deployments are down, but the personhog writer drains its
+        # changelog into these tables from outside the lane namespace. A
+        # truncate that races it leaves old-run rows behind, so wait for the
+        # whole database to go quiet first.
+        try:
+            wait_for_quiescence(
+                lambda: read_shadow_write_counter(connection),
+                poll_seconds=config.reset_settle_poll_seconds,
+                stable_checks=config.reset_settle_stable_checks,
+                timeout_seconds=config.reset_settle_timeout_seconds,
+                on_progress=context.log.info,
+            )
+        except TimeoutError as timeout:
+            raise dagster.Failure(
+                description=(
+                    f"The shadow persons database is still receiving writes after "
+                    f"{config.reset_settle_timeout_seconds}s, most likely the personhog writer draining its "
+                    "backlog. Nothing was truncated; re-run once it settles."
+                )
+            ) from timeout
+
+        context.log.info(f"Truncating {len(tables)} tables in the shadow persons database: {', '.join(tables)}")
+        with connection.cursor() as cursor:
+            cursor.execute("SET application_name = 'dagster_personhog_shadow_lane'")
+            cursor.execute("SET statement_timeout = '10min'")
+            # One statement so the reset is atomic; CASCADE covers the FKs
+            # between the person and distinct id tables on both sides. No
+            # RESTART IDENTITY: it needs sequence privileges the scoped
+            # dagster user does not hold, and id continuity is irrelevant
+            # because the drift comparison joins on uuid and distinct_id.
+            cursor.execute(f"TRUNCATE {', '.join(tables)} CASCADE")
+    context.log.info("Shadow persons database reset complete")
+
+
+@dagster.op
+def start_shadow_lane(context: dagster.OpExecutionContext, config: ShadowLaneStartConfig) -> None:
+    apps = apps_api()
+    if config.reset_state:
+        _reset_shadow_state(context, config, apps)
+    else:
+        context.log.info("reset_state is false, leaving the shadow persons database untouched")
+
+    targets = [
+        (config.consumer_deployment, config.consumer_replicas),
+        (config.processor_deployment, config.processor_replicas),
+    ]
+    for deployment, replicas in targets:
+        context.log.info(f"Scaling {config.namespace}/{deployment} to {replicas} replicas")
+        scale_deployment(apps, config.namespace, deployment, replicas)
+
+    deadline = time.monotonic() + config.ready_timeout_seconds
+    pending = dict(targets)
+    while pending and time.monotonic() < deadline:
+        for deployment, replicas in list(pending.items()):
+            ready = deployment_ready_replicas(apps, config.namespace, deployment)
+            if ready >= replicas:
+                context.log.info(f"{deployment} is ready with {ready} replica(s)")
+                del pending[deployment]
+        if pending:
+            time.sleep(10)
+
+    if pending:
+        raise dagster.Failure(
+            description=(
+                f"Deployments not ready after {config.ready_timeout_seconds}s: {', '.join(pending)}. "
+                "The scale was applied; check the pods in the lane namespace."
+            )
+        )
+
+    context.add_output_metadata(
+        {
+            "reset_state": dagster.MetadataValue.bool(config.reset_state),
+            "consumer_replicas": dagster.MetadataValue.int(config.consumer_replicas),
+            "processor_replicas": dagster.MetadataValue.int(config.processor_replicas),
+        }
+    )
+
+
+@dagster.job(tags={"owner": JobOwners.TEAM_INGESTION.value})
+def personhog_shadow_lane_start_job():
+    """Start the shadow lane consumers, optionally resetting the shadow persons database first.
+
+    Run with default config to resume consuming from the committed offsets.
+    Set ops.start_shadow_lane.config.reset_state to true to truncate both
+    paths' tables before starting, which every fresh validation run needs.
+    The reset refuses to run while the lane has pods.
+    """
+    start_shadow_lane()
