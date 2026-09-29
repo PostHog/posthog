@@ -309,6 +309,8 @@ def _is_on_site(url: str, origin: str) -> bool:
     scheme = parsed.scheme.lower()
     if scheme not in _DEFAULT_PORTS or port not in (None, _DEFAULT_PORTS[scheme]):
         return False
+    if scheme != urlparse(origin).scheme.lower():
+        return False
     host = site_host(url)
     return bool(host) and host == site_host(origin)
 
@@ -338,8 +340,7 @@ def read_sitemap_urls(source_urls: list[str], *, origin: str) -> list[str]:
             if not _is_on_site(location, origin):
                 continue
             if is_index:
-                if urlparse(location).scheme.lower() == urlparse(origin).scheme.lower():
-                    queue.append(location)
+                queue.append(location)
             elif len(pages) < _MAX_SITEMAP_URLS:
                 pages[location] = None
     return list(pages)

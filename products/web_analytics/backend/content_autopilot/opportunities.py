@@ -90,7 +90,7 @@ def site_page_urls(profile: ContentAutopilotSiteProfile) -> list[str]:
     return urls
 
 
-def page_ai_traffic(team: Team, origin: str, paths: list[str]) -> dict[str, dict[str, int]]:
+def page_ai_traffic(team: Team, origin: str, paths: list[str], *, include_hostless: bool) -> dict[str, dict[str, int]]:
     if not paths:
         return {}
     query = parse_select(
@@ -111,7 +111,9 @@ def page_ai_traffic(team: Team, origin: str, paths: list[str]) -> dict[str, dict
             "paths": ast.Tuple(
                 exprs=[ast.Constant(value=variant) for path in paths for variant in {path, f"{path.rstrip('/')}/"}]
             ),
-            "hosts": ast.Tuple(exprs=[ast.Constant(value=host) for host in _site_hosts(origin, include_unknown=True)]),
+            "hosts": ast.Tuple(
+                exprs=[ast.Constant(value=host) for host in _site_hosts(origin, include_unknown=include_hostless)]
+            ),
         },
     )
     with tags_context(
@@ -263,7 +265,13 @@ def refresh_opportunities(
         targets[gap.prompt_hash] = next((url for url in cited if url), "")
 
     paths = sorted({_page_path(url) for url in targets.values() if url})
-    traffic_by_path = page_ai_traffic(team, profile.domain, paths)
+    only_site = not (
+        ContentAutopilotSiteProfile.objects.for_team(team_id, canonical=True)
+        .filter(deleted=False)
+        .exclude(id=profile.id)
+        .exists()
+    )
+    traffic_by_path = page_ai_traffic(team, profile.domain, paths, include_hostless=only_site)
 
     now = timezone.now()
     with transaction.atomic():
@@ -309,7 +317,10 @@ def refresh_opportunities(
         stale = [
             opportunity.id
             for key, opportunity in existing.items()
-            if key not in current and opportunity.status == ContentAutopilotOpportunity.Status.NEW
+            if key not in current
+            and opportunity.status
+            in (ContentAutopilotOpportunity.Status.NEW, ContentAutopilotOpportunity.Status.QUEUED)
+            and not _being_drafted(opportunity)
         ]
         if stale:
             ContentAutopilotOpportunity.objects.for_team(team_id, canonical=True).filter(id__in=stale).delete()

@@ -208,6 +208,7 @@ class TestContentAutopilotSiteDiscovery(SimpleTestCase):
         pages = b"""<urlset>
             <url><loc>https://www.example.com/docs</loc></url>
             <url><loc>https://blog.example.com/post</loc></url>
+            <url><loc>http://example.com/insecure</loc></url>
         </urlset>"""
 
         def response_for(url: str, **kwargs: object) -> FetchedPublicUrl:

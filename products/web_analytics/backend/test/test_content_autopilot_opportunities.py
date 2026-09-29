@@ -162,10 +162,12 @@ class TestRefreshOpportunities(ClickhouseTestMixin, BaseTest):
             )
         flush_persons_and_events()
 
-        traffic = page_ai_traffic(self.team, "https://example.com", ["/pricing"])
+        traffic = page_ai_traffic(self.team, "https://example.com", ["/pricing"], include_hostless=True)
+        shared = page_ai_traffic(self.team, "https://example.com", ["/pricing"], include_hostless=False)
 
         assert traffic["/pricing"]["ai_crawls"] == 3
         assert "/docs" not in traffic
+        assert shared["/pricing"]["ai_crawls"] == 1
 
     def test_ranks_sitemap_pages_by_views_on_the_site_then_fills_with_shallow_pages(self) -> None:
         for path, views in [("/docs/session-replay", 3), ("/pricing/", 1), ("/not-in-sitemap", 5)]:
@@ -209,6 +211,11 @@ class TestRefreshOpportunities(ClickhouseTestMixin, BaseTest):
         )
         stuck.save()
         closed = create_content_autopilot_opportunity(self.team, self.profile, cluster_key="hash-closed")
+        closed_while_stuck = create_content_autopilot_opportunity(
+            self.team, self.profile, cluster_key="hash-closed-stuck", status=ContentAutopilotOpportunity.Status.QUEUED
+        )
+        closed_while_stuck.run = stuck.run
+        closed_while_stuck.save()
 
         self._refresh([_gap("dismissed"), _gap("queued"), _gap("stuck")])
 
@@ -220,7 +227,11 @@ class TestRefreshOpportunities(ClickhouseTestMixin, BaseTest):
         assert queued.status == ContentAutopilotOpportunity.Status.QUEUED
         assert queued.title == "What is the best open source session replay tool?"
         assert (stuck.status, stuck.title) == (ContentAutopilotOpportunity.Status.NEW, "stuck")
-        assert not ContentAutopilotOpportunity.objects.for_team(self.team.id).filter(id=closed.id).exists()
+        assert (
+            not ContentAutopilotOpportunity.objects.for_team(self.team.id)
+            .filter(id__in=[closed.id, closed_while_stuck.id])
+            .exists()
+        )
 
 
 class TestDraftOpportunities(BaseTest):
