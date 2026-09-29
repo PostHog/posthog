@@ -40,7 +40,8 @@ This setting does not configure or detect gateway support automatically.
 Trials keep the Python route and reject subscription credentials; the Go migration requires the same capture policy and support for the selected models.
 Shared generation events cannot supply trial costs when capture is suppressed.
 Results report unknown cost as null and retain runtime token counts when available.
-Trial credentials can upload logs and update the summary, status, and usage of their own verified run without general task-write access.
+Trial credentials can upload logs and update the summary, status, usage and agent version of their own verified run without general task-write access.
+Failure callbacks can record the error and agent version together; they cannot change protected state or another run.
 Operator trial MCP tools also omit analytics payloads.
 Task content retrieval tools retain call metrics but omit content spans and free-text intent, so viewing a private transcript does not publish it through MCP analytics.
 

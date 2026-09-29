@@ -1673,7 +1673,12 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return False
         if "state" in payload:
             state = payload["state"]
-            if not isinstance(state, dict) or set(state) - {"token_usage", "budget_guard", "benjamin_version"}:
+            if not isinstance(state, dict) or set(state) - {
+                "token_usage",
+                "budget_guard",
+                "benjamin_version",
+                "agent_version",
+            }:
                 return False
         return True
 

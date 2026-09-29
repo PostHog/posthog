@@ -418,24 +418,40 @@ class TestScoutTrialTaskVisibility(BaseTaskAPITest):
         client = self._trial_log_client()
         base = f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/"
         entry = {"type": "info", "message": "Synthetic scout inspected recent activity"}
+        log_objects: dict[str, str] = {}
 
-        with patch("products.tasks.backend.models.TaskRun.heartbeat_workflow"):
+        with (
+            patch("products.tasks.backend.models.TaskRun.heartbeat_workflow"),
+            patch.object(object_storage, "read", side_effect=lambda key, **_kwargs: log_objects.get(key)),
+            patch.object(object_storage, "write", side_effect=log_objects.__setitem__),
+            patch.object(object_storage, "tag"),
+        ):
             response = client.post(f"{base}append_log/", {"entries": [entry]}, format="json")
+            logs = client.get(f"{base}session_logs/")
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert "scout_trial_private" not in response.json()["state"]
-        logs = client.get(f"{base}session_logs/")
         assert logs.status_code == status.HTTP_200_OK
         assert logs.json()[0]["message"] == entry["message"]
         usage = {"input_tokens": 12, "output_tokens": 4}
         response = client.patch(
             base,
-            {"status": "in_progress", "state": {"token_usage": usage, "budget_guard": {}, "benjamin_version": "test"}},
+            {
+                "status": "in_progress",
+                "state": {
+                    "token_usage": usage,
+                    "budget_guard": {},
+                    "benjamin_version": "test",
+                    "agent_version": "test-agent",
+                },
+            },
             format="json",
         )
         assert response.status_code == status.HTTP_200_OK, response.json()
         run.refresh_from_db()
         assert run.state is not None
         assert run.state["token_usage"] == usage
+        assert run.state["agent_version"] == "test-agent"
+        marker = run.state["scout_trial"]
         assert run.state["scout_trial_private"] == {"reports": []}
         response = client.patch(f"{base}set_summary/", {"summary": "Reviewed recent exports"}, format="json")
         assert response.status_code == status.HTTP_200_OK, response.json()
@@ -449,11 +465,21 @@ class TestScoutTrialTaskVisibility(BaseTaskAPITest):
             client.post("/api/projects/@current/tasks/", {"title": "Child task"}, format="json").status_code
             == status.HTTP_403_FORBIDDEN
         )
-        response = client.patch(base, {"status": "failed", "error_message": "Synthetic failure"}, format="json")
-        assert response.status_code == status.HTTP_200_OK
+        response = client.patch(
+            base,
+            {"status": "failed", "error_message": "Synthetic failure", "state": {"agent_version": "test-agent"}},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
         run.refresh_from_db()
         assert run.status == TaskRun.Status.FAILED
         assert run.error_message == "Synthetic failure"
+        assert run.completed_at is not None
+        assert run.state is not None
+        assert run.state["agent_version"] == "test-agent"
+        assert run.state["token_usage"] == usage
+        assert run.state["scout_trial"] == marker
+        assert run.state["scout_trial_private"] == {"reports": []}
 
     @parameterized.expand(
         [
@@ -462,6 +488,9 @@ class TestScoutTrialTaskVisibility(BaseTaskAPITest):
             ("marker", {"state": {"scout_trial": {}}}),
             ("private", {"state": {"scout_trial_private": {}}}),
             ("other_state", {"state": {"custom_key": "value"}}),
+            ("mixed_state", {"status": "failed", "state": {"agent_version": "test-agent", "model": "other"}}),
+            ("state_type", {"status": "failed", "state": ["agent_version"]}),
+            ("state_null", {"status": "failed", "state": None}),
             ("remove", {"state_remove_keys": ["scout_trial"]}),
             ("branch", {"branch": "other"}),
             ("output", {"output": {"url": "https://example.com"}}),
@@ -471,8 +500,13 @@ class TestScoutTrialTaskVisibility(BaseTaskAPITest):
     def test_trial_cannot_patch_non_lifecycle_fields(self, _name: str, payload: dict[str, object]) -> None:
         task, run = self.trial_tasks[0], self.trial_runs[0]
         client = self._trial_log_client()
+        original_state = run.state
+        original_status = run.status
         response = client.patch(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/", payload, format="json")
         assert response.status_code == status.HTTP_403_FORBIDDEN
+        run.refresh_from_db()
+        assert run.state == original_state
+        assert run.status == original_status
 
     @parameterized.expand(
         [
@@ -510,6 +544,8 @@ class TestScoutTrialTaskVisibility(BaseTaskAPITest):
             run.state = {"scout_trial": {"version": 1, "launch_id": str(uuid.uuid4())}}
             run.save(update_fields=["state"])
 
+        original_state = run.state
+        original_status = run.status
         response = client.post(
             f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/append_log/",
             {"entries": [{"type": "info", "message": "Synthetic log entry"}]},
@@ -517,9 +553,14 @@ class TestScoutTrialTaskVisibility(BaseTaskAPITest):
         )
         assert response.status_code == status.HTTP_403_FORBIDDEN
         response = client.patch(
-            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/", {"status": "in_progress"}, format="json"
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/",
+            {"status": "failed", "error_message": "Synthetic failure", "state": {"agent_version": "test-agent"}},
+            format="json",
         )
         assert response.status_code == status.HTTP_403_FORBIDDEN
+        run.refresh_from_db()
+        assert run.state == original_state
+        assert run.status == original_status
         response = client.patch(
             f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/set_summary/",
             {"summary": "Synthetic summary"},

@@ -5938,6 +5938,7 @@ export const API_SCOPE_OBJECTS = [
     'marketing_analytics',
     'mcp_builtin_agent',
     'mcp_analytics',
+    'mcp_registry',
     'metrics',
     'notebook',
     'offline_evaluation_ingestion',
@@ -5985,6 +5986,7 @@ export const API_SCOPE_OBJECTS = [
     'web_analytics',
     'webhook',
     'wizard_session',
+    'wizard_run',
 ] as const
 
 export type APIScopeObject = (typeof API_SCOPE_OBJECTS)[number]

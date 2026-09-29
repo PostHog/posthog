@@ -19,6 +19,8 @@ The gateway exempts staff users from per-user cost caps by default. Fleet limits
 
 For local spend checks, set `LLM_GATEWAY_STAFF_UNLIMITED_USAGE=false` and an explicit `LLM_GATEWAY_REDIS_URL` pointing to the devbox's existing Redis. The standalone gateway does not inherit Django's `REDIS_URL` fallback; without its own URL, it uses reduced in-memory limits and loses counters on restart. To inspect `/metrics`, also set `ENABLE_METRICS=true` alongside `LLM_GATEWAY_METRICS_ENABLED=true`. Confirm the running endpoint exposes the intended Signals cost limit before making paid calls.
 
+Check the remaining burst, sustained and per-task allowances before reserving a batch. A larger operator budget does not update an existing local gateway cap. If an approved test needs a higher local limit, retain the counter, window and multiplier, then verify the counter and its expiry survive the gateway restart. Exercise a denied request as well: the scout must record failure and release its sandbox without an operator cancellation.
+
 ## 1. Pull the implementation without losing devbox state
 
 All commands below run inside the devbox, from its repository root. Substitute its real path if it is not `~/posthog`.
