@@ -1,40 +1,22 @@
 import { useActions, useValues } from 'kea'
-import { combineUrl, router } from 'kea-router'
+import { router } from 'kea-router'
 import { useState } from 'react'
 
-import { IconChevronDown, IconChevronRight } from '@posthog/icons'
-import {
-    LemonBanner,
-    LemonButton,
-    LemonCard,
-    LemonLabel,
-    LemonSelect,
-    LemonTable,
-    LemonTag,
-    Link,
-    Spinner,
-    Tooltip,
-} from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonCard, LemonLabel, LemonSelect, LemonTag, Spinner } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { TZLabel } from 'lib/components/TZLabel'
-import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { EvaluationsTabs } from '../evaluations/EvaluationsTabs'
-import type { OfflineHistoryPointApi } from '../generated/api.schemas'
 import { ScoreDefinitionVersionButton } from '../scoreDefinitions/ScoreDefinitionVersionButton'
+import { offlineExperimentUrl } from './offlineExperimentPresentation'
 import { offlineScorerHistoryLogic, type OfflineScorerHistoryProps } from './offlineScorerHistoryLogic'
+import { OfflineScorerHistoryTable } from './OfflineScorerHistoryTable'
 import { OfflineScoreTrendChart } from './OfflineScoreTrendChart'
-import { formatOfflineScore, getOfflineHistoryCoverage, offlineScoreConfigurationLabel } from './offlineScoreTrends'
-
-function experimentUrl(point: OfflineHistoryPointApi): string {
-    return combineUrl(urls.aiObservabilityOfflineEvaluationExperiment(point.experiment.id), {
-        scorer_version_id: point.summary.scorer.id,
-    }).url
-}
+import { getOfflineHistoryCoverage, offlineScoreConfigurationLabel } from './offlineScoreTrends'
 
 export function OfflineScorerHistory(props: OfflineScorerHistoryProps): JSX.Element {
     const [expandedRuns, setExpandedRuns] = useState<Set<string>>(new Set())
@@ -74,6 +56,14 @@ export function OfflineScorerHistory(props: OfflineScorerHistoryProps): JSX.Elem
         loadOfflineHistoryComparisonPage,
         reloadOfflineHistoryDefinition,
     } = useActions(logic)
+
+    const toggleRun = (key: string): void => {
+        setExpandedRuns((previous) => {
+            const next = new Set(previous)
+            next.has(key) ? next.delete(key) : next.add(key)
+            return next
+        })
+    }
 
     return (
         <SceneContent>
@@ -248,7 +238,9 @@ export function OfflineScorerHistory(props: OfflineScorerHistoryProps): JSX.Elem
                                                 <OfflineScoreTrendChart
                                                     periods={trendPeriods}
                                                     timezone={timezone}
-                                                    onPointClick={(point) => router.actions.push(experimentUrl(point))}
+                                                    onPointClick={(point) =>
+                                                        router.actions.push(offlineExperimentUrl(point))
+                                                    }
                                                 />
                                             )}
                                         </>
@@ -311,181 +303,12 @@ export function OfflineScorerHistory(props: OfflineScorerHistoryProps): JSX.Elem
                                                         {getOfflineHistoryCoverage(period.page, timezone)}
                                                     </div>
                                                 )}
-                                                <LemonTable<OfflineHistoryPointApi>
-                                                    rowKey={(point) =>
-                                                        `${point.experiment.id}:${point.summary.scorer.id}`
-                                                    }
-                                                    dataSource={period.page?.results || []}
-                                                    loading={period.loading || !period.page}
-                                                    size="small"
-                                                    tableLayout="fixed"
-                                                    emptyState="No results in this period. Try another version or date range."
-                                                    columns={[
-                                                        {
-                                                            title: 'Experiment',
-                                                            key: 'name',
-                                                            width: '28%',
-                                                            render: (_, point) => {
-                                                                const key = `${period.key}:${point.experiment.id}:${point.summary.scorer.id}`
-                                                                return (
-                                                                    <div className="flex items-center gap-1 min-w-0">
-                                                                        <LemonButton
-                                                                            type="tertiary"
-                                                                            size="xsmall"
-                                                                            noPadding
-                                                                            icon={
-                                                                                expandedRuns.has(key) ? (
-                                                                                    <IconChevronDown />
-                                                                                ) : (
-                                                                                    <IconChevronRight />
-                                                                                )
-                                                                            }
-                                                                            aria-label={`Run details for ${point.experiment.name}`}
-                                                                            tooltip={
-                                                                                expandedRuns.has(key)
-                                                                                    ? 'Hide details'
-                                                                                    : 'Run details'
-                                                                            }
-                                                                            aria-expanded={expandedRuns.has(key)}
-                                                                            data-attr="offline-history-run-details"
-                                                                            onClick={() =>
-                                                                                setExpandedRuns((previous) => {
-                                                                                    const next = new Set(previous)
-                                                                                    next.has(key)
-                                                                                        ? next.delete(key)
-                                                                                        : next.add(key)
-                                                                                    return next
-                                                                                })
-                                                                            }
-                                                                        />
-                                                                        <Tooltip title={point.experiment.name}>
-                                                                            <Link
-                                                                                to={experimentUrl(point)}
-                                                                                className="truncate min-w-0"
-                                                                            >
-                                                                                {point.experiment.name}
-                                                                            </Link>
-                                                                        </Tooltip>
-                                                                    </div>
-                                                                )
-                                                            },
-                                                        },
-                                                        {
-                                                            title: 'Execution',
-                                                            key: 'execution',
-                                                            width: '20%',
-                                                            render: (_, point) => (
-                                                                <div className="truncate text-xs">
-                                                                    <TZLabel time={point.experiment.started_at} />
-                                                                </div>
-                                                            ),
-                                                        },
-                                                        {
-                                                            title: 'Score',
-                                                            key: 'score',
-                                                            width: '16%',
-                                                            render: (_, point) => (
-                                                                <Tooltip title={formatOfflineScore(point.summary)}>
-                                                                    <span className="block tabular-nums truncate">
-                                                                        {formatOfflineScore(point.summary)}
-                                                                    </span>
-                                                                </Tooltip>
-                                                            ),
-                                                        },
-                                                        {
-                                                            title: 'Coverage',
-                                                            key: 'coverage',
-                                                            width: '36%',
-                                                            render: (_, { summary }) => (
-                                                                <Tooltip
-                                                                    title={`${summary.status_counts.ok} / ${summary.observed_item_count} scored items · ${summary.status_counts.error} errors · ${summary.status_counts.skipped} skipped · ${summary.status_counts.not_applicable} not applicable · ${summary.missing_result_count} missing`}
-                                                                >
-                                                                    <div className="text-xs truncate">
-                                                                        <span>{`${summary.status_counts.ok}/${summary.observed_item_count} scored · `}</span>
-                                                                        <span
-                                                                            className={
-                                                                                summary.status_counts.error > 0
-                                                                                    ? 'text-danger'
-                                                                                    : 'text-muted'
-                                                                            }
-                                                                        >{`${summary.status_counts.error} errors`}</span>
-                                                                        <span className="text-muted">{` · ${summary.missing_result_count} missing`}</span>
-                                                                    </div>
-                                                                </Tooltip>
-                                                            ),
-                                                        },
-                                                    ]}
-                                                    expandable={{
-                                                        noIndent: true,
-                                                        showRowExpansionToggle: false,
-                                                        isRowExpanded: (point) =>
-                                                            expandedRuns.has(
-                                                                `${period.key}:${point.experiment.id}:${point.summary.scorer.id}`
-                                                            ),
-                                                        expandedRowRender: ({ experiment, summary }) => (
-                                                            <div className="space-y-3 p-2">
-                                                                <div className="flex flex-wrap items-center gap-2">
-                                                                    <span className="font-semibold">Run details</span>
-                                                                    <LemonTag
-                                                                        type={
-                                                                            experiment.status === 'failed'
-                                                                                ? 'danger'
-                                                                                : experiment.status === 'uploading'
-                                                                                  ? 'warning'
-                                                                                  : 'success'
-                                                                        }
-                                                                    >
-                                                                        {
-                                                                            {
-                                                                                completed: 'Completed',
-                                                                                uploading: 'Uploading',
-                                                                                failed: 'Failed',
-                                                                            }[experiment.status]
-                                                                        }
-                                                                    </LemonTag>
-                                                                    <span className="text-muted">
-                                                                        {experiment.run_source
-                                                                            ? {
-                                                                                  ci: 'CI',
-                                                                                  local: 'Local',
-                                                                                  scheduled: 'Scheduled',
-                                                                              }[experiment.run_source]
-                                                                            : 'Source not specified'}
-                                                                    </span>
-                                                                </div>
-                                                                <div className="text-xs space-y-1">
-                                                                    <div className="break-words">{`Score: ${formatOfflineScore(summary)}`}</div>
-                                                                    <div>{`${summary.status_counts.ok} successful / ${summary.observed_item_count} observed items`}</div>
-                                                                    <div>{`${summary.status_counts.error} errors · ${summary.status_counts.skipped} skipped · ${summary.status_counts.not_applicable} not applicable · ${summary.missing_result_count} missing`}</div>
-                                                                    <div>{`${summary.distinct_case_count} distinct cases · ${summary.items_with_case_key_count} with case keys · ${summary.items_without_case_key_count} without case keys`}</div>
-                                                                    <div>{`${summary.trial_item_count} trial items · ${summary.distinct_trial_count} case/trial identities`}</div>
-                                                                </div>
-                                                                <dl className="text-xs grid gap-x-4 gap-y-2 @min-[48rem]/main-content:grid-cols-2">
-                                                                    {[
-                                                                        ['Suite', experiment.suite_key],
-                                                                        ['Application', experiment.application_version],
-                                                                        ['Model', experiment.model_version],
-                                                                        ['Prompt', experiment.prompt_version],
-                                                                        ['Dataset source', experiment.dataset_source],
-                                                                        ['Dataset', experiment.dataset_identifier],
-                                                                        [
-                                                                            'Dataset revision',
-                                                                            experiment.dataset_revision_identifier,
-                                                                        ],
-                                                                    ]
-                                                                        .filter(([, value]) => value !== null)
-                                                                        .map(([label, value]) => (
-                                                                            <div key={label} className="min-w-0">
-                                                                                <dt className="text-muted">{label}</dt>
-                                                                                <dd className="m-0 break-words">
-                                                                                    {value}
-                                                                                </dd>
-                                                                            </div>
-                                                                        ))}
-                                                                </dl>
-                                                            </div>
-                                                        ),
-                                                    }}
+                                                <OfflineScorerHistoryTable
+                                                    periodKey={period.key}
+                                                    page={period.page}
+                                                    loading={period.loading}
+                                                    expandedRuns={expandedRuns}
+                                                    onToggleRun={toggleRun}
                                                 />
                                             </>
                                         )}

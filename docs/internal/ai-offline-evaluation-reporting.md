@@ -230,6 +230,7 @@ These choices are stored in local storage, scoped to the user and exact project/
 Shared URL selections and dates take precedence for that view without replacing saved choices until the user saves a customization.
 The shared date picker supports presets, custom ranges, and all time.
 History pages are bounded; the scorer history shows how many matching points are loaded.
+Overview cards show the loaded count and date span when history is incomplete, and explain that earlier experiments and scorer versions may not be shown.
 Different scorer versions retain their pinned configurations and are not averaged together.
 Overview cards show one version at a time, with arrows to browse versions that have results in the selected period.
 The card summary shows the latest experiment's score and scored-item count; output types sit beside scorer titles, and neighboring charts use different colors from the theme palette.

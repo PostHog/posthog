@@ -8,7 +8,6 @@ import {
     LemonSelect,
     LemonSkeleton,
     LemonTable,
-    LemonTag,
     Link,
     Tooltip,
 } from '@posthog/lemon-ui'
@@ -21,6 +20,7 @@ import { urls } from 'scenes/urls'
 import type { OfflineExperimentReadApi } from '../generated/api.schemas'
 import { OfflineExperimentsEmptyState } from './OfflineExperimentsEmptyState'
 import { offlineExperimentsLogic, type OfflineExperimentsLogicProps } from './offlineExperimentsLogic'
+import { OfflineExperimentStatus } from './OfflineExperimentStatus'
 import { offlineRunSourceLabel } from './offlineOverviewState'
 import { OfflineOverviewTrend } from './OfflineOverviewTrend'
 import { OfflineScoreChooser } from './OfflineScoreChooser'
@@ -82,23 +82,7 @@ export function OfflineExperimentsOverview(props: OfflineExperimentsLogicProps):
             title: 'Upload',
             key: 'status',
             width: '16%',
-            render: (_, experiment) => (
-                <LemonTag
-                    type={
-                        experiment.status === 'completed'
-                            ? 'success'
-                            : experiment.status === 'uploading'
-                              ? 'warning'
-                              : 'danger'
-                    }
-                >
-                    {experiment.status === 'completed'
-                        ? 'Completed'
-                        : experiment.status === 'uploading'
-                          ? 'Uploading'
-                          : 'Failed'}
-                </LemonTag>
-            ),
+            render: (_, experiment) => <OfflineExperimentStatus status={experiment.status} />,
         },
         {
             title: <Tooltip title="Result and scorer counts include only results you can access.">Coverage</Tooltip>,

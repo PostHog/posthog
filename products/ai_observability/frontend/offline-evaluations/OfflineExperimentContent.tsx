@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
 
 import { IconArrowLeft, IconRefresh } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonModal, LemonSkeleton, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonModal, LemonSkeleton, LemonTable, Link } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -12,8 +12,10 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import type { OfflineScorerSummaryApi } from '../generated/api.schemas'
 import { OfflineExperimentLogicProps, offlineExperimentLogic } from './offlineExperimentLogic'
+import { OfflineExperimentStatus } from './OfflineExperimentStatus'
 import { OfflineItemInspector } from './OfflineItemInspector'
 import { OfflineItemMatrix } from './OfflineItemMatrix'
+import { offlineRunSourceLabel } from './offlineOverviewState'
 import { formatOfflineScore } from './offlineScoreTrends'
 
 export function OfflineExperimentContent(props: OfflineExperimentLogicProps): JSX.Element {
@@ -63,30 +65,8 @@ export function OfflineExperimentContent(props: OfflineExperimentLogicProps): JS
                             <div className="min-w-0">
                                 <h2 className="mb-2 break-words">{experiment.name}</h2>
                                 <div className="flex flex-wrap items-center gap-2 text-sm">
-                                    <LemonTag
-                                        type={
-                                            experiment.status === 'completed'
-                                                ? 'success'
-                                                : experiment.status === 'uploading'
-                                                  ? 'warning'
-                                                  : 'danger'
-                                        }
-                                    >
-                                        {experiment.status === 'completed'
-                                            ? 'Completed'
-                                            : experiment.status === 'uploading'
-                                              ? 'Uploading'
-                                              : 'Failed'}
-                                    </LemonTag>
-                                    <span>
-                                        {experiment.run_source === 'ci'
-                                            ? 'CI'
-                                            : experiment.run_source === 'local'
-                                              ? 'Local'
-                                              : experiment.run_source === 'scheduled'
-                                                ? 'Scheduled'
-                                                : 'Not specified'}
-                                    </span>
+                                    <OfflineExperimentStatus status={experiment.status} />
+                                    <span>{offlineRunSourceLabel(experiment.run_source)}</span>
                                     <TZLabel time={experiment.started_at} />
                                 </div>
                             </div>

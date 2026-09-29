@@ -722,6 +722,9 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
 
 export function AIObservabilityEvaluationsScene(): JSX.Element {
     useMountedLogic(llmEvaluationsLogic())
+    // Mount for this component's lifetime rather than attaching to llmEvaluationsLogic:
+    // evaluationMetricsLogic connects to it, so attaching leaves the two holding each
+    // other mounted, and the list never reloads on the next visit to this scene.
     useMountedLogic(evaluationMetricsLogic())
 
     return (

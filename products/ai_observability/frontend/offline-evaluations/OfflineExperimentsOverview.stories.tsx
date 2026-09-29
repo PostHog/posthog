@@ -54,6 +54,20 @@ export default meta
 type Story = StoryObj<typeof OfflineExperimentsOverview>
 
 export const RecentExperiments: Story = {}
+export const PartialHistory: Story = {
+    parameters: { pageUrl: `${urls.aiObservabilityOfflineEvaluations()}?scores=${overviewScorers[0].id}` },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team/ai_observability/offline_scorers/:id/history/': {
+                    count: 200,
+                    next_cursor: 'older-results',
+                    results: overviewHistory(overviewScorers[0]),
+                },
+            },
+        }),
+    ],
+}
 export const SynchronizedHover: Story = {
     decorators: [
         mswDecorator({
@@ -123,6 +137,10 @@ export const Narrow: Story = {
             </div>
         ),
     ],
+}
+export const PartialHistoryNarrow: Story = {
+    ...PartialHistory,
+    decorators: [PartialHistory.decorators, Narrow.decorators].flat().filter((decorator) => !!decorator),
 }
 export const SynchronizedHoverNarrow: Story = {
     ...SynchronizedHover,

@@ -9,7 +9,7 @@ import { urls } from 'scenes/urls'
 import type { offlineExperimentsLogicType } from './offlineExperimentsLogic'
 import { offlineOverviewTrendLogic, type OfflineOverviewTrendLogicProps } from './offlineOverviewTrendLogic'
 import { OfflineScoreTrendChart } from './OfflineScoreTrendChart'
-import { formatOfflineScore, offlineScoreMetricLabel } from './offlineScoreTrends'
+import { formatOfflineScore, getOfflineHistoryCoverage, offlineScoreMetricLabel } from './offlineScoreTrends'
 
 export function OfflineOverviewTrend(
     props: OfflineOverviewTrendLogicProps & {
@@ -23,6 +23,7 @@ export function OfflineOverviewTrend(
     const { loadOfflineOverviewTrend, selectVersion } = useActions(logic)
     const latest = versionPoints[0]?.summary
     const versionIndex = versions.findIndex((version) => version.id === activeVersion?.id)
+    const hasPartialHistory = !!trend && trend.page.count > trend.page.results.length
 
     return (
         <LemonCard hoverEffect={false} className="min-w-0 flex flex-col gap-3">
@@ -61,7 +62,9 @@ export function OfflineOverviewTrend(
                                     tooltip="Older version"
                                     disabledReason={
                                         versionIndex === versions.length - 1
-                                            ? 'Oldest version in this period'
+                                            ? hasPartialHistory
+                                                ? 'Oldest loaded version'
+                                                : 'Oldest version in this period'
                                             : undefined
                                     }
                                     onClick={() => selectVersion(versions[versionIndex + 1].id)}
@@ -74,7 +77,13 @@ export function OfflineOverviewTrend(
                                     icon={<IconChevronRight />}
                                     aria-label="Newer scorer version"
                                     tooltip="Newer version"
-                                    disabledReason={versionIndex === 0 ? 'Newest version in this period' : undefined}
+                                    disabledReason={
+                                        versionIndex === 0
+                                            ? hasPartialHistory
+                                                ? 'Newest loaded version'
+                                                : 'Newest version in this period'
+                                            : undefined
+                                    }
                                     onClick={() => selectVersion(versions[versionIndex - 1].id)}
                                     data-attr="offline-score-newer-version"
                                 />
@@ -85,6 +94,12 @@ export function OfflineOverviewTrend(
                         <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
                             <strong>{formatOfflineScore(latest)}</strong>
                             <span className="text-muted text-xs">{`${offlineScoreMetricLabel(latest.scorer)} · ${latest.status_counts.ok} scored ${latest.status_counts.ok === 1 ? 'item' : 'items'}`}</span>
+                        </div>
+                    )}
+                    {hasPartialHistory && (
+                        <div className="text-xs text-muted">
+                            <p className="mb-1">{getOfflineHistoryCoverage(trend.page, props.timezone)}</p>
+                            <p className="mb-0">Earlier experiments and scorer versions may not be shown.</p>
                         </div>
                     )}
                     {versionPoints.length ? (
