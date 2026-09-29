@@ -282,6 +282,19 @@ export const MODELS: readonly CatalogModel[] = [
         supports1MContext: true,
     },
     {
+        id: 'claude-sonnet-5-5',
+        runtimeAdapter: 'claude',
+        reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'],
+        label: 'Claude Sonnet 5.5',
+        cost: {
+            inputPerMtok: 2,
+            outputPerMtok: 10,
+        },
+        costMultiplier: '1×',
+        costSummary: 'Input $2 · Output $10 per 1M tokens',
+        supports1MContext: true,
+    },
+    {
         id: 'claude-sonnet-5',
         runtimeAdapter: 'claude',
         reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'],

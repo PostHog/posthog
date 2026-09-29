@@ -269,6 +269,20 @@
           "supports_1m_context": true,
           "supports_fast_mode": false
         },
+        "claude-sonnet-5-5": {
+          "cost_multiplier": "1×",
+          "offered": true,
+          "reasoning_efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+            "ultracode"
+          ],
+          "supports_1m_context": true,
+          "supports_fast_mode": false
+        },
         "deepseek-ai/deepseek-v4-flash-0731": {
           "cost_multiplier": "≈0.05×",
           "offered": true,
