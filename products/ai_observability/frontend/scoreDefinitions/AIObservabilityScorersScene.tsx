@@ -5,12 +5,13 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { ProductKey } from '~/queries/schema/schema-general'
 import { SceneExport } from '~/scenes/sceneTypes'
 
 import { EvaluationsTabs } from '../evaluations/EvaluationsTabs'
 import { AIObservabilityScoreDefinitions } from './AIObservabilityScoreDefinitions'
 
-export const scene: SceneExport = { component: AIObservabilityScorersScene }
+export const scene: SceneExport = { component: AIObservabilityScorersScene, productKey: ProductKey.AI_OBSERVABILITY }
 
 export function AIObservabilityScorersScene(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
