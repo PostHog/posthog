@@ -33,7 +33,7 @@ from products.tasks.backend.logic.services.workflow_tasks import (
 )
 from products.tasks.backend.models import Channel, Task, TaskRun
 from products.tasks.backend.visibility import task_control_q, task_visibility_q
-from products.workflows.backend.api.workflow_tasks import WorkflowTaskCreateSerializer
+from products.workflows.backend.presentation.views.workflow_tasks import WorkflowTaskCreateSerializer
 from products.workflows.backend.models import HogFlow, TeamWorkflowsConfig
 
 SECRET = "test-tasks-create-jwt"

@@ -4,8 +4,8 @@ from unittest import TestCase
 from parameterized import parameterized
 from rest_framework import serializers
 
-from products.workflows.backend.api.graph_operations import apply_graph_operations
-from products.workflows.backend.api.graph_validation import validate_graph
+from products.workflows.backend.presentation.views.graph_operations import apply_graph_operations
+from products.workflows.backend.presentation.views.graph_validation import validate_graph
 
 TRIGGER = {"id": "t", "name": "trigger", "type": "trigger", "config": {"type": "event"}}
 EXIT = {"id": "x", "name": "exit", "type": "exit", "config": {}}

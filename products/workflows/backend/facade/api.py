@@ -99,7 +99,9 @@ def set_workflow_enabled(*, team_id: int, user_id: int, workflow_id: UUID, enabl
     """
     from posthog.models.user import User  # noqa: PLC0415 — keeps the user model off the facade import path
 
-    from products.workflows.backend.api.hog_flow import HogFlowSerializer  # noqa: PLC0415 - heavy DRF import
+    from products.workflows.backend.presentation.views.hog_flow import (  # noqa: PLC0415 - heavy DRF import
+        HogFlowSerializer,
+    )
 
     hog_flow = HogFlow.objects.select_related("team").filter(team_id=team_id, id=workflow_id).first()
     if hog_flow is None:

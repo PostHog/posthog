@@ -36,7 +36,7 @@ from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_
 from products.cohorts.backend.models.cohort import Cohort
 from products.skills.backend.models.skills import LLMSkill
 from products.tasks.backend.facade.contracts import WorkflowLastRunDTO
-from products.workflows.backend.api.hog_flow import (
+from products.workflows.backend.presentation.views.hog_flow import (
     HogFlowActionSerializer,
     _should_validate_strictly,
     mint_audience_confirm_token,
@@ -162,7 +162,7 @@ class TestHogFlowAPI(APIBaseTest):
 
         return hog_flow, action
 
-    @patch("products.workflows.backend.api.hog_flow.publish_resource_edited")
+    @patch("products.workflows.backend.presentation.views.hog_flow.publish_resource_edited")
     def test_emits_resource_edited_on_create_and_update(self, mock_emit):
         hog_flow, _ = self._create_hog_flow_with_action(
             {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
@@ -2451,7 +2451,7 @@ class TestHogFlowAPI(APIBaseTest):
         assert actions["trigger_node"]["type"] == "trigger"
         assert "exit_1" in actions
 
-    @patch("products.workflows.backend.api.hog_flow.publish_resource_edited")
+    @patch("products.workflows.backend.presentation.views.hog_flow.publish_resource_edited")
     def test_graph_update_emits_resource_edited(self, mock_emit):
         # The surgical /graph path is the primary MCP edit route, so it must emit the same
         # "edited elsewhere" signal as the full update path — otherwise an open builder never
@@ -2623,7 +2623,7 @@ class TestHogFlowAPI(APIBaseTest):
         assert create.status_code == 201, create.json()
         flow_id = create.json()["id"]
 
-        with patch("products.workflows.backend.api.hog_flow.create_hog_flow_invocation_test") as mock_invoke:
+        with patch("products.workflows.backend.presentation.views.hog_flow.create_hog_flow_invocation_test") as mock_invoke:
             mock_invoke.return_value = MagicMock(status_code=200, json=lambda: {"status": "success"})
 
             response = self.client.post(
@@ -3496,7 +3496,7 @@ class TestHogFlowAPI(APIBaseTest):
         with (
             self._account_audience_provider(),
             patch(
-                "products.workflows.backend.api.hog_flow.get_account_audience_page", return_value=["a1", "a2"]
+                "products.workflows.backend.presentation.views.hog_flow.get_account_audience_page", return_value=["a1", "a2"]
             ) as mock_page,
         ):
             response = self.client.post(
@@ -3555,7 +3555,7 @@ class TestHogFlowAPI(APIBaseTest):
         with (
             self._account_audience_provider(),
             patch(
-                "products.workflows.backend.api.hog_flow.get_account_audience_count", side_effect=[3, 10]
+                "products.workflows.backend.presentation.views.hog_flow.get_account_audience_count", side_effect=[3, 10]
             ) as mock_count,
         ):
             response = self.client.post(
@@ -3722,7 +3722,7 @@ class TestHogFlowAPI(APIBaseTest):
         assert _should_validate_strictly(context, is_draft) is expected_strict
 
     def test_hog_flow_user_blast_radius_requires_filters(self):
-        with patch("products.workflows.backend.api.hog_flow.get_user_blast_radius") as mock_get_user_blast_radius:
+        with patch("products.workflows.backend.presentation.views.hog_flow.get_user_blast_radius") as mock_get_user_blast_radius:
             response = self.client.post(f"/api/projects/{self.team.id}/hog_flows/user_blast_radius", {})
 
         assert response.status_code == 400, response.json()
@@ -3730,7 +3730,7 @@ class TestHogFlowAPI(APIBaseTest):
         mock_get_user_blast_radius.assert_not_called()
 
     def test_hog_flow_user_blast_radius_returns_counts(self):
-        with patch("products.workflows.backend.api.hog_flow.get_user_blast_radius") as mock_get_user_blast_radius:
+        with patch("products.workflows.backend.presentation.views.hog_flow.get_user_blast_radius") as mock_get_user_blast_radius:
             from products.feature_flags.backend.user_blast_radius import BlastRadiusResult  # noqa: PLC0415
 
             mock_get_user_blast_radius.return_value = BlastRadiusResult(affected=4, total=10)
@@ -3749,10 +3749,10 @@ class TestHogFlowAPI(APIBaseTest):
 
     def test_hog_flow_user_blast_radius_routes_to_v2_when_flag_enabled(self):
         with (
-            patch("products.workflows.backend.api.hog_flow.use_audience_query_v2", return_value=True),
-            patch("products.workflows.backend.api.hog_flow.get_person_audience_count_v2") as mock_v2,
-            patch("products.workflows.backend.api.hog_flow.get_dedupe_audience_count_v2") as mock_dedupe_v2,
-            patch("products.workflows.backend.api.hog_flow.get_user_blast_radius") as mock_v1,
+            patch("products.workflows.backend.presentation.views.hog_flow.use_audience_query_v2", return_value=True),
+            patch("products.workflows.backend.presentation.views.hog_flow.get_person_audience_count_v2") as mock_v2,
+            patch("products.workflows.backend.presentation.views.hog_flow.get_dedupe_audience_count_v2") as mock_dedupe_v2,
+            patch("products.workflows.backend.presentation.views.hog_flow.get_user_blast_radius") as mock_v1,
         ):
             from products.feature_flags.backend.user_blast_radius import BlastRadiusResult  # noqa: PLC0415
 
@@ -3801,7 +3801,7 @@ class TestHogFlowAPI(APIBaseTest):
         # sampled count here would move workflows numbers outside the workflows rollout.
         # The routing test above mocks get_user_blast_radius away, so it cannot see this.
         with (
-            patch("products.workflows.backend.api.hog_flow.use_audience_query_v2", return_value=False),
+            patch("products.workflows.backend.presentation.views.hog_flow.use_audience_query_v2", return_value=False),
             patch("products.feature_flags.backend.user_blast_radius.use_blast_radius_query_v2", return_value=True),
             patch("products.feature_flags.backend.user_blast_radius.sampled_person_blast_radius") as mock_sampled,
         ):
@@ -3820,7 +3820,7 @@ class TestHogFlowAPI(APIBaseTest):
         HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS=set(),
     )
     def test_hog_flow_user_blast_radius_returns_default_limit_for_unlisted_team(self):
-        with patch("products.workflows.backend.api.hog_flow.get_user_blast_radius") as mock_get_user_blast_radius:
+        with patch("products.workflows.backend.presentation.views.hog_flow.get_user_blast_radius") as mock_get_user_blast_radius:
             from products.feature_flags.backend.user_blast_radius import BlastRadiusResult  # noqa: PLC0415
 
             mock_get_user_blast_radius.return_value = BlastRadiusResult(affected=0, total=0)
@@ -3839,7 +3839,7 @@ class TestHogFlowAPI(APIBaseTest):
                 HOGFLOW_BATCH_TRIGGER_LIMIT_ELEVATED=50000,
                 HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS={self.team.id},
             ),
-            patch("products.workflows.backend.api.hog_flow.get_user_blast_radius") as mock_get_user_blast_radius,
+            patch("products.workflows.backend.presentation.views.hog_flow.get_user_blast_radius") as mock_get_user_blast_radius,
         ):
             from products.feature_flags.backend.user_blast_radius import BlastRadiusResult  # noqa: PLC0415
 
@@ -3875,7 +3875,7 @@ class TestHogFlowAPI(APIBaseTest):
             secure_value=hash_key_value(key),
             scopes=["hog_flow:read", "person:read"],
         )
-        with patch("products.workflows.backend.api.hog_flow.get_user_blast_radius") as mock_get_user_blast_radius:
+        with patch("products.workflows.backend.presentation.views.hog_flow.get_user_blast_radius") as mock_get_user_blast_radius:
             from products.feature_flags.backend.user_blast_radius import BlastRadiusResult  # noqa: PLC0415
 
             mock_get_user_blast_radius.return_value = BlastRadiusResult(affected=1, total=10)
@@ -3905,7 +3905,7 @@ class TestHogFlowAPI(APIBaseTest):
     def test_hog_flow_user_blast_radius_rejects_flag_condition(self, _name, properties):
         # Feature flags can't be sized as a static batch audience — reject with a clean 400 before
         # the condition reaches the blast-radius query (where it would otherwise 500).
-        with patch("products.workflows.backend.api.hog_flow.get_user_blast_radius") as mock_get_user_blast_radius:
+        with patch("products.workflows.backend.presentation.views.hog_flow.get_user_blast_radius") as mock_get_user_blast_radius:
             response = self.client.post(
                 f"/api/projects/{self.team.id}/hog_flows/user_blast_radius",
                 {"filters": {"properties": properties}},
@@ -3917,7 +3917,7 @@ class TestHogFlowAPI(APIBaseTest):
 
     @override_settings(INTERNAL_API_SECRET="test-secret-123")
     def test_internal_user_blast_radius_rejects_flag_condition(self):
-        with patch("products.workflows.backend.api.hog_flow.get_user_blast_radius") as mock_get_user_blast_radius:
+        with patch("products.workflows.backend.presentation.views.hog_flow.get_user_blast_radius") as mock_get_user_blast_radius:
             response = self.client.post(
                 f"/api/projects/{self.team.id}/internal/hog_flows/user_blast_radius",
                 {"filters": {"properties": [{"key": "my-other-flag", "type": "flag", "value": "true"}]}},
@@ -3932,7 +3932,7 @@ class TestHogFlowAPI(APIBaseTest):
     @override_settings(INTERNAL_API_SECRET="test-secret-123")
     def test_internal_user_blast_radius_persons_rejects_flag_condition(self):
         with patch(
-            "products.workflows.backend.api.hog_flow.get_batch_audience_person_ids"
+            "products.workflows.backend.presentation.views.hog_flow.get_batch_audience_person_ids"
         ) as mock_get_batch_audience_person_ids:
             response = self.client.post(
                 f"/api/projects/{self.team.id}/internal/hog_flows/user_blast_radius_persons",
@@ -3954,9 +3954,9 @@ class TestHogFlowAPI(APIBaseTest):
     @override_settings(INTERNAL_API_SECRET="test-secret-123")
     def test_internal_user_blast_radius_persons_uses_workflows_query(self, _name, gate_on, expected_timeout_mode):
         with (
-            patch("products.workflows.backend.api.hog_flow.use_audience_query_v2", return_value=gate_on),
+            patch("products.workflows.backend.presentation.views.hog_flow.use_audience_query_v2", return_value=gate_on),
             patch(
-                "products.workflows.backend.api.hog_flow.get_batch_audience_person_ids", return_value=["id-1"]
+                "products.workflows.backend.presentation.views.hog_flow.get_batch_audience_person_ids", return_value=["id-1"]
             ) as mock_workflows_query,
         ):
             response = self.client.post(
@@ -3991,11 +3991,11 @@ class TestHogFlowAPI(APIBaseTest):
 
         with (
             patch(
-                "products.workflows.backend.api.hog_flow.get_user_blast_radius",
+                "products.workflows.backend.presentation.views.hog_flow.get_user_blast_radius",
                 return_value=BlastRadiusResult(affected=5, total=10),
             ) as mock_legacy_count,
             patch(
-                "products.workflows.backend.api.hog_flow.get_batch_audience_count", return_value=3
+                "products.workflows.backend.presentation.views.hog_flow.get_batch_audience_count", return_value=3
             ) as mock_deduped_count,
             patch(
                 "posthog.models.team.team.Team.persons_seen_so_far",
@@ -5060,7 +5060,7 @@ class TestHogFlowAPI(APIBaseTest):
         assert HogFlow.objects.filter(id__in=ids).count() == 0
         assert ActivityLog.objects.filter(scope="HogFlow", activity="deleted", item_id__in=ids).count() == 3
 
-    @patch("products.workflows.backend.api.hog_flow.report_user_action")
+    @patch("products.workflows.backend.presentation.views.hog_flow.report_user_action")
     def test_delete_writes_deleted_activity_and_usage_event(self, mock_report):
         flow_id = self._create_flow(name="Doomed")
 
@@ -5538,7 +5538,7 @@ class TestHogFlowSecretInputs(APIBaseTest):
         assert "ROTATED-IN-DRAFT" not in json.dumps(flow.draft)
 
         with patch(
-            "products.workflows.backend.api.hog_flow.get_hog_flow_in_flight_count", side_effect=Exception("down")
+            "products.workflows.backend.presentation.views.hog_flow.get_hog_flow_in_flight_count", side_effect=Exception("down")
         ):
             confirm_token = self.client.post(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/publish", {}).json()[
                 "confirm_token"
@@ -5578,7 +5578,7 @@ class TestHogFlowSecretInputs(APIBaseTest):
 
     def _publish_confirmed(self, flow_id: str):
         with patch(
-            "products.workflows.backend.api.hog_flow.get_hog_flow_in_flight_count", side_effect=Exception("down")
+            "products.workflows.backend.presentation.views.hog_flow.get_hog_flow_in_flight_count", side_effect=Exception("down")
         ):
             token = self.client.post(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/publish", {}).json()[
                 "confirm_token"
@@ -5714,7 +5714,7 @@ class TestHogFlowSecretInputs(APIBaseTest):
         config = self._flow_payload()
         self._function_inputs(config)["api_key"] = {"secret": True}
 
-        with patch("products.workflows.backend.api.hog_flow.create_hog_flow_invocation_test") as mock_invoke:
+        with patch("products.workflows.backend.presentation.views.hog_flow.create_hog_flow_invocation_test") as mock_invoke:
             mock_invoke.return_value = MagicMock(status_code=200, json=lambda: {"status": "success"})
             response = self.client.post(
                 f"/api/projects/{self.team.id}/hog_flows/{flow_id}/invocations/",
@@ -6115,7 +6115,7 @@ class TestFlagGatedTemplates(APIBaseTest):
         # workflows through this endpoint directly - without the server-side gate they could
         # attach the step on any team.
         with patch(
-            "products.workflows.backend.api.hog_flow.gated_template_enabled", return_value=flag_enabled
+            "products.workflows.backend.presentation.views.hog_flow.gated_template_enabled", return_value=flag_enabled
         ) as mock_gate:
             response = self._post_flow_with_create_task_action()
 
@@ -6133,7 +6133,7 @@ class TestFlagGatedTemplates(APIBaseTest):
             assert gated_template_enabled("workflow-ai-task-action", self.team) is False
 
     def _create_active_flow_with_gated_step(self) -> str:
-        with patch("products.workflows.backend.api.hog_flow.gated_template_enabled", return_value=True):
+        with patch("products.workflows.backend.presentation.views.hog_flow.gated_template_enabled", return_value=True):
             response = self._post_flow_with_create_task_action()
             assert response.status_code == status.HTTP_201_CREATED, response.json()
             flow_id = response.json()["id"]
@@ -6154,7 +6154,7 @@ class TestFlagGatedTemplates(APIBaseTest):
 
         # No MCP header: MCP callers can't resend the whole actions array (workflows-patch-graph
         # owns that), but an active flow validates strictly for every client, so the gate still runs.
-        with patch("products.workflows.backend.api.hog_flow.gated_template_enabled", return_value=False):
+        with patch("products.workflows.backend.presentation.views.hog_flow.gated_template_enabled", return_value=False):
             response = self.client.patch(
                 f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
                 {"name": "Renamed flow", "actions": HogFlow.objects.get(id=flow_id).actions},
@@ -6166,7 +6166,7 @@ class TestFlagGatedTemplates(APIBaseTest):
         self._create_active_flow_with_gated_step()
 
         out = StringIO()
-        with patch("products.workflows.backend.api.hog_flow.gated_template_enabled", return_value=False):
+        with patch("products.workflows.backend.presentation.views.hog_flow.gated_template_enabled", return_value=False):
             call_command("refresh_hog_flows", "--team-id", str(self.team.id), stdout=out)
 
         assert "Errors: 0" in out.getvalue(), out.getvalue()
@@ -6175,7 +6175,7 @@ class TestFlagGatedTemplates(APIBaseTest):
         # Lenient web draft saves skip the gate, so an unflagged user can store the step in a
         # draft. Grandfathering must not treat that as authorization: activation re-checks the
         # flag, or the draft path becomes a gate bypass.
-        with patch("products.workflows.backend.api.hog_flow.gated_template_enabled", return_value=False):
+        with patch("products.workflows.backend.presentation.views.hog_flow.gated_template_enabled", return_value=False):
             create = self._post_flow_with_create_task_action_as_web()
             assert create.status_code == status.HTTP_201_CREATED, create.json()
             flow_id = create.json()["id"]
@@ -6197,7 +6197,7 @@ class TestFlagGatedTemplates(APIBaseTest):
             "type": "function",
             "config": {"template_id": "template-posthog-create-task", "inputs": {"prompt": {"value": "Another"}}},
         }
-        with patch("products.workflows.backend.api.hog_flow.gated_template_enabled", return_value=False):
+        with patch("products.workflows.backend.presentation.views.hog_flow.gated_template_enabled", return_value=False):
             response = self.client.patch(
                 f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
                 {"actions": [*HogFlow.objects.get(id=flow_id).actions, second_step]},
@@ -6237,7 +6237,7 @@ class TestCreateTaskActionValidation(APIBaseTest):
         }
         # Strict validation, same as any programmatic caller - the path a misconfigured
         # workflow is actually authored through.
-        with patch("products.workflows.backend.api.hog_flow.gated_template_enabled", return_value=True):
+        with patch("products.workflows.backend.presentation.views.hog_flow.gated_template_enabled", return_value=True):
             return self.client.post(
                 f"/api/projects/{self.team.id}/hog_flows",
                 {"name": "Test Flow", "actions": [trigger_action, action], "edges": []},
@@ -6254,7 +6254,7 @@ class TestCreateTaskActionValidation(APIBaseTest):
     def test_accepts_a_connector_the_workflow_owner_can_mount(self):
         # products.workflows may not depend on products.mcp_store's models directly (tach
         # boundary) - mocking at the same seam the model-catalogue tests below use.
-        with patch("products.workflows.backend.api.hog_flow.resolve_connectors", return_value=["some-server-id"]):
+        with patch("products.workflows.backend.presentation.views.hog_flow.resolve_connectors", return_value=["some-server-id"]):
             response = self._post_flow({"connectors": {"value": ["some-server-id"]}})
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
@@ -6312,7 +6312,7 @@ class TestCreateTaskActionValidation(APIBaseTest):
     def test_accepts_a_skill_name_that_exists(self):
         # products.workflows may not depend on products.skills' models directly (tach
         # boundary) - mocking at the same seam the connector test above uses.
-        with patch("products.workflows.backend.api.hog_flow.validate_skill_names", return_value=None):
+        with patch("products.workflows.backend.presentation.views.hog_flow.validate_skill_names", return_value=None):
             response = self._post_flow({"skills": {"value": ["error-triage"]}})
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
@@ -6353,7 +6353,7 @@ class TestCreateTaskActionValidation(APIBaseTest):
 
     def test_rejects_a_model_outside_the_task_model_catalogue(self):
         with patch(
-            "products.workflows.backend.api.hog_flow.available_model_choices",
+            "products.workflows.backend.presentation.views.hog_flow.available_model_choices",
             return_value=(SimpleNamespace(model="claude-opus"),),
         ):
             response = self._post_flow({"model": {"value": {"model": "not-a-real-model"}}})
@@ -6363,7 +6363,7 @@ class TestCreateTaskActionValidation(APIBaseTest):
 
     def test_accepts_a_model_in_the_task_model_catalogue(self):
         with patch(
-            "products.workflows.backend.api.hog_flow.available_model_choices",
+            "products.workflows.backend.presentation.views.hog_flow.available_model_choices",
             return_value=(SimpleNamespace(model="claude-opus"),),
         ):
             response = self._post_flow({"model": {"value": {"model": "claude-opus"}}})
@@ -6373,7 +6373,7 @@ class TestCreateTaskActionValidation(APIBaseTest):
     def test_does_not_block_saving_while_the_model_catalogue_is_unreachable(self):
         # An empty catalogue means the gateway couldn't be reached, not that no model is
         # valid - a gateway outage must not block every workflow save.
-        with patch("products.workflows.backend.api.hog_flow.available_model_choices", return_value=()):
+        with patch("products.workflows.backend.presentation.views.hog_flow.available_model_choices", return_value=()):
             response = self._post_flow({"model": {"value": {"model": "whatever-model"}}})
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
@@ -6383,7 +6383,7 @@ class TestCreateTaskActionValidation(APIBaseTest):
         # reasoning_effort is a plain CharField with no cross-check), so a mismatch saved here
         # would otherwise reach the agent sandbox unvalidated instead of failing anywhere.
         with patch(
-            "products.workflows.backend.api.hog_flow.available_model_choices",
+            "products.workflows.backend.presentation.views.hog_flow.available_model_choices",
             return_value=(SimpleNamespace(model="claude-opus", supported_efforts=("low", "high")),),
         ):
             response = self._post_flow({"model": {"value": {"model": "claude-opus", "reasoning_effort": "ultracode"}}})
@@ -6393,7 +6393,7 @@ class TestCreateTaskActionValidation(APIBaseTest):
 
     def test_accepts_a_reasoning_effort_the_selected_model_supports(self):
         with patch(
-            "products.workflows.backend.api.hog_flow.available_model_choices",
+            "products.workflows.backend.presentation.views.hog_flow.available_model_choices",
             return_value=(SimpleNamespace(model="claude-opus", supported_efforts=("low", "high")),),
         ):
             response = self._post_flow({"model": {"value": {"model": "claude-opus", "reasoning_effort": "high"}}})
@@ -6467,7 +6467,7 @@ class TestRunScoutActionValidation(APIBaseTest):
         }
         # Strict validation, same as any programmatic caller - the path a misconfigured
         # workflow is actually authored through.
-        with patch("products.workflows.backend.api.hog_flow.gated_template_enabled", return_value=True):
+        with patch("products.workflows.backend.presentation.views.hog_flow.gated_template_enabled", return_value=True):
             return self.client.post(
                 f"/api/projects/{team.id}/hog_flows",
                 {"name": "Test Flow", "actions": [trigger_action, action], "edges": []},

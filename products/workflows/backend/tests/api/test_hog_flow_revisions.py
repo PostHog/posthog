@@ -9,7 +9,7 @@ from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.models.activity_logging.activity_log import ActivityLog
 
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
-from products.workflows.backend.api.hog_flow import DRAFT_CONTENT_FIELDS
+from products.workflows.backend.presentation.views.hog_flow import DRAFT_CONTENT_FIELDS
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 webhook_template = MOCK_NODE_TEMPLATES[0]
@@ -104,7 +104,7 @@ class TestHogFlowRevisions(APIBaseTest):
         assert response.status_code == 200, response.json()
 
     def _publish(self, flow_id: str):
-        with patch("products.workflows.backend.api.hog_flow.get_hog_flow_in_flight_count") as mock_count:
+        with patch("products.workflows.backend.presentation.views.hog_flow.get_hog_flow_in_flight_count") as mock_count:
             mock_count.return_value = MagicMock(
                 status_code=200, json=lambda: {"count": 0, "by_action": {}, "position_unknown": 0}
             )

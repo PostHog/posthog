@@ -90,7 +90,7 @@ from posthog.utils import (
 from products.ai_training.backend.facade.api import queue_person_training_deletion
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.util import get_all_cohort_ids_by_person_uuid
-from products.workflows.backend.api.message_assets import (
+from products.workflows.backend.presentation.views.message_assets import (
     MessageAssetSerializer,
     PersonMessageAssetsRequestSerializer,
     fetch_message_assets_for_person,

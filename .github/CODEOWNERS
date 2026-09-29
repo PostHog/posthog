@@ -93,7 +93,7 @@ products/isolation_baseline.txt @PostHog/team-devex
 # stay out, because a mistake there is visible rather than silent.
 products/cdp/backend/api/** @PostHog/team-workflows
 products/cdp/backend/models/** @PostHog/team-workflows
-products/workflows/backend/api/** @PostHog/team-workflows
+products/workflows/backend/presentation/** @PostHog/team-workflows
 products/workflows/backend/models/** @PostHog/team-workflows
 products/messaging/backend/api/** @PostHog/team-workflows
 products/messaging/backend/models/** @PostHog/team-workflows

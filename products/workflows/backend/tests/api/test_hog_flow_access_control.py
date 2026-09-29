@@ -30,7 +30,7 @@ TRIGGER_ACTION = {
 # Any UUID — the parent workflow's object-level check rejects before the schedule is ever looked up.
 MISSING_SCHEDULE_ID = "00000000-0000-0000-0000-000000000000"
 
-CANCEL_PROXY = "products.workflows.backend.api.hog_flow.cancel_hog_flow_invocations"
+CANCEL_PROXY = "products.workflows.backend.presentation.views.hog_flow.cancel_hog_flow_invocations"
 
 
 class TestHogFlowResourceRegistration(SimpleTestCase):

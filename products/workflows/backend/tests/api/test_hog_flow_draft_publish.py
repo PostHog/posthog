@@ -10,7 +10,7 @@ from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.models.activity_logging.activity_log import ActivityLog
 
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
-from products.workflows.backend.api.hog_flow import WRITABLE_DRAFT_CONTENT_FIELDS
+from products.workflows.backend.presentation.views.hog_flow import WRITABLE_DRAFT_CONTENT_FIELDS
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.hog_flow_revision import HogFlowRevision
 
@@ -441,7 +441,7 @@ class TestHogFlowDraftPublish(APIBaseTest):
         return HogFlow.objects.get(pk=flow_id)
 
     def _publish_preview(self, flow_id: str, counts: dict | None = None):
-        with patch("products.workflows.backend.api.hog_flow.get_hog_flow_in_flight_count") as mock_count:
+        with patch("products.workflows.backend.presentation.views.hog_flow.get_hog_flow_in_flight_count") as mock_count:
             if counts is None:
                 mock_count.side_effect = Exception("count service down")
             else:
@@ -450,7 +450,7 @@ class TestHogFlowDraftPublish(APIBaseTest):
         assert response.status_code == 200, response.json()
         return response
 
-    @patch("products.workflows.backend.api.hog_flow.get_hog_flow_in_flight_count")
+    @patch("products.workflows.backend.presentation.views.hog_flow.get_hog_flow_in_flight_count")
     def test_publish_without_confirm_returns_impact_only(self, mock_count):
         mock_count.return_value = MagicMock(
             status_code=200, json=lambda: {"count": 42, "by_action": {"action_1": 42}, "position_unknown": 0}
@@ -476,7 +476,7 @@ class TestHogFlowDraftPublish(APIBaseTest):
         assert flow.actions == live_actions_before
         assert flow.draft is not None
 
-    @patch("products.workflows.backend.api.hog_flow.get_hog_flow_in_flight_count")
+    @patch("products.workflows.backend.presentation.views.hog_flow.get_hog_flow_in_flight_count")
     def test_publish_impact_degrades_to_null_counts_when_unavailable(self, mock_count):
         mock_count.side_effect = Exception("node service down")
         flow_id = self._create_active_flow()
@@ -488,7 +488,7 @@ class TestHogFlowDraftPublish(APIBaseTest):
         # Graph-derived impact still renders; only the counts degrade
         assert response.json()["impact"]["position_unknown"] is None
 
-    @patch("products.workflows.backend.api.hog_flow.get_hog_flow_in_flight_count")
+    @patch("products.workflows.backend.presentation.views.hog_flow.get_hog_flow_in_flight_count")
     def test_publish_preview_reports_deleted_step_moves(self, mock_count):
         mock_count.return_value = MagicMock(
             status_code=200, json=lambda: {"count": 7, "by_action": {"action_1": 5}, "position_unknown": 2}
@@ -622,7 +622,7 @@ class TestHogFlowDraftPublish(APIBaseTest):
 
     # ── Test-run from draft ──────────────────────────────────────────
 
-    @patch("products.workflows.backend.api.hog_flow.create_hog_flow_invocation_test")
+    @patch("products.workflows.backend.presentation.views.hog_flow.create_hog_flow_invocation_test")
     def test_invocation_with_use_draft_sends_draft_as_configuration(self, mock_invoke):
         mock_invoke.return_value = MagicMock(status_code=200, json=lambda: {"status": "success"})
         flow_id = self._create_active_flow()

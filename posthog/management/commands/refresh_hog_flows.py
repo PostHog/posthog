@@ -6,7 +6,7 @@ from django.test import RequestFactory
 
 import structlog
 
-from products.workflows.backend.api.hog_flow import HogFlowSerializer
+from products.workflows.backend.presentation.views.hog_flow import HogFlowSerializer
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 logger = structlog.get_logger(__name__)
