@@ -780,7 +780,7 @@ export const getWebAnalyticsContentAutopilotOpportunitiesDismissUrl = (projectId
 }
 
 /**
- * Hides an opportunity from the list until its citation data changes.
+ * Marks an opportunity as dismissed. It stays dismissed across refreshes, and list responses still include it with status `dismissed`.
  * @summary Dismiss a content opportunity
  */
 export const webAnalyticsContentAutopilotOpportunitiesDismiss = async (

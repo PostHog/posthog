@@ -310,11 +310,16 @@ class TestContentAutopilotAPI(APIBaseTest):
         missing_profile = self.client.get(self._opportunities_url())
         listed = self.client.get(self._opportunities_url(), {"profile_id": str(profile.id)})
         dismiss = self.client.post(self._opportunities_url(f"{dismissed.id}/dismiss/"), format="json")
+        after = self.client.get(self._opportunities_url(), {"profile_id": str(profile.id)})
 
         self.assertEqual(missing_profile.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual({item["id"] for item in listed.json()["results"]}, {str(drafted.id), str(dismissed.id)})
         self.assertEqual(listed.json()["results"][0]["gap"]["competitor_urls"], ["https://rival.example/replay"])
         self.assertEqual(dismiss.json()["status"], "dismissed")
+        self.assertEqual(
+            {item["id"]: item["status"] for item in after.json()["results"]},
+            {str(drafted.id): "new", str(dismissed.id): "dismissed"},
+        )
 
     def test_edit_stores_markdown_whitespace_exactly(self) -> None:
         proposal = self._reviewable_proposal()

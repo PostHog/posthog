@@ -679,7 +679,7 @@ class ContentAutopilotOpportunityViewSet(ContentAutopilotViewSetMixin, viewsets.
     @validated_request(
         operation_id="web_analytics_content_autopilot_opportunities_dismiss",
         summary="Dismiss a content opportunity",
-        description="Hides an opportunity from the list until its citation data changes.",
+        description="Marks an opportunity as dismissed. It stays dismissed across refreshes, and list responses still include it with status `dismissed`.",
         responses={200: OpenApiResponse(response=ContentAutopilotOpportunitySerializer)},
         tags=["web_analytics"],
     )
