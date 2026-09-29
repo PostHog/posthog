@@ -86,7 +86,7 @@ export interface DigestRunApi {
     readonly status: DigestRunStatusEnumApi
     /** Number of merged PRs included in the posted digest. */
     readonly pr_count: number
-    /** What the digest posted: its headline and the merged pull requests it listed. Both are empty on a run with nothing to post. */
+    /** What the digest posted: its headline and the merged pull requests it listed. Both are empty on a run with nothing to post, and on runs stored before this format. */
     readonly summary: _DigestSummaryApi
     /** Slack message timestamp of the posted digest, if posted. */
     readonly slack_message_ts: string

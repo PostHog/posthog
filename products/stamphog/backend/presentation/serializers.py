@@ -658,17 +658,22 @@ class DigestRunSerializer(DataclassSerializer):
         allow_null=True,
         help_text="When the digest was posted to Slack, if it was.",
     )
-    # The digest writes each line from the PR title and the reviewer's change_summary, never from the
-    # PR body. Both already reach any project member through the pull request and review run APIs, so
-    # this exposes no repository content those do not. Keep body_excerpt out of the digest prompt, or
-    # this field starts to leak it.
-    summary = _DigestSummarySerializer(
-        read_only=True,
+    summary = serializers.SerializerMethodField(
         help_text=(
             "What the digest posted: its headline and the merged pull requests it listed. "
-            "Both are empty on a run with nothing to post."
+            "Both are empty on a run with nothing to post, and on runs stored before this format."
         ),
     )
+
+    @extend_schema_field(_DigestSummarySerializer)
+    def get_summary(self, obj: contracts.DigestRunDTO) -> dict[str, object]:
+        # The digest writes each line from the PR title and the reviewer's change_summary, and both
+        # already reach any project member through the pull request and review run APIs. Summaries
+        # stored before the prompt dropped body_excerpt were written from PR bodies, which a member
+        # without GitHub repo access must not read. The same change added the `judged` key, so a
+        # summary without it is withheld. Keep body_excerpt out of the digest prompt, or this leaks it.
+        stored = obj.summary if "judged" in obj.summary else {}
+        return _DigestSummarySerializer(stored).data
 
     class Meta:
         dataclass = contracts.DigestRunDTO

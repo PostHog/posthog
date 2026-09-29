@@ -3,13 +3,13 @@ import { useActions } from 'kea'
 import { LemonTag, Link } from '@posthog/lemon-ui'
 
 import { DigestRunApi } from '../../generated/api.schemas'
-import { digestSlackMessageUrl } from './digestDisplay'
+import { digestSlackMessageUrl, digestSummary } from './digestDisplay'
 import { stamphogDigestsSceneLogic } from './stamphogDigestsSceneLogic'
 
 export function DigestRunDetails({ run }: { run: DigestRunApi }): JSX.Element {
     const { slackMessageLinkClicked, digestPrLinkClicked } = useActions(stamphogDigestsSceneLogic)
     const slackMessageUrl = digestSlackMessageUrl(run)
-    const { headline, prs } = run.summary
+    const { headline, prs } = digestSummary(run)
 
     return (
         <div className="flex flex-col gap-3 pl-2 pr-4 py-4 text-xs">

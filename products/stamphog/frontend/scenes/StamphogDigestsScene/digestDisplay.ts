@@ -47,6 +47,14 @@ export function digestSlackMessageUrl(run: DigestRunApi): string | null {
     return `https://app.slack.com/archives/${run.slack_channel_id}/p${run.slack_message_ts.replace('.', '')}`
 }
 
+const EMPTY_SUMMARY: DigestRunApi['summary'] = { headline: '', prs: [] }
+
+/** The digest content, empty when an API pod from the previous release answered without it during a deploy. */
+export function digestSummary(run: DigestRunApi): DigestRunApi['summary'] {
+    return run.summary ?? EMPTY_SUMMARY
+}
+
 export function digestRunHasDetails(run: DigestRunApi): boolean {
-    return !!run.error || digestSlackMessageUrl(run) !== null || !!run.summary.headline || run.summary.prs.length > 0
+    const { headline, prs } = digestSummary(run)
+    return !!run.error || digestSlackMessageUrl(run) !== null || !!headline || prs.length > 0
 }
