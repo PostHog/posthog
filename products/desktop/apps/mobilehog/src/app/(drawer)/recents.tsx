@@ -1,16 +1,10 @@
 import { Button, Host, Image, Menu } from "@expo/ui/swift-ui";
 import { frame, glassEffect } from "@expo/ui/swift-ui/modifiers";
 import type { SignalReport, Task } from "@posthog/shared/domain-types";
+import { FlashList } from "@shopify/flash-list";
 import { useNavigation, useRouter } from "expo-router";
 import { useEffect, useMemo, useRef, useState } from "react";
-import {
-  FlatList,
-  Pressable,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from "react-native";
+import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { KeyboardStickyView } from "react-native-keyboard-controller";
 import Animated, {
   FadeIn,
@@ -105,9 +99,10 @@ export default function RecentsScreen() {
 
   return (
     <DrawerScene>
-      <FlatList
+      <FlashList
         data={items}
         keyExtractor={(item) => `${item.kind}-${item.id}`}
+        getItemType={(item) => item.kind}
         renderItem={({ item }) =>
           item.kind === "task" ? (
             <TaskRow
