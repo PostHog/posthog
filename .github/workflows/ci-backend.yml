@@ -264,7 +264,6 @@ jobs:
                         - products/tasks/mcp/tools.yaml
                         - 'products/canvas/packages/canvas_builder/**'
                         - bin/build-schema-latest-versions.py
-                        - bin/build-taxonomy-json.py
                         - bin/check_uv_python_compatibility.py
                         - bin/find_python_dependencies.py
                         - pyproject.toml
@@ -357,7 +356,6 @@ jobs:
                         - 'packages/personhog-proto/**'
                         - 'posthog/**/*'
                         - bin/build-schema-latest-versions.py
-                        - bin/build-taxonomy-json.py
                         - bin/check_uv_python_compatibility.py
                         - bin/find_python_dependencies.py
                         - pyproject.toml
@@ -448,6 +446,13 @@ jobs:
                         - 'AGENTS.md'
                         - '.semgrep/**'
                         - 'pyproject.toml'
+                        # A generated file in a frontend-only PR still needs a known producer.
+                        - '**/*.generated.*'
+                        - '**/generated/**'
+                        # test_generated_files_are_registered.py also reads the projection
+                        # registry and the ci-python paths filter it must stay in step with.
+                        - 'tools/hogli-commands/hogli_commands/projections.py'
+                        - '.github/workflows/ci-python.yml'
                         - 'products/ruff.toml'
                         - '.github/scripts/**'
                       product_yamls:
@@ -469,14 +474,6 @@ jobs:
                         - 'products/*/frontend/generated/**/*'
                         - 'services/mcp/src/generated/**/*'
                         - 'services/mcp/src/api/generated.ts'
-                        # Task run model catalog: one Python module projected into a
-                        # checked-in .generated.ts per workspace. Only the outputs are
-                        # named — neither sits in a generated/ directory, and the
-                        # desktop one is under products/desktop, which the backend
-                        # filter excludes. The catalog and its generator are .py under
-                        # products/, so the backend filter already catches both.
-                        - 'products/tasks/frontend/modelCatalog.generated.ts'
-                        - 'products/desktop/packages/shared/src/model-catalog.generated.ts'
                         - 'tools/openapi-codegen/**/*'
                         - 'services/mcp/scripts/lib/**'
                         - 'frontend/bin/generate-openapi-types.mjs'
@@ -977,7 +974,7 @@ jobs:
             - name: Set up Python
               uses: ./.github/actions/setup-python-cached
               with:
-                  python-version: 3.13.13
+                  python-version: 3.14.7
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             # Needs pnpm from the step above.
@@ -1413,7 +1410,7 @@ jobs:
             - name: Set up Python
               uses: ./.github/actions/setup-python-cached
               with:
-                  python-version: 3.13.13
+                  python-version: 3.14.7
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Install uv
@@ -1572,7 +1569,7 @@ jobs:
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
-                  python-version: 3.13.13
+                  python-version: 3.14.7
                   # Reuse the app token already minted above instead of a second mint.
                   token: ${{ steps.app-token.outputs.token || github.token }}
 
@@ -1685,7 +1682,7 @@ jobs:
             - name: Set up Python
               uses: ./.github/actions/setup-python-cached
               with:
-                  python-version: 3.13.13
+                  python-version: 3.14.7
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             # Direct install: The job later checks out the PR head, which may predate the local action, so its post step would fail.
@@ -1717,7 +1714,7 @@ jobs:
 
             - name: Install python dependencies for master
               run: |
-                  UV_PROJECT_ENVIRONMENT=.venv-master uv sync --frozen --dev
+                  UV_PROJECT_ENVIRONMENT=.venv-master uv sync --frozen --dev --no-install-package pytest-split
 
             - name: Compute master schema cache key
               # Must match the migration-set computation in turbo-discover and the
@@ -2426,21 +2423,21 @@ jobs:
               id: python-toolcache
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
-                  path: ${{ runner.tool_cache }}/Python/3.13.13
-                  key: python-toolcache-${{ runner.os }}-${{ runner.arch }}-3.13.13
+                  path: ${{ runner.tool_cache }}/Python/3.14.7
+                  key: python-toolcache-${{ runner.os }}-${{ runner.arch }}-3.14.7
 
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
-                  python-version: 3.13.13
+                  python-version: 3.14.7
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Save Python tool cache
               if: github.ref == 'refs/heads/master' && steps.python-toolcache.outputs.cache-hit != 'true'
               uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
-                  path: ${{ runner.tool_cache }}/Python/3.13.13
-                  key: python-toolcache-${{ runner.os }}-${{ runner.arch }}-3.13.13
+                  path: ${{ runner.tool_cache }}/Python/3.14.7
+                  key: python-toolcache-${{ runner.os }}-${{ runner.arch }}-3.14.7
 
             # Direct install: Generated changes target the PR head, which may predate the local action.
             - name: Install uv
@@ -2712,7 +2709,7 @@ jobs:
                           segment: "Core",
                           "person-on-events": false,
                           "new-events-schema": false,
-                          "python-version": "3.13.13",
+                          "python-version": "3.14.7",
                           "clickhouse-server-image": $image,
                           concurrency: $n,
                           group: .,
@@ -2725,7 +2722,7 @@ jobs:
                           segment: "Core",
                           "person-on-events": false,
                           "new-events-schema": true,
-                          "python-version": "3.13.13",
+                          "python-version": "3.14.7",
                           "clickhouse-server-image": $image,
                           concurrency: $n,
                           group: .,
@@ -2740,7 +2737,7 @@ jobs:
                           segment: "Core",
                           "person-on-events": true,
                           "new-events-schema": false,
-                          "python-version": "3.13.13",
+                          "python-version": "3.14.7",
                           "clickhouse-server-image": $image,
                           concurrency: $n,
                           group: .,
@@ -2753,7 +2750,7 @@ jobs:
                           segment: "Core",
                           "person-on-events": true,
                           "new-events-schema": true,
-                          "python-version": "3.13.13",
+                          "python-version": "3.14.7",
                           "clickhouse-server-image": $image,
                           concurrency: $n,
                           group: .,
@@ -2768,7 +2765,7 @@ jobs:
                           segment: "Temporal",
                           "person-on-events": false,
                           "new-events-schema": false,
-                          "python-version": "3.13.13",
+                          "python-version": "3.14.7",
                           "clickhouse-server-image": $image,
                           concurrency: $n,
                           group: .,
@@ -2781,7 +2778,7 @@ jobs:
                           segment: "Temporal",
                           "person-on-events": false,
                           "new-events-schema": true,
-                          "python-version": "3.13.13",
+                          "python-version": "3.14.7",
                           "clickhouse-server-image": $image,
                           concurrency: $n,
                           group: .,
@@ -2803,7 +2800,7 @@ jobs:
                                   segment: "Core",
                                   "person-on-events": false,
                                   "new-events-schema": false,
-                                  "python-version": "3.13.13",
+                                  "python-version": "3.14.7",
                                   concurrency: 1,
                                   group: 1,
                                   compat: true,
@@ -2858,7 +2855,7 @@ jobs:
                           segment: "Core",
                           "person-on-events": false,
                           "new-events-schema": false,
-                          "python-version": "3.13.13",
+                          "python-version": "3.14.7",
                           "clickhouse-server-image": $image,
                           concurrency: $shards,
                           group: .,
@@ -2872,7 +2869,7 @@ jobs:
                           segment: "Core",
                           "person-on-events": false,
                           "new-events-schema": true,
-                          "python-version": "3.13.13",
+                          "python-version": "3.14.7",
                           "clickhouse-server-image": $image,
                           concurrency: $shards,
                           group: .,
@@ -2886,7 +2883,7 @@ jobs:
                           segment: "Core",
                           "person-on-events": true,
                           "new-events-schema": false,
-                          "python-version": "3.13.13",
+                          "python-version": "3.14.7",
                           "clickhouse-server-image": $image,
                           concurrency: $shards,
                           group: .,
@@ -2900,7 +2897,7 @@ jobs:
                           segment: "Core",
                           "person-on-events": true,
                           "new-events-schema": true,
-                          "python-version": "3.13.13",
+                          "python-version": "3.14.7",
                           "clickhouse-server-image": $image,
                           concurrency: $shards,
                           group: .,
@@ -2914,7 +2911,7 @@ jobs:
                           segment: "Temporal",
                           "person-on-events": false,
                           "new-events-schema": false,
-                          "python-version": "3.13.13",
+                          "python-version": "3.14.7",
                           "clickhouse-server-image": $image,
                           concurrency: $shards,
                           group: .,
@@ -2928,7 +2925,7 @@ jobs:
                           segment: "Temporal",
                           "person-on-events": false,
                           "new-events-schema": true,
-                          "python-version": "3.13.13",
+                          "python-version": "3.14.7",
                           "clickhouse-server-image": $image,
                           concurrency: $shards,
                           group: .,
@@ -2946,7 +2943,7 @@ jobs:
                               segment: "Core",
                               "person-on-events": false,
                               "new-events-schema": false,
-                              "python-version": "3.13.13",
+                              "python-version": "3.14.7",
                               compat: true,
                               artifact_key: ("compat-" + ((.key + 1)|tostring))
                             }
@@ -2976,7 +2973,7 @@ jobs:
                       "json-targets": true,
                       "person-on-events": false,
                       "new-events-schema": true,
-                      "python-version": "3.13.13",
+                      "python-version": "3.14.7",
                       "clickhouse-server-image": $image,
                       concurrency: $n,
                       group: .,
@@ -4503,13 +4500,16 @@ jobs:
         # DevEx project only, mirroring monitor-github-rate-limit; continue-on-error so
         # telemetry never reds CI. Skipped on forks/Dependabot, which never have the secret.
         if: |
-            !cancelled() && github.run_attempt == '1'
+            !cancelled()
             && github.actor != 'dependabot[bot]'
             && github.event.pull_request.head.repo.full_name == 'PostHog/posthog'
             && needs.turbo-discover.result == 'success'
             && needs.turbo-discover.outputs.mode != ''
         steps:
             - name: Capture test selection to DevEx PostHog
+              # Depot CI evaluates github.run_attempt as an empty string in a job-level if,
+              # so this guard stays on the step for the Depot copy of this job to run.
+              if: github.run_attempt == '1'
               continue-on-error: true
               uses: PostHog/posthog-github-action@58dea254b598fb5d469c0699c98af8288a7f7650 # v1.2.0
               with:

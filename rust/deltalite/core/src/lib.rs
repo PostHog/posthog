@@ -29,14 +29,20 @@
 //! crate (built with maturin, imported as `deltalite`).
 
 pub mod errors;
+pub mod handle;
 pub mod limits;
 pub mod pkset;
+pub mod prefetch;
 pub mod schema;
 pub mod store;
 pub mod table;
 pub mod upsert;
 
 pub use errors::{Error, Result};
+pub use handle::{LiveFile, TableHandle};
 pub use limits::ProcessLimits;
-pub use table::{open_table, open_table_multipart, MultipartConfig};
-pub use upsert::{upsert, PruneStrategy, UpsertOptions, UpsertStats};
+pub use prefetch::CheckpointCache;
+pub use table::{
+    open_table, open_table_multipart, open_table_prefetched, wrap_multipart, MultipartConfig,
+};
+pub use upsert::{upsert, upsert_cached, PruneStrategy, RelaxCache, UpsertOptions, UpsertStats};

@@ -56,6 +56,18 @@ class TaskDTO:
 
 
 @dataclass(frozen=True)
+class StreamNotificationDelivery:
+    """Where a server-originated stream notification landed.
+
+    ``live`` reached the run's Redis stream, so connected threads show the frame now. ``persisted``
+    reached the run's S3 log, so a thread loaded after the stream expires replays it too.
+    """
+
+    live: bool
+    persisted: bool
+
+
+@dataclass(frozen=True)
 class SignalImplementationRunDTO:
     """Identity of a signals-origin ("self-driving") implementation run that produced a PR.
 
@@ -84,6 +96,14 @@ class WizardCloudRunDTO:
     run_id: UUID
     status: str
     started_at: datetime | None = None
+
+
+@dataclass(frozen=True)
+class TaskRunCost:
+    """Provider costs in integer USD cents, or None while a source is unavailable or incomplete."""
+
+    token_cost: int | None
+    compute_cost: int | None
 
 
 @dataclass(frozen=True)
@@ -117,6 +137,15 @@ class TaskRunDTO:
     created_by_id: int | None = None
     created_by_distinct_id: str | None = None
     pr_url: str | None = None
+
+
+@dataclass(frozen=True)
+class InProgressGithubRunsDTO:
+    """In-progress runs that block disconnecting a team GitHub integration."""
+
+    count: int
+    oldest_task_id: UUID | None = None
+    oldest_task_title: str | None = None
 
 
 @dataclass(frozen=True)
@@ -594,6 +623,7 @@ class TaskRunDetailDTO:
     task_summary: str | None
     state: dict
     artifacts: list = Field(default_factory=list)
+    task_tags: list[str] = Field(default_factory=list)
     created_at: datetime | None = None
     updated_at: datetime | None = None
     completed_at: datetime | None = None
@@ -669,7 +699,10 @@ SPACE_SETUP_SCOPES = (
     "person:read",
     "group:read",
     "integration:read",
+    # The MCP server reads the caller from `/api/users/@me/` and refuses the whole session without it.
+    "user:read",
     "query:read",
+    "action:read",
     "data_catalog:read",
     "insight:read",
     "dashboard:read",
@@ -740,6 +773,20 @@ class CreatedTaskDTO:
     task_id: UUID
     team_id: int
     latest_run: TaskRunDTO | None = None
+
+
+@dataclass(frozen=True)
+class WorkflowLastRunDTO:
+    """The newest task a workflow created, as its last run.
+
+    ``status`` is the task's newest run status, or ``not_started`` when the task has no run yet.
+    ``ran_at`` is when that run started, or when the task was made if it has no run.
+    """
+
+    hog_flow_id: UUID
+    task_id: UUID
+    status: str
+    ran_at: datetime
 
 
 @dataclass(frozen=True)

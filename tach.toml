@@ -446,6 +446,8 @@ depends_on = [
     "ee",
     "posthog",
     "products.cdp",
+    # Facade-only: new issue severity inference calls the shared decision-model client.
+    "products.ml_inference",
     "products.notifications",
     "products.signals",
     "products.warehouse_sources", "products.access_control",
@@ -625,6 +627,9 @@ layer = "modules"
 path = "products.messaging"
 depends_on = [
     "posthog",
+    # Facade-only: template writes publish the realtime edited-elsewhere event through
+    # products.notifications.backend.facade.api.
+    "products.notifications",
 ]
 layer = "modules"
 
@@ -851,6 +856,8 @@ depends_on = [
     # Facade-only: the scout harness pre-resolves the external MCP servers a run's sandbox will
     # mount so the run prompt can name them.
     "products.mcp_store",
+    # Facade-only: actionability and safety experiments call the shared decision-model client.
+    "products.ml_inference",
     "products.notebooks",
     "products.product_analytics",
     # Facade-only: Replay Vision authorizes signal emission per scanner rather than through a
@@ -1438,7 +1445,7 @@ from = [
 
 [[modules]]
 path = "products.business_knowledge"
-depends_on = ["posthog", "ee", "products.access_control"]
+depends_on = ["posthog", "ee", "products.access_control", "products.tasks"]
 layer = "modules"
 
 [[interfaces]]

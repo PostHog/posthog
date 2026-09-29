@@ -65,7 +65,7 @@ jobs:
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
-                  python-version: '3.13'
+                  python-version: '3.14'
 
             - name: Cache Rust dependencies
               uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
@@ -85,7 +85,7 @@ jobs:
               # pins here to silently drift. pyproject.toml/uv.lock are in this workflow's
               # path filter, so a pin bump re-runs the suite.
               run: |
-                  uv venv .venv-deltalite --python 3.13
+                  uv venv .venv-deltalite --python 3.14
                   pin() { grep -oE "\"${1}[^\"]*\"" pyproject.toml | tr -d '"' | head -1; }
                   DELTALAKE=$(pin 'deltalake\[pyarrow\]==')
                   PYARROW=$(pin 'pyarrow==')

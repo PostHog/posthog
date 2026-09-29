@@ -2,7 +2,7 @@ import json
 import datetime
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
-from typing import Any
+from typing import Any, cast
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import patch
@@ -17,7 +17,7 @@ from parameterized import parameterized
 from posthog.clickhouse.client import sync_execute
 from posthog.models import Team
 
-from products.signals.backend.artefact_schemas import RankingScore
+from products.signals.backend.artefact_schemas import RankingModelResult, RankingScore
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.ranking import model_store, scorer
 from products.signals.backend.ranking.features import (
@@ -41,7 +41,7 @@ from products.signals.backend.ranking.serving_manifest import (
     serving_manifest_key,
     serving_model_prefix,
 )
-from products.signals.backend.ranking.sinks import REPORT_SCORED_EVENT
+from products.signals.backend.ranking.sinks import REPORT_SCORED_EVENT, classification_properties
 from products.signals.backend.report_embedding_reader import (
     REPORT_EMBEDDINGS_TABLE,
     ReportVector,
@@ -98,6 +98,7 @@ class FakeObjectStore:
         model_kind: str = "xgboost",
         booster_feature_names: tuple[str, ...] | None = None,
         missing_heads: Sequence[str] = (),
+        thresholds: Mapping[str, float] | None = None,
     ) -> ServingManifestEntry:
         key = model_key(model_name, version)
         prefix = serving_model_prefix(PREFIX, key)
@@ -108,7 +109,19 @@ class FakeObjectStore:
             "feature_set": feature_set.name,
             "feature_schema_version": feature_set.schema_version,
             "feature_names": list(feature_set.feature_names),
-            "heads": [{"head": head, "file": f"{head}.ubj", "readable": head == "open"} for head in HEADS],
+            "heads": [
+                {
+                    "head": head,
+                    "file": f"{head}.ubj",
+                    "readable": head == "open",
+                    **(
+                        {"refit_classification_threshold": thresholds[head]}
+                        if thresholds and head in thresholds
+                        else {}
+                    ),
+                }
+                for head in HEADS
+            ],
         }
         self.objects[f"{prefix}/{METADATA_FILE}"] = json.dumps(metadata).encode()
         booster = _booster_ubj(booster_feature_names or feature_set.feature_names)
@@ -215,23 +228,37 @@ class _FakeVectors:
 class _Captured:
     def __init__(self) -> None:
         self.events: list[dict[str, Any]] = []
+        self.scopes = 0
+
+    def record(self, **kwargs: Any) -> None:
+        self.events.append(kwargs)
 
     @contextmanager
     def __call__(self) -> Iterator[Any]:
-        yield lambda **kwargs: self.events.append(kwargs)
+        self.scopes += 1
+        yield self.record
 
 
 class _ScorerTestMixin(_StoreTestMixin):
     def _score(
-        self, report_ids: Sequence[str], vectors: Mapping[str, Mapping[str, ReportVector]], *, persist: bool
+        self,
+        report_ids: Sequence[str],
+        vectors: Mapping[str, Mapping[str, ReportVector]],
+        *,
+        persist: bool,
+        shared_pass: bool = False,
     ) -> tuple[list[scorer.ReportScoringOutcome], _FakeVectors, _Captured]:
         fake_vectors = _FakeVectors(vectors)
         captured = _Captured()
+        serving = load_serving_set() if shared_pass else None
+        capture = cast(Any, captured.record) if shared_pass else None
         with (
             patch.object(scorer, "latest_report_vectors", fake_vectors),
             patch("products.signals.backend.ranking.sinks.ph_scoped_capture", captured),
         ):
-            outcomes = score_reports(self.team_id, report_ids, persist=persist, now=NOW)
+            outcomes = score_reports(
+                self.team_id, report_ids, persist=persist, now=NOW, serving=serving, capture=capture
+            )
         return outcomes, fake_vectors, captured
 
     team_id = 1
@@ -327,13 +354,41 @@ class TestScorer(_ScorerTestMixin, SimpleTestCase):
         assert captured.events == []
 
 
+class TestClassificationProperties(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("tie_is_a_positive", 0.3, True),
+            ("above", 0.31, True),
+            ("below", 0.29, False),
+        ]
+    )
+    def test_predicted_reads_the_served_threshold(self, _name: str, score: float, predicted: bool) -> None:
+        result = RankingModelResult(
+            model_name="report_embeddings",
+            model_version=VERSION,
+            model_kind="xgboost",
+            roles=[SERVED_ROLE],
+            feature_schema_version=1,
+            status="scored",
+            scores={"open": score},
+            metadata={"heads": [{"head": "open", "readable": True, "refit_classification_threshold": 0.3}]},
+        )
+
+        assert classification_properties(result) == {
+            "readable_heads": ["open"],
+            "threshold_open": 0.3,
+            "predicted_open": predicted,
+        }
+
+
 class TestScorerPersists(_ScorerTestMixin, BaseTest):
     def _report(self, team_id: int) -> str:
         return str(SignalReport.objects.create(team_id=team_id, status=SignalReport.Status.READY, title="A").id)
 
-    def test_persist_writes_one_valid_row_per_scored_report_of_the_team(self) -> None:
+    @parameterized.expand([("own_scope", False), ("shared_pass", True)])
+    def test_persist_writes_one_valid_row_per_scored_report_of_the_team(self, _name: str, shared_pass: bool) -> None:
         self.team_id = self.team.id
-        served = self._served()
+        served = self._served(thresholds={"open": 0.0})
         title = self._challenger("title_embeddings", TITLE_EMBEDDINGS_FEATURE_SET)
         manifest = self.store.publish_manifest([served, title])
         scored, unscored = self._report(self.team.id), self._report(self.team.id)
@@ -348,6 +403,7 @@ class TestScorerPersists(_ScorerTestMixin, BaseTest):
                 EMBEDDING_RENDERING_TITLE: {scored: vector},
             },
             persist=True,
+            shared_pass=shared_pass,
         )
 
         assert {outcome.report_id: outcome.reason for outcome in outcomes} == {
@@ -364,6 +420,21 @@ class TestScorerPersists(_ScorerTestMixin, BaseTest):
             (event["event"], event["properties"]["report_id"], event["properties"]["model_key"])
             for event in captured.events
         ) == sorted([(REPORT_SCORED_EVENT, scored, served.key), (REPORT_SCORED_EVENT, scored, title.key)])
+        classification = {
+            event["properties"]["model_key"]: {
+                key: value
+                for key, value in event["properties"].items()
+                if key.startswith(("threshold_", "predicted_", "readable_heads"))
+            }
+            for event in captured.events
+        }
+        # thumbs_up saved no threshold, and a model without one gets no stand-in.
+        assert classification == {
+            served.key: {"readable_heads": ["open"], "threshold_open": 0.0, "predicted_open": True},
+            title.key: {"readable_heads": ["open"]},
+        }
+        assert self.store.reads.count(serving_manifest_key(PREFIX)) == 1
+        assert captured.scopes == (0 if shared_pass else 1)
 
     def test_without_persist_nothing_is_written_or_captured(self) -> None:
         self.team_id = self.team.id

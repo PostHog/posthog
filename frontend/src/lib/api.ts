@@ -2859,13 +2859,7 @@ const api = {
             return new ApiRequest()
                 .tracingSpans()
                 .withAction(`trace/${traceId}`)
-                .create({
-                    signal,
-                    data: {
-                        ...query,
-                        dateRange: query?.dateRange ?? { date_from: '-24h' },
-                    },
-                })
+                .create({ signal, data: { ...query } })
         },
         async sparkline(
             query: {
@@ -5037,6 +5031,9 @@ const api = {
             params: { limit?: number } = {}
         ): Promise<SignalReportArtefactResponse> {
             return await new ApiRequest().signalReport(id).withAction('artefacts').withQueryString(params).get()
+        },
+        async activateMeasurement(id: SignalReport['id'], artefactId: string): Promise<void> {
+            await new ApiRequest().signalReport(id).withAction(`artefacts/${artefactId}/activate`).create()
         },
         async delete(id: SignalReport['id']): Promise<void> {
             await new ApiRequest().signalReport(id).delete()
