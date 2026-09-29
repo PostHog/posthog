@@ -12,6 +12,8 @@ from asgiref.sync import async_to_sync
 from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
 
+from posthog.models import Team
+
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -408,7 +410,13 @@ class TestValidateSchemaAndUpdateTable:
         assert table.created_via == DataWarehouseTableCreatedVia.SOURCE
 
     def _linked_table(
-        self, team, schema, job, *, queryable_folder: str, storage_name: str | None = None
+        self,
+        team: Team,
+        schema: ExternalDataSchema,
+        job: ExternalDataJob,
+        *,
+        queryable_folder: str,
+        storage_name: str | None = None,
     ) -> DataWarehouseTable:
         names = resolve_table_and_folder_names(schema.name, schema.resolved_s3_folder_name)
         table = DataWarehouseTable.objects.create(
@@ -450,7 +458,7 @@ class TestValidateSchemaAndUpdateTable:
         # A reported 0 must not zero a table that was just republished.
         assert table.row_count == 150
 
-    def test_a_schema_linked_to_its_cdc_companion_gets_its_own_table(self, team):
+    def test_a_schema_linked_to_its_cdc_companion_gets_its_own_table(self, team: Team) -> None:
         schema, job = self._schema_and_job(team)
         companion = self._linked_table(
             team, schema, job, queryable_folder="orders_cdc__query_a", storage_name="orders_cdc"

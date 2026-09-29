@@ -19,6 +19,7 @@ from temporalio.service import RPCError, RPCStatusCode
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
+from posthog.models import Team, User
 
 from products.warehouse_sources.backend.facade.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
@@ -336,7 +337,9 @@ def test_toggling_sync_drops_the_snapshot_marker(team, user, client: HttpClient,
 
 
 @pytest.mark.parametrize("should_sync_before", [True, False])
-def test_moving_a_table_off_cdc_drops_it_from_the_publication(team, user, client: HttpClient, should_sync_before):
+def test_moving_a_table_off_cdc_drops_it_from_the_publication(
+    team: Team, user: User, client: HttpClient, should_sync_before: bool
+) -> None:
     _, schema = _make_cdc_source_and_schema(team, cdc_table_mode="consolidated")
     ExternalDataSchema.objects.filter(id=schema.id).update(should_sync=should_sync_before)
     client.force_login(user)
