@@ -18,6 +18,7 @@ from posthog.models.user import User
 from products.signals.backend.artefact_schemas import (
     DISMISSAL_NOTE_MAX_LENGTH,
     CodeReference,
+    ImpactMeasurementPlan,
     NoteArtefact,
     Priority,
     PriorityAssessment,
@@ -102,6 +103,44 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
 
         persist_authored_measurement_plans(report, [self._impact_plan()], ArtefactAttribution.system())
         assert SignalReportArtefact.objects.filter(report=report, type="impact_measurement_plan").count() == 1
+
+    def test_impact_plan_authoring_rejects_query_the_report_would_hide(self) -> None:
+        report = self._create_report()
+        plan = self._impact_plan()
+        plan["query"]["source"]["series"][0]["properties"] = [
+            {"type": "hogql", "key": "properties.secret", "value": "secret"}
+        ]
+
+        response = self.client.post(
+            self._list_url(str(report.id)), {"artefact_type": "impact_measurement_plan", "content": plan}, format="json"
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "HogQL filters are unsupported" in response.json()["error"]
+
+        observations = persist_authored_measurement_plans(report, [plan], ArtefactAttribution.system())
+        assert len(observations) == 1
+        assert "goal_value" not in observations[0]
+        assert latest_measurement_plans(report) == {}
+
+    def test_existing_unreadable_impact_plan_remains_available_for_revision(self) -> None:
+        report = self._create_report()
+        plan = self._impact_plan()
+        plan["query"]["source"]["series"][0]["properties"] = [
+            {"type": "hogql", "key": "properties.secret", "value": "secret"}
+        ]
+        SignalReportArtefact.add_log(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            content=ImpactMeasurementPlan.model_validate(plan),
+            attribution=ArtefactAttribution.system(),
+        )
+
+        assert "affected-users" in latest_measurement_plans(report)
+        response = self.client.get(self._list_url(str(report.id)))
+        content = response.json()["results"][0]["content"]
+        assert content["title"] == "Affected users"
+        assert "query" not in content
+        assert "goal_value" not in content
 
     def test_impact_plan_limits_active_outcomes_but_allows_revisions_and_replacements(self) -> None:
         report = self._create_report()

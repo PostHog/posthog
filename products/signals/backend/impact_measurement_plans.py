@@ -9,9 +9,19 @@ import structlog
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import ImpactMeasurementPlan
 from products.signals.backend.models import SignalReport, SignalReportArtefact
+from products.signals.backend.report_metric_query_access import query_filter_shape_allows_read
 from products.signals.backend.report_metrics import MAX_REPORT_METRICS, REPORT_METRIC_GOAL_FIELDS
 
 logger = structlog.get_logger(__name__)
+
+
+def validate_authored_measurement_plan(plan: ImpactMeasurementPlan) -> None:
+    if plan.retired:
+        return
+    if not query_filter_shape_allows_read(plan.query):
+        raise ValueError("measurement query filters cannot be checked for viewer access; HogQL filters are unsupported")
+    if plan.eligibility_query is not None and not query_filter_shape_allows_read(plan.eligibility_query):
+        raise ValueError("eligibility query filters cannot be checked for viewer access; HogQL filters are unsupported")
 
 
 def latest_measurement_plans(report: SignalReport) -> dict[str, tuple[SignalReportArtefact, ImpactMeasurementPlan]]:
@@ -98,6 +108,7 @@ def persist_authored_measurement_plans(
                     "activated": False,
                 }
             )
+            validate_authored_measurement_plan(plan)
         except ValueError:
             logger.warning(
                 "ignoring invalid proposed impact measurement", report_id=str(report.id), metric_id=metric_id
