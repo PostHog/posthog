@@ -353,7 +353,8 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
                     actions.hideNewDashboardModal()
                     actions.resetNewDashboard()
                     const queryBasedDashboard = getQueryBasedDashboard(result)
-                    queryBasedDashboard && dashboardsModel.actions.addDashboardSuccess(queryBasedDashboard)
+                    queryBasedDashboard &&
+                        dashboardsModel.actions.addDashboardSuccess(queryBasedDashboard, show && redirectAfterCreation)
                     actions.submitNewDashboardSuccessWithResult(result)
                     tryShowMCPHint('dashboards.create', {
                         derivedPrompt: result.name ? `Build a dashboard called ${result.name}` : undefined,
@@ -418,7 +419,8 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
 
                 actions.resetNewDashboard()
                 const queryBasedDashboard = getQueryBasedDashboard(result)
-                queryBasedDashboard && dashboardsModel.actions.addDashboardSuccess(queryBasedDashboard)
+                queryBasedDashboard &&
+                    dashboardsModel.actions.addDashboardSuccess(queryBasedDashboard, redirectAfterCreation)
                 actions.submitNewDashboardSuccessWithResult(result, variables)
 
                 posthog.capture('dashboard created from template', {
