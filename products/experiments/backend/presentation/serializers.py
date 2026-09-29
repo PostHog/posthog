@@ -76,7 +76,6 @@ from products.experiments.backend.setup_context import (
     SdkLibCategory,
     SetupContextSectionStatus,
 )
-from products.experiments.backend.temporal.metric_resolution import saved_metric_links
 from products.feature_flags.backend.api.feature_flag import MinimalFeatureFlagSerializer
 from products.feature_flags.backend.models.feature_flag import FeatureFlag, experiment_eligibility_error
 
@@ -607,6 +606,14 @@ class ExperimentSerializer(ExperimentBaseSerializer):
         # launched today, which is what the setup UI needs to show.
         return resolve_default_exposure_event(obj.team, obj.start_date or timezone.now())
 
+    @staticmethod
+    def _stored_saved_metric_queries(instance: Experiment) -> dict[int, dict[str, Any]]:
+        links = instance.experimenttosavedmetric_set.all()
+        # Calling select_related on the manager would discard a prefetch cache and query again.
+        if "experimenttosavedmetric_set" not in getattr(instance, "_prefetched_objects_cache", {}):
+            links = links.select_related("saved_metric")
+        return {link.id: link.saved_metric.query for link in links}
+
     @tracer.start_as_current_span("ExperimentSerializer.to_representation")
     def to_representation(self, instance):
         data = super().to_representation(instance)
@@ -637,9 +644,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
         saved_metrics = data.get("saved_metrics", [])
         with tracer.start_as_current_span("ExperimentSerializer.saved_metric_fingerprints") as span:
             span.set_attribute("saved_metric_count", len(saved_metrics))
-            stored_queries = (
-                {link.id: link.saved_metric.query for link in saved_metric_links(instance)} if saved_metrics else {}
-            )
+            stored_queries = self._stored_saved_metric_queries(instance) if saved_metrics else {}
             for saved_metric in saved_metrics:
                 if saved_metric.get("query"):
                     apply_metric_date_range(saved_metric["query"], new_date_range)
