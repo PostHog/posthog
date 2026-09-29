@@ -43,7 +43,10 @@ const CHECK_INCONCLUSIVE_REASONS: Record<SignalReportCheckInconclusiveReasonEnum
 }
 
 export function inconclusiveReasonLabel(reason: string | null | undefined): string {
-    return CHECK_INCONCLUSIVE_REASONS[reason as SignalReportCheckInconclusiveReasonEnumApi] ?? 'The evidence could not settle it'
+    return (
+        CHECK_INCONCLUSIVE_REASONS[reason as SignalReportCheckInconclusiveReasonEnumApi] ??
+        'The evidence could not settle it'
+    )
 }
 
 /** A soak window in the words the copy needs: "7 days", "36 hours", "90 minutes". */
