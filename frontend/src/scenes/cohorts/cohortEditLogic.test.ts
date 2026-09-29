@@ -129,6 +129,19 @@ describe('cohortEditLogic', () => {
             expect(lemonToast.error).toHaveBeenCalledTimes(toasts)
         })
 
+        it('keeps the scene toast when an embedded node shows the same cohort', async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/cohorts/:id/': () => [404, { detail: 'Not found.' }],
+                },
+            })
+            ;(lemonToast.error as jest.Mock).mockClear()
+            await initCohortLogic({ id: 1, embedded: true })
+            await initCohortLogic({ id: 1 })
+
+            expect(lemonToast.error).toHaveBeenCalledTimes(1)
+        })
+
         it('swallows used-in 404s without reporting them', async () => {
             useMocks({
                 get: {
