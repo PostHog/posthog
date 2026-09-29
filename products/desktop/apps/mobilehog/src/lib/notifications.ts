@@ -5,6 +5,9 @@ import { useEffect } from "react";
 import { AppState, Platform } from "react-native";
 import { authedFetch, getBaseUrl } from "@/lib/api";
 import { sessionIdentity, useAuth } from "@/lib/auth";
+import { logger } from "@/lib/logger";
+
+const log = logger.scope("notifications");
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -33,7 +36,7 @@ async function fetchPushToken(): Promise<string | null> {
     Constants.expoConfig?.extra?.eas?.projectId;
   if (Platform.OS === "web" || !projectId) {
     if (Platform.OS !== "web")
-      console.warn("Push registration unavailable: missing Expo project ID");
+      log.warn("Push registration unavailable: missing Expo project ID");
     return null;
   }
   const { status } = await Notifications.getPermissionsAsync();
@@ -68,13 +71,13 @@ export function registerPushToken(): Promise<void> {
       );
       if (sessionIdentity() !== identity) return;
       if (!response.ok) {
-        console.warn("Push token registration failed", response.status);
+        log.warn("Push token registration failed", response.status);
         return;
       }
       registeredToken = token;
     } catch {
       if (sessionIdentity() === identity)
-        console.warn("Push registration failed on this device");
+        log.warn("Push registration failed on this device");
     }
   })().finally(() => {
     if (pendingRegistration?.promise === promise) pendingRegistration = null;
@@ -83,16 +86,44 @@ export function registerPushToken(): Promise<void> {
   return promise;
 }
 
-export async function unregisterPushToken(): Promise<void> {
+// After a restart the in-memory token is gone, but the server can still hold
+// this device's registration, so read the token again without prompting.
+async function currentDeviceToken(): Promise<string | null> {
+  if (registeredToken) return registeredToken;
+  const projectId =
+    Constants.easConfig?.projectId ??
+    Constants.expoConfig?.extra?.eas?.projectId;
+  if (Platform.OS === "web" || !projectId) return null;
+  const { status } = await Notifications.getPermissionsAsync();
+  if (status !== "granted") return null;
+  return (await Notifications.getExpoPushTokenAsync({ projectId })).data;
+}
+
+// Returns false when the server may still send this account's notifications
+// to the device, so the caller can offer a retry before signing out.
+export async function unregisterPushToken(): Promise<boolean> {
   await pendingRegistration?.promise;
-  const token = registeredToken;
-  registeredToken = null;
-  if (!token) return;
-  await authedFetch(`${getBaseUrl()}/api/users/@me/push_tokens/unregister/`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ token }),
-  }).catch(() => {});
+  try {
+    const token = await currentDeviceToken();
+    if (!token) return true;
+    const response = await authedFetch(
+      `${getBaseUrl()}/api/users/@me/push_tokens/unregister/`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token }),
+      },
+    );
+    if (!response.ok) {
+      log.warn("Push token removal failed", response.status);
+      return false;
+    }
+    registeredToken = null;
+    return true;
+  } catch {
+    log.warn("Push token removal failed on this device");
+    return false;
+  }
 }
 
 // Registers the device once a session exists and routes notification taps.

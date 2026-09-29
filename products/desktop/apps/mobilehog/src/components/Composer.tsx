@@ -108,7 +108,13 @@ export function Composer({
     const attached = photos;
     setText("");
     setPhotos([]);
-    await onSend(value, attached);
+    try {
+      await onSend(value, attached);
+    } catch {
+      // Keep a draft the person started while the send was in flight.
+      setText((current) => current || value);
+      setPhotos((current) => (current.length ? current : attached));
+    }
   };
 
   return (

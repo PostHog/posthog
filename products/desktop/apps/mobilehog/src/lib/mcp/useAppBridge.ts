@@ -19,7 +19,7 @@ import {
 import { Platform } from "react-native";
 import type { EdgeInsets } from "react-native-safe-area-context";
 import type WebView from "react-native-webview";
-import { callMcpTool, readMcpResource } from "@/lib/mcp/client";
+import { callMcpTool, listMcpTools, readMcpResource } from "@/lib/mcp/client";
 import { buildHostStyles } from "@/lib/mcp/theme";
 import { WebViewTransport } from "@/lib/mcp/webViewTransport";
 
@@ -75,6 +75,21 @@ function hostContext(args: Args): McpUiHostContext {
   };
 }
 
+// The transcript picks which app mounts, and a shared task's transcript can
+// come from another person, so an app may only call tools that declare a UI
+// and allow app calls (the same rule as the desktop MCP apps service).
+async function isAppCallable(name: string): Promise<boolean> {
+  if (name === "exec") return false;
+  const tool = (await listMcpTools()).find((item) => item.name === name);
+  const ui = (
+    tool?._meta as
+      | { ui?: { resourceUri?: unknown; visibility?: unknown } }
+      | undefined
+  )?.ui;
+  if (typeof ui?.resourceUri !== "string") return false;
+  return !Array.isArray(ui.visibility) || ui.visibility.includes("app");
+}
+
 // One ext-apps AppBridge bound to a WebView: the proxy page relays JSON-RPC to
 // the sandboxed app, and tool or resource calls round-trip to the MCP server.
 export function useAppBridge(args: Args): {
@@ -102,8 +117,20 @@ export function useAppBridge(args: Args): {
 
     const setup = async () => {
       latest.current.onPhase("proxy-ready");
-      bridge.oncalltool = (params) =>
-        callMcpTool(params.name, params.arguments);
+      bridge.oncalltool = async (params) => {
+        if (!(await isAppCallable(params.name))) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Tool "${params.name}" is not accessible to apps`,
+              },
+            ],
+            isError: true,
+          };
+        }
+        return callMcpTool(params.name, params.arguments);
+      };
       bridge.onreadresource = (params) => readMcpResource(params.uri);
       bridge.onopenlink = async (params) => {
         if (isSafeExternalUrl(params.url)) {

@@ -10,7 +10,7 @@ import { useComposer } from "@/lib/composer";
 import { resetEngine } from "@/lib/engine";
 import { resetMcpClient } from "@/lib/mcp/client";
 import { useRepo } from "@/lib/repo";
-import { useSeenReports } from "@/lib/reports";
+import { resetUnstartedReportTasks, useSeenReports } from "@/lib/reports";
 import { useSessions } from "@/lib/session";
 
 let stopPersisting: (() => void) | undefined;
@@ -42,6 +42,7 @@ useAuth.subscribe((state, previous) => {
   useComposer.getState().reset();
   useRepo.setState({ repository: undefined });
   useSeenReports.setState({ seen: new Set(), hydrated: false });
+  resetUnstartedReportTasks();
 });
 
 export function getAccountQueryClient(): QueryClient {

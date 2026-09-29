@@ -86,7 +86,12 @@ export default function TaskScreen() {
     const blockId = `local-${Date.now()}`;
     pendingScrollTo.current = blockId;
     setPinRoom(true);
-    await sendPrompt(id, text, blockId, photos);
+    try {
+      await sendPrompt(id, text, blockId, photos);
+    } catch (error) {
+      if (pendingScrollTo.current === blockId) pendingScrollTo.current = null;
+      throw error;
+    }
   };
 
   // Once the sent bubble is a row, pin it near the top with a sliver of the

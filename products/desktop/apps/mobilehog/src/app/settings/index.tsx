@@ -3,6 +3,7 @@ import { useRouter } from "expo-router";
 import * as Updates from "expo-updates";
 import { useState } from "react";
 import {
+  Alert,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -24,6 +25,30 @@ export default function SettingsSheet() {
   const appearance = usePrefs((s) => s.appearance);
   const setPrefs = usePrefs((s) => s.set);
   const initials = (session?.userName ?? "").slice(0, 2).toUpperCase();
+
+  const finishLogout = async (): Promise<void> => {
+    router.back();
+    await logout();
+  };
+
+  const signOut = async (): Promise<void> => {
+    if (await unregisterPushToken()) {
+      await finishLogout();
+      return;
+    }
+    Alert.alert(
+      "Could not turn off notifications",
+      "This device can still get notifications for this account. Check your connection and try again.",
+      [
+        {
+          text: "Log out anyway",
+          style: "destructive",
+          onPress: () => void finishLogout(),
+        },
+        { text: "Try again", style: "cancel", onPress: () => void signOut() },
+      ],
+    );
+  };
 
   return (
     <ScrollView style={styles.root} contentContainerStyle={styles.content}>
@@ -98,11 +123,7 @@ export default function SettingsSheet() {
       </View>
 
       <Pressable
-        onPress={async () => {
-          router.back();
-          await unregisterPushToken();
-          await logout();
-        }}
+        onPress={() => void signOut()}
         style={({ pressed }) => [styles.logout, pressed && { opacity: 0.7 }]}
       >
         <Text style={styles.logoutText}>Log out</Text>

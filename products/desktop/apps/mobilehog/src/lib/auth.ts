@@ -146,9 +146,12 @@ async function describeSession(base: {
 let storageWrite: Promise<void> = Promise.resolve();
 let loginPending = false;
 
-function queueStorageWrite(write: () => Promise<void>): Promise<void> {
+function queueStorageWrite<T>(write: () => Promise<T>): Promise<T> {
   const pending = storageWrite.then(write);
-  storageWrite = pending.catch(() => {});
+  storageWrite = pending.then(
+    () => {},
+    () => {},
+  );
   return pending;
 }
 
@@ -171,17 +174,21 @@ export function accountStorageKey(prefix: string): string {
 }
 
 export const useAuth = create<AuthState>((set, get) => {
+  // The builder runs inside the queued write so it sees every earlier commit,
+  // such as a token refresh that finished while a project switch waited.
   const commit = async (
-    session: Session,
+    build: (current: Session | null) => Session,
     generation: number,
-  ): Promise<void> => {
-    await queueStorageWrite(async () => {
+  ): Promise<Session> => {
+    return queueStorageWrite(async () => {
       if (get().generation !== generation)
         throw new Error("Session changed. Sign in again.");
+      const session = build(get().session);
       await SecureStore.setItemAsync(SESSION_KEY, JSON.stringify(session));
       if (get().generation !== generation)
         throw new Error("Session changed. Sign in again.");
       set({ session, hydrated: true });
+      return session;
     });
   };
 
@@ -193,7 +200,8 @@ export const useAuth = create<AuthState>((set, get) => {
     }
     const generation = get().generation;
     try {
-      await commit(await attempt(), generation);
+      const session = await attempt();
+      await commit(() => session, generation);
     } finally {
       loginPending = false;
     }
@@ -241,23 +249,27 @@ export const useAuth = create<AuthState>((set, get) => {
         throw new Error("Session cannot be refreshed");
       }
       const tokens = await refreshOAuth(current.region, current.refreshToken);
-      if (get().session !== current)
-        throw new Error("Session changed. Sign in again.");
-      const session: Session = {
-        ...current,
-        apiKey: tokens.access_token,
-        refreshToken: tokens.refresh_token || current.refreshToken,
-        expiresAt: Date.now() + tokens.expires_in * 1000,
-        scopedTeams: tokens.scoped_teams ?? current.scopedTeams,
-      };
-      await commit(session, generation);
+      const session = await commit((latest) => {
+        if (!latest || latest.refreshToken !== current.refreshToken)
+          throw new Error("Session changed. Sign in again.");
+        return {
+          ...latest,
+          apiKey: tokens.access_token,
+          refreshToken: tokens.refresh_token || current.refreshToken,
+          expiresAt: Date.now() + tokens.expires_in * 1000,
+          scopedTeams: tokens.scoped_teams ?? latest.scopedTeams,
+        };
+      }, generation);
       return session.apiKey;
     },
 
     selectProject: async (projectId, projectName) => {
       const current = get().session;
       if (!current || current.projectId === projectId) return;
-      await commit({ ...current, projectId, projectName }, get().generation);
+      await commit((latest) => {
+        if (!latest) throw new Error("Session changed. Sign in again.");
+        return { ...latest, projectId, projectName };
+      }, get().generation);
     },
 
     logout: async () => {

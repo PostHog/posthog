@@ -411,7 +411,8 @@ export const useSessions = create<SessionState>((set, get) => {
             await resumeRun(taskId, text);
           } catch (resumeError) {
             if (generation !== currentGeneration) return null;
-            patch(taskId, () => ({
+            patch(taskId, (s) => ({
+              blocks: s.blocks.filter((block) => block.id !== localId),
               resuming: false,
               turnActive: false,
               error:
@@ -419,14 +420,18 @@ export const useSessions = create<SessionState>((set, get) => {
                   ? resumeError.message
                   : String(resumeError),
             }));
+            throw resumeError;
           }
           return localId;
         }
         echoes.delete(text);
-        patch(taskId, () => ({
+        // The composer gets the draft back, so drop the unsent bubble.
+        patch(taskId, (s) => ({
+          blocks: s.blocks.filter((block) => block.id !== localId),
           turnActive: false,
           error: error instanceof Error ? error.message : String(error),
         }));
+        throw error;
       }
       return localId;
     },

@@ -5,7 +5,7 @@ import type {
 import * as ImagePicker from "expo-image-picker";
 import { getClient } from "@/lib/client";
 
-export const MAX_PHOTOS = 5;
+export const MAX_PHOTOS = 10;
 const MAX_PHOTO_BYTES = 30 * 1024 * 1024;
 
 export interface Photo {

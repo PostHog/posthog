@@ -73,6 +73,14 @@ export function useDismissReport() {
   });
 }
 
+// Tasks created for a report whose run failed to start. A retry reuses the
+// task so the report does not collect duplicate implementation tasks.
+const unstartedTasks = new Map<string, string>();
+
+export function resetUnstartedReportTasks(): void {
+  unstartedTasks.clear();
+}
+
 // Swipe right: open a task on the report's repo and start the agent on it.
 export function useStartReport() {
   const queryClient = useQueryClient();
@@ -80,20 +88,27 @@ export function useStartReport() {
     mutationFn: async (report: SignalReport) => {
       const client = getClient();
       const prompt = buildCreatePrReportPrompt({ reportId: report.id });
-      // The server picks the repository from the report's repo selection.
-      const task = await client.createTask({
-        description: prompt,
-        title: (report.title ?? "Signal report").slice(0, 255),
-        origin_product: "signal_report",
-        signal_report: report.id,
-        signal_report_task_relationship: "implementation",
-      });
-      return client.runTaskInCloud(task.id, undefined, {
+      let taskId = unstartedTasks.get(report.id);
+      if (!taskId) {
+        // The server picks the repository from the report's repo selection.
+        const task = await client.createTask({
+          description: prompt,
+          title: (report.title ?? "Signal report").slice(0, 255),
+          origin_product: "signal_report",
+          signal_report: report.id,
+          signal_report_task_relationship: "implementation",
+        });
+        taskId = task.id;
+        unstartedTasks.set(report.id, taskId);
+      }
+      const started = await client.runTaskInCloud(taskId, undefined, {
         pendingUserMessage: prompt,
         runSource: "signal_report",
         signalReportId: report.id,
         ...currentRunConfig(),
       });
+      unstartedTasks.delete(report.id);
+      return started;
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: reportKeys.all });
