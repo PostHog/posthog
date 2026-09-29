@@ -939,7 +939,7 @@ describe('experimentWizardLogic', () => {
         const turnOn = async (arm: 'control' | 'test'): Promise<void> => {
             await userEvent.click(
                 arm === 'test'
-                    ? screen.getByRole('switch', { name: 'Watch participant behavior with Replay Vision' })
+                    ? screen.getByLabelText('Watch participant behavior with Replay Vision')
                     : screen.getByText('Watch participant behavior with Replay Vision')
             )
         }
@@ -985,9 +985,10 @@ describe('experimentWizardLogic', () => {
 
             renderAnalyticsStep()
 
-            expect(
-                screen.getByRole('switch', { name: 'Watch participant behavior with Replay Vision' })
-            ).toBeInTheDocument()
+            expect(screen.getByLabelText('Watch participant behavior with Replay Vision')).toHaveAttribute(
+                'role',
+                'switch'
+            )
             expect(screen.queryByRole('checkbox')).not.toBeInTheDocument()
             expect(screen.getByText('Learn more about Replay Vision')).toBeInTheDocument()
         })
