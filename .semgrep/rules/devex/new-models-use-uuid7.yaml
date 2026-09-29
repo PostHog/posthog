@@ -1,0 +1,32 @@
+rules:
+    - id: new-models-use-uuid7
+      message: |
+          A new Django model takes `UUIDModel`, not `UUIDTModel`.
+
+          `UUIDTModel` predates the UUIDv7 spec and its own docstring says it should not be used
+          for new models. Its `UUIDT` ids do not compare or sort as UUIDv7 ids do, so a value that
+          travels between systems can stop matching one written by anything newer — the format
+          mismatch that broke Cyclotron re-queue dedup, and that splits one workflow run's logs
+          across two instance ids.
+
+          Swap the base class for `UUIDModel` from `posthog.models.utils` and regenerate the
+          migration, which then defaults the primary key to `posthog.uuidt.uuid7`.
+
+          The 130-odd models already on `UUIDTModel` stay as they are: changing an existing
+          model's key generator rewrites nothing already stored, so it buys nothing.
+      languages: [python]
+      severity: WARNING
+      pattern: |
+          class $NAME(..., UUIDTModel, ...):
+              ...
+      paths:
+          include:
+              - ee/**/*.py
+              - posthog/**/*.py
+              - products/**/*.py
+          exclude:
+              - posthog/models/utils.py
+      metadata:
+          category: correctness
+          subcategory: audit
+          confidence: HIGH
