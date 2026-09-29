@@ -34,6 +34,7 @@ jobs:
             general: ${{ steps.oversized.outputs.force_all || steps.filter.outputs.general || 'true' }}
             devex: ${{ steps.oversized.outputs.force_all || steps.filter.outputs.devex || 'true' }}
             test-rules: ${{ steps.oversized.outputs.force_all || steps.filter.outputs.test-rules || 'true' }}
+            security-rules: ${{ steps.oversized.outputs.force_all || steps.filter.outputs.security-rules || 'true' }}
             desktop: ${{ steps.oversized.outputs.force_all || steps.filter.outputs.desktop || 'true' }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -131,6 +132,9 @@ jobs:
                       # Rule tests only read fixtures under .semgrep/.
                       test-rules:
                         - '.semgrep/**'
+                        - '.github/workflows/ci-security.yaml'
+                      security-rules:
+                        - '.semgrep/rules/security/**'
                         - '.github/workflows/ci-security.yaml'
                       # products/desktop is an imported standalone app. It doesn't follow the
                       # monorepo's semgrep *convention* rules, so those jobs exclude it; this
@@ -485,7 +489,7 @@ jobs:
         needs: changes
         if: needs.changes.outputs.test-rules == 'true'
         runs-on: ubuntu-24.04
-        timeout-minutes: 10
+        timeout-minutes: 20
 
         env:
             DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
@@ -523,6 +527,22 @@ jobs:
                     semgrep scan --error --metrics=off --timeout 300 \
                     --config .semgrep/rules/security/github-actions-publish-on-pull-request.yaml \
                     .github/workflows/
+
+            # Same reason for the code the language jobs scan: a push to master runs a full scan
+            # where every finding blocks, so a rule edit that matches existing code turns master red.
+            - name: Scan code with the custom security rules
+              if: needs.changes.outputs.security-rules == 'true'
+              run: |
+                  docker run --rm -v "${{ github.workspace }}:/src" -w /src \
+                    -e SEMGREP_ENABLE_VERSION_CHECK=false \
+                    ${{ env.SEMGREP_IMAGE }} \
+                    semgrep scan --error --metrics=off --timeout 300 --jobs 4 \
+                    --config .semgrep/rules/security \
+                    --exclude products/desktop \
+                    bin common ee posthog products tools \
+                    services/llm-gateway services/stripe-mock \
+                    frontend nodejs packages \
+                    services/agent-proxy services/integration-service services/mcp services/oauth-proxy services/stripe-app
 
     # products/desktop is an imported standalone app that does not follow the monorepo's
     # semgrep *convention* rules (.semgrep custom rules, devex), so those jobs exclude it.
