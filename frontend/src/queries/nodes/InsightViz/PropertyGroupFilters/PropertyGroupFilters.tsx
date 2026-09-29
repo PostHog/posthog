@@ -9,7 +9,7 @@ import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
 import { AddBehavioralFilterButton } from 'lib/components/PropertyFilters/components/AddBehavioralFilterButton'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { isPropertyGroupFilterLike } from 'lib/components/PropertyFilters/utils'
+import { inlineEquivalentPropertyGroups, isPropertyGroupFilterLike } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -160,7 +160,12 @@ export function PropertyGroupFilters({
                                                         addText="Filter"
                                                         propertyFilters={
                                                             isPropertyGroupFilterLike(group)
-                                                                ? (group.values as AnyPropertyFilter[])
+                                                                ? // A nested group that survives inlining is not a leaf filter. The row
+                                                                  // below labels it and leaves it alone rather than editing it.
+                                                                  (inlineEquivalentPropertyGroups(
+                                                                      group.values,
+                                                                      group.type
+                                                                  ) as AnyPropertyFilter[])
                                                                 : null
                                                         }
                                                         onChange={(properties) => {

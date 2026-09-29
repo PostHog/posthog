@@ -4,6 +4,7 @@ import { MakeLogicType, actions, kea, key, listeners, path, props, propsChanged,
 import { PropertyFilterLogicProps } from 'lib/components/PropertyFilters/types'
 import {
     isBehavioralPropertyFilter,
+    isRetainedFilterRow,
     isValidPropertyFilter,
     parseProperties,
     PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE,
@@ -212,7 +213,7 @@ export const propertyFilterLogic = kea<propertyFilterLogicType>([
         },
         remove: () => actions.update(),
         update: () => {
-            const cleanedFilters = [...values.filters].filter(isValidPropertyFilter)
+            const cleanedFilters = [...values.filters].filter(isRetainedFilterRow)
             props.onChange(cleanedFilters)
         },
     })),
@@ -227,7 +228,7 @@ export const propertyFilterLogic = kea<propertyFilterLogicType>([
         filtersWithNew: [
             (s) => [s.filters],
             (filters: AnyPropertyFilter[]) => {
-                if (filters.length === 0 || isValidPropertyFilter(filters[filters.length - 1])) {
+                if (filters.length === 0 || isRetainedFilterRow(filters[filters.length - 1])) {
                     return [...filters, {} as AnyPropertyFilter]
                 }
                 return filters
