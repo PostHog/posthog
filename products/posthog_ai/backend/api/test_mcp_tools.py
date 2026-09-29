@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
 
+from clickhouse_driver.errors import NetworkError
 from parameterized import parameterized
 from rest_framework import status
 
@@ -199,9 +200,42 @@ class TestMCPToolsAPI(APIBaseTest):
             },
         )
 
+    @parameterized.expand(
+        [
+            (
+                RuntimeError("private internal details"),
+                "internal",
+                "internal_error",
+                "never",
+                "The tool raised an internal error. Do not automatically retry this tool call.",
+            ),
+            (
+                NetworkError("private database host"),
+                "api_5xx",
+                "service_unavailable",
+                "once",
+                "The tool raised an internal error. You may retry this operation once without changes.",
+            ),
+            (
+                ClickHouseQuerySizeExceeded("private query"),
+                "api_5xx",
+                "query_limit_exceeded",
+                "adjusted",
+                "The tool raised an internal error. You may retry with adjusted inputs.",
+            ),
+        ]
+    )
     @patch("ee.hogai.tools.execute_sql.mcp_tool.ExecuteSQLMCPTool.execute", new_callable=AsyncMock)
-    def test_invoke_tool_unexpected_error_returns_internal_error(self, mock_execute):
-        mock_execute.side_effect = RuntimeError("unexpected")
+    def test_invoke_tool_unwrapped_error_preserves_recovery_without_exposing_details(
+        self,
+        cause: Exception,
+        error_type: str,
+        code: str,
+        retry_strategy: str,
+        expected_content: str,
+        mock_execute: AsyncMock,
+    ) -> None:
+        mock_execute.side_effect = cause
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/mcp_tools/execute_sql/",
@@ -214,8 +248,8 @@ class TestMCPToolsAPI(APIBaseTest):
             response.json(),
             {
                 "success": False,
-                "content": "The tool raised an internal error. Do not automatically retry this tool call.",
-                "error": {"type": "internal", "code": "internal_error", "retry_strategy": "never"},
+                "content": expected_content,
+                "error": {"type": error_type, "code": code, "retry_strategy": retry_strategy},
             },
         )
 

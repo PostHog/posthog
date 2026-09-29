@@ -181,7 +181,7 @@ class MCPToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             else:
                 logger.exception("Error calling tool", extra={"tool_name": tool_name, "error": str(e)})
                 capture_exception(e, properties={"tag": "mcp", "args": args_data})
-                content = error.safe_message + error.retry_hint
+                content = f"The tool raised an internal error.{error.retry_hint}"
             return Response({"success": False, "content": content, "error": error.model_dump()})
 
 
