@@ -400,6 +400,17 @@ export interface webAnalyticsLogicActions {
     removeIncompatibleFilters: () => {
         value: true
     }
+    reportWebAnalyticsDateRangeChanged: (props: {
+        date_from: string | null
+        date_to: string | null
+        interval: string
+    }) => {
+        props: {
+            date_from: string | null
+            date_to: string | null
+            interval: string
+        }
+    }
     resetTileVisibility: () => boolean
     resetZoom: () => {
         value: true
@@ -784,6 +795,11 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
         ],
     })),
     actions({
+        reportWebAnalyticsDateRangeChanged: (props: {
+            date_from: string | null
+            date_to: string | null
+            interval: string
+        }) => ({ props }),
         removeIncompatibleFilters: true,
         setGraphsTab: (tab: string) => ({ tab }),
         setSourceTab: (tab: string) => ({ tab }),
@@ -3772,7 +3788,7 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
 
         return {
             setDates: ({ dateFrom, dateTo }) => {
-                eventUsageLogic.actions.reportWebAnalyticsDateRangeChanged({
+                actions.reportWebAnalyticsDateRangeChanged({
                     date_from: dateFrom,
                     date_to: dateTo,
                     interval: values.dateFilter.interval,
@@ -3780,12 +3796,15 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
                 globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.FilterWebAnalytics)
             },
             setDatesAndInterval: ({ dateFrom, dateTo, interval }) => {
-                eventUsageLogic.actions.reportWebAnalyticsDateRangeChanged({
+                actions.reportWebAnalyticsDateRangeChanged({
                     date_from: dateFrom,
                     date_to: dateTo,
                     interval,
                 })
                 globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.FilterWebAnalytics)
+            },
+            reportWebAnalyticsDateRangeChanged: ({ props }) => {
+                posthog.capture('web analytics date range changed', props)
             },
             zoomIntoPeriod: ({ dateFrom, dateTo }) => {
                 if (values.preZoomDateFilter === null) {
@@ -3875,12 +3894,12 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
             },
             startFocusModeOnboarding: () => {
                 actions.markFocusModeOnboardingSeen()
-                eventUsageLogic.actions.reportWebAnalyticsFocusModeOnboardingStarted()
+                posthog.capture('web analytics focus mode onboarding started')
                 actions.openFocusModeModal(true)
             },
             dismissFocusModeOnboarding: () => {
                 actions.markFocusModeOnboardingSeen()
-                eventUsageLogic.actions.reportWebAnalyticsFocusModeOnboardingSkipped()
+                posthog.capture('web analytics focus mode onboarding skipped')
             },
             enterFocusMode: () => {
                 if (!values.showFocusMode || values.focusModeConcerns.length === 0) {
@@ -3905,7 +3924,7 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
                 actions.setFocusModeEnabled(true)
                 actions.closeFocusModeModal()
                 if (wasOnboarding) {
-                    eventUsageLogic.actions.reportWebAnalyticsFocusModeOnboardingCompleted({
+                    posthog.capture('web analytics focus mode onboarding completed', {
                         concern_count: concernCount,
                     })
                 }
@@ -3930,7 +3949,7 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
                     } else if (conversionGoal && 'customEventName' in conversionGoal) {
                         goalType = 'custom_event'
                     }
-                    eventUsageLogic.actions.reportWebAnalyticsConversionGoalSet({ goal_type: goalType })
+                    posthog.capture('web analytics conversion goal set', { goal_type: goalType })
                 },
                 ({ conversionGoal }) => {
                     if (conversionGoal) {
@@ -3969,7 +3988,7 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
         shouldAutoOpenFocusModeOnboarding: (shouldOpen: boolean) => {
             if (shouldOpen && !values.focusModeOnboardingModalOpen) {
                 actions.openFocusModeOnboarding()
-                eventUsageLogic.actions.reportWebAnalyticsFocusModeOnboardingShown()
+                posthog.capture('web analytics focus mode onboarding shown')
             }
         },
     })),

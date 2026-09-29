@@ -16,6 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.finnworlds
     _payload_error,
     finnworlds_source,
     get_rows,
+    parse_countries,
     parse_tickers,
     validate_credentials,
 )
@@ -77,6 +78,29 @@ class TestParseTickers:
         raw = ",".join(f"T{i}" for i in range(finnworlds.MAX_TICKERS + 1))
         with pytest.raises(ValueError, match="Too many tickers"):
             parse_tickers(raw)
+
+
+class TestParseCountries:
+    @parameterized.expand(
+        [
+            ("comma_separated", "United_States,Germany", ["United_States", "Germany"]),
+            ("newline_separated", "United_States\nGermany", ["United_States", "Germany"]),
+            ("spaces_become_underscores", "United Kingdom, Germany", ["United_Kingdom", "Germany"]),
+            ("keeps_user_spelling", "germany", ["germany"]),
+            ("dedupes_case_insensitively", "Germany, germany", ["Germany"]),
+            ("strips_whitespace", "  Germany  ", ["Germany"]),
+            ("empty_string", "", []),
+            ("none", None, []),
+            ("only_separators", " , , ", []),
+        ]
+    )
+    def test_parse_countries(self, _name: str, raw: str | None, expected: list[str]) -> None:
+        assert parse_countries(raw) == expected
+
+    def test_over_max_countries_is_rejected(self) -> None:
+        raw = ",".join(f"Country{i}" for i in range(finnworlds.MAX_COUNTRIES + 1))
+        with pytest.raises(ValueError, match="Too many countries"):
+            parse_countries(raw)
 
 
 class TestBuildUrl:
@@ -186,7 +210,7 @@ class TestGetRows:
         session = _session_returning(*responses)
         with pytest.MonkeyPatch.context() as mp:
             mp.setattr(finnworlds, "make_tracked_session", lambda **_: session)
-            batches = list(get_rows("key", "dividends", ["AAPL", "MSFT"], _logger()))
+            batches = list(get_rows("key", "dividends", ["AAPL", "MSFT"], [], _logger()))
 
         assert len(batches) == 2
         assert batches[0][0]["ticker"] == "AAPL"
@@ -196,7 +220,7 @@ class TestGetRows:
         session = _session_returning(_response({"result": {"output": [{"country": "US", "type": "10Y"}]}}))
         with pytest.MonkeyPatch.context() as mp:
             mp.setattr(finnworlds, "make_tracked_session", lambda **_: session)
-            batches = list(get_rows("key", "bond_yields", ["AAPL"], _logger()))
+            batches = list(get_rows("key", "bond_yields", ["AAPL"], [], _logger()))
 
         assert session.get.call_count == 1
         assert batches == [[{"country": "US", "type": "10Y"}]]
@@ -206,7 +230,7 @@ class TestGetRows:
         with pytest.MonkeyPatch.context() as mp:
             mp.setattr(finnworlds, "make_tracked_session", lambda **_: session)
             with pytest.raises(FinnworldsAuthError):
-                list(get_rows("bad", "dividends", ["AAPL"], _logger()))
+                list(get_rows("bad", "dividends", ["AAPL"], [], _logger()))
 
     def test_non_auth_error_skips_ticker(self) -> None:
         # First ticker has no data (non-auth error), second succeeds — the sync continues.
@@ -218,7 +242,7 @@ class TestGetRows:
         logger = _logger()
         with pytest.MonkeyPatch.context() as mp:
             mp.setattr(finnworlds, "make_tracked_session", lambda **_: session)
-            batches = list(get_rows("key", "dividends", ["AAPL", "MSFT"], logger))
+            batches = list(get_rows("key", "dividends", ["AAPL", "MSFT"], [], logger))
 
         assert len(batches) == 1
         assert batches[0][0]["ticker"] == "MSFT"
@@ -228,7 +252,7 @@ class TestGetRows:
         session = _session_returning()
         with pytest.MonkeyPatch.context() as mp:
             mp.setattr(finnworlds, "make_tracked_session", lambda **_: session)
-            batches = list(get_rows("key", "dividends", [], _logger()))
+            batches = list(get_rows("key", "dividends", [], [], _logger()))
         assert batches == []
         session.get.assert_not_called()
 
@@ -301,7 +325,7 @@ class TestFinnworldsSource:
     @parameterized.expand([(name,) for name in FINNWORLDS_ENDPOINTS])
     def test_source_response_primary_keys_and_partitioning(self, endpoint: str) -> None:
         config: FinnworldsEndpointConfig = FINNWORLDS_ENDPOINTS[endpoint]
-        response = finnworlds_source("key", endpoint, ["AAPL"], _logger())
+        response = finnworlds_source("key", endpoint, ["AAPL"], ["United_States"], _logger())
 
         assert response.name == endpoint
         assert response.primary_keys == config.primary_keys
@@ -327,3 +351,194 @@ class TestFinnworldsSource:
     def test_all_response_modes_are_covered_by_an_endpoint(self) -> None:
         used = {c.response_mode for c in FINNWORLDS_ENDPOINTS.values()}
         assert used == set(ResponseMode)
+
+
+def _insider_payload(**overrides: Any) -> dict[str, Any]:
+    filing: dict[str, Any] = {
+        "period_of_report": "2025-08-21",
+        "reporting_owner": [
+            {
+                "owner_id": {"owner_cik": "1000001", "name": "Doe Jane"},
+                "owner_role": {
+                    "is_director": 0,
+                    "is_officer": 1,
+                    "is_ten_percent_owner": 0,
+                    "is_other": 0,
+                    "insider": "Senior Vice President",
+                },
+            }
+        ],
+        "non_derivative_table": [
+            {
+                "security": "Common Stock",
+                "activity_date": "2025-08-21",
+                "transaction": {"code": "M", "equity_swap": "0"},
+                "transaction_amounts": {"shares": "8760", "share_per_price": "0", "acquired_disposed_code": "A"},
+                "post_transaction": {"holding": "55790"},
+                "ownership_nature": {"direct_or_indirect": "D", "ownership": ""},
+            },
+            {
+                "security": "Common Stock",
+                "activity_date": "2025-08-21",
+                "transaction": {"code": "M", "equity_swap": "0"},
+                "transaction_amounts": {"shares": "3940", "share_per_price": "0", "acquired_disposed_code": "A"},
+                "post_transaction": {"holding": "59730"},
+                "ownership_nature": {"direct_or_indirect": "D", "ownership": ""},
+            },
+        ],
+        "derivative_table": [
+            {
+                "derivatives": {
+                    "security": "Restricted Stock Unit Award",
+                    "activity_date": "2025-08-21",
+                    "transaction": {"code": "M", "equity_swap": "0"},
+                    "transaction_amounts": {"shares": "8760", "acquired_disposed_code": "D"},
+                    "post_transaction": {"shares_owned": "17540"},
+                }
+            }
+        ],
+        "footnotes": [{"id": "F1", "text": "Rule 10b5-1 trading plan."}],
+    }
+    filing.update(overrides)
+    return {"status": {"code": 200, "message": "OK"}, "result": filing}
+
+
+class TestInsiderTransactions:
+    def test_expands_every_transaction_line(self) -> None:
+        rows = _extract_rows(_insider_payload(), FINNWORLDS_ENDPOINTS["insider_transactions"])
+
+        assert [(r["transaction_table"], r["transaction_index"]) for r in rows] == [
+            ("non_derivative", 1),
+            ("non_derivative", 2),
+            ("derivative", 3),
+        ]
+
+    def test_flattens_nested_transaction_objects(self) -> None:
+        rows = _extract_rows(_insider_payload(), FINNWORLDS_ENDPOINTS["insider_transactions"])
+
+        first = rows[0]
+        assert first["transaction_code"] == "M"
+        assert first["transaction_amounts_shares"] == "8760"
+        assert first["post_transaction_holding"] == "55790"
+        assert first["ownership_nature_direct_or_indirect"] == "D"
+        assert first["activity_date"] == "2025-08-21"
+
+    def test_unwraps_the_derivative_wrapper(self) -> None:
+        rows = _extract_rows(_insider_payload(), FINNWORLDS_ENDPOINTS["insider_transactions"])
+
+        derivative = rows[-1]
+        assert derivative["security"] == "Restricted Stock Unit Award"
+        assert derivative["post_transaction_shares_owned"] == "17540"
+        assert "derivatives" not in derivative
+
+    def test_carries_the_reporting_owner_and_period(self) -> None:
+        rows = _extract_rows(_insider_payload(), FINNWORLDS_ENDPOINTS["insider_transactions"])
+
+        assert rows[0]["owner_cik"] == "1000001"
+        assert rows[0]["owner_name"] == "Doe Jane"
+        assert rows[0]["owner_is_officer"] == 1
+        assert rows[0]["owner_title"] == "Senior Vice President"
+        assert rows[0]["period_of_report"] == "2025-08-21"
+
+    def test_joint_filers_each_get_a_row(self) -> None:
+        payload = _insider_payload(
+            reporting_owner=[
+                {"owner_id": {"owner_cik": "1", "name": "First Filer"}},
+                {"owner_id": {"owner_cik": "2", "name": "Second Filer"}},
+            ]
+        )
+        rows = _extract_rows(payload, FINNWORLDS_ENDPOINTS["insider_transactions"])
+
+        assert len(rows) == 6
+        assert {r["owner_cik"] for r in rows} == {"1", "2"}
+
+    def test_a_date_range_returning_several_filings(self) -> None:
+        # A single filing comes back as an object; a range can come back as a list of them.
+        payload = {"result": [_insider_payload()["result"], _insider_payload(period_of_report="2025-09-02")["result"]]}
+        rows = _extract_rows(payload, FINNWORLDS_ENDPOINTS["insider_transactions"])
+
+        assert len(rows) == 6
+        assert {r["period_of_report"] for r in rows} == {"2025-08-21", "2025-09-02"}
+
+    def test_primary_key_separates_every_row_of_a_filing(self) -> None:
+        # Lines in one filing repeat security, date and code, so without the line position they
+        # would collapse into a single row.
+        config = FINNWORLDS_ENDPOINTS["insider_transactions"]
+        rows = [_normalize_row(row, config, "AAPL", None) for row in _extract_rows(_insider_payload(), config)]
+
+        keys = {tuple(row[key] for key in config.primary_keys) for row in rows}
+        assert len(keys) == len(rows)
+
+    def test_primary_key_separates_two_filings_sharing_a_period_and_owner(self) -> None:
+        # The API exposes no filing identifier, so a ticker that files twice in one period would
+        # collide if the line index restarted per filing.
+        config = FINNWORLDS_ENDPOINTS["insider_transactions"]
+        payload = {"result": [_insider_payload()["result"], _insider_payload()["result"]]}
+        rows = [_normalize_row(row, config, "AAPL", None) for row in _extract_rows(payload, config)]
+
+        keys = {tuple(row[key] for key in config.primary_keys) for row in rows}
+        assert len(rows) == 6
+        assert len(keys) == 6
+
+    @parameterized.expand(
+        [
+            ("missing_result", {}),
+            ("result_is_a_string", {"result": "nope"}),
+            ("tables_wrong_shape", {"result": {"non_derivative_table": "nope", "derivative_table": None}}),
+            ("entries_not_objects", {"result": {"non_derivative_table": ["nope"]}}),
+        ]
+    )
+    def test_malformed_filings_degrade_gracefully(self, _name: str, payload: dict) -> None:
+        assert _extract_rows(payload, FINNWORLDS_ENDPOINTS["insider_transactions"]) == []
+
+
+class TestCompanyIdentifiers:
+    def test_emits_one_row_keeping_the_previous_names(self) -> None:
+        payload = {
+            "result": {
+                "basics": {"ticker": "AAPL"},
+                "output": {
+                    "name": "Apple Inc.",
+                    "cik": "320193",
+                    "isin": "US0378331005",
+                    "previous_names": [{"name": "APPLE COMPUTER INC", "from": "1994-01-26"}],
+                },
+            }
+        }
+        config = FINNWORLDS_ENDPOINTS["company_identifiers"]
+        rows = [_normalize_row(row, config, "AAPL", None) for row in _extract_rows(payload, config)]
+
+        assert len(rows) == 1
+        assert rows[0]["ticker"] == "AAPL"
+        assert rows[0]["cik"] == "320193"
+        assert rows[0]["previous_names"] == [{"name": "APPLE COMPUTER INC", "from": "1994-01-26"}]
+
+
+class TestCountryFanout:
+    def test_macro_requests_one_country_per_call_and_injects_it(self) -> None:
+        responses = [
+            _response({"result": {"output": [{"report_name": "Business Confidence", "actual": "-33"}]}}),
+            _response({"result": {"output": [{"report_name": "Business Confidence", "actual": "12"}]}}),
+        ]
+        session = _session_returning(*responses)
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(finnworlds, "make_tracked_session", lambda **_: session)
+            batches = list(
+                get_rows("key", "macroeconomic_indicators", ["AAPL"], ["United_Kingdom", "Germany"], _logger())
+            )
+
+        requested = [call.args[0] for call in session.get.call_args_list]
+        assert "country=United_Kingdom" in requested[0]
+        assert "ticker=" not in requested[0]
+        assert [batch[0]["country"] for batch in batches] == ["United_Kingdom", "Germany"]
+
+    def test_no_countries_configured_makes_no_requests(self) -> None:
+        session = _session_returning()
+        logger = _logger()
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(finnworlds, "make_tracked_session", lambda **_: session)
+            batches = list(get_rows("key", "macroeconomic_indicators", ["AAPL"], [], logger))
+
+        assert batches == []
+        session.get.assert_not_called()
+        logger.warning.assert_called()

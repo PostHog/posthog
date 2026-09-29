@@ -19,6 +19,7 @@ import { urls } from 'scenes/urls'
 import { CategoryDropdown } from './CategoryDropdown'
 import { InfiniteSelectResults } from './InfiniteSelectResults'
 import { defaultDataWarehousePopoverFields, taxonomicFilterLogic } from './taxonomicFilterLogic'
+import { TaxonomicSearchIntentBanner } from './TaxonomicSearchIntentBanner'
 
 export function TaxonomicFilter({
     taxonomicFilterLogicKey: taxonomicFilterLogicKeyInput,
@@ -156,6 +157,7 @@ export function TaxonomicFilter({
                             eventName={eventNames?.[0]}
                             focusInput={focusInput}
                         />
+                        <TaxonomicSearchIntentBanner taxonomicFilterLogicProps={taxonomicFilterLogicProps} />
                     </div>
                 ) : null}
                 {refReady && (

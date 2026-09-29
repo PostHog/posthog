@@ -216,11 +216,22 @@ class TestFormatTraceForJudge:
 
     @pytest.mark.parametrize("message_property", ["$ai_input", "$ai_output_choices"])
     @pytest.mark.parametrize("event_count,message_count", [(50, 1), (1, 50)])
+    @pytest.mark.parametrize("message_format", ["content", "parts"])
     def test_oversized_messages_do_not_allocate_the_full_transcript(
-        self, message_property: str, event_count: int, message_count: int
+        self, message_property: str, event_count: int, message_count: int, message_format: str
     ) -> None:
         content = "start " + "x" * 500_000 + " end"
-        messages = [{"role": "user", "content": content} for _ in range(message_count)]
+        message_content = (
+            {"content": content}
+            if message_format == "content"
+            else {
+                "parts": [
+                    {"type": "text", "content": content[:250_000]},
+                    {"type": "text", "content": content[250_000:]},
+                ]
+            }
+        )
+        messages = [{"role": "user", **message_content} for _ in range(message_count)]
         trace = create_trace(
             [create_trace_event("$ai_generation", **{message_property: messages}) for _ in range(event_count)]
         )
@@ -439,27 +450,45 @@ class TestFetchTraceForEvaluation:
         assert outcome.trace is trace
 
     @pytest.mark.django_db(transaction=True)
-    @pytest.mark.parametrize(
-        "window_end,expected_skip",
-        [(FROZEN_NOW + timedelta(minutes=30), "trace_not_found"), (None, None)],
-    )
-    def test_a_backfilled_trace_left_with_no_events_is_skipped(self, setup_data, window_end, expected_skip):
+    @pytest.mark.parametrize("window_end", [None, FROZEN_NOW + timedelta(minutes=30)])
+    @pytest.mark.parametrize("trace_state", [{}, {"inputState": "what is the weather?"}])
+    def test_an_event_less_trace_is_returned_when_the_read_saw_everything(self, setup_data, window_end, trace_state):
         team = setup_data["team"]
-        empty_trace = create_trace([])
+        root_only_trace = create_trace([], **trace_state)
 
         # The count preflight sees the `$ai_trace` root row, which never reaches `events`, so the
-        # bounded runner can return a trace row with no transcript to grade. A live run keeps
-        # whatever it did with that row before, so only the backfilled run skips.
+        # runner can return a trace with no events. Whether that is enough to grade depends on the
+        # evaluation, so the fetch hands it back and lets each activity decide.
         with (
             time_machine.travel(FROZEN_NOW, tick=False),
-            patch("posthog.temporal.ai_observability.run_trace_evaluation._count_trace_events", return_value=2),
+            # The preflight count, then the renderable-event count.
+            patch("posthog.temporal.ai_observability.run_trace_evaluation._count_trace_events", side_effect=[1, 0]),
             patch("posthog.temporal.ai_observability.run_trace_evaluation.TraceQueryRunner") as mock_runner,
         ):
-            mock_runner.return_value.calculate.return_value = MagicMock(results=[empty_trace])
+            mock_runner.return_value.calculate.return_value = MagicMock(results=[root_only_trace])
             outcome = fetch_trace_for_evaluation(team.id, "trace-123", FROZEN_NOW, window_end)
 
-        assert outcome.skip_reason == expected_skip
-        assert outcome.trace is (None if expected_skip else empty_trace)
+        assert outcome.skip_reason is None
+        assert outcome.trace is root_only_trace
+
+    @pytest.mark.django_db(transaction=True)
+    def test_a_partial_read_is_skipped_rather_than_graded(self, setup_data):
+        team = setup_data["team"]
+        root_only_trace = create_trace([], inputState="what is the weather?")
+
+        # The count finds events the fetch did not return, so the read missed part of the trace.
+        # Grading the remainder would hide those events from every evaluation.
+        with (
+            time_machine.travel(FROZEN_NOW, tick=False),
+            # The preflight count, then the renderable-event count.
+            patch("posthog.temporal.ai_observability.run_trace_evaluation._count_trace_events", side_effect=[1, 3]),
+            patch("posthog.temporal.ai_observability.run_trace_evaluation.TraceQueryRunner") as mock_runner,
+        ):
+            mock_runner.return_value.calculate.return_value = MagicMock(results=[root_only_trace])
+            outcome = fetch_trace_for_evaluation(team.id, "trace-123", FROZEN_NOW)
+
+        assert outcome.skip_reason == "trace_not_found"
+        assert outcome.trace is None
 
 
 class TestRunHogEvalOverRecentTraces:
@@ -507,7 +536,8 @@ class TestRunHogEvalOverRecentTraces:
         assert rewritten_condition.left.chain == ["input"]
 
     @time_machine.travel(FROZEN_NOW, tick=False)
-    def test_uses_the_sampled_trigger_and_configured_aggregation_window(self):
+    @pytest.mark.parametrize("output_type", ["boolean", "numeric"])
+    def test_uses_the_sampled_trigger_and_configured_aggregation_window(self, output_type: str):
         team = MagicMock(spec=Team)
         user = MagicMock()
         trigger_timestamp = FROZEN_NOW - timedelta(hours=2)
@@ -518,7 +548,9 @@ class TestRunHogEvalOverRecentTraces:
             ]
         )
         bytecode = compile_hog(
-            "return target.type == 'trace' and length(evaluation_events) == 2",
+            "return length(evaluation_events) / 4"
+            if output_type == "numeric"
+            else "return target.type == 'trace' and length(evaluation_events) == 2",
             "destination",
         )
 
@@ -541,6 +573,8 @@ class TestRunHogEvalOverRecentTraces:
                     condition_filter=None,
                     sample_count=1,
                     allows_na=False,
+                    output_type=output_type,
+                    output_config={"min": 0, "max": 1} if output_type == "numeric" else {},
                     window_seconds=120,
                 )
 
@@ -559,21 +593,71 @@ class TestRunHogEvalOverRecentTraces:
         assert runner_kwargs["query"].traceId == "trace-123"
         assert runner_kwargs["query"].dateRange.date_from == (trigger_timestamp - TRACE_EVENTS_LOOKBACK).isoformat()
         assert runner_kwargs["query"].dateRange.date_to == (trigger_timestamp + timedelta(seconds=120)).isoformat()
-        assert results[0].verdict is True
+        if output_type == "numeric":
+            assert results[0].score == 0.5
+            assert results[0].verdict is None
+        else:
+            assert results[0].verdict is True
         assert results[0].input_preview == "first"
         assert results[0].output_preview == "two"
 
 
 class TestExecuteTraceLLMJudgeActivity:
     @pytest.mark.django_db(transaction=True)
-    def test_judges_full_trace_transcript(self, setup_data, active_key_config):
-        trace = create_trace(
-            [
-                create_trace_event("$ai_generation", **{"$ai_input": "What is 2+2?", "$ai_output": "4"}),
-                create_trace_event("$ai_generation", **{"$ai_input": "And times 3?", "$ai_output": "12"}),
-            ]
-        )
-
+    @pytest.mark.parametrize(
+        "trace,expected_fragments",
+        [
+            (
+                create_trace(
+                    [
+                        create_trace_event("$ai_generation", **{"$ai_input": "What is 2+2?", "$ai_output": "4"}),
+                        create_trace_event("$ai_generation", **{"$ai_input": "And times 3?", "$ai_output": "12"}),
+                    ]
+                ),
+                ["TRACE HIERARCHY", "What is 2+2?", "And times 3?"],
+            ),
+            (
+                create_trace([], inputState=[{"role": "user", "content": ""}, {"role": "user", "content": "2+2?"}]),
+                ["2+2?"],
+            ),
+            (
+                create_trace(
+                    [],
+                    outputState=[
+                        {"role": "assistant", "parts": [{"type": "tool_call", "name": "get_weather", "arguments": {}}]}
+                    ],
+                ),
+                ["get_weather()"],
+            ),
+            (create_trace([], outputState={"score": 0}), ['"score": 0']),
+            pytest.param(
+                create_trace(
+                    [],
+                    outputState=[
+                        {
+                            "role": "assistant",
+                            "content": [
+                                {"type": "text", "text": "\n"},
+                                {
+                                    "type": "function",
+                                    "function": {"name": "get_weather", "arguments": {"city": "Paris"}},
+                                },
+                            ],
+                        }
+                    ],
+                ),
+                ['get_weather(city="Paris")'],
+                id="root_tool_call_with_whitespace",
+            ),
+        ],
+    )
+    def test_judges_full_trace_transcript(
+        self,
+        setup_data: dict[str, Any],
+        active_key_config: None,
+        trace: LLMTrace,
+        expected_fragments: list[str],
+    ) -> None:
         with patch(
             "posthog.temporal.ai_observability.run_trace_evaluation.fetch_trace_for_evaluation",
             return_value=TraceFetchOutcome(trace=trace, skip_reason=None, event_count=2),
@@ -598,13 +682,59 @@ class TestExecuteTraceLLMJudgeActivity:
                 request = mock_client.complete.call_args[0][0]
                 content = request.messages[0]["content"]
                 assert "AI trace" in request.system
-                assert "TRACE HIERARCHY" in content
-                assert content.count("[GEN]") == 2
-                assert "What is 2+2?" in content
-                assert "And times 3?" in content
+                assert content.count("[GEN]") == len(trace.events)
+                for fragment in expected_fragments:
+                    assert fragment in content
 
         assert result["verdict"] is True
         assert result["reasoning"] == "Resolved both questions"
+
+    @pytest.mark.parametrize(
+        "trace_state",
+        [
+            {},
+            {"inputState": ""},
+            {"inputState": "   ", "outputState": "\n"},
+            {"inputState": [{"role": "user", "content": ""}]},
+            {"outputState": [{"role": "assistant", "content": " \n "}]},
+            {"inputState": [{"role": "user", "content": []}]},
+            {"inputState": [{"role": "user", "parts": []}]},
+            {"outputState": [{"role": "assistant", "parts": [{"type": "text", "content": " \n "}]}]},
+        ],
+    )
+    @pytest.mark.parametrize("output_type", ["boolean", "numeric"])
+    def test_skips_without_llm_call_when_the_trace_has_no_transcript(
+        self, trace_state: dict[str, Any], output_type: str
+    ) -> None:
+        # With no events and no trace-level state the formatter emits the trace name alone, and the
+        # judge would confidently report that there is nothing to grade. Whitespace state renders as
+        # a heading above nothing, which reads the same way.
+        root_only_trace = create_trace([], **trace_state)
+
+        with patch(
+            "posthog.temporal.ai_observability.run_trace_evaluation.fetch_trace_for_evaluation",
+            return_value=TraceFetchOutcome(trace=root_only_trace, skip_reason=None, event_count=1),
+        ):
+            with patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client") as mock_client_class:
+                result = execute_trace_llm_judge_activity(
+                    ExecuteTraceEvaluationInputs(
+                        evaluation={
+                            "evaluation_type": "llm_judge",
+                            "evaluation_config": {"prompt": "Is the response correct?"},
+                            "output_type": output_type,
+                            "output_config": {},
+                            "team_id": 1,
+                        },
+                        team_id=1,
+                        trace_id="trace-123",
+                        window_start=FROZEN_NOW.isoformat(),
+                    )
+                )
+
+        assert result["skipped"] is True
+        assert result["skip_reason"] == "trace_not_found"
+        assert result["result_type"] == output_type
+        mock_client_class.assert_not_called()
 
     @pytest.mark.parametrize("skip_reason", ["trace_not_found", "property_access_restricted"])
     def test_skips_without_llm_call(self, skip_reason: str) -> None:
@@ -665,6 +795,35 @@ class TestExecuteTraceHogEvalActivity:
             )
 
         assert result["verdict"] is True
+
+    @pytest.mark.asyncio
+    @pytest.mark.django_db(transaction=True)
+    async def test_grades_a_root_only_trace_on_trace_level_metadata(self, setup_data):
+        # Hog needs no transcript: cost and latency come off the root event. A trace the judge
+        # cannot read must still reach a latency evaluation.
+        bytecode = compile_hog("return target.total_latency_seconds < 10", "destination")
+        evaluation = evaluation_dict(
+            setup_data,
+            evaluation_type="hog",
+            evaluation_config={"source": "...", "bytecode": bytecode},
+        )
+        root_only_trace = create_trace([], totalLatency=1.5)
+
+        with patch(
+            "posthog.temporal.ai_observability.run_trace_evaluation.fetch_trace_for_evaluation",
+            return_value=TraceFetchOutcome(trace=root_only_trace, skip_reason=None, event_count=1),
+        ):
+            result = await execute_trace_hog_eval_activity(
+                ExecuteTraceEvaluationInputs(
+                    evaluation=evaluation,
+                    team_id=setup_data["team"].id,
+                    trace_id="trace-123",
+                    window_start=FROZEN_NOW.isoformat(),
+                )
+            )
+
+        assert result["verdict"] is True
+        assert not result.get("skipped")
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("skip_reason", ["trace_too_large", "property_access_restricted"])

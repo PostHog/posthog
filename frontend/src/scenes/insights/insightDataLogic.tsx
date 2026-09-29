@@ -20,7 +20,6 @@ import posthog from 'posthog-js'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { PromiseTimeoutError, withTimeout } from 'lib/utils/async'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { objectsEqual } from 'lib/utils/objects'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { insightsApi } from 'scenes/insights/utils/api'
@@ -101,9 +100,21 @@ import { insightUsageLogic } from './insightUsageLogic'
 import { crushDraftQueryForLocalStorage, isQueryTooLarge } from './utils'
 import { compareQuery, isDraftQueryWorthSaving } from './utils/queryUtils'
 
-export const isInsightSceneInstance = (props: InsightLogicProps): boolean =>
-    sceneLogic.values.activeSceneId === Scene.Insight &&
-    insightSceneLogic.findMounted()?.values.insightLogicRef?.logic.key === keyForInsightLogicProps('new')(props)
+// insightId/dashboardId are reducers set synchronously by the same action that matches the URL.
+// insightLogicRef is set by a separate listener that rebuilds and mounts a new logic instance, a
+// side effect that can still be running right after the scene mounts. Comparing against the ref
+// can read a stale value while insightId/dashboardId are already correct, letting a save through
+// while the editor is still showing this insight.
+export const isInsightSceneInstance = (props: InsightLogicProps): boolean => {
+    if (sceneLogic.values.activeSceneId !== Scene.Insight) {
+        return false
+    }
+    const sceneValues = insightSceneLogic.findMounted()?.values
+    return (
+        sceneValues?.insightId === props.dashboardItemId &&
+        (sceneValues?.dashboardId ?? null) === (props.dashboardId ?? null)
+    )
+}
 
 const isMatchingSqlQuery = (
     query: Node | null | undefined,
@@ -632,11 +643,11 @@ export const insightDataLogic = kea<insightDataLogicType>([
                                 : { kind: NodeKind.InsightVizNode, source: insightQuery }
                         const response = await api.insights.generateMetadata(query)
 
-                        eventUsageLogic.actions.reportInsightMetadataAiGenerated(insightQuery.kind)
+                        posthog.capture('insight metadata ai generated', { query_kind: insightQuery.kind })
 
                         return { name: response.name, description: response.description }
                     } catch (e) {
-                        eventUsageLogic.actions.reportInsightMetadataAiGenerationFailed(insightQuery.kind)
+                        posthog.capture('insight metadata ai generation failed', { query_kind: insightQuery.kind })
                         throw e
                     }
                 },

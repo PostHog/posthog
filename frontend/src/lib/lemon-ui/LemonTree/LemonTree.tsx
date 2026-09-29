@@ -144,6 +144,8 @@ type LemonTreeBaseProps = Omit<
     /** The render function for the item. */
     renderItem?: (item: TreeDataItem, children: React.ReactNode) => React.ReactNode
     renderItemTooltip?: (item: TreeDataItem) => React.ReactNode | undefined
+    /** A docs link shown under the item's tooltip. It makes the tooltip interactive so the link can be clicked. */
+    renderItemTooltipDocLink?: (item: TreeDataItem) => string | undefined
     renderItemIcon?: (item: TreeDataItem) => React.ReactNode | undefined
     /** Set the IDs of the expanded items. */
     onSetExpandedItemIds?: (ids: string[]) => void
@@ -266,6 +268,7 @@ const LemonTreeItemRow = forwardRef<HTMLDivElement, LemonTreeItemRowProps>(
             handleClick,
             renderItem,
             renderItemTooltip,
+            renderItemTooltipDocLink,
             renderItemIcon,
             expandedItemIds,
             defaultNodeIcon,
@@ -360,7 +363,7 @@ const LemonTreeItemRow = forwardRef<HTMLDivElement, LemonTreeItemRowProps>(
                             'hover:bg-transparent opacity-50 cursor-default':
                                 (selectMode === 'folder-only' && !isFolder) || isEmptyFolder,
                             'opacity-50 cursor-not-allowed': !!item.disabledReason,
-                            'h-auto min-h-[var(--lemon-tree-button-height)] items-start': isEmptyFolder,
+                            'h-auto min-h-[var(--lemon-tree-button-height)] items-center py-0': isEmptyFolder,
                             'rounded-l-[var(--radius)] justify-center [&_svg]:size-4': size === 'narrow',
                             'group-hover/lemon-tree-button-group:pr-[30px] group-has-data-[state=open]/lemon-tree-button-group:pr-[30px] group-has-focus-within/lemon-tree-button-group:pr-[30px]':
                                 size !== 'narrow' && !isEmptyFolder,
@@ -377,6 +380,9 @@ const LemonTreeItemRow = forwardRef<HTMLDivElement, LemonTreeItemRowProps>(
                 aria-roledescription="tree item"
                 aria-label={ariaLabel}
                 tooltip={isDragging || isEmptyFolder ? undefined : (item.disabledReason ?? renderItemTooltip?.(item))}
+                tooltipDocLink={
+                    isDragging || isEmptyFolder || item.disabledReason ? undefined : renderItemTooltipDocLink?.(item)
+                }
                 tooltipPlacement="right"
             >
                 {size === 'default' && (

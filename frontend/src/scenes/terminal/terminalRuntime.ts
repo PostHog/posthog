@@ -1,4 +1,3 @@
-import type { V86 } from 'v86'
 import wasmUrl from 'v86/build/v86.wasm?url'
 
 import kernelUrl from './assets/buildroot-bzimage.bin?url'
@@ -9,7 +8,9 @@ import toolsUrl from './assets/tools-linux-i386.tar.gz.bin?url'
 import vgaBiosUrl from './assets/vgabios.bin?url'
 import { NinePServer } from './ninepServer'
 import packageManifest from './terminal-packages.json'
+import { DISPLAY_SCRIPT, TerminalDisplayInput } from './terminalDisplay'
 import { TerminalPackages } from './terminalPackages'
+import { TerminalWorkerClient } from './TerminalWorkerClient'
 
 function browserClock(): { timestamp: number; timezone: string } {
     const now = new Date()
@@ -43,8 +44,8 @@ async function verifiedImage(url: string, sha256: string, signal: AbortSignal): 
 }
 
 export class TerminalRuntime {
-    private emulator?: V86
-    private emulatorLoaded = false
+    private emulator?: TerminalWorkerClient
+    private removeAbortListener?: () => void
     private output = ''
     private decoder = new TextDecoder()
     private outputBuffer = new Uint8Array(8192)
@@ -59,7 +60,38 @@ export class TerminalRuntime {
     private hasPrompt = false
     private pendingDirectory?: string
 
-    constructor(private onOutput: (bytes: Uint8Array) => void) {}
+    readonly screen = document.createElement('div')
+    readonly displayInput = new TerminalDisplayInput(
+        (codes) => this.emulator?.keyboard_send_scancodes(codes),
+        (buttons) => this.sendMouse('mouse-click', buttons)
+    )
+
+    constructor(
+        private onOutput: (bytes: Uint8Array) => void,
+        private onDisplay: (active: boolean) => void = () => {},
+        private onError: (message: string) => void = () => {}
+    ) {
+        this.screen.append(document.createElement('canvas'))
+    }
+
+    private sendMouse(event: 'mouse-click' | 'mouse-delta', value: boolean[] | number[]): void {
+        this.emulator?.send({ type: 'mouse', event, value })
+    }
+
+    moveMouse(x: number, y: number): void {
+        this.sendMouse('mouse-delta', [x, -y])
+    }
+
+    attachDisplay(container: HTMLElement): void {
+        container.append(this.screen)
+        this.emulator?.send({ type: 'display', visible: true })
+    }
+
+    detachDisplay(): void {
+        this.displayInput.release()
+        this.screen.remove()
+        this.emulator?.send({ type: 'display', visible: false })
+    }
 
     async start(
         server: NinePServer,
@@ -67,9 +99,12 @@ export class TerminalRuntime {
         onReady: () => void,
         folder = '/posthog/files'
     ): Promise<void> {
-        const { V86 } = await import('v86')
         if (signal.aborted || this.disposed) {
             return
+        }
+        const canvas = this.screen.querySelector('canvas')!
+        if (!canvas.transferControlToOffscreen) {
+            throw new Error('This browser does not support the terminal display. Try a newer browser.')
         }
         const [bios, vgaBios, kernel, jq, tools] = await Promise.all([
             verifiedImage(biosUrl, '73e3f359102e3a9982c35fce98eb7cd08f18303ac7f1ba6ebfbe6cdc1c244d98', signal),
@@ -77,7 +112,7 @@ export class TerminalRuntime {
             verifiedImage(
                 // This image's uncached 9P reads work before API file sizes are known; Linux 6.8 clamps them to zero.
                 kernelUrl,
-                '7befbaea31e249d9a518c4b95fa42b2a193d0e3de46250d617cbdeb866ee28b0',
+                packageManifest.kernel.sha256,
                 signal
             ),
             verifiedImage(jqUrl, 'ba996e8ce436973e2f39e2639405a37e8c81ba8c722b71c83996278ad0af16dd', signal),
@@ -95,36 +130,35 @@ export class TerminalRuntime {
         }
         new TerminalPackages(server.filesystem, signal).mount()
         const bin = server.filesystem.directory('bin', server.filesystem.root)
+        server.filesystem.text('display', bin, DISPLAY_SCRIPT)
         server.filesystem.file('jq', bin, async () => ({ bytes: new Uint8Array(jq) })).size = jq.byteLength
         server.filesystem.file('tools.tar', bin, async () => ({ bytes: new Uint8Array(toolsArchive) })).size =
             toolsArchive.byteLength
-        const emulator = (this.emulator = new V86({
-            wasm_path: wasmUrl,
-            bios: { buffer: bios },
-            vga_bios: { buffer: vgaBios },
-            bzimage: { buffer: kernel },
-            memory_size: 512 * 1024 * 1024,
-            filesystem: { handle9p: server.handle },
-            cmdline: 'tsc=reliable mitigations=off random.trust_cpu=on',
-            disable_keyboard: true,
-            disable_mouse: true,
-            disable_speaker: true,
-            uart1: true,
-            autostart: false,
-        }))
-        emulator.add_listener('emulator-loaded', () => {
-            this.emulatorLoaded = true
-            if (this.disposed || signal.aborted) {
-                void emulator.destroy()
-            } else {
-                emulator.run()
+        const emulator = (this.emulator = new TerminalWorkerClient(
+            {
+                wasmUrl: new URL(wasmUrl, window.location.href).href,
+                bios,
+                vgaBios,
+                kernel,
+                canvas: canvas.transferControlToOffscreen(),
+            },
+            server,
+            (message) => {
+                this.dispose()
+                this.onError(message)
             }
-        })
+        ))
+        const abort = (): void => this.dispose()
+        signal.addEventListener('abort', abort, { once: true })
+        this.removeAbortListener = () => signal.removeEventListener('abort', abort)
         let boot = ''
         let configured = false
         emulator.add_listener('serial1-output-byte', (byte: number) => {
             if (this.disposed) {
                 return
+            }
+            if (this.ready && (byte === 17 || byte === 18)) {
+                this.onDisplay(byte === 17)
             }
             if (configured && !this.ready && byte === 30) {
                 this.ready = true
@@ -179,10 +213,12 @@ export class TerminalRuntime {
                         'cp /posthog/bin/jq /usr/bin/jq && chmod +x /usr/bin/jq || exit',
                         'cp /posthog/bin/ph /usr/bin/ph && chmod +x /usr/bin/ph || exit',
                         'cp /posthog/bin/run /usr/bin/run && chmod +x /usr/bin/run || exit',
+                        'cp /posthog/bin/hogql /usr/bin/hogql && chmod +x /usr/bin/hogql || exit',
                         '[ -e /dev/fd ] || ln -s /proc/self/fd /dev/fd',
                         'mkdir -p /usr/local/bin && cp /posthog/bin/rm /usr/local/bin/rm && chmod +x /usr/local/bin/rm || exit',
                         'export PATH=/usr/local/bin:$PATH',
                         'cp /posthog/bin/open /usr/bin/open && chmod +x /usr/bin/open || exit',
+                        'cp /posthog/bin/display /usr/bin/display && chmod +x /usr/bin/display || exit',
                         ...Object.values(packageManifest.packages).flatMap((pkg) =>
                             Object.keys(pkg.commands).map(
                                 (command) =>
@@ -210,6 +246,11 @@ export class TerminalRuntime {
                 )
             }
         })
+        await emulator.loaded
+        if (!this.disposed && !signal.aborted) {
+            emulator.send({ type: 'display', visible: this.screen.isConnected })
+            emulator.send({ type: 'run' })
+        }
     }
 
     write(data: string): void {
@@ -266,12 +307,12 @@ export class TerminalRuntime {
     }
 
     dispose(): void {
+        this.detachDisplay()
         this.disposed = true
         this.ready = false
-        // V86 cannot destroy its CPU until asynchronous WASM initialization has finished.
-        if (this.emulatorLoaded) {
-            void this.emulator?.destroy()
-        }
+        this.removeAbortListener?.()
+        this.removeAbortListener = undefined
+        this.emulator?.dispose()
         this.emulator = undefined
         this.output = ''
         this.outputLength = 0
