@@ -148,6 +148,7 @@ export function resolveFreePlacementCollisions(
 
             const occupancy: GridOccupancy = new Map()
             const shiftByColumn = Array.from({ length: cols }, () => 0)
+            const lastOriginalBottomByColumn = Array.from({ length: cols }, () => 0)
             occupy(occupancy, activeTile, cols)
 
             for (const item of items
@@ -158,6 +159,9 @@ export function resolveFreePlacementCollisions(
                 const lastColumn = Math.min(cols, item.x + item.w)
 
                 for (let column = firstColumn; column < lastColumn; column++) {
+                    if (originalY > lastOriginalBottomByColumn[column]) {
+                        shiftByColumn[column] = 0
+                    }
                     item.y = Math.max(item.y, originalY + shiftByColumn[column])
                 }
 
@@ -169,6 +173,10 @@ export function resolveFreePlacementCollisions(
 
                 for (let column = firstColumn; column < lastColumn; column++) {
                     shiftByColumn[column] = Math.max(shiftByColumn[column], item.y - originalY)
+                    lastOriginalBottomByColumn[column] = Math.max(
+                        lastOriginalBottomByColumn[column],
+                        originalY + item.h
+                    )
                 }
                 occupy(occupancy, item, cols)
             }

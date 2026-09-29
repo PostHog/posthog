@@ -102,6 +102,7 @@ describe('dashboard grid compactors', () => {
             { i: 'side-tile', x: 6, y: 3, w: 6, h: 1 },
             { i: 'neighbor', x: 0, y: 4, w: 6, h: 4 },
             { i: 'next-neighbor', x: 0, y: 8, w: 6, h: 4 },
+            { i: 'later-tile', x: 0, y: 20, w: 6, h: 4 },
         ] as Layout
 
         expect(geometry(resolveFreePlacementCollisions(layout, 12, 'active'))).toEqual([
@@ -109,6 +110,7 @@ describe('dashboard grid compactors', () => {
             { i: 'side-tile', x: 6, y: 3, w: 6, h: 1 },
             { i: 'neighbor', x: 0, y: 6, w: 6, h: 4 },
             { i: 'next-neighbor', x: 0, y: 10, w: 6, h: 4 },
+            { i: 'later-tile', x: 0, y: 20, w: 6, h: 4 },
         ])
     })
 
