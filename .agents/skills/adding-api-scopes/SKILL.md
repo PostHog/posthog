@@ -30,14 +30,18 @@ Then decide two more things, separately from the kind:
 - **Project secret API keys:** a project secret API key is a project credential with no user, for server-to-server calls. Allow the scope on it only when such a caller needs it. The allowed list is `PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION`, in both `posthog/scopes.py` and `frontend/src/lib/scopes.tsx`. Read `/adding-project-secret-api-key-auth` first.
 - **Access control:** if an organization must be able to restrict the resource per role or per object, add it to `ACCESS_CONTROL_RESOURCES` in `products/access_control/backend/facade/user_access_control.py`. Access control resources use scope object names by design, so a viewset's `scope_object` names both its token scope and its access control resource. Do not give access control a naming or a type of its own. The `resource` fields of the access control serializers take `GRANTABLE_API_SCOPE_OBJECTS` as their choices, and the frontend `APIScopeObject` type is generated from those fields (be careful: the personal API key modal, the OAuth consent screen, CLI login and the key presets also use that type).
 
-## Add the object
+## Add the scope
 
-- `posthog/scopes.py`: the `APIScopeObject` literal, and the lists you chose above.
-- The viewset: `scope_object`. Default actions map to read or write. A custom `@action` needs `required_scopes`, or tokens get a 403. Use `:read` for an action that only reads data, and `:write` for an action that changes data. `scope_object = "INTERNAL"` keeps an endpoint session-only.
-- `frontend/src/lib/scopes.tsx`:
-  - a row in `API_SCOPES`, or a reason in `API_SCOPES_OMITTED_FROM_MODAL`. Labels are user-facing, so use sentence case (`/writing-user-facing-copy`). Disable `write` if the viewset has no write actions.
-  - the object in one group of `API_SCOPE_GROUPS`. See the next section.
-- MCP tools that call the endpoint: `scopes:` in `products/<product>/mcp/tools.yaml`.
+1. **Declare it in Python.** Add the object to the `APIScopeObject` literal in `posthog/scopes.py`. If you chose internal, OAuth-hidden or privileged above, also add it to that set.
+2. **Connect it to its endpoints.** Set `scope_object = "<object>"` on each viewset the scope covers.
+   - Standard actions need no extra work: `list` and `retrieve` need `:read`, and `create`, `update` and `destroy` need `:write`.
+   - A custom `@action` needs `required_scopes`, for example `required_scopes=["<object>:write"]`. Use `:read` if it only reads data, and `:write` if it changes data. Without it, token requests get a 403.
+   - An endpoint set to `scope_object = "INTERNAL"` accepts only logged-in sessions. Change it to the new object to open it to tokens.
+3. **Regenerate.** Run `hogli build:openapi`, which carries the object to the frontend type, and `hogli build:projections`, which updates the MCP OAuth list. **DO NOT EDIT GENERATED FILES BY HAND.**
+4. **Show it in the pickers.** In `frontend/src/lib/scopes.tsx`:
+   - Add a row to `API_SCOPES` with a sentence-case label and plural (`/writing-user-facing-copy`). Disable `write` if no endpoint writes. If the key modal should not offer the object, add a reason to `API_SCOPES_OMITTED_FROM_MODAL` instead.
+   - Add the object to one group in `API_SCOPE_GROUPS`. See "Choose a group".
+5. **Let MCP tools request it.** For each MCP tool that calls the endpoint, add the scope under `scopes:` in `products/<product>/mcp/tools.yaml`.
 
 ## Choose a group
 
@@ -48,13 +52,6 @@ The groups make a long list readable, so a person can find a product quickly.
 - Put the object in the existing group that a person would look in first.
 - Add a new group only when it gets two or more objects. A group with one object makes the list longer, not easier to read.
 - OAuth-hidden objects go in "Internal tools". The pickers do not show these objects, so a person never sees this group. Do not put a public object there, because it would show under the "Internal tools" label.
-
-## Regenerate
-
-Do not edit a generated file by hand.
-
-- `hogli build:openapi`: regenerates `ScopeObjectEnumApi` from `GRANTABLE_API_SCOPE_OBJECTS`, through the `resource` fields of the access control serializers. The frontend `APIScopeObject` type is an alias of it, so a new object reaches the frontend here.
-- `hogli build:projections`: regenerates the MCP OAuth scope list in `services/mcp/src/lib/oauth-scopes.generated.ts`.
 
 ## Read the scope list
 
