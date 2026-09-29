@@ -376,17 +376,20 @@ export function ExposureCriteriaPanel({ experiment, onChange, compact }: Exposur
                     />
                 </div>
 
-                <TestAccountFilterSwitch
-                    checked={hasFilters && !!experiment.exposure_criteria?.filterTestAccounts}
-                    onChange={(checked: boolean) => {
-                        onChange({ filterTestAccounts: checked })
-                    }}
-                    bordered={false}
-                    fullWidth
-                    settingsLinkIcon="new-tab"
-                    labelClassName="text-secondary font-normal"
-                    className="p-0"
-                />
+                {/* As tall as the small selects above, so the three labels are evenly spaced */}
+                <div className="flex min-h-[2.0625rem] items-center">
+                    <TestAccountFilterSwitch
+                        checked={hasFilters && !!experiment.exposure_criteria?.filterTestAccounts}
+                        onChange={(checked: boolean) => {
+                            onChange({ filterTestAccounts: checked })
+                        }}
+                        bordered={false}
+                        fullWidth
+                        settingsLinkIcon="new-tab"
+                        labelClassName="text-secondary font-normal"
+                        className="p-0"
+                    />
+                </div>
             </div>
         )
     }
