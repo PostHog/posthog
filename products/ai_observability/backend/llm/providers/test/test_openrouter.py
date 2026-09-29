@@ -152,7 +152,9 @@ class TestOpenRouterNonChatModels:
             ("error_on_chat_model", ModelNotFoundError("openai/gpt-4o"), "openai/gpt-4o", ModelNotFoundError),
         ]
     )
-    def test_complete_maps_failures_of_non_chat_models(self, _name, outcome, model, expected):
+    def test_complete_maps_failures_of_non_chat_models(
+        self, _name: str, outcome: Exception, model: str, expected: type[Exception]
+    ) -> None:
         request = MagicMock(model=model)
         with (
             patch.object(OpenAIAdapter, "complete", side_effect=outcome),
@@ -164,7 +166,7 @@ class TestOpenRouterNonChatModels:
         ):
             OpenRouterAdapter().complete(request, "sk-or-test-key", MagicMock())
 
-    def test_successful_complete_skips_the_catalogue(self):
+    def test_successful_complete_skips_the_catalogue(self) -> None:
         with (
             patch.object(OpenAIAdapter, "complete", return_value=MagicMock(parsed=MagicMock())),
             patch("products.ai_observability.backend.llm.providers.openrouter._non_chat_model_ids") as mock_ids,
@@ -172,7 +174,7 @@ class TestOpenRouterNonChatModels:
             OpenRouterAdapter().complete(MagicMock(model="openai/gpt-4o"), "sk-or-test-key", MagicMock())
         mock_ids.assert_not_called()
 
-    def test_catalogue_keeps_only_models_without_text_output(self):
+    def test_catalogue_keeps_only_models_without_text_output(self) -> None:
         mock_response = MagicMock()
         mock_response.json.return_value = {
             "data": [
@@ -189,7 +191,7 @@ class TestOpenRouterNonChatModels:
         ):
             assert _non_chat_model_ids() == frozenset({"typesafe/jev-1.13"})
 
-    def test_catalogue_failure_is_cached_briefly(self):
+    def test_catalogue_failure_is_cached_briefly(self) -> None:
         cache.delete(NON_CHAT_MODELS_CACHE_KEY)
         try:
             with patch(
