@@ -93,7 +93,7 @@ export function AutoresearchScene(): JSX.Element {
             title: '',
             width: 0,
             render: (_: unknown, record: AutoresearchPipelineApi) => {
-                const canPause = record.status === 'running' || record.status === 'bootstrapping'
+                const canPause = record.status === 'running'
                 const canResume = record.status === 'paused'
                 const mutating = !!mutatingPipelineIds[record.id]
                 return (

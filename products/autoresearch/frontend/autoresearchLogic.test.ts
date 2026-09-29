@@ -8,7 +8,13 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
 import { autoresearchLogic } from './autoresearchLogic'
-import { autoresearchList } from './generated/api'
+import {
+    autoresearchDestroy,
+    autoresearchList,
+    autoresearchPauseCreate,
+    autoresearchResumeCreate,
+} from './generated/api'
+import { AutoresearchPipelineApi } from './generated/api.schemas'
 
 jest.mock('./generated/api', () => ({
     autoresearchList: jest.fn(),
@@ -62,6 +68,27 @@ describe('autoresearchLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.pipelines.map((p) => p.id)).toEqual(['a', 'b', 'c'])
         expect(mockList).toHaveBeenLastCalledWith(expect.any(String), { offset: 2 })
+    })
+
+    it.each([
+        ['deletePipeline', autoresearchDestroy],
+        ['pausePipeline', autoresearchPauseCreate],
+        ['resumePipeline', autoresearchResumeCreate],
+    ] as const)('sends one %s request while the first is in flight', async (action, apiCall) => {
+        mockList.mockResolvedValue({ results: [] })
+        ;(apiCall as jest.Mock).mockReturnValue(new Promise(() => {}))
+        const logic = autoresearchLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        const pipeline = { id: 'p1', name: 'Model' } as AutoresearchPipelineApi
+        for (let i = 0; i < 2; i++) {
+            if (action === 'deletePipeline') {
+                logic.actions.deletePipeline(pipeline.id, pipeline.name)
+            } else {
+                logic.actions[action](pipeline)
+            }
+        }
+        expect(apiCall).toHaveBeenCalledTimes(1)
     })
 
     it('loads once when mounted on the list route', async () => {

@@ -145,7 +145,7 @@ export const autoresearchLogic = kea<autoresearchLogicType>([
             }
         },
         deletePipeline: async ({ id, name }: { id: string; name: string }) => {
-            if (!values.currentTeamId) {
+            if (!values.currentTeamId || values.mutatingPipelineIds[id]) {
                 return
             }
             actions.setPipelineMutating(id, true)
@@ -160,7 +160,7 @@ export const autoresearchLogic = kea<autoresearchLogicType>([
             }
         },
         pausePipeline: async ({ pipeline }: { pipeline: AutoresearchPipelineApi }) => {
-            if (!values.currentTeamId) {
+            if (!values.currentTeamId || values.mutatingPipelineIds[pipeline.id]) {
                 return
             }
             actions.setPipelineMutating(pipeline.id, true)
@@ -175,7 +175,7 @@ export const autoresearchLogic = kea<autoresearchLogicType>([
             }
         },
         resumePipeline: async ({ pipeline }: { pipeline: AutoresearchPipelineApi }) => {
-            if (!values.currentTeamId) {
+            if (!values.currentTeamId || values.mutatingPipelineIds[pipeline.id]) {
                 return
             }
             actions.setPipelineMutating(pipeline.id, true)
