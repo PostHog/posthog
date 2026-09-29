@@ -548,6 +548,22 @@ def _capture_autostart_skipped(
         logger.exception("Failed to capture signals_autostart_skipped", report_id=report_id)
 
 
+def _duplicate_claims(*, team_id: int, report_id: str, duplicate_ids: list[str]) -> list[str]:
+    """Every report this one duplicates, directly or through a chain, the oldest claim's chain first.
+
+    `duplicate_chain` follows only the oldest `duplicate_of` link, so the cluster keeps a stable name.
+    The gate asks whether the work is already in flight, and the work can sit behind any claim, so
+    each later claim's chain is walked too. The node budget bounds a report that holds many claims.
+    """
+    claims = duplicate_chain(team_id=team_id, report_id=report_id)
+    for target_id in duplicate_ids:
+        if len(claims) >= SignalReportArtefact.MAX_REPORT_LINK_GRAPH_NODES:
+            break
+        if target_id not in claims:
+            claims += [target_id, *duplicate_chain(team_id=team_id, report_id=target_id)]
+    return list(dict.fromkeys(claims))
+
+
 def _duplicate_already_worked_on(*, team_id: int, chain: list[str]) -> str | None:
     """The nearest report in the duplicate chain that already holds this work, or None.
 
@@ -585,9 +601,11 @@ def _evaluate_link_gates(team_id: int, report_id: str) -> AutostartSkip | None:
     """
     links = outgoing_links(team_id=team_id, report_id=report_id)
 
-    if any(edge.kind == ReportLinkKind.DUPLICATE_OF for edge in links):
+    duplicate_ids = [edge.target_id for edge in links if edge.kind == ReportLinkKind.DUPLICATE_OF]
+    if duplicate_ids:
         deciding_id = _duplicate_already_worked_on(
-            team_id=team_id, chain=duplicate_chain(team_id=team_id, report_id=report_id)
+            team_id=team_id,
+            chain=_duplicate_claims(team_id=team_id, report_id=report_id, duplicate_ids=duplicate_ids),
         )
         if deciding_id is not None:
             return AutostartSkip(

@@ -18,6 +18,7 @@ from temporalio.exceptions import ApplicationError
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
+from posthog.temporal.common.errors import NonReportableError
 
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
 from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
@@ -877,6 +878,9 @@ class TestCalculateActivity(BaseTest):
 
         assert exc_info.value.non_retryable is True
         assert exc_info.value.type == expected_type
+        # Validation errors are user config, not defects: the raised error must carry the
+        # non-reportable marker so the activity interceptor doesn't send it to error tracking.
+        assert isinstance(exc_info.value, NonReportableError) == (expected_type == "validation_error")
         recalc.refresh_from_db()
         assert "m1" in recalc.metric_errors
         row = ExperimentMetricResult.objects.get(experiment=exp, metric_uuid="m1")

@@ -1431,6 +1431,10 @@ WEB_ANALYTICS_ACHIEVEMENT_QUERY_MAX_CONCURRENCY: int = get_from_env(
     "WEB_ANALYTICS_ACHIEVEMENT_QUERY_MAX_CONCURRENCY", 4, type_cast=int
 )
 
+WEB_ANALYTICS_ACHIEVEMENTS_SWEEP_BATCH_SIZE: int = get_from_env(
+    "WEB_ANALYTICS_ACHIEVEMENTS_SWEEP_BATCH_SIZE", 100, type_cast=int
+)
+
 # Cohort the weekly AI path-cleaning-suggestion job runs for. Defaults to the precompute enrollment
 # list (the teams "selected to test out precomputed analytics tables") so the two cohorts track each
 # other unless explicitly overridden. Comma-separated env-var override, like the lists above.

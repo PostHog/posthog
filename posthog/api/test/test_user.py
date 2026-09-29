@@ -1188,12 +1188,22 @@ class TestUserAPI(APIBaseTest):
         assert self.user.email == "alpha+legacy@example.com"
         assert self.user.first_name == "Newname"
 
-    def test_email_change_rejected_when_another_account_holds_the_aliased_form(self):
+    @parameterized.expand(
+        [
+            ("plus_alias", "beta+old@example.com", "beta@example.com"),
+            ("gmail_dots", "beta@gmail.com", "b.e.t.a@gmail.com"),
+            ("gmail_stored_dots_and_alias", "b.e.t.a+old@gmail.com", "beta@gmail.com"),
+            ("googlemail", "beta@gmail.com", "b.e.t.a@googlemail.com"),
+        ]
+    )
+    def test_email_change_rejected_when_another_account_holds_the_same_mailbox(
+        self, _name: str, other_email: str, new_email: str
+    ) -> None:
         self.user.email = "alpha@example.com"
         self.user.save()
-        User.objects.create(email="beta+old@example.com", first_name="Beta")
+        User.objects.create(email=other_email, first_name="Beta")
 
-        response = self.client.patch("/api/users/@me/", {"email": "beta@example.com"})
+        response = self.client.patch("/api/users/@me/", {"email": new_email})
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["code"] == "unique"
@@ -1258,17 +1268,26 @@ class TestUserAPI(APIBaseTest):
         assert self.user.email == "alpha@example.com"
         assert self.user.pending_email is None
 
+    @parameterized.expand(
+        [
+            ("plus_alias", "alpha+legacy@example.com", "alpha@example.com"),
+            ("gmail_dots", "a.l.p.h.a@gmail.com", "alpha@gmail.com"),
+            ("googlemail", "alpha@googlemail.com", "a.l.p.h.a@gmail.com"),
+        ]
+    )
     @patch("posthog.api.user.is_email_available", return_value=False)
-    def test_email_change_allowed_when_dropping_own_plus_alias(self, _mock_is_email_available):
+    def test_email_change_allowed_within_own_mailbox(
+        self, _name: str, current_email: str, new_email: str, _mock_is_email_available: mock.Mock
+    ) -> None:
         # The collision check must skip the editor's own row, or a legacy alias holder can never clean it up.
-        self.user.email = "alpha+legacy@example.com"
+        self.user.email = current_email
         self.user.save()
 
-        response = self.client.patch("/api/users/@me/", {"email": "alpha@example.com"})
+        response = self.client.patch("/api/users/@me/", {"email": new_email})
 
         assert response.status_code == status.HTTP_200_OK
         self.user.refresh_from_db()
-        assert self.user.email == "alpha@example.com"
+        assert self.user.email == new_email
 
     @parameterized.expand(
         [
@@ -2831,6 +2850,37 @@ class TestUserUIConfigurationValidation(SimpleTestCase):
         self.assertTrue(serializer.is_valid(), serializer.errors)
         self.assertEqual(serializer.validated_data["ui_configuration"], value)
 
+    @parameterized.expand(
+        [
+            (
+                "omitted_key_is_kept",
+                True,
+                {"version": 1, "sidebar": {"density": "compact"}},
+                {"version": 1, "sidebar": {"density": "compact", "starred_products_setup_completed": True}},
+            ),
+            (
+                "omitted_sidebar_is_kept",
+                True,
+                {"version": 1},
+                {"version": 1, "sidebar": {"starred_products_setup_completed": True}},
+            ),
+            ("reset_is_kept", True, None, {"version": 1, "sidebar": {"starred_products_setup_completed": True}}),
+            (
+                "explicit_false_wins",
+                True,
+                {"version": 1, "sidebar": {"starred_products_setup_completed": False}},
+                {"version": 1, "sidebar": {"starred_products_setup_completed": False}},
+            ),
+            ("not_completed_is_untouched", False, {"version": 1}, {"version": 1}),
+        ]
+    )
+    def test_update_keeps_completed_starred_products_setup(self, _name, completed, value, expected):
+        user = User(ui_configuration={"version": 1, "sidebar": {"starred_products_setup_completed": completed}})
+        serializer = UserSerializer(instance=user, data={"ui_configuration": value}, partial=True)
+
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        self.assertEqual(serializer.validated_data["ui_configuration"], expected)
+
 
 @pytest.mark.ee
 class TestToolbarAccessControl(APIBaseTest):
@@ -3568,14 +3618,17 @@ class TestEmailVerificationCodeAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("verified", True, "new-address@posthog.com"),
-            ("legacy_never_verified", None, "new-address@posthog.com"),
-            ("staged_before_normalization", True, "New-Address@PostHog.com"),
+            ("verified", True, "new-address@posthog.com", "old@example.com"),
+            ("legacy_never_verified", None, "new-address@posthog.com", "old@example.com"),
+            ("staged_before_normalization", True, "New-Address@PostHog.com", "old@example.com"),
+            ("own_gmail_dots", True, "alpha@gmail.com", "a.l.p.h.a@gmail.com"),
+            ("own_googlemail", True, "alpha@gmail.com", "a.l.p.h.a@googlemail.com"),
         ]
     )
     def test_email_change_code_goes_to_the_pending_address_and_completes_the_swap(
-        self, _name, is_email_verified, staged_email
-    ):
+        self, _name: str, is_email_verified: bool | None, staged_email: str, current_email: str
+    ) -> None:
+        self.user.email = current_email
         self.user.is_email_verified = is_email_verified
         self.user.pending_email = staged_email
         self.user.save()
@@ -3590,20 +3643,24 @@ class TestEmailVerificationCodeAPI(APIBaseTest):
         response = self.client.post("/api/users/verify_email/", {"uuid": self.user.uuid, "code": code})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.user.refresh_from_db()
-        assert self.user.email == "new-address@posthog.com"
+        assert self.user.email == staged_email.lower()
         assert self.user.pending_email is None
 
     @parameterized.expand(
         [
             # A case variant passes the unique index on `email`, so only the fold check catches it.
-            ("active_case_variant", "New-Address@posthog.com", True),
+            ("active_case_variant", "New-Address@posthog.com", True, "new-address@posthog.com"),
             # An exact match reaches the write, because the fold check reads active accounts only.
-            ("deactivated_exact_match", "new-address@posthog.com", False),
+            ("deactivated_exact_match", "new-address@posthog.com", False, "new-address@posthog.com"),
+            ("gmail_dots", "b.e.t.a@gmail.com", True, "beta@gmail.com"),
+            ("googlemail", "beta@gmail.com", True, "b.e.t.a@googlemail.com"),
         ]
     )
-    def test_pending_address_taken_while_the_change_waited_is_not_promoted(self, _name, other_email, other_is_active):
+    def test_pending_address_taken_while_the_change_waited_is_not_promoted(
+        self, _name: str, other_email: str, other_is_active: bool, staged_email: str
+    ) -> None:
         self.user.is_email_verified = True
-        self.user.pending_email = "new-address@posthog.com"
+        self.user.pending_email = staged_email
         self.user.save()
         account_email = self.user.email
 
@@ -3621,7 +3678,7 @@ class TestEmailVerificationCodeAPI(APIBaseTest):
         self.user.refresh_from_db()
         assert self.user.email == account_email
         # The staged address stays, so a repeat request cannot read as a completed change.
-        assert self.user.pending_email == "new-address@posthog.com"
+        assert self.user.pending_email == staged_email
 
         repeat = self.client.post("/api/users/verify_email/", {"uuid": self.user.uuid, "code": code})
 

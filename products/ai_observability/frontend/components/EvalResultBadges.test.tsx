@@ -63,6 +63,35 @@ describe('EvalResultBadges', () => {
         expect(getEvaluationResultDisplay(makeRun({ result_type: 'numeric', score })).label).toBe(label)
     })
 
+    it.each([
+        [[], true, ['resolved'], 'danger', 'No categories'],
+        [['resolved'], true, ['resolved'], 'success', 'Resolved'],
+        [['resolved', 'incorrect'], true, ['resolved'], 'danger', 'Resolved, incorrect'],
+        [[], true, [], 'success', 'No categories'],
+        [['resolved'], true, [], 'danger', 'Resolved'],
+        [[], true, null, 'none', 'No categories'],
+        [null, false, ['resolved'], 'muted', 'N/A'],
+        [null, false, [], 'muted', 'N/A'],
+    ] as const)(
+        'renders categorical results %s without confusing empty selections and N/A',
+        (categories, applicable, passingCategories, type, label) => {
+            expect(
+                getEvaluationResultDisplay(
+                    makeRun({
+                        result_type: 'categorical',
+                        result: null,
+                        categories: categories ? [...categories] : null,
+                        applicable,
+                    }),
+                    {
+                        passingRule: passingCategories ? { categories: [...passingCategories] } : null,
+                        categoryOptions: [{ key: 'resolved', label: 'Resolved' }],
+                    }
+                )
+            ).toMatchObject({ type, label })
+        }
+    )
+
     describe('getEvalSummaries', () => {
         it('returns empty array for empty input', () => {
             expect(getEvalSummaries([])).toEqual([])
@@ -94,6 +123,22 @@ describe('EvalResultBadges', () => {
 
             const descResult = getEvalSummaries([newer, older])
             expect(descResult[0].latestRun.id).toBe('new')
+        })
+
+        it('orders by when a verdict was produced, not by its backdated timestamp', () => {
+            const live = makeRun({
+                id: 'live',
+                timestamp: '2026-04-10T12:00:05Z',
+                start_time: '2026-04-10T12:00:05Z',
+            })
+            const rerun = makeRun({
+                id: 'rerun',
+                timestamp: '2026-04-10T12:00:00.400Z',
+                start_time: '2026-04-12T09:00:00Z',
+                backfill_id: 'backfill-1',
+            })
+
+            expect(getEvalSummaries([live, rerun])[0]).toMatchObject({ latestRun: { id: 'rerun' }, runCount: 2 })
         })
 
         it('handles a single run', () => {

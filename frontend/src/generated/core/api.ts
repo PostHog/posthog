@@ -36,6 +36,7 @@ import type {
     FileSystemHomeFolderApi,
     FileSystemListParams,
     FileSystemShortcutApi,
+    FileSystemShortcutBulkUpdateApi,
     FileSystemShortcutListParams,
     FileSystemShortcutReorderApi,
     GitHubBranchesResponseApi,
@@ -2044,6 +2045,26 @@ export const fileSystemShortcutDestroy = async (
     return apiMutator<void>(getFileSystemShortcutDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getFileSystemShortcutBulkUpdateCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/file_system_shortcut/bulk_update/`
+}
+
+/**
+ * Create and delete several of the current user's shortcuts in one transaction, then return the full shortcut list in display order. Any unknown ID in `remove_ids` rejects the whole request.
+ */
+export const fileSystemShortcutBulkUpdateCreate = async (
+    projectId: string,
+    fileSystemShortcutBulkUpdateApi?: FileSystemShortcutBulkUpdateApi,
+    options?: RequestInit
+): Promise<FileSystemShortcutApi[]> => {
+    return apiMutator<FileSystemShortcutApi[]>(getFileSystemShortcutBulkUpdateCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(fileSystemShortcutBulkUpdateApi),
     })
 }
 

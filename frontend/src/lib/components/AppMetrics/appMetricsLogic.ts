@@ -35,7 +35,7 @@ export type AppMetricsCommonParams = {
     instanceId?: string
     metricName?: string | string[]
     metricKind?: string | string[]
-    breakdownBy?: 'metric_name' | 'metric_kind' | 'app_source_id'
+    breakdownBy?: 'metric_name' | 'metric_kind' | 'app_source_id' | 'instance_id'
     interval?: 'day' | 'hour' | 'minute'
     dateFrom?: string
     dateTo?: string
