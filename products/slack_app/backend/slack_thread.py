@@ -27,7 +27,6 @@ from products.slack_app.backend.services.slack_messages import (
     run_context_block,
     slack_message_exists,
     turn_feedback_block,
-    viewer_has_code_access,
 )
 
 if TYPE_CHECKING:
@@ -197,14 +196,13 @@ class SlackThreadHandler:
         # Beside the footer rather than in it: a trace id belongs to one turn, and the
         # next turn in the same thread has its own.
         self.turn_trace_id = turn_trace_id
-        # Who this reply is for. Links are gated on their access, not the task creator's:
-        # a thread outlives its opener, and a link only helps the person looking at it.
+        # Who this reply is for, which can differ from the task creator because a thread
+        # outlives its opener.
         self.actor_slack_user_id = actor_slack_user_id or context.mentioning_slack_user_id
         self._integration: Integration | None = None
         self._client: WebClient | None = None
         self._bot_user_id: str | None = None
         self._fork_flag: bool | None = None
-        self._code_access: bool | None = None
 
     @classmethod
     def for_run(
@@ -248,29 +246,6 @@ class SlackThreadHandler:
             self._client = SlackIntegration(integration).client
         return self._client
 
-    def viewer_can_open_code_links(self) -> bool:
-        """Whether this reply's reader passes the PostHog Desktop access check. Memoized:
-        the cards ask for their buttons and the footer asks again for its desktop link."""
-        if self._code_access is None:
-            self._code_access = viewer_has_code_access(self._get_integration(), self.actor_slack_user_id)
-        return bool(self._code_access)
-
-    def reader_footer(self) -> RunFooter:
-        """`run_footer` with the desktop link withheld where this reply's reader can't
-        open it.
-
-        The web task link is never withheld: the task page enforces access itself, so at
-        worst it asks the reader to sign in. The one place that answers this, so a card's
-        buttons and the footer's links can't disagree about the same reader. A footer
-        carrying no desktop link asks nothing, which keeps a plain answer off the
-        identity lookup behind the access check.
-        """
-        if not self.run_footer.desktop_url:
-            return self.run_footer
-        if self.viewer_can_open_code_links():
-            return self.run_footer
-        return replace(self.run_footer, desktop_url=None)
-
     def reader_task_url(self) -> str | None:
         """The task page behind this reply, or `None` when the run has no task. Shown to
         every reader; the page enforces access itself."""
@@ -280,7 +255,7 @@ class SlackThreadHandler:
         """This handler's footer, or `None` when there is nothing to describe."""
         if not self.run_footer.has_content():
             return None
-        footer = self.reader_footer()
+        footer = self.run_footer
         if not include_task_url:
             footer = replace(footer, task_url=None)
         configure_url = app_home_url(self._get_integration())
@@ -523,9 +498,7 @@ class SlackThreadHandler:
 
         The project and model ride along as a context line rather than their own
         message: what a task is running on and against is a property of the task, and
-        the thread already has one place that describes it while it works. Unlike the
-        reply footer's links this is not gated on the reader — a running task says what
-        it is running on either way.
+        the thread already has one place that describes it while it works.
         """
         text = f"*{PROGRESS_MESSAGE_MARKER}* :hourglass_flowing_sand:\nStage: {stage}"
         blocks: list[dict[str, Any]] = [
