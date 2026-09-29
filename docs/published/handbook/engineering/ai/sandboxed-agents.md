@@ -709,7 +709,8 @@ sandbox shutdown. It does not test Django API authentication or LLM task executi
 
 These tests consume the published sandbox image, not the agent source in the checkout.
 The image pins the agent version in `Dockerfile.sandbox-base`.
-An agent release opens a pull request that bumps that pin, and merging it rebuilds the shared image.
+An agent release opens a pull request that bumps that pin.
+Every master push, a half-hourly schedule, and a manual dispatch compare the pin and the image inputs on master with the labels on the published images, and rebuild when they differ.
 That build checks the installed agent against the pin and starts the `agent-server` entrypoint on both architectures before the image is promoted.
 Before the pull request is approved, the bump workflow runs one Claude turn and one Codex turn from that image through the production Go ai-gateway, on the agent's default models and efforts.
 Running backend tests against that image alone does not validate an unpublished agent change.
