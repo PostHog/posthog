@@ -100,7 +100,7 @@ class WizardCloudRunDTO:
 
 @dataclass(frozen=True)
 class TaskRunCost:
-    """Recorded provider costs in integer USD cents, or None when a source is unavailable."""
+    """Provider costs in integer USD cents, or None while a source is unavailable or incomplete."""
 
     token_cost: int | None
     compute_cost: int | None

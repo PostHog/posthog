@@ -6130,7 +6130,7 @@ def resume_task_run_in_cloud(
             run.environment = prior_environment
             run.completed_at = prior_completed_at
             run.queued_at = prior_queued_at
-            run.state = prior_state
+            run.restore_cloud_resume_state(prior_state)
             run.error_message = "Failed to start cloud workflow"
             run.save(
                 update_fields=[

@@ -1,9 +1,11 @@
 import re
 import time
+import asyncio
 from collections.abc import Iterable
 from datetime import timedelta
 from decimal import ROUND_HALF_EVEN, Decimal
-from typing import Any
+from functools import lru_cache
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from django.conf import settings
@@ -18,6 +20,9 @@ from posthog.dataclasses import frozen
 from products.tasks.backend.facade.contracts import TaskRunCost
 from products.tasks.backend.logic.services.sandbox_pricing import COMPUTE_RATE_CARDS, calculate_sandbox_compute_cost
 from products.tasks.backend.models import SandboxSession, TaskRun
+
+if TYPE_CHECKING:
+    from temporalio.client import Client
 
 logger = structlog.get_logger(__name__)
 _REQUEST_ID = re.compile(r"[a-zA-Z0-9_-]{1,255}\Z")
@@ -244,7 +249,9 @@ async def _fetch_gateway_cost(request_id: str) -> GatewayRequestCost | None:
 def _cost_sources(run: TaskRun, *, sessions: list[SandboxSession] | None = None) -> _CostSources:
     return _CostSources(
         token_cost_microusd=sum(bucket.get("cost_microusd", 0) for bucket in _cost_buckets(run.state or {}))
-        if gateway_usage_enabled(run) and not (run.state or {}).get("token_cost_incomplete")
+        if gateway_usage_enabled(run)
+        and not (run.state or {}).get("token_cost_incomplete")
+        and not (run.state or {}).get("unprocessed_request_ids")
         else None,
         compute_cost_usd=_compute_cost_source(run, sessions=sessions),
     )
@@ -276,16 +283,26 @@ def _cents(value: Decimal) -> int:
     return int((value * 100).to_integral_value(rounding=ROUND_HALF_EVEN))
 
 
+@lru_cache(maxsize=1)
+def _gateway_usage_client(loop: asyncio.AbstractEventLoop) -> asyncio.Task["Client"]:
+    from posthog.temporal.common.client import async_connect  # noqa: PLC0415 - keeps Temporal off Django's startup path
+
+    # ASGI requests share a loop; a client must not cross into a different loop.
+    return loop.create_task(asyncio.wait_for(async_connect(), timeout=5))
+
+
 async def _schedule_gateway_usage(*, run_id: UUID, team_id: int) -> None:
     from temporalio.common import WorkflowIDReusePolicy  # noqa: PLC0415 - keeps Temporal off Django's startup path
-
-    from posthog.temporal.common.client import async_connect  # noqa: PLC0415 - keeps Temporal off Django's startup path
 
     from products.tasks.backend.temporal.gateway_usage import (  # noqa: PLC0415 — avoids loading workflows during Django startup
         GatewayUsageInput,
     )
 
-    client = await async_connect()
+    try:
+        client = await asyncio.shield(_gateway_usage_client(asyncio.get_running_loop()))
+    except Exception:
+        _gateway_usage_client.cache_clear()
+        raise
     await client.start_workflow(
         "task-run-gateway-usage",
         GatewayUsageInput(run_id=str(run_id), team_id=team_id),

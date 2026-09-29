@@ -146,18 +146,25 @@ def test_cleanup_sandbox_keeps_accounted_compute_open_when_destroy_fails(
 
 
 @pytest.mark.django_db
-def test_cleanup_sandbox_retries_accounting_lookup_before_destroying(
+def test_cleanup_sandbox_destroys_before_accounting_lookup(
     mocker: MockerFixture, test_task_run: TaskRun, accounting_session: SandboxSession
 ) -> None:
     sandbox = mocker.Mock(id="sandbox-123")
     mocker.patch.object(Sandbox, "get_by_id", return_value=sandbox)
-    with patch.object(TaskRun.objects, "filter", side_effect=OperationalError("unavailable")):
-        with pytest.raises(OperationalError, match="unavailable"):
-            cleanup_sandbox_now(CleanupSandboxInput(sandbox_id="sandbox-123", run_id=str(test_task_run.id)))
 
-    sandbox.destroy.assert_not_called()
+    destroyed_at_lookup: list[bool] = []
+
+    def unavailable(*args: object, **kwargs: object) -> None:
+        destroyed_at_lookup.append(sandbox.destroy.called)
+        raise OperationalError("unavailable")
+
+    with patch.object(TaskRun.objects, "filter", side_effect=unavailable):
+        cleanup_sandbox_now(CleanupSandboxInput(sandbox_id="sandbox-123", run_id=str(test_task_run.id)))
+
+    sandbox.destroy.assert_called_once_with()
+    assert destroyed_at_lookup == [True]
     accounting_session.refresh_from_db()
-    assert accounting_session.ended_at is None
+    assert accounting_session.ended_at is not None
 
 
 @pytest.mark.django_db

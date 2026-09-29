@@ -95,7 +95,7 @@ class TestGatewayUsage(BaseTest):
             return response
 
         get.side_effect = other_worker
-        assert self._process(run).token_cost == 2
+        assert self._process(run).token_cost is None
         run.refresh_from_db()
         assert run.state["unprocessed_request_ids"] == ["request-2"]
         assert run.state["token_cost"]["model-a"]["provider-a"] == {
@@ -114,7 +114,8 @@ class TestGatewayUsage(BaseTest):
         elif failure == "body_timeout":
             get.return_value.status = 200
             get.return_value.json.side_effect = TimeoutError
-        assert self._process(run).token_cost == 0
+        assert self._process(run).token_cost is None
+        assert get_task_cost(team_id=self.team.id, task_id=run.task_id).token_cost is None
         run.refresh_from_db()
         assert run.state["unprocessed_request_ids"] == ["request-1"]
         assert run.state["token_cost"] == {}
@@ -133,7 +134,9 @@ class TestGatewayUsage(BaseTest):
         run.refresh_from_db()
         assert run.state["unprocessed_request_ids"] == ["priced", "missing"]
         get.return_value = self._response("priced", "0.10")
-        assert self._process(run, limit=1).token_cost == 10
+        assert self._process(run, limit=1).token_cost is None
+        assert get_task_run_cost(run_id=run.id, team_id=self.team.id).token_cost is None
+        assert get_task_cost(team_id=self.team.id, task_id=run.task_id).token_cost is None
         assert get.call_args.args[1].endswith("/v1/usage/priced")
         run.refresh_from_db()
         assert run.state["unprocessed_request_ids"] == ["missing"]
@@ -155,7 +158,8 @@ class TestGatewayUsage(BaseTest):
         run = self._run()
         self._report(run, ["request-1"])
         get.return_value = self._response("request-1", cost)
-        assert self._process(run).token_cost == 0
+        assert self._process(run).token_cost is None
+        assert get_task_cost(team_id=self.team.id, task_id=run.task_id).token_cost is None
         run.refresh_from_db()
         assert run.state["unprocessed_request_ids"] == ["request-1"]
         assert run.state["token_cost"] == {}
@@ -173,8 +177,8 @@ class TestGatewayUsage(BaseTest):
         run.refresh_from_db()
         assert run.state["unprocessed_request_ids"] == ["pending"]
         expected_cost = 2 if fully_tracked else None
-        assert get_task_run_cost(run_id=run.id, team_id=self.team.id).token_cost == expected_cost
-        assert get_task_cost(team_id=self.team.id, task_id=run.task_id).token_cost == expected_cost
+        assert get_task_run_cost(run_id=run.id, team_id=self.team.id).token_cost is None
+        assert get_task_cost(team_id=self.team.id, task_id=run.task_id).token_cost is None
         run.status = TaskRun.Status.IN_PROGRESS
         run.save(update_fields=["status"])
         self._report(run, ["old-request", "pending"])

@@ -4,16 +4,54 @@ from datetime import datetime, timedelta
 from uuid import uuid4
 
 import pytest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 from django.test import override_settings
 
+from asgiref.sync import sync_to_async
 from temporalio import activity
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from products.tasks.backend.logic.services.gateway_usage import _schedule_gateway_usage
+from products.tasks.backend.logic.services.gateway_usage import (
+    _gateway_usage_client,
+    _schedule_gateway_usage,
+    schedule_gateway_usage,
+)
 from products.tasks.backend.temporal.gateway_usage import GatewayUsageInput, TaskRunGatewayUsageWorkflow
+
+
+@pytest.mark.parametrize("failed_connection", [False, True])
+async def test_scheduling_reuses_connection_after_success_and_retries_failure(failed_connection: bool) -> None:
+    client = Mock(start_workflow=AsyncMock())
+    _gateway_usage_client.cache_clear()
+    with patch("posthog.temporal.common.client.async_connect", new_callable=AsyncMock) as connect:
+        connect.side_effect = [RuntimeError("unavailable"), client] if failed_connection else None
+        connect.return_value = client
+        if failed_connection:
+            with pytest.raises(RuntimeError, match="unavailable"):
+                await _schedule_gateway_usage(run_id=uuid4(), team_id=7)
+        await asyncio.gather(*(_schedule_gateway_usage(run_id=uuid4(), team_id=7) for _ in range(2)))
+        await sync_to_async(schedule_gateway_usage)(run_id=uuid4(), team_id=7)
+        assert connect.await_count == (2 if failed_connection else 1)
+        assert client.start_workflow.await_count == 3
+    _gateway_usage_client.cache_clear()
+
+
+def test_scheduling_reconnects_when_event_loop_changes() -> None:
+    async def connect():
+        loop = asyncio.get_running_loop()
+
+        async def start(*args, **kwargs):
+            assert asyncio.get_running_loop() is loop
+
+        return Mock(start_workflow=AsyncMock(side_effect=start))
+
+    with patch("posthog.temporal.common.client.async_connect", side_effect=connect) as connection:
+        for _ in range(2):
+            asyncio.run(_schedule_gateway_usage(run_id=uuid4(), team_id=7))
+        assert connection.await_count == 2
+    _gateway_usage_client.cache_clear()
 
 
 async def test_reconciliation_drains_retries_and_accepts_late_callbacks() -> None:
