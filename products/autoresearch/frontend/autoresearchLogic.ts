@@ -202,6 +202,7 @@ export const autoresearchLogic = kea<autoresearchLogicType>([
                 values.setupStatus === 'loading' &&
                 !values.pipelinesLoading
             ) {
+                posthog.capture('autoresearch model list viewed')
                 actions.loadPipelines()
             }
         },

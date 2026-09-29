@@ -11,7 +11,8 @@ export const manifest: ProductManifest = {
             name: 'Autoresearch',
             import: () => import('./frontend/AutoresearchScene'),
             projectBased: true,
-            description: 'Automatically find the best model to predict user behavior and score your users daily.',
+            description:
+                'Automatically find the best model to predict user behavior and score your users on a schedule.',
             iconType: 'experiment',
         },
     },

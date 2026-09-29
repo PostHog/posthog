@@ -615,7 +615,7 @@ export const productConfiguration: Record<string, any> = {
     Autoresearch: {
         name: 'Autoresearch',
         projectBased: true,
-        description: 'Automatically find the best model to predict user behavior and score your users daily.',
+        description: 'Automatically find the best model to predict user behavior and score your users on a schedule.',
         iconType: 'experiment',
     },
     BusinessKnowledge: {
