@@ -122,7 +122,8 @@ def get_batch_audience_count(
         tag_queries(product=Product.WORKFLOWS, feature=Feature.QUERY)
         response = execute_hogql_query(query=select_query, team=team)
 
-    return response.results[0][0] if response.results else 0
+    # uniqCombined over a nullable expression returns NULL rather than 0 when no person matches.
+    return (response.results[0][0] if response.results else None) or 0
 
 
 def email_dedupe_group_expr() -> ast.Expr:
