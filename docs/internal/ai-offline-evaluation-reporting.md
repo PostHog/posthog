@@ -233,7 +233,10 @@ History pages are bounded; the scorer history shows how many matching points are
 Overview cards show the loaded count and date span when history is incomplete, and explain that earlier experiments and scorer versions may not be shown.
 Different scorer versions retain their pinned configurations and are not averaged together.
 Overview cards show one version at a time, with arrows to browse versions that have results in the selected period.
-The card summary shows the latest experiment's score and scored-item count; output types sit beside scorer titles, and neighboring charts use different colors from the theme palette.
+The card summary aggregates the loaded experiments in the selected period for the displayed scorer version, using the same history points as the chart.
+Numeric means are weighted by successful result counts; boolean and category rates pool their counts across successful results.
+The card count shows distinct experiments, including experiments without successful scores. History is limited to 100 experiment/version results, so incomplete-history summaries cover only the loaded results.
+Output types sit beside scorer titles, and neighboring charts use different colors from the theme palette.
 Points are connected chronologically with smooth curves within each version and metric. Click a scorer title to open its history.
 Hovering over an overview chart shows a shared vertical guide at the same execution time across the other score charts.
 With a bounded date range, every chart uses that range, so the guide appears on each chart, including charts with different experiment dates.

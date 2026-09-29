@@ -1,4 +1,5 @@
 import {
+    aggregateOfflineScoreHistory,
     buildOfflineTrendPanels,
     formatOfflineNumericScore,
     formatOfflineScore,
@@ -8,6 +9,112 @@ import {
 import { makeOfflineHistoryPoint } from './offlineScoreTrends.fixtures'
 
 describe('offline score trends', () => {
+    it.each([
+        {
+            label: 'unequal weights and unsuccessful experiments',
+            samples: [
+                { mean: 5, ok: 2 },
+                { mean: 0, ok: 8 },
+                { mean: null, ok: 0 },
+            ],
+            expected: 1,
+        },
+        {
+            label: 'the largest finite scores',
+            samples: Array.from({ length: 100 }, () => ({ mean: Number.MAX_VALUE, ok: 1 })),
+            expected: Number.MAX_VALUE,
+        },
+        {
+            label: 'opposite-sign extreme scores',
+            samples: [
+                { mean: Number.MAX_VALUE, ok: 1 },
+                { mean: -Number.MAX_VALUE, ok: 1 },
+            ],
+            expected: 0,
+        },
+        { label: 'all-zero scores', samples: [{ mean: 0, ok: 2 }], expected: 0 },
+    ])('weights experiment means with $label', ({ samples, expected }) => {
+        const points = samples.map(({ mean, ok }, index) => {
+            const point = makeOfflineHistoryPoint(1, mean)
+            point.experiment.id = `experiment-${index}`
+            point.summary.status_counts.ok = ok
+            return point
+        })
+        const summary = aggregateOfflineScoreHistory(points)!
+
+        expect(summary.experimentCount).toBe(samples.length)
+        expect(summary.status_counts.ok).toBe(samples.reduce((total, sample) => total + sample.ok, 0))
+        expect(summary.mean).toBe(expected)
+        expect(formatOfflineScore(summary)).toBe(formatOfflineNumericScore(expected))
+    })
+
+    it('aggregates boolean rates over successful results including false outcomes and excluding errors', () => {
+        const points = [makeOfflineHistoryPoint(1), makeOfflineHistoryPoint(2)]
+        for (const [index, point] of points.entries()) {
+            point.summary.scorer = { ...point.summary.scorer, kind: 'boolean', config: {} }
+            point.summary.mean = null
+            point.summary.status_counts = { ok: index === 0 ? 2 : 8, error: 5, skipped: 0, not_applicable: 0 }
+            point.summary.true_count = index === 0 ? 0 : 6
+            point.summary.false_count = 2
+            point.summary.true_rate = index === 0 ? 0 : 0.75
+        }
+
+        const summary = aggregateOfflineScoreHistory(points)!
+
+        expect(summary.true_rate).toBe(0.6)
+        expect(summary.status_counts.ok).toBe(10)
+        expect(formatOfflineScore(summary)).toBe('60%')
+    })
+
+    it('aggregates category counts by key while preserving unselected options and multiple-selection rates', () => {
+        const points = [makeOfflineHistoryPoint(1), makeOfflineHistoryPoint(2)]
+        for (const [index, point] of points.entries()) {
+            point.summary.scorer = {
+                ...point.summary.scorer,
+                kind: 'categorical',
+                config: {
+                    selection_mode: 'multiple',
+                    options: [
+                        { key: 'complete', label: 'Complete' },
+                        { key: 'clear', label: 'Clear' },
+                        { key: 'other', label: 'Other' },
+                    ],
+                },
+            }
+            point.summary.mean = null
+            point.summary.status_counts.ok = index === 0 ? 2 : 8
+            point.summary.categories = [
+                { key: 'complete', label: 'Complete', count: index === 0 ? 2 : 8, rate: 1 },
+                { key: 'clear', label: 'Clear', count: index === 0 ? 2 : 4, rate: index === 0 ? 1 : 0.5 },
+                { key: 'other', label: 'Other', count: 0, rate: 0 },
+            ]
+        }
+        points[1].summary.categories.reverse()
+
+        const summary = aggregateOfflineScoreHistory(points)!
+
+        expect(summary.categories).toEqual([
+            { key: 'complete', label: 'Complete', count: 10, rate: 1 },
+            { key: 'clear', label: 'Clear', count: 6, rate: 0.6 },
+            { key: 'other', label: 'Other', count: 0, rate: 0 },
+        ])
+        expect(formatOfflineScore(summary)).toBe('Complete: 100%, Clear: 60%, Other: 0%')
+    })
+
+    it.each([
+        { label: 'empty', points: [] },
+        { label: 'unsuccessful', points: [makeOfflineHistoryPoint(1, null)] },
+    ])('handles an $label selection without successful scores', ({ points }) => {
+        const summary = aggregateOfflineScoreHistory(points)
+
+        if (points.length === 0) {
+            expect(summary).toBeNull()
+        } else {
+            expect(summary).toMatchObject({ experimentCount: 1, status_counts: { ok: 0 }, mean: null, true_rate: null })
+            expect(formatOfflineScore(summary!)).toBe('No successful results')
+        }
+    })
+
     it.each(['boolean', 'categorical'] as const)(
         'plots %s rates without treating false as missing or normalizing multiple selections',
         (kind) => {

@@ -138,10 +138,14 @@ describe('offlineOverviewTrendLogic', () => {
             overviewLogic,
             trendQueryKey: overviewLogic.values.trendQueryKey,
         }
-        const olderPoints = page.results.map((point) => ({
+        const olderPoints = page.results.slice(0, 2).map((point) => ({
             ...point,
             experiment: { ...point.experiment, started_at: '2026-08-01T00:00:00Z' },
-            summary: { ...point.summary, scorer: { ...point.summary.scorer, id: 'older-version', version: 1 } },
+            summary: {
+                ...point.summary,
+                mean: 0.25,
+                scorer: { ...point.summary.scorer, id: 'older-version', version: 1 },
+            },
         }))
         history.mockResolvedValueOnce({ ...page, results: [...olderPoints, ...page.results] })
         const logic = offlineOverviewTrendLogic(trendProps)
@@ -150,12 +154,17 @@ describe('offlineOverviewTrendLogic', () => {
 
         expect(logic.values.activeVersion?.version).toBe(2)
         expect(logic.values.versionPoints).toEqual(page.results)
+        expect(logic.values.periodSummary?.experimentCount).toBe(6)
+        expect(logic.values.periodSummary?.mean).toBeCloseTo(0.851667)
         const sharedDomain = [Date.parse('2026-08-01T00:00:00Z'), Date.parse(props.dateTo)]
         expect(overviewLogic.values.trendXDomain).toEqual(sharedDomain)
         logic.actions.selectVersion('older-version')
         expect(logic.values.versionPoints).toEqual(olderPoints)
+        expect(logic.values.periodSummary?.experimentCount).toBe(2)
+        expect(logic.values.periodSummary?.mean).toBe(0.25)
         expect(overviewLogic.values.trendXDomain).toEqual(sharedDomain)
 
+        history.mockResolvedValueOnce({ results: page.results.slice(0, 1), count: 1, next_cursor: null })
         overviewLogic.actions.setFilters({ date_from: '2026-09-20T00:00:00Z' })
         offlineOverviewTrendLogic({
             ...trendProps,
@@ -164,7 +173,9 @@ describe('offlineOverviewTrendLogic', () => {
         })
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.activeVersion?.version).toBe(2)
-        expect(logic.values.versionPoints).toEqual(page.results)
+        expect(logic.values.versionPoints).toEqual(page.results.slice(0, 1))
+        expect(logic.values.periodSummary?.experimentCount).toBe(1)
+        expect(logic.values.periodSummary?.mean).toBe(0.64)
     })
 
     it('reloads a shared source and upload state within the same frozen date range', async () => {

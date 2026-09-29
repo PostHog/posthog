@@ -18,9 +18,8 @@ export function OfflineOverviewTrend(
     }
 ): JSX.Element {
     const logic = offlineOverviewTrendLogic(props)
-    const { trend, trendLoading, trendError, versions, activeVersion, versionPoints } = useValues(logic)
+    const { trend, trendLoading, trendError, versions, activeVersion, versionPoints, periodSummary } = useValues(logic)
     const { loadOfflineOverviewTrend, selectVersion } = useActions(logic)
-    const latest = versionPoints[0]?.summary
     const versionIndex = versions.findIndex((version) => version.id === activeVersion?.id)
     const hasPartialHistory = !!trend && trend.page.count > trend.page.results.length
 
@@ -89,10 +88,10 @@ export function OfflineOverviewTrend(
                             </div>
                         )}
                     </div>
-                    {latest && (
+                    {periodSummary && (
                         <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-                            <strong>{formatOfflineScore(latest)}</strong>
-                            <span className="text-muted text-xs">{`${offlineScoreMetricLabel(latest.scorer)} · ${latest.status_counts.ok} scored ${latest.status_counts.ok === 1 ? 'item' : 'items'}`}</span>
+                            <strong>{formatOfflineScore(periodSummary)}</strong>
+                            <span className="text-muted text-xs">{`${offlineScoreMetricLabel(periodSummary.scorer)} · ${periodSummary.experimentCount} ${periodSummary.experimentCount === 1 ? 'experiment' : 'experiments'}`}</span>
                         </div>
                     )}
                     {hasPartialHistory && (

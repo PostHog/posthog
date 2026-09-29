@@ -40,6 +40,14 @@ export interface OfflineTrendPanel {
     yDomain?: [number, number]
 }
 
+export type OfflineScoreSummary = Pick<OfflineScorerSummaryApi, 'scorer' | 'mean' | 'true_rate' | 'categories'> & {
+    status_counts: Pick<OfflineScorerSummaryApi['status_counts'], 'ok'>
+}
+
+export interface OfflineScoreHistorySummary extends OfflineScoreSummary {
+    experimentCount: number
+}
+
 export function resolveOfflineDateRange(
     dateFrom: string | null,
     dateTo: string | null,
@@ -97,7 +105,46 @@ export function offlineScoreMetricLabel(scorer: OfflineScorerVersionReadApi): st
     return 'Category rates'
 }
 
-export function formatOfflineScore(summary: OfflineScorerSummaryApi): string {
+function weightedOfflineNumericMean(summaries: OfflineScorerSummaryApi[], count: number): number {
+    const scale = Math.max(...summaries.map((summary) => Math.abs(summary.mean ?? 0)))
+    if (scale === 0) {
+        return 0
+    }
+    const normalizedMean = summaries.reduce(
+        (total, summary) => total + ((summary.mean ?? 0) / scale) * (summary.status_counts.ok / count),
+        0
+    )
+    // Rounding can exceed the input magnitude and overflow when scores approach the largest finite number.
+    return Math.max(-1, Math.min(1, normalizedMean)) * scale
+}
+
+export function aggregateOfflineScoreHistory(points: OfflineHistoryPointApi[]): OfflineScoreHistorySummary | null {
+    const first = points[0]?.summary
+    if (!first) {
+        return null
+    }
+    const successful = points.map(({ summary }) => summary).filter((summary) => summary.status_counts.ok > 0)
+    const count = successful.reduce((total, summary) => total + summary.status_counts.ok, 0)
+    return {
+        scorer: first.scorer,
+        experimentCount: new Set(points.map(({ experiment }) => experiment.id)).size,
+        status_counts: { ok: count },
+        mean: first.scorer.kind === 'numeric' && count > 0 ? weightedOfflineNumericMean(successful, count) : null,
+        true_rate:
+            first.scorer.kind === 'boolean' && count > 0
+                ? successful.reduce((total, summary) => total + (summary.true_count ?? 0), 0) / count
+                : null,
+        categories: first.categories.map((category) => {
+            const selectedCount = successful.reduce(
+                (total, summary) => total + (summary.categories.find(({ key }) => key === category.key)?.count ?? 0),
+                0
+            )
+            return { ...category, count: selectedCount, rate: count > 0 ? selectedCount / count : null }
+        }),
+    }
+}
+
+export function formatOfflineScore(summary: OfflineScoreSummary): string {
     if (summary.status_counts.ok === 0) {
         return 'No successful results'
     }
