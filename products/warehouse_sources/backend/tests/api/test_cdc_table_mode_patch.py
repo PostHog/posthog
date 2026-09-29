@@ -367,10 +367,13 @@ def test_moving_a_table_off_cdc_drops_it_from_the_publication(
     assert schema.sync_type == new_sync_type
 
 
+@pytest.mark.parametrize("management_mode", ["posthog", "self_managed"])
 def test_a_table_moved_off_cdc_during_a_handed_over_reset_syncs_again(
-    team: Team, user: User, client: HttpClient
+    team: Team, user: User, client: HttpClient, management_mode: str
 ) -> None:
-    _, schema = _make_cdc_source_and_schema(team, cdc_table_mode="consolidated")
+    source, schema = _make_cdc_source_and_schema(team, cdc_table_mode="consolidated")
+    source.job_inputs = {**source.job_inputs, "cdc_management_mode": management_mode}
+    source.save()
     ExternalDataSchema.objects.filter(id=schema.id).update(
         sync_type_config={**schema.sync_type_config, "cdc_reset_pending": {"trigger": True}}
     )

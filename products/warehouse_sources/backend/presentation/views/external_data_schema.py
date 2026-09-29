@@ -1305,8 +1305,11 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "sync_type" not in data and instance.sync_type == ExternalDataSchema.SyncType.CDC
         )
         leaving_cdc = "sync_type" in data and not is_cdc and instance.sync_type == ExternalDataSchema.SyncType.CDC
-        # A reset handed to capture paused the schedule, and capture never resumes a table that left CDC.
+        # A reset handed to capture paused the schedule, and capture only finishes a reset for a CDC table,
+        # so a table leaving CDC drops the pending reset and resumes its schedule itself.
         resume_paused_schedule = leaving_cdc and bool((instance.sync_type_config or {}).get(CDC_RESET_PENDING_KEY))
+        if resume_paused_schedule:
+            instance.sync_type_config.pop(CDC_RESET_PENDING_KEY, None)
         publication_removal: Callable[[], None] | None = None
         if (is_cdc or leaving_cdc) and source_type_supports_cdc(source.source_type):
             publication_removal = self._handle_cdc_publication_change(
@@ -1654,9 +1657,6 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         # keeps decoding the table's changes only to drop them, and the source keeps streaming them.
         elif leaving_cdc or (should_sync is False and instance.should_sync):
             instance.sync_type_config.pop(CDC_SNAPSHOT_LANE_KEY, None)
-            if leaving_cdc:
-                # Capture only finishes a reset for a CDC table, so one left pending would never clear.
-                instance.sync_type_config.pop(CDC_RESET_PENDING_KEY, None)
             return lambda: adapter.remove_table(source, db_schema, source_table_name)
         return None
 
