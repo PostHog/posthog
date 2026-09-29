@@ -1,9 +1,9 @@
-import { Image, StyleSheet, Text, View } from "react-native";
+import { type ColorValue, Image, StyleSheet, Text, View } from "react-native";
 import { colors, fonts } from "@/lib/theme";
 
 // Tiny hand-drawn glyphs so the app has no icon dependency.
 
-export function MenuIcon({ color = colors.ink }: { color?: string }) {
+export function MenuIcon({ color = colors.ink }: { color?: ColorValue }) {
   return (
     <View style={styles.menu}>
       <View style={[styles.bar, { width: 18, backgroundColor: color }]} />
@@ -13,11 +13,15 @@ export function MenuIcon({ color = colors.ink }: { color?: string }) {
   );
 }
 
-export function ArrowUpIcon({ color = colors.darkText }: { color?: string }) {
+export function ArrowUpIcon({
+  color = colors.darkText,
+}: {
+  color?: ColorValue;
+}) {
   return <Text style={[styles.glyph, { color }]}>↑</Text>;
 }
 
-export function StopIcon({ color = colors.darkText }: { color?: string }) {
+export function StopIcon({ color = colors.darkText }: { color?: ColorValue }) {
   return <View style={[styles.stop, { backgroundColor: color }]} />;
 }
 
@@ -37,7 +41,7 @@ export function Dot({
   size = 8,
   hollow = false,
 }: {
-  color?: string;
+  color?: ColorValue;
   size?: number;
   hollow?: boolean;
 }) {
@@ -55,7 +59,7 @@ export function Dot({
   );
 }
 
-export function BellIcon({ color = colors.ink }: { color?: string }) {
+export function BellIcon({ color = colors.ink }: { color?: ColorValue }) {
   return (
     <View style={styles.bell}>
       <View style={[styles.bellBody, { borderColor: color }]} />
@@ -64,7 +68,7 @@ export function BellIcon({ color = colors.ink }: { color?: string }) {
   );
 }
 
-export function SteeringIcon({ color = colors.ink }: { color?: string }) {
+export function SteeringIcon({ color = colors.ink }: { color?: ColorValue }) {
   return (
     <View style={styles.steer}>
       <View style={[styles.steerRing, { borderColor: color }]} />
@@ -73,7 +77,7 @@ export function SteeringIcon({ color = colors.ink }: { color?: string }) {
   );
 }
 
-export function CardsIcon({ color = colors.ink }: { color?: string }) {
+export function CardsIcon({ color = colors.ink }: { color?: ColorValue }) {
   return (
     <View style={styles.cards}>
       <View style={[styles.cardBack, { borderColor: color }]} />
@@ -82,7 +86,7 @@ export function CardsIcon({ color = colors.ink }: { color?: string }) {
   );
 }
 
-export function LockIcon({ color = colors.inkSoft }: { color?: string }) {
+export function LockIcon({ color = colors.inkSoft }: { color?: ColorValue }) {
   return (
     <View style={styles.lock}>
       <View style={[styles.lockShackle, { borderColor: color }]} />

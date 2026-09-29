@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
+  type ColorValue,
   Pressable,
   StyleSheet,
   Text,
@@ -304,7 +305,7 @@ function ActivityRow({
   );
 }
 
-function statusColor(status: ToolStatus): string {
+function statusColor(status: ToolStatus): ColorValue {
   switch (status) {
     case "completed":
       return colors.ok;
@@ -549,7 +550,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill,
   },
   optionPrimary: { backgroundColor: colors.dark },
-  optionSecondary: { backgroundColor: "rgba(28,27,24,0.08)" },
+  optionSecondary: { backgroundColor: colors.fill },
   optionPrimaryText: {
     color: colors.darkText,
     fontFamily: fonts.sansSemi,

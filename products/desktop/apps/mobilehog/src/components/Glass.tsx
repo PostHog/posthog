@@ -1,6 +1,7 @@
 import { GlassView, isLiquidGlassAvailable } from "expo-glass-effect";
 import type { ReactNode } from "react";
 import {
+  type ColorValue,
   Pressable,
   type StyleProp,
   StyleSheet,
@@ -15,7 +16,7 @@ interface GlassProps {
   children?: ReactNode;
   style?: StyleProp<ViewStyle>;
   interactive?: boolean;
-  tint?: string;
+  tint?: ColorValue;
 }
 
 // Real Liquid Glass on iOS 26, a translucent card everywhere else.
@@ -40,7 +41,7 @@ interface GlassButtonProps {
   onPress: () => void;
   size?: number;
   disabled?: boolean;
-  tint?: string;
+  tint?: ColorValue;
   style?: StyleProp<ViewStyle>;
 }
 
@@ -80,7 +81,7 @@ const styles = StyleSheet.create({
   fallback: {
     backgroundColor: colors.glass,
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "rgba(255,255,255,0.8)",
+    borderColor: colors.line,
     shadowColor: "#000",
     shadowOpacity: 0.06,
     shadowRadius: 12,

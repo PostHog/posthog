@@ -65,7 +65,6 @@ export function Composer({
         style={styles.input}
         multiline
         autoFocus={autoFocus}
-        keyboardAppearance="light"
       />
       <View style={styles.row}>
         <Pressable
@@ -142,7 +141,7 @@ const styles = StyleSheet.create({
   },
   row: { flexDirection: "row", alignItems: "center", gap: 8 },
   pill: {
-    backgroundColor: "rgba(21,21,21,0.06)",
+    backgroundColor: colors.fill,
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: radius.pill,
