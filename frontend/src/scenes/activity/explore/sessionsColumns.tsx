@@ -1,7 +1,11 @@
+import { router } from 'kea-router'
+
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { colonDelimitedDuration } from 'lib/utils/durations'
+import { newInternalTab } from 'lib/utils/newInternalTab'
 import { SessionDisplay } from 'scenes/sessions/SessionDisplay'
+import { urls } from 'scenes/urls'
 
 import { DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
 import { DataTableNode, SessionsQuery } from '~/queries/schema/schema-general'
@@ -67,6 +71,34 @@ export function getSessionsColumns(): QueryContext['columns'] {
             title: 'Bounced',
             render: ({ value }) => <>{value === 1 || value === true ? 'Yes' : 'No'}</>,
         },
+    }
+}
+
+const INTERACTIVE_SELECTOR = 'a, button, input, select, textarea, [role="button"]'
+
+export function createSessionsRowProps(query: DataTableNode): QueryContext['rowProps'] {
+    const sessionIdIndex = isSessionsQuery(query.source) ? (query.source.select?.indexOf('session_id') ?? -1) : -1
+
+    return (record: unknown) => {
+        const result = (record as DataTableRow | null)?.result
+        const sessionId = sessionIdIndex !== -1 && Array.isArray(result) ? result[sessionIdIndex] : undefined
+        if (typeof sessionId !== 'string' || !sessionId) {
+            return {}
+        }
+        return {
+            className: 'cursor-pointer',
+            onClick: (e: React.MouseEvent<HTMLTableRowElement>) => {
+                if ((e.target as HTMLElement).closest(INTERACTIVE_SELECTOR)) {
+                    return
+                }
+                const url = urls.sessionProfile(sessionId)
+                if (e.metaKey || e.ctrlKey) {
+                    newInternalTab(url)
+                } else {
+                    router.actions.push(url)
+                }
+            },
+        }
     }
 }
 

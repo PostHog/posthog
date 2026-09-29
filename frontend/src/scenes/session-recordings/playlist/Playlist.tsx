@@ -26,6 +26,7 @@ import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToN
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 import { RecordingsUniversalFiltersEmbedButton } from 'scenes/session-recordings/filters/RecordingsUniversalFiltersEmbed'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
+import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { playlistFiltersLogic } from 'scenes/session-recordings/playlist/playlistFiltersLogic'
 import { SessionRecordingPreview } from 'scenes/session-recordings/playlist/SessionRecordingPreview'
 import { sessionRecordingsPlaylistLogic } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
@@ -224,12 +225,19 @@ export function Playlist({
         selectInitialItem && firstItem ? firstItem.id : null
     )
 
+    const activeItemId = activeSessionRecordingId === undefined ? controlledActiveItemId : activeSessionRecordingId
+
     const onChangeActiveItem = (item: SessionRecordingType): void => {
+        if (item.id === activeItemId) {
+            // A click on the open recording must still respond, so it plays or pauses the player
+            sessionRecordingPlayerLogic
+                .findMounted({ playerKey: logicKey ?? 'playlist', sessionRecordingId: item.id })
+                ?.actions.togglePlayPause()
+            return
+        }
         setControlledActiveItemId(item.id)
         setSelectedRecordingId(item.id)
     }
-
-    const activeItemId = activeSessionRecordingId === undefined ? controlledActiveItemId : activeSessionRecordingId
 
     const emptyState =
         type === 'collection' ? (
