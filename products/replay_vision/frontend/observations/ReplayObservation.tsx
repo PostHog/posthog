@@ -6,9 +6,7 @@ import { IconArrowLeft, IconArrowRight } from '@posthog/icons'
 import { LemonButton, LemonCard, Link, Spinner } from '@posthog/lemon-ui'
 
 import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -18,22 +16,20 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
-import { CitedMarkdown } from '../components/CitedMarkdown'
 import { LabeledRow } from '../components/LabeledRow'
 import { readResult } from '../components/ObservationCard'
 import { ObservationProgressBar } from '../components/ObservationProgressBar'
+import { ObservationPrompt } from '../components/ObservationPrompt'
 import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
-import type { ReplayObservationApi } from '../generated/api.schemas'
-import { PromptPreview } from '../replay_scanners/components/PromptPreview'
 import { configFromSnapshot } from '../replay_scanners/types'
-import { hasScannerPage, scannerLabel } from '../utils/observation'
+import { scannerLabel } from '../utils/observation'
 import { parseNumericParam } from '../utils/urlParams'
 import { ObservationDetails } from './ObservationDetails'
 import { ObservationFacts } from './ObservationFacts'
 import { ObservationHeadline } from './ObservationHeadline'
 import { ObservationLabelControl } from './ObservationLabelControl'
-import { observationLabelLogic } from './observationLabelLogic'
 import { ObservationPinnedProperties } from './ObservationPinnedProperties'
+import { ObservationReasoning } from './ObservationReasoning'
 import { ObservationRecordingUnavailable } from './ObservationRecordingUnavailable'
 import { ObservationShareButton } from './ObservationShareButton'
 import { ObservationUnsuccessfulScan } from './ObservationUnsuccessfulScan'
@@ -52,35 +48,6 @@ export const scene: SceneExport = {
     component: ReplayObservationSceneComponent,
     logic: replayObservationSceneLogic,
     productKey: ProductKey.REPLAY_VISION,
-}
-
-/** Rating happens here, not in the Calibration tab, so a rater never sees the recommendation it feeds. */
-function CalibrationEntryPoint({ observation }: { observation: ReplayObservationApi }): JSX.Element | null {
-    const { featureFlags } = useValues(featureFlagLogic)
-    // Read the rating from the control's logic rather than the loaded observation, which keeps the
-    // label it was fetched with. The control alongside builds this same keyed logic.
-    const { label } = useValues(
-        observationLabelLogic({ observationId: observation.id, initialLabel: observation.label })
-    )
-    // Multivariate flags resolve to the variant key, and "control" is truthy, so compare rather than coerce.
-    if (
-        !label ||
-        !hasScannerPage(observation) ||
-        featureFlags[FEATURE_FLAGS.REPLAY_VISION_CALIBRATION_ENTRY_POINT] !== 'test'
-    ) {
-        return null
-    }
-    return (
-        <p className="text-sm text-muted m-0">
-            <Link
-                to={`${urls.replayVision(observation.scanner_id)}?tab=calibration`}
-                data-attr="vision-observation-calibration-entry-point"
-            >
-                Rate more results for this scanner
-            </Link>{' '}
-            to get a config recommendation from your ratings.
-        </p>
-    )
 }
 
 export function ReplayObservationSceneComponent(): JSX.Element {
@@ -244,9 +211,11 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                         <section className="border rounded p-4 bg-surface-primary flex flex-col gap-4">
                             {/* Only a finished scan answered the prompt, so the question shows beside its answer. */}
                             {prompt && observation.status === 'succeeded' && (
-                                <LabeledRow label="Prompt">
-                                    <PromptPreview prompt={prompt} dataAttr="vision-observation-show-prompt" />
-                                </LabeledRow>
+                                <ObservationPrompt
+                                    prompt={prompt}
+                                    question={observation.prompt_question}
+                                    size="medium"
+                                />
                             )}
 
                             <ObservationUnsuccessfulScan
@@ -257,21 +226,23 @@ export function ReplayObservationSceneComponent(): JSX.Element {
 
                             {observation.status === 'succeeded' && snapshot && result && (
                                 <>
-                                    <ObservationHeadline observation={observation} onSeek={seekEmbeddedPlayer} />
-                                    {scannerType !== 'summarizer' && reasoning && (
-                                        <LabeledRow label="Reasoning">
-                                            <CitedMarkdown
-                                                text={reasoning}
-                                                segments={reasoningSegments}
-                                                onSeek={seekEmbeddedPlayer}
-                                            />
-                                        </LabeledRow>
-                                    )}
+                                    {/* The answer and its evidence sit closer to each other than to the rest. */}
+                                    <div className="flex flex-col gap-2">
+                                        <ObservationHeadline observation={observation} onSeek={seekEmbeddedPlayer} />
+                                        {scannerType !== 'summarizer' && reasoning && (
+                                            <LabeledRow label="Reasoning" size="medium">
+                                                <ObservationReasoning
+                                                    reasoning={reasoning}
+                                                    segments={reasoningSegments}
+                                                    onSeek={seekEmbeddedPlayer}
+                                                />
+                                            </LabeledRow>
+                                        )}
+                                    </div>
                                     <ObservationLabelControl
                                         observationId={observation.id}
                                         initialLabel={observation.label}
                                     />
-                                    <CalibrationEntryPoint observation={observation} />
                                 </>
                             )}
 
