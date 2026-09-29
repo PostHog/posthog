@@ -45,6 +45,8 @@ class ManagedDecisionModel:
         if not posthoganalytics.personal_api_key:
             if version is not None:
                 raise RuntimeError(f"Managed prompt version {version} requires POSTHOG_PERSONAL_API_KEY")
+            if self._prompts is not None:
+                raise RuntimeError("Managed prompt key is no longer available")
             return self.fallback
         with self._prompts_lock:
             if self._prompts is None:

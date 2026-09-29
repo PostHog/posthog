@@ -115,3 +115,18 @@ class TestManagedDecisionModel(SimpleTestCase):
 
         assert managed.current() == NEW_MODEL
         prompts.assert_called_once()
+
+    @patch("posthog.llm.managed_decision_model.Prompts")
+    def test_losing_the_key_preserves_the_last_managed_model(self, prompts) -> None:
+        managed = ManagedDecisionModel("emoji-search-suggestions")
+        prompts.return_value.get.return_value = PromptResult(
+            source="api", prompt="Emoji search", config={"model": NEW_MODEL}
+        )
+
+        with patch("posthog.llm.managed_decision_model.posthoganalytics.personal_api_key", "test-key"):
+            managed._refresh()
+        with patch("posthog.llm.managed_decision_model.posthoganalytics.personal_api_key", ""):
+            managed._refresh()
+
+        assert managed.current() == NEW_MODEL
+        prompts.return_value.get.assert_called_once()
