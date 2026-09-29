@@ -24,6 +24,14 @@ SURFACE_EFFECT: dict[Surface, str] = {
     Surface.SIGNUP_RISK: "exempt",
 }
 
+# Target types a surface accepts, where accepting every type would be too broad. The hub
+# refuses these combinations when a rule is written; refusing them again here means a
+# widening there cannot switch off a protection without a change on this side too. A
+# surface absent from this map accepts any target type.
+SURFACE_TARGET_TYPES: dict[Surface, frozenset[str]] = {
+    Surface.SIGNUP_RISK: frozenset({"email", "email_domain"}),
+}
+
 PROTECTED_DOMAIN = "posthog.com"
 
 
@@ -42,9 +50,11 @@ def deciding_rule(index: RuleIndex, subject: Subject, surface: Surface, now: dat
     # account. Exemptions still apply to one.
     if effect == "block" and is_protected_domain(subject.domain):
         return None
+    allowed_targets = SURFACE_TARGET_TYPES.get(surface)
     for rule in candidates(index, subject):
         if (
             rule.effect == effect
+            and (allowed_targets is None or rule.target_type in allowed_targets)
             and surface in SCOPE_SURFACES.get(rule.scope, frozenset())
             and _is_active(rule, now)
             and rule_matches(rule, subject)
