@@ -2335,6 +2335,14 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         response = execute_hogql_query(query, team=self.team)
         self.assertEqual(response.results, [(Decimal("0"),)])
 
+    def test_currency_conversion_with_null_currency_from(self):
+        # A source row with no currency must convert to 0 like an unknown one, not fail the whole query.
+        query = (
+            "SELECT convertCurrency(c, 'EUR', 100, _toDate('2024-01-01')) FROM (SELECT arrayJoin([NULL, 'USD']) AS c)"
+        )
+        response = execute_hogql_query(query, team=self.team)
+        self.assertEqual(response.results, [(Decimal("0"),), (Decimal("90.49"),)])
+
     def test_currency_conversion_with_bogus_currency_to(self):
         query = "SELECT convertCurrency('USD', 'BOGUS', 100, _toDate('2024-01-01'))"
         response = execute_hogql_query(query, team=self.team)

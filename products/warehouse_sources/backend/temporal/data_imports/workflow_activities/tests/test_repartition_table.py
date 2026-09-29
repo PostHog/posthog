@@ -1,6 +1,7 @@
 import uuid
 import datetime as dt
 import contextvars
+from typing import Any
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -23,6 +24,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.rep
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition_controller import (
     MAX_REPARTITION_ATTEMPTS,
+    repartition_activity_has_work,
 )
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.repartition_table import (
     RepartitionActivityInputs,
@@ -32,6 +34,7 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
 )
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.workflow_activities.repartition_table"
+CONTROLLER_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition_controller"
 
 TEAM_ID = 1
 SCHEMA_ID = str(uuid.uuid4())
@@ -662,6 +665,67 @@ class TestKilledAttemptRetry:
             schema.clear_repartition_pending.assert_called_once()
             schema.stamp_last_repartition_at.assert_called_once()
 
+    @patch(f"{MODULE}.capture_exception")
+    @patch(f"{MODULE}.capture_repartition_event")
+    @patch(f"{MODULE}.HeartbeaterSync")
+    @patch(f"{MODULE}.repartition_table_in_place", new_callable=AsyncMock)
+    @patch(f"{MODULE}.DeltaTableRef")
+    @patch(f"{MODULE}.is_auto_coarsen_enabled", return_value=True)
+    @patch(f"{MODULE}.is_auto_repartition_enabled", return_value=True)
+    @patch(f"{MODULE}.ExternalDataJob")
+    @patch(f"{MODULE}.ExternalDataSchema")
+    def test_the_cap_does_not_discard_a_swap_staged_while_it_was_deciding(
+        self,
+        mock_schema_model: MagicMock,
+        _mock_job_model: MagicMock,
+        _mock_enabled: MagicMock,
+        _mock_coarsen_enabled: MagicMock,
+        _mock_helper_cls: MagicMock,
+        mock_repartition: AsyncMock,
+        _mock_heartbeater: MagicMock,
+        mock_capture_event: MagicMock,
+        _mock_capture_exception: MagicMock,
+    ) -> None:
+        # Every attempt that spends the cap died without recording an outcome, and a heartbeat-timed-out
+        # one keeps running meanwhile: it can stage a swap between the markers being read and the cap
+        # being weighed. Giving up there writes back the whole stale config, so the swap marker — which
+        # says what scheme the data on disk now carries, and holds this schema's imports until it
+        # resolves — would be erased and the next merge would run against settings that no longer
+        # describe the table.
+        schema = _schema(
+            name="public.deals",
+            s3_folder_name="deals",
+            pending={
+                **PENDING_TARGET,
+                "trigger_reason": "coarsening",
+                "attempts": MAX_REPARTITION_ATTEMPTS,
+                "charged_job_id": str(uuid.uuid4()),
+                "attempt_rows": 488925,
+                "run_rows": 488925,
+            },
+            rewrite={"rows_written": 488925},
+        )
+        staged_swap = {
+            "state": "ready",
+            "temp_uri": "s3://bucket/deals__repartitioned",
+            "live_uri": "s3://bucket/deals",
+        }
+        schema.refresh_from_db.side_effect = lambda **_: setattr(schema, "repartition_swap", staged_swap)
+        mock_schema_model.objects.select_related.return_value.get.return_value = schema
+        mock_repartition.return_value = {"outcome": "completed"}
+
+        _maybe_repartition_table(
+            RepartitionActivityInputs(team_id=TEAM_ID, schema_id=SCHEMA_ID, job_id=JOB_ID, source_id=SOURCE_ID),
+            MagicMock(),
+        )
+
+        emitted = [c.args[0] for c in mock_capture_event.call_args_list]
+        assert "warehouse_repartition_failed" not in emitted
+        schema.clear_repartition_swap.assert_not_called()
+        schema.clear_repartition_pending.assert_not_called()
+        # The swap is driven to completion instead of being abandoned at the cap.
+        mock_repartition.assert_awaited_once()
+
 
 class TestTransientObjectStoreFailure:
     @patch(f"{MODULE}.capture_exception")
@@ -1061,6 +1125,63 @@ class TestFeatureFlagGate:
         )
 
         assert mock_repartition.await_count == (1 if expect_rewrite else 0)
+
+
+class TestRepartitionActivityHasWork:
+    @parameterized.expand(
+        [
+            (
+                "revive_pending_stands_down",
+                {"delta_revive_required": {"at": "x"}},
+                PENDING_TARGET,
+                None,
+                None,
+                True,
+                False,
+            ),
+            ("queued_rewrite_flag_on", {}, PENDING_TARGET, None, None, True, True),
+            # The activity's own fast path treats a queued rewrite as a no-op once the flag that
+            # staged it is disabled (the flag is the only lever support has to release such a table) —
+            # this must agree, or the schema keeps paying a full activity round trip forever.
+            ("queued_rewrite_released_by_disabled_flag", {}, PENDING_TARGET, None, None, False, False),
+            (
+                "queued_rewrite_admin_reason_fails_open",
+                {},
+                {**PENDING_TARGET, "trigger_reason": "admin"},
+                None,
+                None,
+                False,
+                True,
+            ),
+            ("staged_swap", {}, None, {"state": "ready"}, None, False, True),
+            ("flag_on_measures_the_table", {}, None, None, None, True, True),
+            ("flag_off_nothing_queued", {}, None, None, None, False, False),
+            ("coarsen_nomination_without_flag", {}, None, None, {"requested_by": "op"}, False, True),
+            ("cdc_never_measures", {"sync_type": ExternalDataSchema.SyncType.CDC}, None, None, None, True, False),
+        ]
+    )
+    @patch(f"{CONTROLLER_MODULE}.is_auto_repartition_enabled")
+    def test_matches_the_activitys_own_fast_path(
+        self,
+        _name: str,
+        overrides: dict[str, Any],
+        pending: dict[str, Any] | None,
+        swap: dict[str, Any] | None,
+        coarsen_requested: dict[str, Any] | None,
+        enabled: bool,
+        expected: bool,
+        mock_enabled: MagicMock,
+    ) -> None:
+        # The workflow skips scheduling the activity on this answer, so a False here for a table the
+        # activity would have rewritten or measured silently stops that table repartitioning.
+        mock_enabled.return_value = enabled
+        schema = _schema(name="public.usages", s3_folder_name="usages", pending=pending, swap=swap)
+        schema.sync_type = ExternalDataSchema.SyncType.INCREMENTAL
+        schema.coarsen_requested = coarsen_requested
+        for attribute, value in overrides.items():
+            setattr(schema, attribute, value)
+
+        assert repartition_activity_has_work(schema) is expected
 
 
 class TestMaybeFlagPreExtraction:

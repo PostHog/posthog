@@ -47,7 +47,6 @@ from posthog.models import Organization, Project, Team
 from posthog.models.app_metrics2.sql import TRUNCATE_APP_METRICS2_TABLE_SQL
 from posthog.models.event.util import create_event
 from posthog.models.group.util import create_group
-from posthog.models.scoping import team_scope
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.tasks.usage_report import (
@@ -56,6 +55,7 @@ from posthog.tasks.usage_report import (
     UsageReportCounters,
     _add_team_report_to_org_reports,
     _execute_calendar_aligned_split_query,
+    _execute_split_query,
     _get_all_org_reports,
     _get_all_usage_data_as_team_rows,
     _get_full_org_usage_report,
@@ -80,12 +80,8 @@ from posthog.test.fixtures import create_app_metric2
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from posthog.utils import get_previous_day
 
-from products.batch_exports.backend.models.batch_export import (
-    BatchExport,
-    BatchExportDestination,
-    BatchExportOnDemand,
-    BatchExportRun,
-)
+from products.batch_exports.backend.facade import testing as batch_exports_testing
+from products.batch_exports.backend.facade.contracts import BatchExportModel, BatchExportRunStatus, DestinationType
 from products.cdp.backend.models.plugin import Plugin, PluginConfig
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
@@ -1592,6 +1588,87 @@ class TestHogQLUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTa
 
 
 class TestQueryUsageReportSQL:
+    @patch("posthog.tasks.usage_report.sync_execute")
+    def test_execute_split_query_splits_correctly(self, mock_sync_execute: MagicMock) -> None:
+        team_id = 1
+        begin = datetime(2023, 1, 1)
+        end = datetime(2023, 1, 2)
+        mock_sync_execute.side_effect = [[(team_id, 5)], [(team_id, 5)]]
+
+        query_template = """
+            SELECT team_id, count(1) as count
+            FROM events
+            WHERE timestamp BETWEEN %(begin)s AND %(end)s
+            GROUP BY team_id
+        """
+
+        result = _execute_split_query(
+            begin=begin,
+            end=end,
+            query_template=query_template,
+            params={},
+            num_splits=2,
+        )
+
+        assert mock_sync_execute.call_count == 2
+        first_call_args = mock_sync_execute.call_args_list[0][0]
+        first_call_kwargs = mock_sync_execute.call_args_list[0].kwargs
+        assert first_call_args[1]["begin"] == begin
+        assert first_call_kwargs["ch_user"] == ClickHouseUser.BILLING
+        mid_point = begin + (end - begin) / 2
+        assert first_call_args[1]["end"] == mid_point
+
+        second_call_args = mock_sync_execute.call_args_list[1][0]
+        second_call_kwargs = mock_sync_execute.call_args_list[1].kwargs
+        assert second_call_args[1]["begin"] == mid_point
+        assert second_call_kwargs["ch_user"] == ClickHouseUser.BILLING
+        assert second_call_args[1]["end"] == end
+        assert result == [(team_id, 10)]
+
+    @patch("posthog.tasks.usage_report.sync_execute")
+    def test_execute_split_query_with_custom_combiner(self, mock_sync_execute: MagicMock) -> None:
+        team_id = 1
+        begin = datetime(2023, 1, 1)
+        end = datetime(2023, 1, 2)
+        mock_sync_execute.side_effect = [
+            [(team_id, "web_events", 3)],
+            [(team_id, "web_events", 2), (team_id, "mobile_events", 1)],
+        ]
+
+        def custom_combiner(results_list: list) -> dict[str, list[tuple[int, int]]]:
+            metrics: dict[str, dict[int, int]] = {
+                "web_events": {},
+                "mobile_events": {},
+            }
+
+            for results in results_list:
+                for result_team_id, metric, count in results:
+                    if result_team_id in metrics[metric]:
+                        metrics[metric][result_team_id] += count
+                    else:
+                        metrics[metric][result_team_id] = count
+
+            return {metric: list(team_counts.items()) for metric, team_counts in metrics.items()}
+
+        query_template = """
+            SELECT team_id, 'web_events' as metric, count(1) as count
+            FROM events
+            WHERE timestamp BETWEEN %(begin)s AND %(end)s
+            GROUP BY team_id, metric
+        """
+
+        result = _execute_split_query(
+            begin=begin,
+            end=end,
+            query_template=query_template,
+            params={},
+            num_splits=2,
+            combine_results_func=custom_combiner,
+        )
+
+        assert result["web_events"] == [(team_id, 5)]
+        assert result["mobile_events"] == [(team_id, 1)]
+
     @patch("posthog.tasks.usage_report.sync_execute", return_value=[(1, 100)])
     def test_get_teams_with_query_metric_uses_event_time_pruning_window(self, mock_sync_execute: MagicMock) -> None:
         begin = datetime(2026, 6, 15, tzinfo=tzutc())
@@ -2282,7 +2359,7 @@ class TestTrimOversizeUsageReportPayload(TestCase):
         assert len(json.dumps(result, default=str)) <= MAX_USAGE_REPORT_PAYLOAD_BYTES
 
 
-class TestHasNonZeroUsage(TestCase):
+class TestHasNonZeroUsage(SimpleTestCase):
     def _zeroed_counters(self) -> UsageReportCounters:
         zero_values: dict[str, Any] = {}
         for field in dataclasses.fields(UsageReportCounters):
@@ -2294,6 +2371,8 @@ class TestHasNonZeroUsage(TestCase):
             ("empty", None),
             ("events", "event_count_in_period"),
             ("logs_bytes", "logs_bytes_in_period"),
+            ("signals_credits", "signals_credits_used_in_period"),
+            ("posthog_code_credits", "posthog_code_credits_used_in_period"),
         ]
     )
     def test_has_non_zero_usage(self, _name: str, non_zero_field: str | None) -> None:
@@ -2738,23 +2817,13 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
         # created at doesn't matter. just what's running or completed at run time
         self._setup_teams()
 
-        batch_export_destination = BatchExportDestination.objects.create(
-            type=BatchExportDestination.Destination.AWS_S3,
-            config={"bucket_name": "my_production_s3_bucket"},
-        )
-        BatchExport.objects.create(
-            team_id=3,
-            name="A batch export",
-            destination=batch_export_destination,
-            paused=False,
-        )
-
-        BatchExport.objects.create(
-            team=self.analytics_team,
-            name="A batch export",
-            destination=batch_export_destination,
-            paused=False,
-        )
+        for team_id in (3, self.analytics_team.id):
+            batch_exports_testing.create_batch_export(
+                team_id,
+                name="A batch export",
+                destination_type=DestinationType.AWS_S3,
+                destination_config={"bucket_name": "my_production_s3_bucket"},
+            )
 
         period = get_previous_day(at=now() + relativedelta(days=1))
         all_reports = _get_all_org_reports(period=period)
@@ -2782,75 +2851,56 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
     ) -> None:
         self._setup_teams()
 
-        batch_export_destination = BatchExportDestination.objects.create(
-            type=BatchExportDestination.Destination.AWS_S3,
-            config={"bucket_name": "test_bucket"},
-        )
-        batch_export = BatchExport.objects.create(
-            team_id=3,
+        batch_export_id = batch_exports_testing.create_batch_export(
+            3,
             name="Test export",
-            destination=batch_export_destination,
-            paused=False,
-            model=BatchExport.Model.EVENTS,
+            destination_type=DestinationType.AWS_S3,
+            destination_config={"bucket_name": "test_bucket"},
+            model=BatchExportModel.EVENTS,
+        )
+        on_demand_id = batch_exports_testing.create_batch_export_on_demand(
+            3,
+            destination_type=DestinationType.FILE_DOWNLOAD,
+            destination_config={"format": "Parquet"},
+            model=BatchExportModel.EVENTS,
         )
 
-        batch_export_on_demand_destination = BatchExportDestination.objects.create(
-            type=BatchExportDestination.Destination.FILE_DOWNLOAD,
-            config={"format": "Parquet"},
-        )
-        with team_scope(team_id=3, canonical=True):
-            batch_export_on_demand = BatchExportOnDemand.objects.create(
-                team_id=3,
-                destination=batch_export_on_demand_destination,
-                model=BatchExport.Model.EVENTS,
-            )
-
-        for i in range(3):
-            BatchExportRun.objects.create(
-                batch_export=batch_export,
-                data_interval_end=now() - timedelta(hours=i),
-                data_interval_start=now() - timedelta(hours=i + 1),
-                finished_at=now(),
-                status=BatchExportRun.Status.COMPLETED,
-                records_completed=100 * (i + 1),  # 100, 200, 300
-            )
-
-        for i in range(3):
-            BatchExportRun.objects.create(
-                batch_export_on_demand=batch_export_on_demand,
-                data_interval_end=now() - timedelta(hours=i),
-                data_interval_start=now() - timedelta(hours=i + 1),
-                finished_at=now(),
-                status=BatchExportRun.Status.COMPLETED,
-                records_completed=100 * (i + 1),  # 100, 200, 300
-            )
+        for parent_id, parent_on_demand_id in ((batch_export_id, None), (None, on_demand_id)):
+            for i in range(3):
+                batch_exports_testing.create_batch_export_run(
+                    batch_export_id=parent_id,
+                    on_demand_id=parent_on_demand_id,
+                    data_interval_end=now() - timedelta(hours=i),
+                    data_interval_start=now() - timedelta(hours=i + 1),
+                    finished_at=now(),
+                    status=BatchExportRunStatus.COMPLETED,
+                    records_completed=100 * (i + 1),  # 100, 200, 300
+                )
 
         # The HogQL model is free while it is in closed beta, so its rows are not counted.
-        hogql_batch_export = BatchExport.objects.create(
-            team_id=3,
+        hogql_batch_export_id = batch_exports_testing.create_batch_export(
+            3,
             name="Test HogQL export",
-            destination=batch_export_destination,
-            paused=False,
-            model=BatchExport.Model.HOGQL,
+            destination_type=DestinationType.AWS_S3,
+            destination_config={"bucket_name": "test_bucket"},
+            model=BatchExportModel.HOGQL,
         )
-        with team_scope(team_id=3, canonical=True):
-            hogql_batch_export_on_demand = BatchExportOnDemand.objects.create(
-                team_id=3,
-                destination=batch_export_on_demand_destination,
-                model=BatchExportOnDemand.Model.HOGQL,
-            )
+        hogql_on_demand_id = batch_exports_testing.create_batch_export_on_demand(
+            3,
+            destination_type=DestinationType.FILE_DOWNLOAD,
+            destination_config={"format": "Parquet"},
+            model=BatchExportModel.HOGQL,
+        )
 
-        for hogql_export_kwargs in (
-            {"batch_export": hogql_batch_export},
-            {"batch_export_on_demand": hogql_batch_export_on_demand},
-        ):
-            BatchExportRun.objects.create(
+        for parent_id, parent_on_demand_id in ((hogql_batch_export_id, None), (None, hogql_on_demand_id)):
+            batch_exports_testing.create_batch_export_run(
+                batch_export_id=parent_id,
+                on_demand_id=parent_on_demand_id,
                 data_interval_end=now(),
                 data_interval_start=now() - timedelta(hours=1),
                 finished_at=now(),
-                status=BatchExportRun.Status.COMPLETED,
+                status=BatchExportRunStatus.COMPLETED,
                 records_completed=5000,
-                **hogql_export_kwargs,
             )
 
         period = get_previous_day(at=now() + relativedelta(days=1))
@@ -2873,44 +2923,28 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
     ) -> None:
         self._setup_teams()
 
-        batch_export_destination = BatchExportDestination.objects.create(
-            type=BatchExportDestination.Destination.WORKFLOWS,
-            config={},
-        )
-        batch_export = BatchExport.objects.create(
-            team_id=3,
+        batch_export_id = batch_exports_testing.create_batch_export(
+            3,
             name="Test export",
-            destination=batch_export_destination,
-            paused=False,
-            model=BatchExport.Model.EVENTS,
+            destination_type=DestinationType.WORKFLOWS,
+            destination_config={},
+            model=BatchExportModel.EVENTS,
+        )
+        on_demand_id = batch_exports_testing.create_batch_export_on_demand(
+            3, destination_type=DestinationType.WORKFLOWS, destination_config={}, model=BatchExportModel.EVENTS
         )
 
-        with team_scope(team_id=3, canonical=True):
-            batch_export_on_demand = BatchExportOnDemand.objects.create(
-                team_id=3,
-                destination=batch_export_destination,
-                model=BatchExport.Model.EVENTS,
-            )
-
-        for i in range(3):
-            BatchExportRun.objects.create(
-                batch_export=batch_export,
-                data_interval_end=now() - timedelta(hours=i),
-                data_interval_start=now() - timedelta(hours=i + 1),
-                finished_at=now(),
-                status=BatchExportRun.Status.COMPLETED,
-                records_completed=100 * (i + 1),  # 100, 200, 300
-            )
-
-        for i in range(3):
-            BatchExportRun.objects.create(
-                batch_export_on_demand=batch_export_on_demand,
-                data_interval_end=now() - timedelta(hours=i),
-                data_interval_start=now() - timedelta(hours=i + 1),
-                finished_at=now(),
-                status=BatchExportRun.Status.COMPLETED,
-                records_completed=100 * (i + 1),  # 100, 200, 300
-            )
+        for parent_id, parent_on_demand_id in ((batch_export_id, None), (None, on_demand_id)):
+            for i in range(3):
+                batch_exports_testing.create_batch_export_run(
+                    batch_export_id=parent_id,
+                    on_demand_id=parent_on_demand_id,
+                    data_interval_end=now() - timedelta(hours=i),
+                    data_interval_start=now() - timedelta(hours=i + 1),
+                    finished_at=now(),
+                    status=BatchExportRunStatus.COMPLETED,
+                    records_completed=100 * (i + 1),  # 100, 200, 300
+                )
 
         period = get_previous_day(at=now() + relativedelta(days=1))
         all_reports = _get_all_org_reports(period=period)
@@ -4979,17 +5013,6 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         # 1.0 USD * 100 * 1.2 = 120
         self.assertEqual(result, [(self.org_1_team_1.id, 120)])
 
-    def test_has_non_zero_usage_counts_signals_credits(self) -> None:
-        """A signals-only org must survive has_non_zero_usage so its report still reaches billing."""
-        import dataclasses
-
-        from posthog.tasks.usage_report import UsageReportCounters, has_non_zero_usage
-
-        zero = {field.name: 0 for field in dataclasses.fields(UsageReportCounters)}
-
-        self.assertFalse(has_non_zero_usage(UsageReportCounters(**zero)))
-        self.assertTrue(has_non_zero_usage(UsageReportCounters(**{**zero, "signals_credits_used_in_period": 5})))
-
     @patch("posthog.tasks.usage_report.get_instance_region")
     def test_posthog_code_ai_product_excluded_from_ai_credits(self, mock_region: MagicMock) -> None:
         """Generations tagged ai_product='posthog_code' must not count toward PostHog AI credits."""
@@ -5139,17 +5162,6 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
 
         expected = [(self.org_1_team_1.id, expected_credits)] if expected_credits is not None else []
         self.assertEqual(result, expected)
-
-    def test_has_non_zero_usage_counts_posthog_code_credits(self) -> None:
-        """A posthog_code-only org must survive has_non_zero_usage so its report still reaches billing."""
-        import dataclasses
-
-        from posthog.tasks.usage_report import UsageReportCounters, has_non_zero_usage
-
-        zero = {field.name: 0 for field in dataclasses.fields(UsageReportCounters)}
-
-        self.assertFalse(has_non_zero_usage(UsageReportCounters(**zero)))
-        self.assertTrue(has_non_zero_usage(UsageReportCounters(**{**zero, "posthog_code_credits_used_in_period": 5})))
 
 
 class TestTaskSandboxUsageReport(APIBaseTest):
@@ -5980,104 +5992,6 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
         )
 
         flush_persons_and_events()
-
-    @patch("posthog.tasks.usage_report.sync_execute")
-    def test_execute_split_query_splits_correctly(self, mock_sync_execute: MagicMock) -> None:
-        """Test that _execute_split_query correctly splits the time period and combines results."""
-        # Mock the sync_execute to return test data
-        mock_sync_execute.side_effect = [
-            [(self.team.id, 5)],  # First split returns 5 events
-            [(self.team.id, 5)],  # Second split returns 5 events
-        ]
-
-        # Test with 2 splits
-        query_template = """
-            SELECT team_id, count(1) as count
-            FROM events
-            WHERE timestamp BETWEEN %(begin)s AND %(end)s
-            GROUP BY team_id
-        """
-
-        from posthog.tasks.usage_report import _execute_split_query
-
-        result = _execute_split_query(
-            begin=self.begin,
-            end=self.end,
-            query_template=query_template,
-            params={},
-            num_splits=2,
-        )
-
-        # Verify sync_execute was called twice with different time ranges
-        self.assertEqual(mock_sync_execute.call_count, 2)
-
-        # First call should use the first half of the time range
-        first_call_args = mock_sync_execute.call_args_list[0][0]
-        first_call_kwargs = mock_sync_execute.call_args_list[0].kwargs
-        self.assertEqual(first_call_args[1]["begin"], self.begin)
-        self.assertEqual(first_call_kwargs["ch_user"], ClickHouseUser.BILLING)
-        mid_point = self.begin + (self.end - self.begin) / 2
-        self.assertEqual(first_call_args[1]["end"], mid_point)
-
-        # Second call should use the second half of the time range
-        second_call_args = mock_sync_execute.call_args_list[1][0]
-        second_call_kwargs = mock_sync_execute.call_args_list[1].kwargs
-        self.assertEqual(second_call_args[1]["begin"], mid_point)
-        self.assertEqual(second_call_kwargs["ch_user"], ClickHouseUser.BILLING)
-        self.assertEqual(second_call_args[1]["end"], self.end)
-
-        # Result should combine both splits (5 + 5 = 10)
-        self.assertEqual(result, [(self.team.id, 10)])
-
-    @patch("posthog.tasks.usage_report.sync_execute")
-    def test_execute_split_query_with_custom_combiner(self, mock_sync_execute: MagicMock) -> None:
-        """Test that _execute_split_query works with a custom result combiner function."""
-        # Mock the sync_execute to return test data for event metrics
-        mock_sync_execute.side_effect = [
-            [(self.team.id, "web_events", 3)],  # First split
-            [
-                (self.team.id, "web_events", 2),
-                (self.team.id, "mobile_events", 1),
-            ],  # Second split
-        ]
-
-        # Define a custom combiner function similar to what we use in get_all_event_metrics_in_period
-        def custom_combiner(results_list: list) -> dict[str, list[tuple[int, int]]]:
-            metrics: dict[str, dict[int, int]] = {
-                "web_events": {},
-                "mobile_events": {},
-            }
-
-            for results in results_list:
-                for team_id, metric, count in results:
-                    if team_id in metrics[metric]:
-                        metrics[metric][team_id] += count
-                    else:
-                        metrics[metric][team_id] = count
-
-            return {metric: list(team_counts.items()) for metric, team_counts in metrics.items()}
-
-        query_template = """
-            SELECT team_id, 'web_events' as metric, count(1) as count
-            FROM events
-            WHERE timestamp BETWEEN %(begin)s AND %(end)s
-            GROUP BY team_id, metric
-        """
-
-        from posthog.tasks.usage_report import _execute_split_query
-
-        result = _execute_split_query(
-            begin=self.begin,
-            end=self.end,
-            query_template=query_template,
-            params={},
-            num_splits=2,
-            combine_results_func=custom_combiner,
-        )
-
-        # Verify the custom combiner worked correctly
-        self.assertEqual(result["web_events"], [(self.team.id, 5)])
-        self.assertEqual(result["mobile_events"], [(self.team.id, 1)])
 
     def test_get_teams_with_billable_event_count_in_period(self) -> None:
         """Test that get_teams_with_billable_event_count_in_period returns correct results after splitting and excludes AI events."""

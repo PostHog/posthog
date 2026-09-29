@@ -4,7 +4,8 @@ deltalite runs as Temporal activity threads inside a single worker process: ever
 concurrent upsert — plus every delta-rs MERGE fallback and full-sync ``write_deltalake`` —
 shares one address space and one cgroup memory limit. This governor decides, per upsert and
 how large an upsert to run: it picks the per-call knobs
-(``max_parallel_partitions`` / ``max_parallel_files`` / ``max_buffered_bytes``) sized to a fixed
+(``max_parallel_partitions`` / ``max_parallel_files`` / ``max_buffered_bytes`` /
+``probe_concurrency``) sized to a fixed
 per-upsert slice of pod memory. The slice is ``(pod limit × safety − reserve) / max_concurrent``,
 so however many upserts run at once (up to the pod's ``MAX_CONCURRENT_ACTIVITIES``) their peaks sum
 to less than the pod. deltalite therefore **always writes** — it never falls back to the delta-rs
@@ -32,6 +33,13 @@ memory dial) and the write buffers. So the only inputs that matter for sizing ar
 batch size and how many partition workers we permit. The coefficients below mirror
 ``rust/deltalite/python/deltalite_planner.py`` and are conservative starting points — validate
 against real load and re-fit if needed (the process-global backstop holds either way).
+
+Two knobs buy I/O overlap rather than memory: ``max_parallel_files`` (readers per partition
+worker) and ``probe_concurrency`` (PK-column probes per worker). deltalite budgets every decoded
+batch, probe or rewrite, against ``max_buffered_bytes``, so neither knob can push decoded bytes
+past that cap. The governor keeps ``max_parallel_partitions × max_parallel_files`` under the
+reader count of the largest plan the coefficients were measured on, and charges extra readers
+as worker-equivalents, so a plan never predicts less memory than the measured shape it exceeds.
 """
 
 from __future__ import annotations
@@ -81,9 +89,24 @@ _MARGINAL_PER_WORKER_MB = 133.0
 _MARGINAL_PER_SOURCE_MB = 0.73
 #: Beyond 4 partition workers the measured wall-clock gains vanish while memory keeps climbing.
 _MAX_PARALLEL_PARTITIONS = 4
-#: Per-call knobs the governor does not tune (mpp is the memory dial): deltalite's defaults, kept
-#: explicit so the write is deterministic.
-_MAX_PARALLEL_FILES = 4
+#: Concurrent file readers inside one partition worker, the shape the per-worker coefficient
+#: was measured at (deltalite's own default).
+_MEASURED_FILES_PER_WORKER = 4
+#: Readers a partition worker may run once the reader ceiling below allows it. The decoded
+#: survivor bytes stay under ``max_buffered_bytes`` whatever this is; what grows with it is the
+#: compressed row group each open reader holds, which the ceiling bounds.
+_MAX_PARALLEL_FILES = 8
+#: Ceiling on ``max_parallel_partitions × max_parallel_files`` for one upsert: the reader count of
+#: the largest plan the measured defaults could produce. A plan with more readers per worker
+#: therefore never holds more row groups in flight than the model was fitted on.
+_MAX_READERS_PER_UPSERT = _MAX_PARALLEL_PARTITIONS * _MEASURED_FILES_PER_WORKER
+#: Concurrent PK-column probes per partition worker. Each probe holds a Parquet footer and one
+#: decoded batch of the PK columns, and that batch takes byte-budget permits like a rewrite batch,
+#: so probe memory is capped by ``max_buffered_bytes`` at any concurrency. Insert-only batches
+#: into tables with many files are bound by probe round trips, and this overlaps them.
+_PROBE_CONCURRENCY = 32
+#: deltalite's default, kept explicit so the write is deterministic. The per-call cap on decoded
+#: bytes in flight; the reader and probe knobs above scale latency overlap, not this.
 _DEFAULT_BUFFERED_BYTES = 64 * MB
 
 
@@ -98,40 +121,58 @@ class UpsertPlan:
     predicted_peak_mb: float
     #: False when even a single worker exceeds the available slice.
     fits: bool
+    probe_concurrency: int = _PROBE_CONCURRENCY
 
     def as_upsert_kwargs(self) -> dict[str, int]:
         return {
             "max_parallel_partitions": self.max_parallel_partitions,
             "max_parallel_files": self.max_parallel_files,
             "max_buffered_bytes": self.max_buffered_bytes,
+            "probe_concurrency": self.probe_concurrency,
         }
 
 
-def _predict_marginal_mb(source_mb: float, mpp: int) -> float:
-    """Marginal peak RSS one upsert adds while running concurrently (threaded model, REPORT §5.6)."""
-    return _MARGINAL_BASE_MB + _MARGINAL_PER_WORKER_MB * mpp + _MARGINAL_PER_SOURCE_MB * source_mb
+def _files_per_worker(mpp: int) -> int:
+    """Readers per partition worker that keep the upsert under ``_MAX_READERS_PER_UPSERT``."""
+    return max(1, min(_MAX_PARALLEL_FILES, _MAX_READERS_PER_UPSERT // mpp))
+
+
+def _predict_marginal_mb(source_mb: float, mpp: int, files_per_worker: int = _MEASURED_FILES_PER_WORKER) -> float:
+    """Marginal peak RSS one upsert adds while running concurrently (threaded model, REPORT §5.6).
+
+    The per-worker coefficient was measured with ``_MEASURED_FILES_PER_WORKER`` readers, so a worker
+    that runs more readers is charged as that many worker-equivalents. That over-counts (a worker's
+    PK set and write buffer do not grow with its readers), which keeps the prediction conservative.
+    """
+    worker_equivalents = mpp * files_per_worker / _MEASURED_FILES_PER_WORKER
+    return _MARGINAL_BASE_MB + _MARGINAL_PER_WORKER_MB * worker_equivalents + _MARGINAL_PER_SOURCE_MB * source_mb
 
 
 def size_upsert(available_mb: float, source_mb: float, n_partitions: int | None = None) -> UpsertPlan:
     """Pick the largest ``max_parallel_partitions`` whose marginal peak fits ``available_mb``.
 
     ``available_mb`` is the per-upsert memory slice, not the whole pod. Start at the cap and step
-    down. If even a single worker exceeds the slice, return ``mpp=1`` with ``fits=False``. The caller
-    does not fall back on ``fits=False`` — it runs deltalite at ``mpp=1`` anyway (still the memory
-    floor, far below the MERGE) and flags ``capacity_exceeded``. mpp is the memory dial; the other
-    knobs stay at deltalite's defaults.
+    down. Each step gets as many readers per worker as the reader ceiling allows, so an upsert with
+    few partitions overlaps more file reads without exceeding the in-flight readers of a full plan.
+    When no such plan fits, try one worker at the measured reader count; if even that exceeds the
+    slice, return it with ``fits=False``. The caller does not fall back on ``fits=False`` — it runs
+    deltalite at ``mpp=1`` anyway (still the memory floor, far below the MERGE) and flags
+    ``capacity_exceeded``.
     """
     partition_cap = _MAX_PARALLEL_PARTITIONS
     if n_partitions is not None and n_partitions >= 1:
         partition_cap = min(partition_cap, n_partitions)
 
     for mpp in range(partition_cap, 0, -1):
-        predicted = _predict_marginal_mb(source_mb, mpp)
-        if predicted <= available_mb:
-            return UpsertPlan(mpp, _MAX_PARALLEL_FILES, _DEFAULT_BUFFERED_BYTES, round(predicted, 1), fits=True)
+        # Partition workers come first: a plan with more workers beats one with more readers per
+        # worker, so every plan the measured defaults could produce is still reachable.
+        for files in sorted({_files_per_worker(mpp), _MEASURED_FILES_PER_WORKER}, reverse=True):
+            predicted = _predict_marginal_mb(source_mb, mpp, files)
+            if predicted <= available_mb:
+                return UpsertPlan(mpp, files, _DEFAULT_BUFFERED_BYTES, round(predicted, 1), fits=True)
 
     minimal = _predict_marginal_mb(source_mb, 1)
-    return UpsertPlan(1, _MAX_PARALLEL_FILES, _DEFAULT_BUFFERED_BYTES, round(minimal, 1), fits=False)
+    return UpsertPlan(1, _MEASURED_FILES_PER_WORKER, _DEFAULT_BUFFERED_BYTES, round(minimal, 1), fits=False)
 
 
 # --- Reading the pod's real memory (cgroup v2, with v1 and psutil fallbacks) -----------------

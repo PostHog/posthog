@@ -51,7 +51,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition_controller import (
     capture_repartition_event,
-    is_repartition_hold_enabled,
+    repartition_import_hold_reason,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.typings import PipelineResult
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import PipelineInputs
@@ -63,6 +63,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
     AnySource,
     ResumableSource,
     SimpleSource,
+    SourceExtractionNotImplementedError,
     error_message_matches,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.byte_bounded_extraction_flag import (
@@ -70,9 +71,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.byt
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.errors import (
     is_transient_egress_proxy_error,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.fanout_reuse_flag import (
-    is_fanout_warehouse_reuse_enabled,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.history_window import (
     history_start_for_schema,
@@ -90,7 +88,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     validate_and_coerce_row_filters,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.exceptions import CDCHandledExternally
 from products.warehouse_sources.backend.temporal.data_imports.util import PostHogInternalDatabaseError
 from products.warehouse_sources.backend.temporal.data_imports.workload_report import aworkload_reporting
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -109,6 +106,11 @@ class ImportDataActivityInputs:
     # a cursor, is past its initial sync, and owes no repair work, so a negative probe may
     # complete this run without extracting. Defaults False so old payloads keep the full path.
     fast_return_eligible: bool = False
+    # Kept apart from `reset_pipeline`, which every retry would read again and wipe the table again.
+    scheduled_full_refresh: bool = False
+    # Fixed for the job lifetime so a flag change between activity attempts cannot mix a stale
+    # keyset checkpoint with a server-cursor retry that reset the destination table.
+    keyset_full_load_enabled: bool = False
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
@@ -119,7 +121,19 @@ class ImportDataActivityInputs:
             "run_id": self.run_id,
             "reset_pipeline": self.reset_pipeline,
             "fast_return_eligible": self.fast_return_eligible,
+            "scheduled_full_refresh": self.scheduled_full_refresh,
+            "keyset_full_load_enabled": self.keyset_full_load_enabled,
         }
+
+
+def _resolve_reset_pipeline(inputs: ImportDataActivityInputs, schema: ExternalDataSchema) -> bool:
+    if inputs.reset_pipeline is not None:
+        return inputs.reset_pipeline
+    if schema.sync_type_config.get("reset_pipeline", False) is True:
+        return True
+    # Each attempt loads the schema again, and the first wipe moves the due time a full interval ahead, so a
+    # retry after the wipe carries on with the re-import instead of wiping it again.
+    return inputs.scheduled_full_refresh and schema.scheduled_full_refresh_due()
 
 
 @database_sync_to_async_pool
@@ -136,6 +150,13 @@ def _get_external_data_schema(schema_id: uuid.UUID, team_id: int) -> ExternalDat
         .exclude(deleted=True)
         .get(id=schema_id, team_id=team_id)
     )
+
+
+@database_sync_to_async_pool
+def _has_completed_schema_job(schema_id: uuid.UUID, team_id: int) -> bool:
+    return ExternalDataJob.objects.filter(
+        schema_id=schema_id, team_id=team_id, status=ExternalDataJob.Status.COMPLETED
+    ).exists()
 
 
 # An allow-list, not a deny-list: every sync type here leaves one row per key, and the reader
@@ -193,9 +214,8 @@ async def _warehouse_parent_reuse_available(
     """Whether this run reads its fan-out parents from the warehouse instead of the parent API.
 
     Reuse is an optimization, never a requirement: any parent the child can't read falls the
-    whole run back to the legacy parent-API path, so enabling the flag can't break a schema
-    that syncs today. Sources consume the result via `SourceInputs.fanout_warehouse_reuse`;
-    this is the single feature-flag evaluation for the run.
+    whole run back to the legacy parent-API path, so it can't break a schema that syncs today.
+    Sources consume the result via `SourceInputs.fanout_warehouse_reuse`.
 
     A parent that is mid-sync doesn't force the fallback: `resolve_parent_table_ref` pins the
     read to the parent's last completed snapshot (Delta time travel), so a concurrent rewrite
@@ -203,8 +223,6 @@ async def _warehouse_parent_reuse_available(
     """
     required_parents = source.get_required_parent_schemas(schema.name)
     if not required_parents:
-        return False
-    if not await database_sync_to_async_pool(is_fanout_warehouse_reuse_enabled)(team_id):
         return False
 
     for parent_name in required_parents:
@@ -223,28 +241,13 @@ async def _warehouse_parent_reuse_available(
 
 
 def _import_held_for_repartition(schema: ExternalDataSchema | None, logger: FilteringBoundLogger) -> bool:
-    """Whether an in-flight repartition should pause this schema's import for one run.
-
-    Two situations hold the import. A staged swap holds it unconditionally, because the table's
-    on-disk partition layout is mid-change and merging across that is data corruption, not staleness.
-    A converging rewrite holds it only when the schema opted in and its checkpoint is fresh enough to
-    be worth waiting for; the flag is checked second so a schema without it never pays for the
-    evaluation, and a flag lookup that throws leaves the import running — pausing a customer's
-    ingestion is the more expensive way to be wrong.
-    """
+    """Whether an in-flight repartition should pause this schema's import for one run."""
     if schema is None:
         return False
 
-    swap = schema.repartition_swap
-    if swap and swap.get("state") == "ready":
-        # The rewrite may already have re-bucketed the data in S3 while the schema row still holds the
-        # old settings. The merge computes each row's `_ph_partition_key` from those settings and
-        # scopes its predicate to `target._ph_partition_key = '<partition>'`, so under that mismatch
-        # nothing matches and every fetched row inserts instead of upserting — the whole incremental
-        # lookback window duplicated, with the job still reporting Completed. The repartition activity
-        # runs ahead of this one on every sync and resolves the marker, so waiting costs one run's
-        # freshness. Not behind the hold rollout flag: that flag trades freshness for a rewrite that
-        # can finish, and this trades it for not corrupting the table.
+    reason = repartition_import_hold_reason(schema, logger)
+    if reason == "swap_staged":
+        swap = schema.repartition_swap or {}
         logger.warning(
             "Holding import: a repartition swap is staged, so the table's partition layout is mid-change",
             schema_id=str(schema.id),
@@ -261,34 +264,28 @@ def _import_held_for_repartition(schema: ExternalDataSchema | None, logger: Filt
         )
         return True
 
-    if not schema.repartition_holds_import:
-        return False
-    try:
-        if not is_repartition_hold_enabled(schema):
-            return False
-    except Exception:
-        logger.warning("Could not evaluate the repartition hold flag; importing", exc_info=True)
-        return False
+    if reason == "rewrite_converging":
+        rewrite = schema.repartition_rewrite or {}
+        logger.info(
+            "Holding import: a repartition rewrite is converging on this table",
+            schema_id=str(schema.id),
+            rows_written=rewrite.get("rows_written"),
+            held_at=rewrite.get("held_at"),
+        )
+        capture_repartition_event(
+            "warehouse_repartition_import_held",
+            {
+                "team_id": schema.team_id,
+                "schema_id": str(schema.id),
+                "resource_name": schema.name,
+                "reason": "rewrite_converging",
+                "rows_written": rewrite.get("rows_written"),
+                "held_at": rewrite.get("held_at"),
+            },
+        )
+        return True
 
-    rewrite = schema.repartition_rewrite or {}
-    logger.info(
-        "Holding import: a repartition rewrite is converging on this table",
-        schema_id=str(schema.id),
-        rows_written=rewrite.get("rows_written"),
-        held_at=rewrite.get("held_at"),
-    )
-    capture_repartition_event(
-        "warehouse_repartition_import_held",
-        {
-            "team_id": schema.team_id,
-            "schema_id": str(schema.id),
-            "resource_name": schema.name,
-            "reason": "rewrite_converging",
-            "rows_written": rewrite.get("rows_written"),
-            "held_at": rewrite.get("held_at"),
-        },
-    )
-    return True
+    return False
 
 
 async def _probe_found_new_data(
@@ -435,18 +432,15 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
         schema: ExternalDataSchema | None = model.schema
         assert schema is not None
 
-        if inputs.reset_pipeline is not None:
-            reset_pipeline = inputs.reset_pipeline
-        else:
-            reset_pipeline = schema.sync_type_config.get("reset_pipeline", False) is True
-
-        await logger.adebug(f"schema.sync_type_config = {schema.sync_type_config}")
-        await logger.adebug(f"reset_pipeline = {reset_pipeline}")
-
         try:
             schema = await _get_external_data_schema(inputs.schema_id, inputs.team_id)
         except ExternalDataSchema.DoesNotExist as e:
             await _handle_import_error(job_inputs, logger, e)
+
+        reset_pipeline = _resolve_reset_pipeline(inputs, schema)
+
+        await logger.adebug(f"schema.sync_type_config = {schema.sync_type_config}")
+        await logger.adebug(f"reset_pipeline = {reset_pipeline}")
 
         processed_incremental_last_value = None
         processed_incremental_earliest_value = None
@@ -542,6 +536,8 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                 db_incremental_field_last_value_before_lookback=incremental_last_value_before_lookback,
                 history_start=history_start,
                 last_synced_at=schema.last_synced_at if use_stored_cursors else None,
+                schema_has_ever_synced=schema.last_synced_at is not None
+                or await _has_completed_schema_job(inputs.schema_id, inputs.team_id),
                 logger=logger,
                 job_id=inputs.run_id,
                 reset_pipeline=reset_pipeline,
@@ -555,6 +551,7 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                 api_version=new_source.resolve_api_version(schema.api_version or model.pipeline.api_version),
                 fanout_warehouse_reuse=fanout_warehouse_reuse,
                 byte_bounded_extraction=byte_bounded_extraction,
+                keyset_full_load=inputs.keyset_full_load_enabled,
                 activity_attempt=activity.info().attempt if activity.in_activity() else 1,
             )
 
@@ -610,31 +607,16 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                     raise TypeError(
                         f"{new_source.__class__.__name__} does not implement either SimpleSource or ResumableSource"
                     )
-            except CDCHandledExternally:
-                await logger.ainfo("Schema is in CDC streaming mode — handled by CDCExtractionWorkflow, skipping")
-
-                await database_sync_to_async_pool(ExternalDataJob.objects.filter(id=job_inputs.run_id).update)(
-                    billable=False, status=ExternalDataJob.Status.COMPLETED, finished_at=dt.datetime.now(dt.UTC)
+            except SourceExtractionNotImplementedError as e:
+                # Web refuses to create a source whose implementation it does not have, so the
+                # stub is only reachable while this worker still runs the build from before the
+                # source shipped. Temporal's retry picks up a caught-up worker, so keep retrying
+                # and keep a rollout window out of error tracking.
+                await logger.awarning(
+                    "Source extraction is not implemented in this build, leaving retry to Temporal",
+                    source_type=source_type,
                 )
-
-                # Pause the per-schema schedule — CDCExtractionWorkflow handles this
-                # schema now. The schedule is unpaused if the schema transitions back
-                # to snapshot mode (e.g., after a TRUNCATE or re-enable after grace period).
-                try:
-                    from products.data_warehouse.backend.facade.api import pause_external_data_schedule
-
-                    await database_sync_to_async_pool(pause_external_data_schedule)(str(inputs.schema_id))
-                    await logger.ainfo("Paused per-schema schedule for CDC streaming schema")
-                except Exception:
-                    await logger.awarning("Failed to pause per-schema schedule for CDC streaming schema")
-
-                # This activity finalized the job itself just above, so the workflow must not
-                # write a second terminal status — see PipelineResult for the ownership contract.
-                return PipelineResult(
-                    should_trigger_cdp_producer=False,
-                    consumer_manages_job_status=True,
-                    skip_post_import_activities=True,
-                )
+                raise NonReportableError(SOURCE_ROLLOUT_IN_PROGRESS_MESSAGE) from e
             except Exception as e:
                 # Some sources connect to the remote during setup rather than lazily during
                 # the run — e.g. for a `mongodb+srv://` URI pymongo resolves the SRV DNS
@@ -691,6 +673,13 @@ def _get_models(
 INTEGRATION_CREDENTIAL_UNAVAILABLE_MESSAGE = (
     "A PostHog-managed credential for this source is temporarily unavailable. This sync will "
     "retry automatically — no action is needed on your side."
+)
+
+
+# What a customer reads while a newly shipped source is still rolling out across the workers.
+SOURCE_ROLLOUT_IN_PROGRESS_MESSAGE = (
+    "Support for this source is still rolling out. This sync will retry automatically, and no "
+    "action is needed on your side."
 )
 
 

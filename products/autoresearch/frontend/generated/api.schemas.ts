@@ -1315,6 +1315,15 @@ export interface PatchedAutoresearchPipelineCreateApi {
     output_person_property?: string
 }
 
+export interface StartTrainingRequestApi {
+    /**
+     * Override the pipeline iteration budget for this training run.
+     * @minimum 1
+     * @maximum 500
+     */
+    iteration_budget?: number
+}
+
 /**
  * * `likely_active_soon` - Likely Active Soon
  * * `at_risk_of_inactivity` - At Risk Of Inactivity
@@ -1333,7 +1342,7 @@ export const TemplateKeyEnumApi = {
 } as const
 
 export interface ResolveTemplateRequestApi {
-    /** Template to resolve. Use autoresearch-templates-list to see all available templates with descriptions. Required.
+    /** Template to resolve. The templates endpoint lists each one with its description. Required.
      *
      * * `likely_active_soon` - Likely Active Soon
      * * `at_risk_of_inactivity` - At Risk Of Inactivity

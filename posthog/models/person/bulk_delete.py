@@ -10,7 +10,7 @@ from typing import cast
 from django.conf import settings
 
 import structlog
-from prometheus_client import Counter, Histogram
+from prometheus_client import Counter, Gauge, Histogram
 from temporalio import common
 
 from posthog.dataclasses import frozen
@@ -76,6 +76,21 @@ PERSON_DELETION_PERSONS_COUNTER = Counter(
     "posthog_person_deletion_persons_total",
     "Persons handled by a deletion, by path and per-attempt outcome.",
     labelnames=["path", "outcome"],
+)
+
+# Every process sets the same value from its settings; max exports it once under multiprocess mode.
+PERSON_DELETE_TOMBSTONE_ENABLED = Gauge(
+    "posthog_person_delete_tombstone_enabled",
+    "1 when PERSON_DELETE_TOMBSTONE is on: deletes tombstone Postgres first and publish ClickHouse at the stored versions.",
+    multiprocess_mode="max",
+)
+PERSON_DELETE_TOMBSTONE_ENABLED.set(1 if settings.PERSON_DELETE_TOMBSTONE else 0)
+
+# mode: "tombstone" under PERSON_DELETE_TOMBSTONE, "legacy" otherwise, per person a delete attempted.
+PERSON_DELETION_MODE_COUNTER = Counter(
+    "posthog_person_deletion_mode_persons_total",
+    "Persons a profile delete attempted, by deletion order.",
+    labelnames=["mode"],
 )
 
 PERSON_DELETION_DISTINCT_IDS_PER_PERSON = Histogram(
@@ -484,8 +499,10 @@ def _tombstone_and_delete_persons(
     """
     failures: builtins.list[PersonDeletionFailure] = []
     if settings.PERSON_DELETE_TOMBSTONE:
+        PERSON_DELETION_MODE_COUNTER.labels(mode="tombstone").inc(len(persons))
         deleted = _tombstone_persons_at_exact_versions(team_id, persons, failures)
     else:
+        PERSON_DELETION_MODE_COUNTER.labels(mode="legacy").inc(len(persons))
         deleted = _tombstone_then_hard_delete_persons(team_id, persons, distinct_ids_for, failures)
 
     if organization_id is not None and deleted:

@@ -15,7 +15,6 @@ from typing import Any
 
 from django.conf import settings
 
-import structlog
 from asgiref.sync import async_to_sync
 from temporalio.client import Client
 from temporalio.common import WorkflowIDReusePolicy
@@ -31,10 +30,9 @@ from products.warehouse_sources.backend.models.external_data_schema import (
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane import (
     BUFFER_LANE,
+    cancel_sync_that_could_hand_over,
     resnapshot_stays_in_buffer,
 )
-
-logger = structlog.get_logger(__name__)
 
 
 @frozen
@@ -50,6 +48,10 @@ class SchedulePauseError(Exception):
 
 class WorkflowStartError(Exception):
     """The workflow failed to start. Any pause taken by this call has been rolled back."""
+
+
+class SyncStillRunningError(Exception):
+    """A CDC table's running sync could still hand over, so nothing was staged. Its cancel was requested."""
 
 
 @async_to_sync
@@ -92,6 +94,11 @@ def trigger_ad_hoc_sync(
     schedule plus an ad-hoc workflow, so without it the scheduled run can race this one. A schedule
     the caller already paused by hand is left alone, so this does not undo their action.
     """
+    # A sync that hands over after a CDC reset leaves the reset pending on a streaming table, whose next
+    # run wipes it. This call starts its own run, so it cannot leave the reset to capture.
+    if reset_pipeline and schema.is_cdc and cancel_sync_that_could_hand_over(schema):
+        raise SyncStillRunningError("A sync of this table is still stopping. Retry in a minute.")
+
     was_paused = is_schedule_paused(client, str(schema.id))
     paused_now = False
     if not was_paused:
@@ -113,16 +120,15 @@ def trigger_ad_hoc_sync(
     extra_model_fields: dict[str, Any] = {}
     if reset_pipeline:
         updates["reset_pipeline"] = True
-        # A streaming CDC schema no-ops a normal reset — CDCExtractionWorkflow owns it and the
-        # per-schema run raises CDCHandledExternally. Flip it back to snapshot so this run does a
-        # full re-snapshot. The job is created non-billable when the caller asks for that, and on
-        # completion set_initial_sync_complete transitions it back to streaming, so ongoing CDC
-        # stays billable. The save must precede the workflow start so the source reloads
-        # cdc_mode="snapshot" instead of racing on stale "streaming".
+        # A streaming CDC schema's run consumes the change buffer, which a reset cannot restart. Flip it
+        # back to snapshot so this run does a full re-snapshot. The job is created non-billable when
+        # the caller asks for that, and on completion set_initial_sync_complete transitions it back to
+        # streaming, so ongoing CDC stays billable. The save must precede the workflow start so the
+        # source reloads cdc_mode="snapshot" instead of racing on stale "streaming".
         if schema.is_cdc and schema.cdc_mode == "streaming":
             # Decided while the table still streams. Without the marker, the next capture run would
             # empty the buffer under the new snapshot, deleting changes an in-flight run wrote.
-            if resnapshot_stays_in_buffer(schema, logger):
+            if resnapshot_stays_in_buffer(schema):
                 updates[CDC_SNAPSHOT_LANE_KEY] = BUFFER_LANE
             updates["cdc_mode"] = "snapshot"
             removes += ["cdc_last_log_position", "cdc_deferred_runs"]

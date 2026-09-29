@@ -13,6 +13,8 @@ import { subscriptionsSceneLogic } from '../scenes/subscriptionsSceneLogic'
 export const subscriptionsSetupLogic = createSetupDetectionLogic({
     productKey: ProductKey.SUBSCRIPTIONS,
     path: ['products', 'subscriptions', 'frontend', 'emptyState', 'subscriptionsSetupLogic'],
+    cacheHasData: true,
+    revalidateCachedHasData: true,
     detect: async () => {
         // limit=1 keeps the payload tiny; `count` reflects the full team total.
         const response = await subscriptionsList(String(getCurrentTeamId()), { limit: 1 })

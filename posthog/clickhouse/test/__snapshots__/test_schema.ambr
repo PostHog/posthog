@@ -6458,7 +6458,11 @@
       lc_dagster__run_id String ALIAS log_comment.`dagster.run_id`::String,
       lc_dagster__owner String ALIAS log_comment.`dagster.tags.owner`::String,
   
-      lc_modifiers String ALIAS if(is_initial_query, JSONExtractRaw(toString(log_comment), 'modifiers'), '')
+      lc_modifiers String ALIAS if(is_initial_query, JSONExtractRaw(toString(log_comment), 'modifiers'), ''),
+  
+      lc_plan_fingerprint String ALIAS ifNull(dynamicElement(log_comment.plan_fingerprint, 'String'), ''),
+      lc_estimated_rows Int64 ALIAS ifNull(dynamicElement(log_comment.estimated_rows, 'Int64'), 0),
+      lc_estimated_bytes Int64 ALIAS ifNull(dynamicElement(log_comment.estimated_bytes, 'Int64'), 0)
   ) ENGINE = Distributed('ops', 'posthog_test', 'sharded_query_log_archive') 
   '''
 # ---
@@ -8723,7 +8727,11 @@
       lc_dagster__run_id String ALIAS log_comment.`dagster.run_id`::String,
       lc_dagster__owner String ALIAS log_comment.`dagster.tags.owner`::String,
   
-      lc_modifiers String ALIAS if(is_initial_query, JSONExtractRaw(toString(log_comment), 'modifiers'), '')
+      lc_modifiers String ALIAS if(is_initial_query, JSONExtractRaw(toString(log_comment), 'modifiers'), ''),
+  
+      lc_plan_fingerprint String ALIAS ifNull(dynamicElement(log_comment.plan_fingerprint, 'String'), ''),
+      lc_estimated_rows Int64 ALIAS ifNull(dynamicElement(log_comment.estimated_rows, 'Int64'), 0),
+      lc_estimated_bytes Int64 ALIAS ifNull(dynamicElement(log_comment.estimated_bytes, 'Int64'), 0)
   ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.sharded_query_log_archive', '{replica}-{shard}')
   PARTITION BY toYYYYMM(event_date)
   ORDER BY (team_id, event_date, event_time, query_id)
@@ -9727,8 +9735,8 @@
       INDEX idx_observed_minmax observed_timestamp TYPE minmax GRANULARITY 1,
       INDEX idx_attributes_str_keys mapKeys(attributes_map_str) TYPE bloom_filter(0.01) GRANULARITY 16,
       INDEX idx_attributes_str_values mapValues(attributes_map_str) TYPE bloom_filter(0.001) GRANULARITY 16,
-      INDEX idx_trace_bloom_part trace_id TYPE bloom_filter(0.00001) GRANULARITY 99999,
-      INDEX idx_span_id_bloom_part span_id TYPE bloom_filter(0.00001) GRANULARITY 99999,
+      INDEX idx_trace_bloom_part_v2 trace_id TYPE bloom_filter(0.05) GRANULARITY 99999,
+      INDEX idx_span_id_bloom_part_v2 span_id TYPE bloom_filter(0.05) GRANULARITY 99999,
   
       -- Powers the Spans-view sparkline (spans per minute via sum(event_count)). is_root_span is a
       -- projection dimension so the Traces-view sparkline (distinct traces per minute) can serve from
@@ -9762,6 +9770,18 @@
       PROJECTION projection_index_trace_id
       (
           SELECT _part_offset
+          ORDER BY trace_id
+      ),
+  
+      PROJECTION projection_index_team_span_id
+      (
+          SELECT team_id, _part_offset
+          ORDER BY span_id
+      ),
+  
+      PROJECTION projection_index_team_trace_id
+      (
+          SELECT team_id, _part_offset
           ORDER BY trace_id
       )
   )
@@ -14381,7 +14401,11 @@
       lc_dagster__run_id String ALIAS log_comment.`dagster.run_id`::String,
       lc_dagster__owner String ALIAS log_comment.`dagster.tags.owner`::String,
   
-      lc_modifiers String ALIAS if(is_initial_query, JSONExtractRaw(toString(log_comment), 'modifiers'), '')
+      lc_modifiers String ALIAS if(is_initial_query, JSONExtractRaw(toString(log_comment), 'modifiers'), ''),
+  
+      lc_plan_fingerprint String ALIAS ifNull(dynamicElement(log_comment.plan_fingerprint, 'String'), ''),
+      lc_estimated_rows Int64 ALIAS ifNull(dynamicElement(log_comment.estimated_rows, 'Int64'), 0),
+      lc_estimated_bytes Int64 ALIAS ifNull(dynamicElement(log_comment.estimated_bytes, 'Int64'), 0)
   ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.sharded_query_log_archive', '{replica}-{shard}')
   PARTITION BY toYYYYMM(event_date)
   ORDER BY (team_id, event_date, event_time, query_id)
@@ -15341,8 +15365,8 @@
       INDEX idx_observed_minmax observed_timestamp TYPE minmax GRANULARITY 1,
       INDEX idx_attributes_str_keys mapKeys(attributes_map_str) TYPE bloom_filter(0.01) GRANULARITY 16,
       INDEX idx_attributes_str_values mapValues(attributes_map_str) TYPE bloom_filter(0.001) GRANULARITY 16,
-      INDEX idx_trace_bloom_part trace_id TYPE bloom_filter(0.00001) GRANULARITY 99999,
-      INDEX idx_span_id_bloom_part span_id TYPE bloom_filter(0.00001) GRANULARITY 99999,
+      INDEX idx_trace_bloom_part_v2 trace_id TYPE bloom_filter(0.05) GRANULARITY 99999,
+      INDEX idx_span_id_bloom_part_v2 span_id TYPE bloom_filter(0.05) GRANULARITY 99999,
   
       -- Powers the Spans-view sparkline (spans per minute via sum(event_count)). is_root_span is a
       -- projection dimension so the Traces-view sparkline (distinct traces per minute) can serve from
@@ -15376,6 +15400,18 @@
       PROJECTION projection_index_trace_id
       (
           SELECT _part_offset
+          ORDER BY trace_id
+      ),
+  
+      PROJECTION projection_index_team_span_id
+      (
+          SELECT team_id, _part_offset
+          ORDER BY span_id
+      ),
+  
+      PROJECTION projection_index_team_trace_id
+      (
+          SELECT team_id, _part_offset
           ORDER BY trace_id
       )
   )

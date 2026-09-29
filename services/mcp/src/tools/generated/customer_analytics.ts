@@ -1052,6 +1052,12 @@ const customPropertySourcesPartialUpdate = (): ToolBase<
         if (params.key_column !== undefined) {
             body['key_column'] = params.key_column
         }
+        if (params.column_property_map !== undefined) {
+            body['column_property_map'] = params.column_property_map
+        }
+        if (params.column_descriptions !== undefined) {
+            body['column_descriptions'] = params.column_descriptions
+        }
         if (params.is_enabled !== undefined) {
             body['is_enabled'] = params.is_enabled
         }
@@ -1832,7 +1838,7 @@ const FeatureRequestsPartialUpdateSchema = () => {
     const FeatureRequestsPartialUpdateParams = orvalSchemas.FeatureRequestsPartialUpdateParams()
     return FeatureRequestsPartialUpdateParams.omit({ project_id: true })
         .extend(FeatureRequestsPartialUpdateBody.shape)
-        .extend({ expected_version: FeatureRequestsPartialUpdateBody.shape['expected_version'].unwrap() })
+        .extend({ expected_version: FeatureRequestsPartialUpdateBody.shape['expected_version'].nonoptional() })
 }
 
 const featureRequestsPartialUpdate = (): ToolBase<

@@ -58,8 +58,6 @@ class ExperimentFunnelsQueryRunner(QueryRunner):
         )
 
     def _calculate(self) -> ExperimentFunnelsQueryResponse:
-        # Adding experiment specific tags to the tag collection
-        # This will be available as labels in Prometheus
         tag_queries(
             query_type="ExperimentFunnelsQuery",
             experiment_id=self.experiment.id,
@@ -72,12 +70,10 @@ class ExperimentFunnelsQueryRunner(QueryRunner):
         self._validate_event_variants(funnels_result)
 
         try:
-            # Filter results to only include valid variants in the first step
             funnels_result.results = [
                 result for result in funnels_result.results if result[0]["breakdown_value"][0] in self.variants
             ]
 
-            # Statistical analysis
             control_variant, test_variants = self._get_variants_with_base_stats(funnels_result)
             probabilities = calculate_probabilities_v2(control_variant, test_variants)
             significance_code, loss = are_results_significant_v2(control_variant, test_variants, probabilities)
@@ -103,17 +99,13 @@ class ExperimentFunnelsQueryRunner(QueryRunner):
 
     def _prepare_funnel_query(self) -> FunnelsQuery:
         """
-        This method takes the raw funnel query and adapts it
-        for the needs of experiment analysis:
+        Adapts the raw funnel query for experiment analysis:
 
         1. Set the date range to match the experiment's duration, using the project's timezone.
-        2. Configure the breakdown to use the feature flag key, which allows us
-           to separate results for different experiment variants.
+        2. Break down by the feature flag key, to separate the results for each variant.
         """
-        # Clone the funnels query
         prepared_funnels_query = FunnelsQuery(**self.query.funnels_query.model_dump())
 
-        # Set the date range to match the experiment's duration, using the project's timezone
         if self.team.timezone:
             tz = ZoneInfo(self.team.timezone)
             start_date = self.experiment.start_date.astimezone(tz) if self.experiment.start_date else None
@@ -128,13 +120,11 @@ class ExperimentFunnelsQueryRunner(QueryRunner):
             explicitDate=True,
         )
 
-        # Configure the breakdown to use the feature flag key
         prepared_funnels_query.breakdownFilter = BreakdownFilter(
             breakdown=f"$feature/{self.feature_flag_key}",
             breakdown_type="event",
         )
 
-        # Set the layout to vertical
         if prepared_funnels_query.funnelsFilter is None:
             prepared_funnels_query.funnelsFilter = FunnelsFilter()
         prepared_funnels_query.funnelsFilter.layout = FunnelLayout.VERTICAL
@@ -193,14 +183,12 @@ class ExperimentFunnelsQueryRunner(QueryRunner):
                 if event_dict.get("order") == 0:
                     eventsWithOrderZero.append(event_dict)
 
-        # Check if "control" is present
         for event in eventsWithOrderZero:
             event_variant = event.get("breakdown_value", [None])[0]
             if event_variant == "control":
                 errors[ExperimentNoResultsErrorKeys.NO_CONTROL_VARIANT] = False
                 break
 
-        # Check if at least one of the test variants is present
         test_variants = [variant for variant in self.variants if variant != "control"]
         for event in eventsWithOrderZero:
             event_variant = event.get("breakdown_value", [None])[0]
@@ -215,7 +203,6 @@ class ExperimentFunnelsQueryRunner(QueryRunner):
     def to_query(self) -> ast.SelectQuery:
         raise ValueError(f"Cannot convert source query of type {self.query.funnels_query.kind} to query")
 
-    # Cache results for 24 hours
     def cache_target_age(self, last_refresh: Optional[datetime], lazy: bool = False) -> Optional[datetime]:
         if last_refresh is None:
             return None

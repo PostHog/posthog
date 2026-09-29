@@ -33,6 +33,7 @@ from products.ai_observability.backend.llm.errors import (
     QuotaExceededError,
     RateLimitError,
     StructuredOutputParseError,
+    UnsupportedModelError,
 )
 from products.ai_observability.backend.models.evaluation_config import EvaluationConfig
 from products.ai_observability.backend.models.evaluation_directories import EvaluationDirectory
@@ -478,19 +479,22 @@ class TestRunEvaluationWorkflow:
             pytest.param({"allows_na": True}, None, False, id="with_na"),
         ],
     )
+    @pytest.mark.parametrize("output_type", ["boolean", "numeric", "categorical"])
     @pytest.mark.django_db(transaction=True)
     def test_execute_llm_judge_activity_skips_on_output_limit(
-        self, output_config, expected_verdict, expected_applicable, setup_data, active_key_config
+        self, output_config, expected_verdict, expected_applicable, output_type, setup_data, active_key_config
     ):
         team = setup_data["team"]
         evaluation_obj = setup_data["evaluation"]
+        if output_type == "categorical":
+            output_config = {**output_config, "options": [{"key": "resolved", "label": "Resolved"}]}
 
         evaluation = {
             "id": str(evaluation_obj.id),
             "name": "Test Evaluation",
             "evaluation_type": "llm_judge",
             "evaluation_config": {"prompt": "Is this response factually accurate?"},
-            "output_type": "boolean",
+            "output_type": output_type,
             "output_config": output_config,
             "team_id": team.id,
         }
@@ -513,7 +517,11 @@ class TestRunEvaluationWorkflow:
 
         assert result["skipped"] is True
         assert result["skip_reason"] == "output_limit_exceeded"
-        assert result["verdict"] is expected_verdict
+        assert result["result_type"] == output_type
+        if output_type == "boolean":
+            assert result["verdict"] is expected_verdict
+        else:
+            assert "verdict" not in result
         assert result.get("applicable") is expected_applicable
         assert result.get("terminal_user_error") is not True
         # The model ran and the call was billed, so attribution stays on the result.
@@ -2044,6 +2052,13 @@ class TestRunEvaluationWorkflow:
                 None,
                 id="model_not_found",
             ),
+            pytest.param(
+                UnsupportedModelError("gpt-5.4"),
+                "model_not_supported",
+                "model_not_supported",
+                None,
+                id="model_not_supported",
+            ),
         ],
     )
     @pytest.mark.django_db(transaction=True)
@@ -2326,15 +2341,21 @@ class TestExecuteHogEvalActivity:
         assert "Global variable not found" in result["reasoning"]
 
     @pytest.mark.asyncio
-    async def test_hog_eval_length_null_returns_skipped(self):
+    @pytest.mark.parametrize(
+        "source",
+        ["return length(null) > 0", "return properties.missing <= 1.0"],
+        ids=["length-of-null", "ordering-against-null"],
+    )
+    async def test_hog_eval_null_comparisons_evaluate_to_false(self, source):
+        # A missing value is no match, not a runtime error, so the eval completes with a verdict.
         from posthog.cdp.validation import compile_hog
 
-        bytecode = compile_hog("return length(null) > 0", "destination")
+        bytecode = compile_hog(source, "destination")
         evaluation = {
             "id": "eval-id",
             "name": "Hog Eval",
             "evaluation_type": "hog",
-            "evaluation_config": {"source": "return length(null) > 0", "bytecode": bytecode},
+            "evaluation_config": {"source": source, "bytecode": bytecode},
             "output_type": "boolean",
             "output_config": {},
             "team_id": 1,
@@ -2342,39 +2363,9 @@ class TestExecuteHogEvalActivity:
 
         result = await execute_hog_eval_activity(evaluation, create_mock_event_data(1))
 
-        assert result["skipped"] is True
-        assert result["skip_reason"] == "hog_error"
-        assert result["terminal_user_error"] is True
-        assert result["status_reason"] == "hog_error"
         assert result["verdict"] is False
-        assert "Runtime error: Can not call length on null" in result["reasoning"]
-        assert "TypeError" not in result["reasoning"]
-        assert "NoneType" not in result["reasoning"]
-
-    @pytest.mark.asyncio
-    async def test_hog_eval_comparison_type_error_returns_skipped(self):
-        from posthog.cdp.validation import compile_hog
-
-        bytecode = compile_hog("return properties.missing <= 1.0", "destination")
-        evaluation = {
-            "id": "eval-id",
-            "name": "Hog Eval",
-            "evaluation_type": "hog",
-            "evaluation_config": {"source": "return properties.missing <= 1.0", "bytecode": bytecode},
-            "output_type": "boolean",
-            "output_config": {},
-            "team_id": 1,
-        }
-
-        result = await execute_hog_eval_activity(evaluation, create_mock_event_data(1))
-
-        assert result["skipped"] is True
-        assert result["skip_reason"] == "hog_error"
-        assert result["terminal_user_error"] is True
-        assert result["status_reason"] == "hog_error"
-        assert result["verdict"] is False
-        assert "Runtime error: '<=' not supported between instances of 'NoneType' and 'float'" in result["reasoning"]
-        assert "Unexpected error during evaluation" not in result["reasoning"]
+        assert not result.get("skipped")
+        assert "Runtime error" not in (result.get("reasoning") or "")
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
@@ -2595,6 +2586,59 @@ class TestExecuteSentimentEvalActivity:
 
 
 class TestEvalResultModels:
+    @pytest.mark.parametrize(
+        "categories,allows_na",
+        [(["resolved"], True), ([], True), (None, True), (["unknown"], True), ([], False), (["unknown"], False)],
+    )
+    def test_categorical_judge_emits_only_valid_labels(self, categories: list[str] | None, allows_na: bool) -> None:
+        config = {
+            "options": [{"key": "resolved", "label": "Resolved"}],
+            "selection_mode": "multiple",
+            "allows_na": allows_na,
+        }
+        evaluation = {
+            "id": "categorical-eval",
+            "name": "Resolution",
+            "team_id": 1,
+            "evaluation_type": "llm_judge",
+            "evaluation_config": {"prompt": "Classify the response"},
+            "output_type": "categorical",
+            "output_config": config,
+        }
+        schema = get_output_type_config(allows_na, output_type="categorical", output_config=config).response_format
+        with (
+            patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as model_spec,
+            patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client") as client,
+        ):
+            model_spec.return_value.resolve.return_value = MagicMock(
+                provider="openai", model="gpt-4o-mini", provider_key=None, is_byok=False
+            )
+            client.return_value.complete.return_value = MagicMock(
+                parsed=schema.model_validate({"reasoning": "Resolution", "categories": categories}),
+                usage=MagicMock(input_tokens=100, output_tokens=20, total_tokens=120),
+            )
+            result = _execute_llm_judge_activity(
+                ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=create_mock_event_data(1))
+            )
+        assert result["result_type"] == "categorical"
+        assert "verdict" not in result
+        properties = build_evaluation_event_properties(evaluation, result, datetime(2026, 7, 1, tzinfo=UTC))
+        assert "$ai_evaluation_result" not in properties
+        if categories == ["unknown"]:
+            assert result["skipped"] is True
+            assert "terminal_user_error" not in result
+            assert "$ai_evaluation_categorical_result" not in properties
+            assert properties["$ai_evaluation_applicable"] is False
+        elif categories is None:
+            assert result["applicable"] is False
+            assert "$ai_evaluation_categorical_result" not in properties
+            assert properties["$ai_evaluation_applicable"] is False
+        else:
+            assert result["categories"] == categories
+            assert result.get("applicable", True) is True
+            assert properties["$ai_evaluation_applicable"] is True
+            assert properties["$ai_evaluation_categorical_result"] == categories
+
     @pytest.mark.parametrize("score", [0, 0.25, 1, None, -0.1, 1.1])
     def test_numeric_judge_validates_bounds_before_returning(self, score: float | None) -> None:
         evaluation = {

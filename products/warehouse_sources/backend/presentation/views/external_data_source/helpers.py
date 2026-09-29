@@ -19,6 +19,7 @@ from products.data_warehouse.backend.facade.api import (
 )
 from products.warehouse_sources.backend.facade.models import MANAGED_WAREHOUSE_SOURCE_PREFIX, ExternalDataSource
 from products.warehouse_sources.backend.facade.source_config import (
+    SourceFieldCredentialAccountSelectConfig,
     SourceFieldFileUploadConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
@@ -179,6 +180,26 @@ def get_oauth_integration_kinds(fields: list[FieldType]) -> set[str]:
     return kinds
 
 
+def get_credential_account_field_names(fields: list[FieldType]) -> set[str]:
+    """The field names a source's credential account pickers are allowed to be handed.
+
+    The listing endpoint takes connection details straight from a form that has not been submitted,
+    so without this it would accept any key the caller invented and hand it to `parse_config`.
+    Collecting the names the source itself declared holds the endpoint to the credentials a picker
+    genuinely needs, and leaves a source that declares no such picker unable to reach it at all."""
+    names: set[str] = set()
+    for field in fields:
+        if isinstance(field, SourceFieldCredentialAccountSelectConfig):
+            names.update(field.credentialFields)
+        elif isinstance(field, SourceFieldSwitchGroupConfig):
+            names.update(get_credential_account_field_names(field.fields))
+        elif isinstance(field, SourceFieldSelectConfig):
+            for option in field.options:
+                if option.fields:
+                    names.update(get_credential_account_field_names(option.fields))
+    return names
+
+
 def _name_variants(name: str) -> tuple[str, ...]:
     """The spellings a declared field name can be stored under, declared spelling first.
 
@@ -336,13 +357,9 @@ _CDC_EXPOSED_JOB_INPUT_KEYS = {
     "cdc_lag_warning_threshold_mb",
     "cdc_lag_critical_threshold_mb",
     "cdc_consistent_point",
-    # Set by migrate_cdc_source_to_buffered, never by the API. Losing it on an unrelated PATCH
-    # would resume legacy delivery from an advanced slot and strand the unread buffer.
+    # Set by CDC setup, Repair CDC and capture, never by the API. Losing it on an unrelated PATCH
+    # would make capture convert the source again, which empties its unconsumed buffer.
     "cdc_ingest_mode",
-    # Also set only by that command. It is what lets a rolled-back source be flipped again: without
-    # it the reserved-column check reads the `_ph_cdc_seq` the buffered lane wrote as the source's
-    # own and refuses every later flip.
-    "cdc_buffered_before",
 }
 
 

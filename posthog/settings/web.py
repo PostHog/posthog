@@ -309,6 +309,8 @@ SOCIAL_AUTH_PIPELINE = (
     # Must stay ahead of association/provisioning so a mismatched authenticated identity is rejected first
     "posthog.api.authentication.social_identity_matches_session",
     "posthog.api.authentication.social_reauth",
+    # Must stay ahead of associate_by_email, which links an existing account by email with no check of its own
+    "posthog.api.authentication.social_email_verified_by_provider",
     "social_core.pipeline.social_auth.associate_by_email",
     "posthog.api.signup.social_create_user",
     "social_core.pipeline.social_auth.associate_user",
@@ -613,6 +615,8 @@ SPECTACULAR_SETTINGS = {
             "SlackSummaryCadenceEnum": ["daily", "weekly", "monthly"],
             # signals' report-metric role; AutoresearchModel.Role also sits on a field named `role`.
             "RoleEnum": ["primary", "supporting"],
+            # replay_vision alert destinations: the create body and the alert's listed destinations share this set.
+            "VisionAlertDestinationTypeEnum": ["slack", "webhook"],
             # visual_review facade enums are framework-free StrEnums, so no Choices class derives a name.
             "ShiftBandKindEnum": ["inserted", "deleted"],
             "ExperimentStatusEnum": ["draft", "running", "paused", "exposure_frozen", "stopped"],
@@ -624,6 +628,7 @@ SPECTACULAR_SETTINGS = {
             # class carries them. The lists are derived from those literals.
             "ResolvedAccessSourceEnum": "products.access_control.backend.facade.enums.RESOLVED_ACCESS_SOURCE_CHOICES",
             "ResolvedAccessSourceSubjectEnum": "products.access_control.backend.facade.enums.RESOLVED_ACCESS_SOURCE_SUBJECT_CHOICES",
+            "RuleResourceEnum": "products.access_control.backend.facade.user_access_control.RULE_RESOURCE_CHOICES",
             "TaskArtifactStatusEnum": ["active", "failed"],
             # signals maps a warehouse import's status down to these three. Same values as the
             # warehouse's own SyncStatus, but that class carries different labels, so the two are
@@ -646,6 +651,7 @@ SPECTACULAR_SETTINGS = {
             #
             # The definition site is a deliberately Django-free module (facade contracts,
             # signals taxonomy), so it cannot define a models.Choices class.
+            "WizardTaskStatusEnum": "products.wizard.backend.facade.enums.WIZARD_TASK_STATUS_CHOICES",
             "SignalSourceProductEnum": "products.signals.backend.enums.signal_source_product_choices",
             "ReportLinkKindEnum": "products.signals.backend.enums.report_link_kind_choices",
             "EngineeringAnalyticsPRStateEnum": "products.engineering_analytics.backend.facade.contracts.PRState",
@@ -653,6 +659,7 @@ SPECTACULAR_SETTINGS = {
             "CITestRunnerEnum": "products.engineering_analytics.backend.facade.contracts.CITestRunner",
             "PRTimelineSegmentKindEnum": "products.engineering_analytics.backend.facade.contracts.PRTimelineSegmentKind",
             "DeliveryScopeKindEnum": "products.engineering_analytics.backend.facade.contracts.DeliveryScopeKind",
+            "FrictionGroupEnum": "products.engineering_analytics.backend.facade.contracts.FrictionGroup",
             "UserInterviewSearchDocumentTypeEnum": "products.user_interviews.backend.facade.enums.SEARCH_DOCUMENT_TYPES",
             "DesktopAccessReasonEnum": "products.tasks.backend.facade.contracts.DESKTOP_ACCESS_REASON_SCHEMA_VALUES",
             "LifecycleStatusEnum": "products.notebooks.backend.widget_models.WIDGET_LIFECYCLE_STATUS_CHOICES",
@@ -1308,6 +1315,7 @@ except ValueError:
 # Wizard gateway-token mint. Any of the four unset refuses every mint as
 # `unconfigured`, which ends the wizard run: there is no other gateway.
 WIZARD_GATEWAY_URL = get_from_env("WIZARD_GATEWAY_URL", "")
+WIZARD_GATEWAY_MINT_URL = get_from_env("WIZARD_GATEWAY_MINT_URL", "")
 WIZARD_GATEWAY_MINT_KEY = get_from_env("WIZARD_GATEWAY_MINT_KEY", "")
 # OAuth application client ids allowed to mint: llm_gateway:read is an internal
 # scope on every sandbox and agent token, so the scope alone does not identify the
@@ -1421,6 +1429,10 @@ WEB_ANALYTICS_PRECOMPUTE_MAX_SHAPES_PER_TEAM: int = get_from_env(
 
 WEB_ANALYTICS_ACHIEVEMENT_QUERY_MAX_CONCURRENCY: int = get_from_env(
     "WEB_ANALYTICS_ACHIEVEMENT_QUERY_MAX_CONCURRENCY", 4, type_cast=int
+)
+
+WEB_ANALYTICS_ACHIEVEMENTS_SWEEP_BATCH_SIZE: int = get_from_env(
+    "WEB_ANALYTICS_ACHIEVEMENTS_SWEEP_BATCH_SIZE", 100, type_cast=int
 )
 
 # Cohort the weekly AI path-cleaning-suggestion job runs for. Defaults to the precompute enrollment
