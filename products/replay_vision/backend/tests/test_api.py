@@ -3433,8 +3433,14 @@ class TestSessionReplayObservationViewSet(_VisionAPITestCase):
         if not expected_ids:
             self.assertIn("List the observations again", detail)
 
-    def test_retrieve_malformed_id_says_it_is_not_an_observation_id(self) -> None:
-        resp = self.client.get(f"{self.session_observations_url}01a0aaaa-bbbb-7ccc-8ddd-ae99-000000000001/")
+    @parameterized.expand(
+        [
+            ("extra_group", "01a0aaaa-bbbb-7ccc-8ddd-ae99-000000000001"),
+            ("uuid4", "5f1c2a3e-8b4d-4c6e-9a7b-1d2e3f4a5b6c"),
+        ]
+    )
+    def test_retrieve_malformed_id_says_it_is_not_an_observation_id(self, _name: str, malformed_id: str) -> None:
+        resp = self.client.get(f"{self.session_observations_url}{malformed_id}/")
 
         self.assertEqual(resp.status_code, 404)
         self.assertIn("not an observation id", resp.json()["detail"])

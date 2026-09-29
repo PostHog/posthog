@@ -983,8 +983,10 @@ class ReplayObservationViewSet(
         observations from that millisecond so the caller can pick the one it meant.
         """
         try:
-            parsed = uuid.UUID(observation_id)
+            parsed: uuid.UUID | None = uuid.UUID(observation_id)
         except ValueError:
+            parsed = None
+        if parsed is None or parsed.version != 7:
             return (
                 "This is not an observation id. Observation ids are UUIDs. "
                 "Pass the `id` of a row from the observation list unchanged."
