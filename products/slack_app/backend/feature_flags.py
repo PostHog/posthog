@@ -47,6 +47,7 @@ logger = structlog.get_logger(__name__)
 
 SLACK_APP_AGENT_DESIGN_FLAG = "slack-app-agent-design"
 SLACK_APP_FORKING_FLAG = "slack-app-forking"
+SLACK_APP_AGENT_DIRECTED_SHADOW_FLAG = "slack-app-agent-directed-shadow"
 
 
 # Linking a Slack identity to a PostHog user resolves the Slack profile and its email.
@@ -151,4 +152,18 @@ def is_slack_app_forking_enabled(integration: Integration) -> bool:
         SLACK_APP_FORKING_FLAG,
         integration,
         failure_log_key="slack_app_forking_feature_flag_check_failed",
+    )
+
+
+def is_slack_app_agent_directed_shadow_enabled(integration: Integration) -> bool:
+    """Gate for the shadow call that asks the System One model whether an untagged thread
+    reply is addressed to the agent. The shadow answer is recorded and decides nothing.
+
+    Keyed on the Slack workspace: the shadow adds a model call to every untagged reply in
+    a thread, so the rollout unit is the workspace whose threads carry that call.
+    """
+    return _workspace_flag_enabled(
+        SLACK_APP_AGENT_DIRECTED_SHADOW_FLAG,
+        integration,
+        failure_log_key="slack_app_agent_directed_shadow_feature_flag_check_failed",
     )
