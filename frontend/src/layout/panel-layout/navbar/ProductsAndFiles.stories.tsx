@@ -1,4 +1,4 @@
-import { MOCK_DEFAULT_BASIC_USER, MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
+import { MOCK_DEFAULT_BASIC_USER, MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_USER } from 'lib/api.mock'
 
 import type { Meta, StoryObj } from '@storybook/react'
 import { within, waitFor } from '@testing-library/dom'
@@ -239,16 +239,18 @@ export const CustomizeSidebarSaveFailure: Story = {
             </>
         ),
         mswDecorator({
-            post: { '/api/projects/:team_id/file_system_shortcut/': [500, { detail: 'Unavailable' }] },
+            post: {
+                '/api/projects/:team_id/file_system_shortcut/bulk_update/': [500, { detail: 'Unavailable' }],
+            },
         }),
     ],
     play: async (context) => {
         await CustomizeSidebar.play!(context)
         const body = within(context.canvasElement.ownerDocument.body)
         const dialog = within(body.getByRole('dialog'))
-        await userEvent.click(dialog.getByRole('switch', { name: 'Actions' }))
-        await userEvent.click(dialog.getByText('Done', { exact: true }))
-        await body.findByText('Some changes could not be saved. Toggle those apps again to retry.')
+        await userEvent.click(dialog.getByText('Actions', { exact: true }))
+        await userEvent.click(dialog.getByText('Save', { exact: true }))
+        await body.findByText('Could not save your starred products. Try again.')
     },
 }
 export const CustomizeSidebarRanked: Story = {
@@ -256,9 +258,9 @@ export const CustomizeSidebarRanked: Story = {
         await CustomizeSidebar.play!(context)
         const body = within(context.canvasElement.ownerDocument.body)
         await userEvent.click(body.getByText('Track website visitors', { exact: true }))
-        const matches = within(await body.findByRole('region', { name: 'Matching apps' }))
+        const matches = within(await body.findByRole('region', { name: 'Suggested' }))
         await waitFor(() => {
-            if (matches.getAllByRole('switch')[0] !== matches.getByRole('switch', { name: 'Web analytics' })) {
+            if (!matches.getAllByRole('button')[0]?.textContent?.includes('Web analytics')) {
                 throw new Error('Waiting for Web analytics to be the first rendered match')
             }
         })
@@ -289,9 +291,7 @@ export const CustomizeSidebarNoMatches: Story = {
         await CustomizeSidebar.play!(context)
         const body = within(context.canvasElement.ownerDocument.body)
         await userEvent.type(body.getByLabelText('Filter by jev'), 'Plan a hiking trip')
-        await body.findByText(
-            'No apps meet the match threshold. Try another description or choose from the apps below.'
-        )
+        await body.findByText('No apps meet the match threshold. Try another description or choose from the list.')
     },
 }
 export const CustomizeSidebarUnavailable: Story = {
@@ -313,6 +313,20 @@ export const CustomizeSidebarDark: Story = { ...CustomizeSidebarRanked, globals:
 export const CustomizeSidebarNarrow: Story = {
     ...CustomizeSidebarRanked,
     parameters: { testOptions: { viewport: { width: 600, height: 900 } } },
+}
+export const StarredSetupPrompt: Story = {
+    decorators: [
+        mswDecorator({
+            get: { '/api/users/@me/': [200, { ...MOCK_DEFAULT_USER, ui_configuration: null }] },
+        }),
+    ],
+}
+export const StarredSetup: Story = {
+    ...StarredSetupPrompt,
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await userEvent.click(await canvas.findByText('Choose starred products'))
+    },
 }
 export const Files: Story = { args: { tab: 'files' } }
 export const FilesOptions: Story = {

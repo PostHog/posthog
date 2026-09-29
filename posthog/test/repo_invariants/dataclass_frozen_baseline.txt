@@ -589,7 +589,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/freshchat/freshchat.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/freshchat/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/freshdesk/freshdesk.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/freshdesk/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/freshsales/freshsales.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/freshsales/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/freshservice/freshservice.py

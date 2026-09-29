@@ -68,6 +68,10 @@ PERSONS_FIELDS: dict[str, FieldOrTable] = {
 }
 
 
+# Virtual properties that resolve only through the revenue analytics join.
+REVENUE_ANALYTICS_VIRTUAL_PROPERTIES = frozenset({"$virt_mrr", "$virt_revenue"})
+
+
 def _is_virtual_field_requiring_join(expr: ast.Expr) -> bool:
     """
     Check if an expression references a virtual field that requires a joined table.
@@ -79,7 +83,7 @@ def _is_virtual_field_requiring_join(expr: ast.Expr) -> bool:
         for chain_item in expr.chain:
             if isinstance(chain_item, str) and chain_item.startswith("$virt_"):
                 # Currently, all $virt_ fields that require joins are revenue analytics fields
-                if chain_item in ("$virt_mrr", "$virt_revenue"):
+                if chain_item in REVENUE_ANALYTICS_VIRTUAL_PROPERTIES:
                     return True
     elif isinstance(expr, ast.Call):
         # Check arguments of function calls recursively

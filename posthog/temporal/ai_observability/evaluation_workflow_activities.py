@@ -170,6 +170,7 @@ _STATUS_REASON_SUBJECTS = {
     "provider_key_quota_exceeded": "Your AI observability evaluation was disabled because its provider API key quota was exceeded",
     "provider_key_rate_limited": "Your AI observability evaluation was disabled because its provider API key is being rate limited",
     "model_not_found": "Your AI observability evaluation was disabled because its model was not found",
+    "model_not_supported": "Your AI observability evaluation was disabled because its model does not support chat completions",
     "hog_error": "Your AI observability evaluation was disabled because its Hog code failed",
 }
 
@@ -303,7 +304,13 @@ def build_evaluation_event_properties(
         properties["$ai_evaluation_key_type"] = "byok" if result.get("is_byok") else "posthog"
         properties["$ai_evaluation_key_id"] = result.get("key_id")
 
-    if result["result_type"] == "numeric":
+    if result["result_type"] == "categorical":
+        properties["$ai_evaluation_allows_na"] = allows_na
+        # Native JSON property reads turn [] into NULL, so applicability preserves empty results.
+        properties["$ai_evaluation_applicable"] = result.get("applicable", not result.get("skipped", False))
+        if not result.get("skipped") and result.get("applicable", True) and "categories" in result:
+            properties["$ai_evaluation_categorical_result"] = result["categories"]
+    elif result["result_type"] == "numeric":
         properties["$ai_evaluation_allows_na"] = allows_na
         if allows_na:
             properties["$ai_evaluation_applicable"] = result.get("applicable", not result.get("skipped", False))

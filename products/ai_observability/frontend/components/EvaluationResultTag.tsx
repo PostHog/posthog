@@ -2,7 +2,7 @@ import { IconCheck, IconMinus, IconWarning, IconX } from '@posthog/icons'
 import { LemonTag } from '@posthog/lemon-ui'
 import type { LemonTagProps } from '@posthog/lemon-ui'
 
-import { formatNumericEvaluationScore, numericScorePasses } from '../evaluations/constants'
+import { categoricalResultPasses, formatNumericEvaluationScore, numericScorePasses } from '../evaluations/constants'
 import type { EvaluationOutputConfig, EvaluationRun } from '../evaluations/types'
 import { capitalize } from '../sentimentUtils'
 
@@ -14,6 +14,7 @@ type EvaluationResultLike = Pick<
     | 'evaluation_type'
     | 'sentiment_label'
     | 'skipped'
+    | 'categories'
     | 'score'
     | 'score_min'
     | 'score_max'
@@ -31,6 +32,7 @@ export interface EvaluationResultDisplayOptions {
     /** When true, the evaluation looks for a problem, so a true result is the undesirable one. */
     trueIsFailure?: boolean
     passingRule?: EvaluationOutputConfig['passing_rule']
+    categoryOptions?: EvaluationOutputConfig['options']
 }
 
 const SENTIMENT_DISPLAY: Record<string, Pick<EvaluationResultDisplay, 'type' | 'icon' | 'sortValue'>> = {
@@ -57,6 +59,24 @@ export function getEvaluationResultDisplay(
     // N/A, so reading the result first would report a session that was never graded as failing.
     if (run.skipped) {
         return { type: 'muted', icon: <IconMinus />, label: 'Skipped', sortValue: 0.4 }
+    }
+    if (run.result_type === 'categorical') {
+        if (run.applicable === false) {
+            return { type: 'muted', icon: <IconMinus />, label: 'N/A', sortValue: 0.5 }
+        }
+        if (run.categories == null) {
+            return { type: 'muted', icon: <IconMinus />, label: 'No result', sortValue: -1 }
+        }
+        const passed = categoricalResultPasses(run.categories, options.passingRule)
+        return {
+            type: passed === null ? 'none' : passed ? 'success' : 'danger',
+            icon: passed === null ? <IconMinus /> : passed ? <IconCheck /> : <IconX />,
+            label:
+                run.categories
+                    .map((key) => options.categoryOptions?.find((option) => option.key === key)?.label ?? key)
+                    .join(', ') || 'No categories',
+            sortValue: 5,
+        }
     }
     if (run.result_type === 'numeric') {
         if (run.applicable === false) {
@@ -111,6 +131,9 @@ export function compareEvaluationResults(
 ): number {
     const aRank = getEvaluationResultSortValue(a, aOptions)
     const bRank = getEvaluationResultSortValue(b, bOptions)
+    if (aRank === 5 && bRank === 5) {
+        return (a.categories ?? []).join(',').localeCompare((b.categories ?? []).join(','))
+    }
     return aRank === 4 && bRank === 4 ? a.score! - b.score! : aRank - bRank
 }
 
@@ -118,17 +141,25 @@ export function EvaluationResultTag({
     run,
     trueIsFailure,
     passingRule,
+    categoryOptions,
     size,
 }: {
     run: EvaluationResultLike
     trueIsFailure?: boolean
     passingRule?: EvaluationOutputConfig['passing_rule']
+    categoryOptions?: EvaluationOutputConfig['options']
     size?: LemonTagProps['size']
 }): JSX.Element {
-    const { type, icon, label } = getEvaluationResultDisplay(run, { trueIsFailure, passingRule })
+    const { type, icon, label } = getEvaluationResultDisplay(run, { trueIsFailure, passingRule, categoryOptions })
     return (
-        <LemonTag type={type} icon={icon} size={size} title={run.score == null ? undefined : String(run.score)}>
-            {label}
+        <LemonTag
+            type={type}
+            icon={icon}
+            size={size}
+            className={run.result_type === 'categorical' ? 'max-w-full' : undefined}
+            title={run.result_type === 'categorical' ? label : run.score == null ? undefined : String(run.score)}
+        >
+            {run.result_type === 'categorical' ? <span className="truncate">{label}</span> : label}
         </LemonTag>
     )
 }
