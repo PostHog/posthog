@@ -6,6 +6,11 @@ from products.signals.backend.temporal.agentic.scout_coordinator import (
     run_due_signal_report_checks_activity,
     stamp_dispatched_signals_scout_runs_activity,
 )
+from products.signals.backend.temporal.agentic.scout_rubrics import (
+    GenerateScoutRubricsWorkflow,
+    fail_scout_rubrics_activity,
+    generate_scout_rubrics_activity,
+)
 from products.signals.backend.temporal.agentic.scout_scheduler import (
     RunSignalsScoutWorkflow,
     resume_signals_scout_workflow_step,
@@ -90,6 +95,7 @@ from products.signals.backend.temporal.summary import (
 )
 
 WORKFLOWS = [
+    GenerateScoutRubricsWorkflow,
     InboxRankingScoringWorkflow,
     BackfillErrorTrackingWorkflow,
     TeamSignalGroupingWorkflow,
@@ -110,6 +116,8 @@ WORKFLOWS = [
 ]
 
 ACTIVITIES = [
+    generate_scout_rubrics_activity,
+    fail_scout_rubrics_activity,
     score_inbox_reports_activity,
     dispatch_inbox_slack_notifications_activity,
     get_inbox_notification_state_activity,
