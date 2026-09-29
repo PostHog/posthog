@@ -745,6 +745,9 @@ const scoutCheckRecordResult = (): ToolBase<
         if (params.outcome !== undefined) {
             body['outcome'] = params.outcome
         }
+        if (params.reason !== undefined) {
+            body['reason'] = params.reason
+        }
         if (params.explanation !== undefined) {
             body['explanation'] = params.explanation
         }
