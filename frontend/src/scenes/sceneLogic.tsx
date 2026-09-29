@@ -149,6 +149,11 @@ const pathPrefixesOnboardingNotRequiredFor = [
     '/startups',
     '/coupons',
     '/legal',
+    // The pages that explain why an organization is closed to its members. `organizationLogic`
+    // sends blocked members here, and neither page is in its `ALLOWED_WHILE_BLOCKED` list, so an
+    // /onboarding redirect from here makes the two guards replace each other forever.
+    urls.organizationPendingDeletion(),
+    urls.organizationDeactivated(),
 ]
 
 export function isOnboardingNotRequiredForPath(pathname: string): boolean {

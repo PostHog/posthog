@@ -148,6 +148,14 @@ describe('organizationLogic', () => {
                 '/organization/billing',
                 '/organization-pending-deletion',
             ],
+            // The other half of the loop this pairs with: onboarding never wins over the block
+            // page, so the block page must be exempt from the /onboarding redirect instead.
+            [
+                'pending deletion drops onboarding',
+                { is_pending_deletion: true },
+                '/onboarding',
+                '/organization-pending-deletion',
+            ],
         ])('%s', async (_name, organization, pathname, expected) => {
             mountWith(organization)
             await expectLogic(logic).toDispatchActions(['loadCurrentOrganizationSuccess'])
