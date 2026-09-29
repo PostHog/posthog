@@ -129,6 +129,15 @@ export interface PlaygroundChatListApi {
     has_open_turn: boolean
 }
 
+export interface PaginatedPlaygroundChatListListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: PlaygroundChatListApi[]
+}
+
 /**
  * * `running` - Running
  * * `completed` - Completed
@@ -506,6 +515,17 @@ export type BusinessKnowledgeGapSuggestionsListParams = {
      * When provided, returns per-ticket gap rows instead of aggregated view. Requires `ticket:read` scope in addition to `business_knowledge:read`.
      */
     ticket_id?: string
+}
+
+export type BusinessKnowledgePlaygroundChatsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
 }
 
 export type BusinessKnowledgeSourcesListParams = {

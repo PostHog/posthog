@@ -4,13 +4,26 @@ import { expectLogic } from 'kea-test-utils'
 import { ApiError } from 'lib/api'
 import { urls } from 'scenes/urls'
 
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { initKeaTests } from '~/test/init'
 
-import { askPlaygroundChat, createPlaygroundChat, getPlaygroundChat, listPlaygroundChats } from '../api'
-import type { PlaygroundChatApi, PlaygroundChatListApi, SandboxRunApi } from '../generated/api.schemas'
+import {
+    askPlaygroundChat,
+    createPlaygroundChat,
+    getPlaygroundChat,
+    listPlaygroundChats,
+    PLAYGROUND_CHAT_PAGE_SIZE,
+} from '../api'
+import type {
+    PaginatedPlaygroundChatListListApi,
+    PlaygroundChatApi,
+    PlaygroundChatListApi,
+    SandboxRunApi,
+} from '../generated/api.schemas'
 import { businessKnowledgePlaygroundLogic } from './businessKnowledgePlaygroundLogic'
 
 jest.mock('../api', () => ({
+    PLAYGROUND_CHAT_PAGE_SIZE: 100,
     listPlaygroundChats: jest.fn(),
     createPlaygroundChat: jest.fn(),
     getPlaygroundChat: jest.fn(),
@@ -75,24 +88,35 @@ const listed: PlaygroundChatListApi = {
     has_open_turn: false,
 }
 
+const listPage = (
+    results: PlaygroundChatListApi[],
+    next: string | null = null
+): PaginatedPlaygroundChatListListApi => ({
+    count: results.length,
+    next,
+    previous: null,
+    results,
+})
+
 describe('businessKnowledgePlaygroundLogic', () => {
     let logic: ReturnType<typeof businessKnowledgePlaygroundLogic.build>
 
     beforeEach(() => {
         initKeaTests()
         jest.clearAllMocks()
-        mockedList.mockResolvedValue([])
+        mockedList.mockResolvedValue(listPage([]))
         logic = businessKnowledgePlaygroundLogic()
         logic.mount()
     })
 
     afterEach(() => {
         logic?.unmount()
+        resumeKeaLoadersErrors()
     })
 
     it('opens a saved chat from the URL', async () => {
         mockedGet.mockResolvedValue(chat('completed'))
-        mockedList.mockResolvedValue([listed])
+        mockedList.mockResolvedValue(listPage([listed]))
         router.actions.push(urls.businessKnowledgePlayground('chat-1'))
         await expectLogic(logic).toDispatchActions(['chatLoaded'])
         expect(logic.values.chatId).toBe('chat-1')
@@ -259,7 +283,13 @@ describe('businessKnowledgePlaygroundLogic', () => {
     ])('with %i answers running elsewhere, a new chat ask is blocked: %s', async (openCount, blocked) => {
         await expectLogic(logic).toDispatchActions(['loadChatsSuccess'])
         mockedList.mockResolvedValue(
-            Array.from({ length: openCount }, (_, index) => ({ ...listed, id: `open-${index}`, has_open_turn: true }))
+            listPage(
+                Array.from({ length: openCount }, (_, index) => ({
+                    ...listed,
+                    id: `open-${index}`,
+                    has_open_turn: true,
+                }))
+            )
         )
         mockedCreate.mockResolvedValue(emptyChat)
         mockedAsk.mockResolvedValue(chat('running'))
@@ -276,13 +306,84 @@ describe('businessKnowledgePlaygroundLogic', () => {
         expect(logic.values.question).toBe(blocked ? 'Can I get a refund?' : '')
     })
 
+    it('loads older chats without losing them when the first page refreshes', async () => {
+        await expectLogic(logic).toDispatchActions(['loadChatsSuccess'])
+        const recent = Array.from({ length: PLAYGROUND_CHAT_PAGE_SIZE }, (_, index) => ({
+            ...listed,
+            id: index === 0 ? listed.id : `chat-${index + 1}`,
+        }))
+        const older = { ...listed, id: 'chat-101', title: 'Older question' }
+        mockedList.mockResolvedValueOnce(listPage(recent, '/chats/?offset=100'))
+        await expectLogic(logic, () => logic.actions.loadChats()).toDispatchActions(['loadChatsSuccess'])
+
+        silenceKeaLoadersErrors()
+        mockedList.mockRejectedValueOnce(new Error('network error'))
+        logic.actions.loadMoreChats()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.nextChatsOffset).toBe(100)
+        expect(logic.values.loadingMoreChats).toBe(false)
+        expect(logic.values.moreChatsError).toContain("Couldn't load older chats")
+        resumeKeaLoadersErrors()
+
+        mockedList.mockResolvedValueOnce(listPage([older]))
+        await expectLogic(logic, () => logic.actions.loadMoreChats()).toDispatchActions(['loadMoreChatsSuccess'])
+
+        expect(mockedList).toHaveBeenLastCalledWith(100)
+        expect(logic.values.chatGroups.flatMap((group) => group.chats)).toHaveLength(101)
+        expect(logic.values.chatGroups.flatMap((group) => group.chats).at(-1)?.id).toBe('chat-101')
+        expect(logic.values.nextChatsOffset).toBeNull()
+        expect(logic.values.moreChatsError).toBeNull()
+
+        mockedList.mockResolvedValueOnce(
+            listPage([{ ...listed, title: 'Updated question' }, ...recent.slice(1)], '/chats/?offset=100')
+        )
+        await expectLogic(logic, () => logic.actions.loadChats()).toDispatchActions(['loadChatsSuccess'])
+        expect(logic.values.chats).toHaveLength(101)
+        expect(logic.values.chats[0].title).toBe('Updated question')
+        expect(logic.values.chats.at(-1)?.title).toBe('Older question')
+
+        silenceKeaLoadersErrors()
+        mockedList.mockRejectedValueOnce(new Error('network error'))
+        logic.actions.loadChats()
+        await expectLogic(logic).toDispatchActions(['loadChatsFailure'])
+        expect(logic.values.nextChatsOffset).toBe(101)
+        expect(logic.values.chats).toHaveLength(101)
+        expect(logic.values.chatsError).toContain("Couldn't load chats")
+
+        mockedList.mockRejectedValueOnce(new Error('network error'))
+        logic.actions.loadMoreChats()
+        await expectLogic(logic).toDispatchActions(['loadMoreChatsFailure'])
+        expect(logic.values.moreChatsError).toContain("Couldn't load older chats")
+        resumeKeaLoadersErrors()
+
+        mockedList.mockResolvedValueOnce(listPage(recent))
+        await expectLogic(logic, () => logic.actions.loadChats()).toDispatchActions(['loadChatsSuccess'])
+        expect(logic.values.nextChatsOffset).toBeNull()
+        expect(logic.values.moreChatsError).toBeNull()
+    })
+
+    it('shows a first-page failure and clears it when the retry starts', async () => {
+        await expectLogic(logic).toDispatchActions(['loadChatsSuccess'])
+        silenceKeaLoadersErrors()
+        mockedList.mockRejectedValueOnce(new Error('network error'))
+        logic.actions.loadChats()
+        await expectLogic(logic).toDispatchActions(['loadChatsFailure'])
+        expect(logic.values.chatsError).toContain("Couldn't load chats")
+        expect(logic.values.chats).toEqual([])
+
+        mockedList.mockResolvedValueOnce(listPage([listed]))
+        await expectLogic(logic, () => logic.actions.loadChats()).toDispatchActions(['loadChatsSuccess'])
+        expect(logic.values.chatsError).toBeNull()
+        expect(logic.values.chats).toEqual([listed])
+    })
+
     it('refreshes the chat list until no chat has an answer running', async () => {
         await expectLogic(logic).toDispatchActions(['loadChatsSuccess'])
         jest.useFakeTimers()
         try {
             mockedList
-                .mockResolvedValueOnce([{ ...listed, has_open_turn: true }])
-                .mockResolvedValue([{ ...listed, has_open_turn: false }])
+                .mockResolvedValueOnce(listPage([{ ...listed, has_open_turn: true }]))
+                .mockResolvedValue(listPage([{ ...listed, has_open_turn: false }]))
             await expectLogic(logic, () => {
                 logic.actions.loadChats()
             }).toDispatchActions(['loadChatsSuccess'])

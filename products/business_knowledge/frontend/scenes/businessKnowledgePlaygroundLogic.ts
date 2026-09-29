@@ -11,6 +11,7 @@ import {
     deletePlaygroundChat,
     getPlaygroundChat,
     listPlaygroundChats,
+    PLAYGROUND_CHAT_PAGE_SIZE,
 } from '../api'
 import type { PlaygroundChatApi, PlaygroundChatListApi, SandboxRunApi } from '../generated/api.schemas'
 import { type PlaygroundChatGroup, groupPlaygroundChats } from './playgroundDisplay'
@@ -49,8 +50,12 @@ export interface businessKnowledgePlaygroundLogicValues {
     chatLoading: boolean
     chatSearch: string
     chats: PlaygroundChatListApi[]
+    chatsError: string | null
     chatsLoading: boolean
     deletingChatId: string | null
+    loadingMoreChats: boolean
+    moreChatsError: string | null
+    nextChatsOffset: number | null
     pendingQuestion: string | null
     question: string
 }
@@ -66,7 +71,7 @@ export interface businessKnowledgePlaygroundLogicActions {
     deleteChat: (chatId: string) => {
         chatId: string
     }
-    loadChats: () => any
+    loadChats: (deletedChatId?: string | undefined) => string | undefined
     loadChatsFailure: (
         error: string,
         errorObject?: any
@@ -76,10 +81,25 @@ export interface businessKnowledgePlaygroundLogicActions {
     }
     loadChatsSuccess: (
         chats: PlaygroundChatListApi[],
-        payload?: any
+        payload?: string | undefined
     ) => {
         chats: PlaygroundChatListApi[]
-        payload?: any
+        payload?: string | undefined
+    }
+    loadMoreChats: (_: void) => void
+    loadMoreChatsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadMoreChatsSuccess: (
+        chats: PlaygroundChatListApi[],
+        payload?: void
+    ) => {
+        chats: PlaygroundChatListApi[]
+        payload?: void
     }
     newChat: () => {
         value: true
@@ -113,6 +133,9 @@ export interface businessKnowledgePlaygroundLogicActions {
     }
     setDeletingChatId: (deletingChatId: string | null) => {
         deletingChatId: string | null
+    }
+    setNextChatsOffset: (offset: number | null) => {
+        offset: number | null
     }
     setPendingQuestion: (pendingQuestion: string | null) => {
         pendingQuestion: string | null
@@ -159,6 +182,7 @@ export const businessKnowledgePlaygroundLogic = kea<businessKnowledgePlaygroundL
         setChatId: (chatId: string | null) => ({ chatId }),
         openChat: (chatId: string | null) => ({ chatId }),
         newChat: true,
+        setNextChatsOffset: (offset: number | null) => ({ offset }),
         deleteChat: (chatId: string) => ({ chatId }),
         setDeletingChatId: (deletingChatId: string | null) => ({ deletingChatId }),
         ask: true,
@@ -167,15 +191,63 @@ export const businessKnowledgePlaygroundLogic = kea<businessKnowledgePlaygroundL
         poll: true,
         pollFailed: (error: string) => ({ error }),
     }),
-    loaders(() => ({
+    loaders(({ actions, values }) => ({
         chats: [
             [] as PlaygroundChatListApi[],
             {
-                loadChats: async (): Promise<PlaygroundChatListApi[]> => listPlaygroundChats(),
+                loadChats: async (
+                    deletedChatId: string | undefined = undefined,
+                    breakpoint
+                ): Promise<PlaygroundChatListApi[]> => {
+                    const page = await listPlaygroundChats()
+                    breakpoint()
+                    const loadedIds = new Set(page.results.map((chat) => chat.id))
+                    const olderChats = page.next
+                        ? values.chats.filter((chat) => chat.id !== deletedChatId && !loadedIds.has(chat.id))
+                        : []
+                    actions.setNextChatsOffset(page.next ? page.results.length + olderChats.length : null)
+                    return [...page.results, ...olderChats]
+                },
+                loadMoreChats: async (_: void, breakpoint): Promise<PlaygroundChatListApi[]> => {
+                    const offset = values.nextChatsOffset
+                    if (offset === null) {
+                        return values.chats
+                    }
+                    const page = await listPlaygroundChats(offset)
+                    breakpoint()
+                    if (values.nextChatsOffset !== offset) {
+                        return values.chats
+                    }
+                    actions.setNextChatsOffset(page.next ? offset + page.results.length : null)
+                    const loadedIds = new Set(values.chats.map((chat) => chat.id))
+                    return [...values.chats, ...page.results.filter((chat) => !loadedIds.has(chat.id))]
+                },
             },
         ],
     })),
     reducers({
+        chatsError: [
+            null as string | null,
+            {
+                loadChats: () => null,
+                loadChatsFailure: (_, { error, errorObject }) =>
+                    errorDetail(errorObject ?? error, "Couldn't load chats. Try again."),
+            },
+        ],
+        nextChatsOffset: [null as number | null, { setNextChatsOffset: (_, { offset }) => offset }],
+        loadingMoreChats: [
+            false,
+            { loadMoreChats: () => true, loadMoreChatsSuccess: () => false, loadMoreChatsFailure: () => false },
+        ],
+        moreChatsError: [
+            null as string | null,
+            {
+                loadMoreChats: () => null,
+                loadChatsSuccess: () => null,
+                loadMoreChatsFailure: (_, { error, errorObject }) =>
+                    errorDetail(errorObject ?? error, "Couldn't load older chats. Try again."),
+            },
+        ],
         question: [
             '',
             {
@@ -261,7 +333,9 @@ export const businessKnowledgePlaygroundLogic = kea<businessKnowledgePlaygroundL
                 if (chatHasOpenTurn) {
                     return 'Wait for this answer to finish.'
                 }
-                const openElsewhere = chats.filter((listed) => listed.id !== chatId && listed.has_open_turn).length
+                const openElsewhere = chats
+                    .slice(0, PLAYGROUND_CHAT_PAGE_SIZE)
+                    .filter((listed) => listed.id !== chatId && listed.has_open_turn).length
                 return openElsewhere >= MAX_OPEN_ANSWERS
                     ? `You have ${MAX_OPEN_ANSWERS} answers running. Wait for one to finish before you ask another question.`
                     : null
@@ -291,7 +365,7 @@ export const businessKnowledgePlaygroundLogic = kea<businessKnowledgePlaygroundL
         return {
             loadChatsSuccess: ({ chats }) => {
                 // Other chats keep running in the background, so refresh the list until their spinners can clear.
-                if (chats.some((chat) => chat.has_open_turn)) {
+                if (chats.slice(0, PLAYGROUND_CHAT_PAGE_SIZE).some((chat) => chat.has_open_turn)) {
                     cache.disposables.add(() => {
                         const id = window.setTimeout(() => actions.loadChats(), LIST_POLL_MS)
                         return () => window.clearTimeout(id)
@@ -340,7 +414,7 @@ export const businessKnowledgePlaygroundLogic = kea<businessKnowledgePlaygroundL
                     if (cache.disposables.isDisposed) {
                         return
                     }
-                    actions.loadChats()
+                    actions.loadChats(chatId)
                     if (values.chatId === chatId) {
                         actions.newChat()
                     }
