@@ -155,6 +155,7 @@ import {
     getEffectiveDateOverride,
     getInsightQueryError,
     getInsightWithRetry,
+    getRefreshRejectionError,
     isRefreshRejectionStub,
     layoutsByTile,
     parseURLFilters,
@@ -4228,7 +4229,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         actions.setRefreshStatus(insight.short_id)
                     }
                 } else {
-                    actions.setRefreshError(insight.short_id)
+                    actions.setRefreshError(insight.short_id, getRefreshRejectionError(refreshedInsight))
                 }
             } catch (e: any) {
                 actions.setRefreshError(insight.short_id, e)
@@ -4338,7 +4339,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                                 )
                             }
                         } else {
-                            actions.setRefreshError(insight.short_id)
+                            actions.setRefreshError(insight.short_id, getRefreshRejectionError(refreshedInsight))
                             tilesErroredCount++
                         }
                     } catch (e: any) {
