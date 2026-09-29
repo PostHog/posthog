@@ -32,6 +32,7 @@ def _metric() -> dict[str, Any]:
     return {"kind": "ExperimentMetric", "metric_type": "mean", "uuid": str(uuid4())}
 
 
+@time_machine.travel("2026-09-15T12:00:00Z", tick=False)
 class TestScheduledRecalculationLogic(BaseTest):
     def _experiment(self, *, team: Team | None = None, started_hours_ago: float = 48, **overrides: Any) -> Experiment:
         team = team or self.team
@@ -96,10 +97,10 @@ class TestScheduledRecalculationLogic(BaseTest):
     )
     def test_age_bounds(self, _name: str, started_hours_ago: float, expected: bool):
         # The boundary cases sit on the inclusive edge, so the fixture and the filter must
-        # read the same instant or they fall a hair outside it.
-        with time_machine.travel(timezone.now(), tick=False):
-            experiment = self._experiment(started_hours_ago=started_hours_ago)
-            assert (experiment.id in self._candidate_ids(2)) is expected
+        # read the same instant or they fall a hair outside it. The class-level clock pin
+        # guarantees that.
+        experiment = self._experiment(started_hours_ago=started_hours_ago)
+        assert (experiment.id in self._candidate_ids(2)) is expected
 
     def test_experiment_without_metrics_is_a_candidate(self):
         experiment = self._experiment(metrics=[])
