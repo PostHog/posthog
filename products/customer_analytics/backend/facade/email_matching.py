@@ -9,7 +9,6 @@ from posthog.models.user import User
 
 from products.conversations.backend.facade import api as conversations
 from products.conversations.backend.facade.types import EmailThreadAccountLinkInput, EmailThreadForAccountMatching
-from products.customer_analytics.backend.constants import CUSTOMER_ANALYTICS_CSP_FLAG as CUSTOMER_ANALYTICS_CSP_FLAG
 from products.customer_analytics.backend.facade import contracts
 from products.customer_analytics.backend.logic.account_member_search import is_account_member_search_enabled
 from products.customer_analytics.backend.logic.email_account_matching import (

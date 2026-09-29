@@ -21,7 +21,8 @@ from products.conversations.backend.services.email_thread_ingestion import (
     ParsedEmail,
     ingest_email_message,
 )
-from products.customer_analytics.backend.facade.email_matching import CUSTOMER_ANALYTICS_CSP_FLAG, match_email_accounts
+from products.customer_analytics.backend.facade.constants import CUSTOMER_ANALYTICS_CSP_FLAG
+from products.customer_analytics.backend.facade.email_matching import match_email_accounts
 
 _SES_MESSAGE_ID_RE = re.compile(r"[A-Za-z0-9-]{1,250}\Z")
 
