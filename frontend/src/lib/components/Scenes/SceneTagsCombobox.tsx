@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { SuggestMetadataButton } from 'lib/components/MetadataSuggest/SuggestMetadataButton'
+import { SuggestTagsButton } from 'lib/components/Scenes/SuggestTagsButton'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 
 import { ScenePanelLabel } from '~/layout/scenes/SceneLayout'
@@ -41,12 +41,11 @@ export function SceneTagsCombobox({
             Tags
             {loading || tagsLoading ? <Spinner className="text-sm" /> : null}
             {onSuggest && canEdit && onSave ? (
-                <SuggestMetadataButton
-                    label="Suggest tags"
+                <SuggestTagsButton
                     onClick={onSuggest}
                     loading={suggesting}
-                    dataAttr={`${dataAttrKey}-tags-suggest`}
-                    size="xsmall"
+                    saving={loading}
+                    dataAttrKey={dataAttrKey}
                 />
             ) : null}
         </span>

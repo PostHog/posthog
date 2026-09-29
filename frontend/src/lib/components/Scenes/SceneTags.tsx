@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
-import { SuggestMetadataButton } from 'lib/components/MetadataSuggest/SuggestMetadataButton'
+import { SuggestTagsButton } from 'lib/components/Scenes/SuggestTagsButton'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -56,12 +56,11 @@ export const SceneTags = ({
             Tags
             {loading || tagsLoading ? <Spinner className="text-sm" /> : null}
             {onSuggest && canEdit && onSave ? (
-                <SuggestMetadataButton
-                    label="Suggest tags"
+                <SuggestTagsButton
                     onClick={onSuggest}
                     loading={suggesting}
-                    dataAttr={`${dataAttrKey}-tags-suggest`}
-                    size="xsmall"
+                    saving={loading}
+                    dataAttrKey={dataAttrKey}
                 />
             ) : null}
         </span>

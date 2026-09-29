@@ -26,7 +26,6 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { preflightLogic } from 'lib/logic/preflightLogic'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
 import { InsightEventSource, sanitizeInsight, sanitizeQuery } from 'lib/utils/eventUsageLogic'
@@ -141,7 +140,6 @@ export interface insightLogicValues {
     aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun // groupsModel
     mathDefinitions: Partial<Record<string, MathDefinition>> // mathsLogic
     currentOrganization: OrganizationType | null // organizationLogic
-    isHobby: boolean // preflightLogic
     activeSceneId: string | null // sceneLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     currentTeamId: number | null // teamLogic
@@ -168,7 +166,6 @@ export interface insightLogicValues {
     isInViewMode: boolean
     isSavingTags: boolean
     metadataSuggestionPayload: InsightMetadataSuggestionRequestApi
-    metadataSuggestionQuery: Node | null
     metadataSuggestionsAvailable: boolean
     previousQuery: Node | null
     query: Node | null
@@ -561,17 +558,15 @@ export interface insightLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         insightProps: (arg: any) => InsightLogicProps
+        metadataSuggestionPayload: (
+            insight: Partial<InsightModel<Node<Record<string, any>>>>,
+            query: Node<Record<string, any>> | null
+        ) => InsightMetadataSuggestionRequestApi
         metadataSuggestionsAvailable: (
             featureFlags: FeatureFlagsSet,
             currentOrganization: OrganizationType | null,
-            canEditInsight: boolean,
-            isHobby: boolean
+            metadataSuggestionPayload: InsightMetadataSuggestionRequestApi
         ) => boolean
-        metadataSuggestionQuery: (query: Node<Record<string, any>> | null) => Node | null
-        metadataSuggestionPayload: (
-            insight: Partial<InsightModel<Node<Record<string, any>>>>,
-            metadataSuggestionQuery: Node<Record<string, any>> | null
-        ) => InsightMetadataSuggestionRequestApi
         query: (arg: Node<Record<string, any>> | null) => Node | null
         isInDashboardContext: (arg: any) => boolean
         hasDashboardItemId: (arg: any) => boolean
@@ -636,8 +631,6 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             ['currentTeamId', 'currentTeam'],
             organizationLogic,
             ['currentOrganization'],
-            preflightLogic,
-            ['isHobby'],
             groupsModel,
             ['aggregationLabel'],
             cohortsModel,
@@ -847,9 +840,9 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                 suggestTags: async () => {
                     const payload = values.metadataSuggestionPayload
                     const suggestion = await metadataSuggestionsTagsCreate(String(values.currentTeamId), payload)
-                    // The query can change while the request is in flight, and tags picked for the old query
+                    // The insight can change while the request is in flight, and tags picked for the old insight
                     // would otherwise be saved onto the new one.
-                    return objectsEqual(payload.query, values.metadataSuggestionPayload.query) ? suggestion : null
+                    return objectsEqual(payload, values.metadataSuggestionPayload) ? suggestion : null
                 },
             },
         ],
@@ -1053,43 +1046,29 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
     })),
     selectors({
         insightProps: [() => [(_, props) => props], (props): InsightLogicProps => props],
+        metadataSuggestionPayload: [
+            (s) => [s.insight, s.query],
+            (insight: Partial<InsightModel>, query: Node | null): InsightMetadataSuggestionRequestApi => {
+                const wrapped: InsightVizNode | null = isInsightQueryNode(query)
+                    ? { kind: NodeKind.InsightVizNode, source: query }
+                    : null
+                return {
+                    query: isInsightVizNode(query) ? query : wrapped,
+                    name: insight.name || '',
+                    description: insight.description || '',
+                }
+            },
+        ],
         metadataSuggestionsAvailable: [
-            (s) => [s.featureFlags, s.currentOrganization, s.canEditInsight, s.isHobby],
+            (s) => [s.featureFlags, s.currentOrganization, s.metadataSuggestionPayload],
             (
                 featureFlags: FeatureFlagsSet,
                 currentOrganization: OrganizationType | null,
-                canEditInsight: boolean,
-                isHobby: boolean
+                metadataSuggestionPayload: InsightMetadataSuggestionRequestApi
             ): boolean =>
-                // Jev runs only on PostHog's own inference hosts, so a self-hosted install has nothing to call.
-                !isHobby &&
                 !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_METADATA_SUGGESTIONS] &&
                 !!currentOrganization?.is_ai_data_processing_approved &&
-                !!canEditInsight,
-        ],
-        metadataSuggestionQuery: [
-            (s) => [s.query],
-            (query: Node | null): Node | null => {
-                if (isInsightVizNode(query)) {
-                    return query
-                }
-                if (isInsightQueryNode(query)) {
-                    const wrapped: InsightVizNode = { kind: NodeKind.InsightVizNode, source: query }
-                    return wrapped
-                }
-                return null
-            },
-        ],
-        metadataSuggestionPayload: [
-            (s) => [s.insight, s.metadataSuggestionQuery],
-            (
-                insight: Partial<InsightModel>,
-                metadataSuggestionQuery: Node | null
-            ): InsightMetadataSuggestionRequestApi => ({
-                query: metadataSuggestionQuery,
-                name: insight.name || '',
-                description: insight.description || '',
-            }),
+                !!metadataSuggestionPayload.query,
         ],
         query: [
             (s) => [(state) => insightDataLogic.findMounted(s.insightProps(state))?.values.query || null],

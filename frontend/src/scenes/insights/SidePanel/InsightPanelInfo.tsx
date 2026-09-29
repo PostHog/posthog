@@ -15,14 +15,8 @@ const RESOURCE_TYPE = 'insight'
 export function InsightPanelInfo({ insightLogicProps }: { insightLogicProps: InsightLogicProps }): JSX.Element {
     const { scenePanelOpen } = useValues(sceneLayoutLogic)
     const theInsightLogic = insightLogic(insightLogicProps)
-    const {
-        canEditInsight,
-        insight,
-        isSavingTags,
-        tagSuggestionLoading,
-        metadataSuggestionsAvailable,
-        metadataSuggestionQuery,
-    } = useValues(theInsightLogic)
+    const { canEditInsight, insight, isSavingTags, tagSuggestionLoading, metadataSuggestionsAvailable } =
+        useValues(theInsightLogic)
     const { setInsightMetadata, suggestTags } = useActions(theInsightLogic)
     const { tags: allExistingTags } = useValues(tagsModel)
 
@@ -35,7 +29,7 @@ export function InsightPanelInfo({ insightLogicProps }: { insightLogicProps: Ins
                 dataAttrKey={RESOURCE_TYPE}
                 canEdit={canEditInsight}
                 loading={isSavingTags}
-                onSuggest={metadataSuggestionsAvailable && metadataSuggestionQuery ? suggestTags : undefined}
+                onSuggest={metadataSuggestionsAvailable ? suggestTags : undefined}
                 suggesting={tagSuggestionLoading}
             />
             {scenePanelOpen && <SceneFile dataAttrKey={RESOURCE_TYPE} />}

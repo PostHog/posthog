@@ -103,7 +103,6 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
         insightDuplicating,
         tagSuggestionLoading,
         metadataSuggestionsAvailable,
-        metadataSuggestionQuery,
     } = useValues(theInsightLogic)
     const { duplicateInsight, deleteInsight, setInsightMetadata, suggestTags } = useActions(theInsightLogic)
 
@@ -450,7 +449,7 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
                         dataAttrKey={RESOURCE_TYPE}
                         canEdit={canEditInsight}
                         loading={isSavingTags}
-                        onSuggest={metadataSuggestionsAvailable && metadataSuggestionQuery ? suggestTags : undefined}
+                        onSuggest={metadataSuggestionsAvailable ? suggestTags : undefined}
                         suggesting={tagSuggestionLoading}
                     />
                     <SceneActivityIndicator

@@ -43,8 +43,6 @@ const meta: Meta = {
 }
 export default meta
 
-const flagOn = { featureFlags: [FEATURE_FLAGS.PRODUCT_ANALYTICS_METADATA_SUGGESTIONS] }
-
 async function clickWhenReady(canvasElement: HTMLElement, selector: string): Promise<void> {
     const button = await waitFor(
         () => {
@@ -59,15 +57,8 @@ async function clickWhenReady(canvasElement: HTMLElement, selector: string): Pro
     await userEvent.click(button)
 }
 
-/* eslint-disable @typescript-eslint/no-var-requires */
-
-export const FlagOff: Story = createInsightStory(__trendsLine as any, 'edit', false, { openSidePanel: true })
-
-export const FlagOn: Story = createInsightStory(__trendsLine as any, 'edit', false, { openSidePanel: true })
-FlagOn.parameters = { ...flagOn, testOptions: { waitForSelector: '[data-attr="insight-tags-suggest"]' } }
-
 export const TagsSuggested: Story = createInsightStory(__trendsLine as any, 'edit', false, { openSidePanel: true })
-TagsSuggested.parameters = flagOn
+TagsSuggested.parameters = { featureFlags: [FEATURE_FLAGS.PRODUCT_ANALYTICS_METADATA_SUGGESTIONS] }
 TagsSuggested.play = async ({ canvasElement }) => {
     await clickWhenReady(canvasElement, '[data-attr="insight-tags-suggest"]')
 }
