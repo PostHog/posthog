@@ -5424,6 +5424,10 @@ snapshots:
         hash: v1.k794b7964.62481a20890d8d9702570d58b69f47580c91399daa635cab23d9e8da75d2636f.4zz_BsbTTGbjpB2UW_cLkBiMwGDI54MGoQlD9_b9hV8
     lemon-ui-object-tags--default--light:
         hash: v1.k794b7964.1a69b09d2bc7612599daf0a1228b103250debc4afa2224fb8005e3c9b7f63326.bYCI4pCGFv3tFdGcQfIkfzDcOnpuLhD10S33l9BYIYg
+    lemon-ui-object-tags--editable-tags-in-narrow-container--dark:
+        hash: v1.k794b7964.6538590671c5bcd8feb77e0400c8532705932f4f55856dd6a99a6abcdc00b6e3.ca3qOKbmxmRDrNfdNRCEg9I9Wvnkrs7PHzA0tvpXTIM
+    lemon-ui-object-tags--editable-tags-in-narrow-container--light:
+        hash: v1.k794b7964.8b8f244a4387d0d1165067851b5758f5ad5429fae2b4a4e87eb7c53cdfdd4e18.MekQJYDe11n-5XnhJV5phxqMh5OqTw36CTFCk_BZNnw
     lemon-ui-object-tags--static-only--dark:
         hash: v1.k794b7964.62481a20890d8d9702570d58b69f47580c91399daa635cab23d9e8da75d2636f.oAaWHdceTRTQOchqDXvZ7-ym0DB_CpRpPyXnqlKugwo
     lemon-ui-object-tags--static-only--light:
@@ -10905,7 +10909,7 @@ snapshots:
     scenes-app-oauth-authorize--default-scopes--dark:
         hash: v1.k794b7964.21a1602ada47b6704da18634c4c1386ba17b890500a833c52bd029cc98f69114.HOL3_R7J0JLMO_znhYmoxsZLaj0iqkemCyEIsK-HkA4
     scenes-app-oauth-authorize--default-scopes--light:
-        hash: v1.k794b7964.46a019ffd7b34638c5e9c2eee36427046bed7a23ad699255503d463a62998fc0.xcN6YfaXqD_mFjIa-71GtZzRmvZAe6uE-GJqKjPISVo
+        hash: v1.k794b7964.2c212df3cd88973bea95657e48b357c70a20772ecbe8ef37f57031a78186d32d.QOqtPFDfX_91zkoeXO487oseTb6yQpwPehH8tO4Dg78
     scenes-app-oauth-authorize--every-scope-requested--dark:
         hash: v1.k794b7964.5b544e241fa57ad7971a6872fce18c2d3e9dbbcfd5c6b4e2a861cc60683a7eda.SymJ-itmx0Mon5EALqTxh99r_VbtywIv8gFXju-9wRs
     scenes-app-oauth-authorize--every-scope-requested--light:
