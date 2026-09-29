@@ -680,6 +680,16 @@ describe('sceneLogic', () => {
             expect(logic.values.sceneId).toEqual(expectedScene)
         })
 
+        it.each([urls.organizationDeactivated(), urls.organizationPendingDeletion()])(
+            'lets a member whose organization is open leave %s',
+            async (blockPage) => {
+                router.actions.push(blockPage)
+                await expectLogic(logic).delay(1)
+
+                expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.projectHomepage())
+            }
+        )
+
         it("loads the page for a deactivated member's link into another organization's project", async () => {
             logic.unmount()
             initKeaTests(true, MOCK_DEFAULT_TEAM, MOCK_DEFAULT_PROJECT, {

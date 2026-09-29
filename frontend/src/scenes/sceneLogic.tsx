@@ -907,6 +907,13 @@ export const sceneLogic = kea<sceneLogicType>([
                     return
                 }
 
+                if (sceneId === Scene.OrganizationDeactivated || sceneId === Scene.OrganizationPendingDeletion) {
+                    // The organization is open again, so let the member back in, as the server does. The server
+                    // only matches the bare block path, and the router writes it with a `/project/<id>` prefix.
+                    router.actions.replace(urls.projectRoot())
+                    return
+                }
+
                 if (sceneId !== Scene.InviteSignup) {
                     // Redirect to org/project creation if there's no org/project respectively, unless using invite
                     if (organizationLogic.values.isCurrentOrganizationUnavailable) {
