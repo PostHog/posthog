@@ -165,7 +165,7 @@ def test_map_issue_breakdown_drops_empty_dimensions_and_truncates_values() -> No
     assert breakdown["occurrences"] == 4
     assert breakdown["events_with_session"] == 2
     assert breakdown["sample_session_ids"] == ["session-1"]
-    top_values = breakdown["top_values"]
+    top_values = cast(dict[str, Any], breakdown["top_values"])
     assert set(top_values) == {"path", "browser"}
     assert top_values["browser"] == [{"value": "Chrome", "count": 4}]
     assert len(top_values["path"]) == 1
