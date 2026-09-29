@@ -7,7 +7,6 @@ from typing import Any, TypeVar
 from products.posthog_ai.eval_harness.acp_log import parse_log
 from products.posthog_ai.eval_harness.scorers import GRADED_ALIGNMENT_CHOICE_SCORES, JUDGE_MODEL, JudgedScorer
 from products.posthog_ai.eval_harness.scorers.contract import AsyncOnlyScorerMixin, Score, Scorer
-from products.signals.backend.report_generation.research import ReportResearchOutput
 from products.signals.evals.agentic.datasets import (
     EvalCase,
     ImplementationCase,
@@ -15,7 +14,12 @@ from products.signals.evals.agentic.datasets import (
     ResearchCase,
     ScoutCase,
 )
-from products.signals.evals.agentic.runners import ImplementationOutput, RepoSelectionOutput, ScoutOutput
+from products.signals.evals.agentic.runners import (
+    ImplementationOutput,
+    RepoSelectionOutput,
+    ResearchOutput,
+    ScoutOutput,
+)
 from products.signals.evals.agentic.scorers_repo_selection import repository_evidence_calls
 from products.signals.evals.agentic.scoring import ScoringContext
 
@@ -41,8 +45,8 @@ def _workflow_failure(name: str, output: dict[str, Any] | None) -> Score | None:
     return None
 
 
-def decode_research(output: dict[str, Any]) -> ReportResearchOutput:
-    return ReportResearchOutput.model_validate(output)
+def decode_research(output: dict[str, Any]) -> ResearchOutput:
+    return ResearchOutput.model_validate(output)
 
 
 def decode_repo_selection(output: dict[str, Any]) -> RepoSelectionOutput:

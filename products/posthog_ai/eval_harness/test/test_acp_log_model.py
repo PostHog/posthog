@@ -408,9 +408,78 @@ def test_parse_log_attaches_token_usage_per_generation(lines: list[str], expecte
     assert [gen.token_usage for gen in parsed.generations] == expected_usages
 
 
-def test_parse_log_sums_cost_and_exposes_braintrust_metrics() -> None:
-    parsed = parse_log(
-        "\n".join(
+_CLAUDE_USAGE_UPDATE_LINE = _line(
+    {
+        "jsonrpc": "2.0",
+        "method": "_posthog/usage_update",
+        "params": {
+            "sessionId": "s1",
+            "used": {
+                "inputTokens": 50,
+                "outputTokens": 7,
+                "cachedReadTokens": 4,
+                "cachedWriteTokens": 3,
+            },
+            "cost": 0.75,
+        },
+    }
+)
+
+
+@pytest.mark.parametrize(
+    "lines, expected_metrics",
+    [
+        pytest.param(
+            [
+                _agent_message_line("done"),
+                _CLAUDE_USAGE_UPDATE_LINE,
+                _line({"jsonrpc": "2.0", "id": 2, "result": {"stopReason": "end_turn"}}),
+            ],
+            {
+                "prompt_tokens": 57,
+                "completion_tokens": 7,
+                "prompt_cached_tokens": 4,
+                "prompt_cache_creation_tokens": 3,
+                "tokens": 64,
+                "cost": 0.75,
+            },
+            id="claude_usage_update_adds_cache_counts",
+        ),
+        pytest.param(
+            [
+                _agent_message_line("checking"),
+                _tool_call_line({"posthog": {"toolName": "mcp__posthog__exec"}}, "posthog/exec"),
+                _tool_call_update_line("completed", {"content": [_text_block("42 rows")]}),
+                _CLAUDE_USAGE_UPDATE_LINE,
+                _agent_message_line("done"),
+                _line(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": 2,
+                        "result": {
+                            "stopReason": "end_turn",
+                            "usage": {
+                                "inputTokens": 10,
+                                "outputTokens": 20,
+                                "cachedReadTokens": 50,
+                                "cachedWriteTokens": 5,
+                                "totalTokens": 85,
+                            },
+                        },
+                    }
+                ),
+            ],
+            {
+                "prompt_tokens": 122,
+                "completion_tokens": 27,
+                "prompt_cached_tokens": 54,
+                "prompt_cache_creation_tokens": 8,
+                "tokens": 149,
+                "cost": 0.75,
+            },
+            id="claude_generations_with_and_without_total",
+        ),
+        pytest.param(
             [
                 _agent_message_line("done"),
                 _line(
@@ -419,27 +488,33 @@ def test_parse_log_sums_cost_and_exposes_braintrust_metrics() -> None:
                         "method": "_posthog/usage_update",
                         "params": {
                             "sessionId": "s1",
-                            "used": {
-                                "inputTokens": 50,
-                                "outputTokens": 7,
-                                "cachedReadTokens": 4,
-                                "cachedWriteTokens": 3,
+                            "usage": {
+                                "inputTokens": 100,
+                                "outputTokens": 20,
+                                "cachedReadTokens": 5,
+                                "reasoningTokens": 3,
+                                "totalTokens": 120,
                             },
-                            "cost": 0.75,
                         },
                     }
                 ),
                 _line({"jsonrpc": "2.0", "id": 2, "result": {"stopReason": "end_turn"}}),
-            ]
-        )
-    )
+            ],
+            {
+                "prompt_tokens": 100,
+                "completion_tokens": 20,
+                "prompt_cached_tokens": 5,
+                "reasoning_tokens": 3,
+                "tokens": 120,
+            },
+            id="codex_input_already_includes_cached_reads",
+        ),
+    ],
+)
+def test_parse_log_sums_cost_and_exposes_braintrust_metrics(
+    lines: list[str], expected_metrics: dict[str, int | float]
+) -> None:
+    parsed = parse_log("\n".join(lines))
 
-    assert parsed.total_cost_usd == 0.75
-    assert parsed.metrics == {
-        "prompt_tokens": 57,
-        "completion_tokens": 7,
-        "prompt_cached_tokens": 4,
-        "prompt_cache_creation_tokens": 3,
-        "tokens": 64,
-        "cost": 0.75,
-    }
+    assert parsed.total_cost_usd == expected_metrics.get("cost")
+    assert parsed.metrics == expected_metrics

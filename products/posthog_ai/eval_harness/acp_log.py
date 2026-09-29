@@ -99,17 +99,27 @@ class ParsedLog:
 
     @property
     def metrics(self) -> dict[str, int | float]:
-        return _llm_metrics(self.total_token_usage, self.total_cost_usd)
+        # Sum per-generation metrics because one log can mix usage payloads with and without totalTokens.
+        metrics: dict[str, int | float] = {}
+        for generation in self.generations:
+            for name, value in generation.metrics.items():
+                metrics[name] = metrics.get(name, 0) + value
+        return metrics
 
 
 def _llm_metrics(token_usage: dict[str, int], cost_usd: float | None) -> dict[str, int | float]:
     metrics: dict[str, int | float] = {}
-    uncached_input_tokens = token_usage.get("inputTokens", 0)
     output_tokens = token_usage.get("outputTokens", 0)
     cached_read_tokens = token_usage.get("cachedReadTokens", 0)
     cached_write_tokens = token_usage.get("cachedWriteTokens", 0)
-    input_tokens = uncached_input_tokens + cached_read_tokens + cached_write_tokens
-    total_tokens = input_tokens + output_tokens
+    # Codex counts cached reads inside inputTokens, and Claude does not. Both adapters include the
+    # cache counts in totalTokens, so prefer it. Claude usage updates omit totalTokens.
+    total_tokens = token_usage.get("totalTokens", 0)
+    if total_tokens:
+        input_tokens = total_tokens - output_tokens
+    else:
+        input_tokens = token_usage.get("inputTokens", 0) + cached_read_tokens + cached_write_tokens
+        total_tokens = input_tokens + output_tokens
 
     if input_tokens:
         metrics["prompt_tokens"] = input_tokens

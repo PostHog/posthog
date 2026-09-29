@@ -20,12 +20,12 @@ SESSION_IDS = (
 )
 
 
-def _session_extra(session_id: str, segment_title: str, problem_type: str) -> dict:
+def _session_extra(session_id: str, segment_title: str, problem_type: str, start_time: str, end_time: str) -> dict:
     return {
         "session_id": session_id,
         "segment_title": segment_title,
-        "start_time": "00:01:10",
-        "end_time": "00:03:40",
+        "start_time": start_time,
+        "end_time": end_time,
         "problem_type": problem_type,
     }
 
@@ -191,7 +191,9 @@ CASES: list[ResearchCase] = [
                 source_type="session_problem",
                 source_id=f"{SESSION_IDS[0]}:00:01:10:00:03:40",
                 weight=0.5,
-                extra=_session_extra(SESSION_IDS[0], "Download Button Unresponsive in File View", "failure"),
+                extra=_session_extra(
+                    SESSION_IDS[0], "Download Button Unresponsive in File View", "failure", "00:01:10", "00:03:40"
+                ),
             ),
         ),
         expected=ResearchExpectation(
@@ -215,7 +217,9 @@ CASES: list[ResearchCase] = [
                 source_type="session_problem",
                 source_id=f"{SESSION_IDS[1]}:00:00:20:00:02:05",
                 weight=0.5,
-                extra=_session_extra(SESSION_IDS[1], "Long Waits on Page Navigation", "failure"),
+                extra=_session_extra(
+                    SESSION_IDS[1], "Long Waits on Page Navigation", "failure", "00:00:20", "00:02:05"
+                ),
             ),
         ),
         expected=ResearchExpectation(
@@ -239,7 +243,9 @@ CASES: list[ResearchCase] = [
                 source_type="session_problem",
                 source_id=f"{SESSION_IDS[2]}:00:02:00:00:05:30",
                 weight=0.5,
-                extra=_session_extra(SESSION_IDS[2], "Signup Abandoned at Plan Selection", "abandonment"),
+                extra=_session_extra(
+                    SESSION_IDS[2], "Signup Abandoned at Plan Selection", "abandonment", "00:02:00", "00:05:30"
+                ),
             ),
         ),
         expected=ResearchExpectation(
@@ -263,7 +269,9 @@ CASES: list[ResearchCase] = [
                 source_type="session_problem",
                 source_id=f"{SESSION_IDS[3]}:00:04:15:00:07:00",
                 weight=0.5,
-                extra=_session_extra(SESSION_IDS[3], "PDF Preview Fails with Error State", "blocking_exception"),
+                extra=_session_extra(
+                    SESSION_IDS[3], "PDF Preview Fails with Error State", "blocking_exception", "00:04:15", "00:07:00"
+                ),
             ),
         ),
         expected=ResearchExpectation(
@@ -287,7 +295,9 @@ CASES: list[ResearchCase] = [
                 source_type="session_problem",
                 source_id=f"{SESSION_IDS[0]}:00:06:00:00:09:30",
                 weight=0.5,
-                extra=_session_extra(SESSION_IDS[0], "Upgrade Path Not Found in Settings", "confusion"),
+                extra=_session_extra(
+                    SESSION_IDS[0], "Upgrade Path Not Found in Settings", "confusion", "00:06:00", "00:09:30"
+                ),
             ),
         ),
         expected=ResearchExpectation(
@@ -720,7 +730,9 @@ CASES: list[ResearchCase] = [
                 source_type="session_problem",
                 source_id=f"{SESSION_IDS[1]}:00:01:10:00:03:40",
                 weight=0.6,
-                extra=_session_extra(SESSION_IDS[1], "Upload retries before success", "failure"),
+                extra=_session_extra(
+                    SESSION_IDS[1], "Upload retries before success", "failure", "00:01:10", "00:03:40"
+                ),
             ),
         ),
         expected=ResearchExpectation(

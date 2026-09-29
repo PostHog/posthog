@@ -284,6 +284,7 @@ class TestSavedCaseValidation(SimpleTestCase):
             "unknown_field",
             "unknown_state_table",
             "missing_reference",
+            "missing_content_reference",
             "source_insight",
             "old_schema",
             "missing_schema",
@@ -311,6 +312,18 @@ class TestSavedCaseValidation(SimpleTestCase):
                         "content": "Saved",
                         "created_at": SOURCE.isoformat(),
                         "created_by_run_id": str(uuid4()),
+                    }
+                ]
+            elif failure == "missing_content_reference":
+                report_id = str(uuid4())
+                state["reports"] = [{"id": report_id, "created_at": SOURCE.isoformat(), "status": "ready"}]
+                state["report_artefacts"] = [
+                    {
+                        "id": str(uuid4()),
+                        "created_at": SOURCE.isoformat(),
+                        "report_id": report_id,
+                        "type": "report_link",
+                        "content": json.dumps({"kind": "depends_on", "report_id": str(uuid4())}),
                     }
                 ]
             elif failure == "source_insight":
@@ -550,7 +563,7 @@ class TestSavedCaseEventRestore(ClickhouseTestMixin, BaseTest):
     def test_repeated_restore_isolates_events_and_preserves_ingestion_time(self) -> None:
         self.organization.name = "Eval (saved-event-test)"
         self.organization.save(update_fields=["name"])
-        other_project = create_empty_team(NullDbBlocker(), label="second-trial")
+        other_project = create_empty_team(NullDbBlocker(), label="second-trial-" + "x" * 60)
         target = datetime.now(UTC).replace(microsecond=0)
         event_time = (SOURCE - timedelta(minutes=1)).replace(microsecond=123456)
         created_at = (SOURCE - timedelta(seconds=30)).replace(microsecond=654321)

@@ -24,6 +24,7 @@ from products.signals.backend.models import (
     SignalScoutRun,
     SignalScratchpad,
 )
+from products.signals.backend.report_generation.research import ReportResearchOutput
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.evals.agentic.datasets import ImplementationCase, RepoSelectionCase, ResearchCase, ScoutCase
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext, MultiTurnSession
@@ -77,6 +78,10 @@ async def _read_task_logs(team_id: int, task_id: str, run_id: str | None = None)
     if not run_id:
         return ""
     return (await asyncio.to_thread(tasks_facade.read_task_run_logs, run_id, task_id, team_id)) or ""
+
+
+class ResearchOutput(ReportResearchOutput):
+    raw_log: str = ""
 
 
 async def run_research(

@@ -183,6 +183,19 @@ class SavedReportArtefact(SavedRow):
     channel_id: None = None
 
 
+# These artefact types name other saved records in their content. Restore rewrites only the IDs that
+# saved rows own, so an ID outside the case would stay a dangling source reference.
+REFERENCING_ARTEFACT_TYPES = frozenset({"related_to", "report_link", "task_run"})
+
+
+class SavedArtefactReferences(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    report_id: UUID | None = None
+    task_id: UUID | None = None
+    run_id: UUID | None = None
+
+
 class SavedTask(SavedRow):
     title: str = ""
     description: str = ""
@@ -482,6 +495,9 @@ class SavedScoutCase:
         references.extend((row.task_id, tasks) for row in self.state.task_runs)
         for row in self.state.report_artefacts:
             references.extend([(row.report_id, reports), (row.task_id, tasks), (row.claim_id, artefacts)])
+            if row.type in REFERENCING_ARTEFACT_TYPES:
+                content = SavedArtefactReferences.model_validate_json(row.content)
+                references.extend([(content.report_id, reports), (content.task_id, tasks), (content.run_id, task_runs)])
         for run in self.state.scout_runs:
             references.append((run.task_run_id, task_runs))
             references.extend((report_id, reports) for report_id in [*run.emitted_report_ids, *run.edited_report_ids])

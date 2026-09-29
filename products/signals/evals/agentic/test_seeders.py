@@ -107,6 +107,9 @@ def test_upload_research_seed_has_narrow_retry_cluster() -> None:
 
     rows = write_events.call_args.args[1]
     errors = [row for row in rows if row["event"] == "$exception"]
+    latest_uploaders = {
+        row["distinct_id"] for row in rows if row["event"] == "uploaded_file" and "latest" in row["distinct_id"]
+    }
 
     assert result == {
         "scenario": "upload_retry_cluster",
@@ -117,6 +120,8 @@ def test_upload_research_seed_has_narrow_retry_cluster() -> None:
     assert len(errors) == 90
     assert len({row["distinct_id"] for row in errors}) == 18
     assert {row["properties"]["$browser"] for row in errors} == {"Safari"}
+    assert len({row["distinct_id"] for row in errors} & latest_uploaders) == result["eventual_successes"]
+    assert len(latest_uploaders) == 70
 
 
 def test_seed_repository_catalog_provides_a_non_expiring_placeholder_token() -> None:

@@ -153,7 +153,8 @@ def _seed_research_events(context: CustomPromptSandboxContext, scenario: Researc
             )
 
     timestamp = now - timedelta(days=1)
-    for index in range(70):
+    # Users 16 and 17 get the retry errors below and never upload, so 16 of the 18 affected users succeed.
+    for index in (*range(16), *range(18, 72)):
         safari = index < 16
         rows.append(
             {
