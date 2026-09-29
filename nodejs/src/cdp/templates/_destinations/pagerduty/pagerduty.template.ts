@@ -63,7 +63,12 @@ if (action == 'trigger') {
     throw Error(f'A dedup key is required to {action} an incident.')
 }
 
-let res := fetch('https://events.pagerduty.com/v2/enqueue', {
+let endpoint := 'https://events.pagerduty.com/v2/enqueue'
+if (inputs.region == 'eu') {
+    endpoint := 'https://events.eu.pagerduty.com/v2/enqueue'
+}
+
+let res := fetch(endpoint, {
     'method': 'POST',
     'headers': {
         'Content-Type': 'application/json'
@@ -82,6 +87,20 @@ if (res.status < 200 or res.status >= 300) {
             label: 'Routing key',
             description: 'The Events API v2 integration key from your PagerDuty service.',
             secret: true,
+            required: true,
+        },
+        {
+            key: 'region',
+            type: 'choice',
+            label: 'Region',
+            description:
+                'The PagerDuty service region your account runs in. A routing key only works in its own region.',
+            choices: [
+                { label: 'US', value: 'us' },
+                { label: 'EU', value: 'eu' },
+            ],
+            default: 'us',
+            secret: false,
             required: true,
         },
         {
