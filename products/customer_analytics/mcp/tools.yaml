@@ -63,8 +63,9 @@ tools:
             time). Definitions are team-scoped and shared across all accounts; the users assigned to a specific account
             are managed via the account relationship tools. To query definitions in bulk, HogQL
             `system.account_relationship_definitions` covers the same data. When a request names an account role, check
-            this project's definitions before assuming it is a relationship. For a named teammate, resolve their email
-            with `org-members-list` and use the returned user id to query active assignments.
+            this project's definitions before assuming it is a relationship. For a named teammate, search
+            `org-members-list` by email and confirm the returned `user.email` equals the requested email, ignoring case,
+            before using the user id to query active assignments.
         feature_flag: customer-analytics-csp
         response:
             include:

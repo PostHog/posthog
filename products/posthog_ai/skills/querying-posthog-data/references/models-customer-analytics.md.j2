@@ -11,7 +11,7 @@ Prefer the typed `posthog:accounts-*`, `posthog:account-relationship-definitions
 Words such as "owner" or "CSM" do not identify a fixed account column. A team may use a relationship, a custom property, or both. Before filtering accounts:
 
 1. Check the active project's `account-relationship-definitions-list` and `custom-property-definitions-list`. Compare names, descriptions, and value types with the user's wording. Read a definition by id if its compact list entry lacks context. If two candidates fit, ask which one the user means.
-2. For a relationship with a named teammate, use `org-members-list` with an exact email search and confirm `search_match_type: exact` before using the returned `user.id`. An active assignment has `ended_at IS NULL`.
+2. For a relationship with a named teammate, search `org-members-list` by email. Confirm the returned `user.email` equals the requested email, ignoring case, before using `user.id`. The tool's `search_match_type: exact` also covers substring matches. An active assignment has `ended_at IS NULL`.
 3. For a custom property, take its definition id from this project, not a name or id from another project. Check whether the requested "unset" means a missing value, an empty string, or both.
 4. Confirm the live `system.information_schema.columns` schema for each system table before querying it. Use `execute-sql` when an account lookup needs mixed relationship and custom-property conditions. The `accounts-list` parameters do not express grouped OR conditions.
 
