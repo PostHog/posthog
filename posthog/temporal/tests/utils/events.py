@@ -12,6 +12,7 @@ from django.conf import settings
 import aiohttp.client_exceptions
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_random_exponential
 
+from posthog.clickhouse.events_json import EVENTS_JSON_INSERT_SETTINGS
 from posthog.models.raw_sessions.sessions_v2 import RAW_SESSION_TABLE_BACKFILL_SELECT_SQL
 from posthog.temporal.common.clickhouse import ClickHouseClient, ClickHouseError
 from posthog.temporal.tests.utils.datetimes import date_range
@@ -199,6 +200,7 @@ async def mirror_events_into_native_json_table(client: ClickHouseClient, uuids: 
         FROM sharded_events
         WHERE uuid IN ({uuid_list})
     )
+    SETTINGS {EVENTS_JSON_INSERT_SETTINGS}
     """,
     )
 

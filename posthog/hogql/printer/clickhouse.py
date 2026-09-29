@@ -16,6 +16,7 @@ from posthog.hogql.database.models import (
     SavedQuery,
     StringJSONDatabaseField,
     StructDatabaseField,
+    Table,
 )
 from posthog.hogql.database.s3_table import DataWarehouseTable, S3Table
 from posthog.hogql.database.schema.events import EVENTS_TABLE_TYPES
@@ -138,6 +139,7 @@ ZONED_DATETIME_COERCIBLE_COMPARE_OPS = frozenset(
 
 class ClickHousePrinter(BasePrinter):
     DIALECT_NAME: ClassVar[HogQLDialect] = "clickhouse"
+    _reads_native_events_table: bool = False
 
     def visit_cte(self, node: ast.CTE):
         if node.materialized is False:
@@ -381,6 +383,14 @@ class ClickHousePrinter(BasePrinter):
             if not isinstance(node, ast.SelectQuery) and not isinstance(node, ast.SelectSetQuery):
                 raise QueryError("Settings can only be applied to SELECT queries")
             merged = self._merge_table_top_level_settings(self.settings)
+            # ClickHouse turns the `%2E` in a stored dotted key back into `.` only when the reading query sets this
+            # too, so a query that formats the native JSON columns as text without it prints `a%2Eb`. It rides with
+            # the global settings, not the table's required settings, so a query printed without settings keeps its
+            # shape, and it is scoped to reads of the native table because an older ClickHouse rejects the name.
+            if self._reads_native_events_table and merged.get("json_type_escape_dots_in_keys") is None:
+                # Re-inserted so it prints after the global settings rather than at the field's declared position.
+                merged.pop("json_type_escape_dots_in_keys", None)
+                merged["json_type_escape_dots_in_keys"] = True
             if self.context.emit_top_level_settings:
                 printed = self._print_settings(merged)
                 if printed is not None:
@@ -399,6 +409,11 @@ class ClickHousePrinter(BasePrinter):
             raise InternalHogQLError("Full SELECT queries are disabled if context.team_id is not set")
 
         return super().visit_select_query(node)
+
+    def _collect_table_top_level_settings(self, table: Table) -> None:
+        super()._collect_table_top_level_settings(table)
+        if isinstance(table, EVENTS_TABLE_TYPES) and self.context.uses_new_events_schema():
+            self._reads_native_events_table = True
 
     def visit_join_expr(self, node: ast.JoinExpr):
         if node.type is None:
@@ -1282,16 +1297,21 @@ class ClickHousePrinter(BasePrinter):
         else:
             expr = self.visit(node.expr)
 
-        if any("%" in key for key in node.keys):
+        # The native table stores a dotted key as one path named with `%2E` (EVENTS_JSON_INSERT_SETTINGS), so a
+        # dot inside one key must not read as a path separator. The escaped key then takes the bound-parameter
+        # branch below, as `%` would otherwise break the SQL's own parameter placeholders.
+        keys = [key.replace(".", "%2E") for key in node.keys]
+
+        if any("%" in key for key in keys):
             if node.access_type == "sub_object":
-                for key in node.keys:
+                for key in keys:
                     subcolumn = f"^{quote_clickhouse_identifier(key)}"
                     expr = f"getSubcolumn({expr}, {self.context.add_value(subcolumn)})"
                 return expr
-            subcolumn = ".".join(node.keys)
+            subcolumn = ".".join(keys)
             return f"getSubcolumn({expr}, {self.context.add_value(subcolumn)})"
 
-        for index, key in enumerate(node.keys):
+        for index, key in enumerate(keys):
             separator = ".^" if node.access_type == "sub_object" and index == 0 else "."
             expr = f"{expr}{separator}{escape_clickhouse_identifier(key)}"
         return expr

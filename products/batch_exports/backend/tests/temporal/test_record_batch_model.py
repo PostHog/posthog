@@ -473,6 +473,14 @@ class TestHogQLQueryRecordBatchModel:
             "timeout_overflow_mode": "throw",
         }
 
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+    async def test_request_settings_unescape_dotted_keys_on_the_native_table(self, ateam: "Team") -> None:
+        # The printed query carries no SETTINGS clause, so the native read setting travels with the request.
+        model = HogQLQueryRecordBatchModel(team_id=ateam.pk, hogql_query="SELECT properties AS properties FROM events")
+        await model.as_query_with_parameters(None, None)
+
+        assert model.get_clickhouse_request_settings()["json_type_escape_dots_in_keys"] == "1"
+
     @pytest.mark.parametrize(
         "hogql_query,expected_message",
         [

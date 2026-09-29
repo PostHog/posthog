@@ -16,7 +16,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_force_data_skipping_indices_works_with_simple_equality[new_events_schema]
@@ -36,7 +37,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_ilike_and_not_ilike_optimization_gives_correct_results_0_no_mat_col[new_events_schema.10]
@@ -56,7 +58,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_ilike_and_not_ilike_optimization_gives_correct_results_0_no_mat_col[new_events_schema.11]
@@ -76,7 +79,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_ilike_and_not_ilike_optimization_gives_correct_results_0_no_mat_col[new_events_schema.1]
@@ -96,7 +100,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_ilike_and_not_ilike_optimization_gives_correct_results_0_no_mat_col[new_events_schema.2]
@@ -116,7 +121,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_ilike_and_not_ilike_optimization_gives_correct_results_0_no_mat_col[new_events_schema.3]
@@ -136,7 +142,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_ilike_and_not_ilike_optimization_gives_correct_results_0_no_mat_col[new_events_schema.4]
@@ -156,7 +163,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_ilike_and_not_ilike_optimization_gives_correct_results_0_no_mat_col[new_events_schema.5]
@@ -176,7 +184,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_ilike_and_not_ilike_optimization_gives_correct_results_0_no_mat_col[new_events_schema.6]
@@ -196,7 +205,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_ilike_and_not_ilike_optimization_gives_correct_results_0_no_mat_col[new_events_schema.7]
@@ -216,7 +226,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_ilike_and_not_ilike_optimization_gives_correct_results_0_no_mat_col[new_events_schema.8]
@@ -236,7 +247,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_ilike_and_not_ilike_optimization_gives_correct_results_0_no_mat_col[new_events_schema.9]
@@ -256,7 +268,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_ilike_and_not_ilike_optimization_gives_correct_results_0_no_mat_col[new_events_schema]
@@ -276,7 +289,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_ilike_and_not_ilike_optimization_gives_correct_results_1_nullable_mat_col[new_events_schema.10]
@@ -296,7 +310,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_ilike_and_not_ilike_optimization_gives_correct_results_1_nullable_mat_col[new_events_schema.11]
@@ -316,7 +331,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_ilike_and_not_ilike_optimization_gives_correct_results_1_nullable_mat_col[new_events_schema.1]
@@ -336,7 +352,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_ilike_and_not_ilike_optimization_gives_correct_results_1_nullable_mat_col[new_events_schema.2]
@@ -356,7 +373,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_ilike_and_not_ilike_optimization_gives_correct_results_1_nullable_mat_col[new_events_schema.3]
@@ -376,7 +394,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_ilike_and_not_ilike_optimization_gives_correct_results_1_nullable_mat_col[new_events_schema.4]
@@ -396,7 +415,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_ilike_and_not_ilike_optimization_gives_correct_results_1_nullable_mat_col[new_events_schema.5]
@@ -416,7 +436,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_ilike_and_not_ilike_optimization_gives_correct_results_1_nullable_mat_col[new_events_schema.6]
@@ -436,7 +457,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_ilike_and_not_ilike_optimization_gives_correct_results_1_nullable_mat_col[new_events_schema.7]
@@ -456,7 +478,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_ilike_and_not_ilike_optimization_gives_correct_results_1_nullable_mat_col[new_events_schema.8]
@@ -476,7 +499,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_ilike_and_not_ilike_optimization_gives_correct_results_1_nullable_mat_col[new_events_schema.9]
@@ -496,7 +520,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_ilike_and_not_ilike_optimization_gives_correct_results_1_nullable_mat_col[new_events_schema]
@@ -516,7 +541,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_ilike_and_not_ilike_optimization_gives_correct_results_2_non_nullable_mat_col[new_events_schema.10]
@@ -536,7 +562,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_ilike_and_not_ilike_optimization_gives_correct_results_2_non_nullable_mat_col[new_events_schema.11]
@@ -556,7 +583,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_ilike_and_not_ilike_optimization_gives_correct_results_2_non_nullable_mat_col[new_events_schema.1]
@@ -576,7 +604,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_ilike_and_not_ilike_optimization_gives_correct_results_2_non_nullable_mat_col[new_events_schema.2]
@@ -596,7 +625,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_ilike_and_not_ilike_optimization_gives_correct_results_2_non_nullable_mat_col[new_events_schema.3]
@@ -616,7 +646,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_ilike_and_not_ilike_optimization_gives_correct_results_2_non_nullable_mat_col[new_events_schema.4]
@@ -636,7 +667,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_ilike_and_not_ilike_optimization_gives_correct_results_2_non_nullable_mat_col[new_events_schema.5]
@@ -656,7 +688,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_ilike_and_not_ilike_optimization_gives_correct_results_2_non_nullable_mat_col[new_events_schema.6]
@@ -676,7 +709,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_ilike_and_not_ilike_optimization_gives_correct_results_2_non_nullable_mat_col[new_events_schema.7]
@@ -696,7 +730,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_ilike_and_not_ilike_optimization_gives_correct_results_2_non_nullable_mat_col[new_events_schema.8]
@@ -716,7 +751,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_ilike_and_not_ilike_optimization_gives_correct_results_2_non_nullable_mat_col[new_events_schema.9]
@@ -736,7 +772,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_ilike_and_not_ilike_optimization_gives_correct_results_2_non_nullable_mat_col[new_events_schema]
@@ -756,7 +793,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_ilike_and_not_ilike_optimization_gives_correct_results_3_nullable_mat_col_with_ngram_lower[new_events_schema.10]
@@ -776,7 +814,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_ilike_and_not_ilike_optimization_gives_correct_results_3_nullable_mat_col_with_ngram_lower[new_events_schema.11]
@@ -796,7 +835,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_ilike_and_not_ilike_optimization_gives_correct_results_3_nullable_mat_col_with_ngram_lower[new_events_schema.1]
@@ -816,7 +856,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_ilike_and_not_ilike_optimization_gives_correct_results_3_nullable_mat_col_with_ngram_lower[new_events_schema.2]
@@ -836,7 +877,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_ilike_and_not_ilike_optimization_gives_correct_results_3_nullable_mat_col_with_ngram_lower[new_events_schema.3]
@@ -856,7 +898,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_ilike_and_not_ilike_optimization_gives_correct_results_3_nullable_mat_col_with_ngram_lower[new_events_schema.4]
@@ -876,7 +919,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_ilike_and_not_ilike_optimization_gives_correct_results_3_nullable_mat_col_with_ngram_lower[new_events_schema.5]
@@ -896,7 +940,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_ilike_and_not_ilike_optimization_gives_correct_results_3_nullable_mat_col_with_ngram_lower[new_events_schema.6]
@@ -916,7 +961,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_ilike_and_not_ilike_optimization_gives_correct_results_3_nullable_mat_col_with_ngram_lower[new_events_schema.7]
@@ -936,7 +982,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_ilike_and_not_ilike_optimization_gives_correct_results_3_nullable_mat_col_with_ngram_lower[new_events_schema.8]
@@ -956,7 +1003,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_ilike_and_not_ilike_optimization_gives_correct_results_3_nullable_mat_col_with_ngram_lower[new_events_schema.9]
@@ -976,7 +1024,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_ilike_and_not_ilike_optimization_gives_correct_results_3_nullable_mat_col_with_ngram_lower[new_events_schema]
@@ -996,7 +1045,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_ilike_and_not_ilike_optimization_gives_correct_results_4_non_nullable_mat_col_with_ngram_lower[new_events_schema.10]
@@ -1016,7 +1066,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_ilike_and_not_ilike_optimization_gives_correct_results_4_non_nullable_mat_col_with_ngram_lower[new_events_schema.11]
@@ -1036,7 +1087,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_ilike_and_not_ilike_optimization_gives_correct_results_4_non_nullable_mat_col_with_ngram_lower[new_events_schema.1]
@@ -1056,7 +1108,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_ilike_and_not_ilike_optimization_gives_correct_results_4_non_nullable_mat_col_with_ngram_lower[new_events_schema.2]
@@ -1076,7 +1129,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_ilike_and_not_ilike_optimization_gives_correct_results_4_non_nullable_mat_col_with_ngram_lower[new_events_schema.3]
@@ -1096,7 +1150,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_ilike_and_not_ilike_optimization_gives_correct_results_4_non_nullable_mat_col_with_ngram_lower[new_events_schema.4]
@@ -1116,7 +1171,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_ilike_and_not_ilike_optimization_gives_correct_results_4_non_nullable_mat_col_with_ngram_lower[new_events_schema.5]
@@ -1136,7 +1192,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_ilike_and_not_ilike_optimization_gives_correct_results_4_non_nullable_mat_col_with_ngram_lower[new_events_schema.6]
@@ -1156,7 +1213,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_ilike_and_not_ilike_optimization_gives_correct_results_4_non_nullable_mat_col_with_ngram_lower[new_events_schema.7]
@@ -1176,7 +1234,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_ilike_and_not_ilike_optimization_gives_correct_results_4_non_nullable_mat_col_with_ngram_lower[new_events_schema.8]
@@ -1196,7 +1255,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_ilike_and_not_ilike_optimization_gives_correct_results_4_non_nullable_mat_col_with_ngram_lower[new_events_schema.9]
@@ -1216,7 +1276,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_ilike_and_not_ilike_optimization_gives_correct_results_4_non_nullable_mat_col_with_ngram_lower[new_events_schema]
@@ -1236,7 +1297,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_in_and_not_in_optimization_gives_correct_results_0_no_mat_col[new_events_schema.10]
@@ -1256,7 +1318,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_in_and_not_in_optimization_gives_correct_results_0_no_mat_col[new_events_schema.11]
@@ -1276,7 +1339,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_in_and_not_in_optimization_gives_correct_results_0_no_mat_col[new_events_schema.12]
@@ -1296,7 +1360,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_in_and_not_in_optimization_gives_correct_results_0_no_mat_col[new_events_schema.13]
@@ -1316,7 +1381,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_in_and_not_in_optimization_gives_correct_results_0_no_mat_col[new_events_schema.14]
@@ -1336,7 +1402,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_in_and_not_in_optimization_gives_correct_results_0_no_mat_col[new_events_schema.15]
@@ -1356,7 +1423,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_in_and_not_in_optimization_gives_correct_results_0_no_mat_col[new_events_schema.1]
@@ -1376,7 +1444,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_in_and_not_in_optimization_gives_correct_results_0_no_mat_col[new_events_schema.2]
@@ -1396,7 +1465,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_in_and_not_in_optimization_gives_correct_results_0_no_mat_col[new_events_schema.3]
@@ -1416,7 +1486,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_in_and_not_in_optimization_gives_correct_results_0_no_mat_col[new_events_schema.4]
@@ -1436,7 +1507,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_in_and_not_in_optimization_gives_correct_results_0_no_mat_col[new_events_schema.5]
@@ -1456,7 +1528,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_in_and_not_in_optimization_gives_correct_results_0_no_mat_col[new_events_schema.6]
@@ -1476,7 +1549,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_in_and_not_in_optimization_gives_correct_results_0_no_mat_col[new_events_schema.7]
@@ -1496,7 +1570,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_in_and_not_in_optimization_gives_correct_results_0_no_mat_col[new_events_schema.8]
@@ -1516,7 +1591,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_in_and_not_in_optimization_gives_correct_results_0_no_mat_col[new_events_schema.9]
@@ -1536,7 +1612,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_in_and_not_in_optimization_gives_correct_results_0_no_mat_col[new_events_schema]
@@ -1556,7 +1633,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_in_and_not_in_optimization_gives_correct_results_1_nullable_mat_col[new_events_schema.10]
@@ -1576,7 +1654,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_in_and_not_in_optimization_gives_correct_results_1_nullable_mat_col[new_events_schema.11]
@@ -1596,7 +1675,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_in_and_not_in_optimization_gives_correct_results_1_nullable_mat_col[new_events_schema.12]
@@ -1616,7 +1696,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_in_and_not_in_optimization_gives_correct_results_1_nullable_mat_col[new_events_schema.13]
@@ -1636,7 +1717,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_in_and_not_in_optimization_gives_correct_results_1_nullable_mat_col[new_events_schema.14]
@@ -1656,7 +1738,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_in_and_not_in_optimization_gives_correct_results_1_nullable_mat_col[new_events_schema.15]
@@ -1676,7 +1759,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_in_and_not_in_optimization_gives_correct_results_1_nullable_mat_col[new_events_schema.1]
@@ -1696,7 +1780,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_in_and_not_in_optimization_gives_correct_results_1_nullable_mat_col[new_events_schema.2]
@@ -1716,7 +1801,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_in_and_not_in_optimization_gives_correct_results_1_nullable_mat_col[new_events_schema.3]
@@ -1736,7 +1822,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_in_and_not_in_optimization_gives_correct_results_1_nullable_mat_col[new_events_schema.4]
@@ -1756,7 +1843,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_in_and_not_in_optimization_gives_correct_results_1_nullable_mat_col[new_events_schema.5]
@@ -1776,7 +1864,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_in_and_not_in_optimization_gives_correct_results_1_nullable_mat_col[new_events_schema.6]
@@ -1796,7 +1885,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_in_and_not_in_optimization_gives_correct_results_1_nullable_mat_col[new_events_schema.7]
@@ -1816,7 +1906,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_in_and_not_in_optimization_gives_correct_results_1_nullable_mat_col[new_events_schema.8]
@@ -1836,7 +1927,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_in_and_not_in_optimization_gives_correct_results_1_nullable_mat_col[new_events_schema.9]
@@ -1856,7 +1948,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_in_and_not_in_optimization_gives_correct_results_1_nullable_mat_col[new_events_schema]
@@ -1876,7 +1969,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_in_and_not_in_optimization_gives_correct_results_2_non_nullable_mat_col[new_events_schema.10]
@@ -1896,7 +1990,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_in_and_not_in_optimization_gives_correct_results_2_non_nullable_mat_col[new_events_schema.11]
@@ -1916,7 +2011,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_in_and_not_in_optimization_gives_correct_results_2_non_nullable_mat_col[new_events_schema.12]
@@ -1936,7 +2032,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_in_and_not_in_optimization_gives_correct_results_2_non_nullable_mat_col[new_events_schema.13]
@@ -1956,7 +2053,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_in_and_not_in_optimization_gives_correct_results_2_non_nullable_mat_col[new_events_schema.14]
@@ -1976,7 +2074,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_in_and_not_in_optimization_gives_correct_results_2_non_nullable_mat_col[new_events_schema.15]
@@ -1996,7 +2095,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_in_and_not_in_optimization_gives_correct_results_2_non_nullable_mat_col[new_events_schema.1]
@@ -2016,7 +2116,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_in_and_not_in_optimization_gives_correct_results_2_non_nullable_mat_col[new_events_schema.2]
@@ -2036,7 +2137,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_in_and_not_in_optimization_gives_correct_results_2_non_nullable_mat_col[new_events_schema.3]
@@ -2056,7 +2158,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_in_and_not_in_optimization_gives_correct_results_2_non_nullable_mat_col[new_events_schema.4]
@@ -2076,7 +2179,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_in_and_not_in_optimization_gives_correct_results_2_non_nullable_mat_col[new_events_schema.5]
@@ -2096,7 +2200,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_in_and_not_in_optimization_gives_correct_results_2_non_nullable_mat_col[new_events_schema.6]
@@ -2116,7 +2221,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_in_and_not_in_optimization_gives_correct_results_2_non_nullable_mat_col[new_events_schema.7]
@@ -2136,7 +2242,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_in_and_not_in_optimization_gives_correct_results_2_non_nullable_mat_col[new_events_schema.8]
@@ -2156,7 +2263,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_in_and_not_in_optimization_gives_correct_results_2_non_nullable_mat_col[new_events_schema.9]
@@ -2176,7 +2284,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_in_and_not_in_optimization_gives_correct_results_2_non_nullable_mat_col[new_events_schema]
@@ -2196,7 +2305,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_in_and_not_in_optimization_gives_correct_results_3_nullable_mat_col_with_bloom_filter[new_events_schema.10]
@@ -2216,7 +2326,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_in_and_not_in_optimization_gives_correct_results_3_nullable_mat_col_with_bloom_filter[new_events_schema.11]
@@ -2236,7 +2347,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_in_and_not_in_optimization_gives_correct_results_3_nullable_mat_col_with_bloom_filter[new_events_schema.12]
@@ -2256,7 +2368,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_in_and_not_in_optimization_gives_correct_results_3_nullable_mat_col_with_bloom_filter[new_events_schema.13]
@@ -2276,7 +2389,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_in_and_not_in_optimization_gives_correct_results_3_nullable_mat_col_with_bloom_filter[new_events_schema.14]
@@ -2296,7 +2410,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_in_and_not_in_optimization_gives_correct_results_3_nullable_mat_col_with_bloom_filter[new_events_schema.15]
@@ -2316,7 +2431,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_in_and_not_in_optimization_gives_correct_results_3_nullable_mat_col_with_bloom_filter[new_events_schema.1]
@@ -2336,7 +2452,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_in_and_not_in_optimization_gives_correct_results_3_nullable_mat_col_with_bloom_filter[new_events_schema.2]
@@ -2356,7 +2473,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_in_and_not_in_optimization_gives_correct_results_3_nullable_mat_col_with_bloom_filter[new_events_schema.3]
@@ -2376,7 +2494,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_in_and_not_in_optimization_gives_correct_results_3_nullable_mat_col_with_bloom_filter[new_events_schema.4]
@@ -2396,7 +2515,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_in_and_not_in_optimization_gives_correct_results_3_nullable_mat_col_with_bloom_filter[new_events_schema.5]
@@ -2416,7 +2536,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_in_and_not_in_optimization_gives_correct_results_3_nullable_mat_col_with_bloom_filter[new_events_schema.6]
@@ -2436,7 +2557,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_in_and_not_in_optimization_gives_correct_results_3_nullable_mat_col_with_bloom_filter[new_events_schema.7]
@@ -2456,7 +2578,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_in_and_not_in_optimization_gives_correct_results_3_nullable_mat_col_with_bloom_filter[new_events_schema.8]
@@ -2476,7 +2599,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_in_and_not_in_optimization_gives_correct_results_3_nullable_mat_col_with_bloom_filter[new_events_schema.9]
@@ -2496,7 +2620,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_in_and_not_in_optimization_gives_correct_results_3_nullable_mat_col_with_bloom_filter[new_events_schema]
@@ -2516,7 +2641,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_in_and_not_in_optimization_gives_correct_results_4_non_nullable_mat_col_with_bloom_filter[new_events_schema.10]
@@ -2536,7 +2662,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_in_and_not_in_optimization_gives_correct_results_4_non_nullable_mat_col_with_bloom_filter[new_events_schema.11]
@@ -2556,7 +2683,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_in_and_not_in_optimization_gives_correct_results_4_non_nullable_mat_col_with_bloom_filter[new_events_schema.12]
@@ -2576,7 +2704,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_in_and_not_in_optimization_gives_correct_results_4_non_nullable_mat_col_with_bloom_filter[new_events_schema.13]
@@ -2596,7 +2725,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_in_and_not_in_optimization_gives_correct_results_4_non_nullable_mat_col_with_bloom_filter[new_events_schema.14]
@@ -2616,7 +2746,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_in_and_not_in_optimization_gives_correct_results_4_non_nullable_mat_col_with_bloom_filter[new_events_schema.15]
@@ -2636,7 +2767,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_in_and_not_in_optimization_gives_correct_results_4_non_nullable_mat_col_with_bloom_filter[new_events_schema.1]
@@ -2656,7 +2788,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_in_and_not_in_optimization_gives_correct_results_4_non_nullable_mat_col_with_bloom_filter[new_events_schema.2]
@@ -2676,7 +2809,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_in_and_not_in_optimization_gives_correct_results_4_non_nullable_mat_col_with_bloom_filter[new_events_schema.3]
@@ -2696,7 +2830,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_in_and_not_in_optimization_gives_correct_results_4_non_nullable_mat_col_with_bloom_filter[new_events_schema.4]
@@ -2716,7 +2851,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_in_and_not_in_optimization_gives_correct_results_4_non_nullable_mat_col_with_bloom_filter[new_events_schema.5]
@@ -2736,7 +2872,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_in_and_not_in_optimization_gives_correct_results_4_non_nullable_mat_col_with_bloom_filter[new_events_schema.6]
@@ -2756,7 +2893,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_in_and_not_in_optimization_gives_correct_results_4_non_nullable_mat_col_with_bloom_filter[new_events_schema.7]
@@ -2776,7 +2914,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_in_and_not_in_optimization_gives_correct_results_4_non_nullable_mat_col_with_bloom_filter[new_events_schema.8]
@@ -2796,7 +2935,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_in_and_not_in_optimization_gives_correct_results_4_non_nullable_mat_col_with_bloom_filter[new_events_schema.9]
@@ -2816,7 +2956,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_in_and_not_in_optimization_gives_correct_results_4_non_nullable_mat_col_with_bloom_filter[new_events_schema]
@@ -2836,7 +2977,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_lower_in_optimization_handles_null_and_sentinel_rows_0_nullable[new_events_schema.1]
@@ -2856,7 +2998,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_lower_in_optimization_handles_null_and_sentinel_rows_0_nullable[new_events_schema]
@@ -2876,7 +3019,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_lower_in_optimization_handles_null_and_sentinel_rows_1_non_nullable[new_events_schema.1]
@@ -2896,7 +3040,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_lower_in_optimization_handles_null_and_sentinel_rows_1_non_nullable[new_events_schema]
@@ -2916,7 +3061,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_lower_in_uses_bloom_filter_lower_index_on_events[new_events_schema]
@@ -2935,7 +3081,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_lower_in_uses_ngram_lower_index_on_events[new_events_schema]
@@ -2954,7 +3101,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_materialized_column_optimization_returns_correct_results_0_nullable[new_events_schema.1]
@@ -2974,7 +3122,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_materialized_column_optimization_returns_correct_results_0_nullable[new_events_schema]
@@ -2994,7 +3143,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_materialized_column_optimization_returns_correct_results_1_not_nullable[new_events_schema.1]
@@ -3014,7 +3164,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_materialized_column_optimization_returns_correct_results_1_not_nullable[new_events_schema]
@@ -3034,7 +3185,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_materialized_column_range_optimization_returns_correct_results_0_nullable[new_events_schema.1]
@@ -3054,7 +3206,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_materialized_column_range_optimization_returns_correct_results_0_nullable[new_events_schema]
@@ -3074,7 +3227,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_materialized_column_range_optimization_returns_correct_results_1_not_nullable[new_events_schema.1]
@@ -3094,7 +3248,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_materialized_column_range_optimization_returns_correct_results_1_not_nullable[new_events_schema]
@@ -3114,7 +3269,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_person_property_is_not_set_behavior_0_materialized_joined[new_events_schema]
@@ -3155,7 +3311,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_person_property_is_not_set_behavior_1_materialized_on_events[new_events_schema]
@@ -3178,7 +3335,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_person_property_is_not_set_behavior_2_not_materialized_joined[new_events_schema]
@@ -3219,7 +3377,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestMaterializedColumnOptimization.test_person_property_is_not_set_behavior_3_not_materialized_on_events[new_events_schema]
@@ -3242,7 +3401,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestPrinter.test_large_pretty_print[new_events_schema]
