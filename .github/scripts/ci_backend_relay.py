@@ -388,17 +388,37 @@ def poll(
         sleep(60 if current.phase == Phase.RUNNING else 30)
 
 
-def retry_instructions(event: Event, details_url: str) -> list[str]:
-    return [
+def retry_instructions(event: Event, details_url: str, run_id: str) -> list[str]:
+    lines = [
         f"Backend tests for {event.sha} ran on Depot CI, not GitHub Actions. Re-running this job alone reads the same result.",
         f"Depot run: {details_url or 'not found'}",
-        "Retryability: unknown without step or retry evidence.",
-        "Inspect the failure and push a fix when needed. To retry without Depot access, push a new commit.",
-        "Every new commit goes through GitHub's router; its routing rules choose the engine.",
+        "Detailed failure evidence, when available, appears in the Backend Depot diagnostics check.",
+        "",
+    ]
+    match = DEPOT_RUN_URL.match(details_url)
+    if match:
+        org, workflow = match.groups()
+        lines += [
+            f"Retry through the Depot CLI (needs access to the Depot org {org}):",
+            f"  depot ci diagnose --org {org} --workflow {workflow}   # the failures, and the run ID on the 'Run:' line",
+            f"  depot ci retry <run ID> --org {org} --workflow {workflow} --failed",
+            f"  depot ci status <run ID> --org {org}   # repeat until the run finishes",
+            f"  gh run rerun {run_id} --repo {event.repo} --failed   # relays the new Depot result",
+            "",
+        ]
+    return [
+        *lines,
+        "Retryability: unknown without step or retry evidence. Inspect the failure before retrying.",
+        "Retry without Depot access: a new commit starts a fresh run.",
+        "  git commit --allow-empty -m 'chore: retry backend ci' && git push",
+        "",
+        "Run on GitHub Actions instead: the ci-backend-github label routes the next commit of this PR there.",
+        f"  gh pr edit {event.pr_number} --repo {event.repo} --add-label ci-backend-github",
+        "  git commit --allow-empty -m 'chore: retry backend ci on github actions' && git push",
     ]
 
 
-def relay_gate(result: Progress, event: Event) -> tuple[int, list[str]]:
+def relay_gate(result: Progress, event: Event, run_id: str) -> tuple[int, list[str]]:
     """The exit code and log lines of the `Django Tests Pass` relay for the gate's progress."""
     if result.phase == Phase.FINISHED and result.state == "success":
         return 0, []
@@ -410,12 +430,12 @@ def relay_gate(result: Progress, event: Event) -> tuple[int, list[str]]:
     if result.phase == Phase.FINISHED:
         return 1, [
             f"::error::Backend tests on Depot CI concluded {result.state}. This step's log lists the retry options.",
-            *retry_instructions(event, result.details_url),
+            *retry_instructions(event, result.details_url, run_id),
         ]
     if result.phase == Phase.CANCELLED:
         return 1, [
             f"::error::Depot CI cancelled its run for this event of {event.sha} and started no replacement.",
-            *retry_instructions(event, result.details_url),
+            *retry_instructions(event, result.details_url, run_id),
         ]
     if result.phase == Phase.DECLINED:
         return 1, [f"::error::Depot declined the hand-off for {event.sha} (wait job: {result.state})"]
@@ -436,7 +456,7 @@ def main(argv: Sequence[str]) -> int:
     except ReadRefusedError as error:
         sys.stdout.write(f"::error::{error}\n")
         return 1
-    code, lines = relay_gate(result, event)
+    code, lines = relay_gate(result, event, env.get("GITHUB_RUN_ID", ""))
     sys.stdout.writelines(f"{line}\n" for line in lines)
     if code:
         if summary := env.get("GITHUB_STEP_SUMMARY"):

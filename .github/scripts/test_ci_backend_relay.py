@@ -298,7 +298,7 @@ def test_poll_does_not_use_an_ambiguous_plain_named_wait() -> None:
     ],
 )
 def test_relay_gate_fails_closed(result: Any, exit_code: int, first_line: str | None) -> None:
-    code, lines = relay.relay_gate(result, EVENT)
+    code, lines = relay.relay_gate(result, EVENT, "123")
     assert code == exit_code
     if first_line is None:
         assert lines == []
@@ -308,11 +308,11 @@ def test_relay_gate_fails_closed(result: Any, exit_code: int, first_line: str | 
 
 def test_relay_gate_names_the_failed_depot_run_to_retry() -> None:
     _, lines = relay.relay_gate(
-        relay.Progress(relay.Phase.FINISHED, "failure", "https://depot.dev/orgs/o1/workflows/w1?job=j"), EVENT
+        relay.Progress(relay.Phase.FINISHED, "failure", "https://depot.dev/orgs/o1/workflows/w1?job=j"), EVENT, "123"
     )
-    assert any("push a new commit" in line for line in lines)
-    assert any("routing rules choose the engine" in line for line in lines)
-    assert not any("ci-backend-github" in line for line in lines)
+    assert any("depot ci retry" in line for line in lines)
+    assert any("gh run rerun 123" in line for line in lines)
+    assert any("ci-backend-github" in line for line in lines)
 
 
 def api_check() -> dict[str, Any]:
@@ -431,7 +431,7 @@ def test_cancelled_gate_reports_only_current_selected_prerequisite(
         clock=clock,
         sleep=clock.sleep,
     )
-    code, lines = relay.relay_gate(result, EVENT)
+    code, lines = relay.relay_gate(result, EVENT, "123")
     assert code == 1
     if state == "failure" and workflow == "live" and newer is None:
         assert clock.now == 0
@@ -463,7 +463,7 @@ def test_failed_gate_keeps_retry_options_after_a_prerequisite_failure(name: str)
         clock=clock,
         sleep=clock.sleep,
     )
-    code, lines = relay.relay_gate(result, EVENT)
+    code, lines = relay.relay_gate(result, EVENT, "123")
     assert code == 1
     assert not result.root_failure
     assert not any("a retry will not help" in line for line in lines)

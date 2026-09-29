@@ -2,6 +2,7 @@ import io
 import json
 import zipfile
 import urllib.request
+from contextlib import nullcontext
 from email.message import Message
 from pathlib import Path
 from typing import Any
@@ -194,6 +195,7 @@ def test_truncated_diagnostics_are_explicit() -> None:
         ("Bearer invented_credential github_pat_obviously_fake_token", "invented_credential"),
         ("https://user:invented_password@example.com/x", "invented_password"),
         ('{"api_key": "obviously fake value"}', "obviously fake value"),
+        ('{"api_key": "obviously fake value ' + "x" * 9000, "obviously fake value"),
         ("AWS_SECRET_ACCESS_KEY=obviously_fake_credential", "obviously_fake_credential"),
         ("Basic aW52ZW50ZWRfY3JlZGVudGlhbA==", "aW52ZW50ZWRfY3JlZGVudGlhbA=="),
     ],
@@ -230,13 +232,72 @@ def test_artifact_rejects_empty_malformed_or_oversized_json(body: bytes) -> None
         GitHub("token").artifact(1, "report")
 
 
-def test_diagnostic_error_does_not_replace_original_verdict(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    monkeypatch.delenv("DEPOT_TOKEN", raising=False)
-    destination = tmp_path / "report.json"
-    diagnostics.collector(diagnostics.GitHub("token"), {"workflow": "workflow1"}, destination)
-    report = json.loads(destination.read_text())
-    assert report["lines"] == ["Diagnostics unavailable: collection failed or evidence could not be validated."]
-    assert "verdict" not in report
+def test_diagnostic_error_does_not_replace_original_verdict(monkeypatch: pytest.MonkeyPatch) -> None:
+    class GitHub(diagnostics.GitHub):
+        summary = ""
+
+        def read(self, path: str, *, binary: bool = False) -> Any:
+            return {**github_run(), "status": "completed"}
+
+        def handoff(self, run: int, attempt: int) -> str | None:
+            return "success"
+
+        def create_check(self, request: dict[str, Any], summary: str) -> None:
+            self.summary = summary
+
+    def failed_collection(*args: Any) -> list[str]:
+        raise diagnostics.Unavailable("invented failure")
+
+    monkeypatch.setenv("DEPOT_TOKEN", "invented_credential")
+    monkeypatch.setattr(diagnostics, "validate_selection", lambda *args: EVENT)
+    monkeypatch.setattr(diagnostics, "collect", failed_collection)
+    github = GitHub("token")
+    diagnostics.collector(github, request())
+    assert github.summary == "Diagnostics unavailable&#58; collection failed or evidence could not be validated."
+
+
+def test_collector_does_not_post_for_a_replaced_github_attempt(monkeypatch: pytest.MonkeyPatch) -> None:
+    class GitHub(diagnostics.GitHub):
+        reads = 0
+
+        def read(self, path: str, *, binary: bool = False) -> Any:
+            self.reads += 1
+            return {**github_run(), "run_attempt": 2 if self.reads == 2 else 1, "status": "completed"}
+
+        def handoff(self, run: int, attempt: int) -> str | None:
+            return "success"
+
+        def create_check(self, request: dict[str, Any], summary: str) -> None:
+            pytest.fail("a replaced attempt must not receive diagnostics")
+
+    monkeypatch.setenv("DEPOT_TOKEN", "invented_credential")
+    monkeypatch.setattr(diagnostics, "validate_selection", lambda *args: EVENT)
+    monkeypatch.setattr(diagnostics, "collect", lambda *args: ["Failure details"])
+    with pytest.raises(diagnostics.Unavailable):
+        diagnostics.collector(GitHub("token"), request())
+
+
+def test_diagnostics_check_is_neutral_and_attached_to_pr_head(monkeypatch: pytest.MonkeyPatch) -> None:
+    posted: list[dict[str, Any]] = []
+
+    class Opener:
+        def open(self, api_request: urllib.request.Request, timeout: int) -> Any:
+            posted.append(json.loads(api_request.data or b"{}"))
+            return nullcontext()
+
+    monkeypatch.setenv("GITHUB_RUN_ID", "88")
+    monkeypatch.setattr(diagnostics.urllib.request, "build_opener", lambda *args: Opener())
+    diagnostics.GitHub("token").create_check(request(), diagnostics.check_summary(["FAILED test_widget_contract"]))
+    assert posted == [
+        {
+            "name": "Backend Depot diagnostics (1.1)",
+            "head_sha": EVENT.sha,
+            "status": "completed",
+            "conclusion": "neutral",
+            "details_url": "https://github.com/PostHog/posthog/actions/runs/88",
+            "output": {"title": "Depot backend failure details", "summary": "FAILED test&#95;widget&#95;contract"},
+        }
+    ]
 
 
 def test_excerpts_and_output_are_bounded(capsys: Any) -> None:
@@ -347,8 +408,8 @@ def test_retry_history_can_support_possible_flake() -> None:
 def test_collector_workflow_is_isolated_from_pr_execution() -> None:
     path = Path(__file__).parents[1] / "workflows/ci-backend-diagnostics.yml"
     workflow = yaml.safe_load(path.read_text())
-    assert workflow[True] == {"workflow_run": {"workflows": ["Backend CI"], "types": ["in_progress"]}}
-    assert all(value == "read" for value in workflow["permissions"].values())
+    assert workflow[True] == {"workflow_run": {"workflows": ["Backend CI"], "types": ["completed"]}}
+    assert workflow["permissions"] == {"contents": "read", "actions": "read", "checks": "write"}
     steps = workflow["jobs"]["collect"]["steps"]
     checkout = steps[0]
     assert checkout["with"]["ref"] == "${{ github.workflow_sha }}"
@@ -360,40 +421,41 @@ def test_collector_workflow_is_isolated_from_pr_execution() -> None:
     assert credentialed[0]["timeout-minutes"] == 4
     assert "runpy.run_module" in credentialed[0]["run"]
     assert not any("secrets." in s.get("run", "") for s in steps)
+    assert len(steps) == 4
 
 
-@pytest.mark.parametrize(
-    "changed,value",
-    [("path", ".github/workflows/ci-backend.yml"), ("event", "pull_request"), ("head_branch", "feature/untrusted")],
-)
-def test_receiver_rejects_reports_from_untrusted_workflow_runs(
-    changed: str, value: str, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("credential", ["true", "false"])
+def test_completed_collector_reads_the_exact_request_without_polling(
+    credential: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    now = [0.0]
-    monkeypatch.setattr(diagnostics.time, "monotonic", lambda: now[0])
-    monkeypatch.setattr(diagnostics.time, "sleep", lambda seconds: now.__setitem__(0, now[0] + seconds))
-
     class GitHub(diagnostics.GitHub):
+        calls: list[str] = []
+
         def read(self, path: str, *, binary: bool = False) -> Any:
-            if path.startswith("actions/artifacts?"):
-                return {"total_count": 1, "artifacts": [{"workflow_run": {"id": 88}}]}
-            return {
-                **{
-                    "id": 88,
-                    "path": diagnostics.COLLECTOR_PATH,
-                    "event": "workflow_run",
-                    "head_branch": "master",
-                    "head_repository": {"full_name": EVENT.repo},
-                },
-                changed: value,
-            }
+            self.calls.append(path)
+            return {**github_run(), "status": "completed"}
 
         def artifact(self, run: int, name: str) -> dict[str, Any] | None:
-            pytest.fail("must not read a report from PR-controlled code")
+            self.calls.append(name)
+            return request()
 
-    lines = diagnostics.receive(GitHub("token"), request())
-    assert lines == ["Diagnostics unavailable: trusted collector did not return a report before the deadline."]
-    assert now[0] == 300
+        def handoff(self, run: int, attempt: int) -> str | None:
+            self.calls.append("handoff")
+            return "success"
+
+    monkeypatch.setenv("HAS_DEPOT_CREDENTIAL", credential)
+    monkeypatch.setenv("GITHUB_OUTPUT", str(tmp_path / "output"))
+    monkeypatch.setattr(diagnostics, "validate_selection", lambda *args: EVENT)
+    github = GitHub("token")
+    destination = tmp_path / "request.json"
+    diagnostics.read_request(github, {"id": 1, "run_attempt": 1}, destination)
+    if credential == "true":
+        assert json.loads(destination.read_text()) == request()
+        assert github.calls == ["actions/runs/1", "backend-diagnostics-request-1-1", "handoff"]
+        assert (tmp_path / "output").read_text() == "ready=true\n"
+    else:
+        assert not destination.exists()
+        assert github.calls == []
 
 
 @pytest.mark.parametrize(
@@ -417,15 +479,11 @@ def test_artifact_redirects_do_not_forward_github_credentials(target: str) -> No
         assert redirected is not None and redirected.get_header("Authorization") is None
 
 
-def test_collector_report_budget_preserves_complete_excerpts(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    monkeypatch.setenv("DEPOT_TOKEN", "invented_credential")
-    monkeypatch.setattr(diagnostics, "validate_selection", lambda *args: EVENT)
+def test_collector_report_budget_preserves_complete_excerpts() -> None:
     excerpt = "Evidence: " + "界" * 1500
-    monkeypatch.setattr(diagnostics, "collect", lambda *args: [excerpt] * 20)
-    destination = tmp_path / "report.json"
-    diagnostics.collector(diagnostics.GitHub("token"), request(), destination)
-    report = json.loads(destination.read_text())
-    assert len(destination.read_bytes()) <= diagnostics.MAX_REPORT
-    assert report["request"] == request()
-    assert report["lines"][-1] == "Diagnostics truncated to the report size limit."
-    assert report["lines"][:-1] and all(line == excerpt for line in report["lines"][:-1])
+    summary = diagnostics.check_summary([excerpt] * 20)
+    assert len(summary.encode()) <= diagnostics.MAX_REPORT
+    assert summary.endswith("Diagnostics truncated to the report size limit.")
+    assert summary.split("\n\n")[:-1] and all(
+        line == diagnostics.safe_text(excerpt, 1600) for line in summary.split("\n\n")[:-1]
+    )

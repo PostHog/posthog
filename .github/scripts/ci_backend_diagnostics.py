@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read-only Depot diagnostics. The collector runs only in a default-branch workflow_run job.
+"""Read-only Depot evidence for a check posted by a default-branch workflow_run job.
 
 Request artifacts are untrusted hints, never code or authority. GitHub checks supply the
 verdict; this module can only explain it. No third-party Python packages are installed.
@@ -33,7 +33,6 @@ from ci_backend_relay import (
 )
 
 REPO = "PostHog/posthog"
-COLLECTOR_PATH = ".github/workflows/ci-backend-diagnostics.yml"
 MAX_BYTES = 2_000_000
 MAX_REPORT = 24_000
 MAX_FAILURES = 5
@@ -42,7 +41,7 @@ SHA = re.compile(r"[a-f0-9]{40}\Z")
 ANSI = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))")
 SECRET = re.compile(
     r"(?i)(?:(?:bearer|basic)\s+\S+|"
-    r"""\b[\w-]*(?:token|password|secret|authorization|cookie|api[_-]?key)[\w-]*["']?\s*[:=]\s*(?:"[^"]*"|'[^']*'|[^\s,;]+)|"""
+    r"""\b[\w-]*(?:token|password|secret|authorization|cookie|api[_-]?key)[\w-]*["']?\s*[:=]\s*(?:"[^"]*(?:"|$)|'[^']*(?:'|$)|[^\s,;]+)|"""
     r"(?:gh[pousr]_|github_pat_|sk[-_]|ph[ctx]_|depot_)[A-Za-z0-9_\-]{8,}|"
     r"AKIA[A-Z0-9]{16}|eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+|"
     r"[a-f0-9]{64,}|-----BEGIN [^-]*PRIVATE KEY-----[\s\S]*?(?:-----END [^-]*PRIVATE KEY-----|$)|"
@@ -91,6 +90,13 @@ class ArtifactRedirect(urllib.request.HTTPRedirectHandler):
         return redirected
 
 
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(
+        self, req: urllib.request.Request, fp: BinaryIO, code: int, msg: str, headers: Message, newurl: str
+    ) -> None:
+        return None
+
+
 class GitHub:
     def __init__(self, token: str) -> None:
         self.token = token
@@ -133,6 +139,28 @@ class GitHub:
             raise Unavailable("job listing incomplete")
         jobs = [job for job in body["jobs"] if job["name"] == "Hand off backend tests to Depot CI"]
         return jobs[0]["conclusion"] if len(jobs) == 1 else None
+
+    def create_check(self, request: dict[str, Any], summary: str) -> None:
+        payload = {
+            "name": f"Backend Depot diagnostics ({request['github_run']}.{request['github_attempt']})",
+            "head_sha": request["sha"],
+            "status": "completed",
+            "conclusion": "neutral",
+            "details_url": f"https://github.com/{REPO}/actions/runs/{int(os.environ['GITHUB_RUN_ID'])}",
+            "output": {"title": "Depot backend failure details", "summary": summary},
+        }
+        api_request = urllib.request.Request(
+            f"{API_ROOT}/repos/{REPO}/check-runs",
+            data=json.dumps(payload).encode(),
+            headers={
+                "Authorization": f"Bearer {self.token}",
+                "Accept": "application/vnd.github+json",
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+        with urllib.request.build_opener(NoRedirect()).open(api_request, timeout=15):
+            pass
 
 
 class Depot:
@@ -357,33 +385,22 @@ def collect(depot: Depot, event: Event, workflow: str) -> list[str]:
     return lines
 
 
-def await_request(github: GitHub, trigger: dict[str, Any], destination: Path) -> None:
+def read_request(github: GitHub, trigger: dict[str, Any], destination: Path) -> None:
     run_id, attempt = trigger["id"], trigger["run_attempt"]
     if os.environ.get("HAS_DEPOT_CREDENTIAL") != "true":
-        publish(["Diagnostics unavailable: DEPOT_CI_CANCEL_TOKEN is not available to the trusted GitHub collector."])
+        publish(["Diagnostics unavailable: DEPOT_CI_READ_TOKEN is not available to the trusted GitHub collector."])
         return
-    # The relay polls for 90 minutes from its own later start, so the collector waits longer.
-    deadline = time.monotonic() + 105 * 60
-    handed_off = False
-    while time.monotonic() < deadline:
-        run = github.read(f"actions/runs/{run_id}")
-        if run["run_attempt"] != attempt:
-            return
-        if not handed_off:
-            handoff = github.handoff(run_id, attempt)
-            if handoff in ("skipped", "cancelled", "failure"):
-                return
-            handed_off = handoff == "success"
-        request = github.artifact(run_id, f"backend-diagnostics-request-{run_id}-{attempt}")
-        if request:
-            validate_request(request, run, github.handoff(run_id, attempt))
-            destination.write_text(json.dumps(request))
-            with Path(os.environ["GITHUB_OUTPUT"]).open("a") as stream:
-                stream.write("ready=true\n")
-            return
-        if run["status"] == "completed":
-            return
-        time.sleep(30)
+    run = github.read(f"actions/runs/{run_id}")
+    if run["run_attempt"] != attempt or run["status"] != "completed":
+        return
+    request = github.artifact(run_id, f"backend-diagnostics-request-{run_id}-{attempt}")
+    if request is None:
+        return
+    validate_request(request, run, github.handoff(run_id, attempt))
+    validate_selection(github, request)
+    destination.write_text(json.dumps(request))
+    with Path(os.environ["GITHUB_OUTPUT"]).open("a") as stream:
+        stream.write("ready=true\n")
 
 
 def validate_selection(github: GitHub, request: dict[str, Any]) -> Event:
@@ -405,59 +422,44 @@ def validate_selection(github: GitHub, request: dict[str, Any]) -> Event:
     return event
 
 
-def collector(github: GitHub, request: dict[str, Any], destination: Path) -> None:
+def check_summary(lines: list[str]) -> str:
+    parts: list[str] = []
+    for line in lines[:40]:
+        rendered = safe_text(line, 1600)
+        if len("\n\n".join([*parts, rendered]).encode()) > MAX_REPORT - 100:
+            parts.append("Diagnostics truncated to the report size limit.")
+            break
+        parts.append(rendered)
+    return "\n\n".join(parts)
+
+
+def collector(github: GitHub, request: dict[str, Any]) -> None:
     if len(json.dumps(request).encode()) > 4000:
         raise Unavailable("oversized request")
+    if not os.environ.get("DEPOT_TOKEN"):
+        raise Unavailable("missing Depot credential")
+    run = github.read(f"actions/runs/{request['github_run']}")
+    if run["status"] != "completed":
+        raise Unavailable("GitHub run changed during collection")
+    validate_request(request, run, github.handoff(request["github_run"], request["github_attempt"]))
+    event = validate_selection(github, request)
     try:
-        if not os.environ.get("DEPOT_TOKEN"):
-            raise Unavailable("missing Depot credential")
-        event = validate_selection(github, request)
-        lines = [safe_text(line, 1600, markdown=False) for line in collect(Depot(), event, request["workflow"])]
+        lines = collect(Depot(), event, request["workflow"])
     except Exception:
         lines = ["Diagnostics unavailable: collection failed or evidence could not be validated."]
-    report = {"request": request, "lines": lines}
-    if len(json.dumps(report).encode()) > MAX_REPORT:
-        lines.append("Diagnostics truncated to the report size limit.")
-        while len(json.dumps(report).encode()) > MAX_REPORT:
-            lines.pop(-2)
-    destination.write_text(json.dumps(report))
-
-
-def receive(github: GitHub, request: dict[str, Any]) -> list[str]:
-    if not request.get("workflow"):
-        return ["Diagnostics unavailable: no selected Depot workflow."]
-    name = f"backend-diagnostics-report-{request['github_run']}-{request['github_attempt']}"
-    # Covers the collector's 30 s poll, up to 100 s of Depot reads, validation and upload.
-    deadline = time.monotonic() + 300
-    while time.monotonic() < deadline:
-        artifacts = github.read(f"actions/artifacts?name={name}&per_page=100")
-        if artifacts["total_count"] > 1:
-            raise Unavailable("ambiguous diagnostic reports")
-        for artifact in artifacts["artifacts"]:
-            run = github.read(f"actions/runs/{int(artifact['workflow_run']['id'])}")
-            if (
-                run["path"] != COLLECTOR_PATH
-                or run["event"] != "workflow_run"
-                or run["head_branch"] != "master"
-                or run["head_repository"]["full_name"] != REPO
-            ):
-                continue
-            report = github.artifact(run["id"], name)
-            if report:
-                if report["request"] != request or not isinstance(report["lines"], list):
-                    raise Unavailable("report identity mismatch")
-                if not all(isinstance(line, str) for line in report["lines"]) or len(report["lines"]) > 40:
-                    raise Unavailable("invalid diagnostic lines")
-                validate_selection(github, request)
-                return report["lines"]
-        time.sleep(15)
-    return ["Diagnostics unavailable: trusted collector did not return a report before the deadline."]
+    run = github.read(f"actions/runs/{request['github_run']}")
+    if run["status"] != "completed":
+        raise Unavailable("GitHub run changed during collection")
+    validate_request(request, run, github.handoff(request["github_run"], request["github_attempt"]))
+    validate_selection(github, request)
+    github.create_check(request, check_summary(lines))
+    publish(lines)
 
 
 def main() -> int:
     github = GitHub(os.environ["GH_TOKEN"])
     try:
-        if sys.argv[1:] == ["await-request"]:
+        if sys.argv[1:] == ["read-request"]:
             event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
             if (
                 event["repository"]["full_name"] != REPO
@@ -465,24 +467,14 @@ def main() -> int:
                 or event["workflow_run"]["event"] != "pull_request"
             ):
                 raise Unavailable("unexpected collector event")
-            await_request(github, event["workflow_run"], Path(os.environ["REQUEST_FILE"]))
+            read_request(github, event["workflow_run"], Path(os.environ["REQUEST_FILE"]))
         elif sys.argv[1:] == ["collect"]:
-            collector(
-                github, json.loads(Path(os.environ["REQUEST_FILE"]).read_text()), Path(os.environ["DIAGNOSTICS_FILE"])
-            )
-        elif sys.argv[1:] == ["receive"]:
-            request = json.loads(Path(os.environ["DIAGNOSTICS_FILE"]).read_text())
-            lines = receive(github, request)
-            if not any(line.startswith("Retryability:") for line in lines):
-                lines += [
-                    "Retryability: unknown. Inspect the failed job and push a fix when needed.",
-                    "Without Depot access, a new commit retries through GitHub's router; routing rules choose the engine.",
-                ]
-            publish(lines)
+            collector(github, json.loads(Path(os.environ["REQUEST_FILE"]).read_text()))
         else:
             return 2
     except Exception:
         publish(["Diagnostics unavailable: collection or validation failed. The original relay verdict is unchanged."])
+        return 1
     return 0
 
 

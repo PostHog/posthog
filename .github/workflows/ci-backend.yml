@@ -4212,7 +4212,7 @@ jobs:
             checks: read # the relay reads Depot's gate check run
         # Headroom for downloading every shard's JUnit for the failure rollup, or for
         # waiting out a full Depot run when this job only relays its verdict.
-        timeout-minutes: ${{ needs.changes.outputs.engine == 'depot' && 100 || 8 }}
+        timeout-minutes: ${{ needs.changes.outputs.engine == 'depot' && 95 || 8 }}
         # Intentional !cancelled(): the gate inspects failed dependencies and fails
         # closed on live runs; a superseded run records cancelled, not failure.
         # The deterministic-failure disjuncts cover this workflow cancelling its
@@ -4227,9 +4227,7 @@ jobs:
               if: needs.changes.outputs.engine == 'depot'
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
-                  sparse-checkout: |
-                      .github/scripts/ci_backend_relay.py
-                      .github/scripts/ci_backend_diagnostics.py
+                  sparse-checkout: .github/scripts/ci_backend_relay.py
                   sparse-checkout-cone-mode: false
                   persist-credentials: false
             # The script finds this event's Depot run by the event in its wait job's check
@@ -4257,18 +4255,6 @@ jobs:
                   path: ${{ runner.temp }}/backend-diagnostics/diagnostics.json
                   if-no-files-found: ignore
                   retention-days: 3
-            - name: Explain the Depot failure
-              if: failure() && steps.depot-relay.outcome == 'failure'
-              continue-on-error: true
-              env:
-                  GH_TOKEN: ${{ github.token }}
-                  DIAGNOSTICS_FILE: ${{ runner.temp }}/backend-diagnostics/diagnostics.json
-              run: |
-                  if [ -f .github/scripts/ci_backend_diagnostics.py ]; then
-                      python3 .github/scripts/ci_backend_diagnostics.py receive
-                  else
-                      echo 'Diagnostics unavailable: rebase to include the diagnostic reader.' | tee -a "$GITHUB_STEP_SUMMARY"
-                  fi
             - name: Summarize dependency results
               if: needs.changes.outputs.engine != 'depot'
               run: |
