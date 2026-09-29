@@ -679,5 +679,30 @@ describe('sceneLogic', () => {
             expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(expectedRoute)
             expect(logic.values.sceneId).toEqual(expectedScene)
         })
+
+        it("loads the page for a deactivated member's link into another organization's project", async () => {
+            logic.unmount()
+            initKeaTests(true, MOCK_DEFAULT_TEAM, MOCK_DEFAULT_PROJECT, {
+                ...MOCK_DEFAULT_ORGANIZATION,
+                teams: [MOCK_DEFAULT_TEAM],
+                is_active: false,
+            } as OrganizationType)
+            await expectLogic(teamLogic).toDispatchActions(['loadCurrentTeamSuccess'])
+            featureFlagLogic.mount()
+            logic = sceneLogic.build({ scenes: testScenes })
+            logic.mount()
+            await expectLogic(logic).delay(1)
+            const originalLocation = Object.getOwnPropertyDescriptor(window, 'location')!
+            Object.defineProperty(window, 'location', { configurable: true, value: { ...window.location, href: '' } })
+            try {
+                router.actions.push('/project/424242/dashboard')
+                await expectLogic(logic).delay(1)
+
+                expect(window.location.href).toEqual('/project/424242/dashboard')
+                expect(logic.values.sceneId).toEqual(Scene.OrganizationDeactivated)
+            } finally {
+                Object.defineProperty(window, 'location', originalLocation)
+            }
+        })
     })
 })

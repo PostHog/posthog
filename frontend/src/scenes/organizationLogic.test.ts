@@ -141,23 +141,22 @@ describe('organizationLogic', () => {
             ['deactivated drops the app', { is_active: false }, '/dashboard', false],
             ['pending deletion keeps an invite link', { is_pending_deletion: true }, '/signup/abc', true],
             ['pending deletion drops billing', { is_pending_deletion: true }, '/organization/billing', false],
-            [
-                "deactivated keeps a link into another organization's project",
-                { is_active: false, teams: [{ id: 1 }] },
-                '/project/424242/dashboard',
-                true,
-            ],
-            [
-                'deactivated drops a link into a project the organization owns',
-                { is_active: false, teams: [{ id: 424242 }] },
-                '/project/424242/dashboard',
-                false,
-            ],
         ])('%s', async (_name, organization, pathname, open) => {
             mountWith(organization as unknown as Partial<OrganizationType>)
             await expectLogic(logic).toDispatchActions(['loadCurrentOrganizationSuccess'])
 
             expect(logic.values.isPathOpenWhileBlocked(pathname)).toBe(open)
+        })
+
+        test.each([
+            ["another organization's project", [{ id: 1 }], true],
+            ['a project the organization owns', [{ id: 424242 }], false],
+            ['a project while the team list is unknown', undefined, false],
+        ])('a link into %s leaves the organization: %s', async (_name, teams, leaves) => {
+            mountWith({ is_active: false, teams } as unknown as Partial<OrganizationType>)
+            await expectLogic(logic).toDispatchActions(['loadCurrentOrganizationSuccess'])
+
+            expect(logic.values.isPathInAnotherOrganization('/project/424242/dashboard')).toBe(leaves)
         })
     })
 })

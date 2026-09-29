@@ -86,6 +86,30 @@ const tabToPersistableSnapshot = (tab: SceneTab): SceneTab => {
     }
 }
 
+/**
+ * Moves a member of a blocked organization off a path the block closes. Returns true when it navigated.
+ */
+function leaveBlockedOrganizationPath(): boolean {
+    const { currentOrganizationBlockPage, isPathInAnotherOrganization, isPathOpenWhileBlocked } =
+        organizationLogic.values
+    if (!currentOrganizationBlockPage) {
+        return false
+    }
+    const { pathname, search, hash } = router.values.location
+    if (isPathInAnotherOrganization(pathname)) {
+        // The client keeps the blocked organization's project whatever the URL says, so the scene would
+        // read that project's data. A page load lets the server switch the member into the project's
+        // organization, or send them to the block page.
+        window.location.href = pathname + search + hash
+        return true
+    }
+    if (isPathOpenWhileBlocked(pathname)) {
+        return false
+    }
+    router.actions.replace(currentOrganizationBlockPage)
+    return true
+}
+
 // `/` and `/home` both resolve the configured homepage through this, so anything asking whether a
 // location is the homepage has to derive it the same way.
 const homepageTargetPathname = (homepage: SceneTab): string => {
@@ -872,16 +896,13 @@ export const sceneLogic = kea<sceneLogicType>([
                     return
                 }
 
-                const { currentOrganizationBlockPage, isPathOpenWhileBlocked } = organizationLogic.values
-                if (currentOrganizationBlockPage) {
+                if (organizationLogic.values.currentOrganizationBlockPage) {
                     // Decide the block here. A redirect from a `locationChanged` listener does not hold,
                     // because this route handler still opens the scene of the original URL after that
                     // listener runs. The onboarding and project-creation redirects below stay off: they
                     // only lead to pages that are closed while blocked, so they loop against the block page.
-                    if (isPathOpenWhileBlocked(router.values.location.pathname)) {
+                    if (!leaveBlockedOrganizationPath()) {
                         actions.loadScene(sceneId, sceneKey, params, method)
-                    } else {
-                        router.actions.replace(currentOrganizationBlockPage)
                     }
                     return
                 }
@@ -1134,9 +1155,7 @@ export const sceneLogic = kea<sceneLogicType>([
 
         mapping['/*'] = (_, __, { method }) => {
             // This route skips `openScene`, so it applies the organization block itself, as the server does.
-            const { currentOrganizationBlockPage, isPathOpenWhileBlocked } = organizationLogic.values
-            if (currentOrganizationBlockPage && !isPathOpenWhileBlocked(router.values.location.pathname)) {
-                router.actions.replace(currentOrganizationBlockPage)
+            if (leaveBlockedOrganizationPath()) {
                 return
             }
             return actions.loadScene(Scene.Error404, undefined, emptySceneParams, method)

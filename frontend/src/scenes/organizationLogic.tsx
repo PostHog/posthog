@@ -30,7 +30,7 @@ const ALLOWED_WHILE_BLOCKED: Record<string, string[]> = {
 
 /**
  * A client-side push reaches no server, so `AutoProjectMiddleware` never resolves the destination's
- * organization. Defer to the page load. False while the team list is unknown, which keeps the block on.
+ * organization. Only a page load can. False while the team list is unknown, which keeps the block on.
  */
 function pathLeavesCurrentOrganization(organization: OrganizationType | null, pathname: string): boolean {
     const teams = organization?.teams
@@ -82,6 +82,7 @@ export interface organizationLogicValues {
     isCurrentOrganizationNew: boolean
     isCurrentOrganizationUnavailable: boolean
     isNotActiveReason: string | null
+    isPathInAnotherOrganization: (pathname: string) => boolean
     isPathOpenWhileBlocked: (pathname: string) => boolean
     migrateAccessControlVersionLoading: boolean
     organizationBeingDeleted: string | null
@@ -196,10 +197,8 @@ export interface organizationLogicMeta {
         isCurrentOrganizationNew: (currentOrganization: OrganizationType | null) => boolean
         isNotActiveReason: (currentOrganization: OrganizationType | null) => string | null
         currentOrganizationBlockPage: (currentOrganization: OrganizationType | null) => string | null
-        isPathOpenWhileBlocked: (
-            currentOrganization: OrganizationType | null,
-            currentOrganizationBlockPage: string | null
-        ) => (pathname: string) => boolean
+        isPathOpenWhileBlocked: (currentOrganizationBlockPage: string | null) => (pathname: string) => boolean
+        isPathInAnotherOrganization: (currentOrganization: OrganizationType | null) => (pathname: string) => boolean
     }
 }
 
@@ -364,13 +363,10 @@ export const organizationLogic = kea<organizationLogicType>([
             (currentOrganization: OrganizationType | null): string | null => organizationBlockPage(currentOrganization),
         ],
         isPathOpenWhileBlocked: [
-            (s) => [s.currentOrganization, s.currentOrganizationBlockPage],
-            (currentOrganization: OrganizationType | null, currentOrganizationBlockPage: string | null) =>
+            (s) => [s.currentOrganizationBlockPage],
+            (currentOrganizationBlockPage: string | null) =>
                 (pathname: string): boolean => {
-                    if (
-                        currentOrganizationBlockPage === null ||
-                        pathLeavesCurrentOrganization(currentOrganization, pathname)
-                    ) {
+                    if (currentOrganizationBlockPage === null) {
                         return true
                     }
                     // Compare on the route: the pathname can carry a `/project/<id>` prefix, and the block
@@ -380,6 +376,12 @@ export const organizationLogic = kea<organizationLogicType>([
                         route.startsWith(allowed)
                     )
                 },
+        ],
+        isPathInAnotherOrganization: [
+            (s) => [s.currentOrganization],
+            (currentOrganization: OrganizationType | null) =>
+                (pathname: string): boolean =>
+                    pathLeavesCurrentOrganization(currentOrganization, pathname),
         ],
     }),
     listeners(({ actions }) => ({
