@@ -13,7 +13,8 @@ type MMDBConfig struct {
 }
 
 type JWTConfig struct {
-	Secret string
+	Secret           string
+	AuthorizationURL string `mapstructure:"authorization_url"`
 	// Previous secrets still accepted for verification (never used for signing),
 	// so tokens signed before a key rotation keep working until they expire.
 	SecretFallbacks []string `mapstructure:"secret_fallbacks"`
@@ -24,13 +25,13 @@ type SessionRecordingConfig struct {
 }
 
 type RedisConfig struct {
-	Address            string `mapstructure:"address"`
-	Port               string `mapstructure:"port"`
-	TLS                bool   `mapstructure:"tls"`
-	FlushIntervalMs    int    `mapstructure:"flush_interval_ms"`
-	UsePubSub          bool   `mapstructure:"use_pub_sub"`
-	PublishBufferSize  int    `mapstructure:"publish_buffer_size"`
-	PublishWorkers     int    `mapstructure:"publish_workers"`
+	Address           string `mapstructure:"address"`
+	Port              string `mapstructure:"port"`
+	TLS               bool   `mapstructure:"tls"`
+	FlushIntervalMs   int    `mapstructure:"flush_interval_ms"`
+	UsePubSub         bool   `mapstructure:"use_pub_sub"`
+	PublishBufferSize int    `mapstructure:"publish_buffer_size"`
+	PublishWorkers    int    `mapstructure:"publish_workers"`
 }
 
 // ConsumerConfig holds connection and tuning parameters for a single Kafka consumer.
@@ -130,6 +131,7 @@ func InitConfigs(filename, configPath string) {
 	// JWT settings
 	_ = viper.BindEnv("jwt.secret")           // LIVESTREAM_JWT_SECRET
 	_ = viper.BindEnv("jwt.secret_fallbacks") // LIVESTREAM_JWT_SECRET_FALLBACKS (comma-separated)
+	_ = viper.BindEnv("jwt.authorization_url")
 
 	// Session recording settings
 	_ = viper.BindEnv("session_recording.max_lru_entries") // LIVESTREAM_SESSION_RECORDING_MAX_LRU_ENTRIES

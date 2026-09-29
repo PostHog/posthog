@@ -1,0 +1,54 @@
+from typing import cast
+from uuid import UUID
+
+import jwt
+from drf_spectacular.utils import extend_schema
+from rest_framework.authentication import BaseAuthentication, get_authorization_header
+from rest_framework.exceptions import AuthenticationFailed, PermissionDenied
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.request import Request
+from rest_framework.response import Response
+from rest_framework.views import APIView
+
+from posthog.jwt import PosthogJwtAudience, decode_jwt
+from posthog.models import OrganizationMembership, Team, User
+from posthog.user_permissions import UserPermissions
+
+
+class LivestreamAuthentication(BaseAuthentication):
+    def authenticate_header(self, request: Request) -> str:
+        return "Bearer"
+
+    def authenticate(self, request: Request) -> tuple[User, Team] | None:
+        authorization = get_authorization_header(request).split()
+        if not authorization:
+            return None
+        if len(authorization) != 2 or authorization[0].lower() != b"bearer":
+            raise AuthenticationFailed("Invalid live stream token.")
+        try:
+            claims = decode_jwt(authorization[1].decode(), PosthogJwtAudience.LIVESTREAM)
+            if type(claims["user_id"]) is not int or type(claims["team_id"]) is not int:
+                raise ValueError("Invalid token identity")
+            if not isinstance(claims["api_token"], str) or not claims["api_token"]:
+                raise ValueError("Invalid project token")
+            user = User.objects.get(id=claims["user_id"], is_active=True)
+            team = Team.objects.get(
+                id=claims["team_id"],
+                organization_id=UUID(str(claims["organization_id"])),
+                api_token=claims["api_token"],
+            )
+        except (jwt.PyJWTError, KeyError, TypeError, ValueError, User.DoesNotExist, Team.DoesNotExist):
+            raise AuthenticationFailed("Invalid live stream token.")
+        return user, team
+
+
+@extend_schema(exclude=True)
+class LivestreamAuthorizationView(APIView):
+    authentication_classes = [LivestreamAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request: Request) -> Response:
+        level = UserPermissions(cast(User, request.user)).team(cast(Team, request.auth)).effective_membership_level
+        if level is None or level < OrganizationMembership.Level.MEMBER:
+            raise PermissionDenied("Live stream access is no longer available.")
+        return Response(status=204, headers={"Cache-Control": "no-store"})

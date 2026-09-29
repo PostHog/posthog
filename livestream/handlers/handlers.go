@@ -50,6 +50,9 @@ func StatsHandler(stats *events.Stats, sessionStats *events.SessionStats, redisS
 		if err != nil {
 			return c.JSON(http.StatusUnauthorized, resp{Error: "wrong token claims"})
 		}
+		if err := auth.CheckAccess(c.Request().Context(), c.Request().Header); err != nil {
+			return err
+		}
 
 		if redisStore != nil {
 			ctx := c.Request().Context()
@@ -107,6 +110,9 @@ func StreamEventsHandler(log echo.Logger, subChan chan events.Subscription, unSu
 		if err != nil || token == "" || teamID == 0 {
 			return echo.NewHTTPError(http.StatusUnauthorized, "wrong token")
 		}
+		if err := auth.CheckAccess(c.Request().Context(), c.Request().Header); err != nil {
+			return err
+		}
 
 		eventType := c.QueryParam("eventType")
 		distinctId := c.QueryParam("distinctId")
@@ -163,8 +169,15 @@ func StreamEventsHandler(log echo.Logger, subChan chan events.Subscription, unSu
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("Connection", "keep-alive")
 		timeout := time.After(30 * time.Minute)
+		accessCheck := time.NewTicker(30 * time.Second)
+		defer accessCheck.Stop()
 		for {
 			select {
+			case <-accessCheck.C:
+				if err := auth.CheckAccess(c.Request().Context(), c.Request().Header); err != nil {
+					log.Warnf("Live stream authorization check failed: %v", err)
+					return nil
+				}
 			case <-timeout:
 				log.Debug("SSE connection to be terminated after timeout")
 				return nil
@@ -275,6 +288,9 @@ func NotificationsHandler(redisClient rueidis.Client) func(c echo.Context) error
 			// Old tokens without organization_id/user_id — no-op until all tokens refresh
 			return c.NoContent(http.StatusNoContent)
 		}
+		if err := auth.CheckAccess(c.Request().Context(), c.Request().Header); err != nil {
+			return err
+		}
 
 		metrics.NotificationSubs.Inc()
 		defer metrics.NotificationSubs.Dec()
@@ -332,6 +348,10 @@ func NotificationsHandler(redisClient rueidis.Client) func(c echo.Context) error
 				w.Flush()
 				metrics.NotificationMessagesDeliveredTotal.Inc()
 			case <-heartbeat.C:
+				if err := auth.CheckAccess(ctx, c.Request().Header); err != nil {
+					log.Printf("Live stream authorization check failed: %v", err)
+					return nil
+				}
 				event := Event{Comment: []byte("heartbeat")}
 				if err := event.WriteTo(w); err != nil {
 					return err
