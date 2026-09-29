@@ -26,6 +26,8 @@ class AccountAuditStartInput:
     team_id: int
     user_id: int
     origin_key: str
+    reason: str = ""
+    skill_name: str = "onboarding-account-audit"
 
 
 @frozen
@@ -41,6 +43,8 @@ class AccountAuditFinishInput:
     user_id: int
     task_run_id: str
     notebook_short_id: str
+    reason: str = ""
+    skill_name: str = "onboarding-account-audit"
 
 
 @frozen
@@ -90,7 +94,7 @@ def start_account_audit_activity(input: AccountAuditStartInput) -> str:
             raise RuntimeError("Existing account audit task is invalid")
         return str(existing.latest_run.id)
 
-    skill = skills_facade.get_skill_prompt(team_id=2, skill_name="onboarding-account-audit")
+    skill = skills_facade.get_skill_prompt(team_id=2, skill_name=input.skill_name)
     if skill is None or not skill.body.strip():
         raise RuntimeError("Account audit skill is unavailable")
 
@@ -98,7 +102,7 @@ def start_account_audit_activity(input: AccountAuditStartInput) -> str:
         team=team,
         title="Account audit",
         description=(
-            f"{skill.body}\n\nThe audited project ID is {team.id}. "
+            f"{skill.body}\n\nAudit reason: {input.reason}\n\nThe audited project ID is {team.id}. "
             "Use this project for every query and notebook. Create a notebook with PostHog MCP. "
             "Read the saved notebook before you return its short ID as notebook_short_id."
         ),
@@ -111,7 +115,11 @@ def start_account_audit_activity(input: AccountAuditStartInput) -> str:
         posthog_mcp_scopes=["user:read", "query:read", "insight:read", "notebook:read", "notebook:write"],
         model="claude-sonnet-5",
         output_schema=AccountAuditOutput,
-        extra_run_state={"audit_skill_name": "onboarding-account-audit", "audit_skill_version": skill.version},
+        extra_run_state={
+            "audit_reason": input.reason,
+            "audit_skill_name": input.skill_name,
+            "audit_skill_version": skill.version,
+        },
     )
     if created.latest_run is None:
         raise RuntimeError("Account audit task was created without a run")
@@ -171,11 +179,13 @@ def finish_account_audit_activity(input: AccountAuditFinishInput) -> str:
     with ph_scoped_capture(region=get_instance_region() or "US", raise_on_error=True) as capture:
         capture(
             distinct_id=str(user.distinct_id),
-            event="audit_finished",
+            event="onboarding_audit_finished",
             properties={
                 "organization_id": input.organization_id,
                 "team_id": input.team_id,
                 "notebook_url": notebook_url,
+                "reason": input.reason,
+                "skill_name": input.skill_name,
                 "$insert_id": f"account-audit-finished-{input.task_run_id}",
             },
             groups=groups(team.organization, team),

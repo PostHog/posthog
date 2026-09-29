@@ -23,6 +23,8 @@ class AccountAuditWorkflowInput:
     organization_id: str
     team_id: int
     user_id: int
+    reason: str = ""
+    skill_name: str = "onboarding-account-audit"
 
 
 @workflow.defn(name="growth-account-audit")
@@ -39,6 +41,8 @@ class AccountAuditWorkflow:
                 organization_id=input.organization_id,
                 team_id=input.team_id,
                 user_id=input.user_id,
+                reason=input.reason,
+                skill_name=input.skill_name,
                 origin_key=f"{self.workflow_id_for(input.organization_id)}:{workflow.info().run_id}",
             ),
             start_to_close_timeout=timedelta(minutes=5),
@@ -63,6 +67,8 @@ class AccountAuditWorkflow:
                         user_id=input.user_id,
                         task_run_id=task_run_id,
                         notebook_short_id=task_run.notebook_short_id,
+                        reason=input.reason,
+                        skill_name=input.skill_name,
                     ),
                     start_to_close_timeout=timedelta(minutes=1),
                     retry_policy=RetryPolicy(maximum_attempts=3),

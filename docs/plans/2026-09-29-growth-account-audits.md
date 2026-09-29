@@ -2,11 +2,11 @@
 
 ## Context
 
-The Growth Temporal workflow and signed HTTP entry point exist in this draft. The entry point takes an organization ID and a project team ID. It selects an eligible project member as the agent actor and starts a private task without a repository. The task uses the latest single-file `onboarding-account-audit` skill from project 2. The workflow waits for the task, checks its notebook in the audited project, and captures `audit_finished` with `organization_id`, `team_id`, and `notebook_url`.
+The Growth Temporal workflow and signed HTTP entry point exist in this draft. The entry point requires an organization ID and an audit `reason`. It accepts an optional project `team_id` and an optional `skill_name`. It selects an eligible project member as the agent actor and starts a private task without a repository. The task uses the latest single-file skill matching `skill_name` in project 2, defaulting to `onboarding-account-audit`. The workflow waits for the task, checks its notebook in the audited project, and captures `onboarding_audit_finished` with `organization_id`, the resolved `team_id`, `notebook_url`, `reason`, and `skill_name`.
 
 The skill is not present yet. The HTTP entry point rejects a new admission if it cannot read the skill. No user interface, configured Workflows trigger, or email sender exists in this draft. The task origin uses the internal AI gateway product and does not consume customer task credits.
 
-A project 2 Workflows event can call the signed HTTP entry point after a credential is provisioned. A separate Workflows workflow can use `audit_finished` to send a message. These are two separate flows.
+A project 2 Workflows event can call the signed HTTP entry point after a credential is provisioned. A separate Workflows workflow can use `onboarding_audit_finished` to send a message. These are two separate flows.
 
 ## Findings
 
@@ -43,10 +43,12 @@ webhook-timestamp: <Unix time>
 webhook-signature: v1,<base64 signature>
 X-PostHog-Audit-Key: <issued key ID>
 
-{"organization_id":"<organization UUID>","team_id":<project team ID>}
+{"organization_id":"<organization UUID>","reason":"testing","skill_name":"onboarding-account-audit"}
 ```
 
-The workflow URL stays fixed. The body contains only the target IDs. Do not send the full triggering event or person record. The endpoint checks that the project belongs to the organization and that the organization has approved AI data processing. It must not trust an event field as staff identity or as an acting user ID.
+The workflow URL stays fixed. The body contains the organization ID, audit reason, and optional team ID and skill name. `reason` is a non-empty string of up to 500 characters; `skill_name` is a non-empty string of up to 64 characters. The selected skill must be available as a single-file prompt in project 2. The reason is recorded on the admission and task run and supplied to the agent. Do not send the full triggering event or person record. The endpoint checks that the project belongs to the organization and that the organization has approved AI data processing. It must not trust an event field as staff identity or as an acting user ID.
+
+When `team_id` is omitted, select the oldest non-demo root project in the organization, ordered by project creation time and then ID. Exclude projects pending deletion and child environments. PostHog has no organization-level default-project field, and names are editable, so names do not determine this choice. An explicit `team_id` overrides selection but must still belong to the organization and not be pending deletion. If no eligible project exists, return `400`. The `202` response includes the resolved `team_id` beside `workflow_id`.
 
 **Execution identity:** Staff control the trigger; an eligible audited-project member supplies the agent's MCP identity. Signals already selects a member for its research and implementation tasks. Growth calls that Signals resolver through its facade. The audit task and notebook use the audited team ID. The task OAuth token is scoped to that team and member. Growth rechecks the member's access and AI approval before task creation. If no eligible member exists, the endpoint refuses the request.
 
@@ -54,9 +56,9 @@ This reuses Signals' user-bound credential model, but it attributes the task and
 
 ## Admission and responses
 
-Growth stores an admission record before it asks Temporal to start. It serializes admission by organization and stores the signed `webhook-id`, target, reserved workflow ID, and admission time. A same-delivery retry uses that reserved ID. If Temporal cannot answer, the endpoint returns `503` and keeps the record for a retry. The current implementation has no separate background retry after Workflows exhausts its HTTP retries; add operator recovery before a broad rollout.
+Growth stores an admission record before it asks Temporal to start. It serializes admission by organization and stores the signed `webhook-id`, resolved target, reason, skill name, reserved workflow ID, and admission time. A same-delivery retry uses that reserved ID. If Temporal cannot answer, the endpoint returns `503` and keeps the record for a retry. The current implementation has no separate background retry after Workflows exhausts its HTTP retries; add operator recovery before a broad rollout.
 
-- A repeat `webhook-id` returns the same workflow ID without a new task. Return `202`.
+- A repeat `webhook-id` with the same resolved target, reason, and skill name returns the same workflow ID without a new task. Return `202`. Changing any of those parameters for the same delivery returns `409`.
 - A different request while an audit runs returns `409`. Do not start another task.
 - A new request within seven days of the last admission returns `409` with the next allowed time. Count failed runs until a deliberate retry policy replaces this rule. Do not return `429`: Workflows retries that status.
 - Invalid signatures, revoked credentials, and owners who are no longer staff return `401`. Invalid targets or missing AI approval do not dispatch.
@@ -66,7 +68,7 @@ The project 2 workflow must not use event fields to set the destination URL. Onl
 
 ## Completion, delivery, and visibility
 
-The Temporal workflow emits `audit_finished` only after it checks that the task completed and saved a new notebook in the audited project. The completion event has a stable insert ID for retry safety. A separate Workflows workflow can send an email from that event. Before delivery, confirm that the recipient can open the notebook. An internal notebook URL alone does not give an external recipient access.
+The Temporal workflow emits `onboarding_audit_finished` only after it checks that the task completed and saved a new notebook in the audited project. The completion event has a stable insert ID for retry safety. A separate Workflows workflow can send an email from that event. Before delivery, confirm that the recipient can open the notebook. An internal notebook URL alone does not give an external recipient access.
 
 For scout access, keep notebook discovery project-scoped. A follow-up can tell the scout fleet that a notebook exists through a project-level signal or saved resource. Do not add customer-specific notebook links to global MCP tool descriptions or cached agent instructions.
 
@@ -81,6 +83,6 @@ For scout access, keep notebook discovery project-scoped. A follow-up can tell t
 
 ## Tests and verification
 
-Test signature validity, altered bodies, stale timestamps, missing secrets, revoked staff owners, workflow editing rights, untrusted event sources, wrong-region targets, Signals actor eligibility, team-bound OAuth access, AI approval, and organization/project mismatch. Test repeated delivery IDs, concurrent deliveries, a failed Temporal dispatch, an active audit, and the seven-day boundary. Assert that no rejected request starts a task. Assert that a failed or empty notebook emits no `audit_finished` event.
+Test signature validity, altered bodies, stale timestamps, missing secrets, revoked staff owners, workflow editing rights, untrusted event sources, wrong-region targets, Signals actor eligibility, team-bound OAuth access, AI approval, and organization/project mismatch. Test repeated delivery IDs, concurrent deliveries, a failed Temporal dispatch, an active audit, and the seven-day boundary. Assert that no rejected request starts a task. Assert that a failed or empty notebook emits no `onboarding_audit_finished` event.
 
-Before a live rollout, start one approved test audit. Check its skill version, run origin, notebook content and access, `audit_finished` event, and customer credit report. Check that a repeated signed POST produces no second run. Only then enable the project 2 event trigger. After rollout, inspect successful audits, failed runs, missing notebooks, duplicate rejects, and email delivery separately.
+Before a live rollout, start one approved test audit. Check its skill version, run origin, notebook content and access, `onboarding_audit_finished` event, and customer credit report. Check that a repeated signed POST produces no second run. Only then enable the project 2 event trigger. After rollout, inspect successful audits, failed runs, missing notebooks, duplicate rejects, and email delivery separately.

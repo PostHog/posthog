@@ -6,6 +6,7 @@ from datetime import timedelta
 from uuid import UUID
 
 from django.db import connection, transaction
+from django.db.models import F
 from django.utils import timezone
 
 from asgiref.sync import async_to_sync
@@ -17,6 +18,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
+from posthog.dataclasses import frozen
 from posthog.ingress.verify.schemes import HmacSha256, VerificationOutcome
 from posthog.models import Team
 from posthog.rate_limit import IPThrottle
@@ -34,6 +36,14 @@ SOURCE_TEAM_ID = 2
 logger = logging.getLogger(__name__)
 
 
+@frozen
+class AccountAuditRequest:
+    organization_id: UUID
+    team_id: int | None
+    reason: str
+    skill_name: str
+
+
 class AccountAuditStartThrottle(IPThrottle):
     scope = "growth_account_audit_start"
     rate = "60/minute"
@@ -41,11 +51,22 @@ class AccountAuditStartThrottle(IPThrottle):
 
 class AccountAuditStartRequestSerializer(serializers.Serializer):
     organization_id = serializers.UUIDField(help_text="Organization that owns the target team.")
-    team_id = serializers.IntegerField(help_text="Target team ID.", min_value=1)
+    team_id = serializers.IntegerField(
+        required=False,
+        help_text="Target team ID. Defaults to the organization's oldest non-demo root project that is not pending deletion.",
+        min_value=1,
+    )
+    reason = serializers.CharField(max_length=500, help_text="Why the account audit is being requested.")
+    skill_name = serializers.CharField(
+        max_length=64,
+        default="onboarding-account-audit",
+        help_text="Name of the single-file skill to load from project 2's skill store.",
+    )
 
 
 class AccountAuditStartResponseSerializer(serializers.Serializer):
     workflow_id = serializers.UUIDField(help_text="Started account audit workflow ID.")
+    team_id = serializers.IntegerField(help_text="Resolved target team ID.")
 
 
 class AccountAuditConflictSerializer(serializers.Serializer):
@@ -97,11 +118,12 @@ class AccountAuditStartViewSet(viewsets.ViewSet):
         payload = self._payload(raw_body)
         if payload is None:
             return Response(status=status.HTTP_400_BAD_REQUEST)
-        organization_id, team_id = payload
+        organization_id = payload.organization_id
 
         if not self._credential_is_eligible(credential):
             return Response(status=status.HTTP_401_UNAUTHORIZED)
-        if not Team.objects.filter(id=team_id, organization_id=organization_id).exists():
+        team_id = self._resolve_team_id(payload)
+        if team_id is None:
             return Response(status=status.HTTP_400_BAD_REQUEST)
         if not self._ai_processing_is_approved(organization_id):
             return Response(status=status.HTTP_403_FORBIDDEN)
@@ -109,15 +131,17 @@ class AccountAuditStartViewSet(viewsets.ViewSet):
         actor_id = resolve_audit_actor_for_team(team_id)
         if actor_id is None:
             return Response(status=status.HTTP_403_FORBIDDEN)
-        skill = get_skill_prompt(team_id=SOURCE_TEAM_ID, skill_name="onboarding-account-audit")
+        skill = get_skill_prompt(team_id=SOURCE_TEAM_ID, skill_name=payload.skill_name)
         if skill is None or not skill.body.strip():
-            return Response(status=status.HTTP_503_SERVICE_UNAVAILABLE)
+            return Response(status=status.HTTP_400_BAD_REQUEST)
 
         admission, admission_status = self._admit(
             credential=credential,
             webhook_id=webhook_id,
             organization_id=organization_id,
             team_id=team_id,
+            reason=payload.reason,
+            skill_name=payload.skill_name,
         )
         if admission_status == "cooldown":
             return Response(
@@ -128,7 +152,7 @@ class AccountAuditStartViewSet(viewsets.ViewSet):
                 status=status.HTTP_409_CONFLICT,
             )
         if admission_status != "accepted":
-            return Response({"detail": "This delivery ID has another target."}, status=status.HTTP_409_CONFLICT)
+            return Response({"detail": "This delivery ID has another audit request."}, status=status.HTTP_409_CONFLICT)
 
         try:
             async_to_sync(start_account_audit)(
@@ -136,6 +160,8 @@ class AccountAuditStartViewSet(viewsets.ViewSet):
                 team_id=team_id,
                 user_id=actor_id,
                 workflow_id=str(admission.workflow_id),
+                reason=admission.reason,
+                skill_name=admission.skill_name,
             )
         except WorkflowAlreadyStartedError as error:
             if error.workflow_id != str(admission.workflow_id):
@@ -144,7 +170,9 @@ class AccountAuditStartViewSet(viewsets.ViewSet):
         except Exception:
             logger.exception("account_audit_workflow_dispatch_failed", extra={"admission_id": admission.id})
             return Response(status=status.HTTP_503_SERVICE_UNAVAILABLE)
-        return Response({"workflow_id": str(admission.workflow_id)}, status=status.HTTP_202_ACCEPTED)
+        return Response(
+            {"workflow_id": str(admission.workflow_id), "team_id": team_id}, status=status.HTTP_202_ACCEPTED
+        )
 
     @staticmethod
     def _credential(request: Request) -> AccountAuditCredential | None:
@@ -199,23 +227,47 @@ class AccountAuditStartViewSet(viewsets.ViewSet):
         )
 
     @staticmethod
-    def _payload(raw_body: bytes) -> tuple[UUID, int] | None:
+    def _payload(raw_body: bytes) -> AccountAuditRequest | None:
         try:
             payload = json.loads(
                 raw_body.decode("utf-8"), parse_constant=lambda _value: (_ for _ in ()).throw(ValueError)
             )
         except (UnicodeDecodeError, json.JSONDecodeError, ValueError):
             return None
-        if not isinstance(payload, dict) or set(payload) != {"organization_id", "team_id"}:
+        if (
+            not isinstance(payload, dict)
+            or not {"organization_id", "reason"}.issubset(payload)
+            or set(payload) - {"organization_id", "team_id", "reason", "skill_name"}
+        ):
             return None
         try:
             organization_id = UUID(payload["organization_id"])
         except (TypeError, ValueError, AttributeError):
             return None
-        team_id = payload["team_id"]
-        if isinstance(team_id, bool) or not isinstance(team_id, int) or team_id < 1:
+        team_id = payload.get("team_id")
+        if "team_id" in payload and (isinstance(team_id, bool) or not isinstance(team_id, int) or team_id < 1):
             return None
-        return organization_id, team_id
+        reason = payload["reason"]
+        skill_name = payload.get("skill_name", "onboarding-account-audit")
+        if not isinstance(reason, str) or not reason.strip() or len(reason.strip()) > 500:
+            return None
+        if not isinstance(skill_name, str) or not skill_name.strip() or len(skill_name.strip()) > 64:
+            return None
+        return AccountAuditRequest(
+            organization_id=organization_id, team_id=team_id, reason=reason.strip(), skill_name=skill_name.strip()
+        )
+
+    @staticmethod
+    def _resolve_team_id(request: AccountAuditRequest) -> int | None:
+        teams = Team.objects.filter(organization_id=request.organization_id).exclude(project__is_pending_deletion=True)
+        if request.team_id is not None:
+            return teams.filter(id=request.team_id).values_list("id", flat=True).first()
+        return (
+            teams.filter(id=F("project_id"), parent_team__isnull=True, is_demo=False)
+            .order_by("project__created_at", "id")
+            .values_list("id", flat=True)
+            .first()
+        )
 
     @staticmethod
     def _credential_is_eligible(credential: AccountAuditCredential) -> bool:
@@ -239,7 +291,13 @@ class AccountAuditStartViewSet(viewsets.ViewSet):
 
     @staticmethod
     def _admit(
-        *, credential: AccountAuditCredential, webhook_id: str, organization_id: UUID, team_id: int
+        *,
+        credential: AccountAuditCredential,
+        webhook_id: str,
+        organization_id: UUID,
+        team_id: int,
+        reason: str,
+        skill_name: str,
     ) -> tuple[AccountAuditAdmission, str]:
         with transaction.atomic():
             with connection.cursor() as cursor:
@@ -252,7 +310,12 @@ class AccountAuditStartViewSet(viewsets.ViewSet):
                 )
             existing = AccountAuditAdmission.objects.filter(credential=credential, webhook_id=webhook_id).first()
             if existing is not None:
-                if existing.organization_id == organization_id and existing.team_id == team_id:
+                if (
+                    existing.organization_id == organization_id
+                    and existing.team_id == team_id
+                    and existing.reason == reason
+                    and existing.skill_name == skill_name
+                ):
                     return existing, "accepted"
                 return existing, "conflict"
             recent = (
@@ -269,5 +332,7 @@ class AccountAuditStartViewSet(viewsets.ViewSet):
                 webhook_id=webhook_id,
                 organization_id=organization_id,
                 team_id=team_id,
+                reason=reason,
+                skill_name=skill_name,
             )
         return admission, "accepted"

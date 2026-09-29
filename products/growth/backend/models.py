@@ -30,6 +30,10 @@ class AccountAuditAdmission(models.Model):
     webhook_id = models.CharField(max_length=255)
     organization_id = models.UUIDField()
     team_id = models.BigIntegerField()
+    reason = models.CharField(max_length=500, default="", db_default="")
+    skill_name = models.CharField(
+        max_length=64, default="onboarding-account-audit", db_default="onboarding-account-audit"
+    )
     workflow_id = models.UUIDField(default=uuid4, unique=True, editable=False)
     created_at = models.DateTimeField(auto_now_add=True)
 

@@ -32,7 +32,7 @@ def _rescore_enabled() -> bool:
 
 
 async def start_account_audit(
-    *, organization_id: str, team_id: int, user_id: int, workflow_id: str | None = None
+    *, organization_id: str, team_id: int, user_id: int, reason: str, skill_name: str, workflow_id: str | None = None
 ) -> str:
     from products.growth.backend.temporal.account_audit.workflow import (  # noqa: PLC0415 — avoids loading Temporal workflows during Django startup
         AccountAuditWorkflow,
@@ -46,7 +46,9 @@ async def start_account_audit(
     client = await async_connect()
     await client.start_workflow(
         AccountAuditWorkflow.run,
-        AccountAuditWorkflowInput(organization_id=organization_id, team_id=team_id, user_id=user_id),
+        AccountAuditWorkflowInput(
+            organization_id=organization_id, team_id=team_id, user_id=user_id, reason=reason, skill_name=skill_name
+        ),
         id=workflow_id,
         task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
         run_timeout=timedelta(hours=3),

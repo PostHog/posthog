@@ -11,15 +11,27 @@ export interface AccountAuditStartRequestApi {
     /** Organization that owns the target team. */
     organization_id: string
     /**
-     * Target team ID.
+     * Target team ID. Defaults to the organization's oldest non-demo root project that is not pending deletion.
      * @minimum 1
      */
-    team_id: number
+    team_id?: number
+    /**
+     * Why the account audit is being requested.
+     * @maxLength 500
+     */
+    reason: string
+    /**
+     * Name of the single-file skill to load from project 2's skill store.
+     * @maxLength 64
+     */
+    skill_name?: string
 }
 
 export interface AccountAuditStartResponseApi {
     /** Started account audit workflow ID. */
     workflow_id: string
+    /** Resolved target team ID. */
+    team_id: number
 }
 
 export interface AccountAuditConflictApi {

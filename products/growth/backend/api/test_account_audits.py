@@ -17,6 +17,7 @@ from django.db import IntegrityError, transaction
 from django.db.models.deletion import ProtectedError
 from django.utils import timezone
 
+from parameterized import parameterized
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.models import Team
@@ -51,6 +52,8 @@ class TestAccountAuditStartAPI(APIBaseTest):
         signature: str | None = None,
         signing_body: bytes | None = None,
     ):
+        if isinstance(payload, dict):
+            payload = {"reason": "testing", **payload}
         raw_body = json.dumps(payload, separators=(",", ":")).encode()
         timestamp = timestamp if timestamp is not None else str(int(time.time()))
         signed_body = signing_body if signing_body is not None else raw_body
@@ -98,10 +101,55 @@ class TestAccountAuditStartAPI(APIBaseTest):
         self.assertEqual(first.status_code, 202)
         self.assertEqual(second.status_code, 202)
         admission = AccountAuditAdmission.objects.get(credential=self.credential)
-        self.assertEqual(first.json(), {"workflow_id": str(admission.workflow_id)})
-        self.assertEqual(second.json(), {"workflow_id": str(admission.workflow_id)})
+        self.assertEqual(first.json(), {"workflow_id": str(admission.workflow_id), "team_id": self.team.id})
+        self.assertEqual(second.json(), {"workflow_id": str(admission.workflow_id), "team_id": self.team.id})
         self.assertEqual(dispatch.return_value.call_count, 2)
         self.assertEqual(dispatch.return_value.call_args.kwargs["workflow_id"], str(admission.workflow_id))
+
+    @parameterized.expand([(False, False), (True, False), (False, True)])
+    def test_defaults_to_the_oldest_eligible_root_project(self, is_demo: bool, pending_deletion: bool) -> None:
+        self.team.is_demo = is_demo
+        self.team.save(update_fields=["is_demo"])
+        self.team.project.is_pending_deletion = pending_deletion
+        self.team.project.save(update_fields=["is_pending_deletion"])
+        next_team = Team.objects.create(organization=self.organization, name="Renamed project")
+        Team.objects.create(
+            organization=self.organization, project=self.team.project, parent_team=self.team, name="Child"
+        )
+        expected_id = next_team.id if is_demo or pending_deletion else self.team.id
+        with self._request_patches() as (_, actor, _, dispatch):
+            response = self._post({"organization_id": str(self.organization.id)})
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual(response.json()["team_id"], expected_id)
+        actor.assert_called_once_with(expected_id)
+        self.assertEqual(dispatch.return_value.call_args.kwargs["team_id"], expected_id)
+
+    def test_rejects_an_organization_without_an_eligible_default_project(self) -> None:
+        self.team.is_demo = True
+        self.team.save(update_fields=["is_demo"])
+        with self._request_patches() as (_, _, _, dispatch):
+            response = self._post({"organization_id": str(self.organization.id)})
+        self.assertEqual(response.status_code, 400)
+        dispatch.return_value.assert_not_called()
+
+    def test_passes_the_reason_and_selected_skill_to_the_workflow(self) -> None:
+        explicit_team = Team.objects.create(organization=self.organization, name="Explicit project")
+        payload = {
+            "organization_id": str(self.organization.id),
+            "team_id": explicit_team.id,
+            "reason": "activation-review",
+            "skill_name": "activation-audit",
+        }
+        with self._request_patches() as (_, _, skill, dispatch):
+            response = self._post(payload)
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual(response.json()["team_id"], explicit_team.id)
+        skill.assert_called_once_with(team_id=2, skill_name="activation-audit")
+        self.assertEqual(dispatch.return_value.call_args.kwargs["reason"], "activation-review")
+        self.assertEqual(dispatch.return_value.call_args.kwargs["skill_name"], "activation-audit")
+        admission = AccountAuditAdmission.objects.get(credential=self.credential)
+        self.assertEqual(admission.reason, "activation-review")
+        self.assertEqual(admission.skill_name, "activation-audit")
 
     def test_accepts_a_duplicate_retry_when_temporal_already_started_the_workflow(self) -> None:
         payload = {"organization_id": str(self.organization.id), "team_id": self.team.id}
@@ -115,7 +163,7 @@ class TestAccountAuditStartAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, 202)
         admission = AccountAuditAdmission.objects.get(credential=self.credential)
-        self.assertEqual(response.json(), {"workflow_id": str(admission.workflow_id)})
+        self.assertEqual(response.json(), {"workflow_id": str(admission.workflow_id), "team_id": self.team.id})
 
     def test_rejects_a_temporal_conflict_for_another_workflow(self) -> None:
         payload = {"organization_id": str(self.organization.id), "team_id": self.team.id}
@@ -162,6 +210,24 @@ class TestAccountAuditStartAPI(APIBaseTest):
             json.dumps({"organization_id": str(self.organization.id)}).encode(),
             json.dumps({"organization_id": str(self.organization.id), "team_id": self.team.id, "extra": True}).encode(),
         ]
+        for field, invalid in [
+            ("reason", ""),
+            ("reason", "   "),
+            ("reason", None),
+            ("reason", 1),
+            ("reason", "x" * 501),
+            ("skill_name", ""),
+            ("skill_name", None),
+            ("skill_name", 1),
+            ("skill_name", "x" * 65),
+            ("team_id", None),
+            ("team_id", True),
+            ("team_id", "1"),
+            ("team_id", 0),
+        ]:
+            payloads.append(
+                json.dumps({"organization_id": str(self.organization.id), "reason": "testing", field: invalid}).encode()
+            )
         with self._request_patches():
             for index, raw_body in enumerate(payloads):
                 timestamp = str(int(time.time()))
@@ -203,7 +269,7 @@ class TestAccountAuditStartAPI(APIBaseTest):
             skill.return_value = None
             response = self._post(payload)
 
-        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.status_code, 400)
         skill.assert_called_once_with(team_id=2, skill_name="onboarding-account-audit")
         self.assertFalse(dispatch.return_value.called)
         self.assertFalse(AccountAuditAdmission.objects.exists())
@@ -225,16 +291,17 @@ class TestAccountAuditStartAPI(APIBaseTest):
         self.assertEqual(response.status_code, 403)
         self.assertFalse(dispatch.return_value.called)
 
-    def test_rejects_a_repeated_delivery_with_a_changed_target(self) -> None:
+    @parameterized.expand([("team_id",), ("reason",), ("skill_name",)])
+    def test_rejects_a_repeated_delivery_with_changed_parameters(self, field: str) -> None:
         other_team = Team.objects.create(organization=self.organization, name="other")
         payload = {"organization_id": str(self.organization.id), "team_id": self.team.id}
-        changed_payload = {"organization_id": str(self.organization.id), "team_id": other_team.id}
+        changed_payload = {**payload, field: other_team.id if field == "team_id" else "another-audit"}
         with self._request_patches() as (_, _, _, dispatch):
             self.assertEqual(self._post(payload).status_code, 202)
             response = self._post(changed_payload)
 
         self.assertEqual(response.status_code, 409)
-        self.assertEqual(response.json()["detail"], "This delivery ID has another target.")
+        self.assertEqual(response.json()["detail"], "This delivery ID has another audit request.")
         self.assertEqual(dispatch.return_value.call_count, 1)
         self.assertEqual(AccountAuditAdmission.objects.count(), 1)
 

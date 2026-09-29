@@ -9,9 +9,29 @@
  */
 import * as zod from 'zod'
 
+export const growthAccountAuditsStartCreateBodyReasonMax = 500
+
+export const growthAccountAuditsStartCreateBodySkillNameDefault = `onboarding-account-audit`
+export const growthAccountAuditsStartCreateBodySkillNameMax = 64
+
 export const GrowthAccountAuditsStartCreateBody = /* @__PURE__ */ zod.object({
     organization_id: zod.uuid().describe('Organization that owns the target team.'),
-    team_id: zod.number().min(1).describe('Target team ID.'),
+    team_id: zod
+        .number()
+        .min(1)
+        .optional()
+        .describe(
+            "Target team ID. Defaults to the organization's oldest non-demo root project that is not pending deletion."
+        ),
+    reason: zod
+        .string()
+        .max(growthAccountAuditsStartCreateBodyReasonMax)
+        .describe('Why the account audit is being requested.'),
+    skill_name: zod
+        .string()
+        .max(growthAccountAuditsStartCreateBodySkillNameMax)
+        .default(growthAccountAuditsStartCreateBodySkillNameDefault)
+        .describe("Name of the single-file skill to load from project 2's skill store."),
 })
 
 /**

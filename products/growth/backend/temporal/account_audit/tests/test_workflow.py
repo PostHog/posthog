@@ -29,7 +29,12 @@ async def test_facade_dispatches_to_signals_queue() -> None:
     client = SimpleNamespace(start_workflow=AsyncMock())
     with patch("products.growth.backend.facade.api.async_connect", new_callable=AsyncMock, return_value=client):
         workflow_id = await start_account_audit(
-            organization_id="org-1", team_id=4, user_id=5, workflow_id="reserved-audit-workflow"
+            organization_id="org-1",
+            team_id=4,
+            user_id=5,
+            reason="testing",
+            skill_name="custom-audit",
+            workflow_id="reserved-audit-workflow",
         )
 
     assert workflow_id == "reserved-audit-workflow"
@@ -39,7 +44,7 @@ async def test_facade_dispatches_to_signals_queue() -> None:
     assert client.start_workflow.call_args.kwargs["task_queue"] == settings.VIDEO_EXPORT_TASK_QUEUE
     assert client.start_workflow.call_args.kwargs["id_reuse_policy"].name == "REJECT_DUPLICATE"
     assert client.start_workflow.call_args.args[1] == AccountAuditWorkflowInput(
-        organization_id="org-1", team_id=4, user_id=5
+        organization_id="org-1", team_id=4, user_id=5, reason="testing", skill_name="custom-audit"
     )
 
 
@@ -55,6 +60,8 @@ async def test_workflow_polls_until_the_task_creates_a_notebook() -> None:
 
     @activity.defn(name="start_account_audit_activity")
     async def start(input: AccountAuditStartInput) -> str:
+        assert input.reason == "testing"
+        assert input.skill_name == "custom-audit"
         origin_keys.append(input.origin_key)
         return "run-1"
 
@@ -63,7 +70,9 @@ async def test_workflow_polls_until_the_task_creates_a_notebook() -> None:
         return next(statuses)
 
     @activity.defn(name="finish_account_audit_activity")
-    async def finish(_input: AccountAuditFinishInput) -> str:
+    async def finish(input: AccountAuditFinishInput) -> str:
+        assert input.reason == "testing"
+        assert input.skill_name == "custom-audit"
         return "http://testserver/project/4/notebooks/audit123"
 
     async with await WorkflowEnvironment.start_time_skipping() as env:
@@ -76,7 +85,9 @@ async def test_workflow_polls_until_the_task_creates_a_notebook() -> None:
         ):
             result = await env.client.execute_workflow(
                 AccountAuditWorkflow.run,
-                AccountAuditWorkflowInput(organization_id="org-1", team_id=4, user_id=5),
+                AccountAuditWorkflowInput(
+                    organization_id="org-1", team_id=4, user_id=5, reason="testing", skill_name="custom-audit"
+                ),
                 id=AccountAuditWorkflow.workflow_id_for("org-1"),
                 task_queue="account-audit-test",
             )
@@ -112,7 +123,7 @@ class TestStartAccountAuditActivity(SimpleTestCase):
             patch(
                 "products.growth.backend.temporal.account_audit.activities.skills_facade.get_skill_prompt",
                 return_value=skill,
-            ),
+            ) as get_skill,
             patch(
                 "products.growth.backend.temporal.account_audit.activities.tasks_facade.create_and_run_task",
                 return_value=created,
@@ -124,16 +135,24 @@ class TestStartAccountAuditActivity(SimpleTestCase):
 
             run_id = start_account_audit_activity(
                 AccountAuditStartInput(
-                    organization_id="org-1", team_id=4, user_id=5, origin_key="growth-account-audit-org-1:run-1"
+                    organization_id="org-1",
+                    team_id=4,
+                    user_id=5,
+                    origin_key="growth-account-audit-org-1:run-1",
+                    reason="testing",
+                    skill_name="custom-audit",
                 )
             )
 
         assert run_id == str(created.latest_run.id)
+        get_skill.assert_called_once_with(team_id=2, skill_name="custom-audit")
+        assert "Audit reason: testing" in create_task.call_args.kwargs["description"]
         assert create_task.call_args.kwargs["repository"] is None
         assert create_task.call_args.kwargs["create_pr"] is False
         assert "The audited project ID is 4." in create_task.call_args.kwargs["description"]
         assert create_task.call_args.kwargs["extra_run_state"] == {
-            "audit_skill_name": "onboarding-account-audit",
+            "audit_reason": "testing",
+            "audit_skill_name": "custom-audit",
             "audit_skill_version": 1,
         }
         assert create_task.call_args.kwargs["posthog_mcp_scopes"] == [
@@ -175,7 +194,12 @@ class TestStartAccountAuditActivity(SimpleTestCase):
             with self.assertRaisesRegex(RuntimeError, "skill is unavailable"):
                 start_account_audit_activity(
                     AccountAuditStartInput(
-                        organization_id="org-1", team_id=4, user_id=5, origin_key="growth-account-audit-org-1:run-1"
+                        organization_id="org-1",
+                        team_id=4,
+                        user_id=5,
+                        origin_key="growth-account-audit-org-1:run-1",
+                        reason="testing",
+                        skill_name="custom-audit",
                     )
                 )
             create_task.assert_not_called()
@@ -231,7 +255,13 @@ class TestStartAccountAuditActivity(SimpleTestCase):
         team = SimpleNamespace(id=4, organization=SimpleNamespace(is_ai_data_processing_approved=True))
         user = SimpleNamespace(distinct_id="user-5")
         input = AccountAuditFinishInput(
-            organization_id="org-1", team_id=4, user_id=5, task_run_id="run-1", notebook_short_id="audit123"
+            organization_id="org-1",
+            team_id=4,
+            user_id=5,
+            task_run_id="run-1",
+            notebook_short_id="audit123",
+            reason="testing",
+            skill_name="custom-audit",
         )
         with (
             patch(
@@ -260,10 +290,13 @@ class TestStartAccountAuditActivity(SimpleTestCase):
             assert result == "https://us.posthog.com/project/4/notebooks/audit123"
             capture = scoped_capture.return_value.__enter__.return_value
             capture.assert_called_once()
+            assert capture.call_args.kwargs["event"] == "onboarding_audit_finished"
             assert capture.call_args.kwargs["properties"] == {
                 "organization_id": "org-1",
                 "team_id": 4,
                 "notebook_url": result,
+                "reason": "testing",
+                "skill_name": "custom-audit",
                 "$insert_id": "account-audit-finished-run-1",
             }
 
