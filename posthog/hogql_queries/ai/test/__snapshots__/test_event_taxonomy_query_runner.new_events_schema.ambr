@@ -14,7 +14,7 @@
        (SELECT JSONExtractKeysAndValues(JSONStripEmptyStringsAndNulls(concat('{', arrayStringConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> kv.2 != '[]', JSONExtractKeysAndValuesRaw(toJSONString(events.properties)))), ','), '}')), 'String') AS kv,
                toTimeZone(events.timestamp, 'UTC') AS timestamp
         FROM events_json AS events
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, minus(now64(6, 'UTC'), toIntervalDay(30))), equals(events.event, 'event1'))
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, toDateTime64(minus(now64(6, 'UTC'), toIntervalDay(30)), 9, 'UTC')), equals(events.event, 'event1'))
         ORDER BY toTimeZone(events.timestamp, 'UTC') DESC
         LIMIT 100) ARRAY
      JOIN (kv).1 AS key,
@@ -55,7 +55,7 @@
        (SELECT [tuple('zero_duration_recording_count_in_period', JSONExtractString(ifNull(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^zero_duration_recording_count_in_period)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^zero_duration_recording_count_in_period)), if(isNull(nullIf(toString(events.properties.zero_duration_recording_count_in_period), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.zero_duration_recording_count_in_period, 'Dynamic')), 'DateTime'), concat('"', ifNull(toString(concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.zero_duration_recording_count_in_period, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.zero_duration_recording_count_in_period), 20, 10)), ''), 'Z')), ''), '"'), nullIf(nullIf(toJSONString(events.properties.zero_duration_recording_count_in_period), '[]'), '{}')))), '')))] AS kv,
                toTimeZone(events.timestamp, 'UTC') AS timestamp
         FROM events_json AS events
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, minus(now64(6, 'UTC'), toIntervalDay(30))), equals(events.event, 'organization usage report'), notEquals(JSONExtractString(ifNull(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^zero_duration_recording_count_in_period)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^zero_duration_recording_count_in_period)), if(isNull(nullIf(toString(events.properties.zero_duration_recording_count_in_period), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.zero_duration_recording_count_in_period, 'Dynamic')), 'DateTime'), concat('"', ifNull(toString(concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.zero_duration_recording_count_in_period, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.zero_duration_recording_count_in_period), 20, 10)), ''), 'Z')), ''), '"'), nullIf(nullIf(toJSONString(events.properties.zero_duration_recording_count_in_period), '[]'), '{}')))), '')), ''))) ARRAY
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, toDateTime64(minus(now64(6, 'UTC'), toIntervalDay(30)), 9, 'UTC')), equals(events.event, 'organization usage report'), notEquals(JSONExtractString(ifNull(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^zero_duration_recording_count_in_period)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^zero_duration_recording_count_in_period)), if(isNull(nullIf(toString(events.properties.zero_duration_recording_count_in_period), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.zero_duration_recording_count_in_period, 'Dynamic')), 'DateTime'), concat('"', ifNull(toString(concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.zero_duration_recording_count_in_period, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.zero_duration_recording_count_in_period), 20, 10)), ''), 'Z')), ''), '"'), nullIf(nullIf(toJSONString(events.properties.zero_duration_recording_count_in_period), '[]'), '{}')))), '')), ''))) ARRAY
      JOIN (kv).1 AS key,
           (kv).2 AS value
      WHERE and(isNotNull(value), ifNull(notEquals(value, ''), 1))
@@ -94,7 +94,7 @@
        (SELECT JSONExtractKeysAndValues(JSONStripEmptyStringsAndNulls(concat('{', arrayStringConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> kv.2 != '[]', JSONExtractKeysAndValuesRaw(toJSONString(events.properties)))), ','), '}')), 'String') AS kv,
                toTimeZone(events.timestamp, 'UTC') AS timestamp
         FROM events_json AS events
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, minus(now64(6, 'UTC'), toIntervalDay(30))), equals(events.event, '$pageview'))
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, toDateTime64(minus(now64(6, 'UTC'), toIntervalDay(30)), 9, 'UTC')), equals(events.event, '$pageview'))
         ORDER BY toTimeZone(events.timestamp, 'UTC') DESC
         LIMIT 100) ARRAY
      JOIN (kv).1 AS key,

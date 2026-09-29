@@ -24,6 +24,10 @@ import type {
     AccountTrackRuleRunViewApi,
     AccountTrackRulesConfigApi,
     AccountTrackRulesRunsListParams,
+    AccountViewApi,
+    AccountViewCreateApi,
+    AccountViewUpdateApi,
+    AccountViewsDestroyParams,
     AccountsByExternalIdRetrieveParams,
     AccountsEmailThreadMessagesListParams,
     AccountsEmailThreadsListParams,
@@ -460,6 +464,110 @@ export const accountTrackRulesRunsList = async (
     return apiMutator<PaginatedAccountTrackRuleRunViewListApi>(getAccountTrackRulesRunsListUrl(projectId, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getAccountViewsListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/account_views/`
+}
+
+/**
+ * @summary List account views
+ */
+export const accountViewsList = async (projectId: string, options?: RequestInit): Promise<AccountViewApi[]> => {
+    return apiMutator<AccountViewApi[]>(getAccountViewsListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAccountViewsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/account_views/`
+}
+
+/**
+ * @summary Create a private account view
+ */
+export const accountViewsCreate = async (
+    projectId: string,
+    accountViewCreateApi: AccountViewCreateApi,
+    options?: RequestInit
+): Promise<AccountViewApi> => {
+    return apiMutator<AccountViewApi>(getAccountViewsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(accountViewCreateApi),
+    })
+}
+
+export const getAccountViewsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/account_views/${id}/`
+}
+
+/**
+ * @summary Get an account view
+ */
+export const accountViewsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<AccountViewApi> => {
+    return apiMutator<AccountViewApi>(getAccountViewsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAccountViewsPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/account_views/${id}/`
+}
+
+/**
+ * @summary Update an account view
+ */
+export const accountViewsPartialUpdate = async (
+    projectId: string,
+    id: string,
+    accountViewUpdateApi: AccountViewUpdateApi,
+    options?: RequestInit
+): Promise<AccountViewApi> => {
+    return apiMutator<AccountViewApi>(getAccountViewsPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(accountViewUpdateApi),
+    })
+}
+
+export const getAccountViewsDestroyUrl = (projectId: string, id: string, params: AccountViewsDestroyParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/account_views/${id}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/account_views/${id}/`
+}
+
+/**
+ * @summary Delete an account view
+ */
+export const accountViewsDestroy = async (
+    projectId: string,
+    id: string,
+    params: AccountViewsDestroyParams,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getAccountViewsDestroyUrl(projectId, id, params), {
+        ...options,
+        method: 'DELETE',
     })
 }
 
@@ -1441,8 +1549,8 @@ export const getCustomPropertySourcesBackfillUrl = (projectId: string, id: strin
 
 /**
  * Person and group sources only: start a backfill that reads the whole warehouse table and
- * populates person or group properties for historical rows. Coalesces if one is already running
- * for the table.
+ * populates person or group properties for historical rows. If one is already running for the
+ * table, queue a follow-up that observes the latest mapping.
  */
 export const customPropertySourcesBackfill = async (
     projectId: string,
