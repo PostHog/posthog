@@ -77,6 +77,8 @@ Measurements run after render, reuse widths while the sampled markup is unchange
 Automatic widths stay local to the mounted table and are not saved to browser storage.
 
 Users can still drag column header boundaries to resize columns, including beyond 200px.
+The tag editor fits the current tag column width, even after a resize.
+Long tags truncate inside the editor instead of spilling into the next cell.
 `accountsViewsLogic` stores manual widths per team and column in browser local storage, independently of saved views.
 Hiding a column does not discard its saved width.
 Automatic sizing uses the existing resized-table layout and does not change scroll controls.
