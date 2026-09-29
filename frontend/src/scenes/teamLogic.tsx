@@ -10,7 +10,6 @@ import { IconSwapHoriz } from 'lib/lemon-ui/icons'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DEFAULT_CURRENCY } from 'lib/utils/currency'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { isUserLoggedIn } from 'lib/utils/getAppContext'
 import { getAppContext } from 'lib/utils/getAppContext'
 import {
@@ -460,10 +459,11 @@ export const teamLogic = kea<teamLogicType>([
                         message = `${parseUpdatedAttributeName(updatedAttribute)} updated successfully!`
                     }
 
-                    Object.keys(payload).map((property) => {
-                        eventUsageLogic
-                            .findMounted()
-                            ?.actions?.reportTeamSettingChange(property, payload[property as keyof TeamType])
+                    Object.keys(payload).forEach((property) => {
+                        posthog.capture(`${property} team setting updated`, {
+                            setting: property,
+                            value: payload[property as keyof TeamType],
+                        })
                     })
 
                     const isUpdatingOnboardingTasks = Object.keys(payload).every((key) => key === 'onboarding_tasks')

@@ -3659,6 +3659,7 @@ export const RestrictionTypeEnumApi = {
  * * `session_recordings` - Session Recordings
  * * `errortracking` - Errortracking
  * * `clientwarnings` - Clientwarnings
+ * * `heatmaps` - Heatmaps
  * * `ai` - Ai
  */
 export type IngestionPipelineEnumApi = (typeof IngestionPipelineEnumApi)[keyof typeof IngestionPipelineEnumApi]
@@ -3668,6 +3669,7 @@ export const IngestionPipelineEnumApi = {
     SessionRecordings: 'session_recordings',
     Errortracking: 'errortracking',
     Clientwarnings: 'clientwarnings',
+    Heatmaps: 'heatmaps',
     Ai: 'ai',
 } as const
 
@@ -4164,6 +4166,40 @@ export interface PatchedFileSystemShortcutApi {
      * @nullable
      */
     readonly user_access_level?: string | null
+}
+
+export interface FileSystemShortcutBulkItemApi {
+    /** Display path of the shortcut in the sidebar. */
+    path: string
+    /**
+     * Type of the linked item (e.g. 'folder', 'insight'), or blank.
+     * @maxLength 100
+     */
+    type?: string
+    /**
+     * Reference to the linked item, scoped to its type. Null for href-only shortcuts.
+     * @maxLength 4000
+     * @nullable
+     */
+    ref?: string | null
+    /**
+     * Destination URL the shortcut opens. Null when the shortcut points at an item by ref.
+     * @nullable
+     */
+    href?: string | null
+}
+
+export interface FileSystemShortcutBulkUpdateApi {
+    /**
+     * Shortcuts to create, appended to the end of the current order in the given sequence. An item identical to a shortcut the user already has is skipped.
+     * @maxItems 500
+     */
+    add?: FileSystemShortcutBulkItemApi[]
+    /**
+     * IDs of the current user's shortcuts to delete.
+     * @maxItems 500
+     */
+    remove_ids?: string[]
 }
 
 export interface FileSystemShortcutReorderApi {
@@ -4889,7 +4925,7 @@ export interface UserApi {
     passkeys_enabled_for_2fa?: boolean | null
     /** When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions. */
     hide_mcp_hints?: boolean
-    /** Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown. */
+    /** Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown. Once `sidebar.starred_products_setup_completed` is true, an update that omits it keeps it true. */
     ui_configuration?: unknown
     /** @nullable */
     readonly onboarding_skipped_at: string | null
@@ -5005,7 +5041,7 @@ export interface PatchedUserApi {
     passkeys_enabled_for_2fa?: boolean | null
     /** When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions. */
     hide_mcp_hints?: boolean
-    /** Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown. */
+    /** Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown. Once `sidebar.starred_products_setup_completed` is true, an update that omits it keeps it true. */
     ui_configuration?: unknown
     /** @nullable */
     readonly onboarding_skipped_at?: string | null
