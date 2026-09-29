@@ -210,7 +210,7 @@ async def test_invalid_email_recipients_are_skipped(team, user) -> None:
 
 
 async def test_no_valid_email_recipient_disables_subscription(team, user) -> None:
-    subscription = await sync_to_async(create_subscription)(team=team, created_by=user, target_value="1")
+    subscription = await sync_to_async(create_subscription)(team=team, created_by=user, target_value="1,2")
     inputs = DeliverSubscriptionInputs(subscription_id=subscription.id, exported_asset_ids=[], total_insight_count=0)
     send = AsyncMock()
 
@@ -218,10 +218,11 @@ async def test_no_valid_email_recipient_disables_subscription(team, user) -> Non
         result = await deliver_email(subscription, inputs, [], send)
 
     send.assert_not_called()
-    assert result.recipient_results[0].error == {
-        "message": INVALID_EMAIL_RECIPIENTS_DISABLE_REASON.description,
-        "type": INVALID_EMAIL_RECIPIENTS_DISABLE_REASON.key,
-    }
+    assert [(r.recipient, r.error["type"] if r.error else None) for r in result.recipient_results] == [
+        ("1", "invalid_email_recipient"),
+        ("2", "invalid_email_recipient"),
+        ("1,2", INVALID_EMAIL_RECIPIENTS_DISABLE_REASON.key),
+    ]
     await sync_to_async(subscription.refresh_from_db)()
     assert subscription.enabled is False
 
@@ -2272,7 +2273,7 @@ async def test_delivery_failure_replaces_partial_export_slo_attribution(
     assert len(completed_calls) == 1
     properties = completed_calls[0].kwargs["properties"]
     assert properties["outcome"] == SloOutcome.FAILURE
-    assert properties["error_type"] == "ApplicationError"
+    assert properties["error_type"] == "EmailRecipientsRejected"
     assert properties["failure_stage"] == "delivery"
     assert properties["failure_category"] == "activity_failure"
     assert properties["failure_component"] == "subscription_delivery"

@@ -76,6 +76,15 @@ def error_detail_results(recipient_results: list[RecipientResult]) -> list[dict[
     return details
 
 
+def _invalid_email_result(email: str) -> RecipientResult:
+    return RecipientResult(
+        recipient=email,
+        status="failed",
+        error={"message": INVALID_EMAIL_RECIPIENT_MESSAGE, "type": "invalid_email_recipient"},
+        human_readable_error=INVALID_EMAIL_RECIPIENT_MESSAGE,
+    )
+
+
 async def auto_disable_and_return(
     subscription: Subscription,
     reason: DisableReason,
@@ -108,6 +117,7 @@ async def deliver_email(
     raises, so a Temporal retry won't re-send to recipients who already succeeded."""
     emails = parse_email_recipients(subscription.target_value)
     if not any(is_valid_email_recipient(email) for email in emails):
+        recipient_results.extend(_invalid_email_result(email) for email in emails)
         return await auto_disable_and_return(subscription, INVALID_EMAIL_RECIPIENTS_DISABLE_REASON, recipient_results)
     previous_target_value = inputs.previous_target_value
     if previous_target_value is None:
@@ -130,14 +140,7 @@ async def deliver_email(
     for email in emails:
         if not is_valid_email_recipient(email):
             # The provider rejects this address on every run, so do not send or report it.
-            recipient_results.append(
-                RecipientResult(
-                    recipient=email,
-                    status="failed",
-                    error={"message": INVALID_EMAIL_RECIPIENT_MESSAGE, "type": "invalid_email_recipient"},
-                    human_readable_error=INVALID_EMAIL_RECIPIENT_MESSAGE,
-                )
-            )
+            recipient_results.append(_invalid_email_result(email))
             continue
         try:
             await send_one(email)
