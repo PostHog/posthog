@@ -264,19 +264,20 @@ tools:
         description: >
             Get feature flags in the current project. Supports list filters including search by feature flag key or name
             (case-insensitive), then use the returned ID for get/update/delete tools. Pass `active: "STALE"` to list
-            only stale flags. PostHog calls a flag stale when it is enabled and was last called over 30 days ago, or
-            was never called, is over 30 days old and is rolled out to everyone. Stale flags are cleanup candidates,
-            not proof that a flag is unused. Disabled flags are not checked for staleness, so `status: ACTIVE` on a
-            disabled flag is expected. Each row carries `status`, `last_called_at`, `active` and `created_at`. For
-            the reason behind one flag's status, and its rollout summary, use `feature-flags-status-retrieve`.
+            only stale flags. PostHog calls a flag stale when it is enabled and was last called over 30 days ago, or was
+            never called, is over 30 days old and is rolled out to everyone. Stale flags are cleanup candidates, not
+            proof that a flag is unused. Disabled flags are not checked for staleness, so `status: ACTIVE` on a disabled
+            flag is expected. Each row carries `status`, `last_called_at`, `active` and `created_at`. For the reason
+            behind one flag's status, and its rollout summary, use `feature-flags-status-retrieve`.
         param_overrides:
             search:
                 description:
                     Search by feature flag key or name (case-insensitive). Use this to find the flag ID for get/update/delete
                     tools.
             active:
-                description: Filter by flag state. `"true"` returns enabled flags, `"false"` returns disabled flags, and
-                    `"STALE"` returns enabled flags that PostHog classifies as stale.
+                description:
+                    Filter by flag state. `"true"` returns enabled flags, `"false"` returns disabled flags, and `"STALE"`
+                    returns enabled flags that PostHog classifies as stale.
             limit:
                 cast: string-int
             offset:
