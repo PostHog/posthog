@@ -104,6 +104,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.p
     XminBounds,
     _TableChunking,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.xmin_cursor import XminCursor
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.constants import (
     BALANCE_TRANSACTION_RESOURCE_NAME as STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
     CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
@@ -4951,6 +4952,11 @@ def _postgres_job_inputs(postgres_config: dict) -> dict[str, str | dict[str, str
     }
 
 
+def _stored_xmin_cursor(schema: ExternalDataSchema) -> XminCursor | None:
+    payload = schema.sync_type_config.get("source_cursor")
+    return XminCursor(**payload["data"]) if payload else None
+
+
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_postgres_xmin_sync(team, postgres_config, postgres_connection):
@@ -4982,10 +4988,8 @@ async def test_postgres_xmin_sync(team, postgres_config, postgres_connection):
 
     # Ceiling state persisted at job completion (next run's lower bound + durable cursor + epoch).
     schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
-    assert schema.xmin_last_value is not None
-    assert schema.xmin_ceiling is not None
-    assert schema.xmin_num_wraparound is not None
-    first_ceiling = schema.xmin_last_value
+    first_cursor = _stored_xmin_cursor(schema)
+    assert first_cursor is not None
 
     # Mutate: update the existing row and insert a new one. Both get a fresh xmin above the ceiling.
     await postgres_connection.execute(
@@ -5005,8 +5009,9 @@ async def test_postgres_xmin_sync(team, postgres_config, postgres_connection):
 
     # Ceiling advanced strictly past the first run's value — the delta committed new transactions.
     schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
-    assert schema.xmin_last_value is not None
-    assert schema.xmin_last_value > first_ceiling
+    second_cursor = _stored_xmin_cursor(schema)
+    assert second_cursor is not None
+    assert second_cursor.ceiling_xid8 > first_cursor.ceiling_xid8
 
     # Hard deletes are invisible to xmin — a vacuumed tuple leaves nothing to read.
     await postgres_connection.execute("DELETE FROM {schema}.xmin_table WHERE id = 2".format(schema=schema_name))
@@ -5118,7 +5123,7 @@ async def test_postgres_switch_to_xmin_rebuilds_table(team, postgres_config, pos
     # Reset consumed: xmin state seeded fresh, reset_pipeline cleared.
     schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
     assert schema.sync_type_config.get("reset_pipeline") is None
-    assert schema.xmin_last_value is not None
+    assert _stored_xmin_cursor(schema) is not None
 
 
 # --- Destinations ------------------------------------------------------------------------

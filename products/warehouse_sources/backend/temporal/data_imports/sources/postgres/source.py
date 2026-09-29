@@ -1,5 +1,6 @@
 import logging
-from typing import TYPE_CHECKING, Optional, cast
+from collections.abc import Mapping
+from typing import TYPE_CHECKING, Any, Optional, cast
 
 import structlog
 from psycopg import OperationalError
@@ -27,6 +28,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
     FieldType,
     ResumableSource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import CursorSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
     HOST_RESOLUTION_EXHAUSTED_MESSAGE,
     HostNotAllowedError,
@@ -72,6 +74,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.p
     pg_connection,
     postgres_source,
     source_requires_ssl,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.xmin_cursor import (
+    XminCursor,
+    xmin_cursor_from_legacy,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType, IncrementalField, IncrementalFieldType
 
@@ -378,12 +384,19 @@ _RECOVERY_CONFLICT_EXHAUSTED_MESSAGE = (
 class PostgresSource(
     SQLSource[PostgresSourceConfig],
     ResumableSource[PostgresSourceConfig, KeysetResumeState],
+    CursorSource[XminCursor],
     SSHTunnelMixin,
     ValidateDatabaseHostMixin,
 ):
     # xmin replication is Postgres-only; per-table availability is still decided by
     # `SourceSchema.supports_xmin` at discovery.
     supports_xmin = True
+
+    def cursor_class(self) -> type[XminCursor]:
+        return XminCursor
+
+    def cursor_from_legacy(self, sync_type_config: Mapping[str, Any]) -> XminCursor | None:
+        return xmin_cursor_from_legacy(sync_type_config)
 
     def resume_covers_run(self, *, incremental_or_append: bool, keyset_full_load_enabled: bool = False) -> bool:
         # Both halves. Keyset seeking is a full-load path, so an incremental or xmin run resumes from
@@ -2022,16 +2035,11 @@ class PostgresSource(
                 is_initial_sync=not schema.initial_sync_complete,
                 enabled_columns=inputs.enabled_columns,
                 row_filters=inputs.row_filters,
-                # xmin state is read straight off the schema here (the generic `SourceInputs` stays
-                # Postgres-agnostic). xmin rides the normal full per-schema path — no CDC dispatch.
-                # A reset, and a pending corrupt-delta revive, both delete the Delta table before
-                # this read, so the cursor has to go with it: kept, the read covers only the window
-                # since the last run, and the overwrite collapses the table to that slice. The
-                # activity drops the incremental cursor for both cases for the same reason; the xmin
-                # cursor is dropped here because it is read here.
+                # xmin rides the normal full per-schema path, with no CDC dispatch. On a reset or a
+                # pending corrupt-delta revive the activity loads no cursor, because both delete the
+                # Delta table before this read and a kept cursor would collapse it to one window.
                 is_xmin=schema.is_xmin,
-                xmin_last_value=None if table_rebuild_pending else schema.xmin_last_value,
-                xmin_num_wraparound=None if table_rebuild_pending else schema.xmin_num_wraparound,
+                xmin_cursor=self.get_cursor_manager(inputs) if schema.is_xmin else None,
                 byte_bounded_extraction=inputs.byte_bounded_extraction,
                 activity_attempt=inputs.activity_attempt,
                 resumable_source_manager=resumable_source_manager,
