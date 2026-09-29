@@ -72,6 +72,7 @@ from products.slack_app.backend.services.integration_resolver import (
     pick_a_project_message,
     resolve_from_candidates,
     resolve_user_for_workspace,
+    unresolved_user_properties,
     user_resolution_failure_reply,
 )
 from products.slack_app.backend.services.slack_app_home import (
@@ -2403,6 +2404,7 @@ def route_posthog_code_event_to_relevant_region(
                     reason=f"user_unresolved:{resolution.failure_reason or 'unknown'}",
                     replied=False,
                     integration=untagged_followup_mapping.integration,
+                    **unresolved_user_properties(resolution, untagged_followup_mapping.integration),
                 )
                 return ROUTE_HANDLED_LOCALLY
             # Keep the failure reply out of the channel in an unapproved
@@ -2438,6 +2440,7 @@ def route_posthog_code_event_to_relevant_region(
                 replied=replied,
                 integration=probe,
                 posthog_user=attributed_user,
+                **unresolved_user_properties(resolution, probe),
             )
             return ROUTE_HANDLED_LOCALLY
 
