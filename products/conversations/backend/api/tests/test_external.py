@@ -70,10 +70,24 @@ class TestExternalTicketAPI(BaseTest):
         self.ticket.refresh_from_db()
         self.assertEqual(self.ticket.status, Status.NEW)
 
-    def test_psak_for_team_without_conversations_is_invisible(self):
-        self.team.conversations_enabled = False
-        self.team.save(update_fields=["conversations_enabled"])
-        response = self.client.get(self.url, **self._auth_headers(self._create_psak_token(["support_ticket:read"])))
+    @parameterized.expand(
+        [
+            ("conversations_disabled", {"team": {"conversations_enabled": False}}),
+            ("organization_deactivated", {"organization": {"is_active": False}}),
+            ("organization_active_null", {"organization": {"is_active": None}}),
+            ("organization_pending_deletion", {"organization": {"is_pending_deletion": True}}),
+        ]
+    )
+    def test_psak_is_invisible_when_the_team_or_organization_is_blocked(self, _name, changes):
+        token = self._create_psak_token(["support_ticket:read"])
+        for field, value in changes.get("team", {}).items():
+            setattr(self.team, field, value)
+            self.team.save(update_fields=[field])
+        for field, value in changes.get("organization", {}).items():
+            setattr(self.organization, field, value)
+            self.organization.save(update_fields=[field])
+
+        response = self.client.get(self.url, **self._auth_headers(token))
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
     def test_get_requires_auth(self):

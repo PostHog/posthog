@@ -60,7 +60,13 @@ class ExternalTicketProjectSecretAPIKeyAuthentication(ProjectSecretAPIKeyAuthent
 
     def authenticate(self, request: HttpRequest | Request) -> tuple[Any, None] | None:
         result = super().authenticate(request)
-        if result is None or not self.project_secret_api_key.team.conversations_enabled:
+        if result is None:
+            return None
+        team = self.project_secret_api_key.team
+        # This AllowAny view never runs ActiveOrganizationPermission, so the organization
+        # state must be enforced here or a key outlives its deactivated organization.
+        organization = team.organization
+        if not team.conversations_enabled or not organization.is_active or organization.is_pending_deletion:
             return None
         return result
 
