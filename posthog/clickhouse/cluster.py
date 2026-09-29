@@ -196,8 +196,12 @@ class ClickhouseCluster:
         self.__bootstrap_credential_provider = bootstrap_credential_provider
         # A token login fails while the ch-podauth bridge on the answering node is down, so discovery retries it.
         discovery_retry_policy = retry_policy
-        if retry_policy is not None and bootstrap_credential_provider is not None:
-            discovery_retry_policy = retry_policy.also_retrying(_is_authentication_failure)
+        if bootstrap_credential_provider is not None:
+            discovery_retry_policy = (
+                retry_policy.also_retrying(_is_authentication_failure)
+                if retry_policy is not None
+                else _REJECTED_LOGIN_RETRY_POLICY
+            )
         cluster_hosts = self.__get_cluster_hosts(bootstrap_client, migrations_cluster, discovery_retry_policy)
 
         for row in cluster_hosts:
@@ -774,6 +778,9 @@ AUTHENTICATION_FAILED = 516
 
 def _is_authentication_failure(e: Exception) -> bool:
     return isinstance(e, ServerException) and e.code == AUTHENTICATION_FAILED
+
+
+_REJECTED_LOGIN_RETRY_POLICY = RetryPolicy(max_attempts=3, delay=5, exceptions=_is_authentication_failure)
 
 
 @dataclass

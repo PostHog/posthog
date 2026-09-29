@@ -630,14 +630,19 @@ def test_sibling_addresses_another_cluster_and_is_memoized() -> None:
 
 
 @pytest.mark.parametrize(
-    "credential_provider_set, expected_presented",
+    "credential_provider_set, caller_retry_policy_set, expected_presented",
     [
-        pytest.param(True, ["token-1", "token-2", "token-3"], id="token_bootstrap_presents_a_fresh_token_each_attempt"),
-        pytest.param(False, ["static"], id="static_bootstrap_fails_on_a_rejected_login"),
+        pytest.param(
+            True, True, ["token-1", "token-2", "token-3"], id="token_bootstrap_presents_a_fresh_token_each_attempt"
+        ),
+        pytest.param(
+            True, False, ["token-1", "token-2", "token-3"], id="token_bootstrap_retries_without_a_caller_policy"
+        ),
+        pytest.param(False, True, ["static"], id="static_bootstrap_fails_on_a_rejected_login"),
     ],
 )
 def test_discovery_retries_a_rejected_login_only_with_a_fresh_token(
-    credential_provider_set: bool, expected_presented: list[str]
+    credential_provider_set: bool, caller_retry_policy_set: bool, expected_presented: list[str]
 ) -> None:
     hosts_by_cluster = {
         "posthog": [("host1", 9000, 1, 1, "online", "data")],
@@ -660,15 +665,18 @@ def test_discovery_retries_a_rejected_login_only_with_a_fresh_token(
         ClickhouseCluster(
             bootstrap_client_mock,
             cluster="posthog",
-            retry_policy=RetryPolicy(max_attempts=2, delay=0, exceptions=(TimeoutError,)),
+            retry_policy=RetryPolicy(max_attempts=2, delay=0, exceptions=(TimeoutError,))
+            if caller_retry_policy_set
+            else None,
             bootstrap_credential_provider=(lambda: next(tokens)) if credential_provider_set else None,
         ).sibling("events")
 
-    if credential_provider_set:
-        discover()
-    else:
-        with pytest.raises(ServerException):
+    with patch("posthog.clickhouse.cluster.time.sleep"):
+        if credential_provider_set:
             discover()
+        else:
+            with pytest.raises(ServerException):
+                discover()
 
     assert presented == expected_presented
 
