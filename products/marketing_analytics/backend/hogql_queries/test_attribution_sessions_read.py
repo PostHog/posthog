@@ -1,3 +1,4 @@
+from copy import copy
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
@@ -12,7 +13,9 @@ from posthog.schema import (
     ConversionGoalFilter1,
     CustomChannelRule,
     DateRange,
+    HogQLPropertyFilter,
     HogQLQueryModifiers,
+    MarketingAnalyticsAttributionPathsQuery,
     MarketingAnalyticsAttributionQuery,
     PropertyMathType,
 )
@@ -32,6 +35,9 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     compute_query_hash,
 )
 from products.marketing_analytics.backend.hogql_queries import attribution_sessions_read, marketing_sessions_precompute
+from products.marketing_analytics.backend.hogql_queries.attribution_paths_query_runner import (
+    MarketingAnalyticsAttributionPathsQueryRunner,
+)
 from products.marketing_analytics.backend.hogql_queries.attribution_table_query_runner import (
     MarketingAnalyticsAttributionQueryRunner,
 )
@@ -321,3 +327,82 @@ class TestAttributionSessionsRead(SimpleTestCase):
         with patch.object(attribution_sessions_read, "ensure_marketing_sessions_precomputed") as ensure:
             runner.to_query()
         ensure.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("session.$entry_utm_source = 'google'", True),
+            ("events.session.$channel_type = 'Paid Search'", True),
+            ("$session_id IN (SELECT session_id FROM sessions)", True),
+            ("matchesAction(1)", True),
+            ("not(matchesAction(1))", True),
+            ("properties.utm_source = 'google'", False),
+            ("$session_id IS NOT NULL", False),
+        ]
+    )
+    def test_session_dependent_conversion_conditions_keep_legacy_resolution(self, condition: str, legacy: bool) -> None:
+        goal = ConversionGoalFilter1(
+            event="purchase",
+            name="Purchases",
+            conversion_goal_id="session-goal",
+            conversion_goal_name="Purchases",
+            schema_map={},
+            properties=[HogQLPropertyFilter(type="hogql", key=condition)],
+        )
+        self.team.marketing_analytics_config.conversion_goals = [goal.model_dump()]
+        runner = MarketingAnalyticsAttributionQueryRunner(
+            team=self.team,
+            query=MarketingAnalyticsAttributionQuery(
+                conversionGoalId="session-goal",
+                properties=[],
+                lookbackWindowDays=4,
+                dateRange=DateRange(date_from="2023-01-10", date_to="2023-01-20"),
+            ),
+        )
+        runner.config.live_session_resolution_enabled = True
+        reason = attribution_sessions_read.ineligible_reason(runner, runner.query_date_range)
+        assert reason == ("session_filtered_conversion_goal" if legacy else None)
+
+    @parameterized.expand(
+        [
+            ("table", MarketingAnalyticsAttributionQuery, MarketingAnalyticsAttributionQueryRunner),
+            ("paths", MarketingAnalyticsAttributionPathsQuery, MarketingAnalyticsAttributionPathsQueryRunner),
+        ]
+    )
+    def test_live_resolution_rollout_and_rollback_isolate_cached_results(
+        self,
+        _name: str,
+        query_type: type[MarketingAnalyticsAttributionQuery | MarketingAnalyticsAttributionPathsQuery],
+        runner_type: type[MarketingAnalyticsAttributionQueryRunner | MarketingAnalyticsAttributionPathsQueryRunner],
+    ) -> None:
+        self.enterContext(patch.object(runner_type, "_products_modifiers_for_cache", return_value={}))
+        self.enterContext(patch.object(runner_type, "_get_property_access_restrictions", return_value=None))
+        live_keys = []
+        for precomputed in (False, True):
+            keys = []
+            identities = []
+            for live in (False, True, False):
+                flags = {
+                    "marketing-analytics-live-session-resolution": live,
+                    "marketing-analytics-sessions-precomputation": precomputed,
+                }
+                with patch(
+                    "products.marketing_analytics.backend.hogql_queries.marketing_analytics_config.feature_enabled_or_false",
+                    side_effect=lambda key, *_args, flags=flags, **_kwargs: flags.get(key, False),
+                ):
+                    runner = runner_type(
+                        team=copy(self.team),
+                        query=query_type(
+                            conversionGoalId="goal",
+                            properties=[],
+                            dateRange=DateRange(date_from="2023-01-10", date_to="2023-01-11"),
+                        ),
+                    )
+                    keys.append(runner.get_cache_key())
+                    identities.append(runner.get_query_identity())
+            assert keys[0] != keys[1]
+            assert keys[0] == keys[2]
+            assert identities[0].query_hash == identities[1].query_hash == identities[2].query_hash
+            assert identities[0].runtime_hash != identities[1].runtime_hash
+            assert identities[0].runtime_hash == identities[2].runtime_hash
+            live_keys.append(keys[1])
+        assert live_keys[0] == live_keys[1]
