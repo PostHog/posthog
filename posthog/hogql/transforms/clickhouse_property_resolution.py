@@ -21,6 +21,7 @@ so it treats both an empty string and the literal text `"null"` as "not set". Th
 exist in the blob" test, but tightening it would change query results.
 """
 
+import re
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from typing import Literal, cast
@@ -661,6 +662,17 @@ _TEMPORARY_PROPERTY_JSON_PATH_FUNCTIONS = frozenset(
     }
 )
 
+_JSON_PATH_FIRST_MEMBER = re.compile(
+    r"""^\$(?:\.(?:"(?P<dot_quoted>[^"]*)"|(?P<dot>[^.\[]+))|\[(?:"(?P<bracket_double>[^"]*)"|'(?P<bracket_single>[^']*)')\])"""
+)
+
+
+def _json_path_first_member(path: str) -> str | None:
+    match = _JSON_PATH_FIRST_MEMBER.match(path)
+    if match is None:
+        return None
+    return next(member for member in match.groups() if member is not None)
+
 
 def _is_virtual_feature_flag_key(key: str) -> bool:
     """Whether a native events property is rebuilt from the `$feature_flags` map instead of read under its own name."""
@@ -1288,6 +1300,10 @@ class ClickHousePropertyResolver(CloningVisitor):
         if temporary_property_json_function is not None:
             return temporary_property_json_function
 
+        temporary_property_json_value = self._rewrite_json_value_on_temporary_property(node)
+        if temporary_property_json_value is not None:
+            return temporary_property_json_value
+
         json_extract_on_events_json = self._rewrite_json_extract_on_events_json_subcolumn(node)
         if json_extract_on_events_json is not None:
             return json_extract_on_events_json
@@ -1354,15 +1370,17 @@ class ClickHousePropertyResolver(CloningVisitor):
             not self.context.uses_new_events_schema()
             or node.name not in _TEMPORARY_PROPERTY_JSON_PATH_FUNCTIONS
             or len(node.args) < 2
-            or not isinstance(node.args[1], ast.Constant)
-            or not isinstance(node.args[1].value, str)
-            or not is_temporary_event_property(node.args[1].value)
         ):
             return None
         field_type = resolve_field_type(node.args[0])
         if not isinstance(field_type, ast.FieldType) or not _is_events_properties(field_type, self.context):
             return None
+        if not isinstance(node.args[1], ast.Constant):
+            # A key computed per row can name a moved property, which the serialized `properties` document lacks.
+            raise QueryError(f"{node.name} over native event properties requires a constant first key")
         first_key = node.args[1].value
+        if not isinstance(first_key, str) or not is_temporary_event_property(first_key):
+            return None
         source = resolve_json_subcolumn_source(
             field_type, DISTRIBUTED_EVENTS_JSON_TABLE, "properties", first_key, self.context
         )
@@ -1389,6 +1407,34 @@ class ClickHousePropertyResolver(CloningVisitor):
             within_group=node.within_group,
             order_by=node.order_by,
             filter_expr=node.filter_expr,
+        )
+
+    def _rewrite_json_value_on_temporary_property(self, node: ast.Call) -> ast.Expr | None:
+        """`JSON_VALUE(properties, '$."$set".email')` on native events, applied to the `temporary_properties` document.
+
+        That document has the same top-level layout as `properties`, so the path applies unchanged. The printer drops
+        restricted keys from it as it does for `properties`.
+        """
+        if (
+            not self.context.uses_new_events_schema()
+            or node.name != "JSON_VALUE"
+            or len(node.args) != 2
+            or not isinstance(node.args[1], ast.Constant)
+            or not isinstance(node.args[1].value, str)
+        ):
+            return None
+        first_member = _json_path_first_member(node.args[1].value)
+        if first_member is None or not is_temporary_event_property(first_member):
+            return None
+        field_type = resolve_field_type(node.args[0])
+        if not isinstance(field_type, ast.FieldType) or not _is_events_properties(field_type, self.context):
+            return None
+        return ast.Call(
+            start=node.start,
+            end=node.end,
+            type=node.type,
+            name=node.name,
+            args=[_temporary_properties_document(field_type), self.visit(node.args[1])],
         )
 
     def _rewrite_feature_flag_json_has(self, node: ast.Call) -> ast.Expr | None:

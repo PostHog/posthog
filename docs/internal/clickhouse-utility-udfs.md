@@ -73,8 +73,9 @@ Both functions use the same executable. The temporary entry point uses `--tempor
 Documents exceeding the shared depth limit produce `{}` in the temporary output; the permanent cleaner quarantines the original document.
 
 Native events retain `temporary_properties` for 60 days after insertion, including historical events; TTL merges clear the column asynchronously.
-On native events, HogQL reads a property in this allowlist from `temporary_properties`: property access such as `properties.$set.email`, filters, `JSONHas`, `JSONLength`, `JSONType`, and the `JSONExtract*` functions with the property as their first key.
-Whole-document reads of `properties` do not include these properties.
+On native events, HogQL reads a property in this allowlist from `temporary_properties`: property access such as `properties.$set.email`, filters, `JSONHas`, `JSONLength`, `JSONType`, the `JSONExtract*` functions with the property as their first key, and `JSON_VALUE` with the property as the first member of its path.
+These functions reject a first key computed per row, because such a key can name a moved property.
+Whole-document reads of `properties`, such as `SELECT properties`, do not include these properties, because rebuilding them would serialize `temporary_properties` on every row read.
 `is_temporary_event_property` in `posthog/clickhouse/events_json.py` mirrors the allowlist, so update both together.
 Fresh installations use the updated schema definitions. Existing tables require a manual schema rollout and feature-flag query compatibility before native reads are enabled.
 
