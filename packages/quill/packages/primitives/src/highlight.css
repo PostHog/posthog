@@ -20,7 +20,7 @@
      * The ink follows the stroke: two text-clipped layers paint the glyphs (highlight color over the inherited color),
      * and the top one grows in step with the marker layer underneath.
      */
-    .quill-highlight--animate {
+    .quill-highlight:is([data-phase='waiting'], [data-phase='drawing']) {
         --quill-highlight-progress: 0%;
 
         color: inherit;
@@ -36,7 +36,7 @@
         -webkit-text-fill-color: transparent;
     }
 
-    .quill-highlight--animate[data-drawn] {
+    .quill-highlight[data-phase='drawing'] {
         --quill-highlight-progress: 100%;
 
         transition: background-size var(--quill-highlight-duration) cubic-bezier(0.45, 0.1, 0.35, 1)
@@ -104,18 +104,9 @@
         --quill-highlight-foreground: oklch(0.85 0.09 305deg);
     }
 
-    @media (prefers-reduced-motion: reduce) {
-        .quill-highlight--animate,
-        .quill-highlight--animate[data-drawn] {
-            --quill-highlight-progress: 100%;
-
-            transition: none;
-        }
-    }
-
     /* Forced colors drop background images, which would leave text-clipped glyphs invisible. */
     @media (forced-colors: active) {
-        .quill-highlight--animate {
+        .quill-highlight[data-phase] {
             -webkit-text-fill-color: currentColor;
         }
     }

@@ -5,6 +5,7 @@ import { useRender } from '@base-ui/react/use-render'
 import { cva, type VariantProps } from 'class-variance-authority'
 import * as React from 'react'
 
+import { useReducedMotion } from './lib/use-reduced-motion'
 import { cn } from './lib/utils'
 
 const highlightVariants = cva('quill-highlight', {
@@ -17,18 +18,19 @@ const highlightVariants = cva('quill-highlight', {
             blue: 'quill-highlight--color-blue',
             purple: 'quill-highlight--color-purple',
         },
-        animate: {
-            true: 'quill-highlight--animate',
-            false: '',
-        },
     },
     defaultVariants: {
         color: 'orange',
-        animate: false,
     },
 })
 
 type HighlightColor = NonNullable<VariantProps<typeof highlightVariants>['color']>
+
+// `done` is the static highlight, so the text-clipped glyphs of the stroke never outlive it.
+type Stroke = { phase: 'waiting' } | { phase: 'drawing'; durationMs: number } | { phase: 'done' }
+
+const WAITING: Stroke = { phase: 'waiting' }
+const DONE: Stroke = { phase: 'done' }
 
 const MS_PER_CHARACTER = 30
 const MIN_DURATION_MS = 350
@@ -55,42 +57,36 @@ function Highlight({
     animate = false,
     duration,
     delay = 0,
-    style,
     render,
     ...props
 }: HighlightProps): React.ReactElement {
     const elementRef = React.useRef<HTMLElement>(null)
-    // `done` swaps back to the static styles, so the text-clipped glyphs of the stroke don't outlive it.
-    const [phase, setPhase] = React.useState<'waiting' | 'drawing' | 'done'>(animate ? 'waiting' : 'done')
-    const [autoDuration, setAutoDuration] = React.useState(MIN_DURATION_MS)
+    const reducedMotion = useReducedMotion()
+    const strokes = animate && !reducedMotion
+    const [strokeState, setStroke] = React.useState<Stroke>(WAITING)
+    const stroke = strokes ? strokeState : DONE
 
     React.useEffect(() => {
-        if (!animate) {
-            setPhase('done')
-            return
-        }
         const element = elementRef.current
-        if (!element) {
+        if (!strokes || !element) {
             return
         }
-        setPhase('waiting')
-        setAutoDuration(strokeDuration(element.textContent ?? ''))
+        // Re-arm when `animate` turns back on after an earlier stroke.
+        setStroke(WAITING)
+        const draw = (): void => setStroke({ phase: 'drawing', durationMs: strokeDuration(element.textContent ?? '') })
         if (typeof IntersectionObserver === 'undefined') {
-            setPhase('drawing')
+            draw()
             return
         }
-        const observer = new IntersectionObserver(
-            (entries) => {
-                if (entries.some((entry) => entry.isIntersecting)) {
-                    setPhase('drawing')
-                    observer.disconnect()
-                }
-            },
-            { rootMargin: '0px 0px -10% 0px' }
-        )
+        const observer = new IntersectionObserver((entries) => {
+            if (entries.some((entry) => entry.isIntersecting)) {
+                observer.disconnect()
+                draw()
+            }
+        })
         observer.observe(element)
         return () => observer.disconnect()
-    }, [animate])
+    }, [strokes])
 
     return useRender({
         defaultTagName: 'mark',
@@ -98,24 +94,27 @@ function Highlight({
         props: mergeProps<'mark'>(
             {
                 'data-quill': '',
-                className: cn(highlightVariants({ color, animate: phase !== 'done' }), className),
-                style: {
-                    '--quill-highlight-duration': `${duration ?? autoDuration}ms`,
-                    '--quill-highlight-delay': `${delay}ms`,
-                } as React.CSSProperties,
+                className: cn(highlightVariants({ color }), className),
+                style:
+                    stroke.phase === 'drawing'
+                        ? ({
+                              '--quill-highlight-duration': `${duration ?? stroke.durationMs}ms`,
+                              '--quill-highlight-delay': `${delay}ms`,
+                          } as React.CSSProperties)
+                        : undefined,
                 onTransitionEnd: (event: React.TransitionEvent<HTMLElement>) => {
                     if (event.target === event.currentTarget && event.propertyName === 'background-size') {
-                        setPhase('done')
+                        setStroke(DONE)
                     }
                 },
             } as Omit<React.ComponentProps<'mark'>, 'ref'>,
-            { style, ...props }
+            props
         ),
         render,
         state: {
             slot: 'highlight',
             color,
-            drawn: phase === 'drawing',
+            phase: stroke.phase,
         },
     })
 }

@@ -51,11 +51,11 @@ export const Colors = {
     ),
 } satisfies Story
 
-function Replayable({ children }: { children: (key: number) => React.ReactNode }): React.ReactElement {
+function Replayable({ children }: { children: React.ReactNode }): React.ReactElement {
     const [run, setRun] = React.useState(0)
     return (
         <div className="flex flex-col items-start gap-4">
-            {children(run)}
+            <div key={run}>{children}</div>
             <Button variant="outline" onClick={() => setRun((value) => value + 1)}>
                 Replay
             </Button>
@@ -66,27 +66,25 @@ function Replayable({ children }: { children: (key: number) => React.ReactNode }
 export const Animated = {
     render: () => (
         <Replayable>
-            {(run) => (
-                <div key={run} className="flex flex-col gap-3">
-                    <Heading size="2xl">
-                        Are software factories{' '}
-                        <Highlight color="purple" animate>
-                            BS?
-                        </Highlight>
-                    </Heading>
-                    <Heading size="xl">
-                        Make your product{' '}
-                        <Highlight color="blue" animate delay={300}>
-                            self-driving
-                        </Highlight>
-                    </Heading>
-                    <Heading size="lg">
-                        <Highlight color="orange" animate delay={600}>
-                            A simpler sidebar
-                        </Highlight>
-                    </Heading>
-                </div>
-            )}
+            <div className="flex flex-col gap-3">
+                <Heading size="2xl">
+                    Are software factories{' '}
+                    <Highlight color="purple" animate>
+                        BS?
+                    </Highlight>
+                </Heading>
+                <Heading size="xl">
+                    Make your product{' '}
+                    <Highlight color="blue" animate delay={300}>
+                        self-driving
+                    </Highlight>
+                </Heading>
+                <Heading size="lg">
+                    <Highlight color="orange" animate delay={600}>
+                        A simpler sidebar
+                    </Highlight>
+                </Heading>
+            </div>
         </Replayable>
     ),
 } satisfies Story
@@ -94,15 +92,13 @@ export const Animated = {
 export const Wrapping = {
     render: () => (
         <Replayable>
-            {(run) => (
-                <Text key={run} className="max-w-80">
-                    Many of you told us things were hard to find.{' '}
-                    <Highlight color="yellow" animate>
-                        So we rebuilt the sidebar around the products you use, and moved everything else one click away
-                    </Highlight>
-                    . Let us know what you think.
-                </Text>
-            )}
+            <Text className="max-w-80">
+                Many of you told us things were hard to find.{' '}
+                <Highlight color="yellow" animate>
+                    So we rebuilt the sidebar around the products you use, and moved everything else one click away
+                </Highlight>
+                . Let us know what you think.
+            </Text>
         </Replayable>
     ),
 } satisfies Story
