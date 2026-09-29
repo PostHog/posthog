@@ -538,6 +538,9 @@ def team_evaluation_context_suggestions_view(team: Team, request: request.Reques
     if not context_name:
         return response.Response({"error": "context_name is required"}, status=400)
 
+    if len(context_name) > 255:
+        return response.Response({"error": "context_name must be 255 characters or fewer"}, status=400)
+
     hidden = request.method == "POST"
 
     with transaction.atomic():

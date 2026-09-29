@@ -279,8 +279,9 @@ class TestEvaluationContextSuggestions(APIBaseTest):
         response = self.client.post(self.url, {"context_name": "ghost"}, format="json")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
-    def test_hide_requires_context_name(self):
-        response = self.client.post(self.url, {"context_name": "   "}, format="json")
+    @parameterized.expand([("   ",), ("a" * 256,)])
+    def test_hide_requires_valid_context_name(self, context_name: str) -> None:
+        response = self.client.post(self.url, {"context_name": context_name}, format="json")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_cannot_hide_context_from_another_team(self):
