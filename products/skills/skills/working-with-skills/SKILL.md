@@ -249,7 +249,8 @@ The same concept — a bundled file's path — is named differently depending on
 memory. There is one rule:
 
 - **`file_path`** — when the path is part of the **URL** (`skill-file-get`,
-  `skill-file-delete`). These read/delete one file addressed by its path.
+  `skill-file-delete`). These read/delete one file addressed by its path. Both
+  also accept `path` and normalize it to `file_path`, so the manifest key works.
 - **`path`** — when the path is a **body field**: `skill-file-create`, the
   `files=[{path, content, content_type}]` array, and `file_edits=[{path, edits}]`.
 - **`old_path` / `new_path`** — body fields on `skill-file-rename`.
@@ -257,8 +258,7 @@ memory. There is one rule:
 Mnemonic: `path` is the field name on a file _object_ (it sits next to
 `content`), so everything that carries a file object uses `path`; the two
 tools that address a file by URL use `file_path`. When unsure, check the
-tool's input schema rather than guessing — passing `path` to file-get yields a
-`/files/undefined/` 404.
+tool's input schema rather than guessing.
 
 ### Adding, removing, renaming files
 

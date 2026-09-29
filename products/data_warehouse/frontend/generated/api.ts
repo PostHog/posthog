@@ -13,12 +13,18 @@ import type {
     CheckIncrementalApi,
     CheckSchemaNameResponseApi,
     CreateTableFromUploadApi,
+    DataHealthIssuesResponseApi,
     DataModelingJobApi,
     DataModelingJobsListParams,
     DataQualityGateConfigApi,
     DataWarehouseCheckDatabaseNameRetrieveParams,
     DataWarehouseCheckSchemaNameRetrieveParams,
+    DataWarehouseCompletedActivityRetrieveParams,
     DataWarehouseExpressionApi,
+    DataWarehouseJobStatsRetrieveParams,
+    DataWarehouseManagedViewSetApi,
+    DataWarehouseManagedViewSetResponseApi,
+    DataWarehouseManagedViewSetUpdateResponseApi,
     DataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveParams,
     DataWarehouseManagedWarehouseSourceSchemasRetrieveParams,
     DataWarehouseSavedQueryApi,
@@ -59,10 +65,14 @@ import type {
     PatchedTableApi,
     PatchedViewLinkApi,
     PatchedWarehouseColumnAnnotationApi,
+    PipelineActivityResponseApi,
+    PipelineJobStatsResponseApi,
+    PipelineRowsStatsResponseApi,
     ProvisionWarehouseRequestApi,
     ProvisionWarehouseResponseApi,
     QueryTabStateApi,
     QueryTabStateListParams,
+    QueryTabStateUserRetrieveParams,
     ResetPasswordResponseApi,
     SavedQueryAncestorsApi,
     SavedQueryColumnAnnotationsListParams,
@@ -254,8 +264,23 @@ export const dataWarehouseCheckSchemaNameRetrieve = async (
     })
 }
 
-export const getDataWarehouseCompletedActivityRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/data_warehouse/completed_activity/`
+export const getDataWarehouseCompletedActivityRetrieveUrl = (
+    projectId: string,
+    params?: DataWarehouseCompletedActivityRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/data_warehouse/completed_activity/?${stringifiedParams}`
+        : `/api/projects/${projectId}/data_warehouse/completed_activity/`
 }
 
 /**
@@ -264,9 +289,10 @@ export const getDataWarehouseCompletedActivityRetrieveUrl = (projectId: string) 
  */
 export const dataWarehouseCompletedActivityRetrieve = async (
     projectId: string,
+    params?: DataWarehouseCompletedActivityRetrieveParams,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getDataWarehouseCompletedActivityRetrieveUrl(projectId), {
+): Promise<PipelineActivityResponseApi> => {
+    return apiMutator<PipelineActivityResponseApi>(getDataWarehouseCompletedActivityRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -283,8 +309,8 @@ export const getDataWarehouseDataHealthIssuesRetrieveUrl = (projectId: string) =
 export const dataWarehouseDataHealthIssuesRetrieve = async (
     projectId: string,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getDataWarehouseDataHealthIssuesRetrieveUrl(projectId), {
+): Promise<DataHealthIssuesResponseApi> => {
+    return apiMutator<DataHealthIssuesResponseApi>(getDataWarehouseDataHealthIssuesRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })
@@ -382,16 +408,35 @@ export const dataWarehouseDeprovisionCreate = async (
     })
 }
 
-export const getDataWarehouseJobStatsRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/data_warehouse/job_stats/`
+export const getDataWarehouseJobStatsRetrieveUrl = (
+    projectId: string,
+    params?: DataWarehouseJobStatsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/data_warehouse/job_stats/?${stringifiedParams}`
+        : `/api/projects/${projectId}/data_warehouse/job_stats/`
 }
 
 /**
  * Returns success and failed job statistics for the last 1, 7, or 30 days.
  * Query parameter 'days' can be 1, 7, or 30 (default: 7).
  */
-export const dataWarehouseJobStatsRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getDataWarehouseJobStatsRetrieveUrl(projectId), {
+export const dataWarehouseJobStatsRetrieve = async (
+    projectId: string,
+    params?: DataWarehouseJobStatsRetrieveParams,
+    options?: RequestInit
+): Promise<PipelineJobStatsResponseApi> => {
+    return apiMutator<PipelineJobStatsResponseApi>(getDataWarehouseJobStatsRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -594,8 +639,11 @@ export const getDataWarehouseRunningActivityRetrieveUrl = (projectId: string) =>
  * Returns currently running activities (jobs with status 'Running').
  * Supports pagination and cutoff time filtering.
  */
-export const dataWarehouseRunningActivityRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getDataWarehouseRunningActivityRetrieveUrl(projectId), {
+export const dataWarehouseRunningActivityRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<PipelineActivityResponseApi> => {
+    return apiMutator<PipelineActivityResponseApi>(getDataWarehouseRunningActivityRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })
@@ -609,8 +657,11 @@ export const getDataWarehouseTotalRowsStatsRetrieveUrl = (projectId: string) => 
  * Returns aggregated statistics for the data warehouse total rows processed within the current billing period.
  * Used by the frontend data warehouse scene to display usage information.
  */
-export const dataWarehouseTotalRowsStatsRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getDataWarehouseTotalRowsStatsRetrieveUrl(projectId), {
+export const dataWarehouseTotalRowsStatsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<PipelineRowsStatsResponseApi> => {
+    return apiMutator<PipelineRowsStatsResponseApi>(getDataWarehouseTotalRowsStatsRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })
@@ -836,8 +887,8 @@ export const managedViewsetsRetrieve = async (
     projectId: string,
     kind: 'revenue_analytics' | 'engineering_analytics',
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getManagedViewsetsRetrieveUrl(projectId, kind), {
+): Promise<DataWarehouseManagedViewSetResponseApi> => {
+    return apiMutator<DataWarehouseManagedViewSetResponseApi>(getManagedViewsetsRetrieveUrl(projectId, kind), {
         ...options,
         method: 'GET',
     })
@@ -854,11 +905,14 @@ export const getManagedViewsetsUpdateUrl = (projectId: string, kind: 'revenue_an
 export const managedViewsetsUpdate = async (
     projectId: string,
     kind: 'revenue_analytics' | 'engineering_analytics',
+    dataWarehouseManagedViewSetApi: DataWarehouseManagedViewSetApi,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getManagedViewsetsUpdateUrl(projectId, kind), {
+): Promise<DataWarehouseManagedViewSetUpdateResponseApi> => {
+    return apiMutator<DataWarehouseManagedViewSetUpdateResponseApi>(getManagedViewsetsUpdateUrl(projectId, kind), {
         ...options,
         method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(dataWarehouseManagedViewSetApi),
     })
 }
 
@@ -986,8 +1040,20 @@ export const queryTabStateDestroy = async (projectId: string, id: string, option
     })
 }
 
-export const getQueryTabStateUserRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/query_tab_state/user/`
+export const getQueryTabStateUserRetrieveUrl = (projectId: string, params: QueryTabStateUserRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/query_tab_state/user/?${stringifiedParams}`
+        : `/api/projects/${projectId}/query_tab_state/user/`
 }
 
 /**
@@ -995,9 +1061,10 @@ export const getQueryTabStateUserRetrieveUrl = (projectId: string) => {
  */
 export const queryTabStateUserRetrieve = async (
     projectId: string,
+    params: QueryTabStateUserRetrieveParams,
     options?: RequestInit
 ): Promise<QueryTabStateApi> => {
-    return apiMutator<QueryTabStateApi>(getQueryTabStateUserRetrieveUrl(projectId), {
+    return apiMutator<QueryTabStateApi>(getQueryTabStateUserRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

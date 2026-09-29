@@ -6,8 +6,8 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 from slack_sdk.errors import SlackApiError
 
-from posthog.helpers.slack_markdown import SLACK_MARKDOWN_TEXT_MAX_LEN
 from posthog.models.integration import Integration
+from posthog.slack.markdown import SLACK_MARKDOWN_TEXT_MAX_LEN
 
 from products.slack_app.backend.services.slack_messages import RunFooter
 from products.slack_app.backend.slack_thread import (
@@ -61,34 +61,19 @@ class TestSlackThreadHandler(SimpleTestCase):
         assert "<@U094TR1E59V>" in streamed
         assert "Radu Raicea" not in streamed
 
-    @parameterized.expand(
-        [
-            ("surrounding_prose", 'The <insight id="9pQx3">checkout funnel</insight> dropped.', "The  dropped."),
-            ("only_element", '<hogql title="Hidden">SELECT 1</hogql>', ""),
-        ]
-    )
     @patch.object(SlackThreadHandler, "_get_client")
-    def test_stop_status_stream_strips_object_tags(
-        self, _name: str, text: str, expected: str, mock_get_client: MagicMock
-    ) -> None:
-        client = mock_get_client.return_value
-        context = SlackThreadContext(integration_id=1, channel="C001", thread_ts="1234.5678")
-        SlackThreadHandler(context).stop_status_stream(ts="1234.9999", final_markdown=text)
-        chunks = [chunk for call in client.chat_appendStream.call_args_list for chunk in call.kwargs["chunks"]]
-        assert "".join(chunk.get("text", "") for chunk in chunks) == expected
-        if not expected:
-            client.chat_appendStream.assert_not_called()
-        client.chat_stopStream.assert_called_once()
-
-    @patch.object(SlackThreadHandler, "_get_client")
-    def test_streamed_label_cannot_create_mentions(self, mock_get_client: MagicMock) -> None:
-        context = SlackThreadContext(integration_id=1, channel="C001", thread_ts="1234.5678")
-        SlackThreadHandler(context).stop_status_stream(
-            ts="1234.9999",
-            final_markdown='<insight title="&lt;!channel&gt;">Example</insight> and <!here>',
+    def test_stop_status_stream_skips_trailing_mention_when_answer_mentions_recipient(self, mock_get_client):
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+        context = SlackThreadContext(
+            integration_id=1, channel="C001", thread_ts="1234.5678", mentioning_slack_user_id="U123"
         )
-        chunks = mock_get_client.return_value.chat_appendStream.call_args.kwargs["chunks"]
-        assert "".join(chunk.get("text", "") for chunk in chunks) == " and <!here>"
+
+        SlackThreadHandler(context).stop_status_stream(ts="1234.9999", final_markdown="Done, <@U123|Jane Doe>.")
+
+        chunks = mock_client.chat_appendStream.call_args.kwargs["chunks"]
+        streamed = "".join(chunk.get("text", "") for chunk in chunks)
+        assert streamed.count("<@U123>") == 1
 
     @patch.object(SlackThreadHandler, "_find_progress_message_ts", return_value=None)
     @patch.object(SlackThreadHandler, "_get_client")
@@ -192,6 +177,36 @@ class TestSlackThreadHandler(SimpleTestCase):
         assert actions[0]["text"]["text"] == "View PR"
         assert actions[1]["text"]["text"] == "Open in PostHog"
 
+    @parameterized.expand(
+        [
+            ("closed", False, "<@U456> *Pull request closed without merging*", True),
+            ("merged", True, "<@U456> *Pull request merged* :tada:", False),
+        ]
+    )
+    @patch.object(SlackThreadHandler, "_get_client")
+    def test_post_pr_closed_replies_in_thread_and_keeps_progress(
+        self, _name, merged, expected_text, expects_retry_hint, mock_get_client
+    ):
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+        context = SlackThreadContext(integration_id=1, channel="C001", thread_ts="1234.5678")
+        handler = SlackThreadHandler(context)
+
+        handler.post_pr_closed(
+            "https://github.com/org/repo/pull/1",
+            "https://posthog.com/task/1",
+            reply_target_slack_user_id="U456",
+            merged=merged,
+        )
+
+        mock_client.chat_delete.assert_not_called()
+        mock_client.chat_postMessage.assert_called_once()
+        kwargs = mock_client.chat_postMessage.call_args.kwargs
+        assert kwargs["thread_ts"] == "1234.5678"
+        assert kwargs["text"] == expected_text
+        assert _button_texts(_action_blocks(kwargs)[0]) == ["View PR", "Open in PostHog"]
+        assert any(block["type"] == "context" for block in kwargs["blocks"]) == expects_retry_hint
+
     @patch.object(SlackThreadHandler, "_find_progress_message_ts", return_value=None)
     @patch.object(SlackThreadHandler, "_get_client")
     def test_post_error_formats_upstream_provider_failure(self, mock_get_client, _mock_find_progress):
@@ -268,6 +283,24 @@ class TestSlackThreadHandlerWithoutTaskUrl(SimpleTestCase):
         mock_client.chat_postMessage.assert_called_once()
         assert _action_blocks(mock_client.chat_postMessage.call_args.kwargs) == []
 
+    @patch.object(SlackThreadHandler, "_find_progress_message_ts", return_value=None)
+    @patch.object(SlackThreadHandler, "_get_client")
+    def test_post_or_update_progress_names_the_project_it_runs_against(self, mock_get_client, _mock_find_progress):
+        # A task that routed itself to another project says so while it works, not only
+        # in the footer of the answer minutes later.
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+        handler = SlackThreadHandler(
+            self._make_context(),
+            RunFooter(model="claude-opus-5", reasoning_effort="high", project="Staging"),
+        )
+
+        handler.post_or_update_progress("Building", task_url=None)
+
+        blocks = mock_client.chat_postMessage.call_args.kwargs["blocks"]
+        context_text = next(b["elements"][0]["text"] for b in blocks if b["type"] == "context")
+        assert context_text == "*Claude Opus 5* [High] · Project: *Staging*"
+
     @patch.object(SlackThreadHandler, "delete_progress")
     @patch.object(SlackThreadHandler, "_get_client")
     def test_post_pr_opened_without_task_url_keeps_pr_button(self, mock_get_client, _mock_delete_progress):
@@ -311,18 +344,6 @@ class TestSlackThreadHandlerWithoutTaskUrl(SimpleTestCase):
         assert _action_blocks(kwargs) == []
         # The error body itself must still surface — only the action block is gated.
         assert kwargs["blocks"][1]["text"]["text"] == "boom"
-
-    @patch.object(SlackThreadHandler, "delete_progress")
-    @patch.object(SlackThreadHandler, "_get_client")
-    def test_post_cancelled_without_task_url_drops_actions(self, mock_get_client, _mock_delete_progress):
-        mock_client = MagicMock()
-        mock_get_client.return_value = mock_client
-        handler = SlackThreadHandler(self._make_context())
-
-        handler.post_cancelled(task_url=None)
-
-        mock_client.chat_postMessage.assert_called_once()
-        assert _action_blocks(mock_client.chat_postMessage.call_args.kwargs) == []
 
 
 class TestPostPrOpenedReplyTarget(SimpleTestCase):
@@ -405,36 +426,6 @@ class TestReplyFooterGate(SimpleTestCase):
             mentioning_slack_user_id="U123",
         )
         return SlackThreadHandler(context, footer or RunFooter(model="claude-opus-5"))
-
-    @parameterized.expand([("withheld", False), ("granted", True)])
-    @patch.object(SlackThreadHandler, "_get_integration")
-    @patch.object(SlackThreadHandler, "_get_client")
-    def test_withholding_the_links_still_leaves_the_model_and_configure(
-        self,
-        _name: str,
-        code_access: bool,
-        mock_get_client,
-        mock_get_integration,
-    ) -> None:
-        # Desktop access changes only the desktop segment: the web link works for anyone
-        # with a PostHog login, and the model and the way to change it are theirs either way.
-        mock_client = MagicMock()
-        mock_get_client.return_value = mock_client
-        mock_get_integration.return_value = Integration(config={"app_id": "A1"}, integration_id="T1")
-        footer = RunFooter(
-            task_url="https://app/project/1/tasks/t",
-            desktop_url="https://us.posthog.com/code/task/t",
-            model="claude-opus-5",
-        )
-
-        with patch.object(SlackThreadHandler, "viewer_can_open_code_links", return_value=code_access):
-            self._handler(footer).post_thread_message("the answer", with_footer=True)
-
-        line = mock_client.chat_postMessage.call_args.kwargs["blocks"][-1]["elements"][0]["text"]
-        assert "*Claude Opus 5*" in line
-        assert "|Configure>" in line
-        assert "View on web" in line
-        assert ("View on desktop" in line) is code_access
 
     @patch.object(SlackThreadHandler, "_get_integration")
     @patch.object(SlackThreadHandler, "_get_client")

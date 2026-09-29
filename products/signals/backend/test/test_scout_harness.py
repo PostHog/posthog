@@ -51,12 +51,15 @@ from products.signals.backend.scout_harness import (
 )
 from products.signals.backend.scout_harness.derived_metadata import DERIVED_METADATA_KEY
 from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY, _compute_row_hash
-from products.signals.backend.scout_harness.limits import STALE_RUN_CUTOFF_S, failure_streak_pause_threshold
+from products.signals.backend.scout_harness.limits import (
+    STALE_RUN_CUTOFF_S,
+    TRIGGERED_BY_CHECK,
+    TRIGGERED_BY_SCHEDULE,
+    failure_streak_pause_threshold,
+)
 from products.signals.backend.scout_harness.model_selection import ScoutModel
 from products.signals.backend.scout_harness.prompt import (
     _EXTERNAL_MCP_LISTING_CAP,
-    _GOVERNED_METRIC_LISTING_CAP,
-    _METRICS_CATALOG_SUPERSEDES_CACHE as _SUPERSEDES_CACHED_ENTRIES,
     _REPORT_CHARTS,
     HARNESS_PROMPT_VERSION,
     _checkout_section,
@@ -375,7 +378,11 @@ class TestReportChartsSection(SimpleTestCase):
         assert block is not None
         charts = json.loads(block.group(1))
 
-        assert [c["query"]["kind"] for c in charts] == ["InsightVizNode", "DataVisualizationNode"]
+        assert [c["query"]["kind"] for c in charts] == [
+            "InsightVizNode",
+            "DataVisualizationNode",
+            "DataVisualizationNode",
+        ]
         for chart in charts:
             ReportChart.model_validate(chart)
 
@@ -388,6 +395,17 @@ class TestReportChartsSection(SimpleTestCase):
 
         assert sql_chart["chartSettings"]["xAxis"]["column"]
         assert sql_chart["chartSettings"]["yAxis"][0]["column"]
+
+    def test_multi_dimension_sql_example_names_its_breakdown_column(self) -> None:
+        # Naming only the axes on a query grouped by two dimensions draws every row of a day at its
+        # own x position, so the line zigzags. The breakdown column is what pivots them into series.
+        block = re.search(r"```json\n(.*?)\n```", _REPORT_CHARTS, re.S)
+        assert block is not None
+        sql_chart = json.loads(block.group(1))[2]["query"]
+
+        breakdown_column = sql_chart["chartSettings"]["seriesBreakdownColumn"]
+        assert breakdown_column
+        assert breakdown_column != sql_chart["chartSettings"]["xAxis"]["column"]
 
 
 class TestPromptCacheablePrefix(SimpleTestCase):
@@ -433,7 +451,7 @@ class TestPromptCacheablePrefix(SimpleTestCase):
             started_at=datetime(2026, 5, 1, 12, 34, 56, tzinfo=UTC),
             github_read_access=github_read_access,
             business_knowledge_maintained=business_knowledge_maintained,
-            governed_metric_names=["mrr_probe_metric"],
+            project_has_governed_metrics=True,
             write_scopes=["dashboard:write"],
             structured_output_schema={"type": "object", "properties": {"verdict": {"type": "string"}}},
             mcp_server_names=["Datadog (EU)"],
@@ -461,7 +479,6 @@ class TestPromptCacheablePrefix(SimpleTestCase):
             "2026-05-01T12:34:56+00:00",
             "987654",
             "signals-scout-prefix-probe",
-            "mrr_probe_metric",
             "Datadog",
             "acme-co/service",
             '"verdict"',
@@ -478,6 +495,69 @@ class TestCheckoutSection(SimpleTestCase):
 
         assert "full commit history" in section
         assert "git blame" in section
+
+
+class TestCloseOutTaskSummary(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("signal", []),
+            ("report_both", ["emit_report", "edit_report"]),
+            ("report_emit_only", ["emit_report"]),
+            ("report_edit_only", ["edit_report"]),
+        ]
+    )
+    def test_close_out_asks_for_the_run_row_summary_on_every_channel(
+        self, _name: str, allowed_tools: list[str]
+    ) -> None:
+        # The run row is what a reader sees without opening the transcript, and the harness only
+        # writes it when the scout calls the tool. Each channel renders its own close-out step, so
+        # a channel that drops the instruction leaves its scouts with a blank run row and nothing
+        # in the rendered prompt to show why.
+        prompt = build_run_prompt(
+            LoadedSkill(
+                name="signals-scout-close-out",
+                version=1,
+                body="watch",
+                description="d",
+                allowed_tools=allowed_tools,
+                files=[],
+                skill_id="skill-1",
+                origin="canonical",
+                authors=[],
+            ),
+            run_id="00000000-0000-0000-0000-000000000abc",
+            team_id=1,
+            started_at=datetime(2026, 5, 1, 12, 34, 56, tzinfo=UTC),
+        )
+
+        close_out_step = next(line for line in prompt.splitlines() if "**Close out.**" in line)
+        writing_summary = prompt.split("# Writing the summary")[1].split("\n# ")[0]
+        how_to_call_tools = prompt.split("# How to call tools")[1].split("\n# ")[0]
+
+        assert "task_summary_update" in close_out_step
+        assert "task_summary_update" in writing_summary
+        # The close-out tool is a harness tool, not a PostHog MCP tool. Without the qualified name
+        # in both sections, the "every tool goes through mcp__posthog__exec" rule sends the scout
+        # to search a catalog the tool was never in, and the run row stays blank.
+        assert scout_prompt._TASK_SUMMARY_TOOL_ID in writing_summary
+        assert scout_prompt._TASK_SUMMARY_TOOL_ID in how_to_call_tools
+
+
+class TestCloseOutSummaryToolContract(SimpleTestCase):
+    _HARNESS_ROOT = Path(__file__).parents[3] / "desktop/packages/harness/src/extensions"
+
+    def test_prompt_names_the_tool_the_harness_registers(self) -> None:
+        # The prompt hardcodes the qualified tool id the scout calls. The harness owns both halves
+        # of that id, so a rename there leaves scouts calling a tool that no longer exists, with
+        # nothing in Python to catch it.
+        registry = (self._HARNESS_ROOT / "local-tools/registry.ts").read_text()
+        task_summary = (self._HARNESS_ROOT / "task-system-prompt/task-summary.ts").read_text()
+        server_name = re.search(r'LOCAL_TOOLS_MCP_NAME = "([^"]+)"', registry)
+        tool_name = re.search(r'TASK_SUMMARY_TOOL_NAME = "([^"]+)"', task_summary)
+        assert server_name and tool_name, "the harness constants moved — update this contract"
+
+        assert scout_prompt._TASK_SUMMARY_TOOL == tool_name.group(1)
+        assert scout_prompt._TASK_SUMMARY_TOOL_ID == f"mcp__{server_name.group(1)}__{tool_name.group(1)}"
 
 
 class TestPromptCrossReferences(SimpleTestCase):
@@ -599,7 +679,7 @@ class TestStructuredOutputPromptSection(SimpleTestCase):
 
 
 class TestRunNotePromptSection(SimpleTestCase):
-    def _prompt(self, run_note: str | None) -> str:
+    def _prompt(self, run_note: str | None, triggered_by: str = TRIGGERED_BY_SCHEDULE) -> str:
         return build_run_prompt(
             LoadedSkill(
                 name="signals-scout-errors",
@@ -616,6 +696,7 @@ class TestRunNotePromptSection(SimpleTestCase):
             team_id=1,
             started_at=datetime(2026, 5, 1, 12, 34, 56, tzinfo=UTC),
             run_note=run_note,
+            triggered_by=triggered_by,
         )
 
     @parameterized.expand([("absent", None), ("blank", "   \n  ")])
@@ -640,6 +721,16 @@ class TestRunNotePromptSection(SimpleTestCase):
         assert "# A note for this run" in prompt
         assert "do not record it in the scratchpad as a durable memory" in prompt
         assert "# Notes left for you" in prompt
+
+    def test_a_check_dispatch_frames_its_note_as_the_run_assignment(self) -> None:
+        # Framed as a person's nudge, a check run reads its assignment as optional steering and is
+        # never told about the one tool that closes the check.
+        prompt = self._prompt("Check id: abc. Did the exception stop?", triggered_by=TRIGGERED_BY_CHECK)
+
+        assert "# The check this run must answer" in prompt
+        assert "<check>\nCheck id: abc. Did the exception stop?\n</check>" in prompt
+        assert "scout-check-record-result" in prompt
+        assert "# A note for this run" not in prompt
 
 
 class TestExternalMcpServersPromptSection(SimpleTestCase):
@@ -847,6 +938,9 @@ class TestPromptBuilder(BaseTest):
         # scout would otherwise pay on a fresh team.
         assert "Then: orient on this project" in prompt
         assert "scout-project-profile-get" in prompt
+        assert "summary.emit_eligibility.can_emit" in prompt
+        assert "For `scout_emit_disabled`, continue the investigation without emitting findings or reports." in prompt
+        assert "Do not close out early because of this dry-run setting." in prompt
         # The base prompt teaches the agent to call the harness MCP tools by name.
         assert "scout-emit-signal" in prompt
         assert "scout-scratchpad-search" in prompt
@@ -932,15 +1026,15 @@ class TestPromptBuilder(BaseTest):
         )
         assert "Code-derived reviewer evidence" not in signal_prompt
 
-    # The rule lives in the shared run-works head, and each channel assembles its own tail from
-    # that head, so a channel can lose it independently.
     @parameterized.expand(
         [
             ("signal_channel", []),
             ("report_channel", ["emit_report", "edit_report"]),
         ]
     )
-    def test_catalog_rule_renders_on_every_channel(self, name: str, allowed_tools: list[str]) -> None:
+    def test_catalog_text_renders_only_for_a_project_with_governed_metrics(
+        self, name: str, allowed_tools: list[str]
+    ) -> None:
         skill_name = f"signals-scout-catalog-{name}"
         LLMSkill.objects.create(
             team=self.team,
@@ -956,47 +1050,18 @@ class TestPromptBuilder(BaseTest):
             "started_at": datetime(2026, 5, 1, 12, 34, 56, tzinfo=UTC),
         }
 
-        prompt = build_run_prompt(loaded, **kwargs)
-        assert "system.information_schema.metrics" in prompt
-        assert "data-catalog-metric-run" in prompt
+        nudged = build_run_prompt(loaded, **kwargs, project_has_governed_metrics=True)
+        assert "# Governed metrics" in nudged
+        assert "data-catalog-metric-run" in nudged
 
-    def test_prefetched_catalog_listing_replaces_the_probe_instruction(self) -> None:
-        LLMSkill.objects.create(team=self.team, name="signals-scout-catalog-listing", description="s", body="watch")
-        loaded = load_skill_for_run(self.team, "signals-scout-catalog-listing")
-        kwargs: dict = {
-            "run_id": "00000000-0000-0000-0000-000000000abc",
-            "team_id": self.team.id,
-            "started_at": datetime(2026, 5, 1, 12, 34, 56, tzinfo=UTC),
-        }
-        names = ["scout_cost_per_run", "scout_run_fail_pct"]
-
-        listed = build_run_prompt(loaded, **kwargs, governed_metric_names=names)
-        assert "`scout_run_fail_pct`" in listed
-        assert "`scout_cost_per_run`" in listed
-        assert "data-catalog-metric-run" in listed
-        assert "Cache the lookup outcome" not in listed
-        assert _SUPERSEDES_CACHED_ENTRIES in listed
-        assert "governed catalog consulted: no listed metric matched" in listed
-
-        empty = build_run_prompt(loaded, **kwargs, governed_metric_names=[])
-        assert "no approved metrics" in empty
-        assert "Cache the lookup outcome" not in empty
-        assert _SUPERSEDES_CACHED_ENTRIES in empty
-        assert "governed catalog consulted: empty, no metric matches" in empty
-
-        fallback = build_run_prompt(loaded, **kwargs, governed_metric_names=None)
-        assert "Cache the lookup outcome" in fallback
-        assert _SUPERSEDES_CACHED_ENTRIES not in fallback
-        assert "governed catalog consulted: no listed metric matched" in fallback
-
-        # The cap is what keeps this injection to a handful of tokens in every run, and past it the
-        # listing stops being the whole catalog, so it has to say a lookup is still warranted for an
-        # unlisted measure.
-        overflowing = [f"metric_{index:03d}" for index in range(_GOVERNED_METRIC_LISTING_CAP + 3)]
-        capped = build_run_prompt(loaded, **kwargs, governed_metric_names=overflowing)
-        assert "`metric_000`" in capped
-        assert f"`metric_{_GOVERNED_METRIC_LISTING_CAP:03d}`" not in capped
-        assert "and 3 more this listing omits" in capped
+        for unused in (
+            build_run_prompt(loaded, **kwargs),
+            build_run_prompt(loaded, **kwargs, project_has_governed_metrics=False),
+        ):
+            assert "# Governed metrics" not in unused
+            assert "data-catalog-metric-run" not in unused
+            assert "metric-list" not in unused
+            assert "information_schema.metrics" not in unused
 
     def test_report_channel_renders_report_persona_and_guidance(self) -> None:
         LLMSkill.objects.create(
@@ -1337,6 +1402,14 @@ class TestPromptBuilder(BaseTest):
         assert "signals-scout-inbox-validation" in prompt
         section = prompt[prompt.index("Follow up on your own past work") :]
         assert resurface_tool in section.split("# ")[0]
+        # Same fail-closed rule for the durable half of the loop: the check endpoints refuse a run
+        # whose skill does not list `edit_report`, so only such a scout is pointed at them.
+        if "edit_report" in allowed_tools:
+            assert "scout-report-check-create" in section.split("# ")[0]
+            # A check written in error stays on the report unless the scout knows it can withdraw it.
+            assert "scout-report-check-cancel" in section.split("# ")[0]
+        else:
+            assert "scout-report-check" not in prompt
 
 
 # Orchestration tests run as plain pytest functions because the async runner uses
@@ -1688,13 +1761,14 @@ async def test_run_mints_the_scouts_granted_write_scopes_and_stamps_them_on_the_
 @pytest.mark.asyncio
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "names,expected_marker",
+    "names,expect_nudge",
     [
-        pytest.param(["scout_run_fail_pct"], "scout_run_fail_pct", id="listing_injected"),
-        pytest.param(RuntimeError("catalog read down"), "Cache the lookup outcome", id="lookup_error_falls_back"),
+        pytest.param(["scout_run_fail_pct"], True, id="approved_metrics_nudge"),
+        pytest.param([], False, id="empty_catalog_renders_nothing"),
+        pytest.param(RuntimeError("catalog read down"), False, id="lookup_error_renders_nothing"),
     ],
 )
-async def test_governed_listing_reaches_the_prompt_from_the_catalog(ateam, aerrors_skill, names, expected_marker):
+async def test_catalog_nudge_follows_the_projects_approved_metrics(ateam, aerrors_skill, names, expect_nudge):
     session, result = await database_sync_to_async(_make_fake_session, thread_sensitive=False)(ateam)
     acting_user = await sync_to_async(User.objects.create_and_join)(
         organization=ateam.organization,
@@ -1725,10 +1799,10 @@ async def test_governed_listing_reaches_the_prompt_from_the_catalog(ateam, aerro
         run_result = await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
 
     assert run_result.status == apps.get_model("tasks", "TaskRun").Status.COMPLETED.value
-    assert expected_marker in captured["prompt"]
-    # The listing must be resolved as the run's acting user, or it could be wider than what the run
-    # could have queried for itself; the access check lives behind the facade call, so passing the
-    # user is the only part of that the runner owns.
+    assert ("# Governed metrics" in captured["prompt"]) is expect_nudge
+    # The check must be resolved as the run's acting user, or the prompt could point a run at
+    # metrics it cannot read; the access check lives behind the facade call, so passing the user is
+    # the only part of that the runner owns.
     assert names_mock.call_args.args == (ateam, acting_user)
 
 

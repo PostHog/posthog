@@ -414,6 +414,15 @@ export const AccountsPartialUpdateBody = /* @__PURE__ */ zod
     })
     .describe('A Customer Analytics account — a logical grouping used to assign customer-success ownership.')
 
+export const accountsPresenceListBodyAccountIdsMax = 100
+
+export const AccountsPresenceListBody = /* @__PURE__ */ zod.object({
+    account_ids: zod
+        .array(zod.uuid())
+        .max(accountsPresenceListBodyAccountIdsMax)
+        .describe('Up to 100 account IDs to read presence for.'),
+})
+
 /**
  * Run a Customer Analytics accounts table query.
  */
@@ -438,6 +447,16 @@ export const CalendarSyncBackfillCreateBody = /* @__PURE__ */ zod.object({
     integration_id: zod.number().describe('Id of the Google account integration to backfill.'),
     start_date: zod.iso.date().describe('First UTC date to include. Must be within the last 365 days.'),
     end_date: zod.iso.date().describe('Final UTC date to include. Cannot be after today.'),
+})
+
+/**
+ * Calendar-sync controls for Customer analytics settings. Sync runs on an hourly
+ * Temporal schedule; this surface only offers the manual "sync now" escape hatch.
+ * @summary Set Google account sync interval
+ */
+export const CalendarSyncIntervalCreateBody = /* @__PURE__ */ zod.object({
+    integration_id: zod.number().describe('Id of the connected Google account.'),
+    sync_interval_minutes: zod.number().describe('Minutes between scheduled syncs: 5, 15, 30, or 60.'),
 })
 
 /**
@@ -1430,6 +1449,22 @@ export const FeatureRequestsArchiveCreateBody = /* @__PURE__ */ zod.object({
         .describe('Request version loaded by the editor. Stale versions return 409 Conflict.'),
 })
 
+export const FeatureRequestsLinkGithubCreateBody = /* @__PURE__ */ zod.object({
+    integration_id: zod.number().min(1).describe('GitHub integration ID connected to this project.'),
+    issue_url: zod.url().describe('GitHub issue URL. Pull request URLs are not supported.'),
+    expected_version: zod
+        .number()
+        .min(1)
+        .describe('Request version loaded by the editor. Stale versions return 409 Conflict.'),
+})
+
+export const FeatureRequestsPauseGithubCreateBody = /* @__PURE__ */ zod.object({
+    expected_version: zod
+        .number()
+        .min(1)
+        .describe('Request version loaded by the editor. Stale versions return 409 Conflict.'),
+})
+
 export const FeatureRequestsRemoveEvidenceCreateBody = /* @__PURE__ */ zod.object({
     expected_version: zod
         .number()
@@ -1439,6 +1474,20 @@ export const FeatureRequestsRemoveEvidenceCreateBody = /* @__PURE__ */ zod.objec
 })
 
 export const FeatureRequestsRestoreCreateBody = /* @__PURE__ */ zod.object({
+    expected_version: zod
+        .number()
+        .min(1)
+        .describe('Request version loaded by the editor. Stale versions return 409 Conflict.'),
+})
+
+export const FeatureRequestsResumeGithubCreateBody = /* @__PURE__ */ zod.object({
+    expected_version: zod
+        .number()
+        .min(1)
+        .describe('Request version loaded by the editor. Stale versions return 409 Conflict.'),
+})
+
+export const FeatureRequestsUnlinkGithubCreateBody = /* @__PURE__ */ zod.object({
     expected_version: zod
         .number()
         .min(1)
@@ -1648,7 +1697,7 @@ export const GroupsTypesMetricsPartialUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Replace the requesting user's ordered account sidebar properties when pinned_properties is provided. Omitting pinned_properties leaves the configuration unchanged. At most 50 account custom properties and relationships can be pinned.
+ * Replace the requesting user's ordered account sidebar properties when pinned_properties is provided, and change the task digest email preferences when task_digest is provided. Anything omitted keeps its current value. At most 50 account custom properties and relationships can be pinned.
  * @summary Update account sidebar configuration
  */
 export const UserCustomerAnalyticsConfigPartialUpdateBody = /* @__PURE__ */ zod.object({
@@ -1667,5 +1716,22 @@ export const UserCustomerAnalyticsConfigPartialUpdateBody = /* @__PURE__ */ zod.
         .optional()
         .describe(
             'Complete ordered list of account properties to pin. Omit to keep the current pins; pass an empty list to clear them.'
+        ),
+    task_digest: zod
+        .object({
+            enabled: zod.boolean().optional().describe('Whether the task digest email is sent to this user.'),
+            send_time: zod.iso
+                .time({})
+                .optional()
+                .describe('Time of day to send the digest, as HH:MM in the project timezone.'),
+            cadence: zod
+                .enum(['weekdays', 'every_day'])
+                .describe('\* `weekdays` - Weekdays\n\* `every_day` - Every day')
+                .optional()
+                .describe('How often the digest is sent.\n\n\* `weekdays` - Weekdays\n\* `every_day` - Every day'),
+        })
+        .optional()
+        .describe(
+            'Task digest email preferences to change. Omit the object to keep them all; omit a field inside it to keep that one.'
         ),
 })

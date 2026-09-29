@@ -3,6 +3,7 @@ from io import StringIO
 from typing import Any
 
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from django.core.management import call_command
 from django.core.management.base import CommandError
@@ -11,14 +12,12 @@ from parameterized import parameterized
 
 from posthog.models import Team
 
+from products.feature_flags.backend.management.commands import repair_replay_linked_flag_keys as repair_command
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.feature_flags.backend.test.replay_gate_fixtures import set_linked_flag
 
 
 class TestRepairReplayLinkedFlagKeys(BaseTest):
-    def _link_flag(self, team: Team, linked_flag: dict[str, Any] | None) -> None:
-        team.session_recording_linked_flag = linked_flag
-        team.save()
-
     def _run(self, *args: str, teams: list[Team]) -> dict[str, Any]:
         # Scope to this test's teams: the local test DB is reused across suites and can carry
         # leftover rows from other tests.
@@ -35,7 +34,7 @@ class TestRepairReplayLinkedFlagKeys(BaseTest):
 
     def test_repairs_a_stale_key_and_is_idempotent(self) -> None:
         flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay-gate-v2")
-        self._link_flag(self.team, {"id": flag.id, "key": "replay-gate", "variant": "control"})
+        set_linked_flag(self.team, {"id": flag.id, "key": "replay-gate", "variant": "control"})
 
         report = self._run("--live-run", teams=[self.team])
 
@@ -64,7 +63,7 @@ class TestRepairReplayLinkedFlagKeys(BaseTest):
         # Writing has to be opted into: a bare run rewrites every team's replay config and
         # enqueues a RemoteConfig rebuild per row.
         flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay-gate-v2")
-        self._link_flag(self.team, {"id": flag.id, "key": "replay-gate"})
+        set_linked_flag(self.team, {"id": flag.id, "key": "replay-gate"})
 
         report = self._run(teams=[self.team])
 
@@ -107,7 +106,7 @@ class TestRepairReplayLinkedFlagKeys(BaseTest):
                 deleted=case == "flag_soft_deleted",
             )
             linked_flag = {"id": flag.id, "key": "replay-gate"}
-        self._link_flag(self.team, linked_flag)
+        set_linked_flag(self.team, linked_flag)
 
         # `--live-run` so the row surviving proves the command declined to rewrite it, rather than
         # just proving dry-run writes nothing.
@@ -121,13 +120,93 @@ class TestRepairReplayLinkedFlagKeys(BaseTest):
     def test_repairs_a_sibling_team_linking_another_teams_flag(self) -> None:
         sibling_team = Team.objects.create(organization=self.organization, project=self.team.project)
         flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay-gate-v2")
-        self._link_flag(sibling_team, {"id": flag.id, "key": "replay-gate"})
+        set_linked_flag(sibling_team, {"id": flag.id, "key": "replay-gate"})
 
         report = self._run("--live-run", teams=[sibling_team])
 
         assert report["outcomes"] == {"repaired": 1}
         sibling_team.refresh_from_db()
         assert sibling_team.session_recording_linked_flag == {"id": flag.id, "key": "replay-gate-v2"}
+
+    def test_a_rename_landing_mid_scan_is_not_written_back(self) -> None:
+        # Every flag key is read once per chunk, before the first team row of that chunk is
+        # locked. A rename in that window relinks the team on its own, so writing the key the
+        # chunk read leaves the team gating on a key no flag holds, which is the failure this
+        # command exists to repair.
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="gate-b")
+        set_linked_flag(self.team, {"id": flag.id, "key": "gate-a"})
+
+        real_save = repair_command.save_replay_gate_rewrites
+
+        def rename_then_save(team_id: int, compute: Any) -> None:
+            flag.key = "gate-c"
+            with self.captureOnCommitCallbacks(execute=True):
+                flag.save()
+            real_save(team_id, compute)
+
+        with patch.object(repair_command, "save_replay_gate_rewrites", side_effect=rename_then_save):
+            report = self._run("--live-run", teams=[self.team])
+
+        self.team.refresh_from_db()
+        assert self.team.session_recording_linked_flag == {"id": flag.id, "key": "gate-c"}
+        # The relink did the write, so this run has nothing left to repair and claims none.
+        assert report["repairs"] == []
+        assert report["outcomes"] == {"already_correct": 1}
+
+    def test_a_repoint_mid_scan_is_not_reported_as_a_repair(self) -> None:
+        # An admin can send the gate to a different flag between the chunk read and the lock.
+        # That edit is not this command's to touch, and reporting a repair here would name a key
+        # the team does not hold, on a flag it no longer points at.
+        stale_flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="gate-current")
+        other_flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="other-current")
+        set_linked_flag(self.team, {"id": stale_flag.id, "key": "gate-stale"})
+
+        real_save = repair_command.save_replay_gate_rewrites
+
+        def repoint_then_save(team_id: int, compute: Any) -> None:
+            admin = Team.objects.get(pk=team_id)
+            admin.session_recording_linked_flag = {"id": other_flag.id, "key": "other-current"}
+            admin.save()
+            real_save(team_id, compute)
+
+        with patch.object(repair_command, "save_replay_gate_rewrites", side_effect=repoint_then_save):
+            report = self._run("--live-run", teams=[self.team])
+
+        self.team.refresh_from_db()
+        assert self.team.session_recording_linked_flag == {"id": other_flag.id, "key": "other-current"}
+        assert report["repairs"] == []
+
+    def test_a_flag_hard_deleted_at_write_time_writes_nothing(self) -> None:
+        # The key is read again inside the team's row lock. A hard delete landing in that window
+        # leaves no key to adopt, and writing the None it reads would store a gate the SDKs
+        # cannot resolve, which stops the team recording.
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="gate-current")
+        set_linked_flag(self.team, {"id": flag.id, "key": "gate-stale"})
+
+        real_save = repair_command.save_replay_gate_rewrites
+
+        def hard_delete_then_save(team_id: int, compute: Any) -> None:
+            FeatureFlag.objects_including_soft_deleted.filter(pk=flag.id).delete()
+            real_save(team_id, compute)
+
+        with patch.object(repair_command, "save_replay_gate_rewrites", side_effect=hard_delete_then_save):
+            report = self._run("--live-run", teams=[self.team])
+
+        self.team.refresh_from_db()
+        assert self.team.session_recording_linked_flag == {"id": flag.id, "key": "gate-stale"}
+        assert report["repairs"] == []
+        assert report["outcomes"] == {"flag_missing": 1}
+
+    def test_a_team_row_gone_at_write_time_is_not_reported_as_a_missing_flag(self) -> None:
+        # `save_replay_gate_rewrites` skips the rewrite when the team row is gone, which reads the
+        # same as a flag that resolved to nothing. Filing it under flag_missing sends whoever runs
+        # the repair looking at the wrong row.
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="gate-live")
+
+        write = repair_command.Command()._write_current_key(team_id=self.team.pk + 10_000_000, flag_id=flag.id)
+
+        assert write.outcome == repair_command.Outcome.TEAM_MISSING
+        assert write.written_key is None
 
     def test_repairs_every_team_across_chunk_boundaries(self) -> None:
         # A chunk size smaller than the number of scanned teams forces _iter_team_chunks through
@@ -137,7 +216,7 @@ class TestRepairReplayLinkedFlagKeys(BaseTest):
         ]
         flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay-gate-v2")
         for team in teams:
-            self._link_flag(team, {"id": flag.id, "key": "replay-gate"})
+            set_linked_flag(team, {"id": flag.id, "key": "replay-gate"})
 
         report = self._run("--live-run", "--chunk-size", "1", teams=teams)
 

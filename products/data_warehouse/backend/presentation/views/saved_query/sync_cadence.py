@@ -91,13 +91,11 @@ class SyncFrequencyBoundsSerializer(serializers.Serializer):
         choices=[
             ("tiered", "tiered"),
             ("managed_viewset", "managed_viewset"),
-            ("legacy", "legacy"),
             ("no_node", "no_node"),
         ],
         help_text="What governs this view's cadence. 'tiered' is the only mode where `options` is "
         "meaningful and `sync_frequency` is writable per view. 'managed_viewset' means PostHog owns "
-        "the view, 'legacy' means the v1 backend, where any cadence is accepted and no bounds apply, "
-        "and 'no_node' means the view has no data modeling node to store a cadence on.",
+        "the view, and 'no_node' means the view has no data modeling node to store a cadence on.",
     )
     options = SyncFrequencyOptionSerializer(
         many=True,

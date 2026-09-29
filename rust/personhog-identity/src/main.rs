@@ -21,6 +21,7 @@ use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::EnvFilter;
 
 use personhog_common::client::RouterClient;
+use personhog_common::query_tag;
 use personhog_coordination::store::PersonhogStore;
 use personhog_identity::config::Config;
 use personhog_identity::leader::LifecycleLeader;
@@ -73,7 +74,10 @@ async fn warm_pool(pool: &PgPool, lane: Lane, min_connections: u32, server_warmu
     }
     let mut server_warmed = 0u32;
     for conn in conns.iter_mut().take(server_warmup_count) {
-        match sqlx::query("SELECT 1").execute(&mut **conn).await {
+        match sqlx::query(&query_tag!("warm_pool", "SELECT 1"))
+            .execute(&mut **conn)
+            .await
+        {
             Ok(_) => server_warmed += 1,
             Err(e) => {
                 tracing::warn!(pool = lane.label(), error = %e, "Failed to warm server-side connection");

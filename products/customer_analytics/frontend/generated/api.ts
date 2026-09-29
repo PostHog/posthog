@@ -12,6 +12,8 @@ import type {
     AccountApi,
     AccountNotebookApi,
     AccountNotesListParams,
+    AccountPresenceApi,
+    AccountPresenceListRequestApi,
     AccountPresenceViewerApi,
     AccountRelationshipApi,
     AccountRelationshipDefinitionApi,
@@ -22,6 +24,7 @@ import type {
     AccountTrackRuleRunViewApi,
     AccountTrackRulesConfigApi,
     AccountTrackRulesRunsListParams,
+    AccountsByExternalIdRetrieveParams,
     AccountsEmailThreadMessagesListParams,
     AccountsEmailThreadsListParams,
     AccountsListParams,
@@ -36,6 +39,7 @@ import type {
     AnnouncementChannelApi,
     AnnouncementsListParams,
     CalendarSyncBackfillApi,
+    CalendarSyncIntervalApi,
     CalendarSyncStatusApi,
     CalendarSyncTriggerApi,
     CalendarSyncTriggerResponseApi,
@@ -74,6 +78,7 @@ import type {
     FeatureRequestEvidenceCreateApi,
     FeatureRequestEvidenceDeleteApi,
     FeatureRequestEvidenceUpdateApi,
+    FeatureRequestGitHubLinkSerializerInputApi,
     FeatureRequestHistoryApi,
     FeatureRequestProductAreaApi,
     FeatureRequestProductAreasListParams,
@@ -154,7 +159,7 @@ export const getCustomerAnalyticsExternalAccountRetrieveUrl = (
 }
 
 /**
- * Fetch one account by external ID with its properties, tags, active relationship assignments and custom property values. Accepts the team secret API token or a project secret API key with the `account:read` scope.
+ * Fetch one account by external ID with its properties, controlled relationship ownership, tags, active relationship assignments and custom property values. Accepts the team secret API token or a project secret API key with the `account:read` scope.
  * @summary Get an external customer analytics account
  */
 export const customerAnalyticsExternalAccountRetrieve = async (
@@ -186,7 +191,7 @@ export const getCustomerAnalyticsExternalAccountsRetrieveUrl = (
 }
 
 /**
- * List tracked accounts with external IDs, lifecycle timestamps, and active relationship assignments. Set `include_ignored=true` to include ignored accounts. Requires a project secret API key with the `account:read` scope.
+ * List tracked accounts with external IDs, lifecycle timestamps, controlled relationship ownership, and active relationship assignments. Set `include_ignored=true` to include ignored accounts and `managed_only=true` to read only the accounts customer analytics holds ownership authority for. Requires a project secret API key or personal API key with the `account:read` scope. Personal API keys also require `project_id` and return only accounts the key owner can access.
  * @summary List external customer analytics accounts
  */
 export const customerAnalyticsExternalAccountsRetrieve = async (
@@ -928,6 +933,50 @@ export const accountsSupportTicketMessagesList = async (
     )
 }
 
+export const getAccountsByExternalIdRetrieveUrl = (projectId: string, params: AccountsByExternalIdRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/accounts/by_external_id/?${stringifiedParams}`
+        : `/api/projects/${projectId}/accounts/by_external_id/`
+}
+
+export const accountsByExternalIdRetrieve = async (
+    projectId: string,
+    params: AccountsByExternalIdRetrieveParams,
+    options?: RequestInit
+): Promise<AccountApi> => {
+    return apiMutator<AccountApi>(getAccountsByExternalIdRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAccountsPresenceListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/accounts/presence_list/`
+}
+
+export const accountsPresenceList = async (
+    projectId: string,
+    accountPresenceListRequestApi: AccountPresenceListRequestApi,
+    options?: RequestInit
+): Promise<AccountPresenceApi[]> => {
+    return apiMutator<AccountPresenceApi[]>(getAccountsPresenceListUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(accountPresenceListRequestApi),
+    })
+}
+
 export const getCustomerAnalyticsAccountsTableQueryCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/accounts_table_query/`
 }
@@ -1060,6 +1109,28 @@ export const calendarSyncBackfillCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(calendarSyncBackfillApi),
+    })
+}
+
+export const getCalendarSyncIntervalCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/calendar_sync/interval/`
+}
+
+/**
+ * Calendar-sync controls for Customer analytics settings. Sync runs on an hourly
+ * Temporal schedule; this surface only offers the manual "sync now" escape hatch.
+ * @summary Set Google account sync interval
+ */
+export const calendarSyncIntervalCreate = async (
+    projectId: string,
+    calendarSyncIntervalApi: CalendarSyncIntervalApi,
+    options?: RequestInit
+): Promise<CalendarSyncIntervalApi> => {
+    return apiMutator<CalendarSyncIntervalApi>(getCalendarSyncIntervalCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(calendarSyncIntervalApi),
     })
 }
 
@@ -2224,6 +2295,42 @@ export const featureRequestsHistoryList = async (
     })
 }
 
+export const getFeatureRequestsLinkGithubCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/feature_requests/${id}/link_github/`
+}
+
+export const featureRequestsLinkGithubCreate = async (
+    projectId: string,
+    id: string,
+    featureRequestGitHubLinkSerializerInputApi: FeatureRequestGitHubLinkSerializerInputApi,
+    options?: RequestInit
+): Promise<FeatureRequestApi> => {
+    return apiMutator<FeatureRequestApi>(getFeatureRequestsLinkGithubCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(featureRequestGitHubLinkSerializerInputApi),
+    })
+}
+
+export const getFeatureRequestsPauseGithubCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/feature_requests/${id}/pause_github/`
+}
+
+export const featureRequestsPauseGithubCreate = async (
+    projectId: string,
+    id: string,
+    featureRequestVersionApi: FeatureRequestVersionApi,
+    options?: RequestInit
+): Promise<FeatureRequestApi> => {
+    return apiMutator<FeatureRequestApi>(getFeatureRequestsPauseGithubCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(featureRequestVersionApi),
+    })
+}
+
 export const getFeatureRequestsRemoveEvidenceCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/feature_requests/${id}/remove_evidence/`
 }
@@ -2260,6 +2367,24 @@ export const featureRequestsRestoreCreate = async (
     })
 }
 
+export const getFeatureRequestsResumeGithubCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/feature_requests/${id}/resume_github/`
+}
+
+export const featureRequestsResumeGithubCreate = async (
+    projectId: string,
+    id: string,
+    featureRequestVersionApi: FeatureRequestVersionApi,
+    options?: RequestInit
+): Promise<FeatureRequestApi> => {
+    return apiMutator<FeatureRequestApi>(getFeatureRequestsResumeGithubCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(featureRequestVersionApi),
+    })
+}
+
 export const getFeatureRequestsStatusHistoryListUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/feature_requests/${id}/status_history/`
 }
@@ -2272,6 +2397,24 @@ export const featureRequestsStatusHistoryList = async (
     return apiMutator<FeatureRequestStatusHistoryApi[]>(getFeatureRequestsStatusHistoryListUrl(projectId, id), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getFeatureRequestsUnlinkGithubCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/feature_requests/${id}/unlink_github/`
+}
+
+export const featureRequestsUnlinkGithubCreate = async (
+    projectId: string,
+    id: string,
+    featureRequestVersionApi: FeatureRequestVersionApi,
+    options?: RequestInit
+): Promise<FeatureRequestApi> => {
+    return apiMutator<FeatureRequestApi>(getFeatureRequestsUnlinkGithubCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(featureRequestVersionApi),
     })
 }
 
@@ -2421,7 +2564,7 @@ export const getUserCustomerAnalyticsConfigRetrieveUrl = (projectId: string, id:
 }
 
 /**
- * Get the requesting user's account sidebar configuration for this project. The first read creates an empty configuration row.
+ * Get the requesting user's account sidebar and task digest configuration for this project. The first read creates an empty configuration row.
  * @summary Get account sidebar configuration
  */
 export const userCustomerAnalyticsConfigRetrieve = async (
@@ -2440,7 +2583,7 @@ export const getUserCustomerAnalyticsConfigPartialUpdateUrl = (projectId: string
 }
 
 /**
- * Replace the requesting user's ordered account sidebar properties when pinned_properties is provided. Omitting pinned_properties leaves the configuration unchanged. At most 50 account custom properties and relationships can be pinned.
+ * Replace the requesting user's ordered account sidebar properties when pinned_properties is provided, and change the task digest email preferences when task_digest is provided. Anything omitted keeps its current value. At most 50 account custom properties and relationships can be pinned.
  * @summary Update account sidebar configuration
  */
 export const userCustomerAnalyticsConfigPartialUpdate = async (

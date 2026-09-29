@@ -167,7 +167,13 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig]):
                 "for example https://docs.google.com/spreadsheets/d/<id>/edit.",
             )
         except gspread.SpreadsheetNotFound:
-            return False, "Spreadsheet not found at URL provided"
+            # The Sheets API answers an unshared sheet with a 404, the same as a deleted one, so
+            # sharing is at least as likely as a wrong URL. Mirror the sync-time message.
+            return (
+                False,
+                "PostHog couldn't find a sheet at that URL. Check the URL, and share the sheet with our service "
+                f"account ({settings.GOOGLE_SHEETS_SERVICE_ACCOUNT_CLIENT_EMAIL}) as a Viewer.",
+            )
         except PermissionError:
             return (
                 False,

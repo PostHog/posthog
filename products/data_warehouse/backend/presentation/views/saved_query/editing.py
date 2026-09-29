@@ -1,5 +1,6 @@
 """The writable saved-query serializer: validation, create, and update."""
 
+import copy
 import uuid
 from typing import Any, cast
 
@@ -23,10 +24,12 @@ from posthog.errors import ExposedCHQueryError
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Team, User
-from posthog.models.activity_logging.activity_log import ActivityLog, Change, Detail, changes_between, log_activity
+from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, log_activity
 from posthog.rbac.query_access import assert_user_can_read_query
 
 from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
+from products.data_modeling.backend.facade.api import has_incremental_history
+from products.data_modeling.backend.facade.modeling import ResolutionCycleError, get_parents_from_model_query
 from products.data_modeling.backend.facade.models import (
     DataWarehouseSavedQuery,
     DataWarehouseSavedQueryColumnAnnotation,
@@ -44,6 +47,16 @@ from . import incremental_config, sync_cadence, view_description, view_state
 logger = structlog.get_logger(__name__)
 
 
+def _as_uuid(value: object) -> uuid.UUID | None:
+    # Clients echo the revision back in whatever UUID form their stack produces, so parse both
+    # sides before comparing. A raw string comparison rejects an uppercase or unhyphenated spelling
+    # of the same revision as a foreign edit.
+    try:
+        return uuid.UUID(str(value))
+    except (AttributeError, TypeError, ValueError):
+        return None
+
+
 def _view_types_validation_error(e: Exception) -> serializers.ValidationError:
     # Column inference runs the HogQL-to-ClickHouse path, so a raw exception can carry stack
     # traces, internal table or column names, and S3 URIs. Surface only the errors already marked
@@ -52,14 +65,6 @@ def _view_types_validation_error(e: Exception) -> serializers.ValidationError:
     if isinstance(e, ExposedHogQLError | ExposedCHQueryError):
         return serializers.ValidationError(f"Failed to retrieve types for view: {e}")
     return serializers.ValidationError(f"Failed to retrieve types for view: unexpected {type(e).__name__}")
-
-
-# A DataWarehouseSavedQuery's activity log also records materialization syncs and status
-# transitions (activity="sync_triggered", status changes) that advance the log without the query
-# being edited. Optimistic-concurrency ("modified by someone else") must key off the latest activity
-# that actually changed the query — otherwise every background sync of a materialized view looks
-# like a foreign edit and blocks the next save. This filter scopes activity lookups to query edits.
-QUERY_CHANGE_ACTIVITY_FILTER = {"detail__changes__contains": [{"field": "query"}]}
 
 
 class DataWarehouseSavedQuerySerializer(
@@ -94,11 +99,13 @@ class DataWarehouseSavedQuerySerializer(
     sync_frequency_bounds = serializers.SerializerMethodField(
         read_only=True, help_text=sync_cadence.SYNC_FREQUENCY_BOUNDS_HELP_TEXT
     )
-    latest_history_id = serializers.SerializerMethodField(
+    latest_history_id = serializers.UUIDField(
+        source="query_revision",
         read_only=True,
-        help_text="Activity log ID of the most recent query edit to this view. Send it back as "
-        "edited_history_id on the next query write, so conflict detection can tell whether someone else "
-        "changed the query in the meantime. Edits that leave the query alone do not advance it.",
+        allow_null=True,
+        help_text="Revision of this view's query. Send it back as edited_history_id on the next query "
+        "write, so conflict detection can tell whether someone else changed the query in the meantime. "
+        "Edits that leave the query alone do not advance it.",
     )
     last_run_at = serializers.SerializerMethodField(read_only=True)
     status = serializers.SerializerMethodField(read_only=True)
@@ -122,7 +129,8 @@ class DataWarehouseSavedQuerySerializer(
         write_only=True,
         required=False,
         allow_null=True,
-        help_text="Activity log ID from the last known edit. Used for conflict detection.",
+        help_text="The latest_history_id you last read for this view. Required when changing the query. "
+        "The write is refused if someone else changed the query in the meantime.",
     )
     soft_update = serializers.BooleanField(
         write_only=True,
@@ -149,6 +157,9 @@ class DataWarehouseSavedQuerySerializer(
         help_text="How far incremental materialization has progressed. Null until the first run "
         "records any. Written by the materialization run, not by this API.",
     )
+    has_incremental_history = serializers.SerializerMethodField(
+        help_text="Whether incremental settings participated in any materialization run."
+    )
 
     class Meta:
         model = DataWarehouseSavedQuery
@@ -159,6 +170,7 @@ class DataWarehouseSavedQuerySerializer(
             "query",
             "incremental",
             "incremental_state",
+            "has_incremental_history",
             "created_by",
             "created_at",
             "updated_at",
@@ -190,6 +202,7 @@ class DataWarehouseSavedQuerySerializer(
             "updated_at",
             "columns",
             "incremental_state",
+            "has_incremental_history",
             "status",
             "last_run_at",
             "managed_viewset_kind",
@@ -226,18 +239,9 @@ class DataWarehouseSavedQuerySerializer(
                 saved_query=view, column_name=""
             ).delete()
 
-    @extend_schema_field(serializers.UUIDField(allow_null=True))
-    def get_latest_history_id(self, view: DataWarehouseSavedQuery) -> uuid.UUID | None:
-        # First check if we have an activity log from a recent creation/update
-        if (
-            "activity_log" in self.context
-            and self.context["activity_log"]
-            and self.context["activity_log"].item_id == str(view.id)
-        ):
-            return self.context["activity_log"].id
-
-        # Otherwise check for annotated field from queryset
-        return cast(uuid.UUID | None, getattr(view, "latest_activity_id", None))
+    @extend_schema_field(serializers.BooleanField())
+    def get_has_incremental_history(self, view: DataWarehouseSavedQuery) -> bool:
+        return has_incremental_history(view)
 
     @extend_schema_field(
         serializers.DictField(
@@ -304,7 +308,7 @@ class DataWarehouseSavedQuerySerializer(
 
             team = Team.objects.get(id=view.team_id)
 
-            activity_log = log_activity(
+            log_activity(
                 organization_id=team.organization_id,
                 team_id=team.id,
                 user=view.created_by,
@@ -325,10 +329,6 @@ class DataWarehouseSavedQuerySerializer(
                     ],
                 ),
             )
-
-            # Store the activity log in the serializer context
-            if activity_log:
-                self.context["activity_log"] = activity_log
         # best effort sync to new data modeling DAG representation
         try:
             from products.data_modeling.backend.facade.api import sync_saved_query_to_dag
@@ -354,11 +354,6 @@ class DataWarehouseSavedQuerySerializer(
         if instance.managed_viewset is not None:
             raise serializers.ValidationError("Cannot update a query from a managed viewset")
 
-        try:
-            before_update = DataWarehouseSavedQuery.objects.get(pk=instance.id)
-        except DataWarehouseSavedQuery.DoesNotExist:
-            before_update = None
-
         sync_frequency = validated_data.pop("sync_frequency", None)
 
         if sync_frequency and sync_frequency != "never":
@@ -374,28 +369,73 @@ class DataWarehouseSavedQuerySerializer(
         frequency_changed = bool(sync_frequency)
 
         soft_update = validated_data.pop("soft_update", False)
+        edited_history_id = self.context["request"].data.get("edited_history_id", None)
+        check_conflict = (
+            "query" in validated_data
+            and validated_data["query"] != instance.query
+            and not soft_update
+            and instance.query_revision is not None
+        )
+
+        if check_conflict and _as_uuid(edited_history_id) != instance.query_revision:
+            # Advisory only: rejects a stale edit before it pays for inference. The check under the
+            # row lock below is the one that prevents a lost update.
+            raise serializers.ValidationError("The query was modified by someone else.")
+
+        inferred_columns: dict[str, dict[str, Any]] | None = None
+        inferred_external_tables: list[str] | None = None
+        if "query" in validated_data and not soft_update:
+            # Inference runs the query on ClickHouse, so it happens before the row lock, on a probe
+            # carrying the pending query and name rather than the stored ones, as create() does.
+            probe = DataWarehouseSavedQuery(
+                team=instance.team,
+                name=validated_data.get("name", instance.name),
+                query=validated_data["query"],
+            )
+            try:
+                get_parents_from_model_query(
+                    instance.team,
+                    probe.name,
+                    validated_data["query"]["query"],
+                    database=self.context["database"],
+                )
+                client_types = self.context["request"].data.get("types", [])
+                if len(client_types) == 0:
+                    inferred_columns = probe.get_columns(user=self.context["request"].user)
+                else:
+                    inferred_columns = {
+                        str(item[0]): {
+                            "hogql": hogql_type_name_for_clickhouse_type(str(item[1])),
+                            "clickhouse": item[1],
+                            "valid": True,
+                        }
+                        for item in client_types
+                    }
+                inferred_external_tables = probe.get_s3_tables(database=self.context["database"])
+            except (RecursionError, ResolutionCycleError):
+                raise serializers.ValidationError("Model contains a cycle")
+            except Exception as e:
+                capture_exception(e)
+                logger.exception("Failed to retrieve types for view %s", probe.name)
+                raise _view_types_validation_error(e)
 
         with transaction.atomic():
-            locked_instance = DataWarehouseSavedQuery.objects.select_for_update().get(pk=instance.pk)
-
-            # Get latest activity log for this model
-
-            if validated_data.get("query", None) and not soft_update:
-                edited_history_id = self.context["request"].data.get("edited_history_id", None)
-                latest_activity_id = (
-                    ActivityLog.objects.filter(
-                        team_id=locked_instance.team_id,
-                        item_id=locked_instance.id,
-                        scope="DataWarehouseSavedQuery",
-                        **QUERY_CHANGE_ACTIVITY_FILTER,
-                    )
-                    .order_by("-created_at")
-                    .values_list("id", flat=True)
-                    .first()
+            try:
+                locked_instance = (
+                    DataWarehouseSavedQuery.objects.select_for_update().exclude(deleted=True).get(pk=instance.pk)
                 )
+            except DataWarehouseSavedQuery.DoesNotExist:
+                raise exceptions.NotFound("Not found.")
+            before_update = copy.copy(locked_instance)
 
-                if str(edited_history_id) != str(latest_activity_id):
+            query_changed = "query" in validated_data and validated_data["query"] != locked_instance.query
+
+            if query_changed and not soft_update and locked_instance.query_revision is not None:
+                if _as_uuid(edited_history_id) != locked_instance.query_revision:
                     raise serializers.ValidationError("The query was modified by someone else.")
+
+            if query_changed:
+                validated_data["query_revision"] = uuid.uuid4()
 
             if frequency_changed:
                 # The node target is the only store of frequency intent. The interval column
@@ -442,32 +482,9 @@ class DataWarehouseSavedQuerySerializer(
             if has_description:
                 self._write_view_description(view, description)
 
-            # Only update columns and status if the query has changed
-            if "query" in validated_data:
-                try:
-                    # The columns will be inferred from the query
-                    client_types = self.context["request"].data.get("types", [])
-                    if len(client_types) == 0:
-                        view.set_columns(view.get_columns(user=self.context["request"].user))
-                    else:
-                        columns = {
-                            str(item[0]): {
-                                "hogql": hogql_type_name_for_clickhouse_type(str(item[1])),
-                                "clickhouse": item[1],
-                                "valid": True,
-                            }
-                            for item in client_types
-                        }
-                        view.set_columns(columns)
-
-                    view.external_tables = view.get_s3_tables(database=self.context["database"])
-                except RecursionError:
-                    raise serializers.ValidationError("Model contains a cycle")
-                except Exception as e:
-                    capture_exception(e)
-                    logger.exception("Failed to retrieve types for view %s", view.name)
-                    raise _view_types_validation_error(e)
-
+            if inferred_columns is not None:
+                view.set_columns(inferred_columns)
+                view.external_tables = inferred_external_tables
                 view.status = DataWarehouseSavedQuery.Status.MODIFIED
                 view.save()
 
@@ -502,7 +519,7 @@ class DataWarehouseSavedQuerySerializer(
                         after=str(target) if target is not None else None,
                     )
                 )
-            activity_log = log_activity(
+            log_activity(
                 organization_id=team.organization_id,
                 team_id=team.id,
                 user=self.context["request"].user,
@@ -512,23 +529,6 @@ class DataWarehouseSavedQuerySerializer(
                 activity="updated",
                 detail=Detail(name=view.name, changes=changes),
             )
-
-            # Store the activity log in the serializer context
-            if activity_log:
-                self.context["activity_log"] = activity_log
-            else:
-                # get latest query-changing activity log for this model (see QUERY_CHANGE_ACTIVITY_FILTER)
-                latest_activity_log = (
-                    ActivityLog.objects.filter(
-                        team_id=locked_instance.team_id,
-                        item_id=locked_instance.id,
-                        scope="DataWarehouseSavedQuery",
-                        **QUERY_CHANGE_ACTIVITY_FILTER,
-                    )
-                    .order_by("-created_at")
-                    .first()
-                )
-                self.context["activity_log"] = latest_activity_log
         # best effort sync to new data modeling DAG representation
         if "query" in validated_data:
             try:

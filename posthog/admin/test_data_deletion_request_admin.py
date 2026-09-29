@@ -1,3 +1,4 @@
+import re
 from datetime import datetime, timedelta
 
 import time_machine
@@ -11,6 +12,7 @@ from django.contrib.messages.storage.fallback import FallbackStorage
 from django.test import RequestFactory, SimpleTestCase, override_settings
 from django.utils import timezone
 
+from bs4 import BeautifulSoup
 from parameterized import parameterized
 
 from posthog.admin.admins.data_deletion_request_admin import EDITABLE_FIELDS, DataDeletionRequestAdmin, dagster_run_url
@@ -62,6 +64,18 @@ class TestDataDeletionRequestAdminApprovalFlow(BaseTest):
         with patch("posthog.admin.admins.data_deletion_request_admin.reverse", side_effect=_fake_reverse):
             return self.admin.approve_view(http_request, str(request.pk))
 
+    @parameterized.expand([("clickhouse_team", True), ("outside_clickhouse_team", False)])
+    def test_create_form_offers_property_removal_only_to_clickhouse_team(self, _name, in_clickhouse_team):
+        if not in_clickhouse_team:
+            self.user.groups.clear()
+        http_request = self.factory.get("/admin/posthog/datadeletionrequest/add/")
+        http_request.user = self.user
+
+        form = self.admin.get_form(http_request)()
+
+        offered = TestDataDeletionRequestFormHidesUnsupportedTypes._type_values(form)
+        self.assertEqual(RequestType.PROPERTY_REMOVAL in offered, in_clickhouse_team)
+
     def test_approve_view_get_renders_picker_for_event_removal(self):
         request = self._pending_request()
         response = self._call_approve("GET", request)
@@ -71,14 +85,15 @@ class TestDataDeletionRequestAdminApprovalFlow(BaseTest):
         self.assertTrue(context["supports_deferred"])
         self.assertEqual(context["default_execution_mode"], ExecutionMode.DEFERRED)
 
-    def test_approve_view_rejects_query_backed_request_until_execution_is_available(self):
+    def test_approve_view_approves_query_backed_request_as_deferred(self):
         request = self._pending_request(request_type=RequestType.HOGQL_EVENT_REMOVAL)
 
-        response = self._call_approve("POST", request)
+        response = self._call_approve("POST", request, {"execution_mode": ExecutionMode.IMMEDIATE.value})
 
         self.assertEqual(response.status_code, 302)
         request.refresh_from_db()
-        self.assertEqual(request.status, RequestStatus.PENDING)
+        self.assertEqual(request.status, RequestStatus.APPROVED)
+        self.assertEqual(request.execution_mode, ExecutionMode.DEFERRED)
 
     def test_approve_view_get_hides_picker_for_property_removal(self):
         request = self._pending_request(request_type=RequestType.PROPERTY_REMOVAL, properties=["$ip"])
@@ -194,16 +209,19 @@ class TestDataDeletionRequestAdminRetry(BaseTest):
         self.assertTrue(request.approved)
         self.assertEqual(request.attempt_count, 2)
 
-    def test_retry_view_rejects_query_backed_request(self):
+    def test_retry_view_requeues_query_backed_request(self):
         request = self._failed_request()
         request.request_type = RequestType.HOGQL_EVENT_REMOVAL
-        request.save(update_fields=["request_type"])
+        request.execution_mode = ExecutionMode.DEFERRED
+        request.hogql_query = "SELECT uuid FROM events"
+        request.save(update_fields=["request_type", "execution_mode", "hogql_query"])
 
         response = self._call_retry("POST", request)
 
         self.assertEqual(response.status_code, 302)
         request.refresh_from_db()
-        self.assertEqual(request.status, RequestStatus.FAILED)
+        self.assertEqual(request.status, RequestStatus.APPROVED)
+        self.assertEqual(request.execution_mode, ExecutionMode.DEFERRED)
 
     def test_retry_view_get_does_not_change_status(self):
         request = self._failed_request()
@@ -755,6 +773,48 @@ class TestDataDeletionRequestAdminChangeViewStatsAndLock(BaseTest):
         self.assertTrue(ctx.get("show_save", True))
 
 
+@time_machine.travel("2025-01-15 12:00:00", tick=False)
+@override_settings(STORAGES={"staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"}})
+class TestDataDeletionRequestAdminChangeFormScripts(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.user.is_staff = True
+        self.user.save()
+        self.client.force_login(self.user)
+
+    def test_array_previews_are_wired_by_a_script_carrying_the_page_nonce(self):
+        request = DataDeletionRequest.objects.create(
+            team_id=self.team.id,
+            request_type=RequestType.EVENT_REMOVAL,
+            events=["$pageview"],
+            start_time=datetime.now() - timedelta(days=7),
+            end_time=datetime.now(),
+            status=RequestStatus.DRAFT,
+        )
+
+        response = self.client.get(f"/admin/posthog/datadeletionrequest/{request.pk}/change/")
+
+        self.assertEqual(response.status_code, 200)
+        nonce = re.search(r"'nonce-([^']+)'", response["Content-Security-Policy"])
+        assert nonce is not None
+        soup = BeautifulSoup(response.content, "html.parser")
+        inline_scripts = soup.select("script:not([src])")
+        self.assertEqual({script.get("nonce") for script in inline_scripts}, {nonce.group(1)})
+        self.assertTrue(
+            any(
+                "array-textarea-preview" in script.get_text() and "textareaId" in script.get_text()
+                for script in inline_scripts
+            )
+        )
+        self.assertEqual(
+            {preview.get("data-textarea-id") for preview in soup.select("div.array-textarea-preview")},
+            {
+                soup.select_one(f"textarea[name={field}]").get("id")
+                for field in ("events", "properties", "person_properties")
+            },
+        )
+
+
 @override_settings(STORAGES={"staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"}})
 class TestDataDeletionRequestAdminStatsViewRedirects(BaseTest):
     def setUp(self):
@@ -1041,11 +1101,20 @@ class TestDataDeletionRequestFormHidesUnsupportedTypes(SimpleTestCase):
         choices = cast("list[tuple[str, str]]", request_type.choices)
         return [value for value, _ in choices]
 
-    def test_only_event_removal_is_offered_on_a_new_request(self):
+    @parameterized.expand(
+        [
+            ("outside_clickhouse_team", False, [RequestType.EVENT_REMOVAL]),
+            ("clickhouse_team", True, [RequestType.PROPERTY_REMOVAL, RequestType.EVENT_REMOVAL]),
+        ]
+    )
+    def test_types_offered_on_a_new_request(self, _name, offer_clickhouse_team_types, expected_types):
         from posthog.admin.admins.data_deletion_request_admin import PERSON_REMOVAL_FIELDS, DataDeletionRequestForm
 
-        form = DataDeletionRequestForm()
-        self.assertEqual(self._type_values(form), [RequestType.EVENT_REMOVAL])
+        form_class = type(
+            "Form", (DataDeletionRequestForm,), {"offer_clickhouse_team_types": offer_clickhouse_team_types}
+        )
+        form = form_class()
+        self.assertEqual(self._type_values(form), expected_types)
         for field in PERSON_REMOVAL_FIELDS:
             self.assertNotIn(field, form.fields)
 

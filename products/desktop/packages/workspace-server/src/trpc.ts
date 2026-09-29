@@ -39,6 +39,7 @@ import {
   readRepoFilesBoundedOutput,
   readRepoFilesInput,
   readRepoFilesOutput,
+  readWorkspaceFileInput,
   writeRepoFileInput,
 } from "./services/fs/schemas";
 import type { FsService } from "./services/fs/service";
@@ -815,6 +816,16 @@ export function createAppRouter({
         .input(readAbsoluteFileInput)
         .output(readRepoFileOutput)
         .query(({ input }) => fsService().readFileAsBase64(input.filePath)),
+
+      readWorkspaceFileAsBase64: t.procedure
+        .input(readWorkspaceFileInput)
+        .output(readRepoFileOutput)
+        .query(({ input }) =>
+          fsService().readWorkspaceFileAsBase64(
+            input.workspaceRoot,
+            input.filePath,
+          ),
+        ),
 
       writeRepoFile: t.procedure
         .input(writeRepoFileInput)

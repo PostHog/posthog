@@ -43,6 +43,8 @@ export interface TurnContext {
   turnComplete: boolean;
   /** From the prompt response; null when the agent reported no gateway trace. */
   traceId?: string | null;
+  /** True for a turn with no user prompt behind it (e.g. background setup activity). */
+  isImplicit?: boolean;
 }
 
 export type ConversationItem =
@@ -303,6 +305,22 @@ function pushItem(b: ItemBuilder, update: RenderItem, ts?: number) {
 export interface BuildConversationOptions {
   /** Render `debug`-level console logs inline; without this only info/warn/error show up. */
   showDebugLogs?: boolean;
+}
+
+export function hasSetupProgressForRun(
+  events: AcpMessage[],
+  runId?: string,
+): boolean {
+  if (!runId) return false;
+  const group = `setup:${runId}`;
+
+  return events.some(({ message }) => {
+    return (
+      isJsonRpcNotification(message) &&
+      isNotification(message.method, POSTHOG_NOTIFICATIONS.PROGRESS) &&
+      (message.params as { group?: unknown } | undefined)?.group === group
+    );
+  });
 }
 
 /**
@@ -1145,6 +1163,7 @@ function ensureImplicitTurn(b: ItemBuilder, ts: number) {
     childItems,
     turnCancelled: false,
     turnComplete: false,
+    isImplicit: true,
   };
 
   b.currentTurn = {

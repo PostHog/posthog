@@ -17,6 +17,7 @@ class TestAITemporalModuleIntegrity:
             "SyncVectorsWorkflow",
             "AssistantConversationRunnerWorkflow",
             "ChatAgentWorkflow",
+            "ConversationMirrorWorkflow",
             "ResearchAgentWorkflow",
             "SummarizeLLMTracesWorkflow",
             "AnomalyInvestigationWorkflow",
@@ -44,6 +45,7 @@ class TestAITemporalModuleIntegrity:
             "batch_embed_and_sync_actions",
             "process_conversation_activity",
             "process_chat_agent_activity",
+            "mirror_conversation_to_task_activity",
             "process_research_agent_activity",
             "summarize_llm_traces_activity",
             "investigate_anomaly_activity",
@@ -89,6 +91,7 @@ class TestSignalsProductModuleIntegrity:
     def test_workflows_remain_unchanged(self):
         """Ensure all expected signals product workflows are present."""
         expected_workflows = [
+            "GenerateScoutRubricsWorkflow",
             "BackfillErrorTrackingWorkflow",
             "TeamSignalGroupingWorkflow",
             "TeamSignalGroupingV2Workflow",
@@ -105,6 +108,7 @@ class TestSignalsProductModuleIntegrity:
             "ScoutSuggestionsCoordinatorWorkflow",
             "CustomSignalAgentWorkflow",
             "SignalReportInboxNotificationWorkflow",
+            "InboxRankingScoringWorkflow",
         ]
         actual_workflow_names = [w.__name__ for w in SIGNALS_PRODUCT_WORKFLOWS]
         assert len(actual_workflow_names) == len(expected_workflows), (
@@ -119,6 +123,8 @@ class TestSignalsProductModuleIntegrity:
     def test_activities_remain_unchanged(self):
         """Ensure all expected signals product activities are present."""
         expected_activities = [
+            "generate_scout_rubrics_activity",
+            "fail_scout_rubrics_activity",
             "dispatch_inbox_slack_notifications_activity",
             "get_inbox_notification_state_activity",
             "send_report_github_comments_activity",
@@ -170,6 +176,7 @@ class TestSignalsProductModuleIntegrity:
             "stamp_dispatched_signals_scout_runs_activity",
             "run_due_signal_report_checks_activity",
             "run_signals_scout_activity",
+            "score_inbox_reports_activity",
             "resume_signals_scout_workflow_step",
             "plan_scout_suggestion_runs_activity",
             "run_scout_suggestions_activity",
@@ -233,6 +240,7 @@ class TestAIObservabilityModuleIntegrity:
             "sample_items_in_window_activity",
             "fetch_and_format_activity",
             "summarize_and_save_activity",
+            "check_ai_data_processing_consent_activity",
             "fetch_all_clustering_filters_activity",
             "fetch_all_clustering_jobs_activity",
             "perform_clustering_compute_activity",
@@ -269,6 +277,7 @@ class TestAIObservabilityModuleIntegrity:
             "prepare_evaluation_backfill_tick_activity",
             "find_evaluation_backfill_candidates_activity",
             "advance_evaluation_backfill_cursor_activity",
+            "measure_evaluation_backfill_remainder_activity",
             "fail_evaluation_backfill_activity",
         ]
         actual_activity_names = [a.__name__ for a in LLM_ANALYTICS_ACTIVITIES]

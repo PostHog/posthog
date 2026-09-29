@@ -156,6 +156,7 @@ async def test_export_to_file_download_bucket_puts_data_into_s3(
         file_format=file_format,
         backfill_details=None,
         sort_key=sort_key,
+        legacy_parquet_extension=False,
     )
 
 

@@ -76,6 +76,7 @@ export function ReportTriageFocus({
       : -1;
     return Math.max(0, initialIndex);
   });
+  const [selectedReportId, setSelectedReportId] = useState(reports[index]?.id);
   const [expanded, setExpanded] = useState(false);
   const chatOpen = useReportChatPanelStore((state) => state.open);
   const setChatOpen = useReportChatPanelStore((state) => state.setOpen);
@@ -108,7 +109,13 @@ export function ReportTriageFocus({
 
   // The queue shrinks under us when a report is archived; clamping (rather
   // than resetting) is what makes archive-and-advance work.
-  const clamped = Math.min(index, Math.max(0, reports.length - 1));
+  const selectedIndex = reports.findIndex(
+    (item) => item.id === selectedReportId,
+  );
+  const clamped =
+    selectedIndex >= 0
+      ? selectedIndex
+      : Math.min(index, Math.max(0, reports.length - 1));
   const report = reports[clamped];
   const reportId = report?.id;
   const {
@@ -156,6 +163,11 @@ export function ReportTriageFocus({
     setChatOpen(false);
   }, [finishSession, reportId, setChatOpen]);
 
+  useEffect(() => {
+    setSelectedReportId(reportId);
+    setIndex(clamped);
+  }, [reportId, clamped]);
+
   // Triage is intentionally sequential, so the next destination is known as
   // soon as the card renders. Warm it before navigation so the detail route
   // does not begin its work only after the user opens it.
@@ -186,12 +198,12 @@ export function ReportTriageFocus({
   // refetch lands. Moving the index before that would skip the next report.
   const goNext = useCallback(() => {
     if (removingReviewer) return;
-    setIndex((i) => Math.min(i + 1, reports.length - 1));
-  }, [reports.length, removingReviewer]);
+    setSelectedReportId(reports[Math.min(clamped + 1, reports.length - 1)]?.id);
+  }, [clamped, reports, removingReviewer]);
   const goPrev = useCallback(() => {
     if (removingReviewer) return;
-    setIndex((i) => Math.max(i - 1, 0));
-  }, [removingReviewer]);
+    setSelectedReportId(reports[Math.max(clamped - 1, 0)]?.id);
+  }, [clamped, reports, removingReviewer]);
   const handleExit = useCallback(() => {
     finishSession("exited");
     onExit();

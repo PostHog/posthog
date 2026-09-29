@@ -39,7 +39,7 @@ export function SlackDestinationPicker({
     }
 
     if (!slackIntegrations?.length) {
-        return <SlackNotConfiguredBanner />
+        return <SlackNotConfiguredBanner onConnected={onIntegrationChange} />
     }
 
     return (

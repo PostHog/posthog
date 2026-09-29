@@ -54,6 +54,7 @@ from products.tasks.backend.temporal.process_task.utils import (
     loop_mcp_installation_allowlist,
     mark_sandbox_github_identity,
     mark_sandbox_mcp_session,
+    mcp_exclude_tools_from_state,
     record_message_actor,
     sandbox_identity_scope,
     upgrade_run_to_user_authorship,
@@ -777,6 +778,7 @@ def _refresh_sandbox_mcp(
         slack_reply_context=(state or {}).get("slack_reply_context") is True,
         task_id=str(task_run.task_id),
         origin_product=task_run.task.origin_product,
+        exclude_tools=mcp_exclude_tools_from_state(state),
     )
     user_mcp_configs = get_user_mcp_server_configs(
         token=access_token,

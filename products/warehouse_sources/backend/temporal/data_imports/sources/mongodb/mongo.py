@@ -18,7 +18,7 @@ from pymongo import ASCENDING, MongoClient
 from pymongo.collection import Collection
 from pymongo.cursor import Cursor
 from pymongo.database import Database
-from pymongo.errors import CursorNotFound, OperationFailure, PyMongoError
+from pymongo.errors import CursorNotFound, OperationFailure, PyMongoError, ServerSelectionTimeoutError
 from pymongo.server_description import ServerDescription
 from structlog.types import FilteringBoundLogger
 
@@ -31,6 +31,10 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.par
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
+    DATABASE_HOST_NOT_ALLOWED_ERROR,
+    DATABASE_HOST_NOT_ALLOWED_GUIDANCE,
+    TEMPORARY_HOST_RESOLUTION_PREFIX,
+    HostNotAllowedError,
     _is_host_safe,
     log_connection_open,
 )
@@ -246,6 +250,12 @@ def _coerce_object_id_cursor(last_value: Any) -> Any:
     return ObjectId(value) if ObjectId.is_valid(value) else value
 
 
+# No node was selectable, or the outbound host policy refused every one. The extraction read
+# that follows cannot succeed either, so a best-effort probe that swallows one of these spends a
+# whole server-selection window of worker time before the attempt fails anyway. Re-raise instead.
+_UNREACHABLE_CLUSTER_ERRORS = (ServerSelectionTimeoutError, HostNotAllowedError)
+
+
 def _make_safe_server_selector(team_id: int) -> Callable[[list[ServerDescription]], list[ServerDescription]]:
     """Create a PyMongo server_selector that rejects servers resolving to internal IPs.
 
@@ -255,11 +265,23 @@ def _make_safe_server_selector(team_id: int) -> Callable[[list[ServerDescription
 
     def selector(server_descriptions: list[ServerDescription]) -> list[ServerDescription]:
         safe = []
+        rejection: str | None = None
         for server in server_descriptions:
             host = server.address[0]
-            is_safe, _ = _is_host_safe(host, team_id)
+            is_safe, error = _is_host_safe(host, team_id)
             if is_safe:
                 safe.append(server)
+            elif rejection is None and not (error or "").startswith(TEMPORARY_HOST_RESOLUTION_PREFIX):
+                rejection = error or DATABASE_HOST_NOT_ALLOWED_GUIDANCE
+        # pymongo only calls a custom selector with at least one candidate, so an empty result
+        # after a policy rejection means every member was refused. Returning [] instead would let
+        # server selection time out as an ordinary unreachable-cluster error, which retries on
+        # every schedule and keeps the monitors handshaking with a host the policy already refused.
+        # Raising the shared host error stops the schedule and gives the user the fix. A resolver
+        # that never answered is not a policy decision, so it leaves `rejection` unset and the
+        # empty selection retries as before.
+        if not safe and rejection is not None:
+            raise HostNotAllowedError(f"{DATABASE_HOST_NOT_ALLOWED_ERROR}: {rejection}")
         return safe
 
     return selector
@@ -356,6 +378,8 @@ def _get_partition_settings(
             partition_count=partition_count,
             partition_size=partition_size,
         )
+    except _UNREACHABLE_CLUSTER_ERRORS:
+        raise
     except Exception:
         return None
 
@@ -574,6 +598,8 @@ def _get_avg_document_size(collection: Collection, logger: FilteringBoundLogger)
         stats = collection.database.command("collStats", collection.name)
         avg_obj_size = stats.get("avgObjSize")
         return int(avg_obj_size) if avg_obj_size else None
+    except _UNREACHABLE_CLUSTER_ERRORS:
+        raise
     except Exception as e:
         logger.debug(f"MongoDB: could not read collStats avgObjSize ({e}); using default chunk size")
         return None
@@ -584,6 +610,8 @@ def _get_rows_to_sync(collection: Collection, query: dict[str, Any], logger: Fil
         rows_to_sync = collection.count_documents(query)
         logger.debug(f"_get_rows_to_sync: rows_to_sync={rows_to_sync}")
         return rows_to_sync
+    except _UNREACHABLE_CLUSTER_ERRORS:
+        raise
     except PyMongoError as e:
         # rows_to_sync is only a progress estimate, so a failed count degrades to 0
         # rather than failing the sync. Connectivity/auth failures here are expected

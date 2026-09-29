@@ -2,7 +2,7 @@ from datetime import timedelta
 from typing import Any
 
 import pytest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.utils import timezone
 
@@ -200,6 +200,44 @@ def test_link_pull_request_appends_the_reference_once(team):
         issue_url="https://github.com/acme/web/issues/12",
     )
     pr_url = "https://github.com/acme/web/pull/50"
+    pull_request: dict[str, Any] = {"number": 50, "body": "Fixes the thing"}
+
+    # GitHub sends an ETag on the GET but rejects a conditional header on the PATCH.
+    def fake_github(method: str, path: str, *, headers: dict[str, str] | None = None, **kwargs: Any) -> MagicMock:
+        if method == "GET":
+            return MagicMock(status_code=200, headers={"ETag": '"v1"'}, json=MagicMock(return_value=pull_request))
+        if any(name.lower().startswith("if-") for name in headers or {}):
+            return MagicMock(status_code=400, text="Conditional request headers are not allowed in unsafe requests")
+        pull_request["body"] = kwargs["json_body"]["body"]
+        return MagicMock(status_code=200)
+
+    with (
+        patch.object(
+            GitHubIntegration, "first_for_team_repository", return_value=GitHubIntegration.__new__(GitHubIntegration)
+        ),
+        patch.object(GitHubIntegration, "api_request", side_effect=fake_github),
+    ):
+        assert link_pull_request_to_tracker_issue(team_id=team.id, report_id=str(report.id), pr_url=pr_url) is True
+        assert link_pull_request_to_tracker_issue(team_id=team.id, report_id=str(report.id), pr_url=pr_url) is False
+
+    assert pull_request["body"].count(PR_BODY_MARKER) == 1
+    assert "Closes #12" in pull_request["body"]
+    tracker.refresh_from_db()
+    assert tracker.pr_linked_at is not None
+
+
+@pytest.mark.django_db
+def test_link_pull_request_backs_off_when_the_body_changes_during_the_edit(team):
+    _connect_tracker(team, "github")
+    report = _make_report(team)
+    tracker = SignalReportTrackerIssue.all_teams.create(
+        team=team,
+        report=report,
+        provider="github",
+        status=SignalReportTrackerIssue.Status.CREATED,
+        external_context={"repository": "acme/web", "number": 12},
+        issue_url="https://github.com/acme/web/issues/12",
+    )
 
     with (
         patch.object(
@@ -208,20 +246,21 @@ def test_link_pull_request_appends_the_reference_once(team):
         patch.object(
             GitHubIntegration,
             "get_pull_request",
-            return_value={"success": True, "body": "Fixes the thing", "etag": '"version-1"'},
+            side_effect=[
+                {"success": True, "body": "Fixes the thing"},
+                {"success": True, "body": "Fixes the thing, rewritten by the agent"},
+            ],
         ),
         patch.object(GitHubIntegration, "update_pull_request_body", return_value={"success": True}) as update,
     ):
-        assert link_pull_request_to_tracker_issue(team_id=team.id, report_id=str(report.id), pr_url=pr_url) is True
-        assert link_pull_request_to_tracker_issue(team_id=team.id, report_id=str(report.id), pr_url=pr_url) is False
+        linked = link_pull_request_to_tracker_issue(
+            team_id=team.id, report_id=str(report.id), pr_url="https://github.com/acme/web/pull/50"
+        )
 
-    assert update.call_count == 1
-    body = update.call_args.args[2]
-    assert PR_BODY_MARKER in body
-    assert "Closes #12" in body
-    assert update.call_args.kwargs["expected_etag"] == '"version-1"'
+    assert linked is False
+    update.assert_not_called()
     tracker.refresh_from_db()
-    assert tracker.pr_linked_at is not None
+    assert tracker.pr_linked_at is None
 
 
 @pytest.mark.django_db

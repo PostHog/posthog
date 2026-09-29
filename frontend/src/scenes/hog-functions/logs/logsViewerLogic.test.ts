@@ -1,6 +1,11 @@
+import { router } from 'kea-router'
+import { expectLogic } from 'kea-test-utils'
+
 import { dayjs } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { useMocks } from '~/mocks/jest'
+import { initKeaTests } from '~/test/init'
 import { LogEntryLevel } from '~/types'
 
 import {
@@ -8,6 +13,7 @@ import {
     groupLogs,
     LogEntry,
     LogEntryParams,
+    logsViewerLogic,
     toAbsoluteClickhouseTimestamp,
 } from './logsViewerLogic'
 
@@ -199,6 +205,46 @@ describe('logsViewerLogic', () => {
             const secondPage = buildGroupedLogsQuery(makeParams(), 10, 10)
 
             expect(firstPage.replace('OFFSET 0', 'OFFSET 10')).toEqual(secondPage)
+        })
+    })
+
+    describe('disableUrlSync', () => {
+        beforeEach(() => {
+            useMocks({
+                post: {
+                    '/api/environments/:team_id/query/': () => [200, { results: [] }],
+                },
+            })
+            initKeaTests()
+        })
+
+        it('neither writes its filters to the URL nor reads them back from it', async () => {
+            // Several viewers can mount on one scene with unprefixed params. A run-scoped viewer that
+            // took `search` from the URL would filter its own entries away on someone else's search.
+            const logic = logsViewerLogic({ sourceType: 'hog_flow', sourceId: 'flow-1', disableUrlSync: true })
+            logic.mount()
+            const before = { ...router.values.searchParams }
+            await expectLogic(logic, () => {
+                logic.actions.setFilters({ search: 'mine' })
+            }).toDispatchActions(['setFilters'])
+            expect(router.values.searchParams).toEqual(before)
+
+            router.actions.push(router.values.location.pathname, { search: 'theirs' })
+            expect(logic.values.filters.search).toBe('mine')
+            logic.unmount()
+        })
+
+        it('a viewer without the flag still follows the URL', async () => {
+            const logic = logsViewerLogic({ sourceType: 'hog_flow', sourceId: 'flow-1' })
+            logic.mount()
+            await expectLogic(logic, () => {
+                logic.actions.setFilters({ search: 'mine' })
+            }).toDispatchActions(['setFilters'])
+            expect(router.values.searchParams.search).toBe('mine')
+
+            router.actions.push(router.values.location.pathname, { search: 'theirs' })
+            expect(logic.values.filters.search).toBe('theirs')
+            logic.unmount()
         })
     })
 })

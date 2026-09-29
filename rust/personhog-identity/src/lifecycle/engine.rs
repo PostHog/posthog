@@ -267,6 +267,7 @@ impl Engine {
     ) -> Result<OpRow, SagaError> {
         let inserted = mirrored_query!(
             self.tables.is_validation(),
+            op = "op_create_or_attach",
             r#"
             INSERT INTO {lifecycle_op} (op_id, op_type, team_id, step, request)
             VALUES ($1, $2, $3, $4, $5)
@@ -529,6 +530,7 @@ impl Engine {
         mirrored_query_as!(
             OpRow,
             self.tables.is_validation(),
+            op = "op_load",
             r#"
             SELECT op_id, op_type, team_id::bigint as "team_id!", step, attempt,
                    request as "request: Value", outcome as "outcome: Value",
@@ -564,6 +566,7 @@ impl Engine {
     async fn try_claim(&self, op_id: Uuid, unpark: bool) -> Result<Option<i32>, sqlx::Error> {
         mirrored_query_scalar!(
             self.tables.is_validation(),
+            op = "op_try_claim",
             r#"
             UPDATE {lifecycle_op}
             SET lease_expires_at = now() + make_interval(secs => $2),
@@ -600,6 +603,7 @@ impl Engine {
         let reason = personhog_common::grpc::refusal_reason_label(status).to_string();
         let parked = mirrored_query!(
             self.tables.is_validation(),
+            op = "op_park",
             r#"
             UPDATE {lifecycle_op}
             SET parked_at = now(), parked_reason = $3, lease_expires_at = NULL
@@ -638,6 +642,7 @@ impl Engine {
     async fn renew_lease(&self, op_id: Uuid, attempt: i32) -> Result<bool, sqlx::Error> {
         let result = mirrored_query!(
             self.tables.is_validation(),
+            op = "op_renew_lease",
             r#"
             UPDATE {lifecycle_op}
             SET lease_expires_at = now() + make_interval(secs => $2)
@@ -654,6 +659,7 @@ impl Engine {
     async fn release_lease(&self, op_id: Uuid, attempt: i32) -> Result<(), sqlx::Error> {
         mirrored_query!(
             self.tables.is_validation(),
+            op = "op_release_lease",
             "UPDATE {lifecycle_op} SET lease_expires_at = NULL WHERE op_id = $1 AND completed_at IS NULL AND attempt = $2",
             op_id,
             attempt
@@ -670,6 +676,7 @@ impl Engine {
         let abandoned = mirrored_query_as!(
             AbandonedOp,
             self.tables.is_validation(),
+            op = "op_sweep_abandoned",
             r#"
             SELECT op_id, op_type
             FROM {lifecycle_op}
@@ -716,6 +723,7 @@ impl Engine {
         // only: a failure must not fail a pass whose resumes succeeded.
         match mirrored_query_scalar!(
             self.tables.is_validation(),
+            op = "op_sweep_backlog",
             r#"SELECT count(*) AS "count!" FROM {lifecycle_op} WHERE completed_at IS NULL AND parked_at IS NOT NULL"#
             => fetch_one(self.pools.fast())
         ) {
@@ -732,6 +740,7 @@ impl Engine {
     pub async fn gc(&self, retention: Duration) -> Result<u64, SagaError> {
         let result = mirrored_query!(
             self.tables.is_validation(),
+            op = "op_gc",
             r#"
             DELETE FROM {lifecycle_op}
             WHERE op_id IN (
@@ -767,6 +776,7 @@ pub async fn advance_step_in_tx(
 ) -> Result<bool, sqlx::Error> {
     let result = mirrored_query!(
         tables.is_validation(),
+        op = "op_advance_step",
         "UPDATE {lifecycle_op} SET step = $3 WHERE op_id = $1 AND step = $2",
         op_id,
         from,
@@ -788,6 +798,7 @@ pub async fn complete_op_in_tx(
 ) -> Result<bool, sqlx::Error> {
     let result = mirrored_query!(
         tables.is_validation(),
+        op = "op_complete",
         r#"
         UPDATE {lifecycle_op}
         SET step = $3, outcome = $4, completed_at = now(), lease_expires_at = NULL

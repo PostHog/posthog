@@ -1,9 +1,12 @@
 import {
     ActivityLogItem,
     ActivityLogUserName,
+    Description,
     HumanizedChange,
+    activityLogSummary,
     defaultDescriber,
 } from 'lib/components/ActivityLog/humanizeActivity'
+import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import { UserNameWithEmail } from 'lib/components/ActivityLog/UserNameWithEmail'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { Link } from 'lib/lemon-ui/Link'
@@ -29,6 +32,11 @@ export function organizationActivityDescriber(logItem: ActivityLogItem, asNotifi
     }
     if (logItem.activity == 'created') {
         return {
+            summary: activityLogSummary(
+                logItem,
+                'Created the organization',
+                nameOrLinkToOrganization(logItem.detail.name)
+            ),
             description: (
                 <>
                     <ActivityLogUserName logItem={logItem} /> created the organization{' '}
@@ -39,11 +47,13 @@ export function organizationActivityDescriber(logItem: ActivityLogItem, asNotifi
     }
 
     if (logItem.activity == 'deleted') {
+        const organizationName = logItem.detail.name || 'Organization'
         return {
+            summary: activityLogSummary(logItem, 'Deleted the organization', organizationName),
             description: (
                 <>
                     <ActivityLogUserName logItem={logItem} /> deleted the organization{' '}
-                    <strong>{logItem.detail.name || 'Organization'}</strong>
+                    <strong>{organizationName}</strong>
                 </>
             ),
         }
@@ -61,6 +71,7 @@ export function organizationActivityDescriber(logItem: ActivityLogItem, asNotifi
             )
 
             return {
+                summary: activityLogSummary(logItem, changeDescription, nameOrLinkToOrganization(logItem.detail.name)),
                 description: (
                     <>
                         <ActivityLogUserName logItem={logItem} /> {changeDescription} for organization{' '}
@@ -70,6 +81,11 @@ export function organizationActivityDescriber(logItem: ActivityLogItem, asNotifi
             }
         } else if (changes.length > 1) {
             return {
+                summary: activityLogSummary(
+                    logItem,
+                    <>Updated {changes.length} organization settings</>,
+                    nameOrLinkToOrganization(logItem.detail.name)
+                ),
                 description: (
                     <>
                         <ActivityLogUserName logItem={logItem} /> updated <strong>{changes.length} settings</strong> for
@@ -91,6 +107,14 @@ function organizationMembershipActivityDescriber(logItem: ActivityLogItem, asNot
 
     if (logItem.activity == 'created') {
         return {
+            summary: activityLogSummary(
+                logItem,
+                'Added an organization member',
+                <>
+                    <UserNameWithEmail name={userName} email={userEmail} /> in{' '}
+                    {nameOrLinkToOrganization(organizationName)}
+                </>
+            ),
             description: (
                 <>
                     <ActivityLogUserName logItem={logItem} /> added user{' '}
@@ -105,6 +129,14 @@ function organizationMembershipActivityDescriber(logItem: ActivityLogItem, asNot
 
     if (logItem.activity == 'deleted') {
         return {
+            summary: activityLogSummary(
+                logItem,
+                'Removed an organization member',
+                <>
+                    <UserNameWithEmail name={userName} email={userEmail} /> in{' '}
+                    {nameOrLinkToOrganization(organizationName)}
+                </>
+            ),
             description: (
                 <>
                     <ActivityLogUserName logItem={logItem} /> removed user{' '}
@@ -128,6 +160,16 @@ function organizationMembershipActivityDescriber(logItem: ActivityLogItem, asNot
                 membershipLevelToName.get(levelChange.after as OrganizationMembershipLevel) || levelChange.after
 
             return {
+                summary: activityLogSummary(
+                    logItem,
+                    <>
+                        Changed role from {String(beforeLevel)} to {String(afterLevel)}
+                    </>,
+                    <>
+                        <UserNameWithEmail name={userName} email={userEmail} /> in{' '}
+                        {nameOrLinkToOrganization(organizationName)}
+                    </>
+                ),
                 description: (
                     <>
                         <ActivityLogUserName logItem={logItem} /> changed{' '}
@@ -142,6 +184,14 @@ function organizationMembershipActivityDescriber(logItem: ActivityLogItem, asNot
         }
 
         return {
+            summary: activityLogSummary(
+                logItem,
+                'Updated organization membership',
+                <>
+                    <UserNameWithEmail name={userName} email={userEmail} /> in{' '}
+                    {nameOrLinkToOrganization(organizationName)}
+                </>
+            ),
             description: (
                 <>
                     <ActivityLogUserName logItem={logItem} /> updated{' '}
@@ -174,6 +224,15 @@ function organizationInviteActivityDescriber(logItem: ActivityLogItem, asNotific
 
     if (logItem.activity == 'created') {
         return {
+            summary: activityLogSummary(
+                logItem,
+                <>Sent an invitation to join as {level}</>,
+                <>
+                    {targetEmail} in {nameOrLinkToOrganization(organizationName)}
+                </>,
+                undefined,
+                inviter
+            ),
             description: (
                 <>
                     {inviter} sent an invitation to <strong>{targetEmail}</strong> to join organization{' '}
@@ -185,6 +244,15 @@ function organizationInviteActivityDescriber(logItem: ActivityLogItem, asNotific
 
     if (logItem.activity == 'deleted') {
         return {
+            summary: activityLogSummary(
+                logItem,
+                'Revoked the invitation',
+                <>
+                    {targetEmail} in {nameOrLinkToOrganization(organizationName)}
+                </>,
+                undefined,
+                inviter
+            ),
             description: (
                 <>
                     {inviter} revoked the invitation for <strong>{targetEmail}</strong> to join organization{' '}
@@ -206,6 +274,15 @@ function organizationInviteActivityDescriber(logItem: ActivityLogItem, asNotific
             )
 
             return {
+                summary: activityLogSummary(
+                    logItem,
+                    <>{changeDescription} for the invitation</>,
+                    <>
+                        {targetEmail} in {nameOrLinkToOrganization(organizationName)}
+                    </>,
+                    undefined,
+                    inviter
+                ),
                 description: (
                     <>
                         {inviter} {changeDescription} for the invitation sent to <strong>{targetEmail}</strong> to join
@@ -215,6 +292,15 @@ function organizationInviteActivityDescriber(logItem: ActivityLogItem, asNotific
             }
         } else if (changes.length > 1) {
             return {
+                summary: activityLogSummary(
+                    logItem,
+                    <>Updated {changes.length} invitation settings</>,
+                    <>
+                        {targetEmail} in {nameOrLinkToOrganization(organizationName)}
+                    </>,
+                    undefined,
+                    inviter
+                ),
                 description: (
                     <>
                         {inviter} updated <strong>{changes.length} settings</strong> for the invitation sent to{' '}
@@ -228,6 +314,62 @@ function organizationInviteActivityDescriber(logItem: ActivityLogItem, asNotific
     return defaultDescriber(logItem, asNotification)
 }
 
+function describeOrganizationDomainUpdate(logItem: ActivityLogItem, domainName: string): HumanizedChange | null {
+    const changes = logItem.detail.changes || []
+    const hasScimEnabledChange = changes.some((c) => c.field === 'SCIM provisioning')
+
+    const descriptions: JSX.Element[] = []
+    const summaryChanges: Description[] = []
+    for (const change of changes) {
+        if (change.field === 'SCIM provisioning') {
+            summaryChanges.push(change.after ? 'Enabled SCIM provisioning' : 'Disabled SCIM provisioning')
+            descriptions.push(
+                <>
+                    {change.after ? 'enabled' : 'disabled'} <strong>SCIM provisioning</strong> for domain{' '}
+                    <strong>{domainName}</strong>
+                </>
+            )
+        } else if (change.field === 'scim_bearer_token') {
+            if (!hasScimEnabledChange) {
+                summaryChanges.push('Rotated the SCIM bearer token')
+                descriptions.push(
+                    <>
+                        rotated the <strong>SCIM bearer token</strong> for domain <strong>{domainName}</strong>
+                    </>
+                )
+            }
+        } else {
+            summaryChanges.push(<>Updated {change.field}</>)
+            descriptions.push(
+                <>
+                    updated <strong>{change.field}</strong> for domain <strong>{domainName}</strong>
+                </>
+            )
+        }
+    }
+
+    if (descriptions.length > 0) {
+        return {
+            summary: activityLogSummary(logItem, <SentenceList listParts={summaryChanges} />, domainName),
+            description: (
+                <>
+                    <ActivityLogUserName logItem={logItem} />{' '}
+                    {descriptions.length === 1 ? (
+                        descriptions[0]
+                    ) : (
+                        <ul>
+                            {descriptions.map((d, i) => (
+                                <li key={i}>{d}</li>
+                            ))}
+                        </ul>
+                    )}
+                </>
+            ),
+        }
+    }
+    return null
+}
+
 export function organizationDomainActivityDescriber(
     logItem: ActivityLogItem,
     asNotification?: boolean
@@ -236,57 +378,15 @@ export function organizationDomainActivityDescriber(
     const domainName = context?.domain || 'unknown domain'
 
     if (logItem.activity === 'updated') {
-        const changes = logItem.detail.changes || []
-        const hasScimEnabledChange = changes.some((c) => c.field === 'SCIM provisioning')
-
-        const descriptions: JSX.Element[] = []
-        for (const change of changes) {
-            if (change.field === 'SCIM provisioning') {
-                descriptions.push(
-                    <>
-                        {change.after ? 'enabled' : 'disabled'} <strong>SCIM provisioning</strong> for domain{' '}
-                        <strong>{domainName}</strong>
-                    </>
-                )
-            } else if (change.field === 'scim_bearer_token') {
-                if (!hasScimEnabledChange) {
-                    descriptions.push(
-                        <>
-                            rotated the <strong>SCIM bearer token</strong> for domain <strong>{domainName}</strong>
-                        </>
-                    )
-                }
-            } else {
-                descriptions.push(
-                    <>
-                        updated <strong>{change.field}</strong> for domain <strong>{domainName}</strong>
-                    </>
-                )
-            }
-        }
-
-        if (descriptions.length > 0) {
-            return {
-                description: (
-                    <>
-                        <ActivityLogUserName logItem={logItem} />{' '}
-                        {descriptions.length === 1 ? (
-                            descriptions[0]
-                        ) : (
-                            <ul>
-                                {descriptions.map((d, i) => (
-                                    <li key={i}>{d}</li>
-                                ))}
-                            </ul>
-                        )}
-                    </>
-                ),
-            }
+        const result = describeOrganizationDomainUpdate(logItem, domainName)
+        if (result) {
+            return result
         }
     }
 
     if (logItem.activity === 'deleted') {
         return {
+            summary: activityLogSummary(logItem, 'Deleted the domain', domainName),
             description: (
                 <>
                     <ActivityLogUserName logItem={logItem} /> deleted domain <strong>{domainName}</strong>
@@ -297,6 +397,7 @@ export function organizationDomainActivityDescriber(
 
     if (logItem.activity === 'created') {
         return {
+            summary: activityLogSummary(logItem, 'Added the domain', domainName),
             description: (
                 <>
                     <ActivityLogUserName logItem={logItem} /> added domain <strong>{domainName}</strong>
@@ -319,6 +420,7 @@ export function legalDocumentActivityDescriber(logItem: ActivityLogItem, asNotif
 
     if (logItem.activity === 'created') {
         return {
+            summary: activityLogSummary(logItem, `Generated ${article} ${documentType}`, companyName),
             description: (
                 <>
                     <ActivityLogUserName logItem={logItem} /> generated {article} <strong>{documentType}</strong> for{' '}
@@ -330,6 +432,7 @@ export function legalDocumentActivityDescriber(logItem: ActivityLogItem, asNotif
 
     if (logItem.activity === 'deleted') {
         return {
+            summary: activityLogSummary(logItem, `Deleted ${article} ${documentType}`, companyName),
             description: (
                 <>
                     <ActivityLogUserName logItem={logItem} /> deleted {article} <strong>{documentType}</strong> for{' '}

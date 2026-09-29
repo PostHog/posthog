@@ -27,6 +27,12 @@ The 200 is deliberate. A 4xx makes this the error path for the majority of the r
 receives, which is both wrong (nothing about the request was invalid) and expensive to everything
 that watches non-2xx rates.
 
+The body carries `reason` and `detail` as well, naming the `app_id` that matched no channel. The
+status code cannot say this, and without it a developer whose token goes nowhere sees a success
+indistinguishable from a working registration. This has cost real setup time: a project sending to
+the wrong project token gets the same 200, and the failure only surfaces later as
+`No active FCM device token found` in a workflow run.
+
 ## The `push.appIds` remote config key
 
 Remote config carries the list of `app_id`s a team can accept registrations for:

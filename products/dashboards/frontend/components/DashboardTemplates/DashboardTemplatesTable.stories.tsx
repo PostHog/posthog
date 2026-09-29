@@ -194,6 +194,7 @@ const storySecondProject: ProjectType = {
     organization_id: MOCK_ORGANIZATION_ID,
     created_at: MOCK_DEFAULT_PROJECT.created_at,
     is_pending_deletion: false,
+    deletion_scheduled_at: null,
 }
 
 const organizationWithMultipleProjects: OrganizationType = {

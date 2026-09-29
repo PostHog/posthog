@@ -139,6 +139,13 @@ class ErrorTrackingGroupingRuleListResponseSerializer(serializers.Serializer):
     results = ErrorTrackingGroupingRuleSerializer(many=True)
 
 
+class ErrorTrackingGroupingRuleReorderRequestSerializer(serializers.Serializer):
+    orders = serializers.DictField(
+        child=serializers.IntegerField(),
+        help_text="Mapping from grouping rule UUID to its new evaluation order.",
+    )
+
+
 class ErrorTrackingGroupingRuleViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "error_tracking"
     scope_object_write_actions = ["create", "update", "partial_update", "destroy", "reorder"]
@@ -219,6 +226,7 @@ class ErrorTrackingGroupingRuleViewSet(TeamAndOrgViewSetMixin, viewsets.GenericV
         )
         return Response(self.get_serializer(rule).data, status=status.HTTP_201_CREATED)
 
+    @extend_schema(request=ErrorTrackingGroupingRuleReorderRequestSerializer, responses={204: None})
     @action(methods=["PATCH"], detail=False)
     def reorder(self, request, **kwargs) -> Response:
         orders: dict[str, int] = request.data.get("orders", {})

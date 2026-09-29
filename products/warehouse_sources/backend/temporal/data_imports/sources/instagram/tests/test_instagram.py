@@ -286,6 +286,23 @@ class TestInstagramTransport:
 
         assert len(session.requested_urls) == MAX_RETRY_ATTEMPTS
 
+    def test_a_non_json_success_body_is_retried_then_surfaced(self) -> None:
+        # Meta answering a 2xx with an empty body or an edge server's HTML makes `response.json()`
+        # raise, which must be retried like any other truncated response instead of ending the sync
+        # with an opaque JSONDecodeError.
+        response = FakeResponse(200, repeat=True)
+        response.json = mock.Mock(  # type: ignore[method-assign]
+            side_effect=requests.exceptions.JSONDecodeError("Expecting value: line 1 column 1 (char 0)", "", 0)
+        )
+        session = FakeSession([(ACCOUNT_ID, response)])
+        with mock.patch(f"{MODULE}.make_tracked_session", return_value=session):
+            client = InstagramClient("tok", "v23.0", LOGGER)
+
+        with pytest.raises(InstagramRetryableError):
+            client.get(client.build_url(ACCOUNT_ID))
+
+        assert len(session.requested_urls) == MAX_RETRY_ATTEMPTS
+
     def test_a_connection_reset_mid_response_body_is_retried(self) -> None:
         # A reset that lands while urllib3 is still reading a chunked body surfaces as
         # ChunkedEncodingError rather than ConnectionError, but it's the same transient

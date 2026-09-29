@@ -9,12 +9,14 @@ import {
     buildRetentionBarChartConfig,
     buildRetentionChartModel,
     buildRetentionLineChartConfig,
+    buildRetentionMeanSeries,
     buildRetentionSeries,
     type RetentionCohortLike,
     computeRetentionSeriesValue,
     formatRetentionCohortLabel,
     type RetentionResultLike,
     type RetentionSeriesMeta,
+    retentionSeriesOpacity,
     type RetentionTrendSeriesEntry,
     sortRetentionCohorts,
 } from './retentionChartTransforms'
@@ -180,6 +182,16 @@ describe('retentionChartTransforms', () => {
         expect(config.xAxis).toEqual({ interval: 'day', timezone: 'America/Chicago' })
     })
 
+    describe('retentionSeriesOpacity', () => {
+        it.each<[string, number, number, number]>([
+            ['newest cohort stays solid', 4, 5, 1],
+            ['oldest cohort fades', 0, 5, 0.25],
+            ['a lone cohort stays solid', 0, 1, 1],
+        ])('%s', (_name, index, total, expected) => {
+            expect(retentionSeriesOpacity(index, total)).toBeCloseTo(expected)
+        })
+    })
+
     describe('buildRetentionLineChartConfig', () => {
         const baseSeries: Series<RetentionSeriesMeta>[] = buildRetentionSeries(
             [makeEntry({ index: 0 }), makeEntry({ index: 1 })],
@@ -198,6 +210,18 @@ describe('retentionChartTransforms', () => {
             const config = buildRetentionLineChartConfig({
                 isPercentage: true,
                 series: baseSeries,
+                showTrendLines: true,
+            })
+            expect(config.trendLines).toEqual([
+                { seriesKey: 'retention-0', kind: 'linear' },
+                { seriesKey: 'retention-1', kind: 'linear' },
+            ])
+        })
+
+        it('excludes the mean overlay from trend lines', () => {
+            const config = buildRetentionLineChartConfig({
+                isPercentage: true,
+                series: [...baseSeries, buildRetentionMeanSeries([1, 2])],
                 showTrendLines: true,
             })
             expect(config.trendLines).toEqual([
