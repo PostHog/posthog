@@ -240,12 +240,35 @@ def _unbalanced_destination_closers(text: str) -> dict[int, int]:
     return closers
 
 
-def _delimited_run(text: str, start: int, closers: dict[int, int]) -> tuple[str, int] | None:
-    """Return the text inside the run that opens at ``start`` and the index after its closer, or None when it never closes."""
-    end = closers.get(start)
-    if end is None:
+def _link_at(
+    text: str,
+    start: int,
+    *,
+    label_closers: dict[int, int],
+    destination_closers: dict[int, int],
+    images: bool,
+) -> tuple[str, int] | None:
+    """The mrkdwn for the markdown link that starts at ``start``, and the index after that link.
+
+    The label and the destination are read only after both delimiters are known. A run of nested
+    brackets gives every ``[`` a closer far to its right, so a slice taken before the destination
+    is checked copies the rest of the run at every opener and costs quadratic time.
+    """
+    label_start = start + 1 if images else start
+    label_end = label_closers.get(label_start)
+    if label_end is None:
         return None
-    return text[start + 1 : end], end + 1
+    destination_start = label_end + 1
+    destination_end = destination_closers.get(destination_start)
+    if destination_end is None:
+        return None
+    # An empty destination, or a link with no label, stays as the author wrote it.
+    if destination_end == destination_start + 1 or (label_end == label_start + 1 and not images):
+        return None
+
+    label = text[label_start + 1 : label_end]
+    destination = text[destination_start + 1 : destination_end]
+    return f"<{destination}|{label}>", destination_end + 1
 
 
 def _markdown_links_to_mrkdwn(text: str, *, images: bool) -> str:
@@ -263,12 +286,17 @@ def _markdown_links_to_mrkdwn(text: str, *, images: bool) -> str:
             index += 2
             continue
         if char == marker:
-            label = _delimited_run(text, index + 1 if images else index, label_closers)
-            destination = _delimited_run(text, label[1], destination_closers) if label else None
-            # An empty destination, or a link with no label, stays as the author wrote it.
-            if label and destination and destination[0] and (label[0] or images):
-                out.append(f"<{destination[0]}|{label[0]}>")
-                index = destination[1]
+            link = _link_at(
+                text,
+                index,
+                label_closers=label_closers,
+                destination_closers=destination_closers,
+                images=images,
+            )
+            if link is not None:
+                mrkdwn, end = link
+                out.append(mrkdwn)
+                index = end
                 continue
         out.append(char)
         index += 1

@@ -426,10 +426,16 @@ class TestSlackFormatting(SimpleTestCase):
                 "[here](https://ph.test/a( then [next](https://ph.test/b)",
                 "[here](https://ph.test/a( then <https://ph.test/b|next>",
             ),
-            # A scan from each `[` rereads the rest of the text when a run never closes, which makes
-            # the conversion quadratic. The timeout fails these cases if that per-link scan returns.
+            (
+                "nested_label_keeps_its_inner_brackets",
+                "[a [b]](https://ph.test/x)",
+                "<https://ph.test/x|a [b]>",
+            ),
+            # These runs are the shapes that cost quadratic time when a label is read at every `[`
+            # rather than once a destination is found. The timeout fails them if that returns.
             ("unclosed_destination_run_closes_at_first_paren", "[x](a()" * 4000, "<a(|x>" * 4000),
             ("unclosed_label_run_stays_literal", "[" * 25000, "[" * 25000),
+            ("nested_label_run_stays_literal", "[" * 25000 + "]" * 25000, "[" * 25000 + "]" * 25000),
         ]
     )
     @pytest.mark.timeout(1, func_only=True)
