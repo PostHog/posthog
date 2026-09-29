@@ -112,7 +112,7 @@ export const autoresearchLogic = kea<autoresearchLogicType>([
         pipelines: [
             [] as AutoresearchPipelineApi[],
             {
-                loadPipelines: async (_, breakpoint) => {
+                loadPipelines: async (_: void, breakpoint) => {
                     if (!values.currentTeamId) {
                         return []
                     }
