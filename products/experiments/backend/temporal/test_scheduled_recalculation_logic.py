@@ -1,10 +1,11 @@
 from datetime import timedelta
+from types import SimpleNamespace
 from typing import Any
 from uuid import uuid4
 
 import time_machine
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.utils import timezone
 
@@ -13,6 +14,7 @@ from parameterized import parameterized
 from posthog.models.scoping import team_scope
 from posthog.models.team import Team
 
+from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY
 from products.experiments.backend.models.experiment import Experiment, ExperimentMetricsRecalculation
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.temporal.scheduled_recalculation_logic import (
@@ -21,6 +23,7 @@ from products.experiments.backend.temporal.scheduled_recalculation_logic import 
     MIN_TIME_SINCE_LAST_RECALCULATION,
     SKIP_ACTIVE_RUN,
     SKIP_RECENT_RUN,
+    count_total_exposures,
     find_scheduled_recalculation_candidates,
     recent_recalculation_skip,
     team_has_scheduled_recalculation_enabled,
@@ -229,3 +232,26 @@ class TestScheduledRecalculationLogic(BaseTest):
             assert team_has_scheduled_recalculation_enabled(self.team.id, str(self.team.organization_id)) is True
         assert flag.call_args.kwargs["groups"]["organization"] == str(self.team.organization_id)
         assert flag.call_args.kwargs["only_evaluate_locally"] is True
+
+    def test_exposure_count_sums_variants_and_drops_the_multiple_bucket(self):
+        # $multiple holds entities that saw more than one variant, so it is not a variant's
+        # audience and must not count toward the threshold.
+        experiment = self._experiment()
+        response = SimpleNamespace(total_exposures={"control": 40, "test": 35, MULTIPLE_VARIANT_KEY: 500})
+        runner = MagicMock()
+        runner.run.return_value = response
+        with patch(
+            "products.experiments.backend.hogql_queries.experiment_exposures_query_runner.ExperimentExposuresQueryRunner",
+            return_value=runner,
+        ):
+            assert count_total_exposures(experiment) == 75
+
+    def test_exposure_count_is_zero_when_the_runner_returns_nothing(self):
+        experiment = self._experiment()
+        runner = MagicMock()
+        runner.run.return_value = SimpleNamespace(total_exposures=None)
+        with patch(
+            "products.experiments.backend.hogql_queries.experiment_exposures_query_runner.ExperimentExposuresQueryRunner",
+            return_value=runner,
+        ):
+            assert count_total_exposures(experiment) == 0
