@@ -1,3 +1,4 @@
+import hashlib
 import datetime as dt
 from typing import TYPE_CHECKING
 
@@ -85,6 +86,11 @@ class ScannerOrigin(models.TextChoices):
     # Minted from a config passed inline to a one-off scan (see `inline_scan.py`). Never swept,
     # never listed, not editable, and reaped once it has nothing to show.
     INLINE = "inline", "Inline"
+
+
+def prompt_fingerprint(prompt: str) -> str:
+    """Identifies a prompt's text, so a condensed question can be matched to the prompt it came from."""
+    return hashlib.sha256(prompt.encode()).hexdigest()
 
 
 def initial_watermark() -> "datetime":
@@ -275,6 +281,22 @@ class ReplayScanner(Taggable, ModelActivityMixin, UUIDModel):
         null=True,
         blank=True,
         help_text="When the Search tab last asked for this scanner's suggestions. Only viewed scanners refresh.",
+    )
+
+    # Written with the prompt by every path that sets one, see `prompt_questions`. Not version-tracked: it
+    # restates the prompt and changes nothing about how the scanner scans.
+    prompt_question = models.TextField(
+        blank=True,
+        default="",
+        db_default="",
+        help_text="The prompt condensed by AI into one question, shown above an observation's answer.",
+    )
+    prompt_question_source = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        db_default="",
+        help_text="`prompt_fingerprint` of the prompt `prompt_question` was condensed from. A mismatch means it is stale.",
     )
 
     # Not "monthly": this resets with the org's billing period, which is only a calendar month
