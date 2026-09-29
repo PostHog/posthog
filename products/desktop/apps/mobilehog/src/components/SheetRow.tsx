@@ -1,3 +1,4 @@
+import { Host, Image } from "@expo/ui/swift-ui";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { colors, fonts, radius } from "@/lib/theme";
 
@@ -9,12 +10,13 @@ function Radio({ on }: { on: boolean }) {
   );
 }
 
-// One row in a sheet card: a menu row (value + chevron) or a radio option.
+// One row in a sheet card: a menu row (value + chevron), a radio option, or a checkmarked option.
 export function SheetRow({
   label,
   value,
   onPress,
   radio,
+  checked,
   trailing,
   first,
 }: {
@@ -22,6 +24,7 @@ export function SheetRow({
   value?: string;
   onPress?: () => void;
   radio?: boolean;
+  checked?: boolean;
   trailing?: string;
   first?: boolean;
 }) {
@@ -42,7 +45,12 @@ export function SheetRow({
       <View style={{ flex: 1 }} />
       {value ? <Text style={styles.value}>{value}</Text> : null}
       {trailing ? <Text style={styles.trailing}>{trailing}</Text> : null}
-      {onPress && radio === undefined ? (
+      {checked ? (
+        <Host matchContents>
+          <Image systemName="checkmark" size={16} color={colors.accent} />
+        </Host>
+      ) : null}
+      {onPress && radio === undefined && checked === undefined ? (
         <Text style={styles.chevron}>›</Text>
       ) : null}
     </Pressable>

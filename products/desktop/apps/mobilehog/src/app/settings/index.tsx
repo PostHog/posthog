@@ -33,7 +33,13 @@ export default function SettingsSheet() {
       </View>
 
       <View style={styles.card}>
-        <View style={styles.accountRow}>
+        <Pressable
+          onPress={() => router.push("/settings/projects")}
+          style={({ pressed }) => [
+            styles.accountRow,
+            pressed && { opacity: 0.5 },
+          ]}
+        >
           <View style={styles.avatar}>
             <Text style={styles.avatarText}>{initials}</Text>
           </View>
@@ -48,7 +54,8 @@ export default function SettingsSheet() {
                 : ""}
             </Text>
           </View>
-        </View>
+          <Text style={styles.chevron}>›</Text>
+        </Pressable>
       </View>
 
       <Text style={styles.section}>Appearance</Text>
@@ -242,6 +249,7 @@ const styles = StyleSheet.create({
     color: colors.inkMute,
     marginTop: 2,
   },
+  chevron: { fontSize: 20, lineHeight: 22, color: colors.inkMute },
   section: {
     fontFamily: fonts.sans,
     fontSize: 14,

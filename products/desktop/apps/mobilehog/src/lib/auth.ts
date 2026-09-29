@@ -21,6 +21,8 @@ export interface Session {
   // OAuth sessions only; a local dev key never expires.
   refreshToken?: string;
   expiresAt?: number;
+  // The projects an OAuth token may reach; empty or missing means no limit.
+  scopedTeams?: number[];
   projectId: number;
   projectName: string;
   userId: number;
@@ -40,6 +42,7 @@ interface AuthState {
   ) => Promise<void>;
   // Swaps an expired OAuth access token; returns the new bearer.
   refresh: () => Promise<string>;
+  selectProject: (projectId: number, projectName: string) => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -221,7 +224,7 @@ export const useAuth = create<AuthState>((set, get) => {
     loginWithOAuth: (region, options) =>
       login(async () => {
         const tokens = await signInWithOAuth(region, options);
-        return describeSession({
+        const session = await describeSession({
           region,
           host: CLOUD_HOSTS[region],
           apiKey: tokens.access_token,
@@ -229,6 +232,7 @@ export const useAuth = create<AuthState>((set, get) => {
           expiresAt: Date.now() + tokens.expires_in * 1000,
           projectId: tokens.scoped_teams?.[0],
         });
+        return { ...session, scopedTeams: tokens.scoped_teams };
       }),
 
     refresh: async () => {
@@ -244,9 +248,16 @@ export const useAuth = create<AuthState>((set, get) => {
         apiKey: tokens.access_token,
         refreshToken: tokens.refresh_token || current.refreshToken,
         expiresAt: Date.now() + tokens.expires_in * 1000,
+        scopedTeams: tokens.scoped_teams ?? current.scopedTeams,
       };
       await commit(session, generation);
       return session.apiKey;
+    },
+
+    selectProject: async (projectId, projectName) => {
+      const current = get().session;
+      if (!current || current.projectId === projectId) return;
+      await commit({ ...current, projectId, projectName }, get().generation);
     },
 
     logout: async () => {
