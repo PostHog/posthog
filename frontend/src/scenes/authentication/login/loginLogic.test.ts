@@ -398,7 +398,12 @@ describe('loginLogic', () => {
             expect(logic.values.isPasswordLoginUnavailable).toBe(true)
             expect(logic.values.availableLoginMethods).toEqual([])
             expect(logic.values.hasNoConfiguredLoginMethod).toBe(true)
-            expect(posthog.capture).toHaveBeenCalledWith('login no sign-in method banner shown')
+
+            await precheck({ saml_available: false, password_login_available: false, social_providers: [] })
+            const bannerEvents = jest
+                .mocked(posthog.capture)
+                .mock.calls.filter(([event]) => event === 'login no sign-in method banner shown')
+            expect(bannerEvents).toHaveLength(1)
         })
 
         it('defers entirely to enforced SSO', async () => {

@@ -209,6 +209,7 @@ export interface loginLogicValues {
     loginTouched: boolean
     loginTouches: Record<string, boolean>
     loginValidationErrors: DeepPartialMap<LoginForm, ValidationErrorType>
+    noSignInMethodReportedForEmail: string | null
     precheckResponse: PrecheckResponseType
     precheckResponseLoading: boolean
     resendResponse: {
@@ -329,6 +330,9 @@ export interface loginLogicActions {
         email: string
         provider: SSOProvider
     }
+    setNoSignInMethodReported: (email: string) => {
+        email: string
+    }
     submitCodeVerification: () => {
         value: boolean
     }
@@ -409,6 +413,7 @@ export const loginLogic = kea<loginLogicType>([
         setCodeVerificationRequired: (email: string) => ({ email }),
         exitCodeVerification: true,
         startAutoRedirectToProvider: (provider: SSOProvider, email: string) => ({ provider, email }),
+        setNoSignInMethodReported: (email: string) => ({ email }),
     }),
     reducers({
         // This is separate from the login form, so that the form can be submitted even if a general error is present
@@ -450,6 +455,13 @@ export const loginLogic = kea<loginLogicType>([
             null as string | null,
             {
                 startAutoRedirectToProvider: (_, { email }) => email,
+            },
+        ],
+        // Precheck runs again on each blur and submit, so capture the banner event once per email.
+        noSignInMethodReportedForEmail: [
+            null as string | null,
+            {
+                setNoSignInMethodReported: (_, { email }) => email,
             },
         ],
     }),
@@ -685,8 +697,10 @@ export const loginLogic = kea<loginLogicType>([
         },
         precheckSuccess: async ({ payload }, breakpoint) => {
             const { precheckResponse } = values
-            if (values.hasNoConfiguredLoginMethod) {
+            const precheckedEmail = payload?.email ?? values.login.email
+            if (values.hasNoConfiguredLoginMethod && values.noSignInMethodReportedForEmail !== precheckedEmail) {
                 posthog.capture('login no sign-in method banner shown')
+                actions.setNoSignInMethodReported(precheckedEmail)
             }
             // Auto-trigger the modal passkey prompt if the user has passkeys and SSO isn't enforced.
             // Skip on WebKit, it freezes Safari when triggered without a user gesture.
