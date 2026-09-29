@@ -37,11 +37,27 @@ mutation GetSpaceliftToken($id: ID!, $secret: String!) {
 """
 
 
+ACCOUNT_NOT_FOUND_REASON = "account not found"
+
+INVALID_API_KEY_MESSAGE = (
+    "Your Spacelift API key is invalid or has been revoked. Create a new API key in your Spacelift "
+    "organization settings, then reconnect."
+)
+ACCOUNT_NOT_FOUND_MESSAGE = (
+    "Spacelift has no account with that name. Enter only the subdomain of your Spacelift URL, for "
+    "example my-company for my-company.app.spacelift.io."
+)
+
+
 class SpaceliftRetryableError(Exception):
     pass
 
 
 class SpaceliftAuthError(Exception):
+    pass
+
+
+class SpaceliftAccountNotFoundError(SpaceliftAuthError):
     pass
 
 
@@ -200,6 +216,10 @@ class SpaceliftClient:
         errors = payload.get("errors")
         if errors:
             messages = "; ".join(e.get("message", "") for e in errors)
+            # Spacelift rejects the token exchange with "account not found" when the subdomain names
+            # no account, which says nothing about the key the user typed.
+            if ACCOUNT_NOT_FOUND_REASON in messages.lower():
+                raise SpaceliftAccountNotFoundError(f"Spacelift account not found: token exchange failed ({messages})")
             raise SpaceliftAuthError(f"Invalid Spacelift API key: token exchange failed ({messages})")
 
         # Spacelift signals a bad key id/secret with a null user, not a GraphQL error.
@@ -368,8 +388,10 @@ def validate_credentials(account_name: str, api_key_id: str, api_key_secret: str
     try:
         client._ensure_token()
         return True, None
-    except SpaceliftAuthError as e:
-        return False, str(e)
+    except SpaceliftAccountNotFoundError:
+        return False, ACCOUNT_NOT_FOUND_MESSAGE
+    except SpaceliftAuthError:
+        return False, INVALID_API_KEY_MESSAGE
     except Exception as e:
         return False, f"Could not verify Spacelift credentials: {e}"
     finally:
