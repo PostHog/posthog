@@ -105,15 +105,19 @@ export function FeatureRequestEditModal(): JSX.Element {
                     </div>
                 </div>
                 <div className="flex flex-col gap-1">
-                    <LemonLabel>Title</LemonLabel>
+                    <LemonLabel>
+                        Title <span className="text-danger">*</span>
+                    </LemonLabel>
                     <LemonInput value={editTitle} onChange={setEditTitle} maxLength={400} fullWidth />
                 </div>
                 <div className="flex flex-col gap-1">
-                    <LemonLabel>Description (optional)</LemonLabel>
+                    <LemonLabel showOptional>Description</LemonLabel>
                     <LemonTextArea value={editDescription} onChange={setEditDescription} minRows={5} />
                 </div>
                 <div className="flex flex-col gap-1">
-                    <LemonLabel>Accounts</LemonLabel>
+                    <LemonLabel>
+                        Accounts <span className="text-danger">*</span>
+                    </LemonLabel>
                     <LemonInputSelect
                         mode="multiple"
                         value={editAccountIds}
@@ -126,7 +130,9 @@ export function FeatureRequestEditModal(): JSX.Element {
                     />
                 </div>
                 <div className="flex flex-col gap-1">
-                    <LemonLabel>Product areas</LemonLabel>
+                    <LemonLabel>
+                        Product areas <span className="text-danger">*</span>
+                    </LemonLabel>
                     <LemonInputSelect
                         mode="multiple"
                         value={editProductAreaIds}

@@ -100,7 +100,9 @@ export function FeatureRequestCreateModal(): JSX.Element {
                     </LemonBanner>
                 )}
                 <div className="flex flex-col gap-1">
-                    <LemonLabel>Title</LemonLabel>
+                    <LemonLabel>
+                        Title <span className="text-danger">*</span>
+                    </LemonLabel>
                     <LemonInput
                         value={title}
                         onChange={setTitle}
@@ -111,7 +113,7 @@ export function FeatureRequestCreateModal(): JSX.Element {
                     />
                 </div>
                 <div className="flex flex-col gap-1">
-                    <LemonLabel>Description (optional)</LemonLabel>
+                    <LemonLabel showOptional>Description</LemonLabel>
                     <LemonTextArea
                         value={description}
                         onChange={setDescription}
@@ -120,7 +122,9 @@ export function FeatureRequestCreateModal(): JSX.Element {
                     />
                 </div>
                 <div className="flex flex-col gap-1">
-                    <LemonLabel>Account</LemonLabel>
+                    <LemonLabel>
+                        Account <span className="text-danger">*</span>
+                    </LemonLabel>
                     <LemonInputSelect
                         mode="single"
                         value={accountId ? [accountId] : []}
@@ -133,7 +137,9 @@ export function FeatureRequestCreateModal(): JSX.Element {
                     />
                 </div>
                 <div className="flex flex-col gap-1">
-                    <LemonLabel>Product areas</LemonLabel>
+                    <LemonLabel>
+                        Product areas <span className="text-danger">*</span>
+                    </LemonLabel>
                     <LemonInputSelect
                         mode="multiple"
                         value={productAreaIds}
