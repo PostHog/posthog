@@ -104,11 +104,16 @@ class MarketingAnalyticsAttributionQueryRunner(AttributionQueryRunnerBase[Market
         visitors to the display window instead let a conversion be credited to a touch from before the
         range while its person was missing from the denominator, reporting rates above 100%.
         """
-        if self.config.sessions_precomputation_enabled:
-            with self.timings.measure("attribution_sessions_precompute"):
+        if self.config.sessions_precomputation_enabled or self.config.live_session_resolution_enabled:
+            with self.timings.measure(
+                "attribution_live_session_resolution"
+                if self.config.live_session_resolution_enabled
+                else "attribution_sessions_precompute"
+            ):
                 precomputed = build_reach(self, date_range)
             if precomputed is not None:
-                self._sessions_precompute_used = True
+                self._sessions_precompute_used = not self.config.live_session_resolution_enabled
+                self._live_session_resolution_used = self.config.live_session_resolution_enabled
                 return precomputed
 
         breakdown = self._breakdown_expr()

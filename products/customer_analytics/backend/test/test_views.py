@@ -65,7 +65,8 @@ from products.product_analytics.backend.facade.models import Insight
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
-from products.workflows.backend.models import HogFlow
+from products.workflows.backend.facade.contracts import WorkflowSummary
+from products.workflows.backend.facade.testing import create_workflow_for_test
 
 
 class TestCustomerProfileConfigViewSet(APIBaseTest):
@@ -2075,9 +2076,9 @@ class TestCustomPropertyDefinitionAccessControl(APIBaseTest):
             organization_member=membership,
         )
 
-    def _create_workflow_reference(self, *, name: str) -> HogFlow:
-        return HogFlow.objects.create(
-            team=self.team,
+    def _create_workflow_reference(self, *, name: str) -> WorkflowSummary:
+        return create_workflow_for_test(
+            team_id=self.team.id,
             name=name,
             status="active",
             actions=[

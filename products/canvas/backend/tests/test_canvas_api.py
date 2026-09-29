@@ -33,7 +33,8 @@ from products.tasks.backend.facade.access import DesktopAccessDecision
 from products.tasks.backend.facade.ai_run_defaults import update_team_ai_run_preferences, update_user_ai_run_preferences
 from products.tasks.backend.facade.contracts import ComputeQuotaDenialReason
 from products.tasks.backend.models import Channel, Task, TaskRun, TaskThreadMessage
-from products.workflows.backend.models import HogFlow
+from products.workflows.backend.facade.api import get_workflow_summary
+from products.workflows.backend.facade.testing import create_workflow_for_test
 
 
 class InMemoryStorage:
@@ -2228,8 +2229,8 @@ class TestCanvasActions(CanvasAPIBaseTest):
             label="canvas-actions", user=self.user, secure_value=hash_key_value(raw_key), scopes=scopes
         )
         self.client.logout()
-        workflow = HogFlow.objects.create(
-            team=self.team, name="Loop", status="active", trigger={}, actions=[], edges=[]
+        workflow = create_workflow_for_test(
+            team_id=self.team.id, name="Loop", status="active", trigger={}, actions=[], edges=[]
         )
 
         response = self.client.post(
@@ -2251,8 +2252,8 @@ class TestCanvasActions(CanvasAPIBaseTest):
 
     def test_workflow_verbs_flip_status_and_refuse_other_projects(self):
         canvas_id = self._actions_canvas(verbs=("workflows.pause", "workflows.resume"))
-        loop = HogFlow.objects.create(
-            team=self.team,
+        loop = create_workflow_for_test(
+            team_id=self.team.id,
             name="Plan",
             status="active",
             trigger={"type": "schedule"},
@@ -2260,27 +2261,23 @@ class TestCanvasActions(CanvasAPIBaseTest):
             edges=[],
         )
         other_team = self.organization.teams.create(name="other")
-        foreign = HogFlow.objects.create(
-            team=other_team, name="Elsewhere", status="active", trigger={}, actions=[], edges=[]
+        foreign = create_workflow_for_test(
+            team_id=other_team.id, name="Elsewhere", status="active", trigger={}, actions=[], edges=[]
         )
 
         paused = self._invoke(canvas_id, "workflows.pause", {"workflow_ids": [str(loop.id)]})
         assert paused.status_code == status.HTTP_200_OK, paused.json()
         assert paused.json()["result"] == {"workflows": [{"id": str(loop.id), "status": "draft"}]}
-        loop.refresh_from_db()
-        assert loop.status == "draft"
+        assert get_workflow_summary(team_id=self.team.id, workflow_id=loop.id).status == "draft"
 
         resumed = self._invoke(canvas_id, "workflows.resume", {"workflow_ids": [str(loop.id)]})
         assert resumed.status_code == status.HTTP_200_OK, resumed.json()
-        loop.refresh_from_db()
-        assert loop.status == "active"
+        assert get_workflow_summary(team_id=self.team.id, workflow_id=loop.id).status == "active"
 
         refused = self._invoke(canvas_id, "workflows.pause", {"workflow_ids": [str(loop.id), str(foreign.id)]})
         assert refused.status_code == status.HTTP_404_NOT_FOUND, refused.json()
-        foreign.refresh_from_db()
-        assert foreign.status == "active"
-        loop.refresh_from_db()
-        assert loop.status == "active"
+        assert get_workflow_summary(team_id=other_team.id, workflow_id=foreign.id).status == "active"
+        assert get_workflow_summary(team_id=self.team.id, workflow_id=loop.id).status == "active"
 
     @parameterized.expand(
         [
@@ -2302,15 +2299,14 @@ class TestCanvasActions(CanvasAPIBaseTest):
     )
     def test_resume_rejects_an_invalid_draft(self, actions):
         canvas_id = self._actions_canvas(verbs=("workflows.resume",))
-        loop = HogFlow.objects.create(
-            team=self.team, name="Invalid", status="draft", trigger={}, actions=actions, edges=[]
+        loop = create_workflow_for_test(
+            team_id=self.team.id, name="Invalid", status="draft", trigger={}, actions=actions, edges=[]
         )
 
         response = self._invoke(canvas_id, "workflows.resume", {"workflow_ids": [str(loop.id)]})
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-        loop.refresh_from_db()
-        assert loop.status == "draft"
+        assert get_workflow_summary(team_id=self.team.id, workflow_id=loop.id).status == "draft"
 
     def test_registry_lists_every_verb_with_authoring_docs(self):
         # Agents build against this endpoint instead of a skill file, so a verb
