@@ -133,7 +133,7 @@ class PropertyFinder(TraversingVisitor):
 class ToTimeZoneParts:
     bare_field: ast.Expr
     timezone: str
-    constant: ast.Expr
+    other_side: ast.Expr
     swapped: bool
 
 
@@ -566,7 +566,7 @@ class PropertySwapper(CloningVisitor):
         if parts is None:
             return None
 
-        tz_constant = self._ensure_constant_has_timezone(parts.constant, parts.timezone)
+        tz_constant = self._anchor_to_timezone(parts.other_side, parts.timezone)
 
         if parts.swapped:
             return ast.CompareOperation(left=tz_constant, right=parts.bare_field, op=node.op)
@@ -575,7 +575,7 @@ class PropertySwapper(CloningVisitor):
 
     @staticmethod
     def _extract_toTimeZone_parts(node: ast.CompareOperation) -> ToTimeZoneParts | None:
-        """Extract the bare field, timezone, constant and side from a comparison
+        """Extract the bare field, timezone, other side and side from a comparison
         where one side is toTimeZone(field, tz).
 
         Returns None if the pattern doesn't match.
@@ -583,7 +583,7 @@ class PropertySwapper(CloningVisitor):
         """
         for left_is_tz in (True, False):
             tz_side = node.left if left_is_tz else node.right
-            const_side = node.right if left_is_tz else node.left
+            other_side = node.right if left_is_tz else node.left
 
             inner = tz_side
             if isinstance(inner, ast.Alias):
@@ -594,41 +594,31 @@ class PropertySwapper(CloningVisitor):
                     return ToTimeZoneParts(
                         bare_field=inner.args[0],
                         timezone=tz_arg.value,
-                        constant=const_side,
+                        other_side=other_side,
                         swapped=not left_is_tz,
                     )
 
         return None
 
     @staticmethod
-    def _ensure_constant_has_timezone(expr: ast.Expr, tz: str) -> ast.Expr:
-        """Wrap a constant expression with toDateTime64(..., 6, tz) if it doesn't
-        already carry timezone information.
-
-        Constants that are already wrapped in toDateTime64/toDateTime with a tz
-        argument are left unchanged. Bare string/datetime constants get wrapped.
-        """
+    def _anchor_to_timezone(expr: ast.Expr, tz: str) -> ast.Expr:
         inner = expr
         if isinstance(inner, ast.Alias):
             inner = inner.expr
 
-        # Already has timezone: toDateTime64('...', 6, 'tz') or toDateTime('...', 'tz')
         if isinstance(inner, ast.Call):
-            if inner.name == "toDateTime64" and len(inner.args) == 3:
-                return expr
-            if inner.name == "toDateTime" and len(inner.args) == 2:
+            if inner.name in ("toDateTime", "toDateTime64"):
                 return expr
             # Recurse into wrapper functions like assumeNotNull(toDateTime(...))
             if inner.name in ("assumeNotNull",) and len(inner.args) == 1:
-                wrapped_arg = PropertySwapper._ensure_constant_has_timezone(inner.args[0], tz)
+                wrapped_arg = PropertySwapper._anchor_to_timezone(inner.args[0], tz)
                 if wrapped_arg is not inner.args[0]:
-                    new_call = ast.Call(name=inner.name, args=[wrapped_arg])
-                    if isinstance(expr, ast.Alias):
-                        return ast.Alias(alias=expr.alias, expr=new_call)
-                    return new_call
+                    new_call = ast.Call(
+                        name=inner.name, args=[wrapped_arg], type=PropertySwapper._datetime_call_type(inner.name, False)
+                    )
+                    return PropertySwapper._replace_keeping_alias(expr, new_call)
                 return expr
 
-        # Bare constant — wrap with toDateTime64 carrying the timezone.
         # Skip if the value is already a timezone-aware datetime: the printer
         # converts it to the team timezone and emits toDateTime64('...', 6, tz)
         # regardless of the constant's original tzinfo (see escape_sql.py:249).
@@ -639,17 +629,34 @@ class PropertySwapper(CloningVisitor):
             if (zoned := parse_zoned_datetime_string(inner.value)) is not None:
                 inner.value = zoned
                 return expr
-            new_call = ast.Call(
-                name="toDateTime64",
-                args=[inner, ast.Constant(value=6), ast.Constant(value=tz)],
-            )
-            if isinstance(expr, ast.Alias):
-                return ast.Alias(alias=expr.alias, expr=new_call)
-            return new_call
 
-        # For anything else (arithmetic, other calls), leave as-is.
-        # These typically already produce timezone-aware values.
-        return expr
+        precision = 6 if isinstance(inner, ast.Constant) else 9
+        new_call = ast.Call(
+            name="toDateTime64",
+            args=[inner, ast.Constant(value=precision), ast.Constant(value=tz)],
+            type=PropertySwapper._datetime_call_type("toDateTime64", PropertySwapper._is_nullable_bound(inner)),
+        )
+        return PropertySwapper._replace_keeping_alias(expr, new_call)
+
+    @staticmethod
+    def _replace_keeping_alias(expr: ast.Expr, replacement: ast.Expr) -> ast.Expr:
+        if isinstance(expr, ast.Alias):
+            return ast.Alias(alias=expr.alias, expr=replacement, hidden=expr.hidden)
+        return replacement
+
+    @staticmethod
+    def _datetime_call_type(name: str, nullable: bool) -> ast.CallType:
+        return ast.CallType(name=name, arg_types=[], return_type=ast.DateTimeType(nullable=nullable))
+
+    @staticmethod
+    def _is_nullable_bound(expr: ast.Expr) -> bool:
+        if isinstance(expr, ast.Constant):
+            return expr.value is None
+        if isinstance(expr.type, ast.CallType):
+            return expr.type.return_type.nullable
+        if isinstance(expr.type, ast.ConstantType):
+            return expr.type.nullable
+        return True
 
     def visit_field(self, node: ast.Field):
         if isinstance(node.type, ast.FieldType):
