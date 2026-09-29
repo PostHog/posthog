@@ -73,6 +73,11 @@ fine — they get converted to newlines.
 Temporal and the temporal-django-worker start automatically via phrocs when you
 run `hogli start`.
 
+The separate `task-management` implementation is not registered with the worker.
+It stops polling closed or merged PRs and caps background runs at two idle checks; pending CI and merge-queue checks do not consume that budget.
+Pending CI and merge queues have a separate limit of 96 waiting checks (24 hours at the normal cadence).
+Follow-ups and sandbox-session boundaries reset both budgets, and the counters persist in server-owned `TaskRun.state` across orchestrator restarts.
+
 The `process-task` workflow defined in
 `products/tasks/backend/temporal/process_task/workflow.py` provisions a sandbox,
 starts an agent inside it, and waits for the agent to finish. The workflow

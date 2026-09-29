@@ -27,6 +27,8 @@ from products.tasks.backend.temporal.observability import log_activity_execution
 
 PENDING_FOLLOWUPS_STATE_KEY = "pending_external_followups"
 PENDING_FOLLOWUPS_GENERATION_STATE_KEY = "pending_external_followups_generation"
+CI_IDLE_SKIPS_STATE_KEY = "task_management_ci_idle_skips"
+CI_WAIT_CHECKS_STATE_KEY = "task_management_ci_wait_checks"
 TASK_RUN_NOT_FOUND_ERROR_TYPE = "PendingFollowupsTaskRunNotFound"
 
 
@@ -39,11 +41,13 @@ class PersistPendingFollowupsInput:
     followups: list[dict[str, Any]]
 
 
-@dataclass
+@dataclass(frozen=False)
 class PersistPendingFollowupsV2Input:
     run_id: str
     followups: list[dict[str, Any]]
     generation: int
+    ci_idle_skips: int | None = None
+    ci_wait_checks: int | None = None
 
 
 @dataclass
@@ -51,11 +55,13 @@ class ReadPendingFollowupsInput:
     run_id: str
 
 
-@dataclass
+@dataclass(frozen=False)
 class ReadPendingFollowupsResult:
     """Pending followups read from state. Empty list when nothing is queued."""
 
     followups: list[dict[str, Any]]
+    ci_idle_skips: int = 0
+    ci_wait_checks: int = 0
 
 
 @activity.defn
@@ -94,6 +100,10 @@ def persist_pending_followups_v2(input: PersistPendingFollowupsV2Input) -> None:
         if isinstance(current_generation, int) and current_generation >= input.generation:
             return
         state[PENDING_FOLLOWUPS_GENERATION_STATE_KEY] = input.generation
+        if input.ci_idle_skips is not None:
+            state[CI_IDLE_SKIPS_STATE_KEY] = input.ci_idle_skips
+        if input.ci_wait_checks is not None:
+            state[CI_WAIT_CHECKS_STATE_KEY] = input.ci_wait_checks
         if input.followups:
             state[PENDING_FOLLOWUPS_STATE_KEY] = input.followups
         else:
@@ -133,10 +143,16 @@ def read_pending_followups(input: ReadPendingFollowupsInput) -> ReadPendingFollo
         except TaskRun.DoesNotExist:
             return ReadPendingFollowupsResult(followups=[])
         state = task_run.state or {}
+        ci_idle_skips = state.get(CI_IDLE_SKIPS_STATE_KEY, 0)
+        if type(ci_idle_skips) is not int or ci_idle_skips < 0:
+            ci_idle_skips = 0
+        ci_wait_checks = state.get(CI_WAIT_CHECKS_STATE_KEY, 0)
+        if type(ci_wait_checks) is not int or ci_wait_checks < 0:
+            ci_wait_checks = 0
         value = state.get(PENDING_FOLLOWUPS_STATE_KEY)
         if not isinstance(value, list):
-            return ReadPendingFollowupsResult(followups=[])
+            return ReadPendingFollowupsResult(followups=[], ci_idle_skips=ci_idle_skips, ci_wait_checks=ci_wait_checks)
         # Drop entries that don't deserialize cleanly — better to lose a
         # malformed item than to crash startup over a stale state shape.
         valid = [item for item in value if isinstance(item, dict)]
-        return ReadPendingFollowupsResult(followups=valid)
+        return ReadPendingFollowupsResult(followups=valid, ci_idle_skips=ci_idle_skips, ci_wait_checks=ci_wait_checks)

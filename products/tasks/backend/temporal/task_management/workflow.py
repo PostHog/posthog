@@ -19,6 +19,7 @@ from products.tasks.backend.temporal.constants import (
     DEFAULT_CI_MESSAGE,
     HEARTBEAT_DEBOUNCE,
     MAX_ACK_RETRIES,
+    MAX_CI_IDLE_SKIPS,
     MAX_CI_REPETITIONS,
     SEND_STEER_SIGNAL,
     STEERING_PROTOCOL_QUERY,
@@ -88,6 +89,11 @@ _PATCH_ID_ACCEPTED_ACK_RESETS_REPLACEMENT_BUDGET = "tasks-task-management-accept
 _PATCH_ID_DURABLE_REPLACEMENT_BUDGET_PERSISTENCE = "tasks-task-management-durable-replacement-budget-persistence"
 _PATCH_ID_TERMINAL_PENDING_FOLLOWUP_BARRIER = "tasks-task-management-terminal-pending-followup-barrier"
 _PATCH_ID_GENERATION_SAFE_PENDING_FOLLOWUPS = "tasks-task-management-generation-safe-pending-followups"
+_PATCH_ID_CI_TERMINAL_PR = "tasks-task-management-ci-terminal-pr"
+_PATCH_ID_CI_WAIT = "tasks-task-management-ci-wait"
+_PATCH_ID_CI_IDLE_SKIP_CAP = "tasks-task-management-ci-idle-skip-cap"
+_PATCH_ID_CI_WAIT_CAP = "tasks-task-management-ci-wait-cap"
+MAX_CI_WAIT_CHECKS = 96
 _CHILD_SIGNAL_TERMINAL_ERROR_TYPES = {
     "ExternalWorkflowExecutionNotFound",
     "NamespaceNotFound",
@@ -204,6 +210,8 @@ class CIFollowUpDecision(StrEnum):
     FIRE = "fire"
     SKIP = "skip"
     NO_PR = "no_pr"
+    TERMINAL = "terminal"
+    WAIT = "wait"
 
 
 @temporalio.workflow.defn(name="task-management")
@@ -244,6 +252,8 @@ class TaskManagementWorkflow(PostHogWorkflow):
         # already-empty queue still triggers a persist call).
         self._last_persisted_followups: list[dict[str, Any]] = []
         self._last_persistence_generation: int = 0
+        self._last_persisted_ci_idle_skips: int = 0
+        self._last_persisted_ci_wait_checks: int = 0
         self._persist_pending_followups_on_exit: bool = False
 
         # Sandbox-side state.
@@ -267,6 +277,8 @@ class TaskManagementWorkflow(PostHogWorkflow):
         self._heartbeat_received: bool = False
         self._last_active_time: Optional[datetime] = None
         self._ci_repetitions: int = 0
+        self._ci_idle_skips: int = 0
+        self._ci_wait_checks: int = 0
         self._pr_fingerprint: Optional[str] = None
         # Last observed unresolved review-thread count. Starting at 0 means
         # feedback posted before the first poll still reads as new.
@@ -615,6 +627,14 @@ class TaskManagementWorkflow(PostHogWorkflow):
     def _ci_follow_up_enabled(self) -> bool:
         if not self._context:
             return False
+        if (
+            self.context.mode != "interactive"
+            and self._ci_idle_skips >= MAX_CI_IDLE_SKIPS
+            and _patch_enabled(_PATCH_ID_CI_IDLE_SKIP_CAP)
+        ):
+            return False
+        if self._ci_wait_checks >= MAX_CI_WAIT_CHECKS and _patch_enabled(_PATCH_ID_CI_WAIT_CAP):
+            return False
         return bool(
             self._context.create_pr and self._context.pr_loop_enabled and self._ci_repetitions < MAX_CI_REPETITIONS
         )
@@ -657,6 +677,8 @@ class TaskManagementWorkflow(PostHogWorkflow):
             )
             if delivered is False:
                 return
+            self._ci_idle_skips = 0
+            self._ci_wait_checks = 0
         # The persisted queue is the orchestrator's recovery buffer — keep
         # it in sync after every drain so a restart sees an accurate picture
         # rather than re-delivering work we already forwarded.
@@ -830,6 +852,8 @@ class TaskManagementWorkflow(PostHogWorkflow):
         self._sandbox_alive = False
         self._child_steering_protocol_version = 0
         self._ci_repetitions = 0
+        self._ci_idle_skips = 0
+        self._ci_wait_checks = 0
         self._pr_fingerprint = None
         self._heartbeat_received = False
         self._last_active_time = None
@@ -887,6 +911,8 @@ class TaskManagementWorkflow(PostHogWorkflow):
         self._sandbox_alive = False
         self._child_steering_protocol_version = 0
         self._ci_repetitions = 0
+        self._ci_idle_skips = 0
+        self._ci_wait_checks = 0
         self._pr_fingerprint = None
         self._pr_unresolved_threads = 0
         self._heartbeat_received = False
@@ -910,6 +936,12 @@ class TaskManagementWorkflow(PostHogWorkflow):
                 "task_management_restore_pending_failed", extra={"run_id": self._run_id, "error": str(e)}
             )
             return
+        if _patch_enabled(_PATCH_ID_CI_IDLE_SKIP_CAP):
+            self._ci_idle_skips = result.ci_idle_skips
+            self._last_persisted_ci_idle_skips = result.ci_idle_skips
+        if _patch_enabled(_PATCH_ID_CI_WAIT_CAP):
+            self._ci_wait_checks = result.ci_wait_checks
+            self._last_persisted_ci_wait_checks = result.ci_wait_checks
         if not result.followups:
             return
         for item in result.followups:
@@ -953,16 +985,30 @@ class TaskManagementWorkflow(PostHogWorkflow):
         if self._run_id is None:
             return False
         payload = [asdict(f) for f in self._pending_external_followups]
-        if payload == self._last_persisted_followups:
+        persist_ci_idle_skips = _patch_enabled(_PATCH_ID_CI_IDLE_SKIP_CAP)
+        persist_ci_wait_checks = _patch_enabled(_PATCH_ID_CI_WAIT_CAP)
+        ci_idle_skips = self._ci_idle_skips
+        ci_wait_checks = self._ci_wait_checks
+        if (
+            payload == self._last_persisted_followups
+            and (not persist_ci_idle_skips or ci_idle_skips == self._last_persisted_ci_idle_skips)
+            and (not persist_ci_wait_checks or ci_wait_checks == self._last_persisted_ci_wait_checks)
+        ):
             return True
         try:
-            if _patch_enabled(_PATCH_ID_GENERATION_SAFE_PENDING_FOLLOWUPS):
+            if (
+                _patch_enabled(_PATCH_ID_GENERATION_SAFE_PENDING_FOLLOWUPS)
+                or persist_ci_idle_skips
+                or persist_ci_wait_checks
+            ):
                 await workflow.execute_activity(
                     persist_pending_followups_v2,
                     PersistPendingFollowupsV2Input(
                         run_id=self._run_id,
                         followups=payload,
                         generation=self._new_persistence_generation(),
+                        ci_idle_skips=ci_idle_skips if persist_ci_idle_skips else None,
+                        ci_wait_checks=ci_wait_checks if persist_ci_wait_checks else None,
                     ),
                     start_to_close_timeout=timedelta(seconds=30),
                     retry_policy=RetryPolicy(maximum_attempts=3),
@@ -975,6 +1021,10 @@ class TaskManagementWorkflow(PostHogWorkflow):
                     retry_policy=RetryPolicy(maximum_attempts=3),
                 )
             self._last_persisted_followups = payload
+            if persist_ci_idle_skips:
+                self._last_persisted_ci_idle_skips = ci_idle_skips
+            if persist_ci_wait_checks:
+                self._last_persisted_ci_wait_checks = ci_wait_checks
             return True
         except Exception as e:
             workflow.logger.warning(
@@ -994,13 +1044,23 @@ class TaskManagementWorkflow(PostHogWorkflow):
             raise RuntimeError("Cannot persist pending follow-ups without a run id")
         while True:
             payload = [asdict(followup) for followup in self._pending_external_followups]
-            if _patch_enabled(_PATCH_ID_GENERATION_SAFE_PENDING_FOLLOWUPS):
+            persist_ci_idle_skips = _patch_enabled(_PATCH_ID_CI_IDLE_SKIP_CAP)
+            persist_ci_wait_checks = _patch_enabled(_PATCH_ID_CI_WAIT_CAP)
+            ci_idle_skips = self._ci_idle_skips
+            ci_wait_checks = self._ci_wait_checks
+            if (
+                _patch_enabled(_PATCH_ID_GENERATION_SAFE_PENDING_FOLLOWUPS)
+                or persist_ci_idle_skips
+                or persist_ci_wait_checks
+            ):
                 await workflow.execute_activity(
                     persist_pending_followups_v2,
                     PersistPendingFollowupsV2Input(
                         run_id=self._run_id,
                         followups=payload,
                         generation=self._new_persistence_generation(),
+                        ci_idle_skips=ci_idle_skips if persist_ci_idle_skips else None,
+                        ci_wait_checks=ci_wait_checks if persist_ci_wait_checks else None,
                     ),
                     schedule_to_close_timeout=timedelta(minutes=5),
                     start_to_close_timeout=timedelta(seconds=30),
@@ -1017,6 +1077,10 @@ class TaskManagementWorkflow(PostHogWorkflow):
                     retry_policy=RetryPolicy(maximum_attempts=0),
                 )
             self._last_persisted_followups = payload
+            if persist_ci_idle_skips:
+                self._last_persisted_ci_idle_skips = ci_idle_skips
+            if persist_ci_wait_checks:
+                self._last_persisted_ci_wait_checks = ci_wait_checks
             if payload == [asdict(followup) for followup in self._pending_external_followups]:
                 return
 
@@ -1234,12 +1298,24 @@ class TaskManagementWorkflow(PostHogWorkflow):
                 # CI timer branch drops out of the wait set.
                 self._ci_repetitions = MAX_CI_REPETITIONS
                 workflow.logger.info("task_management_ci_loop_stopped_no_pr", extra={"run_id": self._run_id})
-            case CIFollowUpDecision.SKIP:
+            case CIFollowUpDecision.TERMINAL:
+                self._ci_repetitions = MAX_CI_REPETITIONS
+            case CIFollowUpDecision.SKIP | CIFollowUpDecision.WAIT:
                 # Bound the next get_pr_context call to +CI_FOLLOW_UP_DELAY.
                 # Mirrors process_task: without this, the next iteration
                 # returns immediately whenever last_active_time is older than
                 # the delay and the workflow tight-loops GET /repos/.../pulls.
                 self._last_active_time = workflow.now()
+                if (
+                    decision == CIFollowUpDecision.SKIP
+                    and self.context.mode != "interactive"
+                    and _patch_enabled(_PATCH_ID_CI_IDLE_SKIP_CAP)
+                ):
+                    self._ci_idle_skips += 1
+                    await self._persist_pending_followups()
+                elif decision == CIFollowUpDecision.WAIT and _patch_enabled(_PATCH_ID_CI_WAIT_CAP):
+                    self._ci_wait_checks += 1
+                    await self._persist_pending_followups()
             case _:
                 raise ValueError(f"Unknown CIFollowUpDecision: {decision}")
 
@@ -1256,18 +1332,23 @@ class TaskManagementWorkflow(PostHogWorkflow):
             workflow.logger.info(
                 "task_management_ci_skipped_pr_closed", extra={"run_id": self._run_id, "pr_url": pr_context.pr_url}
             )
-            return CIFollowUpDecision.SKIP
+            return CIFollowUpDecision.TERMINAL if _patch_enabled(_PATCH_ID_CI_TERMINAL_PR) else CIFollowUpDecision.SKIP
         if pr_context.merge_queue_push_would_eject and workflow.patched(_PATCH_ID_MERGE_QUEUE_SKIP):
             workflow.logger.info(
                 "task_management_ci_skipped_pr_in_merge_queue",
                 extra={"run_id": self._run_id, "pr_url": pr_context.pr_url},
             )
-            return CIFollowUpDecision.SKIP
+            return CIFollowUpDecision.WAIT if _patch_enabled(_PATCH_ID_CI_WAIT) else CIFollowUpDecision.SKIP
         fingerprint_changed = self._pr_fingerprint != pr_context.fingerprint
+        idle = (
+            CIFollowUpDecision.WAIT
+            if pr_context.ci_status == "pending" and _patch_enabled(_PATCH_ID_CI_WAIT)
+            else CIFollowUpDecision.SKIP
+        )
         if not ci_follow_up_actionable_gate():
             # Legacy replay path: any fingerprint change fires; feedback is not consulted.
             if not fingerprint_changed:
-                return CIFollowUpDecision.SKIP
+                return idle
             self._pr_fingerprint = pr_context.fingerprint
             return CIFollowUpDecision.FIRE
         # New unresolved review threads are feedback for the agent, and comparing
@@ -1279,7 +1360,7 @@ class TaskManagementWorkflow(PostHogWorkflow):
             workflow.logger.info(
                 "task_management_ci_skipped_pr_unchanged", extra={"run_id": self._run_id, "pr_url": pr_context.pr_url}
             )
-            return CIFollowUpDecision.SKIP
+            return idle
         self._pr_fingerprint = pr_context.fingerprint
         fire = (fingerprint_changed and is_pr_actionable(pr_context)) or new_feedback
         workflow.logger.info(
@@ -1295,13 +1376,17 @@ class TaskManagementWorkflow(PostHogWorkflow):
                 "repetitions": self._ci_repetitions,
             },
         )
-        return CIFollowUpDecision.FIRE if fire else CIFollowUpDecision.SKIP
+        return CIFollowUpDecision.FIRE if fire else idle
 
     async def _dispatch_ci_follow_up(self) -> None:
         self._ci_repetitions += 1
+        self._ci_idle_skips = 0
+        self._ci_wait_checks = 0
         ci_message = (self._context.ci_prompt if self._context else None) or DEFAULT_CI_MESSAGE
         self._last_active_time = workflow.now()
         await self._signal_child_followup(message=ci_message, artifact_ids=[], source=FOLLOWUP_SOURCE_CI)
+        if _patch_enabled(_PATCH_ID_CI_IDLE_SKIP_CAP) or _patch_enabled(_PATCH_ID_CI_WAIT_CAP):
+            await self._persist_pending_followups()
 
     # ------------------------------------------------------------------
     # Activities used directly by the parent

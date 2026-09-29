@@ -6,6 +6,8 @@ from asgiref.sync import async_to_sync
 from temporalio.exceptions import ApplicationError
 
 from products.tasks.backend.temporal.task_management.activities.pending_followups import (
+    CI_IDLE_SKIPS_STATE_KEY,
+    CI_WAIT_CHECKS_STATE_KEY,
     PENDING_FOLLOWUPS_GENERATION_STATE_KEY,
     PENDING_FOLLOWUPS_STATE_KEY,
     TASK_RUN_NOT_FOUND_ERROR_TYPE,
@@ -82,6 +84,8 @@ class TestPersistPendingFollowups:
                     run_id=run_id,
                     followups=followups,
                     generation=generation,
+                    ci_idle_skips=generation,
+                    ci_wait_checks=generation,
                 ),
             )
         async_to_sync(activity_environment.run)(
@@ -92,6 +96,11 @@ class TestPersistPendingFollowups:
         test_task_run.refresh_from_db()
         assert test_task_run.state[PENDING_FOLLOWUPS_STATE_KEY] == complete
         assert test_task_run.state[PENDING_FOLLOWUPS_GENERATION_STATE_KEY] == 2
+        restored = async_to_sync(activity_environment.run)(
+            read_pending_followups, ReadPendingFollowupsInput(run_id=run_id)
+        )
+        assert restored.ci_idle_skips == 2
+        assert restored.ci_wait_checks == 2
 
     def test_missing_task_run_is_non_retryable(self, activity_environment):
         with pytest.raises(ApplicationError) as exc_info:
@@ -123,13 +132,22 @@ class TestReadPendingFollowups:
 
         assert result.followups == payload
 
-    def test_returns_empty_when_key_missing(self, activity_environment, test_task_run):
+    @pytest.mark.parametrize("ci_idle_skips", [None, 2, "invalid", -1, True])
+    def test_returns_empty_when_key_missing(self, activity_environment, test_task_run, ci_idle_skips):
+        if ci_idle_skips is not None:
+            test_task_run.state = {
+                CI_IDLE_SKIPS_STATE_KEY: ci_idle_skips,
+                CI_WAIT_CHECKS_STATE_KEY: ci_idle_skips,
+            }
+            test_task_run.save(update_fields=["state"])
         result = async_to_sync(activity_environment.run)(
             read_pending_followups,
             ReadPendingFollowupsInput(run_id=str(test_task_run.id)),
         )
 
         assert result.followups == []
+        assert result.ci_idle_skips == (2 if ci_idle_skips == 2 else 0)
+        assert result.ci_wait_checks == (2 if ci_idle_skips == 2 else 0)
 
     def test_returns_empty_when_task_run_missing(self, activity_environment):
         result = async_to_sync(activity_environment.run)(
