@@ -11,10 +11,9 @@ The goal of the next phase is to start this workflow from a PostHog Workflows ev
 ## Findings
 
 - Workflows already has an HTTP Webhook action. It supports a fixed URL, POST, a JSON body, and Standard Webhooks signatures. The `signing_secret` input is encrypted.
-- The action can send `Authorization: Bearer <personal API key>`. That key authenticates as its owner, so Django can check `is_staff` and a narrow API scope.
-- The action's normal `headers` input is **not secret**. The web workflow API returns its contents. A Bearer key stored there is exposed to workflow readers. Log redaction does not fix that storage risk.
-- Other HTTP destination templates already have encrypted API-token inputs. The generic HTTP Webhook template does not have an encrypted Bearer input. Adding one to that CDP template would use the existing Workflows secret storage, without changing Workflows core.
-- The separate `signing_secret` input is encrypted. A signed request proves possession of that secret, not that a Django user has `is_staff=True`.
+- The action can send `Authorization: Bearer <personal API key>`, but its `headers` input is **not secret**. The web workflow API returns its contents. Log redaction does not protect the stored key.
+- The action does not support a secret Bearer input today. Editing a saved Data Pipelines destination does not change the shared template that Workflows runs. The Workflows documentation suggests broader destination support than the current template-based runtime provides.
+- The existing `signing_secret` input is encrypted. A signed request proves possession of that secret, not that a Django user has `is_staff=True`.
 - Outbound HTTP requests block private network addresses. Use a public HTTPS app endpoint, not a private service hostname. The destination must be reachable in the chosen region.
 - Workflows can retry a POST after an ambiguous network failure. Standard Webhooks keeps `webhook-id` stable across retries. The receiver must use that ID to prevent a second audit.
 - The current Temporal workflow blocks a second run while its organization workflow ID is active. It permits a new run after completion. It does not enforce a seven-day limit.
@@ -22,15 +21,17 @@ The goal of the next phase is to start this workflow from a PostHog Workflows ev
 - The current task facade requires a real user ID. Its sandbox MCP token uses that user's project access. The Growth activity now requires that user to be an organization member with project access. A staff user without that membership cannot run this audit in a customer project. A Workflows person ID is not a Django user ID.
 - The existing project 2 `account-audit` skill describes a different, multi-session process. This workflow expects a new, single-file `onboarding-account-audit` skill. Its content must arrive before any live run.
 
-## Decision for the next phase
+## Selected trigger design
 
-Use the existing HTTP Webhook action. Add one purpose-specific Growth POST endpoint. Do **not** change the Workflows product for this phase.
+Use the existing HTTP Webhook action and its Standard Webhooks signing secret. Add one purpose-specific Growth POST endpoint. Do **not** change the Workflows product or the shared HTTP Webhook template for this phase.
 
-The proposed initial path uses Standard Webhooks signatures. Put one strong signing secret in the Workflows action's secret input and in server configuration. Reject requests when either side has no secret. The endpoint must compare the HMAC over the **raw body** with constant-time comparison. It must reject missing or malformed headers and timestamps outside a short window. Rotate the secret if it is disclosed. Keep a server kill switch.
+Put one strong signing secret in the Workflows action's secret input and in server configuration. Reject requests when either side has no secret. The endpoint must compare the HMAC over the **raw body** with constant-time comparison. It must reject missing or malformed headers and timestamps outside a short window. Rotate the secret if it is disclosed. Keep a server kill switch.
 
-A signing secret belongs to a workflow step by default, not to a user. To enforce staff status, bind each issued secret to a staff owner and project 2 workflow in a server-side credential record. Recheck that the owner is active and `is_staff` on each request. Disable the credential when its owner loses staff status. This records a responsible staff owner; it does not prove who caused a particular event to fire. Only staff should edit the workflow, and the trigger must reject events that non-staff can inject to start audits.
+A signing secret belongs to a workflow step by default, not to a user. Growth will bind each issued secret to an active staff owner and a project 2 workflow in a server-side credential record. The endpoint will select that record with a public key ID. It will verify the signature, confirm the bound workflow, and recheck the owner's `is_staff` status on every request. Disable the credential when the owner loses staff status. The staff owner is accountable for this integration, but the signature does not identify the person who caused an event to fire.
 
-Bearer authentication is also possible. For safe storage, add an optional `bearer_token` input marked `secret: true` to the CDP HTTP Webhook template. Construct the Authorization header from that input. Django can then authenticate the PAT owner, require `is_staff`, and require a purpose-specific scope. This changes the CDP template, not Workflows core. The current generic webhook cannot store that Bearer header safely without this change. An editor who can change a generic destination URL can still send its secret to another host; restrict editors or use a destination with a fixed endpoint.
+Only staff should edit the workflow or its trigger. Use a trusted event source that non-staff cannot use to start an audit. If a non-staff user can emit the matching event, Workflows will sign the resulting request. The endpoint cannot infer the event emitter's role from the signature. Keep the destination URL fixed and do not accept an event-provided user ID.
+
+**Not selected:** A Bearer personal API key in the HTTP step's normal headers. Those headers are returned by the web workflow API. An encrypted Bearer field would require a shared CDP template change. It would still let an editor send the token to another public URL.
 
 Proposed request:
 
@@ -72,8 +73,8 @@ For scout access, keep notebook discovery project-scoped. A follow-up can tell t
 
 1. Publish the reviewed `onboarding-account-audit` skill in project 2. Keep it in one file. Confirm that notebook MCP tools work in a test project.
 2. Give the agent a narrow, team-bound MCP identity. Keep the staff initiator separate from task and notebook ownership. Test a staff-triggered run without customer organization membership.
-3. Issue a staff-bound signing credential for a trusted project 2 workflow. Add the signed Growth endpoint, durable admission record, kill switch, and rate limit. Keep authorization and target checks on the server.
-4. Configure the project 2 HTTP Webhook step with the fixed HTTPS URL, a small JSON body, and its encrypted signing secret. Keep request debugging off.
+3. Issue a staff-bound signing credential for a trusted project 2 workflow. Add the signed Growth endpoint, durable admission record, kill switch, and rate limit. Check the staff owner and target on every request.
+4. Restrict workflow editing and the trigger event source to staff-controlled paths. Configure the HTTP step with a fixed HTTPS URL, a small JSON body, and its encrypted signing secret. Keep request debugging off.
 5. Add the completion-event workflow and a delivery rule after notebook access and the recipient are defined. Do not send an email from the audit task.
 6. Add project-scoped notebook discovery for scouts only after a real audit proves the notebook useful.
 
