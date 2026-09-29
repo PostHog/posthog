@@ -1,6 +1,7 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 
+import { IconChevronRight } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
@@ -485,6 +486,7 @@ export function InsightVizDisplay({
                                 <ExportButton
                                     type="secondary"
                                     size="small"
+                                    sideIcon={<IconChevronRight className="size-3" />}
                                     items={[
                                         {
                                             export_format: ExporterFormat.CSV,
