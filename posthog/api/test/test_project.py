@@ -896,6 +896,31 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         self.assertIsNotNone(settings.get("widget_public_token"))
         self.assertGreater(len(settings["widget_public_token"]), 20)
 
+    @parameterized.expand([(False,), (True,)])
+    def test_conversations_settings_preserve_managed_values(self, include_enabled: bool) -> None:
+        managed = {
+            "widget_public_token": "test-server-generated-token",
+            "slack_bot_token": "test-server-managed-token",
+            "slack_enabled": True,
+            "teams_tenant_id": "test-server-managed-tenant",
+            "email_enabled": True,
+        }
+        self.team.conversations_enabled = True
+        self.team.conversations_settings = managed
+        self.team.save()
+        payload: dict[str, dict[str, str] | bool] = {
+            "conversations_settings": dict.fromkeys(managed, "test-client-value")
+        }
+        if include_enabled:
+            payload["conversations_enabled"] = True
+
+        response = self.client.patch(f"/api/projects/{self.project.id}/", payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.team.refresh_from_db()
+        for key, value in managed.items():
+            self.assertEqual(self.team.conversations_settings[key], value)
+
     def test_generate_conversations_public_token(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()

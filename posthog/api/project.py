@@ -54,6 +54,7 @@ from posthog.api.team import (
     handle_tracing_config,
     heatmaps_screenshot_secret_for_reader,
     report_conversations_settings_changes,
+    strip_managed_conversations_settings,
     team_event_ingestion_restrictions_view,
     validate_secret_token_generation,
     validate_team_attrs,
@@ -653,8 +654,7 @@ class ProjectBackwardCompatSerializer(
     def validate_conversations_settings(self, value: dict | None) -> dict | None:
         if value is None:
             return value
-        if not isinstance(value, dict):
-            raise serializers.ValidationError("Conversation settings must be an object or null.")
+        strip_managed_conversations_settings(value)
         # Filter out None values from widget_domains if present
         if "widget_domains" in value and value["widget_domains"] is not None:
             value["widget_domains"] = [domain for domain in value["widget_domains"] if domain]

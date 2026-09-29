@@ -1891,31 +1891,11 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     def validate_conversations_settings(self, value: dict | None) -> dict | None:
         if value is None:
             return value
-        if not isinstance(value, dict):
-            raise serializers.ValidationError("Conversation settings must be an object or null.")
+        strip_managed_conversations_settings(value)
         # Filter out None values from widget_domains if present
         if "widget_domains" in value and value["widget_domains"] is not None:
             value["widget_domains"] = [domain for domain in value["widget_domains"] if domain]
             validate_authorized_url_wildcards(value["widget_domains"])
-        # Strip widget_public_token from user input - it's auto-generated only
-        if "widget_public_token" in value:
-            value.pop("widget_public_token")
-        # Integration state is managed only by dedicated endpoints, not user input
-        for managed_key in (
-            "slack_bot_token",
-            "slack_team_id",
-            "slack_enabled",
-            "slack_scopes",
-            "email_enabled",
-            "teams_enabled",
-            "teams_tenant_id",
-            "teams_team_id",
-            "teams_team_name",
-            "teams_channel_id",
-            "teams_channel_name",
-            "teams_channels",
-        ):
-            value.pop(managed_key, None)
         # Normalize multi-channel list: must be a list of non-empty strings, deduped, capped at 50
         if "slack_channel_ids" in value:
             raw = value.get("slack_channel_ids")
@@ -3155,6 +3135,30 @@ def report_conversations_settings_changes(user: User, before_settings: dict | No
         if isinstance(new_value, (bool, int, float, type(None))):
             properties["value"] = new_value
         report_user_action(user, "support setting changed", properties, team=team)
+
+
+def strip_managed_conversations_settings(value: dict[str, Any]) -> None:
+    if not isinstance(value, dict):
+        raise serializers.ValidationError("Conversation settings must be an object or null.")
+    # Strip widget_public_token from user input - it's auto-generated only
+    if "widget_public_token" in value:
+        value.pop("widget_public_token")
+    # Integration state is managed only by dedicated endpoints, not user input
+    for managed_key in (
+        "slack_bot_token",
+        "slack_team_id",
+        "slack_enabled",
+        "slack_scopes",
+        "email_enabled",
+        "teams_enabled",
+        "teams_tenant_id",
+        "teams_team_id",
+        "teams_team_name",
+        "teams_channel_id",
+        "teams_channel_name",
+        "teams_channels",
+    ):
+        value.pop(managed_key, None)
 
 
 def handle_conversations_token_on_update(
