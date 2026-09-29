@@ -95,6 +95,7 @@ def _get_tool_approval_states(
         team_id,
         gateway_server_id,
         user_id=user.id if user is not None else None,
+        block_locked_approvals=True,
     )
 
 

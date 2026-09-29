@@ -63,6 +63,8 @@ def resolve_member_tool_states(
     team_id: int,
     gateway_server_id: uuid.UUID | None,
     user_id: int | None = None,
+    *,
+    block_locked_approvals: bool = False,
 ) -> dict[str, str]:
     """Return a {tool_name: effective_state} map for an installation.
 
@@ -73,7 +75,11 @@ def resolve_member_tool_states(
     call them even if the cached approval state was previously `approved` —
     if the tool is gone upstream, it's gone. Anything not in the map is
     treated as `needs_approval` by the caller (explicit opt-in for freshly
-    discovered tools)."""
+    discovered tools).
+
+    With `block_locked_approvals`, a `needs_approval` state that an org rule
+    locks surfaces as `"do_not_use"`. Use it for callers that approve calls
+    on the member's behalf, because the member cannot approve a locked state."""
     rows = MCPServerInstallationTool.objects.filter(installation_id=installation_id).values(
         "tool_name", "annotations", "approval_state", "removed_at"
     )
@@ -93,7 +99,9 @@ def resolve_member_tool_states(
         if row["removed_at"]:
             resolved[row["tool_name"]] = "do_not_use"
         else:
-            resolved[row["tool_name"]] = _member_tool_state(context, row["tool_name"], row["annotations"])
+            resolved[row["tool_name"]] = _member_tool_state(
+                context, row["tool_name"], row["annotations"], block_locked_approvals=block_locked_approvals
+            )
     return resolved
 
 
@@ -113,15 +121,19 @@ def resolve_member_unlisted_tool_state(
         gateway_server_id=gateway_server_id,
         legacy_rows={},
     )
-    state = _member_tool_state(context, tool_name, None)
+    state = _member_tool_state(context, tool_name, None, block_locked_approvals=True)
     return state if state == "do_not_use" else "needs_approval"
 
 
-def _member_tool_state(context: PolicyContext, tool_name: str, annotations: dict[str, Any] | None) -> str:
+def _member_tool_state(
+    context: PolicyContext,
+    tool_name: str,
+    annotations: dict[str, Any] | None,
+    *,
+    block_locked_approvals: bool,
+) -> str:
     resolved = context.resolve(tool_name, annotations)
-    # A member cannot approve a call that an org rule locks at needs_approval,
-    # so for the member it is the same as do_not_use.
-    if resolved.locked and resolved.state == "needs_approval":
+    if block_locked_approvals and resolved.locked and resolved.state == "needs_approval":
         return "do_not_use"
     return resolved.state
 
