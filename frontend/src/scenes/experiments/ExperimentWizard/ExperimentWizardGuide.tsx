@@ -45,7 +45,7 @@ const GUIDE_CONTENT: Record<ExperimentWizardStep, GuideContent> = {
     implementation: {
         title: 'Implementation',
         tips: [
-            'Your experiment is saved as a draft. Nobody sees a variant until you launch it.',
+            'Your experiment is saved as a draft. Its results start counting when you launch it.',
             'The code checks the feature flag and shows each person their variant. Pick your library to get the right snippet.',
             'Once the code is deployed, launch the experiment from its page. The code is also there, in the Code tab.',
         ],
