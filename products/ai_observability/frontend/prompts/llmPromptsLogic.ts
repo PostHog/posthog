@@ -1,6 +1,7 @@
 import { MakeLogicType, actions, afterMount, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { objectsEqual } from 'lib/utils/objects'
 
@@ -25,6 +26,15 @@ export interface PromptFilters {
     search: string
     order_by: string
     created_by_id?: number
+    tags: string[]
+}
+
+function cleanTags(tags: unknown): string[] {
+    // kea-router JSON-decodes query values, so a single tag can arrive as a plain string.
+    if (Array.isArray(tags)) {
+        return tags.map(String)
+    }
+    return typeof tags === 'string' && tags ? [tags] : []
 }
 
 function cleanFilters(values: Partial<PromptFilters>): PromptFilters {
@@ -33,6 +43,7 @@ function cleanFilters(values: Partial<PromptFilters>): PromptFilters {
         search: String(values.search || ''),
         order_by: values.order_by || '-created_at',
         created_by_id: values.created_by_id ? Number(values.created_by_id) : undefined,
+        tags: cleanTags(values.tags),
     }
 }
 
@@ -157,6 +168,7 @@ export const llmPromptsLogic = kea<llmPromptsLogicType>([
                         offset: Math.max(0, (filters.page - 1) * PROMPTS_PER_PAGE),
                         limit: PROMPTS_PER_PAGE,
                         created_by_id: filters.created_by_id,
+                        tags: filters.tags.length > 0 ? JSON.stringify(filters.tags) : undefined,
                     }
 
                     if (
@@ -224,6 +236,9 @@ export const llmPromptsLogic = kea<llmPromptsLogicType>([
             const { filters } = values
 
             if (!objectsEqual(oldFilters, filters)) {
+                if (filters.tags.length > 0 && !objectsEqual(oldFilters.tags, filters.tags)) {
+                    posthog.capture('llma prompts tag filter applied', { tag_count: filters.tags.length })
+                }
                 await asyncActions.loadPrompts(debounce)
             }
         },
@@ -248,6 +263,7 @@ export const llmPromptsLogic = kea<llmPromptsLogicType>([
             const nextValues = {
                 ...cleanPagedSearchOrderParams(values.filters),
                 created_by_id: values.filters.created_by_id,
+                tags: values.filters.tags.length > 0 ? values.filters.tags : undefined,
             }
             const urlValues = cleanFilters(router.values.searchParams)
 

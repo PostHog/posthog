@@ -6,6 +6,8 @@ import { Link } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { MemberSelect } from 'lib/components/MemberSelect'
+import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
+import { TagSelect } from 'lib/components/TagSelect'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
@@ -105,6 +107,13 @@ export function LLMPromptsScene(): JSX.Element {
                 )
             },
         },
+        {
+            title: 'Tags',
+            key: 'tags',
+            render: function renderTags(_, prompt) {
+                return prompt.tags?.length ? <ObjectTags tags={prompt.tags} staticOnly /> : null
+            },
+        },
         atColumn('created_at', 'Latest version created') as LemonTableColumn<LLMPrompt, keyof LLMPrompt | undefined>,
         {
             width: 0,
@@ -194,6 +203,16 @@ export function LLMPromptsScene(): JSX.Element {
                     />
                     <div className="text-muted-alt">{promptCountLabel}</div>
                     <div className="flex-1" />
+                    <span>
+                        <b>Tags</b>
+                    </span>
+                    <TagSelect
+                        defaultLabel="Any tags"
+                        value={filters.tags}
+                        onChange={(tags) => setFilters({ tags })}
+                        size="xsmall"
+                        data-attr="prompts-tag-filter"
+                    />
                     <span>
                         <b>Created by</b>
                     </span>

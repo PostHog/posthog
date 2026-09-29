@@ -41,6 +41,7 @@ import {
     llmPromptsNameLabelsDestroy,
     llmPromptsNameLabelsUpdate,
     llmPromptsNamePartialUpdate,
+    llmPromptsNameTagsUpdate,
     llmPromptsNameRetrieve,
     llmPromptsResolveNameRetrieve,
 } from '../generated/api'
@@ -392,6 +393,9 @@ export interface llmPromptLogicActions {
     setMode: (mode: PromptMode) => {
         mode: PromptMode
     }
+    setTags: (tags: string[]) => {
+        tags: string[]
+    }
     setPrompt: (prompt: PromptFormValues | ResolvedLLMPrompt) => {
         prompt: PromptFormValues | ResolvedLLMPrompt
     }
@@ -571,6 +575,7 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
         setLabel: (labelName: string, version: number) => ({ labelName, version }),
         requestRemoveLabel: (labelName: string) => ({ labelName }),
         removeLabel: (labelName: string) => ({ labelName }),
+        setTags: (tags: string[]) => ({ tags }),
     }),
 
     reducers(({ props }) => ({
@@ -1322,6 +1327,24 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
                     // Lost a concurrent-write race; resync so badges show where the label actually is.
                     actions.loadPrompt()
                 }
+            }
+        },
+
+        setTags: async ({ tags }) => {
+            try {
+                const response = await llmPromptsNameTagsUpdate(
+                    String(ApiConfig.getCurrentTeamId()),
+                    props.promptName,
+                    {
+                        tags,
+                    }
+                )
+                if (isPrompt(values.prompt)) {
+                    actions.setPrompt({ ...values.prompt, tags: response.tags })
+                }
+                llmPromptsLogic.findMounted()?.actions.loadPrompts(false)
+            } catch (error) {
+                lemonToast.error(getApiErrorDetail(error) || 'Failed to save tags')
             }
         },
 

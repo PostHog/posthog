@@ -1,3 +1,4 @@
+from collections.abc import Iterable
 from typing import Any
 
 from django.db import models, transaction
@@ -9,6 +10,7 @@ from django.utils import timezone
 from posthog.exceptions_capture import capture_exception
 from posthog.llm_prompt import normalize_prompt_to_string
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
+from posthog.models.tagged_items_relation import Taggable
 from posthog.models.utils import UUIDModel
 
 from products.ai_observability.backend.markdown_outline import get_markdown_outline
@@ -25,7 +27,13 @@ def get_prompt_outline(value: Any) -> list[dict[str, Any]]:
     return get_markdown_outline(text)
 
 
-class LLMPrompt(UUIDModel):
+class LLMPrompt(Taggable, UUIDModel):
+    """One immutable version of a prompt. Version rows are grouped by name.
+
+    Tags belong to the prompt, not to one version. They live on the latest version row
+    and move to the new row when a version is published.
+    """
+
     class Meta:
         constraints = [
             models.UniqueConstraint(
@@ -63,6 +71,21 @@ class LLMPrompt(UUIDModel):
     updated_at = models.DateTimeField(auto_now=True)
 
     deleted = models.BooleanField(default=False)
+
+
+def get_prompt_tags_by_name(team_id: int, prompt_names: Iterable[str]) -> dict[str, list[str]]:
+    """Sorted tag names for each prompt name. Prompts without tags are absent from the result."""
+    rows = LLMPrompt.objects.filter(
+        team_id=team_id,
+        name__in=list(prompt_names),
+        deleted=False,
+        is_latest=True,
+        tagged_items__isnull=False,
+    ).values_list("name", "tagged_items__tag__name")
+    tags_by_name: dict[str, list[str]] = {}
+    for prompt_name, tag_name in rows:
+        tags_by_name.setdefault(prompt_name, []).append(tag_name)
+    return {prompt_name: sorted(tags) for prompt_name, tags in tags_by_name.items()}
 
 
 class LLMPromptLabel(ModelActivityMixin, UUIDModel):
