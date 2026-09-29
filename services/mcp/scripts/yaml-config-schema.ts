@@ -137,6 +137,15 @@ export const ToolConfigSchema = z
          * two optional fields).
          */
         validators: z.array(z.string()).optional(),
+        /**
+         * Conditional requirements: when the key param has a non-null value, each listed param
+         * needs a non-null value too. Codegen adds them to the advertised schema as the
+         * `x-required-when-set` annotation, and the compact `info` / `schema` summary lists them
+         * next to `required`, so a caller sees them even when the full schema overflows the
+         * budget. The annotation does not validate anything, so the backend enforces the rule.
+         * Standard `dependentRequired` does not fit: it fires on a present key, even a null one.
+         */
+        required_when_set: z.record(z.string(), z.array(z.string())).optional(),
         /** References a key in ui_apps. */
         ui_app: z.string().optional(),
         /**

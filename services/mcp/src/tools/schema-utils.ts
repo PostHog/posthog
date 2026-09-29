@@ -26,6 +26,7 @@ interface NodeSummary {
     type: string
     title?: string
     required?: string[]
+    requiredWhenSet?: Record<string, string[]>
     properties: Record<string, SummarizedProperty>
     items?: NodeSummary
     variants?: NodeSummary[]
@@ -257,6 +258,10 @@ function summarizeObject(schema: JSONSchema, toolName: string, fieldPath?: strin
     const summary: NodeSummary = {
         type: (schema.type as string) || 'object',
         ...(requiredFields.length > 0 ? { required: requiredFields } : {}),
+        // Before `properties`, so a caller whose output gets cut off still sees the conditional rule.
+        ...(schema['x-required-when-set']
+            ? { requiredWhenSet: schema['x-required-when-set'] as Record<string, string[]> }
+            : {}),
         properties: result,
     }
     if (typeof schema.title === 'string') {

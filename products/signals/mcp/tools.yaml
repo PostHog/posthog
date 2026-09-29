@@ -716,7 +716,7 @@ tools:
             authoring a near-duplicate. `suggested_reviewers` is the primary way a report reaches a human (each a
             `github_login` and/or a PostHog `user_uuid` resolved server-side); for a concrete, fixable issue, passing
             `repository` + `priority` + `suggested_reviewers` also opens a draft PR automatically (autostart,
-            custom_agent parity); omit them to just surface the report. Optional `charts` attach queries the inbox
+            custom_agent parity); omit them to just surface the report. A `priority` requires a `priority_explanation`. Optional `charts` attach queries the inbox
             renders inline — reference one from `summary` as `[label](chart:<chart_id>)` to place it in the body, or
             leave it unreferenced and it renders below. Optional `metrics` adds at most six typed impact measurements:
             one primary metric for the key observation and supporting facts around it. Every metric requires a bounded
@@ -728,6 +728,9 @@ tools:
             (`duplicate_of`, `depends_on`, `part_of`, `follow_up_of`, `recurrence_of`). Send them here rather than in a
             later `scout-edit-report`, because autostart reads them when the report is created. Opt-in: only available
             to scouts that list `emit_report` in their skill's `allowed_tools`.
+        required_when_set:
+            priority:
+                - priority_explanation
     scout-emit-signal:
         operation: signals_scout_emit_signal
         enabled: true
@@ -1355,6 +1358,9 @@ tools:
         description:
             'DEPRECATED: renamed to scout-emit-report. This alias forwards to the same endpoint and will be removed.
             Call scout-emit-report directly with the same arguments.'
+        required_when_set:
+            priority:
+                - priority_explanation
     signals-scout-emit-signal:
         operation: signals_scout_emit_signal
         enabled: true

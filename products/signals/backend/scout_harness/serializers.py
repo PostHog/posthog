@@ -1634,6 +1634,18 @@ class EmitReportRequestSerializer(serializers.Serializer):
         ),
     )
 
+    def validate(self, attrs: dict) -> dict:
+        if attrs.get("priority") and not attrs.get("priority_explanation"):
+            raise serializers.ValidationError(
+                {
+                    "priority_explanation": (
+                        "Required when `priority` is set. Add a 2-3 sentence justification for the priority, "
+                        "or omit `priority`."
+                    )
+                }
+            )
+        return attrs
+
 
 class EmitReportResponseSerializer(serializers.Serializer):
     report_id = serializers.CharField(

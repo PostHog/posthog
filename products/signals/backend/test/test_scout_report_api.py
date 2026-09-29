@@ -2455,15 +2455,21 @@ class TestScoutReportAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("invalid_priority", {"priority": "P9", "priority_explanation": "x"}),
-            ("priority_without_explanation", {"priority": "P1"}),
+            ("invalid_priority", {"priority": "P9", "priority_explanation": "x"}, "priority"),
+            ("priority_without_explanation", {"priority": "P1"}, "priority_explanation"),
+            (
+                "priority_with_null_explanation",
+                {"priority": "P1", "priority_explanation": None},
+                "priority_explanation",
+            ),
         ]
     )
-    def test_emit_report_rejects_bad_priority(self, _name: str, overrides: dict) -> None:
+    def test_emit_report_rejects_bad_priority(self, _name: str, overrides: dict, expected_attr: str) -> None:
         run = _make_run(self.team)
         with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()):
             response = self.client.post(self._emit_url(str(run.id)), data=self._payload(**overrides), format="json")
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == expected_attr, response.json()
 
 
 class TestBuildSuggestedReviewers(APIBaseTest):
