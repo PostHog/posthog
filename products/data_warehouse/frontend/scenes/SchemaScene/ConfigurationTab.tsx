@@ -46,6 +46,7 @@ import {
     StatusTagSetting,
     SyncFrequencyLabelMap,
     SyncTypeLabelMap,
+    allowedCdcSyncFrequencies,
     allowedSyncFrequencies,
     defaultQuery,
     syncAnchorIntervalToHumanReadable,
@@ -912,7 +913,9 @@ function ScheduleSection({
     const { loadSchema } = useActions(schemaSceneLogic({ sourceId, schemaId: schema.id }))
     const isCdc = schema.sync_type === 'cdc'
     const supportsScheduledFullRefresh = SCHEDULED_FULL_REFRESH_SYNC_TYPES.includes(schema.sync_type)
-    const frequencyOptions: LemonSelectOption<DataWarehouseSyncInterval>[] = allowedSyncFrequencies().map((value) => ({
+    const frequencyOptions: LemonSelectOption<DataWarehouseSyncInterval>[] = (
+        isCdc ? allowedCdcSyncFrequencies() : allowedSyncFrequencies()
+    ).map((value) => ({
         value,
         label: SyncFrequencyLabelMap[value],
     }))
@@ -985,9 +988,9 @@ function ScheduleSection({
                 <div className="flex flex-col gap-1">
                     <span>Sync frequency</span>
                     <span className="text-xs text-muted max-w-md">
-                        How often PostHog pulls new data from the source. Shorter intervals mean fresher data but more
-                        load on the source database
-                        {isCdc ? ' — CDC supports sub-minute replication for near-real-time syncs.' : '.'}
+                        {isCdc
+                            ? 'How often PostHog loads the changes it captured for this table. Shorter intervals mean fresher data.'
+                            : 'How often PostHog pulls new data from the source. Shorter intervals mean fresher data but more load on the source database.'}
                     </span>
                     <LemonSelect
                         fullWidth
