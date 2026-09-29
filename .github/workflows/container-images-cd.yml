@@ -33,13 +33,18 @@ on:
     # .depot/workflows/actions-outage-image-build.yml
     workflow_dispatch:
 
-# Serialize runs for the same commit so a push racing a manual re-run/dispatch can't both
-# preflight "absent" and both rebuild, moving an immutable sha-* tag to a new digest. Keyed
-# on github.sha (not the ref) so it also covers push-vs-dispatch overlap; different master
-# commits keep distinct groups and still build in parallel. Never cancel — a queued same-SHA
-# run must run its preflight after the first finishes and reconcile instead of rebuilding.
+# One build at a time on master. GitHub keeps at most one pending run per group, so a burst
+# of merges collapses to the running build plus the newest commit, and the pending runs in
+# between end as cancelled. Charts deploys only the newest image it receives, so a build
+# for a superseded commit would never deploy, and it would slow every other build on the
+# shared Depot builder. The `changes` job diffs from the last successful run, so a skipped
+# commit's paths still reach the fleet deploy filters.
+# Push and dispatch share the group, so a push racing a manual re-run of the same SHA
+# cannot preflight "absent" twice and move an immutable sha-* tag to a new digest.
+# Never cancel in progress: a cancel between the Charts dispatch steps deploys some fleets
+# and not others.
 concurrency:
-    group: ${{ github.workflow }}-${{ github.sha }}
+    group: ${{ github.workflow }}-${{ github.ref }}
     cancel-in-progress: false
 
 # ECR_REPOSITORY is workflow-level so ordered_image_alias reads it directly instead of
@@ -59,23 +64,50 @@ jobs:
         runs-on: ubuntu-24.04
         timeout-minutes: 5
         permissions:
+            actions: read
             contents: read
         outputs:
             image: ${{ steps.filter.outputs.image }}
+            base: ${{ steps.base.outputs.sha }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   sparse-checkout: .github/actions/paths-filter
                   sparse-checkout-cone-mode: false
 
-            # On a push the action diffs the whole push range with local git, which has
-            # no file cap, so it also reads a batch push that carries several commits.
+            # The newest successful run on master is the last commit whose image was built and
+            # dispatched, or whose changes could not alter the image. Diffing from it instead
+            # of the push's `before` covers the commits of runs the concurrency group
+            # superseded, and of runs that failed. The push range alone would miss those
+            # commits, so no match or a failed API call fails this job: posthog_build then
+            # builds and dispatches every fleet.
+            - name: Find the last successfully built commit
+              id: base
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  REPO: ${{ github.repository }}
+              # Without a `created` window this endpoint returns runs from months ago first.
+              run: |
+                  set -euo pipefail
+                  since="$(date -u -d '7 days ago' +%Y-%m-%dT%H:%M:%SZ)"
+                  sha="$(gh api "repos/$REPO/actions/workflows/container-images-cd.yml/runs?branch=master&status=success&created=>=$since&per_page=1" \
+                      --jq '.workflow_runs[0].head_sha // ""')"
+                  if [ -z "$sha" ]; then
+                      echo "::error::No successful run on master since $since to diff from."
+                      exit 1
+                  fi
+                  echo "Diffing from $sha"
+                  echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+            # On a push the action diffs with local git, which has no file cap, so it also
+            # reads a range that carries several commits.
             # continue-on-error covers a failing filter step: it publishes no verdict,
             # and the empty value builds.
             - uses: ./.github/actions/paths-filter
               id: filter
               continue-on-error: true
               with:
+                  base: ${{ steps.base.outputs.sha }}
                   # `.dockerignore` strips every desktop path from the image build
                   # context, so a change under products/desktop cannot alter the image.
                   filters: |
@@ -103,6 +135,11 @@ jobs:
         # Covers two bounded build attempts plus the post-build image-boot verification before
         # dispatch.
         timeout-minutes: 60
+        # A push with no base means the `changes` job could not find the last built commit,
+        # so the fleet filters cannot see every commit since it and every fleet deploys.
+        env:
+            DEPLOY_BASE: ${{ needs.changes.outputs.base }}
+            DISPATCH_ALL_FLEETS: ${{ github.event_name == 'push' && needs.changes.outputs.base == '' }}
         permissions:
             id-token: write # allow issuing OIDC tokens for this workflow run
             contents: read # allow at least reading the repo contents, add other permissions if necessary
@@ -392,15 +429,16 @@ jobs:
               with:
                   token: ${{ secrets.GITHUB_TOKEN }}
 
-            # One step decides every fleet's deploy. On a push this action diffs
-            # github.event.before..github.sha with local git, so it reads every commit in
-            # the push. The merge queue lands batches, so a push can carry several commits,
-            # and a `git diff HEAD^ HEAD` gate reads only the last one. A path changed in an
-            # earlier commit of a batch then never dispatched its fleet's deploy.
+            # One step decides every fleet's deploy. It diffs from the `changes` job's base,
+            # the last successfully built commit, with local git, so it reads every commit
+            # since then: a batch push from the merge queue, and the commits of superseded or
+            # failed runs. A `git diff HEAD^ HEAD` gate reads only the last one, so a path
+            # changed in an earlier commit never dispatched its fleet's deploy.
             - name: Check for changes that affect temporal workers
               uses: ./.github/actions/paths-filter
               id: check_temporal_worker_changes
               with:
+                  base: ${{ env.DEPLOY_BASE }}
                   filters: |
                       nodejs:
                         - 'nodejs/**'
@@ -721,7 +759,7 @@ jobs:
                       }
 
             - name: Trigger Ingestion Cloud deployment
-              if: steps.check_temporal_worker_changes.outputs.nodejs == 'true'
+              if: env.DISPATCH_ALL_FLEETS == 'true' || steps.check_temporal_worker_changes.outputs.nodejs == 'true'
               uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
               with:
                   token: ${{ steps.deployer.outputs.token }}
@@ -742,7 +780,7 @@ jobs:
                       }
 
             - name: Trigger Batch Exports Sync Temporal Worker Cloud deployment
-              if: steps.check_temporal_worker_changes.outputs.batchExports == 'true'
+              if: env.DISPATCH_ALL_FLEETS == 'true' || steps.check_temporal_worker_changes.outputs.batchExports == 'true'
               uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
               with:
                   token: ${{ steps.deployer.outputs.token }}
@@ -763,7 +801,7 @@ jobs:
                       }
 
             - name: Trigger Batch Exports Temporal Worker Cloud deployment
-              if: steps.check_temporal_worker_changes.outputs.batchExports == 'true'
+              if: env.DISPATCH_ALL_FLEETS == 'true' || steps.check_temporal_worker_changes.outputs.batchExports == 'true'
               uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
               with:
                   token: ${{ steps.deployer.outputs.token }}
@@ -784,7 +822,7 @@ jobs:
                       }
 
             - name: Trigger Max AI Temporal worker cloud deployment
-              if: steps.check_temporal_worker_changes.outputs.maxAi == 'true'
+              if: env.DISPATCH_ALL_FLEETS == 'true' || steps.check_temporal_worker_changes.outputs.maxAi == 'true'
               uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
               with:
                   token: ${{ steps.deployer.outputs.token }}
@@ -805,7 +843,7 @@ jobs:
                       }
 
             - name: Trigger Tasks Agent Temporal worker cloud deployment
-              if: steps.check_temporal_worker_changes.outputs.tasksAgent == 'true'
+              if: env.DISPATCH_ALL_FLEETS == 'true' || steps.check_temporal_worker_changes.outputs.tasksAgent == 'true'
               uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
               with:
                   token: ${{ steps.deployer.outputs.token }}
@@ -833,7 +871,7 @@ jobs:
             - name: Check for Python dependency changes that affect analytics platform temporal worker
               id: check_python_changes_analytics_platform_temporal_worker
               env:
-                  BEFORE: ${{ github.event.before }}
+                  BEFORE: ${{ env.DEPLOY_BASE }}
               run: |
                   set -o pipefail
 
@@ -880,7 +918,7 @@ jobs:
                   fi
 
             - name: Trigger Billing Temporal Worker Cloud deployment
-              if: steps.check_temporal_worker_changes.outputs.billing == 'true'
+              if: env.DISPATCH_ALL_FLEETS == 'true' || steps.check_temporal_worker_changes.outputs.billing == 'true'
               uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
               with:
                   token: ${{ steps.deployer.outputs.token }}
@@ -901,7 +939,7 @@ jobs:
                       }
 
             - name: Trigger Video Export Temporal Worker Cloud deployment
-              if: steps.check_temporal_worker_changes.outputs.videoExport == 'true'
+              if: env.DISPATCH_ALL_FLEETS == 'true' || steps.check_temporal_worker_changes.outputs.videoExport == 'true'
               uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
               with:
                   token: ${{ steps.deployer.outputs.token }}
@@ -922,7 +960,7 @@ jobs:
                       }
 
             - name: Trigger Self-Driving Temporal Worker Cloud deployment
-              if: steps.check_temporal_worker_changes.outputs.selfDriving == 'true'
+              if: env.DISPATCH_ALL_FLEETS == 'true' || steps.check_temporal_worker_changes.outputs.selfDriving == 'true'
               uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
               with:
                   token: ${{ steps.deployer.outputs.token }}
@@ -943,7 +981,7 @@ jobs:
                       }
 
             - name: Trigger Session Replay Temporal Worker Cloud deployment
-              if: steps.check_temporal_worker_changes.outputs.sessionReplay == 'true'
+              if: env.DISPATCH_ALL_FLEETS == 'true' || steps.check_temporal_worker_changes.outputs.sessionReplay == 'true'
               uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
               with:
                   token: ${{ steps.deployer.outputs.token }}
@@ -964,7 +1002,7 @@ jobs:
                       }
 
             - name: Trigger Replay Vision Temporal Worker Cloud deployment
-              if: steps.check_temporal_worker_changes.outputs.replayVision == 'true'
+              if: env.DISPATCH_ALL_FLEETS == 'true' || steps.check_temporal_worker_changes.outputs.replayVision == 'true'
               uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
               with:
                   token: ${{ steps.deployer.outputs.token }}
@@ -985,7 +1023,7 @@ jobs:
                       }
 
             - name: Trigger Experiments Recalculation Temporal Worker Cloud deployment
-              if: steps.check_temporal_worker_changes.outputs.experimentsRecalculation == 'true'
+              if: env.DISPATCH_ALL_FLEETS == 'true' || steps.check_temporal_worker_changes.outputs.experimentsRecalculation == 'true'
               uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
               with:
                   token: ${{ steps.deployer.outputs.token }}
@@ -1006,7 +1044,7 @@ jobs:
                       }
 
             - name: Trigger Error Tracking Temporal Worker Cloud deployment
-              if: steps.check_temporal_worker_changes.outputs.errorTracking == 'true'
+              if: env.DISPATCH_ALL_FLEETS == 'true' || steps.check_temporal_worker_changes.outputs.errorTracking == 'true'
               uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
               with:
                   token: ${{ steps.deployer.outputs.token }}
@@ -1027,7 +1065,7 @@ jobs:
                       }
 
             - name: Trigger Weekly Digest Temporal Worker Cloud deployment
-              if: steps.check_temporal_worker_changes.outputs.weeklyDigest == 'true'
+              if: env.DISPATCH_ALL_FLEETS == 'true' || steps.check_temporal_worker_changes.outputs.weeklyDigest == 'true'
               uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
               with:
                   token: ${{ steps.deployer.outputs.token }}
@@ -1048,7 +1086,7 @@ jobs:
                       }
 
             - name: Trigger Analytics Platform Temporal Worker Cloud deployment
-              if: steps.check_temporal_worker_changes.outputs.analyticsPlatform == 'true' || steps.check_python_changes_analytics_platform_temporal_worker.outputs.changed == 'true'
+              if: env.DISPATCH_ALL_FLEETS == 'true' || steps.check_temporal_worker_changes.outputs.analyticsPlatform == 'true' || steps.check_python_changes_analytics_platform_temporal_worker.outputs.changed == 'true'
               uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
               with:
                   token: ${{ steps.deployer.outputs.token }}
@@ -1074,7 +1112,7 @@ jobs:
             - name: Check whether this workflow added general purpose worker coverage
               id: check_general_purpose_coverage_added
               env:
-                  BEFORE: ${{ github.event.before }}
+                  BEFORE: ${{ env.DEPLOY_BASE }}
               run: |
                   BASE="$BEFORE"
                   if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ] || ! git fetch --depth=1 --no-tags origin "$BASE"; then
@@ -1087,7 +1125,7 @@ jobs:
                   fi
 
             - name: Trigger General Purpose Temporal Worker Cloud deployment
-              if: steps.check_temporal_worker_changes.outputs.generalPurpose == 'true' || steps.check_general_purpose_coverage_added.outputs.changed == 'true'
+              if: env.DISPATCH_ALL_FLEETS == 'true' || steps.check_temporal_worker_changes.outputs.generalPurpose == 'true' || steps.check_general_purpose_coverage_added.outputs.changed == 'true'
               uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
               with:
                   token: ${{ steps.deployer.outputs.token }}
@@ -1108,7 +1146,7 @@ jobs:
                       }
 
             - name: Trigger Signup Enrichment Temporal Worker Cloud deployment
-              if: steps.check_temporal_worker_changes.outputs.signupEnrichment == 'true'
+              if: env.DISPATCH_ALL_FLEETS == 'true' || steps.check_temporal_worker_changes.outputs.signupEnrichment == 'true'
               uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
               with:
                   token: ${{ steps.deployer.outputs.token }}
@@ -1134,7 +1172,7 @@ jobs:
             - name: Check whether this workflow added health check worker coverage
               id: check_health_check_coverage_added
               env:
-                  BEFORE: ${{ github.event.before }}
+                  BEFORE: ${{ env.DEPLOY_BASE }}
               run: |
                   BASE="$BEFORE"
                   if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
@@ -1154,7 +1192,7 @@ jobs:
                   fi
 
             - name: Trigger Health Check Temporal Worker Cloud deployment
-              if: steps.check_temporal_worker_changes.outputs.healthCheck == 'true' || steps.check_health_check_coverage_added.outputs.changed == 'true'
+              if: env.DISPATCH_ALL_FLEETS == 'true' || steps.check_temporal_worker_changes.outputs.healthCheck == 'true' || steps.check_health_check_coverage_added.outputs.changed == 'true'
               uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
               with:
                   token: ${{ steps.deployer.outputs.token }}
@@ -1175,7 +1213,7 @@ jobs:
                       }
 
             - name: Trigger LLM Analytics Evals Temporal Worker Cloud deployment
-              if: steps.check_temporal_worker_changes.outputs.llmAnalyticsEvals == 'true'
+              if: env.DISPATCH_ALL_FLEETS == 'true' || steps.check_temporal_worker_changes.outputs.llmAnalyticsEvals == 'true'
               uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
               with:
                   token: ${{ steps.deployer.outputs.token }}
@@ -1199,7 +1237,7 @@ jobs:
             # which builds and deploys a separate Docker image with ML dependencies.
 
             - name: Trigger Messaging Temporal Worker Cloud deployment
-              if: steps.check_temporal_worker_changes.outputs.messaging == 'true'
+              if: env.DISPATCH_ALL_FLEETS == 'true' || steps.check_temporal_worker_changes.outputs.messaging == 'true'
               uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
               with:
                   token: ${{ steps.deployer.outputs.token }}
@@ -1220,7 +1258,7 @@ jobs:
                       }
 
             - name: Trigger MCP Analytics Temporal Worker Cloud deployment
-              if: steps.check_temporal_worker_changes.outputs.mcpAnalytics == 'true'
+              if: env.DISPATCH_ALL_FLEETS == 'true' || steps.check_temporal_worker_changes.outputs.mcpAnalytics == 'true'
               uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
               with:
                   token: ${{ steps.deployer.outputs.token }}
@@ -1241,7 +1279,7 @@ jobs:
                       }
 
             - name: Trigger Logs Alerting Temporal Worker Cloud deployment
-              if: steps.check_temporal_worker_changes.outputs.logsAlerting == 'true'
+              if: env.DISPATCH_ALL_FLEETS == 'true' || steps.check_temporal_worker_changes.outputs.logsAlerting == 'true'
               uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
               with:
                   token: ${{ steps.deployer.outputs.token }}
@@ -1262,7 +1300,7 @@ jobs:
                       }
 
             - name: Trigger Logs Volume Tick Temporal Worker Cloud deployment
-              if: steps.check_temporal_worker_changes.outputs.logsVolumeTick == 'true'
+              if: env.DISPATCH_ALL_FLEETS == 'true' || steps.check_temporal_worker_changes.outputs.logsVolumeTick == 'true'
               uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
               with:
                   token: ${{ steps.deployer.outputs.token }}
@@ -1283,7 +1321,7 @@ jobs:
                       }
 
             - name: Trigger Stamphog Temporal Worker Cloud deployment
-              if: steps.check_temporal_worker_changes.outputs.stamphog == 'true'
+              if: env.DISPATCH_ALL_FLEETS == 'true' || steps.check_temporal_worker_changes.outputs.stamphog == 'true'
               uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
               with:
                   token: ${{ steps.deployer.outputs.token }}
@@ -1304,7 +1342,7 @@ jobs:
                       }
 
             - name: Trigger DuckLake Temporal Worker Cloud deployment
-              if: steps.check_temporal_worker_changes.outputs.ducklake == 'true'
+              if: env.DISPATCH_ALL_FLEETS == 'true' || steps.check_temporal_worker_changes.outputs.ducklake == 'true'
               uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
               with:
                   token: ${{ steps.deployer.outputs.token }}
@@ -1325,7 +1363,7 @@ jobs:
                       }
 
             - name: Trigger Data Warehouse Temporal Worker Cloud deployment
-              if: steps.check_temporal_worker_changes.outputs.dataWarehouse == 'true'
+              if: env.DISPATCH_ALL_FLEETS == 'true' || steps.check_temporal_worker_changes.outputs.dataWarehouse == 'true'
               uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
               with:
                   token: ${{ steps.deployer.outputs.token }}
@@ -1346,7 +1384,7 @@ jobs:
                       }
 
             - name: Trigger Warehouse Sources Load Cloud deployment
-              if: steps.check_temporal_worker_changes.outputs.warehouseSourcesLoad == 'true'
+              if: env.DISPATCH_ALL_FLEETS == 'true' || steps.check_temporal_worker_changes.outputs.warehouseSourcesLoad == 'true'
               uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
               with:
                   token: ${{ steps.deployer.outputs.token }}
@@ -1367,7 +1405,7 @@ jobs:
                       }
 
             - name: Trigger Data Warehouse CDP Producer Temporal Worker Cloud deployment
-              if: steps.check_temporal_worker_changes.outputs.dataWarehouse == 'true'
+              if: env.DISPATCH_ALL_FLEETS == 'true' || steps.check_temporal_worker_changes.outputs.dataWarehouse == 'true'
               uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
               with:
                   token: ${{ steps.deployer.outputs.token }}
@@ -1388,7 +1426,7 @@ jobs:
                       }
 
             - name: Trigger Data Warehouse Modeling Temporal Worker Cloud deployment
-              if: steps.check_temporal_worker_changes.outputs.dataModeling == 'true'
+              if: env.DISPATCH_ALL_FLEETS == 'true' || steps.check_temporal_worker_changes.outputs.dataModeling == 'true'
               uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
               with:
                   token: ${{ steps.deployer.outputs.token }}
