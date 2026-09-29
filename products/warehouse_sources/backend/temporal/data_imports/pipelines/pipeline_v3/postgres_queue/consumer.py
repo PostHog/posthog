@@ -50,6 +50,11 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     _group_by_key,
     _is_transient_queue_db_error,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.coalescing import (
+    CoalesceCaps,
+    CoalesceMember,
+    extends_set,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.messages import ExportSignalMessage
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
     _UNSET,
@@ -180,41 +185,9 @@ JOB_STATUS_CACHE_TTL_SECONDS = 30
 JOB_STATUS_CACHE_MAX_ENTRIES = 1000
 
 
-# Bounds on a set of consecutive batches loaded as one Delta commit. A batch is at most one
-# extraction chunk (500k rows, 200 MiB of Arrow), so the row cap keeps a set to what one large
-# batch already costs, and the byte cap (parquet on disk, several times smaller than the Arrow it
-# decodes to) keeps many small batches from adding up past it.
-COALESCE_MAX_BATCHES = 8
-COALESCE_MAX_ROWS = 500_000
-COALESCE_MAX_BYTES = 64 * 1024 * 1024
-# CDC batches resolve positions against the table between writes, and a batch bound for external
-# destinations is delivered per batch, so neither is folded into a set.
-COALESCABLE_SYNC_TYPES: frozenset[str] = frozenset({"incremental", "append", "full_refresh"})
-
-
-def _coalescable(batch: PendingBatch) -> bool:
-    return (
-        batch.sync_type in COALESCABLE_SYNC_TYPES
-        # A redelivery may sit on a half-finished write; its idempotency check runs per batch.
-        and batch.latest_attempt == 0
-        and not batch.destination_ids
-        and batch.metadata.get("cdc_write_mode") is None
-    )
-
-
-def _extends_coalesced_set(current: list[PendingBatch], batch: PendingBatch) -> bool:
-    head = current[-1]
-    if not (_coalescable(head) and _coalescable(batch)):
-        return False
-    if batch.run_uuid != head.run_uuid or batch.job_id != head.job_id:
-        return False
-    if batch.batch_index != head.batch_index + 1:
-        return False
-    if len(current) >= COALESCE_MAX_BATCHES:
-        return False
-    rows = sum(member.row_count for member in current) + batch.row_count
-    size = sum(member.byte_size for member in current) + batch.byte_size
-    return rows <= COALESCE_MAX_ROWS and size <= COALESCE_MAX_BYTES
+def _first_delivery(batch: PendingBatch) -> bool:
+    # A redelivery may sit on a half-finished write; its idempotency check runs per batch.
+    return batch.latest_attempt == 0
 
 
 def _is_transient_queue_connection_drop(err: Exception, conn: psycopg.AsyncConnection[Any]) -> bool:
@@ -954,15 +927,30 @@ class DeltaBatchConsumerAdapter:
         return None
 
     def coalesce_group(self, batches: list[PendingBatch]) -> list[list[PendingBatch]]:
+        """Cut the claimed batches of one group into the sets the sink loads as one write.
+
+        Only adjacent batches join, so every set keeps the claim order: the order the loader would
+        have taken the batches in one at a time.
+        """
+        caps = CoalesceCaps.from_settings()
         sets: list[list[PendingBatch]] = []
         current: list[PendingBatch] = []
+        current_members: list[CoalesceMember] = []
         for batch in batches:
-            if current and _extends_coalesced_set(current, batch):
+            member = CoalesceMember.from_batch(batch)
+            if (
+                current
+                and _first_delivery(current[-1])
+                and _first_delivery(batch)
+                and extends_set(current_members, member, caps)
+            ):
                 current.append(batch)
+                current_members.append(member)
                 continue
             if current:
                 sets.append(current)
             current = [batch]
+            current_members = [member]
         if current:
             sets.append(current)
         return sets

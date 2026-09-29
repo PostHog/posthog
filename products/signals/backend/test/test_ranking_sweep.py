@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from typing import Any
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 from django.test import SimpleTestCase, override_settings
 
@@ -249,7 +249,7 @@ class TestScoreInboxReports(SimpleTestCase):
         )
         assert (self.load_serving_set.call_count, self.capture_scopes, self.capture.flush.call_count) == (1, 1, 2)
         self.logger.info.assert_any_call(
-            "inbox_ranking_sweep_started", candidates=3, teams=2, manifest_version=MANIFEST
+            "inbox_ranking_sweep_started", candidates=3, teams=2, manifest_version=MANIFEST, peak_rss_mb=ANY
         )
         assert (result.candidates, result.scored, result.no_vector, result.teams, result.failed_teams) == (
             3,
@@ -269,6 +269,21 @@ class TestScoreInboxReports(SimpleTestCase):
         assert (result.scored, result.teams, result.failed_teams) == (1, 2, 1)
         assert self.capture.flush.call_count == 2
 
+    @override_settings(INBOX_RANKING_SCORING_BATCH_SIZE=2)
+    def test_a_large_team_is_scored_in_calls_of_at_most_the_batch_size(self) -> None:
+        self._candidates((1, "a"), (1, "b"), (1, "c"), (1, "d"), (1, "e"), (2, "f"))
+
+        result = score_inbox_reports()
+
+        assert [(call.args[0], call.args[1]) for call in self.score_reports.call_args_list] == [
+            (1, ["a", "b"]),
+            (1, ["c", "d"]),
+            (1, ["e"]),
+            (2, ["f"]),
+        ]
+        assert self.capture.flush.call_count == 4
+        assert (result.scored, result.teams, result.deferred_teams) == (6, 2, 0)
+
     def test_teams_left_when_the_time_budget_runs_out_are_deferred_to_the_next_tick(self) -> None:
         self._candidates((1, "a"), (2, "b"), (3, "c"))
         clock = [0.0]
@@ -283,7 +298,13 @@ class TestScoreInboxReports(SimpleTestCase):
         result = score_inbox_reports()
 
         assert [call.args[0] for call in self.score_reports.call_args_list] == [1]
-        assert (result.scored, result.teams, result.failed_teams, result.deferred_teams) == (1, 3, 0, 2)
+        assert (result.scored, result.teams, result.failed_teams, result.deferred_teams, result.deferred_reports) == (
+            1,
+            3,
+            0,
+            2,
+            2,
+        )
 
     @parameterized.expand(
         [("scoring_error", ScoringError("no served score")), ("served_model_load", ModelLoadError("no booster"))]
