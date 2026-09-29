@@ -3221,6 +3221,8 @@ export interface CustomerTaskApi {
     readonly status: CustomerTaskStatusEnumApi
     /** Assigned project member, if any. */
     readonly assigned_to: CustomerTaskUserApi | null
+    /** Whether PostHog is assigned to this task instead of a person. */
+    readonly assigned_to_agent: boolean
     /**
      * Task deadline, if any.
      * @nullable
@@ -3288,6 +3290,8 @@ export interface CustomerTaskCreateApi {
      * @nullable
      */
     assigned_to_id?: number | null
+    /** Assign PostHog instead of a person. Cannot be combined with assigned_to_id. */
+    assigned_to_agent?: boolean
     /**
      * ISO 8601 deadline, or null for no deadline.
      * @nullable
@@ -3323,6 +3327,8 @@ export interface CustomerTaskUpdateApi {
      * @nullable
      */
     assigned_to_id?: number | null
+    /** True assigns PostHog and clears the person. False hands the task back to nobody. */
+    assigned_to_agent?: boolean
     /**
      * Replacement ISO 8601 deadline, or null to clear it.
      * @nullable
@@ -3358,6 +3364,8 @@ export interface PatchedCustomerTaskUpdateApi {
      * @nullable
      */
     assigned_to_id?: number | null
+    /** True assigns PostHog and clears the person. False hands the task back to nobody. */
+    assigned_to_agent?: boolean
     /**
      * Replacement ISO 8601 deadline, or null to clear it.
      * @nullable
@@ -3377,6 +3385,9 @@ export interface PatchedCustomerTaskUpdateApi {
  * * `updated` - Updated
  * * `archived` - Archived
  * * `restored` - Restored
+ * * `agent_scheduled` - Agent scheduled
+ * * `agent_report` - Agent report
+ * * `agent_failed` - Agent failed
  */
 export type CustomerTaskActivityTypeEnumApi =
     (typeof CustomerTaskActivityTypeEnumApi)[keyof typeof CustomerTaskActivityTypeEnumApi]
@@ -3386,6 +3397,9 @@ export const CustomerTaskActivityTypeEnumApi = {
     Updated: 'updated',
     Archived: 'archived',
     Restored: 'restored',
+    AgentScheduled: 'agent_scheduled',
+    AgentReport: 'agent_report',
+    AgentFailed: 'agent_failed',
 } as const
 
 /**
@@ -3415,7 +3429,10 @@ export interface CustomerTaskActivityApi {
      * * `created` - Created
      * * `updated` - Updated
      * * `archived` - Archived
-     * * `restored` - Restored */
+     * * `restored` - Restored
+     * * `agent_scheduled` - Agent scheduled
+     * * `agent_report` - Agent report
+     * * `agent_failed` - Agent failed */
     readonly activity_type: CustomerTaskActivityTypeEnumApi
     /** Semantic field changes in this action. */
     readonly changes: readonly CustomerTaskChangeApi[]
@@ -4713,7 +4730,7 @@ export type CustomerTasksListParams = {
      */
     archive_state?: CustomerTasksListArchiveState
     /**
-     * Filter by me, unassigned, or one user ID.
+     * Filter by me, unassigned, agent (tasks assigned to PostHog), or one user ID.
      * @minLength 1
      */
     assigned_to?: string

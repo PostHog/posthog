@@ -899,6 +899,7 @@ export const CustomerProfileConfigsPartialUpdateBody = /* @__PURE__ */ zod.objec
 
 export const customerTasksCreateBodyNameMax = 400
 
+export const customerTasksCreateBodyAssignedToAgentDefault = false
 export const customerTasksCreateBodyStatusDefault = `open`
 
 export const CustomerTasksCreateBody = /* @__PURE__ */ zod.object({
@@ -906,6 +907,10 @@ export const CustomerTasksCreateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(customerTasksCreateBodyNameMax).describe('Task name.'),
     description: zod.string().nullish().describe('Task description, or null to leave it empty.'),
     assigned_to_id: zod.number().nullish().describe('PostHog user ID to assign, or null to leave unassigned.'),
+    assigned_to_agent: zod
+        .boolean()
+        .default(customerTasksCreateBodyAssignedToAgentDefault)
+        .describe('Assign PostHog instead of a person. Cannot be combined with assigned_to_id.'),
     due_at: zod.iso.datetime({ offset: true }).nullish().describe('ISO 8601 deadline, or null for no deadline.'),
     status: zod
         .enum(['open', 'in_progress', 'completed', 'canceled'])
@@ -925,6 +930,10 @@ export const CustomerTasksUpdateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(customerTasksUpdateBodyNameMax).describe('Replacement task name.'),
     description: zod.string().nullish().describe('Replacement description, or null to clear it.'),
     assigned_to_id: zod.number().nullish().describe('Replacement assignee ID, or null to unassign.'),
+    assigned_to_agent: zod
+        .boolean()
+        .optional()
+        .describe('True assigns PostHog and clears the person. False hands the task back to nobody.'),
     due_at: zod.iso
         .datetime({ offset: true })
         .nullish()
@@ -947,6 +956,10 @@ export const CustomerTasksPartialUpdateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(customerTasksPartialUpdateBodyNameMax).optional().describe('Replacement task name.'),
     description: zod.string().nullish().describe('Replacement description, or null to clear it.'),
     assigned_to_id: zod.number().nullish().describe('Replacement assignee ID, or null to unassign.'),
+    assigned_to_agent: zod
+        .boolean()
+        .optional()
+        .describe('True assigns PostHog and clears the person. False hands the task back to nobody.'),
     due_at: zod.iso
         .datetime({ offset: true })
         .nullish()

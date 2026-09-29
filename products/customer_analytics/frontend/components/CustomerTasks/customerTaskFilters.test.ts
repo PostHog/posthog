@@ -51,6 +51,12 @@ describe('customer task filter helpers', () => {
         ).toEqual(expected)
     })
 
+    test('sends the PostHog assignee filter and reads it back from a link', () => {
+        const filters = { ...defaultCustomerTaskFilters('inbox'), assignee: 'agent' as const }
+        expect(customerTasksQuery(filters, 'inbox', undefined, 1, 50, 'UTC').assigned_to).toBe('agent')
+        expect(parseCustomerTaskSearchParams({ assignee: 'agent' }).filters.assignee).toBe('agent')
+    })
+
     test('resets the active state to the context defaults', () => {
         const filters = { ...defaultCustomerTaskFilters('inbox'), search: 'follow up', status: 'completed' as const }
         expect(hasCustomerTaskFilters(filters, 'inbox')).toBe(true)

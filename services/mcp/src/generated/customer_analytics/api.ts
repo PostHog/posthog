@@ -950,7 +950,11 @@ export const CustomerTasksListQueryParams = () => zod.object({
         .enum(['active', 'archived', 'all'])
         .default(customerTasksListQueryArchiveStateDefault)
         .describe('Which archive state to include.\n\n\* `active` - active\n\* `archived` - archived\n\* `all` - all'),
-    assigned_to: zod.string().min(1).optional().describe('Filter by me, unassigned, or one user ID.'),
+    assigned_to: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe('Filter by me, unassigned, agent (tasks assigned to PostHog), or one user ID.'),
     due_after: zod.iso.datetime({ offset: true }).optional().describe('Inclusive lower deadline bound.'),
     due_before: zod.iso.datetime({ offset: true }).optional().describe('Exclusive upper deadline bound.'),
     has_due_at: zod.boolean().optional().describe('Filter tasks by whether a deadline exists.'),
@@ -986,6 +990,7 @@ export const CustomerTasksCreateParams = () => zod.object({
 
 export const customerTasksCreateBodyNameMax = 400
 
+export const customerTasksCreateBodyAssignedToAgentDefault = false
 export const customerTasksCreateBodyStatusDefault = `open`
 
 export const CustomerTasksCreateBody = () => zod.object({
@@ -993,6 +998,10 @@ export const CustomerTasksCreateBody = () => zod.object({
     name: zod.string().max(customerTasksCreateBodyNameMax).describe('Task name.'),
     description: zod.string().nullish().describe('Task description, or null to leave it empty.'),
     assigned_to_id: zod.number().nullish().describe('PostHog user ID to assign, or null to leave unassigned.'),
+    assigned_to_agent: zod
+        .boolean()
+        .default(customerTasksCreateBodyAssignedToAgentDefault)
+        .describe('Assign PostHog instead of a person. Cannot be combined with assigned_to_id.'),
     due_at: zod.iso.datetime({ offset: true }).nullish().describe('ISO 8601 deadline, or null for no deadline.'),
     status: zod
         .enum(['open', 'in_progress', 'completed', 'canceled'])
@@ -1030,6 +1039,10 @@ export const CustomerTasksPartialUpdateBody = () => zod.object({
     name: zod.string().max(customerTasksPartialUpdateBodyNameMax).optional().describe('Replacement task name.'),
     description: zod.string().nullish().describe('Replacement description, or null to clear it.'),
     assigned_to_id: zod.number().nullish().describe('Replacement assignee ID, or null to unassign.'),
+    assigned_to_agent: zod
+        .boolean()
+        .optional()
+        .describe('True assigns PostHog and clears the person. False hands the task back to nobody.'),
     due_at: zod.iso
         .datetime({ offset: true })
         .nullish()

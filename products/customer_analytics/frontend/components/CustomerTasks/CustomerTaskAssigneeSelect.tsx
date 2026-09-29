@@ -1,8 +1,10 @@
 import { useActions, useValues } from 'kea'
 
+import { IconAI } from '@posthog/icons'
 import { LemonButton, ProfilePicture } from '@posthog/lemon-ui'
 
 import { MemberSelect } from 'lib/components/MemberSelect'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { fullName } from 'lib/utils/strings'
 
 import type { CustomerTaskApi } from 'products/customer_analytics/frontend/generated/api.schemas'
@@ -16,15 +18,26 @@ export interface CustomerTaskAssigneeSelectProps {
 export function CustomerTaskAssigneeSelect({ task, logic }: CustomerTaskAssigneeSelectProps): JSX.Element {
     const { mutationKeys } = useValues(logic)
     const { updateTask } = useActions(logic)
+    const agentAssigneeEnabled = useFeatureFlag('CUSTOMER_ANALYTICS_AGENT_ASSIGNEE')
     const saving = Boolean(mutationKeys[task.id])
     return (
         <MemberSelect
             value={task.assigned_to?.id ?? null}
             defaultLabel="Unassigned"
             allowNone
+            extraOptions={
+                agentAssigneeEnabled && !task.assigned_to_agent
+                    ? [{ label: 'PostHog', onClick: () => updateTask(task.id, { assigned_to_agent: true }) }]
+                    : []
+            }
             type="tertiary"
             size="small"
-            onChange={(user) => updateTask(task.id, { assigned_to_id: user?.id ?? null })}
+            onChange={(user) =>
+                updateTask(task.id, {
+                    assigned_to_id: user?.id ?? null,
+                    ...(task.assigned_to_agent ? { assigned_to_agent: false } : {}),
+                })
+            }
         >
             {(selected) => {
                 // MemberSelect resolves selected from the member list, which loads only after the picker opens.
@@ -35,10 +48,20 @@ export function CustomerTaskAssigneeSelect({ task, logic }: CustomerTaskAssignee
                         size="small"
                         loading={saving}
                         disabledReason={customerTaskEditDisabledReason(task) ?? (saving ? 'Saving' : undefined)}
-                        icon={assignee ? <ProfilePicture user={{ email: assignee.email }} size="sm" /> : undefined}
+                        icon={
+                            task.assigned_to_agent ? (
+                                <IconAI />
+                            ) : assignee ? (
+                                <ProfilePicture user={{ email: assignee.email }} size="sm" />
+                            ) : undefined
+                        }
                         data-attr="customer-task-assignee"
                     >
-                        {assignee ? fullName(assignee) || assignee.email : 'Unassigned'}
+                        {task.assigned_to_agent
+                            ? 'PostHog'
+                            : assignee
+                              ? fullName(assignee) || assignee.email
+                              : 'Unassigned'}
                     </LemonButton>
                 )
             }}

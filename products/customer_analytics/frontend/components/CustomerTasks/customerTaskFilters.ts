@@ -12,7 +12,7 @@ import type {
 
 export type CustomerTasksContext = 'account' | 'inbox'
 export type CustomerTaskStatusFilter = 'open' | 'completed' | 'canceled' | 'all'
-export type CustomerTaskAssigneeFilter = 'any' | 'me' | 'unassigned' | number
+export type CustomerTaskAssigneeFilter = 'any' | 'me' | 'unassigned' | 'agent' | number
 export type CustomerTaskDueFilter = 'any' | 'overdue' | 'today' | 'upcoming' | 'no_due_date'
 export type CustomerTaskAccountFilter = { id: string; name: string }
 
@@ -186,7 +186,9 @@ export function customerTasksQuery(
                     ? 'me'
                     : filters.assignee === 'unassigned'
                       ? 'unassigned'
-                      : String(filters.assignee),
+                      : filters.assignee === 'agent'
+                        ? 'agent'
+                        : String(filters.assignee),
         statuses:
             filters.status === 'all' ? undefined : filters.status === 'open' ? 'open,in_progress' : filters.status,
         archive_state: filters.archiveState,
@@ -251,7 +253,7 @@ export function customerTaskSearchParams(state: CustomerTaskUrlState): Record<st
 }
 
 function parseAssignee(value: unknown): CustomerTaskAssigneeFilter | null {
-    if (value === 'any' || value === 'me' || value === 'unassigned') {
+    if (value === 'any' || value === 'me' || value === 'unassigned' || value === 'agent') {
         return value
     }
     const memberId = Number(value)

@@ -11,6 +11,7 @@ import {
 } from '@posthog/lemon-ui'
 
 import { MemberSelect } from 'lib/components/MemberSelect'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 import type { CustomerTaskAssigneeFilter, CustomerTasksContext } from './customerTaskFilters'
 import {
@@ -29,6 +30,7 @@ export function CustomerTasksFilters({ logic, context, canViewAll = false }: Cus
         useValues(logic)
     const { setFilters, setSearch, setAccountFilter, setAccountFilterOpen, loadAccountOptions, resetFilters } =
         useActions(logic)
+    const agentAssigneeEnabled = useFeatureFlag('CUSTOMER_ANALYTICS_AGENT_ASSIGNEE')
     const status: LemonMenuItems = [
         {
             items: CUSTOMER_TASK_STATUS_OPTIONS.map((o) => ({
@@ -67,6 +69,15 @@ export function CustomerTasksFilters({ logic, context, canViewAll = false }: Cus
                               label: 'Unassigned',
                               active: filters.assignee === 'unassigned',
                               onClick: () => setFilters({ assignee: 'unassigned' }),
+                          },
+                      ]
+                    : []),
+                ...(canViewAll && agentAssigneeEnabled
+                    ? [
+                          {
+                              label: 'PostHog',
+                              active: filters.assignee === 'agent',
+                              onClick: () => setFilters({ assignee: 'agent' }),
                           },
                       ]
                     : []),
@@ -163,5 +174,13 @@ export function CustomerTasksFilters({ logic, context, canViewAll = false }: Cus
     )
 }
 function assigneeLabel(value: CustomerTaskAssigneeFilter): string {
-    return value === 'any' ? 'Anyone' : value === 'me' ? 'Me' : value === 'unassigned' ? 'Unassigned' : 'Member'
+    return value === 'any'
+        ? 'Anyone'
+        : value === 'me'
+          ? 'Me'
+          : value === 'unassigned'
+            ? 'Unassigned'
+            : value === 'agent'
+              ? 'PostHog'
+              : 'Member'
 }

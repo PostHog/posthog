@@ -4990,6 +4990,7 @@ def _to_customer_task_view(task: CustomerTask, user_access_control: "UserAccessC
         description=task.description,
         status=task.status,
         assigned_to=_to_customer_task_user_view(task.assigned_to),
+        assigned_to_agent=task.assigned_to_agent,
         due_at=task.due_at,
         completed_at=task.completed_at,
         completed_by=_to_customer_task_user_view(task.completed_by),

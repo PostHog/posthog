@@ -17,6 +17,9 @@ class CustomerTaskActivityType(models.TextChoices):
     UPDATED = "updated", "Updated"
     ARCHIVED = "archived", "Archived"
     RESTORED = "restored", "Restored"
+    AGENT_SCHEDULED = "agent_scheduled", "Agent scheduled"
+    AGENT_REPORT = "agent_report", "Agent report"
+    AGENT_FAILED = "agent_failed", "Agent failed"
 
 
 class CustomerTask(TeamScopedRootMixin, UUIDModel):
@@ -41,6 +44,9 @@ class CustomerTask(TeamScopedRootMixin, UUIDModel):
         db_constraint=False,
         db_index=False,
     )
+    # PostHog owns the task. The agent is not a user, so this flag stands in for the assignee and
+    # the loop that does the work is kept under properties["agent"].
+    assigned_to_agent = models.BooleanField(default=False, db_default=False)
     due_at = models.DateTimeField(null=True, blank=True)
     completed_at = models.DateTimeField(null=True, blank=True)
     completed_by = models.ForeignKey(
@@ -73,6 +79,10 @@ class CustomerTask(TeamScopedRootMixin, UUIDModel):
                     | (~Q(status=CustomerTaskStatus.COMPLETED) & Q(completed_at__isnull=True))
                 ),
                 name="customer_task_completion_consistency",
+            ),
+            models.CheckConstraint(
+                condition=Q(assigned_to_agent=False) | Q(assigned_to__isnull=True),
+                name="customer_task_agent_assignee_exclusive",
             ),
         ]
 

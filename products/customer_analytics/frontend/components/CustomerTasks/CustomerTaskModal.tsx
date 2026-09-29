@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconX } from '@posthog/icons'
+import { IconAI, IconX } from '@posthog/icons'
 import {
     LemonButton,
     LemonInput,
@@ -13,6 +13,7 @@ import {
 
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { dayjsLocalToTimezone, dayjsUtcToTimezone } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { fullName } from 'lib/utils/strings'
 
@@ -34,6 +35,7 @@ export function CustomerTaskModal({ logic, context }: CustomerTaskModalProps): J
         draftDescription,
         draftAccount,
         draftAssignedTo,
+        draftAssignedToAgent,
         draftDueAt,
         mutationKeys,
         timezone,
@@ -45,9 +47,11 @@ export function CustomerTaskModal({ logic, context }: CustomerTaskModalProps): J
         setDraftDescription,
         setDraftAccount,
         setDraftAssignedTo,
+        setDraftAssignedToAgent,
         setDraftDueAt,
         submitModal,
     } = useActions(logic)
+    const agentAssigneeEnabled = useFeatureFlag('CUSTOMER_ANALYTICS_AGENT_ASSIGNEE')
     const saving = Boolean(mutationKeys[modalTask?.id ?? 'create'])
     const create = modalTask === null
     const editDisabledReason = modalTask ? customerTaskEditDisabledReason(modalTask) : undefined
@@ -162,6 +166,11 @@ export function CustomerTaskModal({ logic, context }: CustomerTaskModalProps): J
                     <MemberSelect
                         value={draftAssignedTo?.id ?? null}
                         defaultLabel="Unassigned"
+                        extraOptions={
+                            agentAssigneeEnabled && !draftAssignedToAgent
+                                ? [{ label: 'PostHog', onClick: () => setDraftAssignedToAgent(true) }]
+                                : []
+                        }
                         type="secondary"
                         size="small"
                         onChange={(user) =>
@@ -185,12 +194,19 @@ export function CustomerTaskModal({ logic, context }: CustomerTaskModalProps): J
                                     size="small"
                                     disabledReason={disabledReason}
                                     icon={
-                                        assignee ? (
+                                        draftAssignedToAgent ? (
+                                            <IconAI />
+                                        ) : assignee ? (
                                             <ProfilePicture user={{ email: assignee.email }} size="sm" />
                                         ) : undefined
                                     }
+                                    data-attr="customer-task-modal-assignee"
                                 >
-                                    {assignee ? fullName(assignee) || assignee.email : 'Unassigned'}
+                                    {draftAssignedToAgent
+                                        ? 'PostHog'
+                                        : assignee
+                                          ? fullName(assignee) || assignee.email
+                                          : 'Unassigned'}
                                 </LemonButton>
                             )
                         }}

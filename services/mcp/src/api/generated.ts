@@ -24559,6 +24559,8 @@ export namespace Schemas {
       readonly status: CustomerTaskStatusEnum;
       /** Assigned project member, if any. */
       readonly assigned_to: CustomerTaskUser | null;
+      /** Whether PostHog is assigned to this task instead of a person. */
+      readonly assigned_to_agent: boolean;
       /**
          * Task deadline, if any.
          * @nullable
@@ -24593,6 +24595,9 @@ export namespace Schemas {
      * * `updated` - Updated
      * * `archived` - Archived
      * * `restored` - Restored
+     * * `agent_scheduled` - Agent scheduled
+     * * `agent_report` - Agent report
+     * * `agent_failed` - Agent failed
      */
     export type CustomerTaskActivityTypeEnum = typeof CustomerTaskActivityTypeEnum[keyof typeof CustomerTaskActivityTypeEnum];
 
@@ -24602,6 +24607,9 @@ export namespace Schemas {
       Updated: 'updated',
       Archived: 'archived',
       Restored: 'restored',
+      AgentScheduled: 'agent_scheduled',
+      AgentReport: 'agent_report',
+      AgentFailed: 'agent_failed',
     } as const;
 
     /**
@@ -24631,7 +24639,10 @@ export namespace Schemas {
        * * `created` - Created
        * * `updated` - Updated
        * * `archived` - Archived
-       * * `restored` - Restored */
+       * * `restored` - Restored
+       * * `agent_scheduled` - Agent scheduled
+       * * `agent_report` - Agent report
+       * * `agent_failed` - Agent failed */
       readonly activity_type: CustomerTaskActivityTypeEnum;
       /** Semantic field changes in this action. */
       readonly changes: readonly CustomerTaskChange[];
@@ -24679,6 +24690,8 @@ export namespace Schemas {
          * @nullable
          */
       assigned_to_id?: number | null;
+      /** Assign PostHog instead of a person. Cannot be combined with assigned_to_id. */
+      assigned_to_agent?: boolean;
       /**
          * ISO 8601 deadline, or null for no deadline.
          * @nullable
@@ -24731,6 +24744,8 @@ export namespace Schemas {
          * @nullable
          */
       assigned_to_id?: number | null;
+      /** True assigns PostHog and clears the person. False hands the task back to nobody. */
+      assigned_to_agent?: boolean;
       /**
          * Replacement ISO 8601 deadline, or null to clear it.
          * @nullable
@@ -72325,6 +72340,8 @@ export namespace Schemas {
          * @nullable
          */
       assigned_to_id?: number | null;
+      /** True assigns PostHog and clears the person. False hands the task back to nobody. */
+      assigned_to_agent?: boolean;
       /**
          * Replacement ISO 8601 deadline, or null to clear it.
          * @nullable
@@ -109923,7 +109940,7 @@ export namespace Schemas {
      */
     archive_state?: CustomerTasksListArchiveState;
     /**
-     * Filter by me, unassigned, or one user ID.
+     * Filter by me, unassigned, agent (tasks assigned to PostHog), or one user ID.
      * @minLength 1
      */
     assigned_to?: string;

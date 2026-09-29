@@ -35,6 +35,7 @@ const accountlessTask: CustomerTaskApi = {
     description: 'First line\nSecond line\nThird line',
     status: 'open',
     assigned_to: { id: 7, email: 'casey@example.com', first_name: 'Casey', last_name: 'Kim' },
+    assigned_to_agent: false,
     due_at: null,
     completed_at: null,
     completed_by: null,

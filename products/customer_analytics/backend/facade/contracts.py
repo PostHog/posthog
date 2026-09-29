@@ -1375,6 +1375,10 @@ class CustomerTaskAccessDenied(Exception):
     pass
 
 
+class CustomerTaskAgentAssigneeUnavailable(Exception):
+    pass
+
+
 @stdlib_dataclass(frozen=True)
 class CustomerTaskUserView:
     id: int
@@ -1397,6 +1401,7 @@ class CustomerTaskView:
     description: str | None
     status: str
     assigned_to: CustomerTaskUserView | None
+    assigned_to_agent: bool
     due_at: datetime | None
     completed_at: datetime | None
     completed_by: CustomerTaskUserView | None
@@ -1443,6 +1448,7 @@ class CreateCustomerTaskInput:
     name: str = ""
     description: str | None = None
     assigned_to_id: int | None = None
+    assigned_to_agent: bool = False
     due_at: datetime | None = None
     status: str = "open"
 
@@ -1453,11 +1459,13 @@ class UpdateCustomerTaskInput:
     name: str | None = None
     description: str | None = None
     assigned_to_id: int | None = None
+    assigned_to_agent: bool | None = None
     due_at: datetime | None = None
     status: str | None = None
     account_id_provided: bool = False
     name_provided: bool = False
     description_provided: bool = False
     assigned_to_id_provided: bool = False
+    assigned_to_agent_provided: bool = False
     due_at_provided: bool = False
     status_provided: bool = False

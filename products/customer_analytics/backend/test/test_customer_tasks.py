@@ -49,6 +49,7 @@ class CustomerTaskSerializerTest(SimpleTestCase):
             ("a member id", "7", "7"),
             ("a non-decimal digit", "٢", "2"),
             ("the me shorthand", "me", "me"),
+            ("the agent shorthand", "agent", "agent"),
         ]
     )
     def test_assigned_to_filter_only_accepts_a_usable_member_id(
@@ -62,6 +63,21 @@ class CustomerTaskSerializerTest(SimpleTestCase):
             return
         assert serializer.is_valid(), serializer.errors
         assert serializer.validated_data["assigned_to"] == expected
+
+    @parameterized.expand(
+        [
+            ("create", CustomerTaskCreateSerializer, {"name": "Task"}),
+            ("update", CustomerTaskUpdateSerializer, {}),
+        ]
+    )
+    def test_writes_reject_posthog_and_a_person_together(
+        self, _name: str, serializer_class: type[serializers.Serializer], base: dict[str, str]
+    ) -> None:
+        # Without this check the request would reach the database constraint and fail with a 500.
+        serializer = serializer_class(data={**base, "assigned_to_id": 7, "assigned_to_agent": True}, partial=True)
+
+        assert not serializer.is_valid()
+        assert serializer.errors["assigned_to_id"][0] == "Choose PostHog or a person, not both."
 
     @parameterized.expand(
         [
@@ -108,6 +124,65 @@ class CustomerTaskAPI(APIBaseTest):
         assert name_change == {"field": "name", "before": None, "after": "Follow up"}
         activity = CustomerTaskActivity.objects.unscoped().get(task=task)
         assert activity.activity_type == "created"
+
+    def test_assigning_posthog_replaces_the_person_and_fires_the_event(self) -> None:
+        colleague = User.objects.create_and_join(self.organization, "colleague@example.com", "testpassword")
+        flag_target = "products.customer_analytics.backend.logic.customer_tasks.posthoganalytics.feature_enabled"
+        capture_target = "products.customer_analytics.backend.events.capture_batch_internal"
+
+        with (
+            patch(flag_target, return_value=True),
+            patch(capture_target) as capture,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            created = self.client.post(self.url, {"name": "Renewal brief", "assigned_to_agent": True}, format="json")
+
+        assert created.status_code == status.HTTP_201_CREATED
+        assert created.json()["assigned_to"] is None
+        assert created.json()["assigned_to_agent"] is True
+        task = CustomerTask.objects.unscoped().get(id=created.json()["id"])
+        assert task.properties["agent"]["assigned_by_id"] == self.user.id
+        event = capture.call_args.kwargs["events"][0]
+        assert event["event"] == "$customer_task_assigned"
+        assert event["distinct_id"] == self.user.distinct_id
+        assert event["properties"]["customer_task_id"] == str(task.id)
+        assert event["properties"]["assignee_type"] == "agent"
+        task_url = f"{self.url}{task.id}/"
+
+        with patch(capture_target) as capture, self.captureOnCommitCallbacks(execute=True):
+            handed_back = self.client.patch(task_url, {"assigned_to_id": colleague.id}, format="json")
+
+        assert handed_back.status_code == status.HTTP_200_OK
+        assert handed_back.json()["assigned_to_agent"] is False
+        assert handed_back.json()["assigned_to"]["id"] == colleague.id
+        assert "agent" not in CustomerTask.objects.unscoped().get(id=task.id).properties
+        capture.assert_not_called()
+
+        with (
+            patch(flag_target, return_value=True),
+            patch(capture_target) as capture,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            reassigned = self.client.patch(task_url, {"assigned_to_agent": True}, format="json")
+
+        assert reassigned.status_code == status.HTTP_200_OK
+        assert reassigned.json()["assigned_to"] is None
+        assert reassigned.json()["assigned_to_agent"] is True
+        assert capture.call_count == 1
+        latest_activity = CustomerTaskActivity.objects.unscoped().filter(task=task).order_by("-created_at").first()
+        assert latest_activity is not None
+        assert {change["field"] for change in latest_activity.changes} == {"assigned_to", "assigned_to_agent"}
+
+    def test_assigning_posthog_needs_the_feature_flag(self) -> None:
+        with patch(
+            "products.customer_analytics.backend.logic.customer_tasks.posthoganalytics.feature_enabled",
+            return_value=False,
+        ):
+            response = self.client.post(self.url, {"name": "Renewal brief", "assigned_to_agent": True}, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "assigned_to_agent" in response.json()
+        assert not CustomerTask.objects.unscoped().filter(name="Renewal brief").exists()
 
     def test_put_requires_name_while_patch_accepts_partial_fields(self) -> None:
         created = self.client.post(self.url, {"name": "Original task"}, format="json")
@@ -566,11 +641,24 @@ class CustomerTaskAPI(APIBaseTest):
         [
             ("me", "me", ("Alpha",)),
             ("unassigned", "unassigned", ("Charlie",)),
+            ("agent", "agent", ("Echo",)),
             ("member_id", "member_id", ("Bravo", "Delta")),
         ]
     )
     def test_list_applies_assignee_filters(self, _name: str, assigned_to: str, expected_names: tuple[str, ...]) -> None:
         _, other_assignee = self._create_filtering_dataset()
+        # A task PostHog owns has no person, so it must stay out of "unassigned".
+        agent_task = self._create_ordering_task(
+            identifier=15,
+            name="Echo",
+            status_value="open",
+            account=None,
+            assigned_to=None,
+            due_at=datetime(2026, 1, 3, tzinfo=UTC),
+            created_at=datetime(2026, 1, 5, tzinfo=UTC),
+            updated_at=datetime(2026, 1, 5, tzinfo=UTC),
+        )
+        CustomerTask.objects.for_team(self.team.id).filter(id=agent_task.id).update(assigned_to_agent=True)
         query_value = str(other_assignee.id) if assigned_to == "member_id" else assigned_to
 
         response = self.client.get(self.url, {"assigned_to": query_value})
