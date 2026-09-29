@@ -16,22 +16,6 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     SYNC_DISABLED_JOB_ERROR,
 )
 from products.warehouse_sources.backend.temporal.data_imports.metrics import LOCK_TAKEOVER_LATEST_ERROR
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3 import (
-    batch_consumer as batch_consumer_module,
-)
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.batch_consumer import (
-    QUEUE_RETRY_MAX_ATTEMPTS,
-    CoalescingDeclined,
-    OwnershipLostError,
-    _is_admin_shutdown_error,
-    _is_connect_timeout_error,
-    _is_dns_resolution_transient_error,
-    _is_retryable_queue_db_error,
-    _is_schema_lag_error,
-    _is_server_not_ready_error,
-    _is_transient_queue_db_error,
-)
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.health import HealthState
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue import (
     consumer as consumer_module,
 )
@@ -43,7 +27,21 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     _group_by_key,
     _update_job_status_to_failed,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
+from products.warehouse_sources_queue.backend.core import batch_consumer as batch_consumer_module
+from products.warehouse_sources_queue.backend.core.batch_consumer import (
+    QUEUE_RETRY_MAX_ATTEMPTS,
+    CoalescingDeclined,
+    OwnershipLostError,
+    _is_admin_shutdown_error,
+    _is_connect_timeout_error,
+    _is_dns_resolution_transient_error,
+    _is_retryable_queue_db_error,
+    _is_schema_lag_error,
+    _is_server_not_ready_error,
+    _is_transient_queue_db_error,
+)
+from products.warehouse_sources_queue.backend.core.health import HealthState
+from products.warehouse_sources_queue.backend.core.jobs_db import (
     FRESHNESS_WINDOW_SECONDS,
     FailedRunRef,
     OrphanedRunRef,
@@ -52,7 +50,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     QueueFreshness,
     StrandedRunRef,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.metrics import (
+from products.warehouse_sources_queue.backend.core.metrics import (
     BACKLOGGED_GROUPS,
     BLOCKED_BATCHES,
     CLAIMABLE_BATCHES,
@@ -1497,7 +1495,7 @@ class TestPollBackoff:
         # unbounded delays.
         consumer = _make_consumer(poll_interval_seconds=2.0)
         with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.batch_consumer.random.uniform",
+            "products.warehouse_sources_queue.backend.core.batch_consumer.random.uniform",
             return_value=0.0,
         ):
             consumer._consecutive_poll_failures = 1
@@ -1517,7 +1515,7 @@ class TestPollBackoff:
         consumer = _make_consumer(poll_interval_seconds=2.0)
         consumer._consecutive_poll_failures = 1
         with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.batch_consumer.random.uniform",
+            "products.warehouse_sources_queue.backend.core.batch_consumer.random.uniform",
             return_value=1.5,
         ):
             assert consumer._poll_retry_delay() == 3.5  # 2.0 backoff + 1.5 jitter

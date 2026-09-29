@@ -17,9 +17,6 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
     TOAST_OMITTED_COLUMN,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.batch_consumer import (
-    CoalescingDeclined,
-)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor import (
     _apply_partitioning,
     _enrich_cdc_rows,
@@ -34,6 +31,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     process_messages,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.test_mocks import mock_delta_table
+from products.warehouse_sources_queue.backend.core.batch_consumer import CoalescingDeclined
 
 
 @pytest.fixture(autouse=True)
@@ -370,9 +368,7 @@ class TestProcessMessageOwnershipGate:
         mock_analytics: MagicMock,
     ) -> None:
         # Fencing abandons are benign; counting them as load failures pollutes the metric.
-        from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.batch_consumer import (
-            OwnershipLostError,
-        )
+        from products.warehouse_sources_queue.backend.core.batch_consumer import OwnershipLostError
 
         mock_job_model.objects.prefetch_related.return_value.get.return_value = MagicMock()
 

@@ -22,7 +22,7 @@ You can find more on:
 ## Our solution
 
 We took RudderStack's two-table model (jobs + append-only status) but kept things simpler (for now, at least).
-All SQL lives in `jobs_db.py`; the polling/retry/recovery engine is `../batch_consumer.py` and the Delta-sink adapter is `consumer.py`.
+All SQL lives in `core/jobs_db.py`; the polling/retry/recovery engine is `core/batch_consumer.py`. The Delta-sink adapter (`consumer.py`) and the sync producer (`producer.py`) stay with the workload in `products/warehouse_sources/.../pipelines/pipeline_v3/postgres_queue/`.
 
 ### What we use
 
@@ -35,7 +35,7 @@ All SQL lives in `jobs_db.py`; the polling/retry/recovery engine is `../batch_co
 - **Group leases** for cross-pod coordination: a row in `sourcegrouplease` keyed by `(team_id, schema_id)`, with a 300s TTL (`LEASE_TTL_SECONDS`).
   A lease is claimed via a conditional upsert inside the claim query, renewed by the consumer heartbeat, and reclaimable by any pod once it expires.
   This replaced the original session-level `pg_try_advisory_lock(namespace, hashtext(team_id:schema_id))` design: advisory-lock ownership is tied to a live server session, so it could be orphaned indefinitely on SIGKILL, pgbouncer session lingering, or node loss, wedging the whole loader fleet.
-  An abandoned lease simply expires instead (see the `jobs_db.py` module docstring).
+  An abandoned lease simply expires instead (see the `core/jobs_db.py` module docstring).
 - **Claim-or-renew in one statement**: `get_unprocessed_and_lock` selects narrow claim candidates from the denormalized columns (with per-team round-robin fairness, head-of-line gating per run, a failed-run gate, and a schema-busy gate), then claims or renews the group leases for the winners inside a single writable CTE.
   The candidate CTE is `MATERIALIZED` so its `LIMIT` fully resolves before the lease upsert runs, and candidate groups are deduplicated because `INSERT ... ON CONFLICT DO UPDATE` cannot touch the same lease row twice in one statement.
   (The old README's `MATERIALIZED` rationale, preventing `pg_try_advisory_lock` from acquiring phantom locks in a `WHERE` clause, no longer applies: there are no advisory locks.)
@@ -48,7 +48,7 @@ All SQL lives in `jobs_db.py`; the polling/retry/recovery engine is `../batch_co
     It is single-flighted fleet-wide through a sentinel lease row (`try_acquire_reconcile_sweep_slot`, team_id 0 / `__reconcile-sweep__`, 240s slot TTL): the sweeps reconcile global state, so N pods running them concurrently is pure duplicated load, exactly when the queue DB can least afford it.
   - **Stranded-run sweep** (same cadence and connection, `get_stale_stranded_runs`): runs the loader abandoned, meaning non-terminal batches, no live lease, and no loader progress for 6 hours.
     These have no `failed` batch for the reconcile sweep to key on (the extraction died before a final batch), so without this pass they would strand until the retention prune.
-- **Sync producer** (`producer.py`): runs inside Temporal activities, plain `psycopg.Connection` with autocommit. Each queue row is a single INSERT.
+- **Sync producer** (`pipeline_v3/postgres_queue/producer.py`, in warehouse_sources): runs inside Temporal activities, plain `psycopg.Connection` with autocommit. Each queue row is a single INSERT.
   The v3 pipeline holds each batch's row back by one (`hold_batch`): staging batch N inserts the row for batch N-1, and the end of the run inserts the held row with `is_final_batch = true`, so the run's last data row is its own final marker and the loader reads every parquet file once.
   A resumable source releases the held row before it commits a cursor (`release_held_batch`), because the cursor promises that every row before it is loadable; when that leaves nothing held at the end, `send_final_batch` inserts the last batch a second time as a final-only marker, which the loader still accepts (`_run_post_load_for_already_processed_batch`).
   The CDC extraction activities know at send time whether a batch is final and keep using `send_batch_notification` directly.
@@ -61,7 +61,7 @@ All SQL lives in `jobs_db.py`; the polling/retry/recovery engine is `../batch_co
   Partitions that the worker role created earlier still belong to it, so the workflow drops those with that role.
 - **Claim eligibility coupled to retention**: a batch is only claimable (or recovery-sweepable) while younger than `CLAIM_ELIGIBILITY_INTERVAL` (`6 days 12 hours`, `jobs_db.py`), which must stay below the 7-day retention window (`RETENTION_DAYS` in `posthog/temporal/warehouse_sources_queue_partition_management/activities.py`).
   Otherwise a claimed batch's extraction parquet may already be deleted from S3 when the loader reads it.
-  `test_eligibility_window_stays_below_retention_window` in `test_jobs_db.py` enforces the coupling.
+  `test_eligibility_window_stays_below_retention_window` in `products/warehouse_sources/backend/temporal/data_imports/pipelines/pipeline_v3/postgres_queue/test_jobs_db.py` enforces the coupling.
 - **Partition pruning bounds**: consumer queries include `created_at > now() - interval '14 days'` (2x the retention) so the planner can skip dropped partitions.
 
 ### Query cost scales with the answer, not with history
@@ -74,7 +74,7 @@ Three changes in August 2026 restructured the hot queries after a production loa
 - [#83067](https://github.com/PostHog/posthog/pull/83067): the stranded-run sweep gated raw batch rows, which the planner turned into a hash anti-join over every retained failed batch. It now aggregates into candidate runs first, so each gate is one index probe per run.
 
 The shared lesson: every query on these tables must scale with the size of its answer (the claimable set, the candidate runs), never with retained failure history, because failure history is largest exactly when the fleet is least healthy.
-The `jobs_db.py` docstrings on `_state_claim_candidates_sql`, `get_failed_runs` and `_stranded_candidate_runs_sql` carry the details, and plan-shape tests in `test_jobs_db.py` pin the query shapes.
+The `core/jobs_db.py` docstrings on `_state_claim_candidates_sql`, `get_failed_runs` and `_stranded_candidate_runs_sql` carry the details, and plan-shape tests in `products/warehouse_sources/backend/temporal/data_imports/pipelines/pipeline_v3/postgres_queue/test_jobs_db.py` pin the query shapes.
 
 ### Adding a `sourcebatch` index
 
@@ -92,7 +92,7 @@ The migration must be `atomic = False` and re-runnable (a cancelled `CONCURRENTL
 
 ### Architecture
 
-![Postgres queue architecture](./20260423%20-%20PostgresArchitecture.png)
+![Postgres queue architecture](../../warehouse_sources/backend/temporal/data_imports/pipelines/pipeline_v3/postgres_queue/20260423%20-%20PostgresArchitecture.png)
 
 This diagram predates the lease model: it shows `pg_try_advisory_lock` coordination, `SELECT ... FOR UPDATE SKIP LOCKED`, and status UPDATEs, none of which exist any more.
 The overall topology (Temporal producer activity, two tables, a fleet of consumer pods polling in a loop) is still right; read the "What we use" section above for the current coordination design.
