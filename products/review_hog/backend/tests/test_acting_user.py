@@ -103,6 +103,7 @@ class TestResolveActingUser(BaseTest):
             resolve_comments=False,
             review_authored_prs=True,
             flash_reasoning_effort=ReviewUserSettings.FlashReasoningEffort.XHIGH,
+            celebrate_clean_reviews=False,
         )
         result = _resolve_acting_user(
             ResolveActingUserInput(team_id=self.team.id, author_login="octocat", override_user_id=None)
@@ -115,6 +116,7 @@ class TestResolveActingUser(BaseTest):
         assert result.resolve_comments is False
         assert result.review_authored_prs is True
         assert result.flash_reasoning_effort == "xhigh"
+        assert result.celebrate_clean_reviews is False
 
     def test_label_trigger_falls_back_to_the_run_user(self) -> None:
         # Unmapped author on a labeled PR → the run user the trigger already resolved, passed
@@ -145,7 +147,11 @@ class TestResolveActingUser(BaseTest):
     def test_labeled_opt_out_protects_authors_but_never_travels_with_a_borrowed_user(self) -> None:
         # self.user is both the mapped author (octocat) and the run-user fallback.
         ReviewUserSettings.objects.for_team(self.team.id).create(
-            team_id=self.team.id, user_id=self.user.id, review_labeled_prs=False, resolve_comments=False
+            team_id=self.team.id,
+            user_id=self.user.id,
+            review_labeled_prs=False,
+            resolve_comments=False,
+            celebrate_clean_reviews=False,
         )
         # Acting as the author: their own opt-outs apply (the workflow will skip / stop at publish).
         as_author = _resolve_acting_user(
@@ -169,6 +175,10 @@ class TestResolveActingUser(BaseTest):
         assert (as_default.acting_user_id, as_default.resolved_from) == (self.user.id, "default")
         assert as_default.review_labeled_prs is True
         assert as_default.resolve_comments is True
+        # Same borrowed-user protection: the run user's own media preference never shapes
+        # someone else's PR.
+        assert as_author.celebrate_clean_reviews is False
+        assert as_default.celebrate_clean_reviews is True
 
     def test_urgency_threshold_follows_personal_sources_but_never_a_borrowed_default_user(self) -> None:
         # The publish-gate twin of the opt-out rule above: the run user's saved must_fix threshold

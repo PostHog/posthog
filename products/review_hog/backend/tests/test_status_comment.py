@@ -204,6 +204,22 @@ class TestRenderFinalBody:
         assert "![A happy dog](https://example.test/dog.png)" in body
         mock_choice.assert_called_once()
 
+    @patch(f"{_MODULE}.random.choice", return_value=("https://example.test/dog.png", "A happy dog"))
+    def test_clean_review_media_respects_the_author_opt_out(self, mock_choice: MagicMock) -> None:
+        body = render_final_body(
+            "rid",
+            counts={IssuePriority.MUST_FIX: 0, IssuePriority.SHOULD_FIX: 0, IssuePriority.CONSIDER: 0},
+            published_count=0,
+            held_back_count=0,
+            threshold=IssuePriority.SHOULD_FIX,
+            review_url=None,
+            celebrate_clean_reviews=False,
+        )
+
+        assert "dog.png" not in body
+        assert "Enjoy the moment" not in body
+        mock_choice.assert_not_called()
+
 
 def _pr_metadata(pr_number: int = 123) -> PRMetadata:
     return PRMetadata(

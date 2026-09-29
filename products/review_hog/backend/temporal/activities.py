@@ -248,6 +248,9 @@ class ResolveActingUserResult:
     # — the SKIP value — so pre-field histories replay deterministically (the chained dispatch is a
     # new workflow command; old runs must never reach it on replay). The model default is True.
     resolve_comments: bool = False
+    # Cosmetic only: whether the clean-review media appears in the status comment. Defaults True —
+    # the model default — so pre-field histories keep the media and a resolve failure falls back to it.
+    celebrate_clean_reviews: bool = True
     review_authored_prs: bool = False
     flash_reasoning_effort: str = ReasoningEffort.MEDIUM.value
 
@@ -735,6 +738,9 @@ def _resolve_acting_user(input: ResolveActingUserInput) -> ResolveActingUserResu
         # Same author-protection shape as `review_labeled_prs`: the borrowed default user's personal
         # switch never governs someone else's PR — an unmapped author gets the default posture (on).
         resolve_comments=settings.resolve_comments if resolved_from in ("author", "override") else True,
+        # Same author-protection shape as the personal switches above: the borrowed default user's
+        # own preference never governs someone else's PR, so a borrowed run gets the default (on).
+        celebrate_clean_reviews=settings.celebrate_clean_reviews if resolved_from in ("author", "override") else True,
         review_authored_prs=settings.review_authored_prs if resolved_from in ("author", "override") else False,
         flash_reasoning_effort=(
             str(settings.flash_reasoning_effort)
