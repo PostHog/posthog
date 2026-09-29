@@ -1,6 +1,6 @@
 # Online scout evaluation in a synthetic devbox
 
-Use this document as the task handoff to an agent **inside an existing PostHog devbox**. Here, “online” means scouts use the real running application, tools, data queries, sandbox and model providers against the devbox's synthetic project. The scoring rubric is a mock; scout execution and judging should be real.
+Use this document as the task handoff to an agent **inside an existing PostHog devbox**. Here, “online” means scouts use the real running application, tools, data queries, sandbox and model providers against the devbox's synthetic project. Scoring uses the scout's reviewed, saved rubric and its saved reference instructions. Scout execution, rubric generation and judging should be real.
 
 Start by reading this document and the repository's `AGENTS.md`. Follow the stages in order, fix local setup problems, and continue through a saved scored comparison and a first quality iteration. Preserve the existing synthetic dataset. Record any required local adaptations and the exact code revision used.
 
@@ -9,8 +9,8 @@ Start by reading this document and the repository's `AGENTS.md`. Follow the stag
 - Implementation branch: `signals/scout-live-experiments`, [PR #105078](https://github.com/PostHog/posthog/pull/105078).
 - Known implementation commit: `b56358a961ee70992b30840a7fddb38b4b7841ab`. Fetch the branch for this guide and later fixes; record the resulting SHA.
 - Implemented: private repeated scout launches, shared starting history, prompt/model/effort variants, saved results, explicit paid scoring, criterion evidence, comparison reports and JSON export.
-- Still needs a real end-to-end check: the current shared Python gateway's private route and the real comparison judge. Passing unit tests and mocked browser stories do not establish this.
-- Rubric editing, generation and storage belong to [PR #106580](https://github.com/PostHog/posthog/pull/106580). Keep the replaceable mock for this exercise. Do not implement another editor or rubric store.
+- Verify the full flow on this devbox: generate a rubric, review and save it with its reference, run parallel scouts through the current shared Python gateway's private route, then use the real comparison judge and reload its saved report. Passing unit tests and mocked browser stories do not establish this.
+- Rubric editing, generation and storage come from [PR #106580](https://github.com/PostHog/posthog/pull/106580). Use that generator and editor. New comparisons require a reviewed, saved rubric with the reference instructions captured by the generator; they do not fall back to a mock or generate a rubric automatically.
 - This guide authorizes no production operation. Use only the devbox's synthetic project and local services. A remote model provider can still charge for inference.
 
 Use the existing remaining test budget agreed with the operator. Record a cap and a running ledger before paid calls; missing usage or `cost: null` does not mean free. Begin with one small run. Stop repeated authentication, routing or provider failures before they consume the budget.
@@ -18,6 +18,8 @@ Use the existing remaining test budget agreed with the operator. Record a cap an
 The gateway exempts staff users from per-user cost caps by default. Fleet limits and gateway limits do not enforce this exercise's dollar budget; use bounded batches and provider accounting.
 
 For local spend checks, set `LLM_GATEWAY_STAFF_UNLIMITED_USAGE=false` and an explicit `LLM_GATEWAY_REDIS_URL` pointing to the devbox's existing Redis. The standalone gateway does not inherit Django's `REDIS_URL` fallback; without its own URL, it uses reduced in-memory limits and loses counters on restart. To inspect `/metrics`, also set `ENABLE_METRICS=true` alongside `LLM_GATEWAY_METRICS_ENABLED=true`. Confirm the running endpoint exposes the intended Signals cost limit before making paid calls.
+
+Check the remaining burst, sustained and per-task allowances before reserving a batch. A larger operator budget does not update an existing local gateway cap. If an approved test needs a higher local limit, retain the counter, window and multiplier, then verify the counter and its expiry survive the gateway restart. Exercise a denied request as well: the scout must record failure and release its sandbox without an operator cancellation.
 
 ## 1. Pull the implementation without losing devbox state
 
@@ -142,6 +144,10 @@ PY
 
 The normal local `temporal-worker` registers both scout execution and comparison judging. There is no new evaluation queue to provision. Confirm that the running worker uses this checkout, not an older branch.
 
+For paid runs, start the dev supervisor with `TEMPORAL_DISABLE_HOT_RELOAD=1`. Otherwise, edits to Python tests or source files can restart the worker and cancel an active generation or comparison. Let the previous worker finish shutting down before starting its replacement, and verify the worker itself is healthy; a running `nodemon` process does not prove its worker started successfully.
+
+Finish linting and CI preflight before paid work. Checks can write caches without changing source: Ruff's `products/.ruff_cache` can trigger the backend watcher and cause temporary API 502s. Set `RUFF_CACHE_DIR` to an ignored directory outside the backend's watched trees (`posthog/`, `ee/`, and `products/`), and wait for checks to finish and the backend to become healthy before the next paid step.
+
 If the sandbox image needs preparation, build it before a paid run:
 
 ```sh
@@ -187,12 +193,15 @@ Require `ready: true`. Read `blocked_reason` otherwise. Fleet enrollment, source
 
 Choose a model and effort from the returned `models` list. If the source effort is null, set it explicitly. Record the source skill version, prompt hash, model, effort and data window.
 
-1. Remove the default **Variant 1** row and set repeats to **1**, then launch one short baseline run against a known synthetic finding.
-2. Wait for a valid completed result and inspect the captured report, memory and tool evidence.
-3. Choose **Score comparison** once. This starts a separate paid judge call.
-4. Wait for the saved report. Inspect actual verdicts and source quotations; a report consisting of judge errors is not successful validation.
-5. Reload the page and export the report. Confirm it reads the same evaluation without another model call.
-6. Launch a small baseline/candidate pair sharing the starting context. Confirm separate writable memory and reports, and that the source scout's instructions/shared memory and normal inbox remain unchanged.
+1. Open the source scout's rubric editor. Generate suggestions once, review the criteria and reference, then save the checklist with that generation's reference. Generation is a separate paid action. Unsaved defaults, unreviewed suggestions and older rubrics without a captured reference cannot start scoring.
+2. Remove the default **Variant 1** row and set repeats to **1**, then launch one short baseline run against a known synthetic finding.
+3. Wait for a valid completed result and inspect the captured report, memory and tool evidence.
+4. Confirm judging starts automatically after the run finishes, without a separate scoring action.
+5. Wait for the saved report. Inspect actual verdicts and source quotations; a report consisting of judge errors is not successful validation. A single variant has no winner to compare.
+6. Reload the page and export the report. Confirm it reads the same evaluation without another model call. Also close the tab during a comparison and verify server-side judging still completes.
+7. Launch a small baseline/candidate pair sharing the starting context. Confirm separate writable memory and reports, and that the source scout's instructions/shared memory and normal inbox remain unchanged.
+
+Keep the saved rubric fixed while comparing scout edits. Editing a skill or running a comparison does not regenerate the rubric or change its reference instructions. To change the grading standard, explicitly review and save rubric changes. Adopting a new generation's reference applies it to the whole checklist; ordinary criterion edits retain the saved reference. Existing evaluation IDs keep their original rubric and evidence.
 
 Also check a second local user cannot read the operator's trial tasks/results, and each sandbox's ordinary scoped calls cannot access its sibling's private state. Inspect only credentials issued through normal application interfaces; never scrape other processes for tokens.
 
@@ -249,7 +258,7 @@ Create and save an explicit scoring request before sending it:
 {
   "evaluation_id": "<new evaluation UUID>",
   "baseline_variant_id": "<baseline variant UUID>",
-  "rubric_source": "mock",
+  "rubric_source": "saved",
   "variants": [
     {
       "id": "<baseline variant UUID>",
@@ -293,26 +302,27 @@ For each iteration:
 5. When changing only the judge/rubric, reuse completed scout runs under a **new evaluation ID**. When changing the scout or data, run a new comparison.
 6. Confirm promising scout changes on held-out scenarios and additional repeats within budget. Report results by scenario, including execution failures and cost uncertainty.
 
-The run score is `pass / (pass + fail)`. The variant score is the equal mean of non-null run scores. Coverage is `(pass + fail) / (pass + fail + unknown)`; not-applicable criteria are excluded. Execution failures and judge errors are separate from quality. Baseline differences appear only for fully comparable outcomes.
+The run score is `pass / (pass + fail)`. The variant score is the equal mean of non-null run scores. Coverage is `(pass + fail) / (pass + fail + unknown)`; not-applicable criteria are excluded. The UI explains this through passed, failed and undecided check counts. Execution failures and judge errors are separate from quality. Baseline differences appear only for fully comparable outcomes.
+New reports identify the best variant or a tie only when at least two variants have equal repeat counts and complete judgments on the same applicable checks. The winner passes the most checks; each check has equal weight. Missing evidence or incomplete runs produce an inconclusive result. Cost and speed do not decide the winner.
 
 A high score with low coverage is not strong evidence. The judge checks bounded saved evidence and exact quotations; it does not independently query source truth or measure recall. Use the synthetic answer key to measure missed findings and false positives. These small live comparisons do not establish statistical significance.
 
 ### Where to make changes
 
-| Change                                       | Source                                                                                                                   |
-| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| Scout prompt/model/effort                    | Comparison variant inputs; preserve a baseline and source skill.                                                         |
-| Mock criteria                                | `products/signals/backend/scout_harness/mock_scout_rubric.json`                                                          |
-| Mock reader / future real-reader integration | `trial_rubrics.py`; reader construction in `trial_evaluation.py::prepare_trial_evaluation`                               |
-| Judge instructions and citation parsing      | `trial_judge.py`                                                                                                         |
-| Judge model and saved prompt version         | `trial_evaluation.py`; keep prompt-version compatibility in `trial_judge.py` synchronized.                               |
-| Scores, coverage and comparison eligibility  | `trial_evaluation_report.py`                                                                                             |
-| Paid-call claims and saved state             | `trial_evaluation.py`, `temporal/agentic/scout_trial_evaluation.py`                                                      |
-| UI state and report display                  | `frontend/inbox/logics/scoutTrialsLogic.ts`, `frontend/inbox/components/config/scouts/trials/` under `products/signals/` |
+| Change                                      | Source                                                                                                                   |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| Scout prompt/model/effort                   | Comparison variant inputs; preserve a baseline and source skill.                                                         |
+| Saved criteria and reference                | Existing scout rubric editor and generator; `facade/rubrics.py`                                                          |
+| Saved rubric reader                         | `trial_rubrics.py`; reader construction in `trial_evaluation.py::prepare_trial_evaluation`                               |
+| Judge instructions and citation parsing     | `trial_judge.py`                                                                                                         |
+| Judge model and saved prompt version        | `trial_evaluation.py`; keep prompt-version compatibility in `trial_judge.py` synchronized.                               |
+| Scores, coverage and comparison eligibility | `trial_evaluation_report.py`                                                                                             |
+| Paid-call claims and saved state            | `trial_evaluation.py`, `temporal/agentic/scout_trial_evaluation.py`                                                      |
+| UI state and report display                 | `frontend/inbox/logics/scoutTrialsLogic.ts`, `frontend/inbox/components/config/scouts/trials/` under `products/signals/` |
 
-The mock uses six default criteria, `revision: 0`, and `generation: null`; only enabled criteria are judged. New evaluation IDs freeze the exact rubric document, evidence, model and prompt version. Changing a fixture never rewrites an existing report. Record code and fixture hashes; bump the prompt version when judge behavior changes.
+The reader uses the same team-scoped rubric facade as `GET /api/projects/{team_id}/signals/scout/rubrics/{config_id}/`. Revision zero is an unsaved default checklist. New evaluations require a saved revision, enabled criteria and a complete saved reference. Oversized or incomplete references produce an actionable error before judging, rather than silently dropping instructions.
 
-The future real reader should consume `GET /api/projects/{team_id}/signals/scout/rubrics/{config_id}/` from the rubric feature. Only `rubric_source: "mock"` is accepted today. Real integration needs coordinated API types and UI provenance, and must propagate unavailable/access errors instead of silently falling back to the mock.
+New evaluation IDs freeze the rubric document, its reference instructions and generation ID, evidence, model and prompt version. Reports export the saved provenance. The judge treats reference and candidate instructions as requirements, not proof that the scout performed an action. Historical mock reports and exact-ID retries remain readable with their original source label, but new evaluation IDs must use `rubric_source: "saved"`.
 
 ## 7. Debug and validate changes
 
@@ -325,6 +335,7 @@ The future real reader should consume `GET /api/projects/{team_id}/signals/scout
 | Gateway 401/403                                  | Local Signals app identity, local token database, token scope/expiry and provider authorization; health endpoints are insufficient. |
 | Results complete but logs return 403             | Operator key lacks `task:read`, or the caller is not the original operator.                                                         |
 | Scoring fails or reports only judge errors       | Judge model access, gateway credentials, worker logs, immutable saved attempt. Fix before explicitly paying for a new attempt.      |
+| Scoring asks for a saved rubric or reference     | Open the rubric editor, generate and review suggestions, then explicitly save the checklist with the captured reference.            |
 | Scores mostly unknown                            | Read evidence limitations and trace extraction; do not convert missing evidence to a pass.                                          |
 | Object-store `InvalidAccessKeyId`                | Wait for SeaweedFS credential readiness; confirm the processes share the intended local store.                                      |
 | Frontend types miss a newly added quill property | Rebuild the local package with `.codex/with-flox pnpm --filter=@posthog/quill-components build`.                                    |

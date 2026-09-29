@@ -20,6 +20,11 @@ from posthog.sync import database_sync_to_async
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.signals.backend.facade.rubrics import ScoutRubricReferenceContext
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
+from products.signals.backend.scout_harness.trial_comparison_types import (
+    TrialComparisonHistoryEntry,
+    TrialComparisonPlan,
+    TrialEvaluationReservation,
+)
 from products.signals.backend.scout_harness.trial_evaluation_report import build_trial_comparison_report
 from products.signals.backend.scout_harness.trial_evaluation_types import (
     TrialComparisonReport,
@@ -60,6 +65,10 @@ _Document = TypeVar("_Document", bound=BaseModel)
 
 
 class TrialEvaluationError(ScoutTrialLaunchError):
+    pass
+
+
+class TrialEvaluationNotReady(TrialEvaluationError):
     pass
 
 
@@ -144,7 +153,9 @@ def read_trial_evaluation(team_id: int, evaluation_id: UUID) -> TrialEvaluationS
     return snapshot
 
 
-def _assert_context_access(context: TrialContext, *, config: SignalScoutConfig, user: User) -> None:
+def _assert_context_access(
+    context: TrialContext | TrialComparisonHistoryEntry | TrialComparisonPlan, *, config: SignalScoutConfig, user: User
+) -> None:
     if (
         config.team_id != 2
         or not user.is_staff
@@ -299,12 +310,12 @@ def _run_evidence(launch: TrialLaunch, context: TrialContext, variant_id: UUID) 
     else:
         status = cast(str, result["status"])
     if status not in {"completed", "failed", "cancelled", "skipped"} or (run is None and status == "completed"):
-        raise TrialEvaluationError("Every selected trial must have a known terminal state before scoring.")
+        raise TrialEvaluationNotReady("Every selected trial must have a known terminal state before scoring.")
     if run is not None:
         run.task_run.refresh_from_db(fields=["status", "state"])
+        if run.task_run.status not in {"completed", "failed", "cancelled"}:
+            raise TrialEvaluationNotReady("Every selected trial task must finish before scoring.")
         if status == "completed":
-            if run.task_run.status not in {"completed", "failed", "cancelled"}:
-                raise TrialEvaluationError("Every selected trial task must finish before scoring.")
             status = run.task_run.status
     evidence = TrialRunEvidence(
         launch_id=launch.id,
@@ -383,8 +394,37 @@ def _run_evidence(launch: TrialLaunch, context: TrialContext, variant_id: UUID) 
 
 
 @private_capture_context()
+def trial_evaluation_criteria(rubric: dict[str, JsonValue]) -> list[TrialEvaluationCriterion]:
+    raw_criteria = rubric.get("criteria")
+    if not isinstance(raw_criteria, list):
+        raise TrialEvaluationError("The scoring rubric has no criteria.")
+    criteria = [
+        TrialEvaluationCriterion.model_validate(
+            {field: criterion.get(field) for field in TrialEvaluationCriterion.model_fields}
+        )
+        for criterion in raw_criteria
+        if isinstance(criterion, dict) and criterion.get("enabled") is True
+    ]
+    if not 1 <= len(criteria) <= 30 or len({criterion.id for criterion in criteria}) != len(criteria):
+        raise TrialEvaluationError("The scoring rubric must have 1 to 30 uniquely named enabled criteria.")
+    return criteria
+
+
+def reserve_trial_evaluation(reservation: TrialEvaluationReservation) -> None:
+    saved = _write_once(_key(reservation.team_id, reservation.evaluation_id, "reservation"), reservation)
+    if saved != reservation:
+        raise TrialEvaluationError("This evaluation ID is already reserved for another request.")
+
+
+@private_capture_context()
 def prepare_trial_evaluation(
-    *, config: SignalScoutConfig, user: User, request: TrialEvaluationRequest
+    *,
+    config: SignalScoutConfig,
+    user: User,
+    request: TrialEvaluationRequest,
+    rubric_document: dict[str, JsonValue] | None = None,
+    judge_model: str = JUDGE_MODEL,
+    judge_prompt_version: str = JUDGE_PROMPT_VERSION,
 ) -> TrialEvaluationSnapshot:
     assert_trial_environment_ready()
     _validate_groups(request)
@@ -399,6 +439,20 @@ def prepare_trial_evaluation(
         raise TrialEvaluationError(
             "New evaluations require the scout's saved rubric. Choose saved as the rubric source."
         )
+    reserved_plan = _read_document(
+        f"signals/scout-trials/{config.team_id}/comparisons/{request.evaluation_id}/plan.json", TrialComparisonPlan
+    )
+    if reserved_plan is not None:
+        if (
+            reserved_plan.team_id != config.team_id
+            or reserved_plan.config_id != config.id
+            or reserved_plan.user_id != user.id
+            or request != reserved_plan.request.evaluation_request()
+        ):
+            raise TrialEvaluationError("This evaluation ID belongs to a different saved comparison.")
+        rubric_document = reserved_plan.rubric_document
+        judge_model = reserved_plan.judge_model
+        judge_prompt_version = reserved_plan.judge_prompt_version
     launches: dict[UUID, TrialLaunch] = {}
     context: TrialContext | None = None
     for variant in request.variants:
@@ -422,21 +476,14 @@ def prepare_trial_evaluation(
     if context is None:
         raise TrialEvaluationError("Choose at least one trial to score.")
     try:
-        rubric = SavedScoutRubricReader(team_id=config.team_id).read(config_id=config.id, skill_name=config.skill_name)
+        rubric = (
+            rubric_document
+            if rubric_document is not None
+            else SavedScoutRubricReader(team_id=config.team_id).read(config_id=config.id, skill_name=config.skill_name)
+        )
     except ScoutRubricReadError as error:
         raise TrialEvaluationError(str(error)) from error
-    raw_criteria = rubric.get("criteria")
-    if not isinstance(raw_criteria, list):
-        raise TrialEvaluationError("The scoring rubric has no criteria.")
-    criteria = [
-        TrialEvaluationCriterion.model_validate(
-            {field: criterion.get(field) for field in TrialEvaluationCriterion.model_fields}
-        )
-        for criterion in raw_criteria
-        if isinstance(criterion, dict) and criterion.get("enabled") is True
-    ]
-    if not 1 <= len(criteria) <= 30 or len({criterion.id for criterion in criteria}) != len(criteria):
-        raise TrialEvaluationError("The scoring rubric must have 1 to 30 uniquely named enabled criteria.")
+    criteria = trial_evaluation_criteria(rubric)
     snapshot = TrialEvaluationSnapshot(
         evaluation_id=request.evaluation_id,
         team_id=config.team_id,
@@ -450,8 +497,8 @@ def prepare_trial_evaluation(
         rubric_reference_context=ScoutRubricReferenceContext.model_validate(rubric["reference_context"]),
         rubric_reference_generation_id=cast(str, rubric["reference_generation_id"]),
         criteria=criteria,
-        judge_model=JUDGE_MODEL,
-        judge_prompt_version=JUDGE_PROMPT_VERSION,
+        judge_model=judge_model,
+        judge_prompt_version=judge_prompt_version,
         runs=[
             _run_evidence(launches[identifier], context, variant.id)
             for variant in request.variants
@@ -468,6 +515,16 @@ def prepare_trial_evaluation(
             build_trial_judge_messages(snapshot, evidence)
     except TrialJudgeValidationError as error:
         raise TrialEvaluationError(str(error)) from error
+    reserve_trial_evaluation(
+        TrialEvaluationReservation(
+            team_id=config.team_id,
+            evaluation_id=request.evaluation_id,
+            config_id=config.id,
+            user_id=user.id,
+            kind="comparison" if reserved_plan else "evaluation",
+            request_hash=reserved_plan.request_hash if reserved_plan else request_hash,
+        )
+    )
     stored = _write_once(_key(config.team_id, request.evaluation_id, "snapshot"), snapshot)
     if stored.request_hash != request_hash:
         raise TrialEvaluationError("This evaluation ID was already used for a different request.")

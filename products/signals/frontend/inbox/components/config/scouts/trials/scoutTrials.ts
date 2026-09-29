@@ -1,4 +1,6 @@
 import type {
+    ScoutTrialComparisonApi,
+    ScoutTrialComparisonRequestApi,
     ScoutTrialLaunchApi,
     ScoutTrialResultApi,
     ScoutTrialSetupApi,
@@ -30,6 +32,7 @@ export interface ScoutTrialBatch {
     configId: string
     contextId: string | null
     comparison: ScoutTrialComparison
+    request: ScoutTrialComparisonRequestApi
     labels: Record<string, string>
     submissions: ScoutTrialSubmission[]
 }
@@ -55,6 +58,19 @@ export interface ScoutTrialRow {
 
 export function trialIsActive(status: string): boolean {
     return ['pending', 'running', 'queued', 'in_progress', 'starting'].includes(status)
+}
+
+export function comparisonIsActive(status: string): boolean {
+    return ['starting', 'running', 'judging'].includes(status)
+}
+
+export function comparisonIdentifiers(comparison: ScoutTrialComparisonApi): ScoutTrialComparison {
+    return {
+        id: comparison.comparison_id,
+        configId: comparison.config_id,
+        baselineVariantId: comparison.baseline_variant_id,
+        groups: comparison.variants.map((variant) => ({ variantId: variant.id, launchIds: variant.launch_ids })),
+    }
 }
 
 export function trialTaskIsActive(status: string | null | undefined): boolean {
@@ -118,10 +134,24 @@ export function createTrialBatch(
         variantId: newId(),
         launchIds: Array.from({ length: repeats }, () => newId()),
     }))
+    const comparisonId = newId()
     return {
         configId,
         contextId: null,
-        comparison: { id: newId(), configId, baselineVariantId: groups[0].variantId, groups },
+        comparison: { id: comparisonId, configId, baselineVariantId: groups[0].variantId, groups },
+        request: {
+            comparison_id: comparisonId,
+            baseline_variant_id: groups[0].variantId,
+            variants: variants.map((variant, index) => ({
+                id: groups[index].variantId,
+                label: variant.label.trim(),
+                launch_ids: groups[index].launchIds,
+                model: variant.model,
+                reasoning_effort: variant.effort,
+                ...(variant.replacePrompt ? { skill_body: variant.prompt } : {}),
+            })),
+            ...(note.trim() ? { note: note.trim() } : {}),
+        },
         labels: Object.fromEntries(groups.map((group, index) => [group.variantId, variants[index].label.trim()])),
         submissions: variants.flatMap((variant, variantIndex) =>
             Array.from({ length: repeats }, (_, index) => ({
