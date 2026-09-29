@@ -15,7 +15,7 @@ from django.core.cache import cache
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.signing import BadSignature, SignatureExpired, TimestampSigner
 from django.db import IntegrityError, models, transaction
-from django.db.models import Q, QuerySet
+from django.db.models import Exists, OuterRef, Q, QuerySet, Subquery
 from django.db.models.expressions import RawSQL
 from django.http import Http404, HttpResponse
 from django.utils import timezone
@@ -4402,6 +4402,55 @@ def annotate_broadcast_shape(queryset: QuerySet) -> QuerySet:
     )
 
 
+BROADCAST_STATUSES = ("draft", "scheduled", "sending", "sent", "failed", "archived")
+
+
+def filter_by_broadcast_status(queryset: QuerySet, statuses: set[str]) -> QuerySet:
+    # The status a sender sees on a broadcast, derived the way the broadcasts UI derives it: from the
+    # latest run and whether a schedule still has sends to come.
+    latest_run_status = (
+        HogFlowBatchJob.objects.filter(team_id=OuterRef("team_id"), hog_flow_id=OuterRef("pk"))
+        .order_by("-created_at")
+        .values("status")[:1]
+    )
+    queryset = queryset.annotate(
+        _latest_run_status=Subquery(latest_run_status),
+        _has_pending_schedule=Exists(
+            HogFlowSchedule.objects.filter(
+                team_id=OuterRef("team_id"), hog_flow_id=OuterRef("pk"), status=HogFlowSchedule.Status.ACTIVE
+            )
+        ),
+    )
+    live = Q(status=HogFlow.State.ACTIVE)
+    # Only a wizard launch always leaves a schedule or a run. An opened workflow can wait for an API send.
+    nothing_to_come = Q(_latest_run_status__isnull=True, _has_pending_schedule=False)
+    unfinished_launch = nothing_to_come & Q(origin_product="broadcasts")
+    running = [HogFlowBatchJob.State.WAITING, HogFlowBatchJob.State.QUEUED, HogFlowBatchJob.State.ACTIVE]
+    conditions = {
+        "draft": Q(status=HogFlow.State.DRAFT),
+        "archived": Q(status=HogFlow.State.ARCHIVED),
+        "sending": live & Q(_latest_run_status__in=running),
+        "sent": live & Q(_latest_run_status=HogFlowBatchJob.State.COMPLETED, _has_pending_schedule=False),
+        "scheduled": live
+        & (
+            (
+                Q(_has_pending_schedule=True)
+                & (Q(_latest_run_status__isnull=True) | Q(_latest_run_status=HogFlowBatchJob.State.COMPLETED))
+            )
+            | (nothing_to_come & ~Q(origin_product="broadcasts"))
+        ),
+        "failed": live
+        & (
+            Q(_latest_run_status__in=[HogFlowBatchJob.State.FAILED, HogFlowBatchJob.State.CANCELLED])
+            | unfinished_launch
+        ),
+    }
+    combined = Q()
+    for broadcast_status in statuses:
+        combined |= conditions[broadcast_status]
+    return queryset.filter(combined)
+
+
 class HogFlowFilterSet(FilterSet):
     class Meta:
         model = HogFlow
@@ -4550,6 +4599,15 @@ WRITABLE_DRAFT_CONTENT_FIELDS = frozenset(DRAFT_CONTENT_FIELDS) - frozenset(HogF
                 "broadcast_eligible",
                 OpenApiTypes.BOOL,
                 description="Pass `true` to return broadcasts plus the ordinary workflows the broadcasts UI can render: a batch trigger and a single email step.",
+            ),
+            OpenApiParameter(
+                "broadcast_status",
+                OpenApiTypes.STR,
+                description=(
+                    "Comma-separated broadcast statuses as the broadcasts UI shows them: draft, scheduled, sending, "
+                    "sent, failed, archived. Scheduled, sending, sent and failed come from the latest run and "
+                    "whether a schedule still has sends to come."
+                ),
             ),
         ]
     )
@@ -4711,6 +4769,16 @@ class HogFlowViewSet(
                         _has_other_step=False,
                     )
                 )
+
+            broadcast_status = self.request.GET.get("broadcast_status")
+            if broadcast_status:
+                requested_statuses = {value for value in broadcast_status.split(",") if value}
+                unknown_statuses = sorted(requested_statuses - set(BROADCAST_STATUSES))
+                if unknown_statuses or not requested_statuses:
+                    raise exceptions.ValidationError(
+                        {"broadcast_status": f"Must be one or more of: {', '.join(BROADCAST_STATUSES)}"}
+                    )
+                queryset = filter_by_broadcast_status(queryset, requested_statuses)
 
             # `?type=loop` and `?type=broadcast` return the same rows, but Desktop's Loops list sends
             # this param and ships on its own release cadence, so installed builds keep sending it.

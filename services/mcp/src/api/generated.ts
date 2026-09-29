@@ -35087,6 +35087,30 @@ export namespace Schemas {
       Currency: 'currency',
     } as const;
 
+    /**
+     * * `at_most` - at_most
+     * * `at_least` - at_least
+     */
+    export type GoalDirectionEnum = typeof GoalDirectionEnum[keyof typeof GoalDirectionEnum];
+
+
+    export const GoalDirectionEnum = {
+      AtMost: 'at_most',
+      AtLeast: 'at_least',
+    } as const;
+
+    /**
+     * * `whole_window` - whole_window
+     * * `per_interval` - per_interval
+     */
+    export type GoalGrainEnum = typeof GoalGrainEnum[keyof typeof GoalGrainEnum];
+
+
+    export const GoalGrainEnum = {
+      WholeWindow: 'whole_window',
+      PerInterval: 'per_interval',
+    } as const;
+
     export interface ReportMetricComparison {
       /** Baseline or previous value, formatted like the current value. */
       value: number;
@@ -35166,6 +35190,35 @@ export namespace Schemas {
          * @nullable
          */
       caption?: string | null;
+      /**
+         * Proposed threshold after release. Informational only; does not schedule a check.
+         * @nullable
+         */
+      goal_value?: number | null;
+      /** Whether success means at most or at least goal_value.
+       *
+       * * `at_most` - at_most
+       * * `at_least` - at_least */
+      goal_direction?: GoalDirectionEnum | null;
+      /** Whether the goal compares with the whole query window or each chart bucket.
+       *
+       * * `whole_window` - whole_window
+       * * `per_interval` - per_interval */
+      goal_grain?: GoalGrainEnum;
+      /**
+         * Suggested days after release before assessing impact, not a monitoring schedule.
+         * @minimum 1
+         * @maximum 30
+         * @nullable
+         */
+      decision_window_days?: number | null;
+      /**
+         * Optional number of qualifying observations before assessing impact.
+         * @minimum 1
+         * @maximum 1000
+         * @nullable
+         */
+      minimum_data_points?: number | null;
       /** Legacy optional comparison. New report metrics must omit it. */
       comparison?: ReportMetricComparison | null;
     }
@@ -38743,12 +38796,14 @@ export namespace Schemas {
       readonly conditions: readonly EvaluationBackfillCondition[];
       /** Whether units with an existing result are evaluated again. */
       readonly rerun_existing: boolean;
-      /** Units matched at creation; the ceiling on dispatched_count. */
+      /** Units matched at creation. Units that land in the window later can take dispatched_count and skipped_count past it. */
       readonly total_count: number;
       /** Units the backfill has started an evaluation for so far. */
       readonly dispatched_count: number;
       /** Units the live path had already covered, so nothing was dispatched. */
       readonly skipped_count: number;
+      /** Units whose evaluation failed to start. They have no result and count toward remaining_count. */
+      readonly failed_count: number;
       /**
          * Units still holding no result when the run finished, counted at that moment. Zero means the window is covered, whoever graded it.
          * @nullable
@@ -47726,6 +47781,40 @@ export namespace Schemas {
          * @nullable
          */
       readonly user_access_level: string | null;
+    }
+
+    export interface FileSystemShortcutBulkItem {
+      /** Display path of the shortcut in the sidebar. */
+      path: string;
+      /**
+         * Type of the linked item (e.g. 'folder', 'insight'), or blank.
+         * @maxLength 100
+         */
+      type?: string;
+      /**
+         * Reference to the linked item, scoped to its type. Null for href-only shortcuts.
+         * @maxLength 4000
+         * @nullable
+         */
+      ref?: string | null;
+      /**
+         * Destination URL the shortcut opens. Null when the shortcut points at an item by ref.
+         * @nullable
+         */
+      href?: string | null;
+    }
+
+    export interface FileSystemShortcutBulkUpdate {
+      /**
+         * Shortcuts to create, appended to the end of the current order in the given sequence. An item identical to a shortcut the user already has is skipped.
+         * @maxItems 500
+         */
+      add?: FileSystemShortcutBulkItem[];
+      /**
+         * IDs of the current user's shortcuts to delete.
+         * @maxItems 500
+         */
+      remove_ids?: string[];
     }
 
     export interface FileSystemShortcutReorder {
@@ -59513,6 +59602,8 @@ export namespace Schemas {
       readonly session_id: string;
       /** Total number of $mcp_tool_call events in the session. */
       readonly tool_calls: number;
+      /** Number of the session's $mcp_tool_call events with $mcp_is_error true, counted over the same properties / filter_test_accounts matches as tool_calls. */
+      readonly error_calls: number;
       /** Timestamp of the first $mcp_tool_call event in the session. */
       readonly session_start: string;
       /** Timestamp of the most recent $mcp_tool_call event in the session. */
@@ -66870,6 +66961,7 @@ export namespace Schemas {
      * * `implementation_replacement` - Implementation Replacement
      * * `implementation_handover` - Implementation Handover
      * * `ranking_score` - Ranking Score
+     * * `impact_measurement_plan` - Impact Measurement Plan
      */
     export type SignalReportArtefactArtefactTypeEnum = typeof SignalReportArtefactArtefactTypeEnum[keyof typeof SignalReportArtefactArtefactTypeEnum];
 
@@ -66906,6 +66998,7 @@ export namespace Schemas {
       ImplementationReplacement: 'implementation_replacement',
       ImplementationHandover: 'implementation_handover',
       RankingScore: 'ranking_score',
+      ImpactMeasurementPlan: 'impact_measurement_plan',
     } as const;
 
     export type SignalActorKindEnum = typeof SignalActorKindEnum[keyof typeof SignalActorKindEnum];
@@ -67171,6 +67264,35 @@ export namespace Schemas {
          * @nullable
          */
       caption?: string | null;
+      /**
+         * Proposed threshold after release. Informational only; does not schedule a check.
+         * @nullable
+         */
+      goal_value?: number | null;
+      /** Whether success means at most or at least goal_value.
+       *
+       * * `at_most` - at_most
+       * * `at_least` - at_least */
+      goal_direction?: GoalDirectionEnum | null;
+      /** Whether the goal compares with the whole query window or each chart bucket.
+       *
+       * * `whole_window` - whole_window
+       * * `per_interval` - per_interval */
+      goal_grain?: GoalGrainEnum;
+      /**
+         * Suggested days after release before assessing impact, not a monitoring schedule.
+         * @minimum 1
+         * @maximum 30
+         * @nullable
+         */
+      decision_window_days?: number | null;
+      /**
+         * Optional number of qualifying observations before assessing impact.
+         * @minimum 1
+         * @maximum 1000
+         * @nullable
+         */
+      minimum_data_points?: number | null;
     }
 
     export type SignalReportAssignmentPrStateEnum = typeof SignalReportAssignmentPrStateEnum[keyof typeof SignalReportAssignmentPrStateEnum];
@@ -70143,7 +70265,7 @@ export namespace Schemas {
       passkeys_enabled_for_2fa?: boolean | null;
       /** When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions. */
       hide_mcp_hints?: boolean;
-      /** Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown. */
+      /** Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown. Once `sidebar.starred_products_setup_completed` is true, an update that omits it keeps it true. */
       ui_configuration?: unknown;
       /** @nullable */
       readonly onboarding_skipped_at: string | null;
@@ -79581,7 +79703,7 @@ export namespace Schemas {
       passkeys_enabled_for_2fa?: boolean | null;
       /** When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions. */
       hide_mcp_hints?: boolean;
-      /** Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown. */
+      /** Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown. Once `sidebar.starred_products_setup_completed` is true, an update that omits it keeps it true. */
       ui_configuration?: unknown;
       /** @nullable */
       readonly onboarding_skipped_at?: string | null;
@@ -87089,6 +87211,35 @@ export namespace Schemas {
          * @nullable
          */
       caption?: string | null;
+      /**
+         * Proposed threshold after release. Informational only; does not schedule a check.
+         * @nullable
+         */
+      goal_value?: number | null;
+      /** Whether success means at most or at least goal_value.
+       *
+       * * `at_most` - at_most
+       * * `at_least` - at_least */
+      goal_direction?: GoalDirectionEnum | null;
+      /** Whether the goal compares with the whole query window or each chart bucket.
+       *
+       * * `whole_window` - whole_window
+       * * `per_interval` - per_interval */
+      goal_grain?: GoalGrainEnum;
+      /**
+         * Suggested days after release before assessing impact, not a monitoring schedule.
+         * @minimum 1
+         * @maximum 30
+         * @nullable
+         */
+      decision_window_days?: number | null;
+      /**
+         * Optional number of qualifying observations before assessing impact.
+         * @minimum 1
+         * @maximum 1000
+         * @nullable
+         */
+      minimum_data_points?: number | null;
     }
 
     export type ReportPriority = typeof ReportPriority[keyof typeof ReportPriority];
@@ -91040,7 +91191,7 @@ export namespace Schemas {
     export interface SignalReportArtefactLogCreate {
       /** Active claim to attribute this work to. Must belong to the caller and report. */
       claim_id?: string;
-      /** The artefact type. One of: actionability_judgment, channel_assignment, code_reference, commit, dismissal, note, priority_judgment, related_to, repo_selection, safety_judgment, signal_finding, suggested_reviewers. Log types accumulate; status types (safety_judgment, actionability_judgment, priority_judgment, repo_selection, suggested_reviewers, channel_assignment) are latest-wins — appending a new version supersedes the previous one as the report's canonical status. */
+      /** The artefact type. One of: actionability_judgment, channel_assignment, code_reference, commit, dismissal, impact_measurement_plan, note, priority_judgment, related_to, repo_selection, safety_judgment, signal_finding, suggested_reviewers. Log types accumulate; status types (safety_judgment, actionability_judgment, priority_judgment, repo_selection, suggested_reviewers, channel_assignment) are latest-wins — appending a new version supersedes the previous one as the report's canonical status. */
       artefact_type: string;
       /** The artefact payload as a JSON object or array; shape depends on artefact_type and is validated against its schema. */
       content: unknown;
@@ -113413,6 +113564,10 @@ export namespace Schemas {
      * Pass `true` to return broadcasts plus the ordinary workflows the broadcasts UI can render: a batch trigger and a single email step.
      */
     broadcast_eligible?: boolean;
+    /**
+     * Comma-separated broadcast statuses as the broadcasts UI shows them: draft, scheduled, sending, sent, failed, archived. Scheduled, sending, sent and failed come from the latest run and whether a schedule still has sends to come.
+     */
+    broadcast_status?: string;
     created_at?: string;
     /**
      * Filter to workflows created by the user with this uuid.
@@ -115806,6 +115961,11 @@ export namespace Schemas {
      * Whether to also apply the project's internal and test user filters (its test_account_filters setting) on top of `properties`.
      */
     filter_test_accounts?: boolean;
+    /**
+     * Filter by session outcome. true keeps sessions with at least one errored tool call ($mcp_is_error), false keeps sessions with none. Omit to list both.
+     * @nullable
+     */
+    has_errors?: boolean | null;
     /**
      * Maximum number of sessions to return per page. Defaults to 100; values above 500 are rejected.
      * @minimum 1
