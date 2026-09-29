@@ -50,7 +50,7 @@ from products.alerts.backend.facade.lifecycle import (
     decide_firing_episode,
     evaluate_alert_check,
 )
-from products.alerts.backend.facade.platform_alerts import due_checks
+from products.alerts.backend.facade.platform_alerts import due_checks, slot_of
 from products.alerts.backend.facade.platform_metrics import (
     increment_checks,
     increment_checks_skipped,
@@ -130,8 +130,7 @@ def _evaluation_key(check: PlatformAlertCheckInput, window_end: datetime, *, now
     shape across sources. Both parts are read before anything is written, so a retry recomputes
     the same key.
     """
-    slot = (check.next_check_at or now).replace(second=0, microsecond=0)
-    return f"slot:{slot.isoformat()}|window:{window_end.isoformat()}"
+    return f"slot:{slot_of(check.next_check_at, now)}|window:{window_end.isoformat()}"
 
 
 def _cohort_key(check: PlatformAlertCheckInput, checkpoint: datetime | None, now: datetime) -> tuple:
@@ -366,7 +365,7 @@ def _held(
     *,
     skip: SkipReason,
     now: datetime,
-    error_message: str | None = None,
+    error_message: str,
 ) -> Decision:
     """A control-plane transition the check machine cannot express. The outcome advances the schedule."""
     recorded = _recorded(
@@ -397,7 +396,6 @@ def _evaluate_cohort(
     window_minutes, evaluation_periods, cadence_minutes, projection_eligible, date_to = key
     lookback = rolling_check_lookback_minutes(window_minutes, cadence_minutes, evaluation_periods)
 
-    query_started_at = time.monotonic()
     try:
         result = BatchedAlertCheckQuery(
             team=team,
@@ -424,16 +422,14 @@ def _evaluate_cohort(
             for check in checks
         ]
 
-    # One query serves the cohort, so every check in it records the same duration.
-    query_duration_ms = int((time.monotonic() - query_started_at) * 1000)
-
     decided: list[Decision] = []
     for check in checks:
         muted = check.id in muted_ids
         buckets = result.per_alert.get(str(check.id), [])
         # ClickHouse emits no bucket for an empty window, so no buckets is a measured zero.
         value: float | None = float(buckets[-1].count) if buckets else 0.0
-        duration_ms: int | None = query_duration_ms
+        # One query serves the cohort, so every check in it records the same duration.
+        duration_ms: int | None = result.query_duration_ms
         try:
             outcome = _evaluate_one(check, buckets, now=now, muted=muted)
         except Exception as error:

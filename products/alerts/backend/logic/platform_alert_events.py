@@ -14,6 +14,7 @@ engine only remembers a bounded window of them.
 import json
 import hashlib
 from collections.abc import Sequence
+from dataclasses import fields
 from datetime import datetime
 from typing import Any
 from uuid import UUID
@@ -21,34 +22,12 @@ from uuid import UUID
 import structlog
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.dataclasses import frozen
 
 from products.alerts.backend.models.platform_alert_events_sql import PLATFORM_ALERT_EVENTS_TABLE
 
 logger = structlog.get_logger(__name__)
-
-_COLUMNS = (
-    "team_id",
-    "configuration_id",
-    "alert_id",
-    "grouping_key",
-    "evaluation_key",
-    "kind",
-    "alert_name",
-    "previous_state",
-    "state",
-    "value",
-    "labels",
-    "condition_snapshot",
-    "source_config_snapshot",
-    "query_duration_ms",
-    "error_message",
-    "consecutive_failures",
-    "muted_notification",
-    "occurred_at",
-)
-
-_INSERT_SQL = f"INSERT INTO {PLATFORM_ALERT_EVENTS_TABLE} ({', '.join(_COLUMNS)}) VALUES"
 
 
 @frozen
@@ -102,6 +81,12 @@ class PlatformAlertEventRow:
         }
 
 
+# Derived from the row rather than listed again, so a new column cannot reach the dataclass and
+# miss the insert.
+_COLUMNS = tuple(f.name for f in fields(PlatformAlertEventRow))
+_INSERT_SQL = f"INSERT INTO {PLATFORM_ALERT_EVENTS_TABLE} ({', '.join(_COLUMNS)}) VALUES"
+
+
 def _deduplication_token(team_id: int, rows: Sequence[PlatformAlertEventRow]) -> str:
     """Names a batch by the evaluations in it, so a retry of that batch carries the same name.
 
@@ -141,6 +126,9 @@ def insert_events(team_id: int, rows: Sequence[PlatformAlertEventRow]) -> int:
     if not rows:
         return 0
     try:
+        # No product tag: the history table serves every source, so the write belongs to the
+        # shared platform rather than to one of them.
+        tag_queries(feature=Feature.ALERTING)
         sync_execute(
             _INSERT_SQL,
             [row.as_row() for row in rows],
