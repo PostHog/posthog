@@ -1,6 +1,7 @@
 import { IconCheckCircle } from '@posthog/icons'
 
 import { IconErrorOutline } from 'lib/lemon-ui/icons'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { cn } from 'lib/utils/css-classes'
 
 import { ExperimentWizardStep, STEP_ORDER } from './experimentWizardLogic'
@@ -14,6 +15,7 @@ const STEPS: Step[] = [
     { key: 'about', label: 'Description' },
     { key: 'variants', label: 'Variant rollout' },
     { key: 'analytics', label: 'Analytics' },
+    { key: 'implementation', label: 'Implementation' },
 ]
 
 interface ExperimentWizardStepperProps {
@@ -36,6 +38,16 @@ export function ExperimentWizardStepper({
                 const isCompleted = currentOrder > stepOrder
                 const isCurrent = currentStep === step.key
                 const hasErrors = (stepErrors?.[step.key]?.length ?? 0) > 0
+                // Saving the draft opens the implementation step, and the form steps are done from then on
+                const isSaved = currentStep === 'implementation'
+                const disabledReason =
+                    step.key === 'implementation'
+                        ? isSaved
+                            ? undefined
+                            : 'Save the experiment as a draft to see its code'
+                        : isSaved
+                          ? 'The experiment is saved. You can change it from its page.'
+                          : undefined
 
                 return (
                     <div key={step.key} className="flex items-center">
@@ -47,45 +59,51 @@ export function ExperimentWizardStepper({
                                 )}
                             />
                         )}
-                        <button
-                            type="button"
-                            onClick={() => onStepClick(step.key)}
-                            className={cn(
-                                'group flex items-center gap-1.5 px-2 py-1 rounded',
-                                'transition-all duration-150',
-                                'focus:outline-none focus-visible:ring-1 focus-visible:ring-accent',
-                                'cursor-pointer hover:bg-fill-button-tertiary-hover active:scale-[0.98]'
-                            )}
-                            aria-current={isCurrent ? 'step' : undefined}
-                        >
-                            {hasErrors ? (
-                                <IconErrorOutline className="size-5 text-danger" />
-                            ) : isCompleted ? (
-                                <IconCheckCircle className="size-5 text-success" />
-                            ) : (
+                        <Tooltip title={disabledReason}>
+                            <button
+                                type="button"
+                                // aria-disabled rather than disabled, so the tooltip still shows on hover
+                                onClick={disabledReason ? undefined : () => onStepClick(step.key)}
+                                aria-disabled={!!disabledReason}
+                                className={cn(
+                                    'group flex items-center gap-1.5 px-2 py-1 rounded',
+                                    'transition-all duration-150',
+                                    'focus:outline-none focus-visible:ring-1 focus-visible:ring-accent',
+                                    disabledReason
+                                        ? 'cursor-default'
+                                        : 'cursor-pointer hover:bg-fill-button-tertiary-hover active:scale-[0.98]'
+                                )}
+                                aria-current={isCurrent ? 'step' : undefined}
+                            >
+                                {hasErrors ? (
+                                    <IconErrorOutline className="size-5 text-danger" />
+                                ) : isCompleted ? (
+                                    <IconCheckCircle className="size-5 text-success" />
+                                ) : (
+                                    <span
+                                        className={cn(
+                                            'flex items-center justify-center size-5 rounded-full text-xs font-semibold',
+                                            'transition-all duration-150',
+                                            isCurrent && 'bg-accent text-primary-inverse ring-2 ring-accent/25',
+                                            !isCurrent && 'bg-surface-secondary text-secondary border border-primary'
+                                        )}
+                                    >
+                                        {index + 1}
+                                    </span>
+                                )}
+
                                 <span
                                     className={cn(
-                                        'flex items-center justify-center size-5 rounded-full text-xs font-semibold',
-                                        'transition-all duration-150',
-                                        isCurrent && 'bg-accent text-primary-inverse ring-2 ring-accent/25',
-                                        !isCurrent && 'bg-surface-secondary text-secondary border border-primary'
+                                        'text-sm transition-colors duration-150',
+                                        isCurrent && 'font-semibold text-primary',
+                                        isCompleted && !hasErrors && 'font-medium text-primary',
+                                        (!isCompleted || hasErrors) && !isCurrent && 'text-secondary'
                                     )}
                                 >
-                                    {index + 1}
+                                    {step.label}
                                 </span>
-                            )}
-
-                            <span
-                                className={cn(
-                                    'text-sm transition-colors duration-150',
-                                    isCurrent && 'font-semibold text-primary',
-                                    isCompleted && !hasErrors && 'font-medium text-primary',
-                                    (!isCompleted || hasErrors) && !isCurrent && 'text-secondary'
-                                )}
-                            >
-                                {step.label}
-                            </span>
-                        </button>
+                            </button>
+                        </Tooltip>
                     </div>
                 )
             })}

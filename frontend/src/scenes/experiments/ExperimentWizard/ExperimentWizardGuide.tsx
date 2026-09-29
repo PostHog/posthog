@@ -42,6 +42,14 @@ const GUIDE_CONTENT: Record<ExperimentWizardStep, GuideContent> = {
             'You can change inclusion criteria and metrics afterwards. This impacts only the analysis, not what your user sees or data collection.',
         ],
     },
+    implementation: {
+        title: 'Implementation',
+        tips: [
+            'Your experiment is saved as a draft. Nobody sees a variant until you launch it.',
+            'The code checks the feature flag and shows each person their variant. Pick your library to get the right snippet.',
+            'Once the code is deployed, launch the experiment from its page. The code is also there, in the Code tab.',
+        ],
+    },
 }
 
 export function ExperimentWizardGuide(): JSX.Element {

@@ -99,7 +99,10 @@ export interface createExperimentLogicActions {
     resetExperiment: () => {
         value: true
     }
-    saveExperiment: () => {
+    saveExperiment: (openExperiment?: boolean) => {
+        openExperiment: boolean
+    }
+    openSavedExperiment: () => {
         value: true
     }
     saveExperimentFailure: () => {
@@ -214,7 +217,9 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
             rollout_percentage?: number
             ensure_experience_continuity?: boolean
         }) => ({ config }),
-        saveExperiment: true,
+        // `openExperiment: false` saves without leaving the page, e.g. so the wizard can show the implementation step
+        saveExperiment: (openExperiment: boolean = true) => ({ openExperiment }),
+        openSavedExperiment: true,
         saveExperimentStarted: true,
         saveExperimentSuccess: true,
         saveExperimentFailure: true,
@@ -381,7 +386,7 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                 }
             }
         },
-        saveExperiment: async () => {
+        saveExperiment: async ({ openExperiment }) => {
             // Prevent double submission
             if (values.isExperimentSubmitting) {
                 return
@@ -556,27 +561,36 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
 
                     actions.saveExperimentSuccess()
 
-                    const sceneLogicInstance = experimentSceneLogic.findMounted()
-                    if (sceneLogicInstance) {
-                        sceneLogicInstance.actions.setSceneState(response.id, FORM_MODES.update)
-                        const logicRef = sceneLogicInstance.values.experimentLogicRef
-
-                        if (logicRef) {
-                            logicRef.logic.actions.loadExperimentSuccess(response)
-                        } else {
-                            experimentLogic({
-                                experimentId: response.id,
-                            }).actions.loadExperimentSuccess(response)
-                        }
-                    } else {
-                        const viewLogic = experimentLogic({ experimentId: response.id })
-                        viewLogic.actions.loadExperimentSuccess(response)
-                        router.actions.push(urls.experiment(response.id))
+                    if (openExperiment) {
+                        actions.openSavedExperiment()
                     }
                 }
             } catch (error: any) {
                 lemonToast.error(error.detail || 'Failed to save experiment')
                 actions.saveExperimentFailure()
+            }
+        },
+        openSavedExperiment: () => {
+            const experiment = values.experiment
+            if (experiment.id === 'new') {
+                return
+            }
+            const sceneLogicInstance = experimentSceneLogic.findMounted()
+            if (sceneLogicInstance) {
+                sceneLogicInstance.actions.setSceneState(experiment.id, FORM_MODES.update)
+                const logicRef = sceneLogicInstance.values.experimentLogicRef
+
+                if (logicRef) {
+                    logicRef.logic.actions.loadExperimentSuccess(experiment)
+                } else {
+                    experimentLogic({
+                        experimentId: experiment.id,
+                    }).actions.loadExperimentSuccess(experiment)
+                }
+            } else {
+                const viewLogic = experimentLogic({ experimentId: experiment.id })
+                viewLogic.actions.loadExperimentSuccess(experiment)
+                router.actions.push(urls.experiment(experiment.id))
             }
         },
     })),

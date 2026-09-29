@@ -11,12 +11,14 @@ import { experimentWizardLogic } from './experimentWizardLogic'
 import { ExperimentWizardStepper } from './ExperimentWizardStepper'
 import { AboutStep } from './steps/AboutStep'
 import { AnalyticsStep } from './steps/AnalyticsStep'
+import { ImplementationStep } from './steps/ImplementationStep'
 import { VariantsStep } from './steps/VariantsStep'
 
 export function ExperimentWizard(): JSX.Element {
     const { currentStep, isLastStep, isFirstStep, isExperimentSubmitting, stepValidationErrors, hasFormErrors } =
         useValues(experimentWizardLogic)
-    const { nextStep, prevStep, setStep, saveExperiment } = useActions(experimentWizardLogic)
+    const { nextStep, prevStep, setStep, saveExperiment, openSavedExperiment } = useActions(experimentWizardLogic)
+    const isImplementationStep = currentStep === 'implementation'
 
     const header = (
         <div className="space-y-1">
@@ -43,6 +45,7 @@ export function ExperimentWizard(): JSX.Element {
             {currentStep === 'about' && <AboutStep />}
             {currentStep === 'variants' && <VariantsStep />}
             {currentStep === 'analytics' && <AnalyticsStep />}
+            {isImplementationStep && <ImplementationStep />}
         </div>
     )
 
@@ -52,23 +55,38 @@ export function ExperimentWizard(): JSX.Element {
     const footer = (
         <div className="@container sticky bottom-0 z-10 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-primary bg-bg-light py-4">
             <div className="flex flex-1 basis-0">
-                {!isFirstStep && (
+                {!isFirstStep && !isImplementationStep && (
                     <LemonButton type="secondary" onClick={prevStep}>
                         Back
                     </LemonButton>
                 )}
             </div>
-            <p className="order-last m-0 w-full text-center text-xs text-muted @2xl:order-none @2xl:w-auto">
-                Looking for no-code? They are created using the toolbar,{' '}
-                <Link target="_blank" targetBlankIcon to="https://posthog.com/docs/experiments/no-code-web-experiments">
-                    see no-code docs
-                </Link>
-            </p>
+            {!isImplementationStep && (
+                <p className="order-last m-0 w-full text-center text-xs text-muted @2xl:order-none @2xl:w-auto">
+                    Looking for no-code? They are created using the toolbar,{' '}
+                    <Link
+                        target="_blank"
+                        targetBlankIcon
+                        to="https://posthog.com/docs/experiments/no-code-web-experiments"
+                    >
+                        see no-code docs
+                    </Link>
+                </p>
+            )}
             <div className="flex flex-1 basis-0 items-center justify-end gap-2">
-                {isLastStep ? (
+                {isImplementationStep ? (
                     <LemonButton
                         type="primary"
-                        onClick={saveExperiment}
+                        onClick={openSavedExperiment}
+                        data-attr="experiment-wizard-go-to-experiment"
+                    >
+                        Go to experiment
+                    </LemonButton>
+                ) : isLastStep ? (
+                    <LemonButton
+                        type="primary"
+                        // Stay in the wizard, which then shows the implementation step
+                        onClick={() => saveExperiment(false)}
                         loading={isExperimentSubmitting}
                         disabledReason={hasFormErrors ? 'Please fix all errors before saving' : undefined}
                     >

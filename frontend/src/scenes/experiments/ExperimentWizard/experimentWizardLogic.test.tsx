@@ -373,18 +373,31 @@ describe('experimentWizardLogic', () => {
             wizardLogicB.unmount()
         })
 
-        it('resets step to about on saveExperimentSuccess', async () => {
+        it('opens the implementation step on saveExperimentSuccess', async () => {
             logic.actions.setStep('analytics')
             await expectLogic(logic).toMatchValues({ currentStep: 'analytics' })
 
             logic.actions.saveExperimentSuccess()
 
             await expectLogic(logic).toMatchValues({
-                currentStep: 'about',
+                currentStep: 'implementation',
                 linkedFeatureFlag: null,
                 departedSteps: {},
             })
             expect(sessionStorage.getItem(stepStorageKey())).toBeNull()
+        })
+
+        it('only reaches the implementation step by saving, and stays there once saved', async () => {
+            logic.actions.setStep('implementation')
+            logic.actions.setStep('analytics')
+            logic.actions.nextStep()
+            await expectLogic(logic).toMatchValues({ currentStep: 'analytics' })
+
+            logic.actions.saveExperimentSuccess()
+            logic.actions.setStep('about')
+            logic.actions.prevStep()
+            logic.actions.nextStep()
+            await expectLogic(logic).toMatchValues({ currentStep: 'implementation' })
         })
 
         it('clears sessionStorage step on saveExperimentSuccess so remount starts fresh', async () => {
@@ -503,7 +516,7 @@ describe('experimentWizardLogic', () => {
 
         it('shows no errors on initial load (before step departure)', async () => {
             await expectLogic(logic).toMatchValues({
-                stepValidationErrors: { about: [], variants: [], analytics: [] },
+                stepValidationErrors: { about: [], variants: [], analytics: [], implementation: [] },
             })
         })
 
