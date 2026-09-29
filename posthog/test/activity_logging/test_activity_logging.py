@@ -27,6 +27,7 @@ from posthog.auth import (
     ScopedServiceJWTAuthentication,
     SharingAccessTokenAuthentication,
     SharingPasswordProtectedAuthentication,
+    WidgetAuthentication,
     mint_export_renderer_token,
 )
 from posthog.jwt import PosthogJwtAudience, encode_jwt
@@ -511,6 +512,12 @@ class TestBearerAuthenticationReplacesSessionActor(BaseTest):
                 scope="session_recording:read",
             )
             return ExportRendererAuthentication(), bearer(token), self.user, str(exported_asset.id)
+        if credential_type == "widget_token":
+            self.team.conversations_enabled = True
+            self.team.conversations_settings = {"widget_public_token": "widget-token"}
+            self.team.save()
+            request = factory.get("/", headers={"X-Conversations-Token": "widget-token"})
+            return WidgetAuthentication(), request, None, None
         request = factory.get("/", headers={"X-Internal-Api-Secret": "activity-log-test-internal-secret"})
         return InternalAPIAuthentication(), request, None, None
 
@@ -523,6 +530,7 @@ class TestBearerAuthenticationReplacesSessionActor(BaseTest):
             ("sharing_access_token",),
             ("sharing_password",),
             ("export_renderer",),
+            ("widget_token",),
         ]
     )
     def test_rows_name_the_bearer_credential_not_an_impersonated_session(self, credential_type: str) -> None:
