@@ -614,7 +614,7 @@ class CSVConfig:
     PERSON_ID_HEADERS = ["person_id", "person-id", "Person .id"]
     DISTINCT_ID_HEADERS = ["distinct_id", "distinct-id"]
     EMAIL_HEADERS = ["email", "e-mail"]
-    EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+    EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@.\s]+(?:\.[^@.\s]+)+$")
     # utf-8-sig strips the byte order mark that Excel and Google Sheets glue onto the first header
     ENCODING = "utf-8-sig"
 
