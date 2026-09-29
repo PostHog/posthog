@@ -41,16 +41,9 @@ def write_file_list(key: str, paths: Sequence[str]) -> None:
 
 def remove_old_file_lists(team_id: int, slug: RepoSlug, *, keep: int) -> list[str]:
     """Delete all but the ``keep`` newest lists of one repo. Returns the deleted keys."""
-    keys = object_storage.list_objects(repo_paths_prefix(team_id, slug)) or []
-    if len(keys) <= keep:
+    modified = object_storage.list_objects_last_modified(repo_paths_prefix(team_id, slug))
+    if len(modified) <= keep:
         return []
-    modified = []
-    for key in keys:
-        head = object_storage.head_object(file_key=key)
-        if head is not None and head.get("LastModified") is not None:
-            modified.append((head["LastModified"], key))
-    modified.sort(reverse=True)
-    stale = [key for _, key in modified[keep:]]
-    if stale:
-        object_storage.delete_objects(stale)
+    stale = sorted(modified, key=modified.__getitem__, reverse=True)[keep:]
+    object_storage.delete_objects(stale)
     return stale

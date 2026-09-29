@@ -41,8 +41,8 @@ class _MemoryObjectStorage:
 
     head_object_strict = head_object
 
-    def list_objects(self, bucket: str, prefix: str) -> list[str] | None:
-        return [key for key in self.objects if key.startswith(prefix)] or None
+    def list_objects_last_modified(self, bucket: str, prefix: str) -> dict[str, datetime]:
+        return {key: modified for key, (_, modified) in self.objects.items() if key.startswith(prefix)}
 
     def delete_objects(self, bucket: str, keys: list[str]) -> list[str]:
         for key in keys:

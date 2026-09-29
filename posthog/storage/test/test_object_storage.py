@@ -1,5 +1,6 @@
 import re
 import uuid
+from datetime import datetime
 from urllib.parse import unquote
 
 from posthog.test.base import APIBaseTest
@@ -31,6 +32,7 @@ from posthog.storage.object_storage import (
     health_check,
     is_usable_endpoint,
     list_objects,
+    list_objects_last_modified,
     object_storage_client,
     read,
     write,
@@ -164,6 +166,9 @@ class TestStorage(APIBaseTest):
                 "test_storage_bucket/a_shared_prefix/b",
                 "test_storage_bucket/a_shared_prefix/c",
             ]
+            modified = list_objects_last_modified(prefix=f"{TEST_BUCKET}/{shared_prefix}")
+            assert sorted(modified) == listing
+            assert all(isinstance(value, datetime) for value in modified.values())
 
     def test_can_list_unknown_prefix(self) -> None:
         with self.settings(OBJECT_STORAGE_ENABLED=True):
