@@ -15,12 +15,16 @@ const EMAIL_PATTERN = /^[^@\s]+@[^@\s]+\.[^@\s]+$/
  * Commas alone do not make a list unless every value is an email, so "Smith, John" stays a search.
  */
 export function parsePastedPersonValues(text: string): string[] | null {
+    const cleanToken = (token: string): string => token.replace(/^["'<]+|["'>]+$/g, '')
+    const isBracketed = (token: string): boolean => token.startsWith('<') && token.endsWith('>')
+    const tokens = text.split(/[\s,;]+/).filter((token) => cleanToken(token).length > 0)
+    // In a "Name <address>" list the display name identifies nobody, so only addresses are looked up
+    const hasBracketedTokens = tokens.some(isBracketed)
     const values = Array.from(
         new Set(
-            text
-                .split(/[\s,;]+/)
-                .map((value) => value.trim().replace(/^["'<]+|["'>]+$/g, ''))
-                .filter((value) => value.length > 0)
+            tokens
+                .filter((token) => !hasBracketedTokens || isBracketed(token) || EMAIL_PATTERN.test(cleanToken(token)))
+                .map(cleanToken)
         )
     )
     if (values.length < 2) {

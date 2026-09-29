@@ -19,6 +19,16 @@ describe('pastedPersonsLookupLogic', () => {
             '"alice@example.com", <bob@example.com>',
             ['alice@example.com', 'bob@example.com'],
         ],
+        [
+            'display names with addresses',
+            '"Smith, Alice" <alice@example.com>; Bob Jones <bob@example.com>\nCarol <carol@example.com>',
+            ['alice@example.com', 'bob@example.com', 'carol@example.com'],
+        ],
+        [
+            'display names with addresses on one line',
+            'Alice <alice@example.com>, Bob <bob@example.com>',
+            ['alice@example.com', 'bob@example.com'],
+        ],
         ['distinct IDs on separate lines', 'user-1\nuser-2\nuser-1', ['user-1', 'user-2']],
         ['a single email', 'alice@example.com', null],
         ['a full name', 'Alice Smith', null],
