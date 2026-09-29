@@ -68,7 +68,8 @@ class TestCallJson(SimpleTestCase):
         def sleep(seconds: float) -> None:
             clock.now += seconds
 
-        client = SimpleNamespace(with_options=lambda **kwargs: client, messages=SimpleNamespace(create=create))
+        client = SimpleNamespace(messages=SimpleNamespace(create=create))
+        client.with_options = lambda **kwargs: client
         fake_time = SimpleNamespace(monotonic=lambda: clock.now, sleep=sleep)
 
         with patch("products.web_analytics.backend.content_autopilot.llm.time", fake_time):
@@ -88,6 +89,8 @@ Clicks.
 
 ```bash
 # install
+```python
+# not a heading
 ```
 
 ### Console logs
@@ -96,7 +99,7 @@ Logs too.
 
 ## Pricing
 
-Free.
+```Free``` forever.
 
 ```text
 a
@@ -124,7 +127,7 @@ class TestApplyEdits(SimpleTestCase):
                     markdown="## What does it capture?\n\nEverything.",
                 ),
                 ["Everything.", "## Pricing"],
-                ["Clicks.", "Console logs", "# install"],
+                ["Clicks.", "Console logs", "# install", "# not a heading"],
                 (),
             ),
             (

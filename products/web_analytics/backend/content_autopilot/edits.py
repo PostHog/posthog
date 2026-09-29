@@ -7,7 +7,8 @@ EditAction = Literal["replace_intro", "replace_section", "insert_after_section",
 EDIT_ACTIONS: tuple[EditAction, ...] = get_args(EditAction)
 
 _HEADING_RE = re.compile(r"^(#{1,6})[ \t]+(.*?)[ \t]*#*[ \t]*$")
-_FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
+_FENCE_OPEN_RE = re.compile(r"^ {0,3}(`{3,}(?=[^`]*$)|~{3,})")
+_FENCE_CLOSE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})[ \t]*$")
 _FAQ_RE = re.compile(r"frequently asked questions|^faqs?$")
 
 
@@ -38,6 +39,12 @@ class AppliedEdits:
     unplaced: tuple[str, ...]
 
 
+@frozen
+class _Section:
+    start: int
+    end: int
+
+
 def _heading(line: str) -> tuple[int, str] | None:
     match = _HEADING_RE.match(line)
     return (len(match.group(1)), match.group(2)) if match else None
@@ -51,15 +58,15 @@ def _headings(lines: list[str]) -> dict[int, tuple[int, str]]:
     headings: dict[int, tuple[int, str]] = {}
     fence: str | None = None
     for index, line in enumerate(lines):
-        fence_match = _FENCE_RE.match(line)
-        if fence_match:
-            marker = fence_match.group(1)
-            if fence is None:
-                fence = marker
-            elif marker[0] == fence[0] and len(marker) >= len(fence):
+        if fence is not None:
+            closer = _FENCE_CLOSE_RE.match(line)
+            if closer and closer.group(1)[0] == fence[0] and len(closer.group(1)) >= len(fence):
                 fence = None
             continue
-        if fence is None and (parsed := _heading(line)):
+        if opener := _FENCE_OPEN_RE.match(line):
+            fence = opener.group(1)
+            continue
+        if parsed := _heading(line):
             headings[index] = parsed
     return headings
 
@@ -75,11 +82,11 @@ def _section_end(lines: list[str], start: int, level: int) -> int:
     )
 
 
-def _find_section(lines: list[str], heading: str) -> tuple[int, int] | None:
+def _find_section(lines: list[str], heading: str) -> _Section | None:
     wanted = _normalize(heading)
     for index, parsed in _headings(lines).items():
         if _normalize(parsed[1]) == wanted:
-            return index, _section_end(lines, index, parsed[0])
+            return _Section(start=index, end=_section_end(lines, index, parsed[0]))
     return None
 
 
@@ -141,12 +148,13 @@ def apply_edits(original: str, edits: list[PageEdit]) -> AppliedEdits:
             unplaced.append(edit.heading)
             lines = _append(lines, edit)
             continue
-        start, end = section
         if edit.action == "replace_section":
             replacement = (
-                edit.markdown if _heading(edit.markdown.splitlines()[0]) else f"{lines[start]}\n\n{edit.markdown}"
+                edit.markdown
+                if _heading(edit.markdown.splitlines()[0])
+                else f"{lines[section.start]}\n\n{edit.markdown}"
             )
-            lines = _splice(lines, start, end, replacement)
+            lines = _splice(lines, section.start, section.end, replacement)
         else:
-            lines = _splice(lines, end, end, edit.markdown)
+            lines = _splice(lines, section.end, section.end, edit.markdown)
     return AppliedEdits(markdown="\n".join(lines).strip("\n") + "\n", unplaced=tuple(unplaced))
