@@ -764,39 +764,30 @@ mod tests {
             ("plain line with error later in it", "info", 9),
             ("Errors: 0", "info", 9),
             ("", "info", 9),
-            // RDS Postgres, which carries the level inside the prefix rather than as its own token.
-            (
-                "2026-09-28 10:00:00 UTC:10.0.0.1(5432):app@db:[1]:LOG:  statement: SELECT 1",
-                "info",
-                9,
-            ),
-            (
-                "2026-09-28 10:00:00 UTC:10.0.0.1(5432):app@db:[1]:ERROR:  relation absent",
-                "error",
-                17,
-            ),
-            (
-                "2026-09-28 10:00:00 UTC:10.0.0.1(5432):app@db:[1]:FATAL:  shutting down",
-                "fatal",
-                21,
-            ),
-            (
-                "2026-09-28 10:00:00 UTC:10.0.0.1(5432):app@db:[1]:WARNING:  no transaction",
-                "warn",
-                13,
-            ),
-            // PANIC is not in the shared alias table, which is why it still reads as info.
-            (
-                "2026-09-28 10:00:00 UTC:10.0.0.1(5432):app@db:[1]:PANIC:  corrupted page",
-                "info",
-                9,
-            ),
             // The false positive the last-run rule accepts.
             ("GET /var/log/debug 200", "debug", 5),
         ];
         for (message, text, number) in cases {
             assert_eq!(
                 infer_severity(message),
+                (text.to_string(), number),
+                "{message}"
+            );
+        }
+
+        // RDS Postgres carries the level inside the prefix rather than as its own token.
+        for (level, text, number) in [
+            ("LOG", "info", 9),
+            ("ERROR", "error", 17),
+            ("FATAL", "fatal", 21),
+            ("WARNING", "warn", 13),
+            // PANIC is missing from the shared alias table, which is why it reads as info.
+            ("PANIC", "info", 9),
+        ] {
+            let message =
+                format!("2026-09-28 10:00:00 UTC:10.0.0.1(5432):app@db:[1]:{level}:  detail");
+            assert_eq!(
+                infer_severity(&message),
                 (text.to_string(), number),
                 "{message}"
             );
