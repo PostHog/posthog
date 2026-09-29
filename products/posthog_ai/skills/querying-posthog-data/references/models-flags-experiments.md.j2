@@ -8,7 +8,7 @@ Feature flags control rollouts of new features and are used for A/B testing.
 
 These are the only columns exposed via HogQL. The rest of the flag model (e.g. `ensure_experience_continuity`, rollback settings) is not queryable here. Fetch the flag via the feature flag API tools instead.
 
-`active`, `archived`, `deleted`, `last_called_at` and `updated_at` carry the flag state; the table below gives each one's meaning. The flag list hides archived and deleted flags, so `WHERE archived = 0 AND deleted = 0` counts the same roster the list shows.
+`active`, `archived`, `deleted`, `last_called_at` and `updated_at` carry the flag state; the table below gives each one's meaning. The flag list hides archived and deleted flags. It also hides the internal targeting flags that surveys and product tours create, which `system.feature_flags` still returns. So `WHERE archived = 0 AND deleted = 0` can count more flags than the list shows.
 
 SQL carries these state inputs but no staleness verdict. Call `feature-flag-get-all` with `active: "STALE"` for that.
 

@@ -1026,9 +1026,10 @@ feature_flags: PostgresTable = PostgresTable(
             name="archived",
             expr=ast.Call(name="toInt", args=[ast.Field(chain=["_archived"])]),
             description=(
-                "1 if the flag is archived, 0 otherwise. An archived flag is always switched off, "
-                "and the flag list hides archived and deleted flags, so its roster is "
-                "WHERE archived = 0 AND deleted = 0."
+                "1 if the flag is archived, 0 otherwise. An archived flag is always switched off. "
+                "The flag list hides archived and deleted flags. It also hides the internal "
+                "targeting flags that surveys and product tours create, which this table still "
+                "returns. So WHERE archived = 0 AND deleted = 0 can count more flags than the list shows."
             ),
         ),
         "_deleted": BooleanDatabaseField(name="deleted", hidden=True),
