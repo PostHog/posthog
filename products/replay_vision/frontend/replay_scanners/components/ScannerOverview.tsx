@@ -400,13 +400,14 @@ export function ScannerOverview({ scannerId }: { scannerId: string }): JSX.Eleme
 
     return (
         <div className="@container">
+            {/* The side column grows with the page up to 32rem, so on a wide screen its cards are not squeezed beside a stretched main column. */}
             {/* The second row takes any extra height, so a side column taller than the main one can't open a gap under the status. */}
-            <div className="grid grid-cols-1 @5xl:grid-cols-[minmax(0,1fr)_22rem] @5xl:grid-rows-[auto_1fr] gap-4 items-start">
-                <div className="min-w-0 order-1 @5xl:col-start-1 @5xl:row-start-1">
+            <div className="grid grid-cols-1 @5xl:grid-cols-[clamp(22rem,25%,32rem)_minmax(0,1fr)] @5xl:grid-rows-[auto_1fr] gap-4 items-start">
+                <div className="min-w-0 order-1 @5xl:col-start-2 @5xl:row-start-1">
                     <ScannerStatusStrip scannerId={scannerId} />
                 </div>
                 {/* Its own column when wide. When stacked it dissolves, so the digest follows the status and self-driving drops below the findings. */}
-                <div className="contents @5xl:flex @5xl:flex-col @5xl:gap-4 @5xl:col-start-2 @5xl:row-start-1 @5xl:row-span-2">
+                <div className="contents @5xl:flex @5xl:flex-col @5xl:gap-4 @5xl:col-start-1 @5xl:row-start-1 @5xl:row-span-2">
                     <div className="min-w-0 order-2">
                         <ScannerScoutCard scannerId={scannerId} scannerName={scanner.name || ''} />
                     </div>
@@ -417,7 +418,7 @@ export function ScannerOverview({ scannerId }: { scannerId: string }): JSX.Eleme
                         <ScannerSelfDrivingCard scannerId={scannerId} />
                     </div>
                 </div>
-                <div className="@container min-w-0 flex flex-col gap-4 order-3 @5xl:col-start-1 @5xl:row-start-2">
+                <div className="@container min-w-0 flex flex-col gap-4 order-3 @5xl:col-start-2 @5xl:row-start-2">
                     {firstScanPending ? (
                         <FirstScanPendingPanel scannerId={scannerId} />
                     ) : (
