@@ -18,6 +18,7 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.models import Team
 from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.common.posthog_client import is_expected_activity_failure
 from posthog.temporal.exports.activities import export_asset_activity
 from posthog.temporal.exports.retry_policy import EXPORT_RETRY_POLICY
 from posthog.temporal.exports.types import ExportAssetActivityInputs, ExportAssetResult
@@ -146,6 +147,37 @@ async def test_export_asset_activity_timeout_errors_are_retryable(
         await activity_environment.run(export_asset_activity, ExportAssetActivityInputs(exported_asset_id=asset.id))
 
     assert exc_info.value.non_retryable is expected_non_retryable
+
+
+@pytest.mark.parametrize(
+    "exception,expected_expected_failure",
+    [
+        (ExcelColumnLimitExceeded(), True),
+        (ValueError("render failed"), False),
+    ],
+)
+@patch("posthog.temporal.exports.activities.exporter")
+async def test_export_asset_activity_marks_user_failures_non_reportable(
+    mock_exporter: MagicMock,
+    activity_environment: ActivityEnvironment,
+    team: Team,
+    exception: Exception,
+    expected_expected_failure: bool,
+) -> None:
+    asset = await sync_to_async(ExportedAsset.objects.create)(
+        team=team,
+        export_format=ExportedAsset.ExportFormat.XLSX,
+    )
+
+    def fake_export(_exported_asset: ExportedAsset, **_kwargs: object) -> None:
+        raise exception
+
+    mock_exporter.export_asset_direct = fake_export
+
+    with pytest.raises(ApplicationError) as exc_info:
+        await activity_environment.run(export_asset_activity, ExportAssetActivityInputs(exported_asset_id=asset.id))
+
+    assert is_expected_activity_failure(exc_info.value) is expected_expected_failure
 
 
 @patch("posthog.temporal.exports.activities.exporter")

@@ -18,6 +18,7 @@ from boto3 import resource
 from botocore.client import Config
 from dateutil.relativedelta import relativedelta
 from openpyxl import load_workbook
+from parameterized import parameterized
 from requests.exceptions import HTTPError
 
 from posthog.hogql.constants import CSV_EXPORT_BREAKDOWN_LIMIT_INITIAL
@@ -350,6 +351,32 @@ class TestCSVExporter(APIBaseTest):
 
             with pytest.raises(Exception, match="HTTP 403 Forbidden"):
                 csv_exporter.export_tabular(exported_asset)
+
+    @parameterized.expand(
+        [
+            ("user_fault", ExcelColumnLimitExceeded(), False),
+            ("unclassified", ValueError("render failed"), True),
+        ]
+    )
+    @patch("products.exports.backend.tasks.csv_exporter.logger")
+    @patch("products.exports.backend.tasks.csv_exporter.capture_exception")
+    @patch("products.exports.backend.tasks.csv_exporter.make_api_call")
+    def test_only_unclassified_failures_reach_error_tracking(
+        self,
+        _name: str,
+        exception: Exception,
+        expect_capture: bool,
+        patched_api_call: MagicMock,
+        patched_capture: MagicMock,
+        _patched_logger: MagicMock,
+    ) -> None:
+        exported_asset = self._create_asset()
+        patched_api_call.side_effect = exception
+
+        with pytest.raises(type(exception)):
+            csv_exporter.export_tabular(exported_asset)
+
+        assert patched_capture.called is expect_capture
 
     @patch("products.exports.backend.tasks.csv_exporter.make_api_call")
     def test_path_based_export_delegates_source_personal_api_key(self, patched_api_call: MagicMock) -> None:
