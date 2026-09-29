@@ -62,7 +62,7 @@ from products.experiments.backend.models.web_experiment import WebExperiment
 from products.experiments.backend.presentation.serializers import ExperimentSerializer
 from products.experiments.backend.presentation.views import LIST_DEFERRED_FIELDS, EnterpriseExperimentsViewSet
 from products.experiments.backend.setup_context import EXPERIMENT_SETUP_CONTEXT_FLAG
-from products.experiments.backend.temporal.metric_resolution import merge_saved_metric_breakdowns
+from products.experiments.backend.temporal.metric_resolution import find_metric_dict
 from products.feature_flags.backend.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
@@ -1244,8 +1244,8 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
 
     def test_saved_metric_fingerprint_is_stamped_from_the_merged_query(self):
         """The stamped fingerprint tells the frontend which timeseries rows to read. It must be computed on
-        the saved query merged with the link-metadata breakdowns, the same dict the daily workflow files its
-        rows under, or the chart reads an empty series for a breakdown-configured saved metric."""
+        the saved query with the link overrides applied, the same dict the daily workflow files its rows
+        under, or the chart reads an empty series for an override-configured saved metric."""
         saved_metric_response = self.client.post(
             f"/api/projects/{self.team.id}/experiment_saved_metrics/",
             {
@@ -1257,7 +1257,11 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
                 },
             },
         )
-        metadata = {"type": "primary", "breakdowns": [{"type": "event", "property": "$os_name"}]}
+        metadata = {
+            "type": "primary",
+            "breakdowns": [{"type": "event", "property": "$os_name"}],
+            "breakdown_limit": 20,
+        }
         experiment_response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/",
             {
@@ -1281,8 +1285,10 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             get_experiment_stats_method(experiment),
             experiment.exposure_criteria,
         )
+        effective_definition = find_metric_dict(experiment, saved_query["uuid"])
+        assert effective_definition is not None
         expected = compute_metric_fingerprint(
-            merge_saved_metric_breakdowns(saved_query, metadata),
+            effective_definition,
             *fingerprint_args,
             only_count_matured_users=experiment.only_count_matured_users,
             excluded_variants=experiment.excluded_variants or [],

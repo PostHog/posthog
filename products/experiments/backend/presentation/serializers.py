@@ -43,7 +43,7 @@ from products.access_control.backend.presentation.access_control import UserAcce
 from products.ai_observability.backend.models.llm_prompt import LLMPrompt
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.facade.contracts import CreateExperimentInput
-from products.experiments.backend.facade.timeseries import merge_saved_metric_breakdowns
+from products.experiments.backend.facade.timeseries import resolve_saved_metric_definition
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
 from products.experiments.backend.hogql_queries.exposure_query_logic import resolve_default_exposure_event
 from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
@@ -641,11 +641,11 @@ class ExperimentSerializer(ExperimentBaseSerializer):
                     apply_metric_date_range(saved_metric["query"], new_date_range)
 
                     # Add fingerprint to saved metric returned from API so that the frontend knows what
-                    # timeseries records to query. Computed on the effective config (with link-metadata
-                    # breakdowns), the same dict the daily discovery fingerprints, so the chart read finds
+                    # timeseries records to query. Computed on the effective definition (with the link
+                    # overrides), the same dict the daily discovery fingerprints, so the chart read finds
                     # the rows the daily workflow wrote.
                     saved_metric["query"]["fingerprint"] = compute_metric_fingerprint(
-                        merge_saved_metric_breakdowns(saved_metric["query"], saved_metric.get("metadata")),
+                        resolve_saved_metric_definition(saved_metric["query"], saved_metric.get("metadata")),
                         instance.start_date,
                         get_experiment_stats_method(instance),
                         instance.exposure_criteria,

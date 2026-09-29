@@ -8,7 +8,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { projectLogic } from 'scenes/projectLogic'
 
 import type { FeatureFlagsSet } from '~/lib/logic/featureFlagLogic'
-import type { Breakdown, CachedNewExperimentQueryResponse, ExperimentMetric } from '~/queries/schema/schema-general'
+import type { CachedNewExperimentQueryResponse, ExperimentMetric } from '~/queries/schema/schema-general'
 import { Experiment } from '~/types'
 import type { ExperimentIdType } from '~/types'
 
@@ -22,6 +22,8 @@ import type {
     ExperimentMetricsRecalculationApi,
     ExperimentMetricsRecalculationTriggerEnumApi,
 } from 'products/experiments/frontend/generated/api.schemas'
+
+import { type ExperimentSavedMetric, sharedMetricsToExperimentMetrics } from './utils'
 
 function reportExperimentMetricRecalculation(
     status: 'triggered' | 'completed' | 'failed',
@@ -38,14 +40,6 @@ function reportExperimentMetricRecalculation(
     }
 ): void {
     posthog.capture('experiment metric recalculation', { status, ...properties })
-}
-
-type ExperimentSavedMetric = {
-    metadata: {
-        type: 'primary' | 'secondary'
-        breakdowns?: Breakdown[]
-    }
-    query: ExperimentMetric
 }
 
 /**
@@ -80,23 +74,6 @@ export interface MetricRetryInfo {
     message?: string
     next_retry_at?: string
 }
-
-/**
- * transform shared metrics into experiment metrics.
- */
-const sharedMetricsToExperimentMetrics = (
-    sharedMetrics: ExperimentSavedMetric[],
-    type: 'primary' | 'secondary'
-): ExperimentMetric[] =>
-    sharedMetrics
-        .filter(({ metadata }) => metadata.type === type)
-        .map(({ query, metadata }) => ({
-            ...query,
-            breakdownFilter: {
-                ...query?.breakdownFilter,
-                breakdowns: metadata?.breakdowns || [],
-            },
-        }))
 
 /**
  * One metric type's metrics (inline + shared) in the order results are positionally mapped against.

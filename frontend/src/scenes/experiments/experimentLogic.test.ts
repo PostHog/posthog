@@ -22,7 +22,8 @@ import {
 import { initKeaTests } from '~/test/init'
 import { Experiment, MultivariateFlagVariant } from '~/types'
 
-import { ExperimentSavedMetric, ExperimentWarning, experimentLogic } from './experimentLogic'
+import { ExperimentWarning, experimentLogic } from './experimentLogic'
+import type { ExperimentSavedMetric } from './utils'
 
 jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
     lemonToast: {

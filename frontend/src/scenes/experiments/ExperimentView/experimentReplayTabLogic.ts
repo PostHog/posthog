@@ -79,9 +79,9 @@ import { visionScannersList } from 'products/replay_vision/frontend/generated/ap
 import type { ScannerTypeEnumApi } from 'products/replay_vision/frontend/generated/api.schemas'
 
 import type { ExperimentIdType } from '../../../types'
-import type { ExperimentSavedMetric } from '../experimentLogic'
 import { getDefaultMetricTitle } from '../MetricsView/shared/utils'
 import {
+    type ExperimentSavedMetric,
     getExperimentVariants,
     getExposureLinkabilityEventName,
     getFunnelDropoffReason,

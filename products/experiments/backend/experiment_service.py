@@ -22,15 +22,7 @@ import structlog
 from rest_framework import status
 from rest_framework.exceptions import APIException, PermissionDenied, ValidationError
 
-from posthog.schema import (
-    ActionsNode,
-    ExperimentEventExposureConfig,
-    ExperimentExposureCriteria,
-    ExperimentFunnelMetric,
-    ExperimentMeanMetric,
-    ExperimentMetric,
-    ExperimentRetentionMetric,
-)
+from posthog.schema import ActionsNode, ExperimentEventExposureConfig, ExperimentExposureCriteria
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
@@ -60,7 +52,6 @@ from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models import EventDefinition, effective_project_id_expr
 from products.experiments.backend.flag_cleanup import build_cleanup_prompt, cleanup_plan
 from products.experiments.backend.hogql_queries import CONTROL_VARIANT_KEY, get_baseline_variant_key
-from products.experiments.backend.hogql_queries.base_query_utils import is_threshold_supported_math
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     DEFAULT_EXPOSURE_EVENT,
@@ -70,14 +61,12 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
     get_exposure_event_and_property,
     resolve_default_exposure_event,
 )
-from products.experiments.backend.hogql_queries.funnel_validation import FunnelDWValidator
-from products.experiments.backend.hogql_queries.retention_validation import retention_metric_error
 from products.experiments.backend.metric_utils import filter_metric_group_ids_by_event
+from products.experiments.backend.metric_validation import parse_and_validate_metric
 from products.experiments.backend.models.experiment import (
     EXPOSURE_FROZEN_COHORT_KEY,
     EXPOSURE_FROZEN_GROUP_KEY,
     EXPOSURE_FROZEN_GROUP_MARKER,
-    LEGACY_METRIC_KINDS,
     Experiment,
     ExperimentHoldout,
     ExperimentMetricResult,
@@ -89,6 +78,7 @@ from products.experiments.backend.models.experiment import (
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.result_serialization import strip_step_sessions
+from products.experiments.backend.temporal.metric_resolution import ExperimentMetric
 from products.experiments.backend.warehouse_access_control import enforce_warehouse_metric_access
 from products.feature_flags.backend.api.feature_flag import parse_created_by_ids
 from products.feature_flags.backend.facade.api import (
@@ -769,137 +759,19 @@ class ExperimentService:
                 f"Invalid {field_path} (kind={cls._safe_repr(kind)}): {safe_errors}. {cls.EXPOSURE_CONFIG_HINT}"
             )
 
-    # Maps the public `metric_type` literal to the pydantic class name that pydantic reports
-    # in `loc[0]` when validation fails. Used to narrow union-variant errors to the variant
-    # the caller picked. A drift test asserts this stays in sync with the ExperimentMetric union.
-    _METRIC_TYPE_TO_CLASS = {
-        "mean": "ExperimentMeanMetric",
-        "funnel": "ExperimentFunnelMetric",
-        "ratio": "ExperimentRatioMetric",
-        "retention": "ExperimentRetentionMetric",
-    }
-
-    # Cap reported pydantic errors so a funnel with many steps (each producing union-variant
-    # errors) cannot blow up the response size. The first N errors are the most actionable.
-    _MAX_REPORTED_METRIC_ERRORS = 15
-
-    _EVENTS_NODE_ID_HINT = (
-        "EventsNode does not accept an 'id' field. "
-        "To reference an event, use {'kind': 'EventsNode', 'event': '<event_name>'} (omit 'id'). "
-        "To reference an action, switch to {'kind': 'ActionsNode', 'id': <integer_action_id>} (omit 'event')."
-    )
-
     @staticmethod
-    def _is_events_node_actions_node_confusion(err: dict) -> bool:
-        """An `id` field was passed on an EventsNode (probably meant ActionsNode)."""
-        loc = tuple(err.get("loc") or ())
-        if len(loc) < 2 or err.get("type") != "extra_forbidden":
-            return False
-        return loc[-1] == "id" and "EventsNode" in loc
-
-    @classmethod
-    def _build_metric_validation_hint(cls, safe_errors: list[dict]) -> str:
-        """Return a targeted hint for an observed pydantic error pattern, or '' if none applies.
-
-        The structural shape of valid metrics is conveyed by `safe_errors` itself (loc, type,
-        msg) — adding prose duplicates the pydantic models and rots silently. Only hints
-        whose facts are independent of metric shape belong here."""
-        for err in safe_errors:
-            if cls._is_events_node_actions_node_confusion(err):
-                return cls._EVENTS_NODE_ID_HINT
-        return ""
-
-    @classmethod
-    def validate_experiment_metrics(cls, metrics: list | None) -> None:
-        """Validate metric payloads accepted by the API layer."""
+    def validate_experiment_metrics(metrics: list | None) -> list[ExperimentMetric]:
+        """Validate metric payloads accepted by the API layer and return the parsed metrics."""
         if metrics is None:
-            return
+            return []
 
         if not isinstance(metrics, list):
             raise ValidationError("Metrics must be a list")
 
-        for i, metric in enumerate(metrics):
-            if not isinstance(metric, dict):
-                raise ValidationError(f"Invalid metric at index {i}: must be a dict")
-
-            kind = metric.get("kind")
-            if kind in LEGACY_METRIC_KINDS:
-                raise ValidationError(
-                    f"Invalid metric at index {i}: legacy metric kind '{kind}' is no longer supported for new experiments. "
-                    "Use 'ExperimentMetric' instead."
-                )
-
-            if kind != "ExperimentMetric":
-                raise ValidationError(f"Invalid metric at index {i}: metric kind must be 'ExperimentMetric'")
-
-            if kind == "ExperimentMetric":
-                try:
-                    validated_metric = ExperimentMetric.model_validate(metric)
-
-                    # ExperimentMetric is a RootModel wrapping a union, so access .root to get the actual type
-                    actual_metric = validated_metric.root
-                    if isinstance(actual_metric, ExperimentFunnelMetric):
-                        # The experiment exposure event is prepended as step_0 at query time,
-                        # so series must contain at least one user-supplied step for the funnel
-                        # to yield a meaningful conversion metric.
-                        if not actual_metric.series:
-                            raise ValidationError(
-                                f"Invalid metric at index {i}: funnel metrics require at least one step. "
-                                "The experiment exposure event is added as the initial step automatically."
-                            )
-                        # Additional validation for funnel metrics with DW steps
-                        FunnelDWValidator.validate_funnel_metric(actual_metric)
-                    elif isinstance(actual_metric, ExperimentMeanMetric) and actual_metric.threshold is not None:
-                        # A threshold turns the per-user value into a binary "did the user reach N"
-                        # outcome, which only makes sense for sum/count math types.
-                        source_math = getattr(actual_metric.source, "math", None)
-                        if not is_threshold_supported_math(source_math):
-                            raise ValidationError(
-                                f"Invalid metric at index {i}: a threshold is only supported for "
-                                "sum or count (total) math types."
-                            )
-                        # A non-positive threshold is satisfied by every user (missing users
-                        # accumulate to 0), producing a meaningless 100% proportion.
-                        if actual_metric.threshold <= 0:
-                            raise ValidationError(f"Invalid metric at index {i}: threshold must be a positive number.")
-                        # Winsorization caps continuous outliers, which is meaningless once the
-                        # value collapses to a binary threshold outcome.
-                        if (
-                            actual_metric.lower_bound_percentile is not None
-                            or actual_metric.upper_bound_percentile is not None
-                        ):
-                            raise ValidationError(
-                                f"Invalid metric at index {i}: a threshold cannot be combined with "
-                                "outlier handling (winsorization)."
-                            )
-                    elif isinstance(actual_metric, ExperimentRetentionMetric):
-                        retention_error = retention_metric_error(actual_metric)
-                        if retention_error:
-                            raise ValidationError(f"Invalid metric at index {i}: {retention_error}")
-
-                except pydantic.ValidationError as e:
-                    # Surface only the field locations and error types from pydantic — not the
-                    # echoed `input`, `ctx`, and `url` fields, which would reflect arbitrary
-                    # user data back into the response (potentially unbounded in size).
-                    safe_errors = [
-                        {"loc": err.get("loc"), "type": err.get("type"), "msg": err.get("msg")} for err in e.errors()
-                    ]
-                    # ExperimentMetric is a union of four variants; pydantic reports errors against
-                    # every variant by default. If the caller picked a metric_type, narrow to that
-                    # variant's errors so the message stays actionable instead of dumping 25+ errors.
-                    metric_type = metric.get("metric_type")
-                    variant_class = cls._METRIC_TYPE_TO_CLASS.get(metric_type) if isinstance(metric_type, str) else None
-                    if variant_class is not None:
-                        filtered = [err for err in safe_errors if err["loc"] and err["loc"][0] == variant_class]
-                        if filtered:
-                            safe_errors = filtered
-                    hint = cls._build_metric_validation_hint(safe_errors)
-                    if len(safe_errors) > cls._MAX_REPORTED_METRIC_ERRORS:
-                        truncated = safe_errors[: cls._MAX_REPORTED_METRIC_ERRORS]
-                        truncated.append({"truncated": f"...{len(safe_errors) - cls._MAX_REPORTED_METRIC_ERRORS} more"})
-                        safe_errors = truncated
-                    suffix = f" {hint}" if hint else ""
-                    raise ValidationError(f"Invalid metric at index {i}: {safe_errors}.{suffix}")
+        return [
+            parse_and_validate_metric(metric, error_prefix=f"Invalid metric at index {i}: ")
+            for i, metric in enumerate(metrics)
+        ]
 
     VALID_STATS_METHODS = {"bayesian", "frequentist"}
 

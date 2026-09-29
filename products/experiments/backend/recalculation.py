@@ -38,9 +38,10 @@ from products.experiments.backend.models.experiment import (
     ExperimentMetricsRecalculation,
 )
 from products.experiments.backend.result_serialization import strip_step_sessions
+from products.experiments.backend.temporal.metric_resolution import scheduled_metric_definitions
 from products.experiments.backend.temporal.models import ExperimentMetricsRecalculationWorkflowInputs
 from products.experiments.backend.temporal.recalc_fingerprint import compute_recalc_fingerprint
-from products.experiments.backend.temporal.recalculation_logic import discover_experiment_metrics, find_metric_dict
+from products.experiments.backend.temporal.recalculation_logic import discover_experiment_metrics
 
 # How long an active (PENDING/IN_PROGRESS) row blocks new recalculations. Beyond this, the row is treated as
 # stale and a fresh recalc is allowed. Sized to be safely above the workflow's worst-case end-to-end runtime
@@ -384,9 +385,10 @@ def _recalc_fingerprints_for_run(experiment: Experiment, recalc: ExperimentMetri
     ExperimentMetricResult" — the snapshot lives in the fingerprint, not in a stored column.
     """
     stats_method = get_experiment_stats_method(experiment)
+    definitions = scheduled_metric_definitions(experiment)
     fingerprints: dict[str, str] = {}
     for metric_uuid in recalc.metric_uuids or []:
-        metric_dict = find_metric_dict(experiment, metric_uuid)
+        metric_dict = definitions.get(metric_uuid)
         if metric_dict is None:
             continue
         config_fp = compute_metric_fingerprint(
@@ -446,13 +448,14 @@ def build_timeseries_cold_start_payload(experiment: Experiment) -> dict | None:
     """
     with team_scope(experiment.team_id, canonical=True):
         metrics = discover_experiment_metrics(experiment)
+        definitions = scheduled_metric_definitions(experiment)
         stats_method = get_experiment_stats_method(experiment)
 
         now = timezone.now()
         results: list[dict] = []
         latest_query_to = None
         for metric in metrics:
-            metric_dict = find_metric_dict(experiment, metric.metric_uuid)
+            metric_dict = definitions.get(metric.metric_uuid)
             if metric_dict is None:
                 continue
             config_fp = compute_metric_fingerprint(

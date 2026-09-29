@@ -48,6 +48,7 @@ from products.experiments.backend.experiment_service import (
     _merge_saved_metric_links,
     _resolve_scalar_updates,
 )
+from products.experiments.backend.metric_validation import is_events_node_actions_node_confusion
 from products.experiments.backend.models.experiment import (
     EXPOSURE_FROZEN_COHORT_KEY,
     EXPOSURE_FROZEN_GROUP_KEY,
@@ -59,6 +60,7 @@ from products.experiments.backend.models.experiment import (
     ExperimentTimeseriesRecalculation,
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
+from products.experiments.backend.temporal.metric_resolution import METRIC_BUILDERS
 from products.feature_flags.backend.facade.api import set_flag_active, update_flag
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.surveys.backend.models import Survey
@@ -1248,10 +1250,10 @@ class TestExperimentService(APIBaseTest):
             ExperimentService.validate_experiment_metrics([self._INVALID_METRIC_EVENTS_NODE_ID])
         assert "Invalid metric at index 0:" in str(ctx.exception)
 
-    def test_metric_type_to_class_mapping_matches_schema(self) -> None:
+    def test_metric_builders_match_schema(self) -> None:
         """Drift guard: every variant of the ExperimentMetric union must have an entry in
-        _METRIC_TYPE_TO_CLASS. If a new metric_type is added to the schema, this fails so
-        the mapping (used to filter pydantic errors to the matching variant) stays accurate."""
+        METRIC_BUILDERS. The metric validator accepts only the metric_type values listed there,
+        so a new metric_type added to the schema fails here instead of being rejected on write."""
         root_annotation = ExperimentMetric.model_fields["root"].annotation
         assert root_annotation is not None, "ExperimentMetric.root has no annotation — schema is malformed"
         union_variants = root_annotation.__args__
@@ -1262,9 +1264,10 @@ class TestExperimentService(APIBaseTest):
                 f"{variant.__name__}.metric_type has no annotation — schema is malformed"
             )
             schema_pairs[metric_type_annotation.__args__[0]] = variant.__name__
-        assert ExperimentService._METRIC_TYPE_TO_CLASS == schema_pairs, (
-            "ExperimentMetric union changed — update ExperimentService._METRIC_TYPE_TO_CLASS. "
-            f"Expected {schema_pairs}, got {ExperimentService._METRIC_TYPE_TO_CLASS}"
+        builders = {metric_type: builder.__name__ for metric_type, builder in METRIC_BUILDERS.items()}
+        assert builders == schema_pairs, (
+            "ExperimentMetric union changed — update METRIC_BUILDERS in temporal/metric_resolution.py. "
+            f"Expected {schema_pairs}, got {builders}"
         )
 
     @parameterized.expand(
@@ -1294,7 +1297,7 @@ class TestExperimentService(APIBaseTest):
         ]
     )
     def test_is_events_node_actions_node_confusion_predicate(self, _: str, err: dict, expected: bool) -> None:
-        assert ExperimentService._is_events_node_actions_node_confusion(err) is expected
+        assert is_events_node_actions_node_confusion(err) is expected
 
     def test_pydantic_extra_forbidden_error_code_is_still_in_use(self) -> None:
         """Canary: the EventsNode.id hint matches on the pydantic error type slug
@@ -1307,7 +1310,7 @@ class TestExperimentService(APIBaseTest):
             error_types = {err["type"] for err in e.errors()}
             assert "extra_forbidden" in error_types, (
                 f"pydantic no longer emits 'extra_forbidden' for unknown fields — "
-                f"got {error_types}. Update ExperimentService._build_metric_validation_hint."
+                f"got {error_types}. Update _metric_validation_hint in metric_validation.py."
             )
         else:
             raise AssertionError("pydantic did not reject an unknown field on EventsNode")
