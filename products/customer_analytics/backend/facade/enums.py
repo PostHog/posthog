@@ -19,7 +19,6 @@ class AccountViewVisibility(models.TextChoices):
     TEAM = "team", "Team"
 
 
-
 class TaskDigestCadence(models.TextChoices):
     """How often a user's customer task digest email is sent."""
 
