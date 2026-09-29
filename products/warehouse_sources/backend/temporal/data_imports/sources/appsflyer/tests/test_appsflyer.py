@@ -167,7 +167,7 @@ class TestValidateCredentials:
     @pytest.mark.parametrize(
         "status_code, expected_substring",
         [
-            # 401 means the token is bad; 403/404 mean the app id (or subscription) is the problem.
+            # 401 means the token is bad; 403 means the token cannot reach the app; 404 means the app id is wrong.
             (401, "API token"),
             (403, "denied access"),
             (404, "app id"),

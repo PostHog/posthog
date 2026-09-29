@@ -303,8 +303,8 @@ def validate_credentials(api_token: str, app_id: str) -> bool:
         raise AppsFlyerRetryableError(f"AppsFlyer API error (retryable): status={response.status_code}")
     if response.status_code == 200:
         return True
-    # 401 is an auth failure (bad token); 403/404 mean the token is fine but the app id or
-    # subscription is wrong — surface which one so the user isn't left guessing.
+    # 401 is an auth failure (bad token); 403 means the token can't reach this app; 404 means
+    # the app id is wrong. Surface which one so the user isn't left guessing.
     if response.status_code == 401:
         raise _credentials_error(
             "AppsFlyer rejected the API token. Check that you pasted a valid API token (V2) from "
