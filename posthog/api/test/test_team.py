@@ -51,7 +51,7 @@ from products.conversations.backend.playbook import compose_support_playbook
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
 from products.feature_flags.backend.models.team_feature_flags_config import FlagEvaluationsMode
-from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
+from products.workflows.backend.facade.team_extension import TeamWorkflowsConfig
 
 
 def team_api_test_factory():
@@ -582,9 +582,10 @@ def team_api_test_factory():
 
             self._assert_activity_log_is_empty()
 
-            # Ensure there is no secret API token
+            # Support is the only product that can still mint a first legacy secret token
             self.team.secret_api_token = None
             self.team.secret_api_token_backup = None
+            self.team.conversations_enabled = True
             self.team.save()
 
             response = self.client.patch(f"/api/environments/{self.team.id}/rotate_secret_token/")
@@ -759,10 +760,7 @@ def team_api_test_factory():
                 ("no_existing_token_conversations_enabled", None, True, status.HTTP_200_OK),
             ]
         )
-        @patch("posthog.api.team.posthoganalytics.feature_enabled", return_value=True)
-        def test_secret_token_generation_when_psak_enabled(
-            self, _name, existing_token, conversations_enabled, expected_status, _mock_flag
-        ):
+        def test_secret_token_generation(self, _name, existing_token, conversations_enabled, expected_status):
             self.organization_membership.level = OrganizationMembership.Level.ADMIN
             self.organization_membership.save()
 

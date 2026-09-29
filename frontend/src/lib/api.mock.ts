@@ -262,6 +262,8 @@ export const MOCK_DEFAULT_USER: UserType = {
     has_social_auth: false,
     has_sso_enforcement: false,
     shortcut_position: 'above',
+    // Most stories show a settled sidebar. Stories of the starred products setup override this.
+    ui_configuration: { version: 1, sidebar: { starred_products_setup_completed: true } },
     sensitive_session_expires_at: dayjs().add(1, 'hour').toISOString(),
     theme_mode: null,
     team: MOCK_DEFAULT_TEAM,

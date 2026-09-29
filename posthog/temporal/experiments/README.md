@@ -1,10 +1,10 @@
 # Experiment metrics calculation
 
-This module calculates experiment metrics in the background using Temporal, a workflow orchestration system. It runs daily for each active experiment, computing statistical results and storing them for timeseries retrieval.
+This module calculates experiment metrics in the background using Temporal, a workflow orchestration system. It runs on each team's schedule (once or twice per day) for each active experiment, computing statistical results and storing them for timeseries retrieval.
 
 ## How it works
 
-Each team can configure when their experiments should be recalculated (default: 2 AM UTC). The system runs 24 schedules - one for each hour of the day. When a schedule fires, it finds all experiments belonging to teams configured for that hour and calculates their metrics.
+Each team can configure one or two times of day when their experiments are recalculated, at least six hours apart (default: once at 02:00 UTC), via `TeamExperimentsConfig.experiment_recalculation_times`. The system runs 24 schedules - one for each hour of the day. When a schedule fires, it finds all experiments belonging to teams configured for that hour and calculates their metrics. A team with two configured times matches two schedules, so its experiments get two independent runs a day, each publishing its own recalculation.
 
 ```text
 ┌─────────────────────────────────────────────────────────────────────────┐
@@ -42,11 +42,13 @@ The experiment page reads results through `GET /metrics_recalculation/latest`, w
 
 - A metric qualifies when its newest completed row under the config fingerprint has a `query_to` between the workflow start and now. Yesterday's row for a metric that failed today does not qualify, and neither does a future-dated day-end row from the backfill workflow.
 - The activity creates a completed recalculation with trigger `timeseries_sync` and copies each qualifying row under the recalc fingerprint at one shared `query_to`, one second past the newest point. Copies at a point's own `query_to` would share the `(experiment, metric_uuid, query_to)` key with the timeseries row and rewrite its fingerprint.
-- A supported metric without a qualifying point is counted in `total_metrics` but gets no copy, so the frontend sees the gap and heals it with a real run. Every buildable metric type (`DAILY_TIMESERIES_METRIC_TYPES` in `metric_resolution.py`) is computed daily; legacy metrics without a `metric_type` are left out of `total_metrics` and `metric_uuids` entirely.
-- The row belongs to the experiment's daily run, not to one workflow. The inline and saved metric workflows both run the activity for the same experiment in the same hour, each with its own run start. The first pass creates the row; a later pass finds the day's `timeseries_sync` row and adds the copies it still lacks, so the row covers every metric the daily run computed whichever workflow finishes last.
-- When no sync row exists for the day, the activity skips if any other recalculation, finished or executing, already has a `query_to` at or past the oldest qualifying point.
+- A supported metric without a qualifying point is counted in `total_metrics` but gets no copy, so the frontend sees the gap and heals it with a real run. Every buildable metric type (`DAILY_TIMESERIES_METRIC_TYPES` in `metric_resolution.py`) is computed on every scheduled run; legacy metrics without a `metric_type` are left out of `total_metrics` and `metric_uuids` entirely.
+- The row belongs to one scheduled run of the experiment, not to one workflow. The inline and saved metric workflows both run the activity for the same experiment in the same hour, each with its own run start. The first pass creates the row; a later pass in the same hour finds that run's `timeseries_sync` row and adds the copies it still lacks, so the row covers every metric the run computed whichever workflow finishes last. The lookup is scoped to the run's start, so a team's second run of the day creates its own row instead of touching the earlier one.
+- When no sync row exists for the run, the activity skips if any other recalculation, finished or executing, already has a `query_to` at or past the oldest qualifying point.
 
 Each metric stamps its own `query_to` at the moment its activity runs, so the points of one run are seconds to minutes apart. The copies present them as one window; that approximation is deliberate.
+
+Each run ends by emitting the `experiment_timeseries_publish_runs` Prometheus counter (labels: `workflow_type`, `status`), skipped when the run computed nothing. `status="missing"` means the run computed metrics but published zero recalculation rows - the silent-failure mode where results exist yet never reach users. One `missing` run can be legitimate (every row already covered by another run or a manual recalculation), so the Grafana alert thresholds over a window instead of firing per run.
 
 ```text
 ┌────────────────────────────────────────────────────────────────────────────┐

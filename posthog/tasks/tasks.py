@@ -845,8 +845,7 @@ def capture_task_run_state_metrics() -> None:
                 labelnames=["status", "origin_product", "run_environment"],
             )
 
-            # Terminal runs are approximated by updated_at since completed_at can be null for
-            # FAILED/CANCELLED paths that didn't take the happy-path write.
+            # Terminal runs count by completed_at, falling back to updated_at where FAILED/CANCELLED paths leave it null.
             metrics = tasks_facade.collect_task_run_state_metrics(
                 open_statuses=_TASKS_RUN_OPEN_STATUSES,
                 age_statuses=_TASKS_RUN_AGE_STATUSES,

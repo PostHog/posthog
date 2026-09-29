@@ -8,6 +8,8 @@ In production it is driven by `SignalsScoutCoordinatorWorkflow` (periodic tick e
 
 ## What lives here
 
+- `rubrics.py` / `rubrics_runner.py`
+  Store revisioned criteria on the scout config and generate separate suggestions in a background sandbox. Read the scout rubrics section of `products/signals/ARCHITECTURE.md` when changing persistence, generation, or access restrictions.
 - `tool_catalogue.py`
   Builds the scout tool catalogue from the committed MCP definitions through `posthog/mcp_tool_definitions.py`.
   The read-only endpoint is `GET /api/projects/:id/signals/scout/configs/tool_catalogue/` in `views.py`.

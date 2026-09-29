@@ -122,11 +122,13 @@ class TestGetEventSummary:
         summary = _get_event_summary(event)
         assert "ERROR" in summary
 
-    @pytest.mark.parametrize("score", [0, 7.25])
-    def test_numeric_evaluation_summary(self, score: float) -> None:
+    @pytest.mark.parametrize(
+        "output_type,score", [("numeric", 0), ("numeric", 7.25), ("categorical", []), ("categorical", ["resolved"])]
+    )
+    def test_typed_evaluation_summary(self, output_type: str, score: float | list[str]) -> None:
         event = {
             "event": "$ai_evaluation",
-            "properties": {"$ai_evaluation_result_type": "numeric", "$ai_evaluation_numeric_result": score},
+            "properties": {"$ai_evaluation_result_type": output_type, f"$ai_evaluation_{output_type}_result": score},
         }
         assert _get_event_summary(event) == f"evaluation ({score})"
 

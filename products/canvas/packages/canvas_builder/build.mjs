@@ -238,6 +238,43 @@ const platformStylesheet = `
 @import "@posthog/quill/primitives.css";
 @import "@posthog/quill/tailwind.css";
 @custom-variant dark (&:where(.dark, .dark *));
+
+/* Recharts hardcodes a white outline on every pie sector. It disappears into a light card and
+   draws a white ring around every slice on a dark one. Canvas pie charts want no slice outline. */
+.recharts-pie .recharts-sector {
+  stroke: none;
+}
+
+/* Stacked bar segments are separate rectangles that share an edge. Each one antialiases against
+   the page behind it rather than against its neighbour, so about a quarter of the background
+   stays visible in the shared pixel column and reads as a dark hairline between segments.
+   Snapping the edges to whole pixels removes the partial coverage that causes it. */
+.recharts-bar-rectangle path {
+  shape-rendering: crispEdges;
+}
+
+/* Recharts colors each tooltip row with that row's series color over an inline white panel, so
+   the text fails contrast on any theme and is unreadable on a dark one. Inverting the panel
+   against the page is the highest contrast pair the theme defines, whatever the series colors
+   are, and it needs !important to beat the inline background. Each row keeps its inline series
+   color so the dot can read it through currentColor, while the text spans take the inverted
+   color. Everything else about the panel stays at the recharts default. */
+.recharts-default-tooltip {
+  background-color: var(--foreground) !important;
+}
+.recharts-tooltip-label,
+.recharts-tooltip-item > span {
+  color: var(--background);
+}
+.recharts-tooltip-item::before {
+  content: "";
+  display: inline-block;
+  width: 0.5rem;
+  height: 0.5rem;
+  margin-right: 0.375rem;
+  border-radius: 9999px;
+  background: currentColor;
+}
 `
 
 // Entry references (module scripts, stylesheets) parsed attribute-order-
