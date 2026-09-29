@@ -69,6 +69,14 @@ def persist_authored_measurement_plans(
         logger.warning("ignoring conflicting impact measurement decisions", report_id=str(report.id))
     clean_metrics = []
     for metric in metrics:
+        query = metric.get("query")
+        if not isinstance(query, Mapping) or not query_filter_shape_allows_read(query):
+            logger.warning(
+                "ignoring report metric with unreadable query shape",
+                report_id=str(report.id),
+                metric_id=metric.get("metric_id"),
+            )
+            continue
         clean_metrics.append({key: value for key, value in metric.items() if key not in REPORT_METRIC_GOAL_FIELDS})
         if metric.get("goal_value") is None or metric.get("goal_direction") is None:
             continue

@@ -118,8 +118,25 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         assert "HogQL filters are unsupported" in response.json()["error"]
 
         observations = persist_authored_measurement_plans(report, [plan], ArtefactAttribution.system())
+        assert observations == []
+        assert latest_measurement_plans(report) == {}
+
+        goal_free_observation = {
+            key: value
+            for key, value in plan.items()
+            if key not in ("goal_value", "goal_direction", "decision_window_days")
+        }
+        assert persist_authored_measurement_plans(report, [goal_free_observation], ArtefactAttribution.system()) == []
+
+        readable_plan = self._impact_plan()
+        eligibility_query = json.loads(json.dumps(plan["query"]))
+        eligibility_query["source"]["series"][0]["math"] = "total"
+        readable_plan["eligibility_query"] = eligibility_query
+        readable_plan["minimum_data_points"] = 10
+        observations = persist_authored_measurement_plans(report, [readable_plan], ArtefactAttribution.system())
         assert len(observations) == 1
         assert "goal_value" not in observations[0]
+        assert observations[0]["query"] == readable_plan["query"]
         assert latest_measurement_plans(report) == {}
 
     def test_existing_unreadable_impact_plan_remains_available_for_revision(self) -> None:
