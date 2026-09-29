@@ -18,7 +18,6 @@ import posthoganalytics
 from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.models.team.team import Team
-from posthog.sync import database_sync_to_async
 
 from products.business_knowledge.backend.logic import (
     KnowledgeSearchResult,
@@ -61,7 +60,7 @@ def normalize_doc_url(url: str) -> str:
 
 def inkeep_result_urls(payload: dict | None) -> list[str]:
     """Document URLs from an Inkeep payload, with community questions removed."""
-    if not payload:
+    if not isinstance(payload, dict):
         return []
     content = payload.get("content")
     if not isinstance(content, list):
@@ -182,14 +181,36 @@ def _capture_shadow(
     )
 
 
-async def _shadow_enabled(team: Team) -> bool:
-    return await database_sync_to_async(has_docs_shadow_feature_flag, thread_sensitive=False)(team)
-
-
 async def _timed_inkeep(fetch_inkeep: Callable[[], Awaitable[dict | None]]) -> tuple[dict | None, float]:
     started = time.perf_counter()
     payload = await fetch_inkeep()
     return payload, (time.perf_counter() - started) * 1000
+
+
+async def _finish_shadow(
+    *,
+    team: Team,
+    query: str,
+    surface: DocsShadowSurface,
+    payload: dict | None,
+    bk_task: asyncio.Task[tuple[list[str], str | None, float]],
+    inkeep_latency_ms: float,
+) -> None:
+    """Record the comparison. Failures here must not change the Inkeep payload."""
+    try:
+        bk_urls, bk_error, bk_latency_ms = await bk_task
+        comparison = compare_docs_results(inkeep_result_urls(payload), bk_urls)
+        _capture_shadow(
+            team=team,
+            query=query,
+            surface=surface,
+            comparison=comparison,
+            inkeep_latency_ms=inkeep_latency_ms,
+            bk_latency_ms=bk_latency_ms,
+            bk_error=bk_error,
+        )
+    except Exception:
+        logger.warning("bk_docs_shadow_capture_failed", team_id=team.id, exc_info=True)
 
 
 async def fetch_inkeep_with_shadow(
@@ -201,42 +222,28 @@ async def fetch_inkeep_with_shadow(
 ) -> dict | None:
     """Run Inkeep and, when the shadow flag is on, a business knowledge search beside it."""
     inkeep_task = asyncio.create_task(_timed_inkeep(fetch_inkeep))
-    flag_task = asyncio.create_task(_shadow_enabled(team))
     bk_task: asyncio.Task[tuple[list[str], str | None, float]] | None = None
     try:
         try:
-            enabled = await flag_task
+            enabled = has_docs_shadow_feature_flag(team)
         except Exception:
             logger.warning("bk_docs_shadow_flag_failed", team_id=team.id, exc_info=True)
             enabled = False
         if enabled:
             bk_task = asyncio.create_task(_bounded_bk_search(team, query))
         payload, inkeep_latency_ms = await inkeep_task
+        if bk_task is not None:
+            await _finish_shadow(
+                team=team,
+                query=query,
+                surface=surface,
+                payload=payload,
+                bk_task=bk_task,
+                inkeep_latency_ms=inkeep_latency_ms,
+            )
+        return payload
     except BaseException:
-        _abandon(flag_task)
         _abandon(inkeep_task)
         if bk_task is not None:
             _abandon(bk_task)
         raise
-    if bk_task is None:
-        return payload
-
-    try:
-        bk_urls, bk_error, bk_latency_ms = await bk_task
-    except BaseException:
-        _abandon(bk_task)
-        raise
-    comparison = compare_docs_results(inkeep_result_urls(payload), bk_urls)
-    try:
-        await database_sync_to_async(_capture_shadow, thread_sensitive=False)(
-            team=team,
-            query=query,
-            surface=surface,
-            comparison=comparison,
-            inkeep_latency_ms=inkeep_latency_ms,
-            bk_latency_ms=bk_latency_ms,
-            bk_error=bk_error,
-        )
-    except Exception:
-        logger.warning("bk_docs_shadow_capture_failed", team_id=team.id, exc_info=True)
-    return payload

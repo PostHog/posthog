@@ -310,6 +310,16 @@ def _host_serialized_batches(
 # A 5000-page crawl at a few concurrent fetches does not finish in 10 minutes.
 _CRAWL_ACTIVITY_TIMEOUT = timedelta(minutes=60)
 _CRAWL_HEARTBEAT_TIMEOUT = timedelta(minutes=5)
+# In-flight runs already recorded a 10-minute schedule and no heartbeat.
+# Replaying them with a different schedule fails the workflow task, and the
+# coordinator's skip-overlap policy then blocks later hourly runs.
+_CRAWL_TIMEOUT_PATCH = "bk-crawl-activity-timeout-60m"
+
+
+def _crawl_activity_timeouts() -> tuple[timedelta, timedelta | None]:
+    if workflow.patched(_CRAWL_TIMEOUT_PATCH):
+        return _CRAWL_ACTIVITY_TIMEOUT, _CRAWL_HEARTBEAT_TIMEOUT
+    return timedelta(minutes=10), None
 
 
 @activity.defn
@@ -394,11 +404,12 @@ async def ingest_knowledge_source_activity(inputs: IngestSourceInputs) -> dict[s
 class BusinessKnowledgeIngestSourceWorkflow(PostHogWorkflow):
     @workflow.run
     async def run(self, inputs: IngestSourceInputs) -> dict[str, Any]:
+        start_to_close, heartbeat = _crawl_activity_timeouts()
         return await workflow.execute_activity(
             ingest_knowledge_source_activity,
             inputs,
-            start_to_close_timeout=_CRAWL_ACTIVITY_TIMEOUT,
-            heartbeat_timeout=_CRAWL_HEARTBEAT_TIMEOUT,
+            start_to_close_timeout=start_to_close,
+            heartbeat_timeout=heartbeat,
             retry_policy=RetryPolicy(maximum_attempts=2),
         )
 
@@ -414,11 +425,12 @@ class BusinessKnowledgeRefreshSourceWorkflow(PostHogWorkflow):
 
     @workflow.run
     async def run(self, inputs: RefreshSourceInputs) -> dict[str, Any]:
+        start_to_close, heartbeat = _crawl_activity_timeouts()
         return await workflow.execute_activity(
             execute_refresh_knowledge_source_activity,
             inputs,
-            start_to_close_timeout=_CRAWL_ACTIVITY_TIMEOUT,
-            heartbeat_timeout=_CRAWL_HEARTBEAT_TIMEOUT,
+            start_to_close_timeout=start_to_close,
+            heartbeat_timeout=heartbeat,
             retry_policy=RetryPolicy(maximum_attempts=2),
         )
 
@@ -448,14 +460,15 @@ class BusinessKnowledgeRefreshCoordinatorWorkflow(PostHogWorkflow):
         )
 
         refreshed = skipped = failed = 0
+        start_to_close, heartbeat = _crawl_activity_timeouts()
         for batch in _host_serialized_batches(due, MAX_CONCURRENT_REFRESHES):
             results = await asyncio.gather(
                 *(
                     workflow.execute_activity(
                         refresh_knowledge_source_activity,
                         inputs,
-                        start_to_close_timeout=_CRAWL_ACTIVITY_TIMEOUT,
-                        heartbeat_timeout=_CRAWL_HEARTBEAT_TIMEOUT,
+                        start_to_close_timeout=start_to_close,
+                        heartbeat_timeout=heartbeat,
                         retry_policy=RetryPolicy(maximum_attempts=2),
                     )
                     for inputs in batch

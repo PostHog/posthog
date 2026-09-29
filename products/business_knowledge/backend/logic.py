@@ -2238,11 +2238,13 @@ def has_docs_shadow_feature_flag(team: Team) -> bool:
     """Org-keyed, same as `has_feature_flag`. Off in DEBUG so local docs search does not shadow."""
     if settings.DEBUG:
         return False
+    # Local evaluation only. A remote lookup would run on every docs search.
     return feature_enabled_or_false(
         DOCS_SHADOW_FLAG,
         str(team.organization_id),
         groups={"organization": str(team.organization_id)},
         group_properties={"organization": {"id": str(team.organization_id)}},
+        only_evaluate_locally=True,
         send_feature_flag_events=False,
     )
 

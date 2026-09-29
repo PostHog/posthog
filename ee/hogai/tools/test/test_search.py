@@ -337,6 +337,54 @@ class TestDocsShadowFailure(SimpleTestCase):
         self.assertFalse(called)
         capture.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("flag",),
+            ("capture",),
+        ]
+    )
+    async def test_bookkeeping_failure_leaves_inkeep_output_unchanged(self, kind: str) -> None:
+        payload = _docs_payload(("document", "https://posthog.com/docs/flags"))
+        expected = format_inkeep_docs_response(payload, include_system_reminder=False)
+        searched = False
+
+        async def fetch_inkeep() -> dict:
+            return payload
+
+        async def bk_search(*_args: object, **_kwargs: object) -> list:
+            nonlocal searched
+            searched = True
+            return []
+
+        team = MagicMock()
+        team.id = 1
+        team.organization_id = "org"
+        team.uuid = "team-uuid"
+
+        flag_effect = RuntimeError("flag down") if kind == "flag" else None
+        with (
+            patch(
+                "ee.hogai.tools.docs_search_shadow.has_docs_shadow_feature_flag",
+                return_value=True,
+                side_effect=flag_effect,
+            ),
+            patch("ee.hogai.tools.docs_search_shadow.async_search_knowledge_for_team", bk_search),
+            patch(
+                "ee.hogai.tools.docs_search_shadow.posthoganalytics.capture",
+                side_effect=RuntimeError("capture down"),
+            ),
+        ):
+            result = await fetch_inkeep_with_shadow(
+                team=team,
+                query="how do flags work",
+                fetch_inkeep=fetch_inkeep,
+                surface="mcp",
+            )
+
+        self.assertEqual(result, payload)
+        self.assertEqual(format_inkeep_docs_response(result, include_system_reminder=False), expected)
+        self.assertEqual(searched, kind == "capture")
+
     async def test_search_that_swallows_cancellation_does_not_hold_the_response(self) -> None:
         payload = _docs_payload(("document", "https://posthog.com/docs/flags"))
         release = asyncio.Event()
