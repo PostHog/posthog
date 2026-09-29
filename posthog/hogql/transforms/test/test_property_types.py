@@ -1929,6 +1929,10 @@ class TestTimezoneIndexPruning(ClickhouseTestMixin, BaseTest):
         [
             ("to_date", "timestamp >= toDate('2024-03-01') AND timestamp < toDate('2024-03-02')"),
             (
+                "to_date_of_nanosecond_datetime",
+                "timestamp >= toDate(toDateTime64('2024-03-01 12:00:00', 9)) AND timestamp < toDate('2024-03-02')",
+            ),
+            (
                 "start_of_month",
                 "timestamp >= toStartOfMonth(toDateTime('2024-03-15 00:00:00')) AND timestamp < toDate('2024-03-02')",
             ),

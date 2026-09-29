@@ -151,6 +151,8 @@ class PropertySwapper(CloningVisitor):
         ast.CompareOperationOp.LtEq,
     }
     _RANGE_FUNCTIONS: set[str] = {"greater", "greaterOrEquals", "less", "lessOrEquals"}
+    # Calls that return their datetime argument with its precision intact. toDate() and similar calls drop it.
+    _DATETIME_PRESERVING_FUNCTIONS: set[str] = {"plus", "minus", "assumeNotNull", "toTimeZone"}
 
     # A comparison under these calls still filters the rows of the enclosing WHERE, so pruning still applies to it.
     _BOOLEAN_CONNECTIVES: set[str] = {"and", "or", "not"}
@@ -680,7 +682,9 @@ class PropertySwapper(CloningVisitor):
             precision = expr.args[1]
             if isinstance(precision, ast.Constant) and isinstance(precision.value, int) and precision.value > 6:
                 return True
-        return any(PropertySwapper._has_sub_microsecond_datetime(arg) for arg in expr.args)
+        if expr.name in PropertySwapper._DATETIME_PRESERVING_FUNCTIONS:
+            return any(PropertySwapper._has_sub_microsecond_datetime(arg) for arg in expr.args)
+        return False
 
     @staticmethod
     def _replace_keeping_alias(expr: ast.Expr, replacement: ast.Expr) -> ast.Expr:
