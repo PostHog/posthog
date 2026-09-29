@@ -92,10 +92,13 @@ function stripMcpResultMeta(value: unknown): unknown {
 
 const API_TOOL_ID = /^[a-zA-Z0-9_-]+$/;
 
-// Secret redaction can rewrite part of a stored id. The replacement is deterministic, so
+// Secret redaction can rewrite part of a stored id. The repair depends on the id alone, so
 // a tool_use and its tool_result keep the same id when each is repaired on its own line.
+// The digest keeps apart two ids that differ only in the characters the API rejects.
 function toApiToolId(id: string): string {
-  return API_TOOL_ID.test(id) ? id : id.replace(/[^a-zA-Z0-9_-]/g, "_");
+  if (API_TOOL_ID.test(id)) return id;
+  const digest = createHash("sha256").update(id).digest("hex").slice(0, 8);
+  return `${id.replace(/[^a-zA-Z0-9_-]/g, "_")}_${digest}`;
 }
 
 const TOOL_ID_KEY: Record<string, string | undefined> = {

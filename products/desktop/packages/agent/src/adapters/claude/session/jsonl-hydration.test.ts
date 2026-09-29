@@ -36,6 +36,19 @@ function toolEntry(
   return entry(sessionUpdate, { _meta: { claudeCode: meta } });
 }
 
+const REJECTED_TOOL_IDS = [
+  "toolu_01AbCdEfGh[REDACTED]",
+  "toolu_01AbCdEfGh.REDACTED.",
+];
+
+function expectRepairedToolIds(callIds: unknown[], resultIds: unknown[]): void {
+  for (const id of callIds) {
+    expect(id).toMatch(/^[a-zA-Z0-9_-]+$/);
+  }
+  expect(new Set(callIds).size).toBe(callIds.length);
+  expect(resultIds).toEqual(callIds);
+}
+
 describe("getSessionJsonlPath", () => {
   it("constructs path from sessionId and cwd", () => {
     const original = process.env.CLAUDE_CONFIG_DIR;
@@ -744,29 +757,30 @@ describe("conversationTurnsToJsonlEntries", () => {
     );
   });
 
-  it("repairs a tool id the API rejects, on the call and on its result", () => {
+  it("repairs tool ids the API rejects, and keeps each call paired with its result", () => {
     const lines = conversationTurnsToJsonlEntries(
       [
         {
           role: "assistant",
           content: [],
-          toolCalls: [
-            {
-              toolCallId: "toolu_01AbCdEfGh[REDACTED]",
-              toolName: "Bash",
-              input: {},
-              result: "ok",
-            },
-          ],
+          toolCalls: REJECTED_TOOL_IDS.map((toolCallId) => ({
+            toolCallId,
+            toolName: "Bash",
+            input: {},
+            result: "ok",
+          })),
         },
       ],
       config,
     );
 
-    const [toolUse, toolResult] = parseConversationEntries(lines);
-    const id = toolUse.message.content[0].id;
-    expect(id).toMatch(/^[a-zA-Z0-9_-]+$/);
-    expect(toolResult.message.content[0].tool_use_id).toBe(id);
+    const blocks = parseConversationEntries(lines).map(
+      (line) => line.message.content[0],
+    );
+    expectRepairedToolIds(
+      blocks.slice(0, 2).map((block) => block.id),
+      blocks.slice(2).map((block) => block.tool_use_id),
+    );
   });
 
   it("falls back to space for empty user content", () => {
@@ -1438,49 +1452,34 @@ describe("sanitizeSessionJsonl", () => {
     ]);
   });
 
-  it("repairs a tool id the API rejects, on the call and on its result", async () => {
+  it("repairs tool ids the API rejects, and keeps each call paired with its result", async () => {
     const file = await writeJsonl([
-      {
+      ...REJECTED_TOOL_IDS.map((id) => ({
         type: "assistant",
-        uuid: "a1",
-        parentUuid: null,
         message: {
           role: "assistant",
-          content: [
-            {
-              type: "tool_use",
-              id: "toolu_01AbCdEfGh[REDACTED]",
-              name: "Bash",
-              input: {},
-            },
-          ],
+          content: [{ type: "tool_use", id, name: "Bash", input: {} }],
         },
-      },
-      {
+      })),
+      ...REJECTED_TOOL_IDS.map((id) => ({
         type: "user",
-        uuid: "u1",
-        parentUuid: "a1",
         message: {
           role: "user",
-          content: [
-            {
-              type: "tool_result",
-              tool_use_id: "toolu_01AbCdEfGh[REDACTED]",
-              content: "ok",
-            },
-          ],
+          content: [{ type: "tool_result", tool_use_id: id, content: "ok" }],
         },
-      },
+      })),
     ]);
 
     expect(await sanitizeSessionJsonl(file)).toBe(true);
 
-    const [toolUse, toolResult] = (await readJsonl(file)).map(
+    const blocks = (await readJsonl(file)).map(
       (line) =>
         (line.message as { content: Record<string, unknown>[] }).content[0],
     );
-    expect(toolUse.id).toMatch(/^[a-zA-Z0-9_-]+$/);
-    expect(toolResult.tool_use_id).toBe(toolUse.id);
+    expectRepairedToolIds(
+      blocks.slice(0, 2).map((block) => block.id),
+      blocks.slice(2).map((block) => block.tool_use_id),
+    );
   });
 
   it("sanitizes empty blocks in user lines too", async () => {
