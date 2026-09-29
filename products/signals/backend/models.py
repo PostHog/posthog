@@ -2582,6 +2582,8 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     # scout's acting user and project admins: this field decides what an unattended agent may change
     # in the project. A dry run (`emit=False`) ignores it, so a preview never mutates the project.
     write_scopes = models.JSONField(default=list, db_default=[])
+    allowed_mcp_tools = models.JSONField(null=True, blank=True)
+    tool_preset = models.CharField(max_length=64, null=True, blank=True)
     # Optional five-field cron expression anchoring runs to wall-clock slots (e.g. "30 9 * * *",
     # "0 9,17 * * *", "0 9 * * 1-5"). Takes precedence over the rolling `run_interval_minutes`
     # when set. The coordinator evaluates it in `team.timezone`, so scheduled times follow

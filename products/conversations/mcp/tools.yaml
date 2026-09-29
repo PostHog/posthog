@@ -90,7 +90,8 @@ tools:
             indicating internal notes.
     conversations-tickets-notes-create:
         operation: conversations_tickets_notes_create
-        enabled: false
+        enabled: true
+        feature_flag: scouts-tool-access
         scopes:
             - ticket:write
         annotations:
