@@ -18,12 +18,12 @@ import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
 import type { AnnouncementApi, AnnouncementDeliveryApi } from '../../generated/api.schemas'
-import { AnnouncementAccountFilters } from './AnnouncementAccountFilters'
-import { announcementsLogic } from './announcementsLogic'
+import { ShoutoutAccountFilters } from './ShoutoutAccountFilters'
+import { shoutoutsLogic } from './shoutoutsLogic'
 
 type TagType = 'success' | 'primary' | 'warning' | 'danger' | 'default'
 
-function announcementStatusTag(status: AnnouncementApi['status']): { type: TagType; label: string } {
+function shoutoutStatusTag(status: AnnouncementApi['status']): { type: TagType; label: string } {
     switch (status) {
         case 'sent':
             return { type: 'success', label: 'Sent' }
@@ -57,7 +57,7 @@ function ConfirmSendContent({ message, channelLabels }: { message: string; chann
     )
 }
 
-function AnnouncementComposer(): JSX.Element {
+function ShoutoutComposer(): JSX.Element {
     const {
         messageDraft,
         selectedChannelIds,
@@ -66,17 +66,17 @@ function AnnouncementComposer(): JSX.Element {
         memberChannelsLoading,
         submitting,
         submitDisabledReason,
-    } = useValues(announcementsLogic)
-    const { setMessage, setSelectedChannelIds, submitAnnouncement, loadMemberChannels } = useActions(announcementsLogic)
+    } = useValues(shoutoutsLogic)
+    const { setMessage, setSelectedChannelIds, submitShoutout, loadMemberChannels } = useActions(shoutoutsLogic)
 
     const confirmSend = (): void => {
         LemonDialog.open({
-            title: `Send this announcement to ${pluralize(selectedChannelLabels.length, 'channel')}?`,
+            title: `Send this shoutout to ${pluralize(selectedChannelLabels.length, 'channel')}?`,
             content: <ConfirmSendContent message={messageDraft.trim()} channelLabels={selectedChannelLabels} />,
             primaryButton: {
                 children: 'Send',
-                onClick: submitAnnouncement,
-                'data-attr': 'confirm-send-announcement',
+                onClick: submitShoutout,
+                'data-attr': 'confirm-send-shoutout',
             },
             secondaryButton: {
                 children: 'Cancel',
@@ -92,7 +92,7 @@ function AnnouncementComposer(): JSX.Element {
                 placeholder="Write a message to send to the selected customer channels…"
                 minRows={4}
             />
-            <AnnouncementAccountFilters />
+            <ShoutoutAccountFilters />
             <div className="flex gap-2 items-center">
                 <LemonInputSelect
                     mode="multiple"
@@ -118,9 +118,9 @@ function AnnouncementComposer(): JSX.Element {
                     onClick={confirmSend}
                     loading={submitting}
                     disabledReason={submitDisabledReason}
-                    data-attr="send-announcement"
+                    data-attr="send-shoutout"
                 >
-                    Send announcement
+                    Send shoutout
                 </LemonButton>
             </div>
         </div>
@@ -156,85 +156,85 @@ function DeliveriesTable({ deliveries }: { deliveries: readonly AnnouncementDeli
     return <LemonTable embedded dataSource={[...deliveries]} rowKey="id" columns={columns} />
 }
 
-function AnnouncementHistory(): JSX.Element {
-    const { announcements, announcementsLoading } = useValues(announcementsLogic)
-    const { loadAnnouncements } = useActions(announcementsLogic)
+function ShoutoutHistory(): JSX.Element {
+    const { shoutouts, shoutoutsLoading } = useValues(shoutoutsLogic)
+    const { loadShoutouts } = useActions(shoutoutsLogic)
 
     const columns: LemonTableColumns<AnnouncementApi> = [
         {
             title: 'Message',
             key: 'message',
-            render: (_, announcement) => <span className="truncate max-w-md inline-block">{announcement.message}</span>,
+            render: (_, shoutout) => <span className="truncate max-w-md inline-block">{shoutout.message}</span>,
         },
         {
             title: 'Status',
             key: 'status',
-            render: (_, announcement) => {
-                const tag = announcementStatusTag(announcement.status)
+            render: (_, shoutout) => {
+                const tag = shoutoutStatusTag(shoutout.status)
                 return <LemonTag type={tag.type}>{tag.label}</LemonTag>
             },
         },
         {
             title: 'Delivered',
             key: 'sent_count',
-            render: (_, announcement) => `${announcement.sent_count}/${announcement.total_channels}`,
+            render: (_, shoutout) => `${shoutout.sent_count}/${shoutout.total_channels}`,
         },
         {
             title: 'Failed',
             key: 'failed_count',
-            render: (_, announcement) => announcement.failed_count || '—',
+            render: (_, shoutout) => shoutout.failed_count || '—',
         },
         {
             title: 'Created',
             key: 'created_at',
-            render: (_, announcement) => <TZLabel time={announcement.created_at} />,
+            render: (_, shoutout) => <TZLabel time={shoutout.created_at} />,
         },
         {
             title: 'By',
             key: 'created_by',
-            render: (_, announcement) => announcement.created_by?.first_name || announcement.created_by?.email || '—',
+            render: (_, shoutout) => shoutout.created_by?.first_name || shoutout.created_by?.email || '—',
         },
     ]
 
     return (
         <div className="flex flex-col gap-2">
             <div className="flex items-center justify-between">
-                <h3 className="m-0">Sent announcements</h3>
-                <LemonButton type="secondary" size="small" onClick={loadAnnouncements} loading={announcementsLoading}>
+                <h3 className="m-0">Sent shoutouts</h3>
+                <LemonButton type="secondary" size="small" onClick={loadShoutouts} loading={shoutoutsLoading}>
                     Refresh
                 </LemonButton>
             </div>
             <LemonTable<AnnouncementApi>
-                dataSource={announcements}
-                loading={announcementsLoading}
+                dataSource={shoutouts}
+                loading={shoutoutsLoading}
                 rowKey="id"
                 columns={columns}
                 expandable={{
-                    expandedRowRender: (announcement) => <DeliveriesTable deliveries={announcement.deliveries} />,
-                    rowExpandable: (announcement) => announcement.deliveries.length > 0,
+                    expandedRowRender: (shoutout) => <DeliveriesTable deliveries={shoutout.deliveries} />,
+                    rowExpandable: (shoutout) => shoutout.deliveries.length > 0,
                 }}
-                emptyState="No announcements sent yet"
+                emptyState="No shoutouts sent yet"
             />
         </div>
     )
 }
 
-export function AnnouncementsTabContent(): JSX.Element {
-    const { slackConnected } = useValues(announcementsLogic)
+export function ShoutoutsTabContent(): JSX.Element {
+    const { slackConnected } = useValues(shoutoutsLogic)
 
     if (!slackConnected) {
         return (
             <LemonBanner type="warning">
                 Connect the SupportHog Slack bot in <Link to={urls.supportSettings()}>Support settings</Link> to send
-                announcements to customer channels.
+                shoutouts to customer channels.
             </LemonBanner>
         )
     }
 
     return (
         <div className="flex flex-col gap-6">
-            <AnnouncementComposer />
-            <AnnouncementHistory />
+            <ShoutoutComposer />
+            <ShoutoutHistory />
         </div>
     )
 }

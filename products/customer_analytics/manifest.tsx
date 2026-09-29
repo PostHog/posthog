@@ -67,7 +67,7 @@ export const manifest: ProductManifest = {
         // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
         '/customer_analytics/notes': ['CustomerAnalytics', 'customerAnalyticsNotes'],
         // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
-        '/customer_analytics/announcements': ['CustomerAnalytics', 'customerAnalyticsAnnouncements'],
+        '/customer_analytics/shoutouts': ['CustomerAnalytics', 'customerAnalyticsShoutouts'],
         // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
         '/customer_analytics/feed': ['CustomerAnalytics', 'customerAnalyticsFeed'],
         // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
@@ -96,6 +96,9 @@ export const manifest: ProductManifest = {
                 : '/customer_analytics/dashboard'
             return combineUrl(defaultTab, searchParams, hashParams).url
         },
+        // nosemgrep: frontend-url-hyphen -- old tab URL, kept so saved links still work
+        '/customer_analytics/announcements': (_params, searchParams, hashParams) =>
+            combineUrl(urls.customerAnalyticsShoutouts(), searchParams, hashParams).url,
     },
     urls: {
         customerAnalytics: (): string => '/customer_analytics',
@@ -107,7 +110,7 @@ export const manifest: ProductManifest = {
         customerAnalyticsAccountByExternalId: (externalId: string, tab?: string): string =>
             `/customer_analytics/accounts/by-external-id/${encodeURIComponent(externalId)}${tab ? `/${tab}` : ''}`,
         customerAnalyticsNotes: (): string => '/customer_analytics/notes',
-        customerAnalyticsAnnouncements: (): string => '/customer_analytics/announcements',
+        customerAnalyticsShoutouts: (): string => '/customer_analytics/shoutouts',
         customerAnalyticsFeed: (): string => '/customer_analytics/feed',
         customerAnalyticsTasks: (): string => '/customer_analytics/tasks',
         customerAnalyticsFeatureRequests: (requestId?: string): string =>

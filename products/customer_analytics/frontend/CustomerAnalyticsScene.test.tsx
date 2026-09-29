@@ -36,7 +36,7 @@ jest.mock('lib/components/NotFound', () => ({
 jest.mock('./CustomerAnalyticsFilters', () => ({ CustomerAnalyticsFilters: () => null }))
 jest.mock('./components/AccountNotes/AccountNotesTabContent', () => ({ AccountNotesTabContent: () => null }))
 jest.mock('./components/Accounts/AccountsTabContent', () => ({ AccountsTabContent: () => null }))
-jest.mock('./components/Announcements/AnnouncementsTabContent', () => ({ AnnouncementsTabContent: () => null }))
+jest.mock('./components/Shoutouts/ShoutoutsTabContent', () => ({ ShoutoutsTabContent: () => null }))
 jest.mock('./components/CustomerJourneys/CustomerJourneys', () => ({ CustomerJourneys: () => null }))
 jest.mock('./components/CustomerJourneys/CustomerJourneySelect', () => ({ CustomerJourneySelect: () => null }))
 jest.mock('./components/CustomerJourneys/DeleteJourneyButton', () => ({ DeleteJourneyButton: () => null }))

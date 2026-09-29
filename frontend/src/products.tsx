@@ -117,7 +117,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/customer_analytics/accounts/:accountId': ['CustomerAnalyticsAccount', 'customerAnalyticsAccount'],
     '/customer_analytics/accounts/:accountId/:tab': ['CustomerAnalyticsAccount', 'customerAnalyticsAccount'],
     '/customer_analytics/notes': ['CustomerAnalytics', 'customerAnalyticsNotes'],
-    '/customer_analytics/announcements': ['CustomerAnalytics', 'customerAnalyticsAnnouncements'],
+    '/customer_analytics/shoutouts': ['CustomerAnalytics', 'customerAnalyticsShoutouts'],
     '/customer_analytics/feed': ['CustomerAnalytics', 'customerAnalyticsFeed'],
     '/customer_analytics/tasks': ['CustomerAnalytics', 'customerAnalyticsTasks'],
     '/customer_analytics/feature-requests': ['CustomerAnalytics', 'customerAnalyticsFeatureRequests'],
@@ -434,6 +434,8 @@ export const productRedirects: Record<
             : '/customer_analytics/dashboard'
         return combineUrl(defaultTab, searchParams, hashParams).url
     },
+    '/customer_analytics/announcements': (_params, searchParams, hashParams) =>
+        combineUrl(urls.customerAnalyticsShoutouts(), searchParams, hashParams).url,
     '/data-warehouse': () => urls.sources(),
     '/data-warehouse/new': () => urls.dataWarehouseSourceNew(),
     '/data-warehouse/sources': () => urls.sources(),
@@ -1271,7 +1273,7 @@ export const productUrls = {
     customerAnalyticsAccountByExternalId: (externalId: string, tab?: string): string =>
         `/customer_analytics/accounts/by-external-id/${encodeURIComponent(externalId)}${tab ? `/${tab}` : ''}`,
     customerAnalyticsNotes: (): string => '/customer_analytics/notes',
-    customerAnalyticsAnnouncements: (): string => '/customer_analytics/announcements',
+    customerAnalyticsShoutouts: (): string => '/customer_analytics/shoutouts',
     customerAnalyticsFeed: (): string => '/customer_analytics/feed',
     customerAnalyticsTasks: (): string => '/customer_analytics/tasks',
     customerAnalyticsFeatureRequests: (requestId?: string): string =>

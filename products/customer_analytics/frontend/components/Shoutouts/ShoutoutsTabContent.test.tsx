@@ -8,13 +8,13 @@ import { Provider } from 'kea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { announcementsLogic } from './announcementsLogic'
-import { AnnouncementsTabContent } from './AnnouncementsTabContent'
+import { shoutoutsLogic } from './shoutoutsLogic'
+import { ShoutoutsTabContent } from './ShoutoutsTabContent'
 
 jest.mock('~/queries/query', () => ({ performQuery: jest.fn() }))
 
-describe('AnnouncementsTabContent', () => {
-    let logic: ReturnType<typeof announcementsLogic.build>
+describe('ShoutoutsTabContent', () => {
+    let logic: ReturnType<typeof shoutoutsLogic.build>
     let postedBodies: any[]
 
     beforeEach(() => {
@@ -35,7 +35,7 @@ describe('AnnouncementsTabContent', () => {
             },
         })
         initKeaTests(true, { ...MOCK_DEFAULT_TEAM, conversations_settings: { slack_enabled: true } })
-        logic = announcementsLogic()
+        logic = shoutoutsLogic()
         logic.mount()
     })
 
@@ -49,13 +49,13 @@ describe('AnnouncementsTabContent', () => {
         logic.actions.setSelectedChannelIds(['C1', 'C2'])
         render(
             <Provider>
-                <AnnouncementsTabContent />
+                <ShoutoutsTabContent />
             </Provider>
         )
     }
 
     function clickSend(): void {
-        fireEvent.click(document.querySelector('[data-attr="send-announcement"]')!)
+        fireEvent.click(document.querySelector('[data-attr="send-shoutout"]')!)
     }
 
     // Sending posts to customer channels and can't be undone, so the send button must
@@ -65,7 +65,7 @@ describe('AnnouncementsTabContent', () => {
 
         clickSend()
 
-        await waitFor(() => expect(screen.getByText('Send this announcement to 2 channels?')).toBeInTheDocument())
+        await waitFor(() => expect(screen.getByText('Send this shoutout to 2 channels?')).toBeInTheDocument())
         expect(screen.getByText('Acme (#acme)')).toBeInTheDocument()
         expect(screen.getByText('Globex (#globex)')).toBeInTheDocument()
         expect(screen.getAllByText('Offsite this week').length).toBeGreaterThan(0)
@@ -76,8 +76,8 @@ describe('AnnouncementsTabContent', () => {
         renderComposer()
 
         clickSend()
-        await waitFor(() => expect(document.querySelector('[data-attr="confirm-send-announcement"]')).not.toBeNull())
-        fireEvent.click(document.querySelector('[data-attr="confirm-send-announcement"]')!)
+        await waitFor(() => expect(document.querySelector('[data-attr="confirm-send-shoutout"]')).not.toBeNull())
+        fireEvent.click(document.querySelector('[data-attr="confirm-send-shoutout"]')!)
 
         await waitFor(() => expect(postedBodies).toEqual([{ message: 'Offsite this week', channels: ['C1', 'C2'] }]))
     })
