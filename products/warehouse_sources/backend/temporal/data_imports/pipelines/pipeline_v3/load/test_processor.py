@@ -928,9 +928,6 @@ def _with_cursors(messages: list[dict[str, Any]], cursors: list[int | None]) -> 
 
 
 class TestLoadedCursorCommit:
-    # The loader owns an append's watermark: a batch's cursor is committed once its rows are in the table,
-    # so a retry or the next run reads strictly after them. Missing a path means those rows are read again.
-
     @parameterized.expand(
         [
             (
@@ -1018,9 +1015,6 @@ class TestLoadedCursorCommit:
 
 
 class TestDropRowsTheJobLoaded:
-    # A batch the earlier attempt was still writing can land after the retry read the watermark. The retry's
-    # copies of those rows must not be appended again, and rows loaded by another job must never be dropped.
-
     @parameterized.expand(
         [
             ("rows_the_job_loaded", "job-1", 3, 9, [4, 5]),

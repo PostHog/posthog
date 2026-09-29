@@ -97,7 +97,6 @@ def incremental_sync_blocked_reason(latest_error: str | None) -> str | None:
 # how long a rewrite nobody is advancing can pause a table's imports.
 REPARTITION_HOLD_MAX_AGE = timedelta(hours=48)
 
-# The job whose loaded batches last moved `incremental_field_last_value` (see `advance_incremental_field_last_value`).
 WATERMARK_JOB_KEY = "incremental_field_last_value_job_id"
 
 SCHEDULED_FULL_REFRESH_SYNC_TYPES = frozenset(

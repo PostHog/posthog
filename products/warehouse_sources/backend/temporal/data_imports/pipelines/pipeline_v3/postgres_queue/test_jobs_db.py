@@ -1570,7 +1570,6 @@ class TestStateDualWrite:
         current = await _insert_batch(conn, run_uuid="run-a3", job_id="job-ap", sync_type="append")
 
         assert [str(batch.id) for batch in await _claim(conn)] == [current]
-        # The orphan drain retires the straggler, and the job the newer attempt runs must not fail for it.
         assert [ref.run_uuid for ref in await BatchQueue.get_runs_with_orphaned_batches(conn, limit=10)] == ["run-a1"]
         assert (
             await BatchQueue.fail_run(conn, run_uuid="run-a1", team_id=1, schema_id="schema-1", reason="orphaned") == 1
