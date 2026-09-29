@@ -26,6 +26,7 @@ import dagster
 from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.dags.common import JobOwners, dagster_tags, skip_if_already_running
 from posthog.exceptions_capture import capture_exception
+from posthog.models.organization import Organization
 from posthog.models.team.production_event_activation import (
     RECHECK_BACKOFF,
     SWEEP_BATCH_SIZE,
@@ -65,7 +66,9 @@ def get_teams_without_production_event_op(context: dagster.OpExecutionContext):
             Q(ingested_production_event_last_checked_at__isnull=True)
             | Q(ingested_production_event_last_checked_at__lt=recheck_cutoff)
         )
-        .exclude(Q(is_demo=True) | Q(organization__for_internal_metrics=True) | Q(id=0))
+        # Subquery on the for_internal_metrics partial index, so Postgres does not read every organization row.
+        .exclude(Q(is_demo=True) | Q(id=0))
+        .exclude(organization_id__in=Organization.objects.filter(for_internal_metrics=True).values("id"))
         .values_list("id", flat=True)
     )
     total = len(candidate_ids)
