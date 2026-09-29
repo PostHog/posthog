@@ -65,6 +65,7 @@ the row lists both.
 | airtable                         | HTTP                        | requests                                                        | ✅                          |
 | airwallex                        | HTTP                        | requests (rest_source.RESTClient)                               | ✅                          |
 | aiven                            | HTTP                        | requests                                                        | ✅                          |
+| alegra                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | algolia                          | HTTP                        | requests                                                        | ✅                          |
 | alguna                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | alpha_vantage                    | HTTP                        | requests                                                        | ✅                          |
@@ -858,7 +859,6 @@ doesn't conflict with concurrent PRs.
 - akamai_reporting
 - akeneo
 - alation
-- alegra
 - allegro
 - alpaca_broker_api
 - amazon_ads
