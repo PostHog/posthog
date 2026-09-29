@@ -261,11 +261,11 @@ export function ExposureCriteriaPanel({ experiment, onChange, compact }: Exposur
         return (
             <div className="space-y-4">
                 <div className="space-y-3">
-                    <div className="flex items-center justify-between gap-2">
-                        <span className="flex items-center gap-1 text-sm text-secondary">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                        <span className="flex items-center gap-1 whitespace-nowrap text-sm text-secondary">
                             Exposure event
                             <Tooltip title="People count toward the results once this event happens for them. By default, that's when your code checks the experiment's feature flag.">
-                                <IconInfo className="text-base" />
+                                <IconInfo className="text-base shrink-0" />
                             </Tooltip>
                         </span>
                         <LemonSelect
@@ -340,11 +340,11 @@ export function ExposureCriteriaPanel({ experiment, onChange, compact }: Exposur
                     {isActivation && <ActivationActionFilter experiment={experiment} onChange={onChange} />}
                 </div>
 
-                <div className="flex items-center justify-between gap-2">
-                    <span className="flex items-center gap-1 text-sm text-secondary">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="flex items-center gap-1 whitespace-nowrap text-sm text-secondary">
                         Multiple variant handling
                         <Tooltip title="Some people see more than one variant, for example after the split changes. Excluding them keeps the results clean. Using their first variant keeps them in, but can bias the results.">
-                            <IconInfo className="text-base" />
+                            <IconInfo className="text-base shrink-0" />
                         </Tooltip>
                     </span>
                     <LemonSelect
