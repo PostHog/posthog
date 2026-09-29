@@ -21,6 +21,66 @@ The adapter accepts both Campaign Management API 5 `installs` and Ads Platform A
 Spend uses the currency in Apple's `localSpend` object and the reporting date to convert into the project's currency.
 Apple does not report conversion revenue through these reports, so reported conversion value is zero.
 
+## OpenAI Ads in Marketing analytics
+
+Marketing analytics support is controlled by the boolean organization flag `marketing-analytics-openai-ads` and is off by default.
+Enable the flag for an organization to show the integration and include its data in live and precomputed marketing queries.
+Disable it to stop using the integration in Marketing analytics without deleting the connection or its imported data.
+Data warehouse syncs continue independently of this flag.
+
+Sync `campaigns` and `campaign_insights` to include OpenAI Ads campaign delivery in Marketing analytics.
+Spend is already in major currency units; the importer adds `currency_code` from the account metadata so reports can convert spend at each bucket date.
+Existing connections need a full resync of `campaign_insights` to populate currency on historical rows.
+Without the currency column, cost tiles are unavailable and the campaign table excludes the source.
+The dashboard and source settings show a warning with a link to the affected warehouse source and instructions to fully resync `campaign_insights`.
+Queries with empty historical currency values stop with a resync message.
+Reported conversions and revenue are zero because the importer currently requests delivery metrics only.
+Ad groups and individual ads are not included in the native integration.
+
+## Source warnings in Marketing analytics
+
+The dashboard and source settings show validation errors for connected native and mapped external sources.
+They use the same adapter validators as campaign queries, so warnings follow each integration's supported checks without a separate frontend list of required columns.
+Warnings identify the affected connection and link to its settings.
+Mapped sources with missing required column mappings remain visible in these warnings until corrected.
+The dashboard also shows missing or disabled required tables and running, failed, paused, or cancelled syncs.
+Reload the dashboard after correcting the configuration or resyncing a table to refresh validation.
+This check uses table metadata and configuration; it does not scan imported rows for data quality issues.
+Query execution errors still appear on the affected dashboard tile or table.
+
+## Amazon Ads in Marketing analytics
+
+Marketing analytics support is controlled by the boolean organization flag `marketing-analytics-amazon-ads` and is off by default.
+Enable the flag for an organization to show the integration and include its data in live and precomputed marketing queries.
+Disable it to stop using the integration in Marketing analytics without deleting the connection or its imported data.
+Data warehouse syncs continue independently of this flag.
+
+Sync `sp_campaigns` and `sp_campaign_reports` to include Sponsored Products campaigns in Marketing analytics.
+Spend uses `cost`, with currency conversion at each report date using `campaign_budget_currency_code`.
+Reported conversions and revenue use the 14-day purchase and sales metrics; the other attribution windows are not added to these totals.
+Sponsored Brands, Sponsored Display, ad groups, and individual ads are not included because the importer does not provide their performance reports.
+
+Monetary tiles require the report date and currency columns; reports without currency can still supply impressions and clicks.
+
+## Rokt Ads in Marketing analytics
+
+Marketing analytics support is controlled by the boolean organization flag `marketing-analytics-rokt-ads` and is off by default.
+Enable the flag for an organization to show the integration and include its data in live and precomputed marketing queries.
+Disable it to stop using the integration in Marketing analytics without deleting the connection or its imported data.
+Data warehouse syncs continue independently of this flag.
+
+Sync `CampaignPerformance` to include Rokt Ads in Marketing analytics.
+The report provides campaign identity and daily metrics in one table, so the integration aggregates it without joining the report to itself.
+Spend uses `gross_cost`, clicks use `referrals`, and reported conversions and revenue use `conversions` and `conversion_value`.
+Missing optional conversion metrics show zero.
+The importer stores the requested cost currency on each row, defaulting to USD.
+Rokt reports `conversion_value` in USD regardless of the requested cost currency.
+Marketing analytics converts spend from the stored cost currency and conversion value from USD at each report date.
+Changing the source currency affects newly synced rows; historical rows retain their own currency.
+Existing connections need a full resync of `CampaignPerformance` to backfill currency before using monetary metrics.
+Missing currency columns prevent monetary tiles, and empty historical currency values stop queries with a resync message.
+Creative, audience, demographic, and publisher reports are excluded to avoid counting overlapping breakdowns twice.
+
 ## Adding a new source
 
 Looking to add a new source to data warehouse? [We have a detailed guide in the codebase](https://github.com/PostHog/posthog/blob/master/products/warehouse_sources/backend/temporal/data_imports/sources/README.md).

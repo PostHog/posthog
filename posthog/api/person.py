@@ -90,12 +90,12 @@ from posthog.utils import (
 from products.ai_training.backend.facade.api import queue_person_training_deletion
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.util import get_all_cohort_ids_by_person_uuid
-from products.workflows.backend.api.message_assets import (
+from products.workflows.backend.facade.api import get_workflow_names
+from products.workflows.backend.presentation.views.message_assets import (
     MessageAssetSerializer,
     PersonMessageAssetsRequestSerializer,
     fetch_message_assets_for_person,
 )
-from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
@@ -1673,13 +1673,9 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # Single lookup for every workflow referenced by this page of rows so the tab shows
         # human-readable names instead of raw UUIDs. Deleted workflows drop out of the map
         # and the row's `function_name` stays empty — the frontend falls back to `function_id`.
-        # HogFlow.id is a UUID column; ClickHouse function_id is a plain string, so coerce
-        # both sides to string when building the lookup dict.
-        function_ids = {row.function_id for row in data}
-        name_by_id = {
-            str(pk): (name or "")
-            for pk, name in HogFlow.objects.filter(team_id=self.team_id, id__in=function_ids).values_list("id", "name")
-        }
+        # HogFlow.id is a UUID column; ClickHouse function_id is a plain string, so the names come
+        # back keyed by the string id.
+        name_by_id = get_workflow_names(team_id=self.team_id, workflow_ids={row.function_id for row in data})
         enriched = [dataclasses.replace(row, function_name=name_by_id.get(row.function_id, "")) for row in data]
         return response.Response(MessageAssetSerializer(enriched, many=True).data)
 
@@ -1911,7 +1907,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             # Build point-in-time properties using the pre-fetched distinct_ids
             tag_queries(product=ProductKey.PERSONS, feature=Feature.QUERY, team_id=self.team_id)
             point_in_time_properties = build_person_properties_at_time(
-                team_id=self.team_id,
+                team=self.team,
                 timestamp=timestamp,
                 distinct_ids=distinct_ids_queried,
                 include_set_once=include_set_once,

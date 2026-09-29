@@ -43,6 +43,30 @@ def csp_report_endpoint(**params: str) -> str:
     return parts._replace(query=urlencode(query)).geturl()
 
 
+def object_storage_upload_source() -> str:
+    """The `connect-src` source a browser POSTs a presigned upload to, or "" when there is none.
+
+    A file the user attaches goes straight from the page to object storage: the API hands out a
+    presigned POST and the bytes never pass through Django, so the store's public endpoint has to
+    be a `connect-src` the policy names. The bucket is part of the source because in cloud that
+    endpoint is shared S3, and an origin on its own would let injected script POST to every other
+    bucket on the same host.
+
+    Returns "" for a deployment that serves object storage from its own origin, which `'self'`
+    already covers, and for one that has not configured the store at all.
+
+    The source is https whatever the endpoint says, because a bucket reached over plaintext is
+    not something to admit. The dev store runs on http, so it keeps its scheme the way the other
+    localhost sources in this policy do.
+    """
+    parts = urlsplit(settings.OBJECT_STORAGE_PUBLIC_ENDPOINT)
+    bucket = settings.OBJECT_STORAGE_BUCKET
+    if parts.scheme not in ("http", "https") or not parts.netloc or not bucket:
+        return ""
+    scheme = parts.scheme if settings.DEBUG or settings.TEST else "https"
+    return f"{scheme}://{parts.netloc}/{bucket}"
+
+
 # The full path, matched exactly. Django sends every unmatched path to the app catch-all, so a
 # prefix match would also hand the app document this policy and stop it from starting.
 REPLAY_PLAYER_FRAME_PATH = "/replay_player_frame/index.html"
@@ -250,16 +274,18 @@ class CSPMiddleware:
             # origins: a frame-ancestors directive makes browsers ignore X-Frame-Options, which
             # names only our own origin.
             frame_ancestors = "frame-ancestors https://posthog.com https://preview.posthog.com"
+            js_url = urlsplit(settings.JS_URL)
+            bundle_origin = f"{js_url.scheme}://{js_url.netloc}" if js_url.scheme and js_url.netloc else ""
             if settings.DEBUG or settings.TEST:
-                resource_url = "http://localhost:8234"
+                # A devbox serves Vite from its Coder host, not localhost, so JS_URL names it.
+                resource_url = " ".join(dict.fromkeys(filter(None, ["http://localhost:8234", bundle_origin])))
             elif settings.SITE_URL.endswith(".dev.posthog.dev"):
                 resource_url = "https://*.dev.posthog.dev"
                 # The posthog.com dev server frames the dev app.
                 frame_ancestors += " http://localhost:8001"
 
             connect_debug_url = "ws://localhost:8234" if settings.DEBUG or settings.TEST else ""
-            js_url = urlsplit(settings.JS_URL)
-            bundle_origin = f"{js_url.scheme}://{js_url.netloc}" if js_url.scheme and js_url.netloc else ""
+            object_storage_source = object_storage_upload_source()
             csp_parts = [
                 # Firefox checks <link rel="modulepreload"> against default-src instead of script-src,
                 # so without the bundle host it refuses the preloads index.html emits for the boot
@@ -339,7 +365,7 @@ class CSPMiddleware:
                 frame_ancestors,
                 # The live debugger's repo browser reads PostHog/posthog from the GitHub API. The path keeps
                 # the rest of the API, and every other repository, out of reach of injected script.
-                f"connect-src 'self' https://www.posthogstatus.com {resource_url} {connect_debug_url} https://api.github.com/repos/PostHog/posthog/ https://raw.githubusercontent.com/PostHog/terminal-assets/",
+                f"connect-src 'self' https://www.posthogstatus.com {resource_url} {connect_debug_url} https://api.github.com/repos/PostHog/posthog/ https://raw.githubusercontent.com/PostHog/terminal-assets/ {object_storage_source}",
                 # https: lets heatmaps frame a customer's site. 'self' is for the replay player
                 # frame, whose document is same-origin: an http origin does not match https:.
                 "frame-src 'self' https:",
@@ -354,6 +380,12 @@ class CSPMiddleware:
                 # without this origin a staff logout is cancelled with nothing shown to the user.
                 "form-action 'self' https://accounts.google.com",
             ]
+            if is_embeddable_document(request.path):
+                # Customers frame these documents on their own sites, and no list of ancestors can
+                # name every such site. In a report-only policy the directive only sends a report for
+                # each embed. Chrome cuts the document URL of that report to the origin, so it looks
+                # the same as a report from an app page that the browser blocks in a frame.
+                csp_parts.remove(frame_ancestors)
 
             # The hosts and the config token below belong to PostHog Cloud, so self-hosted installs, E2E
             # runs and the dev environment keep the wildcards. A load from a PostHog host that is not

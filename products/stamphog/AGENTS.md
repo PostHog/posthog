@@ -99,7 +99,9 @@ add a read-then-act path, pin it; this class of bug has been found on five separ
   to `product=aio_stamphog` and `obo=<customer team>`, capped at `cap_usd=5` and `ttl_seconds=3600`,
   acting as the repo's connecting user. The `phs_` never enters the sandbox; a mint failure fails
   the run (no shared-key fallback); the worker revokes the token once the reviewer returns,
-  without waiting for the sandbox teardown. Do not widen the cap or TTL without a run-cost reason: they bound what a prompt-injected reviewer can
+  without waiting for the sandbox teardown. The review mints the token after the sandbox exists, so
+  the token reaches it as a file (`STAMPHOG_SANDBOX_GATEWAY_TOKEN_PATH`), never in the creation env
+  or a command line. Do not widen the cap or TTL without a run-cost reason: they bound what a prompt-injected reviewer can
   spend with a leaked token.
 - The raw-Anthropic fallback exists for a local `review_pr.py` run only; hosted runs fail closed
   without a gateway. No `ANTHROPIC_API_KEY` may enter the sandbox environment.
@@ -251,9 +253,10 @@ Without those keys (a manual `review_pr.py` run) the engine reads git history in
 The engine's git has no credential, so every object it reads must arrive in `_clone_pr` or `_prefetch_review_blobs`: an on-demand promisor fetch is anonymous and a private repository refuses it.
 Test clone changes with `GIT_NO_LAZY_FETCH=1`, because a public repository hides that failure.
 
-The server's pre-check (`refuse_on_pre_gates`, `backend/logic/engine_pregate.py`) runs `review_local.py --pregate` in a child process on the worker, in a temporary tree with the run's effective trusted policy.
+The server's pre-check (`refuse_on_pre_gates`, `backend/logic/engine_pregate.py`) runs `review_local.py --pregate` in a child process on the worker, in a temporary tree with the run's effective trusted policy and the PR head's `AGENT_APPROVALS.md` files.
 It never imports the engine: the engine's bare module names and its import-time policy load would bind to the worker's own checkout.
-Its fast refusal may only cover what the sandbox review would also refuse, because nothing re-reviews it.
+Its fast verdict (a gate refusal, or the pending-migration WAIT) may only be one the sandbox review would also reach, because nothing re-reviews it.
+Every input the sandbox reads from its checkout must reach the tree too, or finality must not depend on it: the folder files decide the size gate, and the manifest scripts scan still needs git, so a dependency manifest keeps the pending-migration case undecided.
 `pregate()` decides that finality in the engine, and the server adds the file-list guards in `pregate_skip_reason` (head moved, list truncated, renames).
 Anything in doubt, and any error, falls through to the full review.
 
@@ -269,6 +272,8 @@ T2-never with it, so it answers False for every PR it exists to catch.
   registry-completeness test guards this, don't bypass it.
 - Workflow bodies follow the repo-wide determinism rules (`workflow.patched()` for new commands).
 - Activity payloads stay small; large context rides in `run.output`, not through the workflow.
+- The sandbox start and checkout run beside the context fetch, the pre-check and the bot polls, so every activity that can overlap them writes `run.output` through `_merge_run_output` (a JSONB `||` merge), never a read-modify-write `save()` from a copy loaded earlier. A stale copy drops the other activity's keys, including the sandbox claim that stops a retry from paying for a second sandbox. The merge replaces a key whole, so the sandbox start and checkout record their step timings under their own keys, not in `timings_ms`.
+- No activity waits inside for another activity's write. A waiting activity holds a worker thread and an activity slot, and enough of them starve the activities they wait for. Put the wait in the workflow and split the activity at it.
 
 ## Tests
 

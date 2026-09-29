@@ -72,7 +72,7 @@ from products.messaging.backend.models.message_preferences import (
     PreferenceStatus,
 )
 from products.messaging.backend.services.customerio_sync_service import sync_preferences_to_customerio
-from products.workflows.backend.models.team_workflows_config import EmailTrackingConsentMode
+from products.workflows.backend.facade.enums import EmailTrackingConsentMode
 
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)

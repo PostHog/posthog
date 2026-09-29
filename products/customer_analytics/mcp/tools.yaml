@@ -114,6 +114,21 @@ tools:
     account-track-rules-update:
         operation: account_track_rules_update
         enabled: false
+    account-views-create:
+        operation: account_views_create
+        enabled: false
+    account-views-destroy:
+        operation: account_views_destroy
+        enabled: false
+    account-views-list:
+        operation: account_views_list
+        enabled: false
+    account-views-partial-update:
+        operation: account_views_partial_update
+        enabled: false
+    account-views-retrieve:
+        operation: account_views_retrieve
+        enabled: false
     accounts-by-external-id-retrieve:
         operation: accounts_by_external_id_retrieve
         enabled: false
@@ -353,6 +368,9 @@ tools:
     accounts-presence-create:
         operation: accounts_presence_create
         enabled: false
+    accounts-presence-list:
+        operation: accounts_presence_list
+        enabled: false
     accounts-relationships-create:
         operation: accounts_relationships_create
         enabled: true
@@ -543,6 +561,9 @@ tools:
         feature_flag: customer-analytics-csp
     calendar-sync-backfill-create:
         operation: calendar_sync_backfill_create
+        enabled: false
+    calendar-sync-interval-create:
+        operation: calendar_sync_interval_create
         enabled: false
     calendar-sync-list:
         operation: calendar_sync_list
@@ -795,6 +816,9 @@ tools:
         enabled: false
     customer-analytics-accounts-table-query-create:
         operation: customer_analytics_accounts_table_query_create
+        enabled: false
+    customer-analytics-external-account-create:
+        operation: customer_analytics_external_account_create
         enabled: false
     customer-analytics-external-account-retrieve:
         operation: customer_analytics_external_account_retrieve

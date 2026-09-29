@@ -136,6 +136,14 @@ export interface accessControlsLogicValues {
     panelEntryLoading: boolean
     panelOptionsSubject: AccessDetailSubject | null
     panelSubject: AccessDetailSubject | null
+    productsCollapse: {
+        canCollapse: boolean
+        collapsedCount: number
+        visibleResources: {
+            key: APIScopeObject
+            label: string
+        }[]
+    }
     resourceKeys: {
         key: APIScopeObject
         label: string
@@ -152,15 +160,7 @@ export interface accessControlsLogicValues {
         label: string
     }[]
     searchText: string
-    showAllTools: boolean
-    toolsCollapse: {
-        canCollapse: boolean
-        collapsedCount: number
-        visibleResources: {
-            key: APIScopeObject
-            label: string
-        }[]
-    }
+    showAllProducts: boolean
     visibleResourceKeySet: Set<APIScopeObject>
 }
 
@@ -459,8 +459,10 @@ export interface accessControlsLogicActions {
             | 'marketing_analytics'
             | 'mcp_analytics'
             | 'mcp_builtin_agent'
+            | 'mcp_registry'
             | 'metrics'
             | 'notebook'
+            | 'offline_evaluation_ingestion'
             | 'organization'
             | 'organization_integration'
             | 'organization_member'
@@ -503,6 +505,7 @@ export interface accessControlsLogicActions {
             | 'warehouse_view'
             | 'web_analytics'
             | 'webhook'
+            | 'wizard_run'
             | 'wizard_session',
             AccessControlLevel | null
         >
@@ -518,7 +521,7 @@ export interface accessControlsLogicActions {
     setSearchText: (searchText: string) => {
         searchText: string
     }
-    setShowAllTools: (show: boolean) => {
+    setShowAllProducts: (show: boolean) => {
         show: boolean
     }
 }
@@ -534,13 +537,13 @@ export interface accessControlsLogicMeta {
             selectedTabOptions: string | null
         ) => AccessDetailSubject | null
         objectRuleResourceOptions: (defaults: AccessControlDefaultsResponse | null) => ObjectRuleResource[]
-        toolsCollapse: (
+        productsCollapse: (
             resourceKeys: {
                 key: APIScopeObject
                 label: string
             }[],
             panelEntry: AccessControlSettingsEntry | null,
-            showAllTools: boolean
+            showAllProducts: boolean
         ) => {
             canCollapse: boolean
             collapsedCount: number
@@ -634,8 +637,10 @@ export interface accessControlsLogicMeta {
                 | 'marketing_analytics'
                 | 'mcp_analytics'
                 | 'mcp_builtin_agent'
+                | 'mcp_registry'
                 | 'metrics'
                 | 'notebook'
+                | 'offline_evaluation_ingestion'
                 | 'organization'
                 | 'organization_integration'
                 | 'organization_member'
@@ -678,6 +683,7 @@ export interface accessControlsLogicMeta {
                 | 'warehouse_view'
                 | 'web_analytics'
                 | 'webhook'
+                | 'wizard_run'
                 | 'wizard_session'
             )[],
             featureFlags: FeatureFlagsSet
@@ -786,8 +792,10 @@ export interface accessControlsLogicMeta {
                 | 'marketing_analytics'
                 | 'mcp_analytics'
                 | 'mcp_builtin_agent'
+                | 'mcp_registry'
                 | 'metrics'
                 | 'notebook'
+                | 'offline_evaluation_ingestion'
                 | 'organization'
                 | 'organization_integration'
                 | 'organization_member'
@@ -830,6 +838,7 @@ export interface accessControlsLogicMeta {
                 | 'warehouse_view'
                 | 'web_analytics'
                 | 'webhook'
+                | 'wizard_run'
                 | 'wizard_session'
             >
         ) => AccessControlRoleEntry[]
@@ -910,8 +919,10 @@ export interface accessControlsLogicMeta {
                 | 'marketing_analytics'
                 | 'mcp_analytics'
                 | 'mcp_builtin_agent'
+                | 'mcp_registry'
                 | 'metrics'
                 | 'notebook'
+                | 'offline_evaluation_ingestion'
                 | 'organization'
                 | 'organization_integration'
                 | 'organization_member'
@@ -954,6 +965,7 @@ export interface accessControlsLogicMeta {
                 | 'warehouse_view'
                 | 'web_analytics'
                 | 'webhook'
+                | 'wizard_run'
                 | 'wizard_session'
             >
         ) => AccessControlMemberEntry[]
@@ -1025,7 +1037,7 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
         closeRuleModal: true,
         openAccessDetailPanel: (scopeType: AccessDetailSubjectScope, subjectId: string) => ({ scopeType, subjectId }),
         loadPanelEntry: (subject: AccessDetailSubject) => ({ subject }),
-        setShowAllTools: (show: boolean) => ({ show }),
+        setShowAllProducts: (show: boolean) => ({ show }),
         saveGroupedRules: (params: {
             scopeType: ScopeType
             scopeId: string
@@ -1121,8 +1133,8 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
         panelEntry: {
             openAccessDetailPanel: () => null,
         },
-        /** The Tools list starts collapsed for every newly opened subject. */
-        showAllTools: [false, { setShowAllTools: (_, { show }) => show, openAccessDetailPanel: () => false }],
+        /** The Products list starts collapsed for every newly opened subject. */
+        showAllProducts: [false, { setShowAllProducts: (_, { show }) => show, openAccessDetailPanel: () => false }],
         panelSubject: [
             null as AccessDetailSubject | null,
             {
@@ -1161,15 +1173,15 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
         ],
 
         /**
-         * The Tools list for the panel's subject: ruled tools first, at least 3 rows visible, the
+         * The Products list for the panel's subject: ruled products first, at least 3 rows visible, the
          * rest collapsed behind a toggle when there are enough to be worth hiding.
          */
-        toolsCollapse: [
-            (s) => [s.resourceKeys, s.panelEntry, s.showAllTools],
+        productsCollapse: [
+            (s) => [s.resourceKeys, s.panelEntry, s.showAllProducts],
             (
                 resourceKeys: { key: APIScopeObject; label: string }[],
                 panelEntry: AccessControlSettingsEntry | null,
-                showAllTools: boolean
+                showAllProducts: boolean
             ): {
                 visibleResources: { key: APIScopeObject; label: string }[]
                 collapsedCount: number
@@ -1185,7 +1197,7 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
                 const canCollapse = collapsedCount > 3
                 return {
                     visibleResources:
-                        showAllTools || !canCollapse ? orderedResources : orderedResources.slice(0, visibleCount),
+                        showAllProducts || !canCollapse ? orderedResources : orderedResources.slice(0, visibleCount),
                     collapsedCount,
                     canCollapse,
                 }

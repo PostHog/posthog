@@ -23,7 +23,6 @@ import {
   type CanvasAgentRequestResult,
   type CanvasAnalyticsConfig,
   type CanvasCommentHighlight,
-  type CanvasTextSelection,
   canvasAgentRequestInputSchema,
   limitCanvasCommentHighlights,
 } from "@posthog/core/canvas/freeformSchemas";
@@ -121,6 +120,7 @@ import { CanvasSidePanel } from "./CanvasSidePanel";
 import { canvasChatTaskId } from "./canvasChatTask";
 import { canvasCommentTaskId } from "./canvasCommentTask";
 import { canvasRuntimeErrorAnalytics } from "./canvasRuntimeError";
+import type { HostCanvasTextSelection } from "./canvasSelection";
 import { canvasSidePanelVisibility } from "./canvasSidePanelVisibility";
 import {
   canvasVersionNavigation,
@@ -188,7 +188,7 @@ export function FreeformCanvasView({
   // before the canvas record's polled generationTaskId catches up.
   const [startedTaskId, setStartedTaskId] = useState<string | null>(null);
   const [textSelection, setTextSelection] =
-    useState<CanvasTextSelection | null>(null);
+    useState<HostCanvasTextSelection | null>(null);
   const [clearTextSelectionKey, setClearTextSelectionKey] = useState(0);
   const dismissTextSelection = useCallback(() => {
     setTextSelection(null);

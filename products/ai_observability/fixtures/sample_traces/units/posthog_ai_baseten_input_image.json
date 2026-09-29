@@ -1,0 +1,128 @@
+{
+  "_generated": "Generated file. Do not edit by hand and do not add units by hand. Every unit is built by the AI observability sample pipeline from the structure of real production events, with all content replaced. See AGENTS.md in this directory.",
+  "title": "Warehouse inbound damage check via vision model",
+  "scenario": "A warehouse inbound scanning station photographs each incoming package and sends the image with a short question to a baseten-hosted vision-language model. The model answers with a terse verdict, here clearing the package for putaway.",
+  "summary": {
+    "events": {
+      "$ai_generation": 1
+    },
+    "traces": 1,
+    "sessions": 0,
+    "errors": 0,
+    "libs": [
+      "posthog-ai"
+    ],
+    "providers": [
+      "baseten"
+    ],
+    "frameworks": [],
+    "models": [
+      "@cf/zai-org/glm-5.2"
+    ],
+    "content_types": [
+      "input_image",
+      "input_text"
+    ]
+  },
+  "events": [
+    {
+      "event": "$ai_generation",
+      "offset_ms": 0,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_span_id": "5e2dc774-783a-7584-7fe9-07d1d2f19517",
+        "session_id": "wh_scan_0231",
+        "$is_server": true,
+        "$group_1": "https://relay.example.com",
+        "$python_version": "3.13.13",
+        "$ai_lib": "posthog-ai",
+        "$ai_reasoning_tokens": 0,
+        "$ai_stream": true,
+        "$ai_output_cost_usd": 4.4e-06,
+        "$ai_input_tokens": 35,
+        "$ai_total_cost_usd": 5.34e-05,
+        "$groups": {
+          "customer": "https://relay.example.com",
+          "carrier": 709336
+        },
+        "team_id": 709336,
+        "$ai_trace_id": "5564a9f7-a66c-7508-ab40-a686b2d9c054",
+        "$ai_lib_version": "7.60.0",
+        "$ai_time_to_first_token": 0.0001900549978017807,
+        "$lib_version": "7.60.0",
+        "$ai_model": "@cf/zai-org/glm-5.2",
+        "$geoip_disable": true,
+        "inbound_shipment_id": "806066fe-4ad4-743e-7bb5-40203a41b10a",
+        "$ai_output_tokens": 1,
+        "$os": "Linux",
+        "$os_version": "12",
+        "$ai_billable": true,
+        "$ai_provider": "baseten",
+        "$lib": "posthog-python",
+        "$ai_input_cost_usd": 4.9e-05,
+        "$python_runtime": "CPython",
+        "$os_distro": "Debian GNU/Linux",
+        "$ai_latency": 1.7870681285858154,
+        "warehouse_zone_number": 37,
+        "$group_2": 617863,
+        "$ai_input": [
+          {
+            "content": [
+              {
+                "image_url": "data:image/png;base64,⟦media:posthog_ai_baseten_input_image__M2264000.png⟧",
+                "type": "input_image"
+              },
+              {
+                "text": "is this damaged?",
+                "type": "input_text"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "$ai_output_choices": {
+          "choices": [
+            {
+              "finish_reason": "stop",
+              "index": 0,
+              "message": {
+                "content": "No",
+                "function_call": null,
+                "role": "assistant",
+                "tool_calls": null
+              }
+            }
+          ],
+          "created": 2232441457,
+          "id": "chatcmpl-2UMzxwJdKTRYkNx48TPTMrBXY3vZsf4d",
+          "model": "zai-org/GLM-5.2",
+          "object": "chat.completion",
+          "system_fingerprint": null,
+          "usage": {
+            "completion_tokens": 1,
+            "completion_tokens_details": {
+              "accepted_prediction_tokens": 2,
+              "audio_tokens": 0,
+              "image_tokens": null,
+              "reasoning_tokens": 0,
+              "rejected_prediction_tokens": 1,
+              "text_tokens": null,
+              "video_tokens": null
+            },
+            "prompt_tokens": 35,
+            "prompt_tokens_details": {
+              "audio_tokens": 0,
+              "cached_tokens": 0,
+              "image_tokens": null,
+              "text_tokens": null,
+              "video_tokens": null
+            },
+            "total_tokens": 36
+          }
+        }
+      }
+    }
+  ],
+  "sets": [],
+  "why": null
+}

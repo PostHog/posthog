@@ -49,6 +49,10 @@ STAMPHOG_REVIEWHOG_LABEL = "reviewhog"
 # vendor the engine with the resolver beside it and the engine resolves the two layouts by offset.
 STAMPHOG_SANDBOX_OWNERS_DIR = f"{STAMPHOG_SANDBOX_REPO_DIR}/tools/owners"
 STAMPHOG_SANDBOX_CONTEXT_PATH = f"{STAMPHOG_SANDBOX_REPO_DIR}/.stamphog_review_context.json"
+# Outside the checkout, so the archive never shows up in the tree the reviewer explores.
+STAMPHOG_SANDBOX_PAYLOAD_PATH = "/tmp/stamphog/review-payload.tar.gz"
+# Outside the checkout too. The reviewer command reads the per-run gateway token from it and removes it.
+STAMPHOG_SANDBOX_GATEWAY_TOKEN_PATH = "/tmp/stamphog/gateway-token"
 
 # Trusted review-norms prose the engine reads as its reviewer system guidance, and
 # the gate policy entrypoint. Both are fetched from the target repo's DEFAULT branch
@@ -72,10 +76,16 @@ FETCH_CONTEXT_TIMEOUT = timedelta(minutes=5)
 # Two engine pre-check runs and one short LLM call, each capped at 30 seconds, plus the token mint.
 PRE_GATES_TIMEOUT = timedelta(minutes=3)
 RUN_REVIEW_TIMEOUT = timedelta(minutes=30)
+# The provision and the PR head fetch, and later the checkout and the blob prefetch. Each runs beside
+# the context fetch, the pre-check or the bot wait, as its own activity, so the waits between them are
+# workflow awaits. Each budget is its step ceilings plus SANDBOX_PHASE_RESERVE_SECONDS.
+SANDBOX_START_TIMEOUT = timedelta(minutes=10)
+SANDBOX_CHECKOUT_TIMEOUT = timedelta(minutes=10)
+SANDBOX_DESTROY_TIMEOUT = timedelta(minutes=2)
 
 # Ceilings for the steps inside the review activity. They add up to more than RUN_REVIEW_TIMEOUT on
 # purpose: each one caps a step that should never take that long, while the shared deadline in
-# run_review_in_sandbox caps what the steps can spend between them. Granting each step its own
+# each sandbox activity caps what the steps can spend between them. Granting each step its own
 # independent budget was the bug — the clone alone could hold the activity for twice its ceiling.
 CLONE_STEP_TIMEOUT_SECONDS = 5 * 60
 PREFETCH_DIFF_BLOBS_TIMEOUT_SECONDS = 3 * 60
@@ -112,3 +122,10 @@ SANDBOX_RETRY_POLICY = RetryPolicy(
     initial_interval=timedelta(seconds=10),
     non_retryable_error_types=["SandboxPhaseError"],
 )
+
+# The Claude Code CLI's own switches for its telemetry, error reporting and auto-update traffic.
+NETWORK_RESTRICTED_AGENT_ENV = {
+    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+    "DISABLE_TELEMETRY": "1",
+    "DISABLE_ERROR_REPORTING": "1",
+}
