@@ -11,6 +11,7 @@ import { uuid } from 'lib/utils/dom'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import type { ModelOption } from '../modelPickerLogic'
+import { extractPromptVariables, fillPromptVariables } from '../prompts/promptVariables'
 import { llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
 import type { LLMProviderKey } from '../settings/llmProviderKeysLogic'
 import { llmPlaygroundModelLogic } from './llmPlaygroundModelLogic'
@@ -316,6 +317,7 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
                 .map((prompt: PromptConfig, index: number) => ({
                     prompt,
                     index,
+                    systemPrompt: fillPromptVariables(prompt.systemPrompt, prompt.variables),
                     messagesToSend: prompt.messages.filter((m) => m.content.trim()),
                 }))
                 .filter((item: { messagesToSend: Message[] }) => item.messagesToSend.length > 0)
@@ -326,8 +328,15 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
                 return
             }
 
+            const variableCounts = runnablePrompts.map(({ prompt }) => {
+                const names = extractPromptVariables(prompt.systemPrompt)
+                return { total: names.length, filled: names.filter((name) => !!prompt.variables[name]).length }
+            })
+
             posthog.capture('llma playground prompt submitted', {
                 prompt_count: runnablePrompts.length,
+                variable_count: variableCounts.reduce((sum, { total }) => sum + total, 0),
+                filled_variable_count: variableCounts.reduce((sum, { filled }) => sum + filled, 0),
                 models: runnablePrompts.map(({ prompt }) => prompt.model),
                 has_tools: runnablePrompts.some(({ prompt }) => !!prompt.tools?.length),
                 total_message_count: runnablePrompts.reduce(
@@ -339,7 +348,7 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
             const abortController = new AbortController()
             currentAbortController = abortController
             try {
-                const runs = runnablePrompts.map(async ({ prompt, index, messagesToSend }) => {
+                const runs = runnablePrompts.map(async ({ prompt, index, systemPrompt, messagesToSend }) => {
                     const liveItemId = uuid()
                     let responseUsage: UsageSummary = {}
                     let ttftMs: number | null = null
@@ -360,7 +369,7 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
                             promptId: prompt.id,
                             promptLabel: `Prompt ${index + 1}`,
                             model: prompt.model,
-                            systemPrompt: prompt.systemPrompt,
+                            systemPrompt,
                             requestMessages: messagesToSend,
                             response: responseText,
                             reasoning: responseReasoning,
@@ -408,7 +417,7 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
                         selectedModelProvider = selectedModel.provider.toLowerCase()
 
                         const requestData: Record<string, unknown> = {
-                            system: prompt.systemPrompt,
+                            system: systemPrompt,
                             messages: messagesToSend
                                 .filter((m: Message) => m.role === 'user' || m.role === 'assistant')
                                 .map((m: Message) => ({ role: m.role, content: m.content })),

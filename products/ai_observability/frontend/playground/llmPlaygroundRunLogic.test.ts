@@ -108,6 +108,35 @@ describe('llmPlaygroundRunLogic', () => {
         streamSpy.mockRestore()
     })
 
+    it('fills prompt variables in the system prompt it sends', async () => {
+        const streamSpy = jest.spyOn(api, 'stream').mockImplementation(async (_url, options: any) => {
+            options.onMessage?.({ data: JSON.stringify({ type: 'text', text: 'ok' }) })
+        })
+
+        const logic = llmPlaygroundRunLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        llmPlaygroundPromptsLogic.actions.setModel('gpt-5-mini')
+        llmPlaygroundPromptsLogic.actions.setSystemPrompt('Help {{ company }} users with {{topic}} and {{tone}}.')
+        llmPlaygroundPromptsLogic.actions.setVariableValue('company', 'Acme')
+        llmPlaygroundPromptsLogic.actions.setVariableValue('topic', 'billing')
+        llmPlaygroundPromptsLogic.actions.setMessages([{ role: 'user', content: 'hello' }])
+        llmPlaygroundRunLogic.actions.submitPrompt()
+
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(streamSpy.mock.calls[0][1]?.data).toMatchObject({
+            system: 'Help Acme users with billing and {{tone}}.',
+        })
+        expect(llmPlaygroundPromptsLogic.values.systemPrompt).toBe(
+            'Help {{ company }} users with {{topic}} and {{tone}}.'
+        )
+
+        logic.unmount()
+        streamSpy.mockRestore()
+    })
+
     it('does not run a completion without editor access to the playground and explains why', async () => {
         // Both message textareas submit on Cmd+Enter, bypassing the Run button's disabledReason,
         // so the gate has to hold in the logic itself.

@@ -61,6 +61,8 @@ export interface PromptConfig {
     sourceEvaluationId: string | null
     sourceEvaluationName: string | null
     messages: Message[]
+    /** Values for the `{{name}}` placeholders in the system prompt, keyed by variable name. */
+    variables: Record<string, string>
 }
 
 export interface PlaygroundSetupPayload {
@@ -159,6 +161,7 @@ export function createPromptConfig(partial: Partial<PromptConfig> = {}): PromptC
         sourceEvaluationId: partial.sourceEvaluationId ?? null,
         sourceEvaluationName: partial.sourceEvaluationName ?? null,
         messages: partial.messages ?? [],
+        variables: partial.variables ?? {},
     }
 }
 
@@ -695,6 +698,15 @@ export interface llmPlaygroundPromptsLogicActions {
     setupPlaygroundFromEvent: (payload: PlaygroundSetupPayload) => {
         payload: PlaygroundSetupPayload
     }
+    setVariableValue: (
+        name: string,
+        value: string,
+        promptId?: string
+    ) => {
+        name: string
+        promptId: string | undefined
+        value: string
+    }
     toggleCollapsed: (key: string) => {
         key: string
     }
@@ -758,6 +770,7 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
         setThinking: (thinking: boolean, promptId?: string) => ({ thinking, promptId }),
         setReasoningLevel: (reasoningLevel: ReasoningLevel, promptId?: string) => ({ reasoningLevel, promptId }),
         setTools: (tools: Record<string, unknown>[] | null, promptId?: string) => ({ tools, promptId }),
+        setVariableValue: (name: string, value: string, promptId?: string) => ({ name, value, promptId }),
         clearConversation: (promptId?: string) => ({ promptId }),
         setMessages: (messages: Message[], promptId?: string) => ({ messages, promptId }),
         deleteMessage: (index: number, promptId?: string) => ({ index, promptId }),
@@ -850,6 +863,14 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                     state: PromptConfig[],
                     { tools, promptId }: { tools: Record<string, unknown>[] | null; promptId?: string }
                 ) => updatePromptConfigs(state, promptId, (prompt) => ({ ...prompt, tools })),
+                setVariableValue: (
+                    state: PromptConfig[],
+                    { name, value, promptId }: { name: string; value: string; promptId?: string }
+                ) =>
+                    updatePromptConfigs(state, promptId, (prompt) => ({
+                        ...prompt,
+                        variables: { ...prompt.variables, [name]: value },
+                    })),
                 clearConversation: (state: PromptConfig[], { promptId }: { promptId?: string }) =>
                     updatePromptConfigs(state, promptId, (prompt) => ({ ...prompt, messages: [] })),
                 setMessages: (
@@ -934,6 +955,7 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                             sourcePromptVersion: payload.sourcePromptVersion ?? null,
                             sourceEvaluationId: payload.sourceEvaluationId ?? null,
                             sourceEvaluationName: null,
+                            variables: {},
                         },
                     ]
                 },

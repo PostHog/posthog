@@ -50,6 +50,7 @@ import { JSONEditor } from '../components/JSONEditor'
 import { MetadataHeader } from '../ConversationDisplay/MetadataHeader'
 import { getModelPickerFooterLink, ModelPicker, parsePlaygroundProviderKeyId } from '../ModelPicker'
 import { modelPickerLogic } from '../modelPickerLogic'
+import { extractPromptVariables } from '../prompts/promptVariables'
 import { llmPlaygroundModelLogic } from './llmPlaygroundModelLogic'
 import {
     getLinkedSourceLabel,
@@ -980,6 +981,7 @@ function SystemMessageDisplay({ promptId }: { promptId: string }): JSX.Element {
                             maxRows={undefined}
                             onPressCmdEnter={() => submitPrompt()}
                         />
+                        <PromptVariablesInputs prompt={prompt} />
                     </div>
                 </AnimatedCollapsible>
             </div>
@@ -1012,6 +1014,40 @@ function SystemMessageDisplay({ promptId }: { promptId: string }): JSX.Element {
                 </div>
             </LemonModal>
         </>
+    )
+}
+
+function PromptVariablesInputs({ prompt }: { prompt: PromptConfig }): JSX.Element | null {
+    const { setVariableValue } = useActions(llmPlaygroundPromptsLogic)
+    const variables = extractPromptVariables(prompt.systemPrompt)
+
+    if (variables.length === 0) {
+        return null
+    }
+
+    return (
+        <div className="mt-2" data-attr="llma-playground-prompt-variables">
+            <div className="text-xs font-medium mb-1">Variables</div>
+            <p className="text-xs text-muted mb-2">
+                Values replace the placeholders when you run the prompt. The model gets empty variables as written.
+            </p>
+            <div className="grid gap-2 grid-cols-[repeat(auto-fill,minmax(12rem,1fr))]">
+                {variables.map((name) => (
+                    <div key={name} className="min-w-0">
+                        <label className="text-xs font-mono mb-1 block truncate" title={`{{${name}}}`}>
+                            {`{{${name}}}`}
+                        </label>
+                        <LemonInput
+                            size="small"
+                            value={prompt.variables[name] ?? ''}
+                            onChange={(value) => setVariableValue(name, value, prompt.id)}
+                            placeholder="Value"
+                            fullWidth
+                        />
+                    </div>
+                ))}
+            </div>
+        </div>
     )
 }
 

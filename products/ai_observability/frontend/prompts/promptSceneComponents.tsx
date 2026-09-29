@@ -45,6 +45,7 @@ import { PromptLabelChip } from './PromptLabelChip'
 import { PromptLabelPicker } from './PromptLabelPicker'
 import { extractPromptReferences } from './promptReferences'
 import { PromptReferenceTags } from './PromptReferenceTags'
+import { extractPromptVariables } from './promptVariables'
 import { LLMPrompt, LLMPromptVersionSummary } from './types'
 import { PROMPT_NAME_MAX_LENGTH } from './utils'
 
@@ -102,10 +103,7 @@ export function PromptViewDetails(): JSX.Element {
     const resolvedText =
         isShowingResolvedPreview && typeof resolvedPreview?.prompt === 'string' ? resolvedPreview.prompt : null
     const displayText = resolvedText ?? promptText
-    const variableMatches = displayText.match(/\{\{([^}]+)\}\}/g)
-    const variables = variableMatches
-        ? [...new Set(variableMatches.map((match: string) => match.slice(2, -2).trim()))]
-        : []
+    const variables = extractPromptVariables(displayText)
 
     return (
         <div className="space-y-4">
@@ -561,11 +559,6 @@ export function PromptRelatedTraces(): JSX.Element {
             )}
         </div>
     )
-}
-
-function extractPromptVariables(promptText: string): string[] {
-    const matches = promptText.match(/\{\{([^}]+)\}\}/g)
-    return matches ? [...new Set(matches.map((match) => match.slice(2, -2).trim()))] : []
 }
 
 function buildPythonSnippet(
