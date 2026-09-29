@@ -765,6 +765,7 @@ the row lists both.
 | whop                             | HTTP + Webhook              | requests + `rest_source.RESTClient` + `WebhookSourceManager`    | ✅ (pull) / ➖ (webhook)    |
 | wikipedia_pageviews              | HTTP                        | requests                                                        | ✅                          |
 | windmill                         | HTTP                        | requests                                                        | ✅                          |
+| wix                              | HTTP                        | requests                                                        | ✅                          |
 | woocommerce                      | HTTP + Webhook              | requests + `rest_source.RESTClient` + `WebhookSourceManager`    | ✅ (pull) / ➖ (webhook)    |
 | wordpress                        | HTTP                        | requests                                                        | ✅                          |
 | workable                         | HTTP                        | requests                                                        | ✅                          |
@@ -1085,6 +1086,7 @@ doesn't conflict with concurrent PRs.
 - gcp_recommender
 - gcp_security_command_center
 - gdelt
+- gem
 - genesys_cloud
 - gerrit
 - getdx
@@ -1400,6 +1402,7 @@ doesn't conflict with concurrent PRs.
 - speedcurve
 - spotify_ads
 - sprinklr
+- sprinto
 - sprout_social
 - starburst
 - statsig
@@ -1483,7 +1486,6 @@ doesn't conflict with concurrent PRs.
 - wikipedia_pageviews
 - windsor_ai
 - wisprflow
-- wix
 - wiz
 - wompi
 - workato

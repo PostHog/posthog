@@ -10,6 +10,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.spacelift.
     SPACELIFT_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.spacelift.spacelift import (
+    ACCOUNT_NOT_FOUND_MESSAGE,
+    INVALID_API_KEY_MESSAGE,
+    SpaceliftAccountNotFoundError,
     SpaceliftAuthError,
     SpaceliftClient,
     SpaceliftPermissionError,
@@ -389,9 +392,32 @@ class TestSpacelift:
     def test_validate_credentials_bad_key(self, mock_make_session):
         _mock_session(mock_make_session, [_response({"data": {"apiKeyUser": None}})])
 
-        is_valid, message = validate_credentials("my-company", "key-id", "key-secret")
-        assert is_valid is False
-        assert message is not None and "Invalid Spacelift API key" in message
+        assert validate_credentials("my-company", "key-id", "key-secret") == (False, INVALID_API_KEY_MESSAGE)
+
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_validate_credentials_unknown_account_points_at_the_account_name(self, mock_make_session):
+        # Spacelift reports an unknown subdomain as a token exchange error, which otherwise reads as
+        # a rejected API key and sends the user to rotate a key that was never the problem.
+        _mock_session(mock_make_session, [_response({"errors": [{"message": "Account not found"}], "data": None})])
+
+        assert validate_credentials("my-company", "key-id", "key-secret") == (False, ACCOUNT_NOT_FOUND_MESSAGE)
+
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_validate_credentials_keeps_the_upstream_text_out_of_the_message(self, mock_make_session):
+        _mock_session(
+            mock_make_session,
+            [_response({"errors": [{"message": "signature mismatch for key 01ABC"}], "data": None})],
+        )
+
+        assert validate_credentials("my-company", "key-id", "key-secret") == (False, INVALID_API_KEY_MESSAGE)
+
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_token_exchange_raises_account_not_found_for_an_unknown_account(self, mock_make_session):
+        _mock_session(mock_make_session, [_response({"errors": [{"message": "Account not found"}], "data": None})])
+
+        client = SpaceliftClient("my-company", "key-id", "key-secret")
+        with pytest.raises(SpaceliftAccountNotFoundError):
+            client.execute("query { x }")
 
     def test_validate_credentials_invalid_account_name_never_hits_network(self):
         is_valid, message = validate_credentials("evil.com/x", "key-id", "key-secret")
