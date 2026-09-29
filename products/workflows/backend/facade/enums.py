@@ -1,5 +1,7 @@
 from enum import StrEnum
 
+from django.db import models
+
 
 class EmailTrackingConsentMode(StrEnum):
     # No consent enforcement: tracking follows the email step's own setting only.
@@ -15,3 +17,12 @@ class EmailTrackingConsentMode(StrEnum):
 EMAIL_TRACKING_CONSENT_MODE_CHOICES = [
     (mode.value, mode.name.replace("_", " ").title()) for mode in EmailTrackingConsentMode
 ]
+
+
+class HogFlowBatchJobState(models.TextChoices):
+    WAITING = "waiting"
+    QUEUED = "queued"
+    ACTIVE = "active"
+    COMPLETED = "completed"
+    CANCELLED = "cancelled"
+    FAILED = "failed"

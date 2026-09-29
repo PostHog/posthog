@@ -87,7 +87,7 @@ from posthog.cdp.validation import (
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.dataclasses import frozen
 from posthog.event_usage import AGENT_EVENT_SOURCES, EventSource, get_event_source, report_user_action
-from posthog.models import Team
+from posthog.models import Team, User
 from posthog.models.filters import Filter
 from posthog.models.integration import Integration
 from posthog.permissions import posthog_feature_flag_enabled
@@ -128,6 +128,7 @@ from products.tasks.backend.facade.workflow_tasks import (
     resolve_connectors,
     validate_skill_names,
 )
+from products.workflows.backend.facade.api import create_batch_job
 from products.workflows.backend.metrics import (
     GUARDRAIL_LABELS,
     GUARDRAIL_METRICS,
@@ -6814,15 +6815,20 @@ class HogFlowViewSet(
             if get_event_source(request) in AGENT_EVENT_SOURCES:
                 self._require_audience_confirm_token(request, hog_flow)
 
-            serializer = HogFlowBatchJobSerializer(
-                data={**request.data, "hog_flow": hog_flow.id}, context={**self.get_serializer_context()}
-            )
+            serializer = HogFlowBatchJobSerializer(data={**request.data, "hog_flow": hog_flow.id})
             if not serializer.is_valid():
                 return Response(serializer.errors, status=400)
 
-            # The consumer fans out to the trigger's stored filters, so snapshot those on the job -
-            # caller-supplied filters are never what actually runs.
-            batch_job = serializer.save(filters=(hog_flow.trigger or {}).get("filters") or {})
+            batch_job = create_batch_job(
+                team_id=self.team_id,
+                hog_flow_id=hog_flow.id,
+                created_by_id=cast(User, request.user).id,
+                variables=serializer.validated_data.get("variables", {}),
+                status=serializer.validated_data.get("status"),
+                # The consumer fans out to the trigger's stored filters, so snapshot those on the job -
+                # caller-supplied filters are never what actually runs.
+                filters=(hog_flow.trigger or {}).get("filters") or {},
+            )
             self._report_workflow_action("hog_flow_batch_job_created", hog_flow, {"batch_job_id": str(batch_job.id)})
             return Response(HogFlowBatchJobSerializer(batch_job).data)
         else:

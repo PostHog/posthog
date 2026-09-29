@@ -5,8 +5,11 @@ from uuid import UUID
 
 from posthog.dataclasses import frozen
 
+from products.workflows.backend.facade.enums import HogFlowBatchJobState
+
 if TYPE_CHECKING:
     from posthog.models.team.team import Team
+    from posthog.models.user import User
 
 
 @frozen
@@ -29,6 +32,33 @@ class WorkflowActivitySummary:
     total_count: int
     active_count: int
     recent: tuple[RecentWorkflow, ...]
+
+
+@frozen
+class WorkflowTaskDailyLimits:
+    """A team's daily caps on tasks created by workflows. None means the default cap applies."""
+
+    per_workflow: int | None
+    per_team: int | None
+
+
+@frozen
+class WorkflowBatchJob:
+    """One batch run of a workflow.
+
+    ``created_by`` carries the core ``User`` row rather than a projection of it, so the
+    presentation layer keeps serializing it through core's ``UserBasicSerializer`` and the
+    generated ``UserBasic`` component stays as it was.
+    """
+
+    id: UUID
+    hog_flow_id: UUID
+    status: HogFlowBatchJobState
+    filters: dict[str, Any]
+    variables: dict[str, Any]
+    created_at: datetime
+    updated_at: datetime
+    created_by: "User | None"
 
 
 @dataclass(frozen=True)
