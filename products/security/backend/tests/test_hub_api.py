@@ -12,7 +12,7 @@ from parameterized import parameterized
 from rest_framework.test import APIClient
 
 from posthog.models import User
-from posthog.workos_radar import add_radar_bypass_email
+from posthog.workos_radar import add_radar_bypass_email, remove_radar_bypass_email
 
 SECRET = "in-us"
 SETTINGS = {"SECURITY_HUB_REGION": "us", "SECURITY_HUB_INBOUND_JWT_SECRETS": [SECRET]}
@@ -101,6 +101,7 @@ class TestHubApi(BaseTest):
 
     def test_radar_export(self) -> None:
         add_radar_bypass_email("Partner@Example.org")
+        self.addCleanup(remove_radar_bypass_email, "Partner@Example.org")
         assert self.post("radar-bypass-export", {}, "radar_bypass:export").json() == {"emails": ["partner@example.org"]}
         assert self.post("radar-bypass-export", {}, "rules:sync_now").status_code == 403
 
