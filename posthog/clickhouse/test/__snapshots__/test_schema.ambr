@@ -5919,7 +5919,7 @@
       consecutive_failures UInt32,
       muted_notification LowCardinality(String),
       occurred_at DateTime64(6, 'UTC'),
-      expires_at DateTime64(6, 'UTC') DEFAULT now64(6) + toIntervalDay(90)
+      expires_at Date DEFAULT today() + toIntervalDay(90)
   )
   ENGINE = Distributed('aux', 'posthog_test', 'sharded_platform_alert_events', cityHash64(team_id))
   
@@ -8386,13 +8386,14 @@
       consecutive_failures UInt32,
       muted_notification LowCardinality(String),
       occurred_at DateTime64(6, 'UTC'),
-      expires_at DateTime64(6, 'UTC') DEFAULT now64(6) + toIntervalDay(90)
+      expires_at Date DEFAULT today() + toIntervalDay(90)
   )
   ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.platform_alert_events', '{replica}-{shard}')
   ORDER BY (team_id, configuration_id, alert_id, occurred_at, evaluation_key)
+  PRIMARY KEY (team_id, configuration_id, alert_id, occurred_at)
   PARTITION BY toYYYYMM(occurred_at)
-  TTL toDateTime(expires_at)
-  SETTINGS index_granularity = 8192
+  TTL expires_at
+  SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1
   
   '''
 # ---
@@ -14076,13 +14077,14 @@
       consecutive_failures UInt32,
       muted_notification LowCardinality(String),
       occurred_at DateTime64(6, 'UTC'),
-      expires_at DateTime64(6, 'UTC') DEFAULT now64(6) + toIntervalDay(90)
+      expires_at Date DEFAULT today() + toIntervalDay(90)
   )
   ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.platform_alert_events', '{replica}-{shard}')
   ORDER BY (team_id, configuration_id, alert_id, occurred_at, evaluation_key)
+  PRIMARY KEY (team_id, configuration_id, alert_id, occurred_at)
   PARTITION BY toYYYYMM(occurred_at)
-  TTL toDateTime(expires_at)
-  SETTINGS index_granularity = 8192
+  TTL expires_at
+  SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1
   
   '''
 # ---

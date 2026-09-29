@@ -396,10 +396,12 @@ database "posthog" {
   # does not land rows that are already expired.
   table "sharded_platform_alert_events" {
     order_by     = ["team_id", "configuration_id", "alert_id", "occurred_at", "evaluation_key"]
+    primary_key  = ["team_id", "configuration_id", "alert_id", "occurred_at"]
     partition_by = "toYYYYMM(occurred_at)"
-    ttl          = "toDateTime(expires_at)"
+    ttl          = "expires_at"
     settings = {
-      index_granularity = "8192"
+      index_granularity   = "8192"
+      ttl_only_drop_parts = "1"
     }
     extend = "_platform_alert_events_columns"
     engine "replicated_merge_tree" {

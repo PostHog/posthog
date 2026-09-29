@@ -1179,8 +1179,8 @@ database "posthog" {
       type = "DateTime64(6, 'UTC')"
     }
     column "expires_at" {
-      type    = "DateTime64(6, 'UTC')"
-      default = "now64(6) + toIntervalDay(90)"
+      type    = "Date"
+      default = "today() + toIntervalDay(90)"
     }
     engine "distributed" {
       cluster_name    = "aux"
@@ -2308,11 +2308,13 @@ database "posthog" {
   }
 
   table "sharded_platform_alert_events" {
+    primary_key  = ["team_id", "configuration_id", "alert_id", "occurred_at"]
     order_by     = ["team_id", "configuration_id", "alert_id", "occurred_at", "evaluation_key"]
     partition_by = "toYYYYMM(occurred_at)"
-    ttl          = "toDateTime(expires_at)"
+    ttl          = "expires_at"
     settings = {
-      index_granularity = "8192"
+      index_granularity   = "8192"
+      ttl_only_drop_parts = "1"
     }
     column "team_id" {
       type = "Int64"
@@ -2372,8 +2374,8 @@ database "posthog" {
       type = "DateTime64(6, 'UTC')"
     }
     column "expires_at" {
-      type    = "DateTime64(6, 'UTC')"
-      default = "now64(6) + toIntervalDay(90)"
+      type    = "Date"
+      default = "today() + toIntervalDay(90)"
     }
     engine "replicated_merge_tree" {
       zoo_path     = "/clickhouse/tables/noshard/posthog.platform_alert_events"

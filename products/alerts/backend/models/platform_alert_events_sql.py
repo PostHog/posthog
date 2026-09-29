@@ -14,7 +14,7 @@ SHARDED_PLATFORM_ALERT_EVENTS_TABLE = f"sharded_{PLATFORM_ALERT_EVENTS_TABLE}"
 
 PLATFORM_ALERT_EVENTS_TTL_DAYS = 90
 
-BASE_PLATFORM_ALERT_EVENTS_COLUMNS = """
+BASE_PLATFORM_ALERT_EVENTS_COLUMNS = f"""
     team_id Int64,
     configuration_id UUID,
     alert_id UUID,
@@ -34,7 +34,7 @@ BASE_PLATFORM_ALERT_EVENTS_COLUMNS = """
     consecutive_failures UInt32,
     muted_notification LowCardinality(String),
     occurred_at DateTime64(6, 'UTC'),
-    expires_at DateTime64(6, 'UTC') DEFAULT now64(6) + toIntervalDay({ttl_days})
+    expires_at Date DEFAULT today() + toIntervalDay({PLATFORM_ALERT_EVENTS_TTL_DAYS})
 """.strip()
 
 
@@ -54,22 +54,23 @@ def SHARDED_PLATFORM_ALERT_EVENTS_TABLE_SQL() -> str:
     # explicitly. A ReplacingMergeTree would instead make every count over the table wrong on any
     # part a merge has not reached, and ClickHouse never promises a merge will run.
     #
-    # The sort key serves a source rebuilding an N-of-M window from the last rows of one alert, a
-    # comparison scanning a team over a time range, and delivery resolving one evaluation under the
-    # (team, configuration, alert) prefix plus the time bound it already holds.
-    #
     # `expires_at` is insert time rather than `occurred_at` plus the TTL, so a backfill of old
-    # checks does not land rows that are already expired.
+    # checks does not land rows that are already expired. Rows in one part then expire together,
+    # which is what makes `ttl_only_drop_parts` a part drop rather than a rewrite of every column.
+    #
+    # The sort key is declared in the HCL, which is the source of truth; the rationale for its
+    # shape lives there.
     return f"""
 CREATE TABLE IF NOT EXISTS {SHARDED_PLATFORM_ALERT_EVENTS_TABLE}
 (
-    {BASE_PLATFORM_ALERT_EVENTS_COLUMNS.format(ttl_days=PLATFORM_ALERT_EVENTS_TTL_DAYS)}
+    {BASE_PLATFORM_ALERT_EVENTS_COLUMNS}
 )
 ENGINE = {platform_alert_events_table_engine()}
 ORDER BY (team_id, configuration_id, alert_id, occurred_at, evaluation_key)
+PRIMARY KEY (team_id, configuration_id, alert_id, occurred_at)
 PARTITION BY toYYYYMM(occurred_at)
-TTL toDateTime(expires_at)
-SETTINGS index_granularity = 8192
+TTL expires_at
+SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1
 """
 
 
@@ -77,7 +78,7 @@ def DISTRIBUTED_PLATFORM_ALERT_EVENTS_TABLE_SQL() -> str:
     return f"""
 CREATE TABLE IF NOT EXISTS {PLATFORM_ALERT_EVENTS_TABLE}
 (
-    {BASE_PLATFORM_ALERT_EVENTS_COLUMNS.format(ttl_days=PLATFORM_ALERT_EVENTS_TTL_DAYS)}
+    {BASE_PLATFORM_ALERT_EVENTS_COLUMNS}
 )
 ENGINE = {
         Distributed(

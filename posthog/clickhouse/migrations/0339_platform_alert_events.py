@@ -15,16 +15,6 @@ from products.alerts.backend.models.platform_alert_events_sql import (
 )
 
 operations = [
-    run_sql_with_exceptions(
-        SHARDED_PLATFORM_ALERT_EVENTS_TABLE_SQL(),
-        node_roles=[NodeRole.AUX],
-        sharded=False,
-        is_alter_on_replicated_table=False,
-    ),
-    run_sql_with_exceptions(
-        DISTRIBUTED_PLATFORM_ALERT_EVENTS_TABLE_SQL(),
-        node_roles=[NodeRole.DATA, NodeRole.AUX],
-        sharded=False,
-        is_alter_on_replicated_table=False,
-    ),
+    run_sql_with_exceptions(SHARDED_PLATFORM_ALERT_EVENTS_TABLE_SQL(), node_roles=[NodeRole.AUX]),
+    run_sql_with_exceptions(DISTRIBUTED_PLATFORM_ALERT_EVENTS_TABLE_SQL(), node_roles=[NodeRole.DATA, NodeRole.AUX]),
 ]

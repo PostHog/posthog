@@ -384,8 +384,8 @@ database "posthog" {
       type = "DateTime64(6, 'UTC')"
     }
     column "expires_at" {
-      type    = "DateTime64(6, 'UTC')"
-      default = "now64(6) + toIntervalDay(90)"
+      type    = "Date"
+      default = "today() + toIntervalDay(90)"
     }
   }
   table "_session_replay_features_columns" {
