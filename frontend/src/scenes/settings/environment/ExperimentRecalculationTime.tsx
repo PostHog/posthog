@@ -26,16 +26,8 @@ const circularHourGap = (hourA: number, hourB: number): number => {
     return Math.min(diff, 24 - diff)
 }
 
-const utcToLocalHour = (utcTimeString: string, projectTimezone: string): number => {
-    const utcTime = dayjs.utc().hour(utcHourFromTimeString(utcTimeString))
-    return utcTime.tz(projectTimezone).hour()
-}
-
-const localHourToUtcString = (localHour: number, projectTimezone: string): string => {
-    const localTime = dayjs().tz(projectTimezone).hour(localHour).minute(0).second(0).millisecond(0)
-    // Floored to the hour: half-hour timezones would otherwise produce times the API rejects
-    return localTime.utc().format('HH:00:00')
-}
+const localLabelFromUtcHour = (utcHour: number, projectTimezone: string): string =>
+    dayjs.utc().hour(utcHour).minute(0).tz(projectTimezone).format('HH:mm')
 
 export function ExperimentRecalculationTime(): JSX.Element {
     const { timezone: projectTimezone } = useValues(teamLogic)
@@ -59,7 +51,7 @@ export function ExperimentRecalculationTime(): JSX.Element {
 
     const handleTimeChange = (index: number, value: string): void => {
         const newTimes = [...times]
-        newTimes[index] = localHourToUtcString(parseInt(value, 10), projectTimezone)
+        newTimes[index] = utcTimeStringFromUtcHour(parseInt(value, 10))
         updateExperimentsConfig({ experiment_recalculation_times: newTimes })
     }
 
@@ -77,24 +69,23 @@ export function ExperimentRecalculationTime(): JSX.Element {
     const optionsForIndex = (index: number): LemonSelectOption<string>[] => {
         const otherTime = times.length > 1 ? times[1 - index] : null
         const otherUtcHour = otherTime !== null ? utcHourFromTimeString(otherTime) : null
-        return Array.from({ length: 24 }, (_, localHour) => {
-            const utcHour = utcHourFromTimeString(localHourToUtcString(localHour, projectTimezone))
+        return Array.from({ length: 24 }, (_, utcHour) => {
             const tooClose =
                 otherUtcHour !== null && circularHourGap(utcHour, otherUtcHour) < MIN_RECALCULATION_GAP_HOURS
             return {
-                value: localHour.toString(),
-                label: dayjs().hour(localHour).format('HH:00'),
+                value: utcHour.toString(),
+                label: localLabelFromUtcHour(utcHour, projectTimezone),
                 disabledReason: tooClose
                     ? `Must be at least ${MIN_RECALCULATION_GAP_HOURS} hours from the other recalculation time`
                     : undefined,
             }
-        })
+        }).sort((a, b) => a.label.localeCompare(b.label))
     }
 
     return (
         <div className="flex items-center gap-2">
             <LemonSelect
-                value={utcToLocalHour(times[0], projectTimezone).toString()}
+                value={utcHourFromTimeString(times[0]).toString()}
                 onChange={(value) => handleTimeChange(0, value)}
                 options={optionsForIndex(0)}
                 disabledReason={commonDisabledReason}
@@ -105,7 +96,7 @@ export function ExperimentRecalculationTime(): JSX.Element {
                 (times.length > 1 ? (
                     <>
                         <LemonSelect
-                            value={utcToLocalHour(times[1], projectTimezone).toString()}
+                            value={utcHourFromTimeString(times[1]).toString()}
                             onChange={(value) => handleTimeChange(1, value)}
                             options={optionsForIndex(1)}
                             disabledReason={commonDisabledReason}
