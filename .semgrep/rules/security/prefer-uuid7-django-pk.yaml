@@ -14,18 +14,11 @@ rules:
           for `UUIDModel` and `uuid7`.
       severity: WARNING
       languages: [python]
-      pattern-either:
-          - patterns:
-                - pattern-either:
-                      - pattern: models.UUIDField(..., default=uuid.uuid4, ...)
-                      - pattern: models.UUIDField(..., default=uuid4, ...)
-                - pattern: models.UUIDField(..., primary_key=True, ...)
-          # `UUIDTModel` predates the UUIDv7 spec and its own docstring says it is not for new
-          # models. Its ids do not sort or compare as uuid7 ids do, so a value that travels between
-          # systems stops matching one written by anything newer.
-          - pattern: |
-                class $NAME(..., UUIDTModel, ...):
-                    ...
+      patterns:
+          - pattern-either:
+                - pattern: models.UUIDField(..., default=uuid.uuid4, ...)
+                - pattern: models.UUIDField(..., default=uuid4, ...)
+          - pattern: models.UUIDField(..., primary_key=True, ...)
       paths:
           include:
               - '**/models.py'
