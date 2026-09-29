@@ -1,3 +1,4 @@
+import Constants from "expo-constants";
 import { useRouter } from "expo-router";
 import {
   Pressable,
@@ -90,6 +91,12 @@ export default function SettingsSheet() {
       >
         <Text style={styles.logoutText}>Log out</Text>
       </Pressable>
+      <Text style={styles.version}>
+        Version {Constants.expoConfig?.version}
+        {Constants.expoConfig?.ios?.buildNumber
+          ? ` (${Constants.expoConfig.ios.buildNumber})`
+          : ""}
+      </Text>
     </ScrollView>
   );
 }
@@ -275,5 +282,12 @@ const styles = StyleSheet.create({
     fontFamily: fonts.sansSemi,
     fontSize: 16,
     color: colors.danger,
+  },
+  version: {
+    marginTop: 16,
+    textAlign: "center",
+    fontFamily: fonts.sans,
+    fontSize: 13,
+    color: colors.inkMute,
   },
 });
