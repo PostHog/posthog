@@ -50,7 +50,10 @@ import {
   type CommentResource,
   commentAgentContext,
 } from "@posthog/ui/features/sessions/commentAgentContext";
-import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
+import {
+  canvasCommentFocusKey,
+  useCommentNavigationStore,
+} from "@posthog/ui/features/sessions/commentNavigationStore";
 import { CommentComposer } from "@posthog/ui/features/sessions/components/CommentComposer";
 import { CommentThreadCard } from "@posthog/ui/features/sessions/components/CommentThreadCard";
 import type { HighlightResolution } from "@posthog/ui/features/sessions/components/commentViewTypes";
@@ -521,15 +524,20 @@ export function TaskCommentsList({
       }
       const { source, root } = origin;
       if (source.kind === "canvas") {
-        if (requestThreadFocus) {
-          requestCommentFocus(focusKey, source.target, root.id);
-        }
         if (onCanvasCommentOpen) {
+          if (requestThreadFocus) {
+            requestCommentFocus(focusKey, source.target, root.id);
+          }
           onCanvasCommentOpen(
             readCommentContext(root)?.canvasVersionId ?? null,
           );
           return;
         }
+        requestCommentFocus(
+          canvasCommentFocusKey(source.target.itemId),
+          source.target,
+          root.id,
+        );
         canvasArtifactOpenHandler(source.url)?.();
         return;
       }

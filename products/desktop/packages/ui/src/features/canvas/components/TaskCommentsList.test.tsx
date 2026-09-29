@@ -403,6 +403,17 @@ describe("TaskCommentsList", () => {
       itemId: "canvas-1",
     });
     expect(screen.getByText("Linked canvas feedback")).toBeInTheDocument();
+
+    openThread("Linked canvas feedback");
+
+    expect(
+      useCommentNavigationStore.getState().focusByTask[
+        canvasCommentFocusKey("canvas-1")
+      ],
+    ).toMatchObject({
+      target: { scope: "canvas", itemId: "canvas-1" },
+      threadId: "comment-1",
+    });
   });
 
   // The tab is the one place to see every thread the task produced, so each row
