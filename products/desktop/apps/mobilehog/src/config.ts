@@ -9,3 +9,10 @@ export const DEV_PASSWORD = "12345678";
 export const DEFAULT_REPOSITORY: string | null = null;
 
 export const DEFAULT_MODEL = "claude-opus-4-8";
+
+// PostHog's MCP server per region; local is the services/mcp dev server.
+export const MCP_HOSTS = {
+  local: "http://localhost:8787/mcp",
+  us: "https://mcp.posthog.com/mcp",
+  eu: "https://mcp-eu.posthog.com/mcp",
+} as const;
