@@ -4,6 +4,8 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
+import { NetworkError } from 'lib/api-error'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { setOAuthContextIds } from 'lib/oauth/oauthClient'
 import { getCurrentTeamIdOrNone, getCurrentUserIdOrNone } from 'lib/utils/getAppContext'
 import { teamLogic } from 'scenes/teamLogic'
@@ -1651,6 +1653,53 @@ describe('accountsLogic', () => {
 
             expect(logic.values.tagOverrides['acc-1']).toBeUndefined()
             expect(logic.values.isTagsSaving('acc-1')).toBe(false)
+        })
+
+        describe('when the page closes', () => {
+            const originalFetch = global.fetch
+            let fetchSpy: jest.Mock
+
+            beforeEach(() => {
+                fetchSpy = jest.fn().mockResolvedValue(new Response())
+                global.fetch = fetchSpy
+            })
+
+            afterEach(() => {
+                global.fetch = originalFetch
+            })
+
+            const expectKeepaliveTagSave = (tags: string[]): void => {
+                expect(fetchSpy).toHaveBeenCalledTimes(1)
+                expect(fetchSpy).toHaveBeenCalledWith(
+                    `/api/projects/${MOCK_DEFAULT_TEAM.id}/accounts/acc-1/`,
+                    expect.objectContaining({ method: 'PATCH', keepalive: true, body: JSON.stringify({ tags }) })
+                )
+            }
+
+            it('resends an in-flight save with keepalive and keeps the edit when the browser aborts it', async () => {
+                let rejectSave: (error: unknown) => void = () => {}
+                mockPartialUpdate.mockReturnValueOnce(new Promise((_, reject) => (rejectSave = reject)))
+                const toastSpy = jest.spyOn(lemonToast, 'error')
+
+                logic.actions.updateAccountTags('acc-1', ['vip'])
+                await expectLogic(logic).toDispatchActions(['tagsUpdateStarted'])
+                window.dispatchEvent(new Event('pagehide'))
+                rejectSave(new NetworkError('navigating'))
+                await expectLogic(logic).toFinishAllListeners()
+
+                expectKeepaliveTagSave(['vip'])
+                expect(logic.values.tagOverrides['acc-1']).toEqual(['vip'])
+                expect(toastSpy).not.toHaveBeenCalled()
+            })
+
+            it('sends a save still in the debounce window with keepalive on unmount', () => {
+                logic.actions.updateAccountTags('acc-1', ['vip'])
+                logic.unmount()
+
+                expectKeepaliveTagSave(['vip'])
+                expect(mockPartialUpdate).not.toHaveBeenCalled()
+                logic.mount()
+            })
         })
     })
 

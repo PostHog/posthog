@@ -1,7 +1,20 @@
-import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import {
+    MakeLogicType,
+    actions,
+    afterMount,
+    beforeUnmount,
+    connect,
+    kea,
+    listeners,
+    path,
+    reducers,
+    selectors,
+} from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
+import { getCookie } from 'lib/api'
+import { NetworkError } from 'lib/api-error'
 import {
     type AssignmentStatus,
     isAssignmentStatus,
@@ -35,6 +48,7 @@ import {
     accountsRelationshipsCreate,
     accountsRelationshipsEndCreate,
     accountsRelationshipsList,
+    getAccountsPartialUpdateUrl,
 } from 'products/customer_analytics/frontend/generated/api'
 
 import type { UserType } from '../../../../../frontend/src/types'
@@ -85,6 +99,26 @@ export const SEARCH_DEBOUNCE_MS = 300
 // Debounce tag edits because ObjectTags emits each addition and removal separately.
 export const TAGS_SAVE_DEBOUNCE_MS = 300
 export const ACCOUNT_PRESENCE_REFRESH_INTERVAL_MS = 30_000
+
+/**
+ * Sends the tag edits that are not saved yet with `keepalive`, because the browser cancels a normal
+ * request when it unloads the page. The tags PATCH replaces the full list, so a second copy of a
+ * save that is already in flight does no harm.
+ */
+function flushPendingTagSaves(teamId: number | null, pendingTagSaves: Record<string, string[]>): void {
+    if (teamId === null) {
+        return
+    }
+    for (const [accountId, tags] of Object.entries(pendingTagSaves)) {
+        void fetch(getAccountsPartialUpdateUrl(String(teamId), accountId), {
+            method: 'PATCH',
+            keepalive: true,
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCookie('posthog_csrftoken') || '' },
+            body: JSON.stringify({ tags }),
+        }).catch(() => {})
+    }
+}
 
 type AccountPresenceResponse = AccountPresenceApi[]
 
@@ -2059,6 +2093,7 @@ export const accountsLogic = kea<accountsLogicType>([
             const previous = values.tagOverrides[accountId] ?? null
             // Reflect edits before the debounce so the controlled tag input does not revert.
             actions.setTagsOverride(accountId, tags)
+            cache.pendingTagSaves = { ...cache.pendingTagSaves, [accountId]: tags }
             // This breakpoint is shared across accounts. A second account edit cancels the first pending save.
             await breakpoint(TAGS_SAVE_DEBOUNCE_MS)
             actions.tagsUpdateStarted(accountId)
@@ -2069,10 +2104,18 @@ export const accountsLogic = kea<accountsLogicType>([
                 dataNodeLogic.findMounted({ key: ACCOUNTS_TABLE_DATA_NODE_KEY })?.actions.loadData('force_async')
                 dataNodeLogic.findMounted({ key: ACCOUNTS_METRICS_DATA_NODE_KEY })?.actions.loadData('force_async')
             } catch (error) {
+                // The page is closing, so the `pagehide` flush sends this save again.
+                if (error instanceof NetworkError && error.reason === 'navigating') {
+                    return
+                }
                 actions.setTagsOverride(accountId, previous)
                 posthog.captureException(error as Error, { scope: 'accountsLogic.updateAccountTags' })
                 lemonToast.error('Failed to update tags')
             } finally {
+                if (cache.pendingTagSaves?.[accountId] === tags) {
+                    cache.pendingTagSaves = { ...cache.pendingTagSaves }
+                    delete cache.pendingTagSaves[accountId]
+                }
                 actions.tagsUpdateFinished(accountId)
             }
         },
@@ -2131,11 +2174,21 @@ export const accountsLogic = kea<accountsLogicType>([
             )
         },
     })),
-    afterMount(({ actions }) => {
+    afterMount(({ actions, values, cache }) => {
         posthog.capture(AccountsEvents.ListViewed)
         // Relationship cells need member names before an editor opens.
         actions.ensureAllMembersLoaded()
         actions.restoreViewStateFromRoute()
+        cache.disposables.add(() => {
+            const onPageHide = (): void => flushPendingTagSaves(values.currentTeamId, cache.pendingTagSaves ?? {})
+            window.addEventListener('pagehide', onPageHide)
+            return () => window.removeEventListener('pagehide', onPageHide)
+        }, 'pendingTagSavesFlush')
+    }),
+    beforeUnmount(({ values, cache }) => {
+        // Unmount cancels the debounce breakpoint, so a tag edit made just before leaving the page is not saved otherwise.
+        flushPendingTagSaves(values.currentTeamId, cache.pendingTagSaves ?? {})
+        cache.pendingTagSaves = {}
     }),
     actionToUrl(({ values, cache }) => ({
         syncViewStateToUrl: () => {
