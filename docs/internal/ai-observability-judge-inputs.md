@@ -62,8 +62,8 @@ The request timeout covers response headers and body; responses over 1 MiB are r
 Select the connection and configured model on each evaluation; these connections cannot become the shared active provider key used by other AI features.
 Provider keys keep the provider they were created with; switching providers requires a new key.
 The evaluation integration uses Noul for boolean outputs, with the same formatted text for generation, trace, and session targets.
-The integration reuses the System One types and parser in `posthog/llm/system_one.py` and the explicit-connection client in `posthog/llm/system_one_client.py`.
-Requests use the rate limiter and telemetry in `posthog/egress/typesafe`.
+The product client reuses the request builder and response parser in `posthog/llm/system_one.py` and the bounded HTTP transport in `posthog/security/pinned_aiohttp.py`.
+Customer connections do not consume PostHog's TypeSafe account budgets or emit TypeSafe egress metrics.
 The selected connection supplies its own endpoint and credential; it never falls back to instance gateway settings.
 Numeric and categorical support is separate from this integration.
 Numeric evaluations retain their existing arbitrary ranges and completion-based judges.
@@ -82,9 +82,8 @@ Evaluations that allow N/A send a separate Noul question about whether the crite
 Uncertainty alone does not produce N/A.
 System One answers contain no written reasoning, so reports inspect the original source when explaining outcomes.
 
-Each endpoint and credential pair has a separate, hashed rate-limit scope shared across workers.
-Evaluations use the batch lane; connection validation uses the normal lane.
-Local budget exhaustion, rate limits, and overload responses are retried through Temporal, honoring `Retry-After` up to one minute.
+Endpoint rate limits and overload responses are retried through Temporal, honoring `Retry-After` up to one minute.
+Evaluation events retain model, usage, latency, and error telemetry.
 If retries fail, the run fails and the evaluation stays enabled.
 Blocked endpoints and redirects disable the evaluation and mark the connection for revalidation, without recording model usage.
 Requests rejected because of an individual input skip that run without changing the shared connection.

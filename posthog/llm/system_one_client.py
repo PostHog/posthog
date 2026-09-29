@@ -18,7 +18,7 @@ import structlog
 
 from posthog.dataclasses import frozen
 from posthog.egress.limiter.policies import Priority
-from posthog.egress.typesafe.client import TYPESAFE_API_BASE, system_one
+from posthog.egress.typesafe.client import system_one
 from posthog.llm.gateway_client import AIGatewayConfig, ai_gateway_headers, resolve_ai_gateway_config
 from posthog.llm.system_one import (
     SYSTEM_ONE_PATH,
@@ -31,8 +31,6 @@ from posthog.llm.system_one import (
     build_system_one_body,
     parse_system_one_response,
 )
-from posthog.security.pinned_requests import SSRFBlockedError, select_pinned_ip
-from posthog.security.url_validation import validate_url_and_pin_ips
 
 logger = structlog.get_logger(__name__)
 
@@ -94,16 +92,7 @@ class TypeSafeSystemOneClient:
     priority: Priority
     timeout: float
 
-    api_key: str | None = field(default=None, repr=False)
-    base_url: str = f"{TYPESAFE_API_BASE}/v1"
-
     def decide(self, *, state: JsonValue, questions: Mapping[str, Question]) -> SystemOneResult:
-        pinned_ip = None
-        if self.api_key is not None:
-            verdict = validate_url_and_pin_ips(f"{self.base_url.rstrip('/')}/systemone")
-            if not verdict.allowed:
-                raise SSRFBlockedError(verdict.reason or "URL blocked by SSRF protection")
-            pinned_ip = select_pinned_ip(verdict.pinned_ips)
         return system_one(
             state=state,
             questions=questions,
@@ -111,9 +100,6 @@ class TypeSafeSystemOneClient:
             model=self.model,
             priority=self.priority,
             timeout=self.timeout,
-            api_key=self.api_key,
-            base_url=self.base_url,
-            pinned_ip=pinned_ip,
         )
 
 

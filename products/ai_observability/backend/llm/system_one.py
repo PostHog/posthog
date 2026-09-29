@@ -1,4 +1,6 @@
+import json
 import math
+import asyncio
 from collections.abc import Mapping
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
@@ -6,13 +8,15 @@ from urllib.parse import urlsplit
 
 from django.conf import settings
 
-import requests
-
-from posthog.egress.limiter.policies import Priority
-from posthog.egress.typesafe.client import TypeSafeRequestFailed
-from posthog.egress.typesafe.transport import TypeSafeEgressBudgetExhausted
-from posthog.llm.system_one import JsonValue, NoulQuestion, Question, SystemOneResult
-from posthog.llm.system_one_client import TypeSafeSystemOneClient
+from posthog.llm.system_one import (
+    JsonValue,
+    NoulQuestion,
+    Question,
+    SystemOneRequestFailed,
+    SystemOneResult,
+    build_system_one_body,
+    parse_system_one_response,
+)
 from posthog.models import Team
 from posthog.ph_client import get_feature_flag_or_none
 from posthog.security.pinned_requests import SSRFBlockedError
@@ -110,62 +114,64 @@ class SystemOneClient:
         state: JsonValue,
         questions: Mapping[str, Question],
         base_url: str,
-        priority: Priority = Priority.BATCH,
         timeout: float = 60,
     ) -> SystemOneResult:
+        import aiohttp  # noqa: PLC0415 -- Keep aiohttp off the Django startup path.
+
+        from posthog.security.pinned_aiohttp import (  # noqa: PLC0415 -- Keep aiohttp off the Django startup path.
+            ResponseLimitExceeded,
+            pinned_request,
+        )
+
         try:
             base_url = SystemOneClient.normalize_base_url(base_url)
         except ValueError as error:
             raise SystemOneEndpointBlockedError(str(error)) from error
         try:
-            return TypeSafeSystemOneClient(
-                api_key=api_key,
-                base_url=base_url,
-                model=model,
-                source="llma_evaluations",
-                priority=priority,
-                timeout=timeout,
-            ).decide(state=state, questions=questions)
-        except TypeSafeEgressBudgetExhausted as error:
-            raise SystemOneRateLimitError(None) from error
+            response = asyncio.run(
+                pinned_request(
+                    "POST",
+                    f"{base_url}/systemone",
+                    headers={"Authorization": f"Bearer {api_key}"} if api_key else {},
+                    json=build_system_one_body(state=state, questions=questions, model=model),
+                    timeout=timeout,
+                    read_body_statuses=(200, 422),
+                )
+            )
         except SSRFBlockedError as error:
             raise SystemOneEndpointBlockedError("This endpoint is not allowed. Use a public HTTPS endpoint.") from error
-        except requests.RequestException as error:
+        except (aiohttp.ClientError, TimeoutError) as error:
             raise ProviderConnectionError("Could not reach the System One endpoint. Try again.") from error
-        except TypeSafeRequestFailed as error:
-            status = error.status_code
-            response = error.response
-            if status is None:
+        except ResponseLimitExceeded as error:
+            raise StructuredOutputParseError("The endpoint response exceeded its limits.") from error
+
+        status = response.status_code
+        if status == 200:
+            try:
+                return parse_system_one_response(json.loads(response.content), questions)
+            except (ValueError, SystemOneRequestFailed) as error:
                 raise StructuredOutputParseError(
                     "The endpoint returned an invalid System One response. Check compatibility."
                 ) from error
-            if status == 401:
-                raise AuthenticationError("The endpoint rejected this credential. Check the bearer token.") from error
-            if status == 403:
-                raise ModelPermissionError(model) from error
-            if status == 404:
-                raise ModelNotFoundError(model) from error
-            if status in (408, 429, 503, 529):
-                raise SystemOneRateLimitError(
-                    response.headers.get("Retry-After") if response is not None else None
-                ) from error
-            if status >= 500:
-                raise ProviderConnectionError(
-                    "The System One endpoint is temporarily unavailable. Try again."
-                ) from error
-            if 300 <= status < 400:
-                raise SystemOneEndpointBlockedError(
-                    "The endpoint redirected the request. Use its final HTTPS URL."
-                ) from error
-            if status == 413 or (
-                status == 422 and response is not None and is_context_window_error_message(response.text)
-            ):
-                raise ContextWindowExceededError(
-                    "This input exceeds the endpoint's size limit. Reduce the input."
-                ) from error
-            raise SystemOneRequestRejectedError(
-                "The endpoint rejected the evaluation request. Check the model and criteria."
-            ) from error
+        if status == 401:
+            raise AuthenticationError("The endpoint rejected this credential. Check the bearer token.")
+        if status == 403:
+            raise ModelPermissionError(model)
+        if status == 404:
+            raise ModelNotFoundError(model)
+        if status in (408, 429, 503, 529):
+            raise SystemOneRateLimitError(response.headers.get("Retry-After"))
+        if status >= 500:
+            raise ProviderConnectionError("The System One endpoint is temporarily unavailable. Try again.")
+        if 300 <= status < 400:
+            raise SystemOneEndpointBlockedError("The endpoint redirected the request. Use its final HTTPS URL.")
+        if status == 413 or (
+            status == 422 and is_context_window_error_message(response.content.decode(errors="replace"))
+        ):
+            raise ContextWindowExceededError("This input exceeds the endpoint's size limit. Reduce the input.")
+        raise SystemOneRequestRejectedError(
+            "The endpoint rejected the evaluation request. Check the model and criteria."
+        )
 
     @staticmethod
     def validate_key(api_key: str, *, base_url: str, model: str) -> tuple[str, str | None]:
@@ -175,7 +181,6 @@ class SystemOneClient:
                 base_url=base_url,
                 model=model,
                 state="Hello!",
-                priority=Priority.NORMAL,
                 timeout=10,
                 questions={"verdict": NoulQuestion(instructions="Does the text contain a greeting?")},
             )

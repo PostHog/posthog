@@ -9,7 +9,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.test import override_settings
 
-import requests
 import posthoganalytics
 from asgiref.sync import async_to_sync, sync_to_async
 from parameterized import parameterized
@@ -143,9 +142,9 @@ def test_system_one_judge_emits_boolean_probability_without_reasoning(
         },
         "usage": usage,
     }
-    response = requests.Response()
-    response.status_code = 200
-    response._content = json.dumps(response_body).encode()
+    response = MagicMock(status=200, headers={}, content_length=None)
+    response.__aenter__.return_value = response
+    response.content.iter_chunked.return_value.__aiter__.return_value = [json.dumps(response_body).encode()]
     evaluation = {
         "id": "test-evaluation",
         "name": "Politeness",
@@ -154,12 +153,11 @@ def test_system_one_judge_emits_boolean_probability_without_reasoning(
     }
     with (
         patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("8.8.8.8")}),
-        patch("posthog.egress.limiter.backends.LimitsBackend.consume_sync", return_value=True),
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
         patch(
             "posthog.temporal.ai_observability.evaluation_llm_judge.system_one_evaluations_enabled", return_value=True
         ),
-        patch("posthog.egress.typesafe.client._send_system_one", return_value=response) as request,
+        patch("aiohttp.ClientSession.request", new_callable=AsyncMock, return_value=response) as request,
     ):
         spec.return_value.resolve.return_value = resolved
         result = call_llm_judge(
@@ -169,8 +167,8 @@ def test_system_one_judge_emits_boolean_probability_without_reasoning(
             allows_na=allows_na,
         )
 
-    assert request.call_args.kwargs["url"] == f"{base_url}/systemone"
-    assert request.call_args.kwargs["body"]["model"] == model
+    assert request.call_args.args[1] == f"{base_url}/systemone"
+    assert request.call_args.kwargs["json"]["model"] == model
     assert result["verdict"] is verdict
     assert result["reasoning"] == ""
     assert result.get("probability") == (probability if verdict is not None else None)
@@ -189,12 +187,11 @@ def test_system_one_judge_emits_boolean_probability_without_reasoning(
 def test_system_one_numeric_mapping_is_not_enabled() -> None:
     with (
         patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("8.8.8.8")}),
-        patch("posthog.egress.limiter.backends.LimitsBackend.consume_sync", return_value=True),
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
         patch(
             "posthog.temporal.ai_observability.evaluation_llm_judge.system_one_evaluations_enabled", return_value=True
         ),
-        patch("posthog.egress.typesafe.client._send_system_one") as request,
+        patch("aiohttp.ClientSession.request", new_callable=AsyncMock) as request,
     ):
         spec.return_value.resolve.return_value = MagicMock(provider="system_one")
         result = call_llm_judge(
@@ -217,7 +214,7 @@ def test_system_one_restricted_connection_does_not_send_evaluation_data(base_url
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
         patch("products.ai_observability.backend.llm.system_one.Team.objects.only") as teams,
         patch("products.ai_observability.backend.llm.system_one.get_feature_flag_or_none", return_value=flag),
-        patch("posthog.egress.typesafe.client._send_system_one") as request,
+        patch("aiohttp.ClientSession.request", new_callable=AsyncMock) as request,
     ):
         teams.return_value.get.return_value = Team(id=1, organization_id=uuid.uuid4(), uuid=uuid.uuid4())
         spec.return_value.resolve.return_value = MagicMock(
@@ -249,17 +246,16 @@ def test_system_one_rejections_distinguish_blocked_endpoints_from_bad_inputs(
         provider="system_one",
         encrypted_config={"api_key": "example-token", "base_url": "https://decisions.example.com/v1"},
     )
-    response = requests.Response()
-    response.status_code = status
-    response._content = b"Invalid request"
+    response = MagicMock(status=status, headers={}, content_length=None)
+    response.__aenter__.return_value = response
+    response.content.iter_chunked.return_value.__aiter__.return_value = [b"Invalid request"]
     with (
         patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("8.8.8.8")}),
-        patch("posthog.egress.limiter.backends.LimitsBackend.consume_sync", return_value=True),
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
         patch(
             "posthog.temporal.ai_observability.evaluation_llm_judge.system_one_evaluations_enabled", return_value=True
         ),
-        patch("posthog.egress.typesafe.client._send_system_one", return_value=response),
+        patch("aiohttp.ClientSession.request", new_callable=AsyncMock, return_value=response),
     ):
         spec.return_value.resolve.return_value = MagicMock(
             provider="system_one", model="example-judge-v1", provider_key=key, is_byok=True
@@ -282,15 +278,13 @@ def test_system_one_rejections_distinguish_blocked_endpoints_from_bad_inputs(
     assert "provider" not in result
 
 
-@pytest.mark.parametrize("budget_granted", [True, False])
-def test_system_one_rate_limit_retries_without_disabling_the_evaluation(budget_granted: bool) -> None:
+def test_system_one_rate_limit_retries_without_disabling_the_evaluation() -> None:
     key = MagicMock(
         provider="system_one",
         encrypted_config={"api_key": "example-token", "base_url": "https://decisions.example.com/v1"},
     )
     with (
         patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("8.8.8.8")}),
-        patch("posthog.egress.limiter.backends.LimitsBackend.consume_sync", return_value=budget_granted),
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
         patch(
             "posthog.temporal.ai_observability.evaluation_llm_judge.system_one_evaluations_enabled", return_value=True
@@ -299,7 +293,7 @@ def test_system_one_rate_limit_retries_without_disabling_the_evaluation(budget_g
             "aiohttp.ClientSession.request",
             new_callable=AsyncMock,
             return_value=MagicMock(status=429, headers={"Retry-After": "15"}),
-        ) as request,
+        ),
         pytest.raises(ApplicationError) as error,
     ):
         spec.return_value.resolve.return_value = MagicMock(
@@ -312,9 +306,7 @@ def test_system_one_rate_limit_retries_without_disabling_the_evaluation(budget_g
             allows_na=False,
         )
     assert not error.value.non_retryable
-    assert error.value.next_retry_delay == (timedelta(seconds=15) if budget_granted else None)
-    if not budget_granted:
-        request.assert_not_called()
+    assert error.value.next_retry_delay == timedelta(seconds=15)
     assert terminal_user_error_result_from_application_error(error.value, allows_na=False) is None
 
 
