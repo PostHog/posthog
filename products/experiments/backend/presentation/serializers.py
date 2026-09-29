@@ -1452,8 +1452,12 @@ class ActiveRecalculationRunSerializer(serializers.Serializer):
     )
 
 
-class ExperimentMetricsRecalculationSerializer(serializers.Serializer):
-    """Serializer for metrics recalculation status responses."""
+class _ExperimentMetricsRecalculationBaseSerializer(serializers.Serializer):
+    """Identity, counters and timestamps of one recalculation job row.
+
+    Never a response on its own. Each endpoint serializes with the subclass that matches what it fills, so the
+    generated client types carry only the fields that endpoint returns.
+    """
 
     id = serializers.UUIDField(read_only=True, help_text="Unique identifier for this recalculation job")
     experiment_id = serializers.IntegerField(read_only=True, help_text="ID of the experiment being recalculated")
@@ -1476,21 +1480,6 @@ class ExperimentMetricsRecalculationSerializer(serializers.Serializer):
     )
     # Named metric_errors (not errors) to avoid shadowing DRF's reserved Serializer.errors property.
     metric_errors = serializers.JSONField(read_only=True, help_text="Map of metric_uuid to error details")
-    metric_retries = serializers.JSONField(
-        read_only=True,
-        required=False,
-        help_text=(
-            "Transient retry state per metric_uuid: {attempt, max_attempts, error_type, message, "
-            "next_retry_at}. message is a user-safe description of the error that triggered the retry. "
-            "Present only while a metric is between failed attempts; cleared when it succeeds or "
-            "fails terminally, so treat entries for metrics that already have a result as stale."
-        ),
-    )
-    trigger = serializers.ChoiceField(
-        choices=ExperimentMetricsRecalculation.Trigger.choices,
-        read_only=True,
-        help_text="What triggered this recalculation",
-    )
     created_at = serializers.DateTimeField(read_only=True, help_text="When the job was created")
     started_at = serializers.DateTimeField(read_only=True, allow_null=True, help_text="When processing started")
     completed_at = serializers.DateTimeField(read_only=True, allow_null=True, help_text="When processing completed")
@@ -1502,29 +1491,29 @@ class ExperimentMetricsRecalculationSerializer(serializers.Serializer):
             "Shared by every metric in the run; null until processing starts"
         ),
     )
+
+
+class ExperimentMetricsRecalculationJobSerializer(_ExperimentMetricsRecalculationBaseSerializer):
+    """POST response: the job just queued, or the one already active. It carries no results or live progress yet."""
+
     is_existing = serializers.BooleanField(
         read_only=True, required=False, help_text="True if returning an existing job rather than a newly created one"
     )
 
-    active_run = ActiveRecalculationRunSerializer(
-        read_only=True,
-        required=False,
-        allow_null=True,
-        help_text="Run currently executing for this experiment, if any; poll it by id for live progress",
-    )
 
-    result_source = serializers.ChoiceField(
-        choices=["recalculation", "timeseries_fallback"],
-        required=False,
-        default="recalculation",
+class ExperimentMetricsRecalculationRunSerializer(_ExperimentMetricsRecalculationBaseSerializer):
+    """GET by id: one run with its per-metric results, retry state and live query progress."""
+
+    metric_retries = serializers.JSONField(
         read_only=True,
+        required=False,
         help_text=(
-            "Where these results came from: 'recalculation' for a real metrics-recalculation run, "
-            "'timeseries_fallback' for a cold-start placeholder built from the latest daily timeseries data."
+            "Transient retry state per metric_uuid: {attempt, max_attempts, error_type, message, "
+            "next_retry_at}. message is a user-safe description of the error that triggered the retry. "
+            "Present only while a metric is between failed attempts; cleared when it succeeds or "
+            "fails terminally, so treat entries for metrics that already have a result as stale."
         ),
     )
-    # Populated by the GET endpoints (latest / by-id). Omitted from the POST response payload (which doesn't carry
-    # per-metric results yet — the workflow has just started).
     results = MetricRecalculationResultSerializer(
         many=True,
         read_only=True,
@@ -1546,6 +1535,27 @@ class ExperimentMetricsRecalculationSerializer(serializers.Serializer):
             "ClickHouse's total_rows_approx across running queries plus the final read_rows of finished ones. "
             "A soft ceiling revised mid-scan, so it can exceed or trail rows_read; treat rows_read as the "
             "reliable signal"
+        ),
+    )
+
+
+class ExperimentMetricsRecalculationLatestSerializer(ExperimentMetricsRecalculationRunSerializer):
+    """GET latest: the newest terminal run, or the timeseries fallback, plus a pointer to any active run."""
+
+    active_run = ActiveRecalculationRunSerializer(
+        read_only=True,
+        required=False,
+        allow_null=True,
+        help_text="Run currently executing for this experiment, if any; poll it by id for live progress",
+    )
+    result_source = serializers.ChoiceField(
+        choices=["recalculation", "timeseries_fallback"],
+        required=False,
+        default="recalculation",
+        read_only=True,
+        help_text=(
+            "Where these results came from: 'recalculation' for a real metrics-recalculation run, "
+            "'timeseries_fallback' for a cold-start placeholder built from the latest daily timeseries data."
         ),
     )
 

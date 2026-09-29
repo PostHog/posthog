@@ -364,6 +364,7 @@ describe('accountsViewsLogic', () => {
                 tags: [],
                 tileFilter: null,
                 customProperties: [],
+                filterGroups: [],
             },
             tiles: [...DEFAULT_TILES],
             columnDisplay: {},

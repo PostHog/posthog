@@ -3275,6 +3275,11 @@ export type AccountsTableFilter =
     | AccountsTableAccountFieldFilter
     | AccountsTableCustomPropertyFilter
 
+export type AccountsTablePropertyFilter =
+    | AccountsTableAccountFieldFilter
+    | AccountsTableRelationshipFilter
+    | AccountsTableCustomPropertyFilter
+
 export type AccountsTableCustomPropertyValue = string | number | boolean | null
 
 export interface AccountsTableCustomPropertyHistoryPoint {
@@ -3325,6 +3330,8 @@ export interface AccountsTableQuery extends DataNode<AccountsTableQueryResponse>
     columns: AccountsTableColumn[]
     /** Filters are combined with AND. Values within tag and assignment filters use OR. */
     filters?: AccountsTableFilter[]
+    /** Nonempty property-filter groups are ORed together; filters within each group use AND. Global filters still apply. */
+    filterGroups?: AccountsTablePropertyFilter[][]
     /** Aggregates to evaluate against the filtered account set. A metrics query skips row loading. */
     metrics?: AccountsTableMetric[]
     sort?: AccountsTableSort
