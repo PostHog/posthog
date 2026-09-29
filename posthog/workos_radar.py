@@ -5,7 +5,8 @@ This module provides a client for the WorkOS Radar Attempts API to evaluate
 signup attempts for potential fraud or bot activity. When Radar returns a
 BLOCK verdict, the attempt is rejected with a SuspiciousAttemptBlocked
 exception unless the email is on the Redis bypass list managed via the
-admin tool.
+admin tool, or a security access rule exempts it from the signup risk
+check.
 """
 
 import time
@@ -24,6 +25,8 @@ from rest_framework.exceptions import APIException
 from posthog.redis import get_client
 from posthog.turnstile import create_challenge_nonce, validate_and_consume_nonce, verify_turnstile_token
 from posthog.utils import get_ip_address, get_short_user_agent
+
+from products.security.backend.facade.api import is_signup_risk_exempt
 
 logger = structlog.get_logger(__name__)
 
@@ -107,7 +110,7 @@ def evaluate_auth_attempt(
 
     Raises:
         SuspiciousAttemptBlocked: When verdict is BLOCK and the email is
-            not in the Redis bypass list.
+            not in the Redis bypass list and not exempted by an access rule.
         ChallengeRequired: When verdict is CHALLENGE and no valid Turnstile
             token was provided.
     """
@@ -142,7 +145,8 @@ def evaluate_auth_attempt(
         user_agent=short_user_agent,
         duration_ms=duration_ms,
         was_blocked=outcome == "block",
-        was_bypassed=outcome == "bypass",
+        was_bypassed=outcome.startswith("bypass"),
+        bypass_source=outcome.removeprefix("bypass_") if outcome.startswith("bypass") else None,
         was_challenged=outcome == "challenge",
         was_challenge_completed=outcome == "completed",
     )
@@ -190,6 +194,20 @@ def _evaluate_verdict(
     return verdict, (time.perf_counter() - start_time) * 1000
 
 
+def _legacy_bypass(email: str) -> bool:
+    """The Redis list, read so a Redis failure cannot decide the signup on its own.
+
+    Raising here would 500 the request before the access rules are consulted, so an
+    address with a valid exemption would be refused by an outage in the list it does
+    not use. Treating the failure as a miss hands the decision to the rule check.
+    """
+    try:
+        return is_radar_bypass_email(email)
+    except Exception:
+        logger.warning("workos_radar_bypass_list_unavailable", email_hash=_hash_email(email))
+        return False
+
+
 def _decide_outcome(
     verdict: RadarVerdict,
     email: str,
@@ -197,14 +215,21 @@ def _decide_outcome(
     challenge_nonce: str,
     ip_address: str,
 ) -> str:
-    """Return one of: 'allow', 'block', 'bypass', 'challenge', 'completed'."""
+    """Return one of: 'allow', 'block', 'bypass_legacy', 'bypass_rule', 'challenge', 'completed'.
+
+    The two bypass values name the source, because after an incident the event stream has
+    to say whether an admin's Redis entry or an access rule let the address through.
+    """
     if turnstile_token and challenge_nonce:
         nonce_valid = validate_and_consume_nonce(challenge_nonce, email, ip_address)
         token_valid = nonce_valid and verify_turnstile_token(turnstile_token, ip_address)
         return "completed" if token_valid else "block"
 
-    if verdict in (RadarVerdict.BLOCK, RadarVerdict.CHALLENGE) and is_radar_bypass_email(email):
-        return "bypass"
+    if verdict in (RadarVerdict.BLOCK, RadarVerdict.CHALLENGE):
+        if _legacy_bypass(email):
+            return "bypass_legacy"
+        if is_signup_risk_exempt(email):
+            return "bypass_rule"
 
     if verdict == RadarVerdict.BLOCK:
         return "block"
@@ -294,6 +319,7 @@ def _log_radar_event(
     duration_ms: float,
     was_blocked: bool = False,
     was_bypassed: bool = False,
+    bypass_source: Optional[str] = None,
     was_challenged: bool = False,
     was_challenge_completed: bool = False,
 ) -> None:
@@ -310,6 +336,7 @@ def _log_radar_event(
         "would_block": verdict == RadarVerdict.BLOCK,
         "was_blocked": was_blocked,
         "was_bypassed": was_bypassed,
+        "bypass_source": bypass_source,
         "was_challenged": was_challenged,
         "was_challenge_completed": was_challenge_completed,
         "is_error": verdict == RadarVerdict.ERROR,
@@ -330,6 +357,7 @@ def _log_radar_event(
         action=action.value,
         auth_method=auth_method.value,
         verdict=verdict.value,
+        bypass_source=bypass_source,
         email_hash=_hash_email(email),
         duration_ms=round(duration_ms, 2),
     )

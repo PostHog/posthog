@@ -80,10 +80,7 @@ export function PipelineOverviewScene(): JSX.Element {
                 vertical space, and its absence already says there is nothing wrong. */}
             {hasIssues ? (
                 <>
-                    <SceneSection
-                        title="Needs attention"
-                        description="Sources and tables that have stopped, most serious first."
-                    >
+                    <SceneSection title="Needs attention" description="Tables and sources that have stopped syncing.">
                         <PipelineHealth />
                     </SceneSection>
 
@@ -93,7 +90,7 @@ export function PipelineOverviewScene(): JSX.Element {
 
             <SceneSection
                 title="Runs"
-                description="How many runs finished, and how many of them failed."
+                description="Runs that failed in this window. A table can be broken here with no recent run, if nothing retried it."
                 actions={
                     <LemonSelect<PipelineStatsWindow>
                         size="small"
@@ -113,7 +110,10 @@ export function PipelineOverviewScene(): JSX.Element {
 
             <SceneDivider />
 
-            <SceneSection title="Rows synced by destination" description="Where the imported rows were written.">
+            <SceneSection
+                title="Rows synced by destination"
+                description="Rows written to each destination. A row that reaches two destinations counts against both, so the series stack."
+            >
                 <RowsByDestination />
             </SceneSection>
 
