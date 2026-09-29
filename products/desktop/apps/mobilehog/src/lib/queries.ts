@@ -21,14 +21,18 @@ export const keys = {
   repositories: ["repositories"] as const,
 };
 
-export function useTasks() {
+export function useTasks(search = "") {
   const session = useAuth((s) => s.session);
   return useQuery({
-    queryKey: keys.tasks,
+    queryKey: search ? [...keys.tasks, "search", search] : keys.tasks,
     queryFn: async () => {
-      const tasks = await getClient().getTasks({ basic: true });
+      const tasks = await getClient().getTasks({
+        basic: true,
+        search: search || undefined,
+      });
       return tasks.filter(
         (task) =>
+          !task.internal &&
           task.latest_run?.environment !== "local" &&
           !task.origin_key?.startsWith("desktop_onboarding"),
       );

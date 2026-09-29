@@ -37,15 +37,18 @@ function taskTitle(task: Task): string {
 
 export function ListRow({
   title,
+  label,
   time,
   running = false,
   onPress,
 }: {
   title: string;
+  label?: string;
   time: string;
   running?: boolean;
   onPress: () => void;
 }) {
+  const age = formatRelativeAge(time);
   return (
     <Pressable
       onPress={onPress}
@@ -55,7 +58,7 @@ export function ListRow({
         <Text style={styles.title} numberOfLines={2}>
           {title}
         </Text>
-        <Text style={styles.time}>{formatRelativeAge(time)}</Text>
+        <Text style={styles.time}>{label ? `${label} · ${age}` : age}</Text>
       </View>
       {running ? (
         <ActivityIndicator size="small" color={colors.inkSoft} />
@@ -66,9 +69,11 @@ export function ListRow({
 
 export function TaskRow({
   task,
+  label,
   onPress,
 }: {
   task: Task;
+  label?: string;
   onPress: () => void;
 }) {
   const updateTask = useUpdateTask();
@@ -105,6 +110,7 @@ export function TaskRow({
           <RNHostView matchContents>
             <ListRow
               title={taskTitle(task)}
+              label={label}
               time={activityAt(task)}
               running={isRunning(task)}
               onPress={onPress}

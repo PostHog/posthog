@@ -26,16 +26,17 @@ export const reportKeys = {
 };
 
 // Reports a person can act on right now, highest priority first.
-export function useReports() {
+export function useReports(search = "") {
   const session = useAuth((s) => s.session);
   return useQuery({
-    queryKey: reportKeys.list,
+    queryKey: search ? [...reportKeys.list, search] : reportKeys.list,
     queryFn: () =>
       getClient().getSignalReports({
         status: INBOX_ACTIONABLE_REPORT_STATUS_FILTER,
         actionability: INBOX_ACTIONABLE_ACTIONABILITY_FILTER,
         ordering: "status,-priority,-created_at",
         limit: 100,
+        search: search || undefined,
       }),
     enabled: !!session,
     refetchInterval: 60_000,

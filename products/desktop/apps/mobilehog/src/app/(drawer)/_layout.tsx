@@ -24,6 +24,7 @@ export default function DrawerLayout() {
       <Drawer.Screen name="task/[id]" />
       <Drawer.Screen name="activity" />
       <Drawer.Screen name="self-driving" />
+      <Drawer.Screen name="recents" />
     </Drawer>
   );
 }

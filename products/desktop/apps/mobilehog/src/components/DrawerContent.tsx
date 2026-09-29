@@ -1,3 +1,4 @@
+import { Host, Image } from "@expo/ui/swift-ui";
 import { useRouter } from "expo-router";
 import { useMemo } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
@@ -38,9 +39,21 @@ export function DrawerContent({ closeDrawer }: { closeDrawer: () => void }) {
   };
 
   return (
-    <View style={[styles.root, { paddingTop: insets.top + 18 }]}>
+    <View style={[styles.root, { paddingTop: insets.top + 6 }]}>
       <DrawerEdgeShadow />
-      <Text style={styles.wordmark}>PostHog</Text>
+      <View style={styles.titleRow}>
+        <Text style={styles.wordmark}>PostHog</Text>
+        <GlassCircleButton
+          onPress={() => {
+            closeDrawer();
+            router.push("/(drawer)/recents");
+          }}
+        >
+          <Host matchContents>
+            <Image systemName="magnifyingglass" size={18} color={colors.ink} />
+          </Host>
+        </GlassCircleButton>
+      </View>
       <ScrollView
         contentContainerStyle={[
           styles.scroll,
@@ -124,11 +137,16 @@ const styles = StyleSheet.create({
     paddingRight: 18 + 72,
     marginRight: -72,
   },
+  titleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 18,
+  },
   wordmark: {
     fontFamily: fonts.sansBold,
     fontSize: 30,
     color: colors.ink,
-    marginBottom: 18,
     marginLeft: 4,
   },
   scroll: { paddingBottom: 24, gap: 18 },

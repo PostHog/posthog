@@ -2,7 +2,7 @@ import { buildCreatePrReportPrompt } from "@posthog/core/inbox/reportActions";
 import { formatRelativeAge } from "@posthog/shared";
 import type { SignalReport } from "@posthog/shared/domain-types";
 import * as Haptics from "expo-haptics";
-import { useNavigation, useRouter } from "expo-router";
+import { useLocalSearchParams, useNavigation, useRouter } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import Animated, {
@@ -40,6 +40,10 @@ export default function SelfDrivingScreen() {
   // Locally swiped ids, so a card leaves the deck before the server catches up.
   const [handled, setHandled] = useState<Set<string>>(new Set());
   const [deck, setDeck] = useState<string[] | null>(null);
+  const { report: linkedReport } = useLocalSearchParams<{ report?: string }>();
+  useEffect(() => {
+    if (linkedReport) setDeck([linkedReport]);
+  }, [linkedReport]);
   const [notice, setNotice] = useState<string | null>(null);
   useEffect(() => {
     if (!notice) return;
