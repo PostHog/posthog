@@ -7653,7 +7653,7 @@ class TestSurveyFlagWritesUnderApprovalPolicies(APIBaseTest):
     def test_a_rejected_replacement_keeps_the_existing_targeting_flag(self) -> None:
         self._create_policy("feature_flag.update")
         assert self.survey.targeting_flag is not None
-        existing_flag_id = self.survey.targeting_flag_id
+        existing_flag_id = self.survey.targeting_flag.id
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/surveys/{self.survey.id}/",
