@@ -6454,6 +6454,26 @@ snapshots:
         hash: v1.k794b7964.adee14a71121b1b4a56d6f5b9e4872ee32d8de3a7f40cb0c55b68f174045197d.wEwxxE-6hI2tAGGjdCHIjuEXE96VQWw5MGhW8DCylDk
     products-data-modeling-model-summary-card--narrow--light:
         hash: v1.k794b7964.a87631a1502874300f9fc74228b2cde19140336b7b1ea99d023f2e8afd8bd8af.3dZIS_Bxsda56LTs2PZhkMQdzd8HY2XeLgjGBnGO7gY
+    products-data-modeling-model-table-summary--error--dark:
+        hash: v1.k794b7964.b57059fb38081d3185d2b23993b73ed5c15dd9ca0406a3aaa87de93783bf8e30.bKEoxLtzqFYgw_2XU23cvuqh3MI8jAGvL1D7nBemKhw
+    products-data-modeling-model-table-summary--error--light:
+        hash: v1.k794b7964.e87f83967a1cd4372443d12aaea994d3c2187a7c01cf38807e70dc6329eb4a8d.3SxhBWZ4Czchj3jEj-QwIy4OazRew7SBQ5Vqf_FfMWQ
+    products-data-modeling-model-table-summary--loading--dark:
+        hash: v1.k794b7964.96b1686eee19960346d57f1ce5095d93e070568a1dc507efb638c3eeb7901dd0.n5caEZLI1C3RuA-95UOci5CyWRyvSPky85wBEgicn-Q
+    products-data-modeling-model-table-summary--loading--light:
+        hash: v1.k794b7964.d00895dba5f318630caee348834fdb21d9ee73e4a36fcb8208f26aeb0d6fee86.t-nV2_dNFORuTIIERnw4-JvHCuzfJuA8ZPM6mYK0Jzk
+    products-data-modeling-model-table-summary--post-hog--dark:
+        hash: v1.k794b7964.450c1a6cec8a060c753a1a2048d3d8f9cdb7001fa461a9c320145d7f94c621b9.pe7-QTXhVEnz8ClZ2Oyizkxa9ITwOefYX2O4SL-xnOo
+    products-data-modeling-model-table-summary--post-hog--light:
+        hash: v1.k794b7964.a8907d047ea7539157ffa1326ac7c24fc291dd9af0226e3758370084d358a5cf.vVqBiUiw5FKu1bw3QWohlKMYAey_pOApD8Rjw6hcDZA
+    products-data-modeling-model-table-summary--self-managed--dark:
+        hash: v1.k794b7964.91ed3c00050fc05758bfc0f264e6c99ca4fe3b0c8357b3401e4d22c2bdc40e80.yJ9bgMytoyYcCh_uq0jlcrZeKxGCFTzZO_ZnzGb0oIg
+    products-data-modeling-model-table-summary--self-managed--light:
+        hash: v1.k794b7964.dfff71dbb156ba5d6b8fd1f8e134986f79b266086d3a8ba4266d9c50cc6991bd.tLMJ-Y3O6ccsCJZFuZsdyKKI8EvgpSmMESAa1ua6Ixk
+    products-data-modeling-model-table-summary--synced--dark:
+        hash: v1.k794b7964.96d2cc266fcb7c32a1d30c7718fc8cb35d9f11e5fbfd21b2218a0f49ddaa6e0b.1kN4E-ZKJeHT9zSWQES30lAunDXDJc3LECFyIfDSsaA
+    products-data-modeling-model-table-summary--synced--light:
+        hash: v1.k794b7964.e10315afff7e2bd2a2c49b2312b213b636b4e57f5f00a0ec088949163f24dc21.rjpou3TIwacsVEscy9Gt5sxc6hRSDc19q5LC9XKf8CE
     products-data-modeling-model-view-summary--default--dark:
         hash: v1.k794b7964.737d8a2c361afacd464cd954284a02ce712e05d937c685c531d65febadcba1be.KNgeP1Z_u8nhEEdPH7Nx6pTJCpd27rRj79qLWBIWjWE
     products-data-modeling-model-view-summary--default--light:
@@ -6526,6 +6546,10 @@ snapshots:
         hash: v1.k794b7964.5c623bdf59901765f55de0d7a1164d11feefa003292f7c0fc37a8bdcf778d3d2.UhfAB2qZz0EGEphjIL9GwkuEiuovUfT31-Ow5_gn2b8
     products-data-modeling-node-detail-scene--paginated-columns--light:
         hash: v1.k794b7964.b119e3e790d76d28ef0b53b7a7116717a4c2660347e23054a47922696c799548.YmPMhBqGr7MBKRXPb815ZXpqZp1V17KRg4PPq33hd5I
+    products-data-modeling-node-detail-scene--post-hog-table--dark:
+        hash: v1.k794b7964.a96ef756e2d01161b01e5db98cde06709b23518e7ee914f7eeb0dd21ca5810a8.s0IoMkvwZvyD1_FEELxAyTJkizH93blLZECbndIJoQM
+    products-data-modeling-node-detail-scene--post-hog-table--light:
+        hash: v1.k794b7964.96c90c4c447779f126aee9c2b3a80e2f5d749287d53d52af9bbc8813d00ab4e6.YjG3VOPfzSkY44how_J4F5gmmP8Xjhpy_WNyugIgIFA
     products-data-modeling-node-detail-scene--suspended-with-run-history--dark:
         hash: v1.k794b7964.8777021fae0861f86ccd00ee197d14fcacf12d0ae1ba8a8fe7b38f20591cbc41.r_GyHK2h2ozRGIYXoZ3N4CAlJMClpccnfeC5TEgiDOo
     products-data-modeling-node-detail-scene--suspended-with-run-history--light:
@@ -6534,6 +6558,10 @@ snapshots:
         hash: v1.k794b7964.c3a0122ed3c944fd0036bf07405b2e09e14f7f218660863779a3587da606f3aa.HS-n7WOMbDZm10kaWIku0Y01udvSaEeEdFoDzUBLlrk
     products-data-modeling-node-detail-scene--view--light:
         hash: v1.k794b7964.36643c2fa6800cf361c623fca665343f8b4a2708afd3cd46ed9abb19cfd1db5f.mqGLSD5Sce2yBSvIXIS7PajSjOdXlLIoEjGEK4iwYEc
+    products-data-modeling-node-detail-scene--warehouse-table--dark:
+        hash: v1.k794b7964.9b4ada16fe4040658293f332d2ef1ac787d442024a46910f31977b5e91b78f18.ZwMWNZ12_XSUiYLnaWKGHTLnba40UqTfSVUtQdGwOwI
+    products-data-modeling-node-detail-scene--warehouse-table--light:
+        hash: v1.k794b7964.b9eef66cedae5f0ef73ad8a064065a18727ead6de094c06e3ba0721cde6cfef9.M311KjIy20zre5wD_R9dqQyQ_J8_GsyPkmmcm-JL77w
     products-data-modeling-views-list--actions--dark:
         hash: v1.k794b7964.eceb80b180d692b6f616365ea7269d24bb6f084128cbfafc661cf6159dc281ec.FagEpfMfYMDwAJaH7ctNLBVSS-sThFgcTnQ8Ghwk8wI
     products-data-modeling-views-list--actions--light:
@@ -10582,6 +10610,14 @@ snapshots:
         hash: v1.k794b7964.f4834bd847409bc77a9089579cd237f78ae7e83fdcc9521c395180aea0febb8b.F4anEytvZgRohcIl4DRGzQryWB1odxKnwlegi-rDGDY
     scenes-app-mcp-analytics-dashboard-cards--share-by-model-unknown-only--light:
         hash: v1.k794b7964.eadcb2a22597e6ccdb6a3f09c36e7c25e8e877947c1907adc3e26493efa99b6f.F3RoI5DLu7SfZO7h6xDbMP3Zy8nLzBBwcBfREd5fw8k
+    scenes-app-mcp-analytics-dashboard-cards--share-by-protocol-version--dark:
+        hash: v1.k794b7964.4797eb9699599cce7b5c1b4b602d47deaef29599d700e440bd57c8846a13f9e7.2rtO4N1ReXx_XHlS0sLC6ecv_H5pWLDF4OhJwXPQqPk
+    scenes-app-mcp-analytics-dashboard-cards--share-by-protocol-version--light:
+        hash: v1.k794b7964.d4c0ad9490f9324805cda24156d5ff98d958ad05ca72cce51e72fc3a970db629.zLruUrubw1IU4_FVWo1T96V5cmAOOhhrv5ANAu4FY4k
+    scenes-app-mcp-analytics-dashboard-cards--share-by-protocol-version-many-legacy--dark:
+        hash: v1.k794b7964.81b7244b2881278b658a3892c13fe77c4631edd8ad5041e14a4c1ce480c29d17.IkC2uJ3Zav4XGz7XBB_AX0_rDes0b2qnZoEsK7UgY94
+    scenes-app-mcp-analytics-dashboard-cards--share-by-protocol-version-many-legacy--light:
+        hash: v1.k794b7964.1a63e7fd139014351710bb159cd7250b8f58bd397aaab4db622a693c20e1c779.tuYcBlTGs7j61MU4GruquLPrJBrBm-pDM3i4Bys61FM
     scenes-app-mcp-analytics-missing-capabilities-preview--example-reports--dark:
         hash: v1.k794b7964.e1dfe15b20b22dec1f74881db821597e40d534cf0c9773fc032948311de642f7.iAS_FuPfykHZ7rjy90ExdGbsAT1eKhSIwVLvxUg1aGM
     scenes-app-mcp-analytics-missing-capabilities-preview--example-reports--light:
@@ -10774,6 +10810,18 @@ snapshots:
         hash: v1.k794b7964.d6c551c581824287879e157abaa61874713bb6389caaa015b1bac305a69c36cb.szC1MJRFAMY6z5Cr9uPHF3D39RLL7VUUFs3FiiemlsA
     scenes-app-notebooks-nodes-support-tickets--with-tickets--light:
         hash: v1.k794b7964.10a73c98dea8faa9011e00a7f44278e12216eb077e68ffefb4f2799f0ab519ad.yCkGWzRUKGODRvA_V0WHSn9Pdm5FhPyEfJVEcilSpP8
+    scenes-app-notebooks-run-all-banner--last-cell--dark:
+        hash: v1.k794b7964.636c00625c3a849d8b3813e810c2d7aaf62d675049a772ff3d5543c27432ad8b.V2iZz-tdy7XiwDT6-yVJKOW3S3VyaMyoEn5toL5SeUI
+    scenes-app-notebooks-run-all-banner--last-cell--light:
+        hash: v1.k794b7964.ee1b2eeb409eea54cece70d64af1d9e6988782322d9f30ab939fbbc6bde6a0f4.wr8dLlqY1qnabNlrKA7-XWFjnlHDOXAZeHk-X5A9Wuk
+    scenes-app-notebooks-run-all-banner--mid-run--dark:
+        hash: v1.k794b7964.6d79e1f66734705db047688969ad0fc46a690b255a4fbcefcf252cd67b3df915.yQlahVbXql8gxy5LPvhyDgoi5gQES5XVlNCpTHiEXKE
+    scenes-app-notebooks-run-all-banner--mid-run--light:
+        hash: v1.k794b7964.9d674fdf1f7bbb66c7caf1764b1c57c8f4e6081e26981993f7ca49ba458c4185.USIO_PlJeZsQDyIpYt-tTAiSs_XXpUvJUGPQyOQbneg
+    scenes-app-notebooks-run-all-banner--starting--dark:
+        hash: v1.k794b7964.236c0485a9150c930638669fc0e9e894f5957a2ac2745f29b73ed558ffcd1cdc.yeGKlhnvYq8b01QMsu190pnW-nQwU4cGKsf7aH0Ck8k
+    scenes-app-notebooks-run-all-banner--starting--light:
+        hash: v1.k794b7964.6c7bd37efe1d58d68070782d7d1d0ce20be5abfebe1f829feb0376b584ad1158.CVBhfDqMZqLLuxmDgkiTAS9Vn2SANiX9cOWDF1Ui8hk
     scenes-app-notebooks-widget-generation-cost--less-than-one-cent--dark:
         hash: v1.k794b7964.3d7ab4ed80e86dee207323ed0baf83d86a9c0b53c868f64769ddc708b4ab5881.RKwiZJnBL8K4kWfRM3MV6Aruoqr20twxVmepMy_SU6Y
     scenes-app-notebooks-widget-generation-cost--less-than-one-cent--light:

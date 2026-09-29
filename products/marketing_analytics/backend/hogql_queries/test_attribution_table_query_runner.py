@@ -135,6 +135,7 @@ class TestMarketingAnalyticsAttributionQueryRunner(ClickhouseTestMixin, BaseTest
         lookback_days: int | None = None,
         allow_multiple_conversions: bool | None = None,
         filter_test_accounts: bool | None = False,
+        live_resolution: bool = False,
     ):
         flush_persons_and_events()
         query = MarketingAnalyticsAttributionQuery(
@@ -148,7 +149,11 @@ class TestMarketingAnalyticsAttributionQueryRunner(ClickhouseTestMixin, BaseTest
             filterTestAccounts=filter_test_accounts,
             properties=[],
         )
-        return MarketingAnalyticsAttributionQueryRunner(query=query, team=self.team).calculate()
+        runner = MarketingAnalyticsAttributionQueryRunner(query=query, team=self.team)
+        runner.config.live_session_resolution_enabled = live_resolution
+        response = runner.calculate()
+        assert runner._live_session_resolution_used == live_resolution
+        return response
 
     @parameterized.expand([(False, "frequent"), (True, "valuable")])
     def test_revenue_ranking_precedes_row_limit(self, include_revenue: bool, expected: str) -> None:
@@ -349,7 +354,8 @@ class TestMarketingAnalyticsAttributionQueryRunner(ClickhouseTestMixin, BaseTest
         self.assertAlmostEqual(last_touch.conversions, 2.0, places=4)
         self.assertAlmostEqual(last_touch.conversionValue or 0.0, 200.0, places=2)
 
-    def test_every_model_splits_one_conversion_its_own_way(self):
+    @parameterized.expand([(False,), (True,)])
+    def test_every_model_splits_one_conversion_its_own_way(self, live_resolution: bool) -> None:
         # The one test that catches this design's central risk: five weight arrays are built per
         # conversion and exploded through a single shared ARRAY JOIN, so indexing the wrong array into a
         # model's column, or an off-by-one in `arrayEnumerate(ts)`, silently reports another model's
@@ -360,7 +366,7 @@ class TestMarketingAnalyticsAttributionQueryRunner(ClickhouseTestMixin, BaseTest
         self._session("p1", ONE_DAY_BEFORE, utm_campaign="late")
         self._conversion("p1", CONVERSION_AT, revenue=100.0)
 
-        response = self._run(MarketingAnalyticsAttributionBreakdown.CAMPAIGN)
+        response = self._run(MarketingAnalyticsAttributionBreakdown.CAMPAIGN, live_resolution=live_resolution)
         by_campaign = self._by_breakdown(response)
 
         self.assertEqual(set(by_campaign), {"early", "middle", "late"})
@@ -1053,7 +1059,13 @@ class TestMarketingAnalyticsAttributionQueryRunner(ClickhouseTestMixin, BaseTest
         with self.assertRaises(ValueError):
             MarketingAnalyticsAttributionQueryRunner(query=query, team=self.team).to_query()
 
-    def _printed_sql(self, breakdown: MarketingAnalyticsAttributionBreakdown, *, precomputed: bool = False) -> str:
+    def _printed_sql(
+        self,
+        breakdown: MarketingAnalyticsAttributionBreakdown,
+        *,
+        precomputed: bool = False,
+        live_resolution: bool = False,
+    ) -> str:
         query = MarketingAnalyticsAttributionQuery(
             dateRange=DateRange(date_from="2023-01-01", date_to="2023-01-31"),
             breakdownBy=breakdown,
@@ -1062,6 +1074,7 @@ class TestMarketingAnalyticsAttributionQueryRunner(ClickhouseTestMixin, BaseTest
         )
         runner = MarketingAnalyticsAttributionQueryRunner(query=query, team=self.team)
         runner.config.sessions_precomputation_enabled = precomputed
+        runner.config.live_session_resolution_enabled = live_resolution
         context = runner._shared_hogql_context
         # execute_hogql_query flips this on the context it is handed; do the same to print the real query.
         context.enable_select_queries = True
@@ -1071,7 +1084,8 @@ class TestMarketingAnalyticsAttributionQueryRunner(ClickhouseTestMixin, BaseTest
             return_value=ready,
         ):
             printed = prepare_and_print_ast(runner.to_query(), context=context, dialect="clickhouse")
-        assert runner._sessions_precompute_used == precomputed
+        assert runner._sessions_precompute_used == (precomputed and not live_resolution)
+        assert runner._live_session_resolution_used == live_resolution
         return pretty_print_in_tests(printed[0] if isinstance(printed, tuple) else printed, self.team.pk)
 
     # One breakdown per SQL shape. Campaign reads a stored property, and the five breakdowns not listed
@@ -1092,12 +1106,17 @@ class TestMarketingAnalyticsAttributionQueryRunner(ClickhouseTestMixin, BaseTest
     # Entry properties must merge only for exceptional sessions; classifying the full range defeats the cache.
     @parameterized.expand(
         [
-            ("campaign", MarketingAnalyticsAttributionBreakdown.CAMPAIGN),
-            ("source", MarketingAnalyticsAttributionBreakdown.SOURCE),
-            ("channel", MarketingAnalyticsAttributionBreakdown.CHANNEL),
+            ("campaign", MarketingAnalyticsAttributionBreakdown.CAMPAIGN, False),
+            ("source", MarketingAnalyticsAttributionBreakdown.SOURCE, False),
+            ("channel", MarketingAnalyticsAttributionBreakdown.CHANNEL, False),
+            ("live_campaign", MarketingAnalyticsAttributionBreakdown.CAMPAIGN, True),
+            ("live_source", MarketingAnalyticsAttributionBreakdown.SOURCE, True),
+            ("live_channel", MarketingAnalyticsAttributionBreakdown.CHANNEL, True),
         ]
     )
     @pytest.mark.usefixtures("unittest_snapshot")
-    def test_precomputed_sessions_sql(self, _name: str, breakdown: MarketingAnalyticsAttributionBreakdown):
-        printed = self._printed_sql(breakdown, precomputed=True)
+    def test_precomputed_sessions_sql(
+        self, _name: str, breakdown: MarketingAnalyticsAttributionBreakdown, live_resolution: bool
+    ):
+        printed = self._printed_sql(breakdown, precomputed=True, live_resolution=live_resolution)
         assert printed == self.sql_snapshot(printed)

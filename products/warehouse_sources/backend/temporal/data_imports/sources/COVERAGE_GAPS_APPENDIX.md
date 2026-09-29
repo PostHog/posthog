@@ -3256,19 +3256,19 @@ Note: The Flexmail public API is contact-management only - it exposes no campaig
 
 ## FloatApp — gaps
 
-Today (20): `accounts`, `clients`, `currencies`, `deleted_logged_time`, `deleted_tasks`, `deleted_timeoffs`, `departments`, `holidays`, `logged_time`, `milestones`, `people`, `phases`, `project_tasks`, `projects`, `rate_cards`, `roles`, `status`, `tasks`, `timeoff_types`, `timeoffs`
+Today (24): `accounts`, `clients`, `currencies`, `deleted_logged_time`, `deleted_tasks`, `deleted_timeoffs`, `departments`, `holidays`, `logged_time`, `milestones`, `people`, `phases`, `project_expenses`, `project_stages`, `project_tasks`, `projects`, `public_holidays`, `rate_cards`, `reports_people`, `roles`, `status`, `tasks`, `timeoff_types`, `timeoffs`
 
 Diffed against: <https://developer.float.com/swagger-api-v3.yaml>
 
-- [ ] `/project-stages` — lookup table resolving the stage IDs carried on the projects we already sync (high)
+- [x] `/project-stages` — lookup table resolving the stage IDs carried on the projects we already sync (high)
 - [x] `/rate-cards` — lookup for the rate card IDs on people/projects; required to turn logged hours into billable value (high)
-- [ ] `/reports/people` — Float's headline utilization/capacity report per person, pre-aggregated (high)
+- [x] `/reports/people` — Float's headline utilization/capacity report per person, pre-aggregated (high)
 - [ ] `/reports/projects` — per-project scheduled vs logged vs billable breakdown (medium)
-- [ ] `/project-expenses` — non-labor project cost, needed for true project margin alongside logged_time (medium)
-- [ ] `/public-holidays` — region public holidays; distinct from the team /holidays table already synced, needed for correct capacity math (medium)
+- [x] `/project-expenses` — non-labor project cost, needed for true project margin alongside logged_time (medium)
+- [x] `/public-holidays` — region public holidays; distinct from the team /holidays table already synced, needed for correct capacity math (medium)
 - [x] `/currencies` — lookup for currency codes on rate cards and project budgets (low)
 
-Note: Machine-readable OpenAPI at /swagger-api-v3.yaml enumerates 26 resources; PostHog covers 20. /project-templates was excluded as config.
+Note: Machine-readable OpenAPI at /swagger-api-v3.yaml enumerates 26 resources; PostHog covers 24. /project-templates was excluded as config.
 
 ## Flowlu — **thin**
 
@@ -3293,17 +3293,17 @@ Note: developers.flowlu.com is the API host, not docs (returns 404/api-key error
 
 ## FlyIo — gaps
 
-Today (3): `apps`, `machines`, `volumes`
+Today (7): `apps`, `machine_events`, `machine_versions`, `machines`, `regions`, `volume_snapshots`, `volumes`
 
 Diffed against: <https://docs.machines.dev/spec/openapi3.json>
 
-- [ ] `/apps/{app_name}/machines/{machine_id}/events` — machine state-transition history (start/stop/OOM/restart) - the only way to analyze uptime and crash patterns (high)
-- [ ] `/platform/regions` — lookup resolving the region codes already carried on machines and volumes (medium)
-- [ ] `/apps/{app_name}/machines/{machine_id}/versions` — per-machine config version history, gives deploy/rollout timeline (medium)
-- [ ] `/apps/{app_name}/volumes/{volume_id}/snapshots` — snapshot history per volume for backup coverage reporting (medium)
+- [x] `/apps/{app_name}/machines/{machine_id}/events` — machine state-transition history (start/stop/OOM/restart) - the only way to analyze uptime and crash patterns (high)
+- [x] `/platform/regions` — lookup resolving the region codes already carried on machines and volumes (medium)
+- [x] `/apps/{app_name}/machines/{machine_id}/versions` — per-machine config version history, gives deploy/rollout timeline (medium)
+- [x] `/apps/{app_name}/volumes/{volume_id}/snapshots` — snapshot history per volume for backup coverage reporting (medium)
 - [ ] `/postgres` — managed Postgres cluster inventory (plus /postgres/{id}/databases) missing from the infra picture (low)
 
-Note: PostHog syncs machines/volumes via the org-wide /orgs/{org_slug}/... routes; events and versions only exist per-machine, so they need a fan-out over the machines table. secrets/secretkeys, certificates and lease endpoints excluded as plumbing.
+Note: PostHog syncs machines/volumes via the org-wide /orgs/{org_slug}/... routes. Events, versions and volume snapshots only exist per app resource, so each fans out over its org-wide parent listing and carries the parent's app name and id onto every row. Those three endpoints return a bare array with no cursor, so each sync stores the history the API returns at that moment. secrets/secretkeys, certificates and lease endpoints excluded as plumbing.
 
 ## Formbricks — gaps
 
@@ -3340,14 +3340,14 @@ Note: Freshcaller's public API is genuinely small - calls, call_metrics (with in
 
 ## Freshchat — gaps
 
-Today (5): `accounts_configuration`, `agents`, `channels`, `groups`, `users`
+Today (8): `accounts_configuration`, `agents`, `channels`, `conversation_messages`, `groups`, `roles`, `user_conversations`, `users`
 
 Diffed against: <https://developers.freshchat.com/api/>
 
-- [ ] `/v2/users/{user_id}/conversations` — conversations are the product's core analytical object and are entirely absent today (high)
-- [ ] `/v2/conversations/{conversation_id}/messages` — message-level data for response time, volume and agent workload analysis (high)
-- [ ] `/v2/roles` — lookup resolving the role IDs carried on agents (high)
-- [ ] `/v2/reports/raw` — bulk raw data export - the practical way to land conversation/agent history at scale (medium)
+- [x] `/v2/users/{user_id}/conversations` — conversations are the product's core analytical object and are entirely absent today (high)
+- [x] `/v2/conversations/{conversation_id}/messages` — message-level data for response time, volume and agent workload analysis (high)
+- [x] `/v2/roles` — lookup resolving the role IDs carried on agents (high)
+- [ ] `/v2/reports/raw` — bulk raw data export - the practical way to land conversation/agent history at scale (medium) — not a readable collection: `POST /reports/raw` submits an async extraction job and `GET /reports/raw/{id}` returns a status plus a link to a generated CSV/JSON file. It needs a mandatory `event` type from a fixed enum, each of which yields a different report schema, over a window capped at one month (24 hours for chat transcripts) and no earlier than 15 months back. There is no single stable table behind it.
 - [ ] `/v2/outbound-messages` — outbound campaign message sends and their delivery state (medium)
 - [ ] `/v2/metrics/historical` — vendor-computed historical conversation/agent metrics (medium)
 
