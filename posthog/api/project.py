@@ -12,8 +12,7 @@ from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
 import structlog
-from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field, extend_schema_view
+from drf_spectacular.utils import extend_schema, extend_schema_field, extend_schema_view
 from rest_framework import exceptions, request, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import BasePermission, IsAuthenticated
@@ -1975,15 +1974,7 @@ class ProjectViewSet(
     )
     @extend_schema(
         methods=["DELETE"],
-        parameters=[
-            OpenApiParameter(
-                name="context_name",
-                type=OpenApiTypes.STR,
-                location=OpenApiParameter.QUERY,
-                required=True,
-                description="Name of the evaluation context to restore to suggestions.",
-            )
-        ],
+        parameters=[EvaluationContextSuggestionRequestSerializer],
         responses={200: EvaluationContextSuggestionResponseSerializer},
         extensions={"x-product": "feature_flags"},
     )

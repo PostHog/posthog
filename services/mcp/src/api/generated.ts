@@ -107745,7 +107745,9 @@ export namespace Schemas {
 
     export type OrganizationsProjectsEvaluationContextSuggestionsDestroyParams = {
     /**
-     * Name of the evaluation context to restore to suggestions.
+     * Name of the evaluation context to hide from (POST) or restore to (DELETE) the flag editor's suggestion list. Case-insensitive and whitespace-trimmed.
+     * @minLength 1
+     * @maxLength 255
      */
     context_name: string;
     };

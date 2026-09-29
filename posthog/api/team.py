@@ -15,7 +15,7 @@ from django.utils.dateparse import parse_datetime
 import re2
 import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field
+from drf_spectacular.utils import extend_schema, extend_schema_field
 from opentelemetry import trace
 from pydantic import (
     RootModel as PydanticRootModel,
@@ -2898,15 +2898,7 @@ class TeamViewSet(
     )
     @extend_schema(
         methods=["DELETE"],
-        parameters=[
-            OpenApiParameter(
-                name="context_name",
-                type=OpenApiTypes.STR,
-                location=OpenApiParameter.QUERY,
-                required=True,
-                description="Name of the evaluation context to restore to suggestions.",
-            )
-        ],
+        parameters=[EvaluationContextSuggestionRequestSerializer],
         responses={200: EvaluationContextSuggestionResponseSerializer},
         extensions={"x-product": "feature_flags"},
     )
