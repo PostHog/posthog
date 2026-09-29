@@ -8,7 +8,18 @@ PER_PAGE = 200
 # The Delete Log endpoints use cursor pagination and accept a `limit` of up to 500.
 DELETE_LOG_LIMIT = 500
 
-PaginationMode = Literal["page", "cursor"]
+# `/public-holidays` defaults to the current year alone, which would hide the holidays behind any
+# historical logged time. `start_date`/`end_date` override that default, so span a fixed window
+# around today instead.
+PUBLIC_HOLIDAY_YEARS_BACK = 3
+PUBLIC_HOLIDAY_YEARS_AHEAD = 1
+
+# The report endpoints require a `start_date`/`end_date` and return the aggregate over it with no
+# pagination, so `/reports/people` is walked one calendar month at a time to give the table a
+# monthly grain instead of a single window whose meaning shifts every sync.
+REPORT_LOOKBACK_MONTHS = 12
+
+PaginationMode = Literal["page", "cursor", "report_window"]
 
 
 @dataclass
@@ -25,9 +36,12 @@ class FloatEndpointConfig:
     # Stable creation-time field to partition by. Only set where Float is known to return a `created`
     # timestamp on every row — an absent partition column would fail the write. None disables partitioning.
     partition_key: str | None = None
-    # Core resources use page-number pagination (`page`/`per-page` + `X-Pagination-*` headers). Only the
-    # Delete Log endpoints use cursor pagination (`cursor`/`limit` + `X-Pagination-Next-Cursor`).
+    # Core resources use page-number pagination (`page`/`per-page` + `X-Pagination-*` headers). The
+    # Delete Log endpoints use cursor pagination (`cursor`/`limit` + `X-Pagination-Next-Cursor`), and
+    # the report endpoints are unpaginated windows walked a month at a time.
     pagination: PaginationMode = "page"
+    # Send an explicit `start_date`/`end_date` instead of accepting the endpoint's default range.
+    date_window: bool = False
     should_sync_default: bool = True
 
 
@@ -43,9 +57,15 @@ FLOAT_ENDPOINTS: dict[str, FloatEndpointConfig] = {
     "projects": FloatEndpointConfig(
         name="projects", path="/projects", primary_keys=["project_id"], partition_key="created"
     ),
+    "project_stages": FloatEndpointConfig(
+        name="project_stages", path="/project-stages", primary_keys=["id"], partition_key="created"
+    ),
     "phases": FloatEndpointConfig(name="phases", path="/phases", primary_keys=["phase_id"]),
     "tasks": FloatEndpointConfig(name="tasks", path="/tasks", primary_keys=["task_id"], partition_key="created"),
     "project_tasks": FloatEndpointConfig(name="project_tasks", path="/project-tasks", primary_keys=["task_meta_id"]),
+    "project_expenses": FloatEndpointConfig(
+        name="project_expenses", path="/project-expenses", primary_keys=["id"], partition_key="created"
+    ),
     "milestones": FloatEndpointConfig(name="milestones", path="/milestones", primary_keys=["milestone_id"]),
     "timeoffs": FloatEndpointConfig(
         name="timeoffs", path="/timeoffs", primary_keys=["timeoff_id"], partition_key="created"
@@ -57,8 +77,23 @@ FLOAT_ENDPOINTS: dict[str, FloatEndpointConfig] = {
     "status": FloatEndpointConfig(name="status", path="/status", primary_keys=["status_id"]),
     "roles": FloatEndpointConfig(name="roles", path="/roles", primary_keys=["id"]),
     "holidays": FloatEndpointConfig(name="holidays", path="/holidays", primary_keys=["holiday_id"]),
+    "public_holidays": FloatEndpointConfig(
+        name="public_holidays",
+        path="/public-holidays",
+        # Float documents `id` as the holiday's id *per region*, so it is only unique within a region.
+        primary_keys=["id", "region"],
+        date_window=True,
+    ),
     "rate_cards": FloatEndpointConfig(name="rate_cards", path="/rate-cards", primary_keys=["rate_card_id"]),
     "currencies": FloatEndpointConfig(name="currencies", path="/currencies", primary_keys=["currency_id"]),
+    "reports_people": FloatEndpointConfig(
+        name="reports_people",
+        path="/reports/people",
+        # One row per person per report window, so `people_id` alone repeats across windows.
+        primary_keys=["people_id", "start_date"],
+        partition_key="start_date",
+        pagination="report_window",
+    ),
     # Delete Log endpoints — cursor pagination, append-only tombstones. Niche, so off by default.
     "deleted_tasks": FloatEndpointConfig(
         name="deleted_tasks",
