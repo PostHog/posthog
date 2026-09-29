@@ -109,8 +109,6 @@ source "$FLOX_ENV_PROJECT/.flox/env/on-activate.sh"
 bash = '''
   if [ -f "$HOME/.bash_profile" ]; then
     source "$HOME/.bash_profile"
-    # ensure even with your shell prefs in place we know this is a Flox.dev env
-    export PS1="\033[47m(flox)\033[0m $PS1"
   fi
   unset GOROOT
   export GOTOOLCHAIN=local
@@ -139,8 +137,6 @@ bash = '''
 zsh = '''
   if [[ -f "$HOME/.zshrc" ]]; then
     source "$HOME/.zshrc"
-    # ensure even with your shell prefs in place we know this is a Flox.dev env
-    export PS1="%K{white}%F{black}(flox)%k%f $PS1"
   fi
   unset GOROOT
   export GOTOOLCHAIN=local
