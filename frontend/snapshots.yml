@@ -11594,6 +11594,14 @@ snapshots:
         hash: v1.k794b7964.5389531656b98551428d0348f86123184edee37f4c3a32fdb4a1cc0869adc3ff.W_v_OXNRYXMUup9iAKFHeMPkwy3iwVpJ6BlmnA6QO_c
     scenes-app-settings-environment--settings-environment-error-tracking-configuration--light:
         hash: v1.k794b7964.05cd4d11178a6ab2b511d9bf210abe0d975216c98945669170f00138e560fd16.sqlVQyLt-1PLj-fF9YbPdwnFo_RxtHzrHyZe2OQiSDc
+    scenes-app-settings-environment--settings-environment-experiments--dark:
+        hash: v1.k794b7964.34ea9c4a5eec940e7e9a2a9435da52e1ebe91d2f7a7f540c76b6323bfdcf830e.HzYgBbQwQQww7_CWcnVIOZ5AwNvp-HlX1gxrQsDwoa4
+    scenes-app-settings-environment--settings-environment-experiments--light:
+        hash: v1.k794b7964.50405eeca5576a2c771427b596d742f2925f63e17bc96558f7969c65469fac79.yoc74JSxnEwjvd8Qneqn2pDzNMKiG5sx1D6LGwoe1Wk
+    scenes-app-settings-environment--settings-environment-experiments-multiple-recalculation-times--dark:
+        hash: v1.k794b7964.5b034a5effb472ad3ef818ec75b6b9506e70d95810aac035050535713157e1d6.8do5WxsjD00LvHsn752lDv_sH9FdxOYyPZM7AUzdDqk
+    scenes-app-settings-environment--settings-environment-experiments-multiple-recalculation-times--light:
+        hash: v1.k794b7964.fb1bcb78d3098e7ab06fdbf1c2f1902049de9030d3769520e78851d3c96b7b24.VhR7GZo9z3_d4yiKMeBu2-54QRDyq_8jIOqlZFwDG_s
     scenes-app-settings-environment--settings-environment-feature-flags--dark:
         hash: v1.k794b7964.f542dc208f8caacdc2978c3e17d6c077d299f4896b6acf1b0cbe51eb1e7e2f34.KnYG2YFjexeGzYr2iZlQmND2MXxJXDH3G9_vOeCMy84
     scenes-app-settings-environment--settings-environment-feature-flags--light:
