@@ -686,7 +686,7 @@ The backend supplies current instructions, bounded reference text from the exact
 The session requests no project-read MCP scopes because that context is supplied up front. The shared sandbox's internal credentials and tool access remain an accepted limitation of the staff-only v0.
 The first request drafts complete criteria using effective defaults and disabled choices. A second request supplies the complete saved rubric and selects whole draft items by index, without rewriting them.
 One conditional format correction is shared across both steps. The generator does not inspect historical transcripts or full reports.
-Criteria for complex policies identify the specific source rules governing a decision or outcome. Later evaluations must include those reference instructions alongside the rubric.
+Criteria explain the required result in plain language, with specific source references where needed to preserve complex conditions and exceptions. Later evaluations must include those reference instructions alongside the rubric.
 Its task identifiers, status, and validated result persist on the config so the user can leave the page and return later.
 Completion preserves saved criteria, rejects results from replaced requests, and requires explicit user selection and saving to adopt suggestions.
 Expired or terminal requests reject late worker updates. An update to an expired request records the failure and completion time.

@@ -1,11 +1,13 @@
 # Scout rubric suggestions: development report
 
-2026-09-29 update: retain the integrated generator with final plain-language writing instructions.
-The focused [readability pass](#readability-pass-2026-09-29) completed 40 further generations.
-Its final eight preserved the baseline content grades and improved readability. The broader gates
-below describe the preceding prompt version; this pass did not rerun that full suite.
-Rubric generation now defaults to GPT-6 Sol at high effort. Explicit runtime overrides still apply.
-Two [additional Sol checks](#additional-sol-checks) covered other scouts, with and without history.
+2026-09-29 latest: retain the integrated generator with [revised instructions for every visible field](#expanded-editor-readability-recheck).
+Ten additional Sol/high generations exposed dense wording and several rule changes in intermediate
+drafts. The final pair preserved the source rules and was readable overall, with minor wording edits
+still recommended. Updated screenshots show the unedited output in the list and expanded editor.
+The earlier [40-generation pass](#readability-pass-2026-09-29) and [additional checks](#additional-sol-checks)
+remain recorded below; their readability grades were too lenient for expanded fields.
+The broader content gates describe an earlier prompt, not a full retest of this wording change.
+GPT-6 Sol at high effort remains the default. Explicit runtime overrides still apply.
 
 2026-09-28: retain the integrated two-step generator for editable rubric drafts. It passed the
 registered broad content gates, native API generation and the real browser
@@ -18,13 +20,13 @@ must check suggested rules against the scout's intended behavior and existing ru
 saving. Historical checkpoints, independent originals, separate judging corrections and failed
 validations are retained below. The changes have not been deployed.
 
-The unchanged candidate passed nineteen development conditions, 33 copied-scout conditions plus
+The earlier content-validation candidate passed nineteen development conditions, 33 copied-scout conditions plus
 a separate description-only condition, four fixed repeat comparisons and three original holdouts.
 The copied-scout result includes separately recorded source-based judging corrections. Both
 reviewers accepted all three untouched outputs without required edits, retaining 13/13 suggestions.
 It drafts complete criteria before selecting additions; selection cannot rewrite them.
 
-| Selected implementation                                                                         | Result                                                                            |
+| Earlier content-validation implementation                                                       | Result                                                                            |
 | ----------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
 | Nineteen development conditions                                                                 | Both reviewers accepted all nineteen without required edits                       |
 | Ten copied scouts with zero, one or five runs, saved-rubric cases and one description-only case | All 34 accepted after separately recorded source adjudication                     |
@@ -614,3 +616,45 @@ allocations created during startup were cleaned through the existing worker. All
 terminal and all five sandbox ledger records are closed. Captured requests, selected text and runtime
 matched the frozen inputs; no format correction was needed. The local scout configs stayed disabled,
 non-emitting and unchanged. This checks the sandbox flow, not another browser-triggered generation.
+
+## Expanded editor readability recheck
+
+The owner rejected the expanded analytics screenshot. Its provenance confirmed that it already used
+Sol/high and the retained prompt. Earlier Clear grades had overlooked dense passing conditions and
+applicability text. Those original grades remain above as history, not evidence that the text met
+the owner's standard.
+
+The prompt required source headings instead of explanations, and sent technical details into passing
+conditions. Five revisions ran on the same public analytics scout without history and a copied
+feedback scout with five run summaries: ten further generations, all Sol/high. One separate reviewer
+checked source meaning and every visible field; the execution owner also reviewed wording and rendered
+the public example. These were familiar development cases, with no model or prompt blinding.
+
+| Revision                                             | Analytics without runs                                              | Feedback with runs                                     |
+| ---------------------------------------------------- | ------------------------------------------------------------------- | ------------------------------------------------------ |
+| Explain passing conditions                           | Incorrect restriction on skipping scoring; dense text               | Source rules preserved; dense text                     |
+| Shorten procedures                                   | Same scoring restriction; still dense                               | Incomplete condition for an unused stream; still dense |
+| State result, then source rules                      | Source rules preserved; several awkward terms                       | Source rules preserved; minor wording edits            |
+| Describe source rules                                | Primary criterion omitted required report delivery; technical lists | Source rules preserved; technical lists                |
+| Short references and explicit deliverables, retained | Source rules preserved; minor wording edits                         | Source rules preserved; minor wording edits            |
+
+The retained prompt asks for the observable result first and a short reference to the governing
+policy second. It preserves conditional duties through the full source instead of rewriting complex
+exceptions as a partial checklist. Applicability states when a check matters in ordinary language.
+Generation still uses the same draft and selection steps, schema and runtime.
+
+Both final outputs were Ready on content, retaining all six suggestions each. Neither received an
+unqualified Clear readability grade. The analytics check could describe the number of people entering
+a flow more explicitly; one feedback memory check still uses vague state-management language.
+These drafts are usable for owner review, not guaranteed polished text. The broader scout matrix
+was not repeated for this final prompt.
+
+All ten calls completed with the expected requests and Sol/high configuration. Selection preserved
+the draft text, no format correction was needed, and sandbox sessions closed in the local ledger.
+Captured tools only updated the generation task's own progress. The local configs remained disabled,
+non-emitting and unchanged. The existing rubric backend suite passed after the final prompt edit.
+
+The final public analytics list and all six expanded criteria were rendered and visually inspected.
+The screenshots preserve the generated text exactly and contain only the repository's public scout
+source. Storybook replayed API responses; this was not another browser-triggered backend generation.
+Private context, outputs, original reviews and rejected screenshots remain outside version control.

@@ -312,8 +312,8 @@ It includes the scout's report capabilities and matching disposition rules from 
 Historical transcripts and full report contents are not supplied or inspected.
 When no runs exist, the generator uses the description and available instructions without inventing history.
 The prompt asks for a few distinct judgments about required outcomes and decisions, preserving saved coverage, edits and disabled choices.
-For complex policies, a criterion names the precise source rules that govern the judgment instead of rewriting their conditions and permitted alternatives.
-Final writing instructions ask for short, plain-language titles and descriptions without narrowing those rules or losing permitted outcomes.
+Each passing condition explains the required result in plain language. For complex policies, a short description of the governing source rules follows that explanation to preserve conditions and exceptions.
+Final writing instructions ask for readable titles, descriptions, passing conditions and applicability without narrowing the source rules or losing permitted outcomes.
 Later evaluation must receive those reference instructions alongside the rubric; a tested variant's changed instructions must not silently replace them.
 Each suggestion must work independently with the saved criteria and source, and missing evaluation evidence must remain distinct from a known unmet requirement.
 Its API records a generation request before dispatching a Temporal workflow, then links the task before the agent starts.

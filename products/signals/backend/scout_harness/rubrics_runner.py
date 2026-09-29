@@ -52,8 +52,9 @@ not new requirements. Do not grade those runs.
 
 The evaluator will receive these exact source instructions with the rubric. Your job is to identify
 distinct, useful judgments about the scout's work, not to rewrite its operating rules. A useful
-dimension names the decision or outcome being assessed and the precise source rules that govern it.
-Do not propose generic "follows instructions" checks.
+dimension explains the decision or outcome being assessed in terms the scout's owner understands.
+The rubric is not a standalone replacement for the source. Do not propose generic "follows
+instructions" checks.
 
 Design the rubric in this order before writing the final JSON:
 1. Form a small complete set of scout-specific judgments from the source, before subtracting saved
@@ -63,9 +64,11 @@ Design the rubric in this order before writing the final JSON:
    findings can otherwise pass a run that inspected nothing and truthfully said it did no work.
    This is completion of the primary assignment, not an inventory of operating steps.
    For that judgment, name the required investigation AND its required result together, then
-   bind both to the source rules. A rule for classifying missing work does not grant permission
-   to skip the work. Do not make honest classification an alternative to doing required work;
-   only an explicit source exemption can remove the duty.
+   bind both to the source rules. Name a required deliverable or action explicitly: "reaches a
+   result" does not mean it wrote the required report or completed the required handoff.
+   A rule for classifying missing work does not grant permission
+   to skip the work. Do not make honest classification an alternative to doing required work.
+   The source determines when work is required; do not turn a conditional duty into an unconditional one.
 2. Add other distinct, useful judgments such as selection, classification, usefulness, and state
    needed by the next run. Required persistence is different from reading prior state. Include
    required updates to existing deliverables where the source asks for them. Recording memory does
@@ -78,28 +81,34 @@ Design the rubric in this order before writing the final JSON:
 4. Check each required result branch is covered. Permission to produce an output is not a duty to
    produce it; a condition on existing outputs does not require missing ones. Correctly labelling
    incomplete work does not excuse a known unmet work requirement. Each returned criterion must
-   work when selected alone with the saved defaults and source, including all its prerequisites
-   and permitted alternatives. Another new criterion cannot supply those qualifications.
+   work when selected alone with the saved defaults and source. The source supplies the complete
+   prerequisites and permitted alternatives; another new criterion must not supply missing rules.
 
-For a complex policy, use this form for the pass condition:
-  [Concrete decision or required outcome] satisfies [precise source rules], including their
-  prerequisites, required work and permitted alternatives.
-Name a section or uniquely identifiable rule. Stop there: do not append a policy summary, an action
-list, the normal delivery mechanism, numerical prerequisites or a prohibition. The full source
-determines those details. Titles and descriptions name the judgment; they do not add requirements.
-For each criterion bound to complex source rules, use this applicability: "Every run; the named
-source rules determine which duties apply. Missing evaluation evidence is unknown." Do not put a
-passing or failing condition, eligibility test or policy paraphrase in applicability. The pass
-condition's source binding already determines when work is required and which alternatives qualify.
-This prevents a secondary field from silently overriding an exception in the governing rule.
+For a complex policy, write the pass condition in two short sentences:
+1. Explain the observable result in ordinary words: what the scout checks, decides, produces or
+   saves. An owner must understand this sentence without looking up a heading.
+2. Bind that judgment to the relevant source rules, including their conditions and exceptions.
+   Describe the rules in plain words, such as "the source's routing and handoff rules." The
+   reference must identify the right policy, but need not copy its internal section names.
+   Name one or two policy topics, not a list of every mechanism that policy contains.
+The first sentence explains the judgment; the second preserves the full policy. Do not add a
+compressed checklist of thresholds, fields, procedures or branches to either sentence. Do not
+restate complex stopping, eligibility or unused-state conditions as new "only" or "whenever" rules.
+The source remains the authority for those details. This is how a short criterion stays complete
+without listing every prerequisite. Titles and descriptions must not add requirements either.
+
+Applicability states when the judgment is relevant in one short, concrete sentence. Use "Every run"
+for a duty checked on every run. For conditional work, describe when it is required, not whether the
+scout happened to do it: missing a required report does not make the reporting check inapplicable.
+Do not repeat grading boilerplate or turn a permitted alternative into a failure. Missing evaluation
+evidence is unknown; known unmet work fails.
 
 Fictional example unrelated to this scout:
-  title: Parcel decisions reach their required outcome
-  description: Checks whether the audit made the required routing decisions and completed its handoffs.
-  pass_condition: Each parcel's disposition and required handoff satisfy the "Route eligibility"
-    and "Dispatch outcome" rules, including their prerequisites and permitted alternatives.
-  applicability: Every run; the named source rules determine which duties apply.
-    Missing evaluation evidence is unknown.
+  title: Send parcels to the right destination
+  description: Checks that parcels reach the right team for delivery or further review.
+  pass_condition: Parcels reach an eligible destination with the required handoff completed.
+    Apply the source's routing and handoff rules, including their conditions and permitted alternatives.
+  applicability: Whenever parcels are assigned for routing.
 The source may allow a manual handoff without an electronic receipt. Adding "Every handoff has an
 electronic receipt" would change the rule and is wrong. A correct source reference does not cancel
 an explicit added requirement. Do not copy this example's subject or invent source section names.
@@ -112,7 +121,7 @@ A requirement to produce an outcome when a condition holds does not forbid that 
 other situation. Do not add the converse restriction in any field; leave unspecified choices open.
 
 Prefer 3-6 criteria, fewer where defaults or deliberately disabled choices leave fewer judgments. Keep descriptions to one short sentence
-and pass conditions to one or two sentences, usually under 50 words. Missing evaluation evidence
+and pass conditions to two short sentences, usually 25-40 words. Missing evaluation evidence
 means unknown; a known unmet requirement fails. Leave unspecified choices unspecified. A specific
 exception to a general rule is not a source conflict.
 
@@ -315,21 +324,44 @@ Write these fields for a busy product owner who has not read the scout's impleme
   "Check the scheduled work" is clearer than "Score due items"; "Summarize what was checked" is
   clearer than "Complete the close-out". Keep domain terms needed for precision.
 - Use one short sentence for the description. Explain what is being assessed and why it matters;
-  leave algorithm steps, storage fields and technical evidence requirements to the pass condition.
+  leave operating steps, storage fields and detailed policy in the source. Describe the result a
+  reader should look for.
   Prefer "write" to "author", "save" to "persist", "decision" to "disposition", and "links to
   previous reports" to "report pointers". Avoid noun piles, internal shorthand and vague metaphors.
-- Titles and descriptions name the judgment; they must not summarize or narrow its policy.
+- Titles and descriptions explain the judgment without narrowing its policy.
   Simplifying wording must not change a category, a condition's direction or a permitted outcome.
   Do not introduce an "only", "always" or exclusion that the full source does not require.
   For example, "rate changes" must not become "rate drops", "supported issues" must not become
   "repeated issues", and "available evidence" must not become "mandatory tests". A shorter phrase
   is wrong if it excludes a valid source case, even when the pass condition has the correct rule.
-- Keep the pass condition to one or two readable sentences. For complex rules, keep the precise
-  source binding without adding a partial policy summary, step list or field inventory. Preserve
-  required work, prerequisites and permitted alternatives through that binding, and keep the
-  required applicability wording. Put exact rule names here, not in titles or descriptions.
-  Keep conditional technical requirements in their named source rule; do not turn them into an
-  unconditional checklist. Use plain words around the exact source-rule names.
+- Explain what passing looks like in plain language first. For complex policies, follow that with
+  a short source reference that preserves the full conditions and exceptions. Do not replace the
+  plain explanation with headings or expand the source reference into a checklist. Describe the
+  relevant source rules in familiar words rather than quoting a list of internal headings.
+- Keep the rule reference short and readable too. "The scout's feedback rules set the evidence
+  each finding needs" is enough; do not follow it with a list of grouping, sentiment, thresholds,
+  exceptions and other mechanisms. The evaluator has those rules. The first sentence must still
+  name required work and any required deliverable; "reaches a result" is too vague for that.
+- Do not squeeze a procedure into a long sentence with commas and semicolons. Explain the required
+  result and the distinction that makes it good work. The full source still supplies exact thresholds,
+  fields, steps and exceptions; do not enumerate them all in the rubric. For example, "The reminder
+  reaches an eligible customer through an allowed channel. Its saved record prevents a duplicate."
+  explains a judgment without listing every eligibility rule, delivery channel and record field.
+- Use ordinary words in every field, including the pass condition. Say "scheduled checks" instead
+  of "due items", "missing tracking data" instead of "capture gaps", "end the run" instead of
+  "close out", and "an issue returning after closure" instead of "a relapse". Explain a technical
+  distinction when it matters; do not merely copy internal shorthand from the source.
+- Prefer a few familiar words over one compressed technical phrase: "reports someone can
+  investigate" instead of "investigable reports", "evidence a reader can check" instead of
+  "inspectable evidence", "people entering the flow" instead of "entrant volumes", "comparable
+  time periods" instead of "baseline windows", and "the next step" instead of "actionability".
+  Explain what a number measures instead of calling it a "denominator". Keep necessary domain
+  terms such as conversion or retention, but make the surrounding sentence ordinary spoken English.
+- Say "explains why no report is needed" instead of "reaches a quiet outcome" and "no flows to
+  check" instead of "no-flow result". Prefer a concrete action to phrases such as "meaningful
+  result", "supported outcome" or "appropriate next decision".
+- Explain when the check applies in one short sentence. Use "Every run" where appropriate.
+  Avoid internal shorthand and boilerplate about source rules or missing evaluation evidence.
 - Keep the summary under 40 words: one or two short sentences about the evidence and meaningful
   limits. Avoid input inventories, internal process details and claims about uninspected material.
 Before returning the JSON, check that the text is easy to read and has kept the source's full meaning.
