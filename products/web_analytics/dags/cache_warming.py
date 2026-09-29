@@ -1642,7 +1642,9 @@ def web_analytics_cache_warming_dry_run_job():
 
 
 @dagster.schedule(
-    cron_schedule="0 * * * *",
+    # Start during the lower-traffic quarter while per-shape jitter spreads
+    # subsequent refreshes across the hourly cadence.
+    cron_schedule="45 * * * *",
     job=web_analytics_cache_warming_job,
     execution_timezone="UTC",
     tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},

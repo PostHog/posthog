@@ -38,6 +38,11 @@ from products.web_analytics.dags.cache_warming import (
 )
 
 
+class TestCacheWarmingSchedule(BaseTest):
+    def test_runs_at_quarter_to_the_hour(self) -> None:
+        self.assertEqual(cache_warming.web_analytics_cache_warming_schedule.cron_schedule, "45 * * * *")
+
+
 class TestMaybeOptIntoLazyPrecompute(BaseTest):
     def test_web_query_gets_opt_in(self) -> None:
         # If this breaks, the warmer silently stops building precompute buckets
