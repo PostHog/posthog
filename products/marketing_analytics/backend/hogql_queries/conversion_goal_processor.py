@@ -440,7 +440,7 @@ class ConversionGoalProcessor:
                 name="nullIf", args=[ast.Call(name="upper", args=[currency_from]), ast.Constant(value="")]
             )
             # A row can be missing the currency property or carry an empty string; treat those as already
-            # in the base currency rather than letting convertCurrency null the whole amount out.
+            # in the base currency rather than letting convertCurrency convert the whole amount to 0.
             return ast.Call(
                 name="if",
                 args=[
