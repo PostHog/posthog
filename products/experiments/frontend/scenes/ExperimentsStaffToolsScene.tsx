@@ -21,12 +21,13 @@ import { userLogic } from 'scenes/userLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
-import { CacheHealth } from './CacheHealth'
-import { PrecomputeOverview } from './PrecomputeOverview'
+import { CacheHealth } from 'products/experiments/frontend/components/staff/CacheHealth'
+import { PrecomputeOverview } from 'products/experiments/frontend/components/staff/PrecomputeOverview'
+
 import { PrecomputationTeam, queryPerformanceLogic, SlowestQuery } from './queryPerformanceLogic'
 
 export const scene: SceneExport = {
-    component: ExperimentsStaffTools,
+    component: ExperimentsStaffToolsScene,
     logic: queryPerformanceLogic,
 }
 
@@ -145,7 +146,7 @@ function QueryStats({
     )
 }
 
-export function ExperimentsStaffTools(): JSX.Element {
+export function ExperimentsStaffToolsScene(): JSX.Element {
     const { user } = useValues(userLogic)
     const {
         precomputationTeams,

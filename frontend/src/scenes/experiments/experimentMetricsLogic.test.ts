@@ -11,7 +11,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { Experiment } from '~/types'
 
-import type { ExperimentMetricsRecalculationApi } from 'products/experiments/frontend/generated/api.schemas'
+import type { ExperimentMetricsRecalculationRunApi } from 'products/experiments/frontend/generated/api.schemas'
 
 import { experimentMetricsLogic } from './experimentMetricsLogic'
 
@@ -1120,8 +1120,8 @@ describe('experimentMetricsLogic', () => {
     })
 
     describe('liveRowsProgress', () => {
-        const asRecalc = (obj: Record<string, unknown>): ExperimentMetricsRecalculationApi =>
-            obj as unknown as ExperimentMetricsRecalculationApi
+        const asRecalc = (obj: Record<string, unknown>): ExperimentMetricsRecalculationRunApi =>
+            obj as unknown as ExperimentMetricsRecalculationRunApi
 
         it('retains the last nonzero sample within a run and clears on a new run', () => {
             // Draft experiment: afterMount no-ops, so the reducer can be driven directly.

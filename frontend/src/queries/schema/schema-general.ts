@@ -3275,6 +3275,11 @@ export type AccountsTableFilter =
     | AccountsTableAccountFieldFilter
     | AccountsTableCustomPropertyFilter
 
+export type AccountsTablePropertyFilter =
+    | AccountsTableAccountFieldFilter
+    | AccountsTableRelationshipFilter
+    | AccountsTableCustomPropertyFilter
+
 export type AccountsTableCustomPropertyValue = string | number | boolean | null
 
 export interface AccountsTableCustomPropertyHistoryPoint {
@@ -3325,6 +3330,8 @@ export interface AccountsTableQuery extends DataNode<AccountsTableQueryResponse>
     columns: AccountsTableColumn[]
     /** Filters are combined with AND. Values within tag and assignment filters use OR. */
     filters?: AccountsTableFilter[]
+    /** Nonempty property-filter groups are ORed together; filters within each group use AND. Global filters still apply. */
+    filterGroups?: AccountsTablePropertyFilter[][]
     /** Aggregates to evaluate against the filtered account set. A metrics query skips row loading. */
     metrics?: AccountsTableMetric[]
     sort?: AccountsTableSort
@@ -8888,6 +8895,11 @@ export interface EndpointsUsageTrendsQuery extends EndpointsUsageQueryBase<Endpo
     compareFilter?: CompareFilter
 }
 
+export interface CustomerAnalyticsPinnedProperty {
+    kind: 'custom_property' | 'relationship'
+    id: string
+}
+
 export interface CustomerAnalyticsConfig {
     activity_event: EventsNode | ActionsNode
     signup_pageview_event: EventsNode | ActionsNode
@@ -8895,6 +8907,7 @@ export interface CustomerAnalyticsConfig {
     subscription_event: EventsNode | ActionsNode
     payment_event: EventsNode | ActionsNode
     account_group_type_index?: integer | null
+    default_pinned_properties?: CustomerAnalyticsPinnedProperty[]
 }
 
 /**
@@ -9014,6 +9027,7 @@ export enum ProductKey {
     AI_OBSERVABILITY = 'llm_analytics',
     ALERTS = 'alerts',
     ANNOTATIONS = 'annotations',
+    AUTORESEARCH = 'autoresearch',
     BUSINESS_KNOWLEDGE = 'business_knowledge',
     COHORTS = 'cohorts',
     COMMENTS = 'comments',

@@ -24,6 +24,7 @@ export interface AccountsViewFilters {
     tags: string[]
     tileFilter: TileFilter | null
     customProperties: AccountFilter[]
+    filterGroups: AccountFilter[][]
 }
 
 interface AccountsViewFiltersRaw extends Partial<AccountsViewFilters> {
@@ -106,6 +107,9 @@ export function serializeAccountsView(state: AccountsViewState): AccountsViewPay
     if (state.filters.customProperties.length > 0) {
         filters.customProperties = state.filters.customProperties
     }
+    if (state.filters.filterGroups.some((group) => group.length > 0)) {
+        filters.filterGroups = state.filters.filterGroups.filter((group) => group.length > 0)
+    }
     const properties: AccountsViewProperties = { tiles: state.tiles }
     if (Object.keys(state.columnDisplay).length > 0) {
         properties.column_display = state.columnDisplay
@@ -161,6 +165,10 @@ const AccountsViewDraft = z.object({
             })
             .nullable(),
         customProperties: z.array(z.object({}).passthrough()),
+        filterGroups: z
+            .array(z.array(z.object({}).passthrough()))
+            .optional()
+            .default([]),
     }),
     tiles: z.array(StoredTile),
     columnDisplay: z.record(z.string(), z.object({ mode: z.enum(['sparkline', 'trend']), window_days: z.number() })),
@@ -214,6 +222,9 @@ export function deserializeAccountsView(view: Partial<ColumnConfigurationApi>): 
             tags: rawFilters.tags ?? [],
             tileFilter: rawFilters.tileFilter ?? null,
             customProperties: Array.isArray(rawFilters.customProperties) ? rawFilters.customProperties : [],
+            filterGroups: Array.isArray(rawFilters.filterGroups)
+                ? rawFilters.filterGroups.filter((group): group is AccountFilter[] => Array.isArray(group))
+                : [],
         },
         tiles: rawProperties.tiles && rawProperties.tiles.length > 0 ? rawProperties.tiles : [...DEFAULT_TILES],
         columnDisplay:
