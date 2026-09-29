@@ -16,6 +16,7 @@ from django.test import override_settings
 import pyarrow as pa
 import deltalake
 import pyarrow.parquet as pq
+import redis.exceptions
 
 from posthog.hogql.resolver import ResolverFactory
 
@@ -42,6 +43,8 @@ from posthog.temporal.data_modeling.activities.materialize_view import (
     DuplicateOutputColumnError,
     EmptyHogQLResponseColumnsError,
     InvalidNodeTypeException,
+    TableWriteLockTimeoutError,
+    _table_write_lock,
     get_aws_storage_options,
     get_s3_client,
     hogql_table,
@@ -1590,6 +1593,40 @@ class TestMaterializeViewActivity:
             )
             with pytest.raises(RuntimeError, match="boom"):
                 await activity_environment.run(materialize_view_activity, inputs)
+
+
+class TestTableWriteLock:
+    async def test_a_second_writer_on_the_same_table_waits_for_the_first(self):
+        table_uri = f"s3://test-bucket/team_1_model_{uuid4().hex}/modeling/view"
+        other_uri = f"s3://test-bucket/team_1_model_{uuid4().hex}/modeling/view"
+
+        with unittest.mock.patch(
+            "posthog.temporal.data_modeling.activities.materialize_view.TABLE_WRITE_LOCK_WAIT_SECONDS", 0.2
+        ):
+            async with _table_write_lock(table_uri, LOGGER.bind()):
+                with pytest.raises(TableWriteLockTimeoutError):
+                    async with _table_write_lock(table_uri, LOGGER.bind()):
+                        pass
+                async with _table_write_lock(other_uri, LOGGER.bind()):
+                    pass
+
+            async with _table_write_lock(table_uri, LOGGER.bind()):
+                pass
+
+    async def test_writes_without_the_lock_when_redis_is_down(self):
+        failing_lock = unittest.mock.MagicMock()
+        failing_lock.acquire = unittest.mock.AsyncMock(side_effect=redis.exceptions.ConnectionError("down"))
+        entered = False
+
+        with unittest.mock.patch(
+            "posthog.temporal.data_modeling.activities.materialize_view.get_async_client"
+        ) as get_async_client:
+            get_async_client.return_value.lock.return_value = failing_lock
+            async with _table_write_lock("s3://test-bucket/view", LOGGER.bind()):
+                entered = True
+
+        assert entered
+        failing_lock.release.assert_not_called()
 
 
 class _EmptyArrowClient:

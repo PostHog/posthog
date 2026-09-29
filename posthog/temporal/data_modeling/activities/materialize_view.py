@@ -1,6 +1,7 @@
 import uuid
 import typing
 import asyncio
+import contextlib
 import dataclasses
 
 from django.conf import settings
@@ -10,6 +11,7 @@ import pyarrow as pa
 import deltalake
 import pyarrow.compute as pc
 import pyarrow.parquet as pq
+import redis.exceptions
 from structlog.contextvars import bind_contextvars
 from structlog.types import FilteringBoundLogger
 from temporalio import activity
@@ -29,6 +31,7 @@ from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 from posthog.ph_client import feature_enabled_or_false
+from posthog.redis import get_async_client
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.settings.base_variables import TEST
 from posthog.sync import database_sync_to_async_pool
@@ -86,6 +89,11 @@ MB_100_IN_BYTES = 100 * 1000 * 1000
 # events-to-S3 join chains to work around a ClickHouse bug, not for cost. The materialization query
 # itself is printed from the untouched AST.
 DESCRIBE_QUERY_SETTINGS = {"distributed_product_mode": "allow", "prefer_global_in_and_join": "0"}
+
+# Longer than the activity's 20-minute start-to-close timeout, so a live writer never loses the
+# lock. A worker that dies mid-write releases it when it expires.
+TABLE_WRITE_LOCK_TIMEOUT_SECONDS = 25 * 60
+TABLE_WRITE_LOCK_WAIT_SECONDS = 5 * 60
 
 _LOCAL_COMPARE_OPS = {
     ast.CompareOperationOp.GlobalIn: ast.CompareOperationOp.In,
@@ -963,6 +971,47 @@ def _reason_to_record(job: DataModelingJob, plan: WritePlan) -> str | None:
     return plan.reason
 
 
+class TableWriteLockTimeoutError(Exception):
+    """Another run still writes the same Delta table. The activity retry waits for it again."""
+
+
+@contextlib.asynccontextmanager
+async def _table_write_lock(table_uri: str, logger: FilteringBoundLogger) -> typing.AsyncIterator[None]:
+    """Let one run at a time write a view's Delta table.
+
+    A rebuild deletes the table folder and writes a new log. A second run on the same table (a
+    manual run next to a scheduled one, or an attempt that Temporal retried while the old attempt
+    still writes) removes the log under the first run's open handle, and the first run's next
+    commit fails with "Invalid table version". Both runs then fail and the view stays stale.
+    """
+    lock = get_async_client().lock(
+        f"data_modeling:table_write:{table_uri}",
+        timeout=TABLE_WRITE_LOCK_TIMEOUT_SECONDS,
+        blocking_timeout=TABLE_WRITE_LOCK_WAIT_SECONDS,
+    )
+    try:
+        acquired = await lock.acquire()
+    except redis.exceptions.RedisError as error:
+        # Redis is a guard here, not a dependency: without it the write runs as it did before.
+        await logger.awarning(f"Could not take the table write lock, writing without it: {error}")
+        capture_exception(error)
+        acquired = None
+    if acquired is None:
+        yield
+        return
+    if not acquired:
+        raise TableWriteLockTimeoutError(
+            f"Another run still writes this table after {TABLE_WRITE_LOCK_WAIT_SECONDS} seconds: uri={table_uri}"
+        )
+    try:
+        yield
+    finally:
+        try:
+            await lock.release()
+        except redis.exceptions.RedisError as error:
+            await logger.awarning(f"Could not release the table write lock: {error}")
+
+
 async def _materialize_fully(
     objects: MatviewInputObjects,
     plan: WritePlan,
@@ -1281,28 +1330,29 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
             hogql_query = typing.cast(dict, objects.saved_query.query)["query"]
 
             try:
-                if plan.incremental:
-                    row_count, file_uris = await _materialize_incrementally(
-                        objects,
-                        plan,
-                        hogql_query,
-                        table_uri,
-                        storage_options,
-                        logger,
-                        cdp_sink,
-                        person_property_sink,
-                    )
-                else:
-                    row_count, file_uris = await _materialize_fully(
-                        objects,
-                        plan,
-                        hogql_query,
-                        table_uri,
-                        storage_options,
-                        logger,
-                        cdp_sink,
-                        person_property_sink,
-                    )
+                async with _table_write_lock(table_uri, logger):
+                    if plan.incremental:
+                        row_count, file_uris = await _materialize_incrementally(
+                            objects,
+                            plan,
+                            hogql_query,
+                            table_uri,
+                            storage_options,
+                            logger,
+                            cdp_sink,
+                            person_property_sink,
+                        )
+                    else:
+                        row_count, file_uris = await _materialize_fully(
+                            objects,
+                            plan,
+                            hogql_query,
+                            table_uri,
+                            storage_options,
+                            logger,
+                            cdp_sink,
+                            person_property_sink,
+                        )
             except (Exception, asyncio.CancelledError):
                 # A retry stages from scratch and a terminal failure produces nothing, so whatever
                 # this attempt wrote is only ever waste.
