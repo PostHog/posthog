@@ -172,6 +172,7 @@ class HogQLQueryExecutor:
         self._direct_source: Optional[ExternalDataSource] = None
         self._direct_source_resolved = False
         self._prompt_jev_tables: list[PromptJevTable] = []
+        self._prompt_jev_warehouse_sources: list[WarehouseSourceUsage] = []
         self._executing = False
 
     @tracer.start_as_current_span("HogQLQueryExecutor._parse_query")
@@ -580,6 +581,8 @@ class HogQLQueryExecutor:
             sources = extract_warehouse_sources(self._get_select_query_type())
         except Exception:
             sources = []
+        # __preview_promptJev source queries read their tables in separate executions.
+        sources = list({source.id: source for source in [*sources, *self._prompt_jev_warehouse_sources]}.values())
         self.used_data_warehouse_sources = sources
         return sources
 
@@ -752,7 +755,9 @@ class HogQLQueryExecutor:
                 limit_context=LimitContext.QUERY,
             )
             executor._prompt_jev_tables = self._prompt_jev_tables
-            return executor.execute()
+            response = executor.execute()
+            self._prompt_jev_warehouse_sources.extend(executor.used_data_warehouse_sources)
+            return response
 
         planner = PromptJevPlanner(execute=execute_source, runner=runner, tables=self._prompt_jev_tables)
         with self.timings.measure("__preview_promptJev"):
