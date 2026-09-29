@@ -203,8 +203,20 @@ class TestSandboxAPI(APIBaseTest):
         assert task.internal is True
         assert task.repository is None
         assert task.created_by_id == self.user.id
-        assert run.state["pending_dispatch"]["posthog_mcp_scopes"] == ["business_knowledge:read", "user:read"]
-        assert {DOCS_SEARCH_TOOL, "user-get", "tasks-runs-session-logs-retrieve"} <= set(run.state["mcp_exclude_tools"])
+        assert run.state["pending_dispatch"]["posthog_mcp_scopes"] == [
+            "business_knowledge:read",
+            "user:read",
+            "project:read",
+        ]
+        assert {
+            DOCS_SEARCH_TOOL,
+            "user-get",
+            "project-get",
+            "mcp-connections-list",
+            "mcp-connection-tools-list",
+            "tasks-runs-session-logs-retrieve",
+            "tasks-artifacts-list",
+        } <= set(run.state["mcp_exclude_tools"])
         assert run.state["config_snapshot"]["connectors"]["mcp_installation_ids"] == []
         assert run.state["model"] == "claude-sonnet-5"
         assert run.state["runtime_adapter"] == "claude"

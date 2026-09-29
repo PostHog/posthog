@@ -121,6 +121,44 @@ class TestExtractRows:
     def test_columnar_non_ok_returns_empty(self, _name: str, payload: Any) -> None:
         assert _expand_columnar(payload) == []
 
+    def test_string_array_becomes_one_row_per_entry(self) -> None:
+        # Peers come back as a bare array of tickers, not objects.
+        rows = _extract_rows(["AAPL", "DELL", "HPQ"], FINNHUB_ENDPOINTS["peers"])
+        assert rows == [{"peer": "AAPL"}, {"peer": "DELL"}, {"peer": "HPQ"}]
+
+    @parameterized.expand(
+        [
+            ("non_string_entries", ["AAPL", 7, None], [{"peer": "AAPL"}]),
+            ("blank_entries", ["AAPL", ""], [{"peer": "AAPL"}]),
+            ("not_a_list", {"error": "boom"}, []),
+        ]
+    )
+    def test_string_array_skips_unusable_entries(self, _name: str, payload: Any, expected: Any) -> None:
+        assert _extract_rows(payload, FINNHUB_ENDPOINTS["peers"]) == expected
+
+    def test_index_constituents_prefer_the_breakdown(self) -> None:
+        payload = {
+            "symbol": "^IBEX",
+            "constituents": ["SAN.MC", "IBE.MC"],
+            "constituentsBreakdown": [{"symbol": "SAN.MC", "name": "Banco Santander SA", "weight": 17.5}],
+        }
+        assert _extract_rows(payload, FINNHUB_ENDPOINTS["index_constituents"]) == [
+            {"symbol": "SAN.MC", "name": "Banco Santander SA", "weight": 17.5}
+        ]
+
+    @parameterized.expand(
+        [
+            ("breakdown_absent", {"constituents": ["SAN.MC", "IBE.MC"]}),
+            ("breakdown_empty", {"constituents": ["SAN.MC", "IBE.MC"], "constituentsBreakdown": []}),
+        ]
+    )
+    def test_index_constituents_fall_back_to_the_plain_symbol_list(self, _name: str, payload: Any) -> None:
+        # Plans without the breakdown still return the symbol array; it lands in the same column.
+        assert _extract_rows(payload, FINNHUB_ENDPOINTS["index_constituents"]) == [
+            {"symbol": "SAN.MC"},
+            {"symbol": "IBE.MC"},
+        ]
+
     def test_columnar_truncates_to_shortest_array(self) -> None:
         # A short array would otherwise leave a half-populated final row.
         payload = {"s": "ok", "t": [100, 200], "c": [1.0]}
@@ -295,6 +333,40 @@ class TestGetRows:
         list(get_rows(api_key="k", endpoint="insider_transactions", symbols="AAPL", exchange="US", logger=logger))
         logger.error.assert_not_called()
 
+    def test_peers_rows_carry_the_requested_symbol(self, monkeypatch: Any) -> None:
+        self._patch_fetch(monkeypatch, {"AAPL": ["AAPL", "DELL"]})
+        batches = list(get_rows(api_key="k", endpoint="peers", symbols="AAPL", exchange="US", logger=MagicMock()))
+        assert batches == [[{"peer": "AAPL", "symbol": "AAPL"}, {"peer": "DELL", "symbol": "AAPL"}]]
+
+    def test_index_constituents_fan_out_over_indices_injecting_the_index(self, monkeypatch: Any) -> None:
+        calls = self._patch_fetch(
+            monkeypatch,
+            {"^GSPC": {"constituentsBreakdown": [{"symbol": "AAPL", "weight": 7.0}]}},
+        )
+        batches = list(
+            get_rows(
+                api_key="k",
+                endpoint="index_constituents",
+                symbols="MSFT",
+                exchange="US",
+                logger=MagicMock(),
+                indices="^GSPC",
+            )
+        )
+        # The fan-out reads Indices, not Symbols, and the constituent keeps its own `symbol`.
+        assert [c["params"]["symbol"] for c in calls] == ["^GSPC"]
+        assert batches == [[{"symbol": "AAPL", "weight": 7.0, "index_symbol": "^GSPC"}]]
+
+    def test_index_constituents_with_no_indices_yields_nothing_and_warns(self, monkeypatch: Any) -> None:
+        # A configured Symbols list must not be mistaken for an index list.
+        self._patch_fetch(monkeypatch, {})
+        logger = MagicMock()
+        batches = list(
+            get_rows(api_key="k", endpoint="index_constituents", symbols="AAPL", exchange="US", logger=logger)
+        )
+        assert batches == []
+        assert "Indices" in logger.warning.call_args[0][0]
+
     def test_calendar_unwraps_data_key(self, monkeypatch: Any) -> None:
         self._patch_fetch(
             monkeypatch,
@@ -337,6 +409,10 @@ class TestFinnhubSource:
                 "transactionDate",
                 "asc",
             ),
+            ("dividends", ["symbol", "date", "amount"], "date", "asc"),
+            ("peers", ["symbol", "peer"], None, None),
+            ("index_constituents", ["index_symbol", "symbol"], None, None),
+            ("economic_calendar", ["country", "event", "time"], "time", None),
         ]
     )
     def test_source_response_keys_and_partitioning(

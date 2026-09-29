@@ -163,6 +163,14 @@ def resolve_dependency_to_node(
                 "properties": {"origin": "warehouse", "warehouse_table_id": str(warehouse_table.id)},
             },
         )
+        properties = {
+            **(node.properties if isinstance(node.properties, dict) else {}),
+            "origin": "warehouse",
+            "warehouse_table_id": str(warehouse_table.id),
+        }
+        if node.properties != properties:
+            node.properties = properties
+            node.save(update_fields=["properties", "updated_at"])
         return node
     # system table
     node, _ = Node.objects.get_or_create(
@@ -172,6 +180,11 @@ def resolve_dependency_to_node(
         type=NodeType.TABLE,
         defaults={"properties": {"origin": "posthog"}},
     )
+    properties = {**(node.properties if isinstance(node.properties, dict) else {}), "origin": "posthog"}
+    properties.pop("warehouse_table_id", None)
+    if node.properties != properties:
+        node.properties = properties
+        node.save(update_fields=["properties", "updated_at"])
     return node
 
 

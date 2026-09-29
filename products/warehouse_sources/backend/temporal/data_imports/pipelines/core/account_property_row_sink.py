@@ -32,6 +32,15 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
 ABANDONED_STAGED_PREFIX_TTL = timedelta(days=7)
 _PARQUET_BATCH_SIZE = 50_000
 
+# Same fixed AWS message pyarrow's S3FileSystem surfaces as a bare OSError for a GetObject against a
+# key that no longer exists — matched the same way as the equivalent NoSuchKey race in
+# workflow_activities/repartition_table.py.
+_MISSING_OBJECT_ERROR_NEEDLE = "the specified key does not exist"
+
+
+def _is_missing_object_error(error: BaseException) -> bool:
+    return isinstance(error, OSError) and _MISSING_OBJECT_ERROR_NEEDLE in str(error).lower()
+
 
 class AccountPropertyRowSink:
     """Projects a committed materialized-view Delta snapshot into job-scoped Parquet files."""
@@ -135,6 +144,27 @@ class AccountPropertyRowSink:
             return False
 
         await self.clear()
+        try:
+            await self._stage_committed_files(table_uri, delta_version)
+        except OSError as error:
+            if not _is_missing_object_error(error):
+                raise
+            # `delta_version` was pinned right after the materialize run that produced it, but the
+            # staging child workflow that calls this can sit queued for hours before it actually
+            # runs. If the same view gets materialized again in the meantime, that run's vacuum
+            # (DELTA_TABLE_RETENTION_HOURS) can reclaim the pinned version's files before we read
+            # them. Re-stage from whatever is committed now instead: vacuum never removes a file the
+            # current version still references, so this snapshot can't be pulled out from under us
+            # the same way.
+            await self.logger.awarning(
+                f"Delta version {delta_version} was vacuumed before staging read it; "
+                "re-staging the current committed snapshot instead"
+            )
+            await self.clear()
+            await self._stage_committed_files(table_uri, delta_version=None)
+        return True
+
+    async def _stage_committed_files(self, table_uri: str, delta_version: int | None) -> None:
         delta_table = await asyncio.to_thread(
             deltalake.DeltaTable,
             table_uri,
@@ -152,7 +182,6 @@ class AccountPropertyRowSink:
                     chunk += 1
             finally:
                 await asyncio.to_thread(input_file.close)
-        return True
 
     async def clear(self) -> None:
         """Drop this job's prior attempt and sweep abandoned sibling jobs."""
