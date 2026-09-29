@@ -4,7 +4,7 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from products.workflows.backend.api.publish_impact import build_publish_impact, find_variable_references
+from products.workflows.backend.presentation.views.publish_impact import build_publish_impact, find_variable_references
 
 
 def _action(action_id: str, name: str | None = None, output_variable: dict | list | None = None, **config) -> dict:

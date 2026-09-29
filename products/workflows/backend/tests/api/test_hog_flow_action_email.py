@@ -15,7 +15,7 @@ from products.workflows.backend.models.hog_flow_revision import HogFlowRevision
 
 webhook_template = MOCK_NODE_TEMPLATES[0]
 
-RENDER_PATH = "products.workflows.backend.api.hog_flow.render_design_html"
+RENDER_PATH = "products.workflows.backend.presentation.views.hog_flow.render_design_html"
 RENDERED_HTML = "<html>rendered</html>"
 
 
@@ -578,7 +578,7 @@ class TestHogFlowEmailTemplateReference(APIBaseTest):
         }
 
         with patch(
-            "products.workflows.backend.api.hog_flow.MATERIALIZED_TEMPLATE_CONTENT_MAX_BYTES",
+            "products.workflows.backend.presentation.views.hog_flow.MATERIALIZED_TEMPLATE_CONTENT_MAX_BYTES",
             8000,
         ):
             response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", flow, HTTP_X_POSTHOG_CLIENT="mcp")
