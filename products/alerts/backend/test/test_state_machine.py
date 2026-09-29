@@ -4,6 +4,7 @@ from parameterized import parameterized
 
 from products.alerts.backend.facade.lifecycle import (
     LOGS_ALERT_POLICY,
+    PLATFORM_LOGS_ALERT_POLICY,
     AlertCheckOutcome,
     AlertPolicy,
     AlertSnapshot,
@@ -247,6 +248,66 @@ class TestPolicyDecisionTable:
         outcome = evaluate_alert_check(snap, check, NOW, policy=policy)
         assert outcome.new_state == expected_state
         assert outcome.notification == expected_notification
+
+    @parameterized.expand(
+        [
+            (
+                "snooze_mutes_a_fire",
+                snapshot(snooze_until=SNOOZING),
+                BREACH,
+                AlertState.FIRING,
+                NotificationAction.NONE,
+                NotificationAction.FIRE,
+            ),
+            (
+                "quiet_hours_mutes_a_fire",
+                snapshot(),
+                CheckInput(threshold_breached=True, muted=True),
+                AlertState.FIRING,
+                NotificationAction.NONE,
+                NotificationAction.FIRE,
+            ),
+            (
+                "snooze_mutes_a_resolve",
+                snapshot(state=AlertState.FIRING, snooze_until=SNOOZING, cooldown=timedelta(0)),
+                CLEAR,
+                AlertState.NOT_FIRING,
+                NotificationAction.NONE,
+                NotificationAction.RESOLVE,
+            ),
+            (
+                "a_mute_does_not_hold_an_error",
+                snapshot(snooze_until=SNOOZING),
+                ERROR,
+                AlertState.NOT_FIRING,
+                NotificationAction.ERROR,
+                NotificationAction.NONE,
+            ),
+            (
+                "an_unmuted_check_still_announces",
+                snapshot(),
+                BREACH,
+                AlertState.FIRING,
+                NotificationAction.FIRE,
+                NotificationAction.NONE,
+            ),
+        ]
+    )
+    def test_a_mute_holds_the_announcement_without_changing_the_transition(
+        self,
+        _name: str,
+        snap: AlertSnapshot,
+        check: CheckInput,
+        expected_state: AlertState,
+        expected_notification: NotificationAction,
+        expected_muted: NotificationAction,
+    ) -> None:
+        outcome = evaluate_alert_check(snap, check, NOW, policy=PLATFORM_LOGS_ALERT_POLICY)
+        assert outcome.new_state == expected_state
+        assert outcome.notification == expected_notification
+        assert outcome.muted_notification == expected_muted
+        if expected_muted is not NotificationAction.NONE:
+            assert outcome.update_last_notified_at is False
 
     def test_inconclusive_preserves_failure_counter(self) -> None:
         outcome = evaluate_alert_check(
