@@ -1,5 +1,5 @@
 import type { GatewayModel } from "@posthog/shared";
-import type { Task, TaskChannel } from "@posthog/shared/domain-types";
+import type { Task } from "@posthog/shared/domain-types";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { DEFAULT_MODEL, DEFAULT_REPOSITORY } from "@/config";
 import { useAuth } from "@/lib/auth";
@@ -16,7 +16,6 @@ const TERMINAL: ReadonlySet<string> = new Set([
 export const keys = {
   tasks: ["tasks"] as const,
   task: (id: string) => ["tasks", id] as const,
-  channels: ["channels"] as const,
   models: ["models"] as const,
   repository: ["repository"] as const,
   repositories: ["repositories"] as const,
@@ -56,19 +55,6 @@ export function useTask(taskId: string) {
       const status = (query.state.data as Task | undefined)?.latest_run?.status;
       return status && !TERMINAL.has(status) ? 5000 : false;
     },
-  });
-}
-
-export function useChannels() {
-  const session = useAuth((s) => s.session);
-  return useQuery<TaskChannel[]>({
-    queryKey: keys.channels,
-    queryFn: () =>
-      getClient()
-        .getTaskChannels()
-        .catch(() => []),
-    enabled: !!session,
-    staleTime: 60_000,
   });
 }
 

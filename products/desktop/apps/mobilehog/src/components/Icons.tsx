@@ -120,15 +120,6 @@ export function NewChatIcon({ color = colors.ink }: { color?: ColorValue }) {
   );
 }
 
-export function LockIcon({ color = colors.inkSoft }: { color?: ColorValue }) {
-  return (
-    <View style={styles.lock}>
-      <View style={[styles.lockShackle, { borderColor: color }]} />
-      <View style={[styles.lockBody, { borderColor: color }]} />
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
   bubbleWrap: { width: 24, height: 24 },
   bubble: {
@@ -184,7 +175,6 @@ const styles = StyleSheet.create({
   bar: { height: 2, borderRadius: 1 },
   glyph: { fontSize: 20, fontFamily: fonts.sansBold, marginTop: -1 },
   stop: { width: 14, height: 14, borderRadius: 3 },
-  lock: { width: 14, height: 14, alignItems: "center" },
   cards: { width: 22, height: 20 },
   cardBack: {
     position: "absolute",
@@ -231,13 +221,4 @@ const styles = StyleSheet.create({
     borderBottomRightRadius: 2,
   },
   bellClapper: { width: 5, height: 2.5, borderRadius: 2, marginTop: 1 },
-  lockShackle: {
-    width: 8,
-    height: 6,
-    borderWidth: 1.5,
-    borderBottomWidth: 0,
-    borderTopLeftRadius: 4,
-    borderTopRightRadius: 4,
-  },
-  lockBody: { width: 12, height: 8, borderWidth: 1.5, borderRadius: 2 },
 });
