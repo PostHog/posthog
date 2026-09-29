@@ -10,7 +10,7 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from openai import AsyncOpenAI
 from posthoganalytics import capture_exception
-from rest_framework import serializers, status
+from rest_framework import permissions, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import APIException
 from rest_framework.request import Request
@@ -23,8 +23,11 @@ from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import Feature, tags_context
 from posthog.event_usage import get_event_source
+from posthog.models.activity_logging.utils import activity_storage
 from posthog.models.user import User
+from posthog.rate_limit import IPThrottle
 from posthog.renderers import SafeJSONRenderer
+from posthog.utils import get_ip_address
 
 from ee.hogai.mcp_tool import MCPToolResult, mcp_tool_registry
 from ee.hogai.tool_errors import MaxToolError
@@ -100,23 +103,7 @@ class MCPToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     )
     @action(detail=False, methods=["POST"], url_path="docs_search", required_scopes=["project:read"])
     def docs_search(self, request: ValidatedRequest, *args, **kwargs) -> Response:
-        if not settings.INKEEP_API_KEY:
-            raise _DocsSearchUnavailable()
-
-        query = cast(dict, request.validated_data)["query"]
-        client = AsyncOpenAI(base_url="https://api.inkeep.com/v1/", api_key=settings.INKEEP_API_KEY)
-
-        try:
-            content = async_to_sync(_run_inkeep_docs_search)(client, query)
-        except Exception as e:
-            logger.exception("Error running docs_search", extra={"error": str(e)})
-            capture_exception(e, properties={"tag": "mcp", "tool_name": "docs_search"})
-            return Response(
-                {"content": "The tool raised an internal error. Do not immediately retry the tool call."},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
-
-        return Response(DocsSearchResponseSerializer({"content": content}).data)
+        return _docs_search_response(cast(dict, request.validated_data)["query"])
 
     @extend_schema(
         parameters=[OpenApiParameter("tool_name", OpenApiTypes.STR, OpenApiParameter.PATH)],
@@ -186,6 +173,61 @@ class MCPToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         if isinstance(result, str):
             result = MCPToolResult(content=result)
         return Response({"success": True, **result.model_dump(exclude_none=True)})
+
+
+class _PublicDocsSearchIPThrottle(IPThrottle):
+    def get_cache_key(self, request: Request, view: View) -> str:
+        # The MCP server calls from inside the cluster, so key on the signed end user IP when it verifies.
+        ip = activity_storage.get_ip_address() or get_ip_address(request)
+        return self.cache_format % {"scope": self.scope, "ident": ip}
+
+
+class PublicDocsSearchBurstThrottle(_PublicDocsSearchIPThrottle):
+    scope = "public_docs_search_burst"
+    rate = "30/minute"
+
+
+class PublicDocsSearchSustainedThrottle(_PublicDocsSearchIPThrottle):
+    scope = "public_docs_search_sustained"
+    rate = "300/hour"
+
+
+class PublicDocsSearchViewSet(viewsets.ViewSet):
+    """
+    Public (unauthenticated) docs search, so agents can search PostHog docs before they have an account.
+    The public MCP endpoint calls it. The docs are public, so the only thing to protect is the Inkeep budget.
+    """
+
+    authentication_classes: list = []
+    permission_classes = [permissions.AllowAny]
+    throttle_classes = [PublicDocsSearchBurstThrottle, PublicDocsSearchSustainedThrottle]
+    renderer_classes = [SafeJSONRenderer]
+
+    # Kept out of the OpenAPI spec so MCP codegen does not scaffold a second docs tool from it.
+    @extend_schema(exclude=True)
+    def create(self, request: Request) -> Response:
+        serializer = DocsSearchRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        return _docs_search_response(serializer.validated_data["query"])
+
+
+def _docs_search_response(query: str) -> Response:
+    if not settings.INKEEP_API_KEY:
+        raise _DocsSearchUnavailable()
+
+    client = AsyncOpenAI(base_url="https://api.inkeep.com/v1/", api_key=settings.INKEEP_API_KEY)
+
+    try:
+        content = async_to_sync(_run_inkeep_docs_search)(client, query)
+    except Exception as e:
+        logger.exception("Error running docs_search", extra={"error": str(e)})
+        capture_exception(e, properties={"tag": "mcp", "tool_name": "docs_search"})
+        return Response(
+            {"content": "The tool raised an internal error. Do not immediately retry the tool call."},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+    return Response(DocsSearchResponseSerializer({"content": content}).data)
 
 
 async def _run_inkeep_docs_search(client: AsyncOpenAI, query: str) -> str:

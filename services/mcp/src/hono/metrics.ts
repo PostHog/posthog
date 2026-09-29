@@ -1,5 +1,7 @@
 import { collectDefaultMetrics, Counter, Gauge, Histogram, register } from 'prom-client'
 
+import { PUBLIC_DOCS_MCP_PATH } from '@/lib/constants'
+
 collectDefaultMetrics({ prefix: 'mcp_' })
 
 export const httpRequestsTotal = new Counter({
@@ -200,6 +202,9 @@ export const skillCatalogLoadDurationSeconds = new Histogram({
 export function routeLabel(pathname: string): string {
     if (pathname === '/mcp' || pathname.startsWith('/mcp/')) {
         return '/mcp'
+    }
+    if (pathname === PUBLIC_DOCS_MCP_PATH) {
+        return pathname
     }
     if (pathname === '/sse' || pathname.startsWith('/sse/')) {
         return '/sse'

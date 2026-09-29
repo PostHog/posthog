@@ -1,5 +1,5 @@
 import { resolveEffectiveClientName } from '@/lib/client-detection'
-import { MCP_DOCS_URL, getAuthorizationServerUrl } from '@/lib/constants'
+import { MCP_DOCS_URL, PUBLIC_DOCS_MCP_PATH, getAuthorizationServerUrl } from '@/lib/constants'
 import { isIdJagAccessToken } from '@/lib/id-jag'
 import { RequestLogger, withLogging } from '@/lib/logging'
 import { extractClientInfoFromBody } from '@/lib/mcp-client-info'
@@ -131,6 +131,13 @@ const handleRequest = async (
                 },
             }
         )
+    }
+
+    // Needs no token, so it has no user to resolve a region from. Docs are the same in both regions.
+    if (url.pathname === PUBLIC_DOCS_MCP_PATH) {
+        const region = effectiveRegion ?? 'us'
+        log.extend({ proxy: 'hono', region, public: true })
+        return proxyToHono(request, region)
     }
 
     const token = extractBearerToken(request)

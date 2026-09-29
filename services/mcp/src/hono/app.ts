@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 
 import { env } from '@/lib/env'
+import { PUBLIC_DOCS_MCP_PATH } from '@/lib/constants'
 import { getPublicUrl } from '@/lib/routing'
 import {
     loadSigningKeyFromEnv,
@@ -13,6 +14,7 @@ import { setConfirmedActionRuntime } from '@/tools/confirmed-action-registry'
 
 import { confirmedActionRuntimeInstalled } from './metrics'
 import { devRequestLogger, httpMetrics, securityHeaders } from './middleware'
+import { PublicDocsMcpHandler } from './public-docs-handler'
 import { registerPublicRoutes } from './public-routes'
 import { StreamableMcpHandler } from './streamable-handler'
 import type { HonoCtx, RedisWithPing } from './types'
@@ -75,6 +77,8 @@ export function createApp(redis: RedisWithPing & Pick<PayloadStashRedis, 'incrby
 
     app.all('/sse', sseRedirect)
     app.all('/sse/*', sseRedirect)
+
+    app.all(PUBLIC_DOCS_MCP_PATH, new PublicDocsMcpHandler(redis, lifecycle).fetch)
 
     const streamable = new StreamableMcpHandler(redis, lifecycle)
 

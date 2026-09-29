@@ -20,6 +20,8 @@ import { resolveAuthorizationServerUrl } from './oauth-constants'
 export const getAuthorizationServerUrl = (): string => resolveAuthorizationServerUrl()
 
 export const MCP_SERVER_NAME = 'PostHog'
+// Needs no auth, so it must stay off the `/mcp` prefix the Worker and Hono gate on a token.
+export const PUBLIC_DOCS_MCP_PATH = '/docs/mcp'
 export const MCP_SERVER_VERSION = '1.0.0'
 export const MCP_ANALYTICS_SOURCE = 'posthog_mcp_analytics'
 
