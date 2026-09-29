@@ -50,8 +50,10 @@ from products.customer_analytics.backend.facade.contracts import (
     TASK_DIGEST_SEND_TIME_FORMAT,
     AccountAssignment,
     AccountChannelSummaryView,
+    AccountDetails,
     AccountNotebookView,
     AccountNoteView,
+    AccountPresence,
     AccountPresenceViewer,
     AccountRelationship,
     AccountRelationshipDefinition,
@@ -83,6 +85,7 @@ from products.customer_analytics.backend.facade.contracts import (
 from products.customer_analytics.backend.facade.enums import (
     AccountPropertyPinKind,
     AccountRelationshipSource,
+    AccountViewVisibility,
     TaskDigestCadence,
 )
 
@@ -959,6 +962,111 @@ class CustomerProfileConfigSerializer(DataclassSerializer):
         return value
 
 
+class AccountViewMarkdownAttributesSerializer(serializers.Serializer):
+    nodeId = serializers.CharField(help_text="Stable identifier for this document.")
+    markdown = serializers.CharField(
+        max_length=256 * 1024, help_text="Component-only Markdown stored by the account view editor."
+    )
+
+
+class AccountViewMarkdownNodeSerializer(serializers.Serializer):
+    type = serializers.ChoiceField(
+        choices=["ph-markdown-notebook"],
+        help_text="Markdown notebook node type.",
+    )
+    attrs = AccountViewMarkdownAttributesSerializer(help_text="Markdown notebook attributes.")
+
+
+class AccountViewContentSerializer(serializers.Serializer):
+    type = serializers.ChoiceField(choices=["doc"], help_text="Document root type.")
+    content = serializers.ListField(
+        child=AccountViewMarkdownNodeSerializer(),
+        min_length=1,
+        max_length=1,
+        help_text="The single Markdown notebook node containing the account view components.",
+    )
+
+
+class AccountViewSerializer(DataclassSerializer):
+    id = serializers.UUIDField(read_only=True, help_text="Stable account view identifier.")
+    name = serializers.CharField(read_only=True, help_text="Name shown in the account view.")
+    visibility = serializers.CharField(read_only=True, help_text="Account views created through this API are private.")
+    content = AccountViewContentSerializer(read_only=True, help_text="Validated Markdown notebook document.")
+    text_content = serializers.CharField(
+        read_only=True, help_text="Searchable component labels extracted from content."
+    )
+    version = serializers.IntegerField(read_only=True, help_text="Optimistic concurrency version.")
+    created_by = serializers.IntegerField(read_only=True, allow_null=True, help_text="Creator user ID.")
+    last_modified_by = serializers.IntegerField(
+        read_only=True,
+        allow_null=True,
+        help_text="User ID that last changed the view.",
+    )
+    created_at = serializers.DateTimeField(read_only=True, help_text="When the view was created.")
+    updated_at = serializers.DateTimeField(read_only=True, help_text="When the view was last changed.")
+
+    class Meta:
+        dataclass = AccountView
+        ref_name = "AccountView"
+        fields = [
+            "id",
+            "name",
+            "visibility",
+            "content",
+            "text_content",
+            "version",
+            "created_by",
+            "last_modified_by",
+            "created_at",
+            "updated_at",
+        ]
+
+
+class AccountViewCreateSerializer(serializers.Serializer):
+    name = serializers.CharField(max_length=400, allow_blank=False, trim_whitespace=True, help_text="View name.")
+    content = AccountViewContentSerializer(help_text="Initial account view components.")
+
+
+class AccountViewUpdateSerializer(serializers.Serializer):
+    name = serializers.CharField(
+        max_length=400,
+        allow_blank=False,
+        trim_whitespace=True,
+        required=False,
+        help_text="New view name. Omit to keep the current name.",
+    )
+    content = AccountViewContentSerializer(
+        required=False,
+        help_text="Replacement account view components. Omit to keep current content.",
+    )
+    visibility = serializers.ChoiceField(
+        choices=[(AccountViewVisibility.PRIVATE, "Personal")],
+        required=False,
+        write_only=True,
+        help_text="Views can only be private.",
+    )
+    version = serializers.IntegerField(min_value=1, help_text="Version returned by the last read.")
+
+    def validate_visibility(self, value: str) -> str:
+        if value != AccountViewVisibility.PRIVATE:
+            raise serializers.ValidationError("Views can only be private.")
+        return value
+
+    # The endpoint is a PATCH, so the schema generator marks every field optional. Every update needs
+    # `version`, and the generated types and MCP tool must say so.
+    @property
+    def partial(self) -> bool:
+        return False
+
+    @partial.setter
+    def partial(self, _value: bool) -> None:
+        pass
+
+
+class AccountViewDeleteQuerySerializer(serializers.Serializer):
+    version = serializers.IntegerField(min_value=1, help_text="Version returned by the last read.")
+
+
 class CustomerJourneySerializer(DataclassSerializer):
     id = serializers.UUIDField(read_only=True)
     insight = serializers.IntegerField()
@@ -1051,7 +1159,7 @@ class AccountSerializer(DataclassSerializer):
     updated_at = serializers.DateTimeField(read_only=True, allow_null=True)
 
     class Meta:
-        dataclass = AccountView
+        dataclass = AccountDetails
         ref_name = "Account"
         fields = [
             "id",
@@ -1089,6 +1197,23 @@ class AccountPresenceViewerSerializer(DataclassSerializer):
     class Meta:
         dataclass = AccountPresenceViewer
         fields = ["user_id", "display_name"]
+
+
+class AccountPresenceListRequestSerializer(serializers.Serializer):
+    account_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        max_length=100,
+        help_text="Up to 100 account IDs to read presence for.",
+    )
+
+
+class AccountPresenceSerializer(DataclassSerializer):
+    account_id = serializers.UUIDField(read_only=True, help_text="Customer analytics account ID.")
+    viewers = AccountPresenceViewerSerializer(many=True, read_only=True, help_text="People viewing this account.")
+
+    class Meta:
+        dataclass = AccountPresence
+        fields = ["account_id", "viewers"]
 
 
 class AccountOrganizationMemberSerializer(serializers.ModelSerializer):
@@ -1459,11 +1584,22 @@ class CalendarSyncStatusSerializer(DataclassSerializer):
         read_only=True, allow_null=True, help_text="When the last sync run completed; null before the first sync."
     )
     is_syncing = serializers.BooleanField(read_only=True, help_text="Whether a sync run is currently in flight.")
+    sync_interval_minutes = serializers.IntegerField(read_only=True, help_text="Minutes between scheduled syncs.")
 
     class Meta:
         dataclass = CalendarSyncStatus
         ref_name = "CalendarSyncStatus"
-        fields = ["integration_id", "last_synced_at", "is_syncing"]
+        fields = ["integration_id", "last_synced_at", "is_syncing", "sync_interval_minutes"]
+
+
+class CalendarSyncIntervalSerializer(serializers.Serializer):
+    integration_id = serializers.IntegerField(help_text="Id of the connected Google account.")
+    sync_interval_minutes = serializers.IntegerField(help_text="Minutes between scheduled syncs: 5, 15, 30, or 60.")
+
+    def validate_sync_interval_minutes(self, value: int) -> int:
+        if value not in (5, 15, 30, 60):
+            raise serializers.ValidationError("Choose 5, 15, 30, or 60 minutes.")
+        return value
 
 
 class CalendarSyncTriggerSerializer(serializers.Serializer):
@@ -1567,12 +1703,12 @@ class CustomPropertySyncTriggerResponseSerializer(serializers.Serializer):
         choices=[("triggered", "triggered"), ("started", "started"), ("already_running", "already_running")],
         help_text=(
             "'triggered' (sync now started the warehouse sync), 'started' (a new backfill began), or "
-            "'already_running' (a backfill for this table was already in flight, so this was a no-op)."
+            "'already_running' (a backfill was in flight and a latest-state follow-up was queued)."
         ),
     )
     already_running = serializers.BooleanField(
         required=False,
-        help_text="Backfill only: true when a backfill for this table was already running and this call coalesced.",
+        help_text="Backfill only: true when a run was already in flight and this call queued its follow-up.",
     )
 
 
@@ -1734,7 +1870,7 @@ class CustomPropertySourceSerializer(DataclassSerializer):
         help_text=(
             "Person and group sources only: {warehouse_column: description} giving each mapped column a "
             "human-facing description, seeded from the warehouse column's information_schema "
-            "description. Optional per column. Create-only."
+            "description. Optional per column."
         ),
     )
     key_column = serializers.CharField(
@@ -1988,14 +2124,29 @@ class CustomPropertyDefinitionSerializer(DataclassSerializer):
 
 
 class CustomPropertySourceUpdateSerializer(serializers.Serializer):
-    """Writable fields for updating a source. ``definition`` and ``saved_query`` are create-only, so
-    they are intentionally absent — only these reach the facade's update."""
+    """Writable fields for updating a source. Binding and definition fields are create-only, so they
+    are intentionally absent — only these reach the facade's update."""
 
     source_column = serializers.CharField(
         max_length=400, required=False, help_text="Column in the view whose value is written to the property."
     )
     key_column = serializers.CharField(
         max_length=400, required=False, help_text="Column in the view whose value matches an account's external_id."
+    )
+    column_property_map = serializers.JSONField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Person and group sources only: {warehouse_column: property_name} mapping the columns this "
+            "source writes onto the person or group."
+        ),
+    )
+    column_descriptions = serializers.JSONField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Person and group sources only: {warehouse_column: description} for mapped columns. Optional per column."
+        ),
     )
     is_enabled = serializers.BooleanField(
         required=False, help_text="Whether the source syncs; re-enabling it resets the failure count."

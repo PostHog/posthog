@@ -60,6 +60,10 @@ The new snapshot reads the table after the reset, so nothing skipped is lost.
 The key stays until the schedule is unpaused, so a failed unpause is retried too.
 A reset from slot-invalidation recovery marks the key `awaiting_slot` until the replacement slot exists, so no later run can unpause the table before capture has a point to resume from, and the table stays out of capture until then.
 Recovery clears the flag once the slot is back, and so does any read that succeeds, so a failure right after the recreation cannot leave the table waiting for good.
+A resync, a table-mode switch, re-enabling a table's sync, and Repair CDC use the same key: when a sync of the table can still hand over, they pause its schedule and leave the reset to capture, which also starts the new snapshot.
+They then start a capture run right away, and recreate the capture schedule if it is gone, so the reset does not wait for the next tick. A source that is marked broken, or whose capture is paused after a non-retryable error, is left alone: Repair CDC or resuming capture restarts it.
+Each write that stages a reset gives the key a new `generation`, so capture drops only the reset it finished, even when a request stages the same reset again while that snapshot starts.
+The admin resync refuses instead, because it starts its own non-billable run, so it asks the operator to retry once the sync stops.
 Turning a table's sync off, or adding it back to capture, drops its marker, because capture skipped the table in between and its buffer has a gap.
 Capture handles a TRUNCATE only after every change of its transaction has been read, so no pre-TRUNCATE change can land in the buffer after the purge.
 Without the marker, the hand-over purges the whole buffer, as legacy always did.
@@ -350,8 +354,33 @@ long since advanced past those changes.
 **If files expire before they are consumed, the changes are gone.** There is no partial recovery.
 The only fix is a full `reset_pipeline` re-snapshot for that schema.
 
+A table's own sync does that re-snapshot. When it starts and the table last consumed the buffer
+longer ago than files are kept (`cdc_buffer_expired_before_consumption`), it stands down for the tick
+and hands the reset to capture, which resets the table once the sync has finished and starts the
+snapshot. So a table that resumes after a long stop, such as a billing block lifting, re-snapshots
+instead of loading on past changes it never saw.
+
+Only a run that listed the buffer, or re-seeded the table with a snapshot, counts as having consumed
+it — and only once every table that run writes finished. A `both` run whose history lane never
+completed landed those changes on the consolidated table alone, so it leaves the history table owed
+and does not count.
+
 Watch the age of the oldest unconsumed file per schema, not the file count. A schema with few files
 that are all thirteen days old is in trouble; one with thousands of fresh files is fine.
+
+**The billing limit is the usual cause, and the sweeper stops it.** Capture has no billing check, so it
+keeps reading the slot and writing the buffer while the limit blocks every consume run. Once a table
+has been blocked by the billing limit for longer than the buffer keeps files, and the team is still
+over the limit, the slot sweeper (`cleanup_orphan_slots_activity`) marks the source broken with reason
+`billing_limit_expired`. A PostHog-managed slot with auto-drop on is dropped and the schedules are
+paused, on the same terms as the critical-lag safety net. If that drop is refused — an active slot,
+a missing grant — the source is left running and the next sweep retries it, because pausing capture
+behind a live slot is what makes WAL grow. Any other slot is left to its owner and capture keeps
+advancing it, so the customer's WAL does not grow. Once the team is back under the limit, a dropped
+slot needs Repair CDC, which recreates it and re-snapshots every table. A kept slot needs nothing: the
+sweeper lifts its marker, and each table's next sync finds its buffer expired and re-snapshots on its
+own. Only a table's own sync runs count toward the 14 days. Capture records a Failed job on every table
+when it fails, and those rows do not restart the count.
 
 ## Retried capture attempts
 

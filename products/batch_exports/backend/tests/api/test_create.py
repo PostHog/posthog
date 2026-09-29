@@ -528,6 +528,7 @@ def test_create_batch_export_with_custom_schema(
         "schema": expected_schema,
         "hogql_query": None,
         "user_id": None,
+        "hogql_modifiers": None,
     }
 
 
@@ -602,15 +603,24 @@ def test_create_batch_export_with_hogql_model(
 ):
     client.force_login(user)
     other_user = create_user("other@example.com", "Test User", organization)
+    hogql_modifiers = {"convertToProjectTimezone": False}
 
     response = create_batch_export(
-        client, team.pk, {**hogql_batch_export_data, "last_modified_by": other_user.pk, "user_id": other_user.pk}
+        client,
+        team.pk,
+        {
+            **hogql_batch_export_data,
+            "hogql_modifiers": hogql_modifiers,
+            "last_modified_by": other_user.pk,
+            "user_id": other_user.pk,
+        },
     )
 
     assert response.status_code == status.HTTP_201_CREATED, response.json()
     data = response.json()
     assert data["model"] == "hogql"
     assert data["hogql_query"] == hogql_batch_export_data["hogql_query"]
+    assert data["hogql_modifiers"] == hogql_modifiers
     assert data["schema"] is None
 
     batch_export = BatchExport.objects.select_related("source").get(id=data["id"])
@@ -618,6 +628,7 @@ def test_create_batch_export_with_hogql_model(
     assert batch_export.source is not None
     assert batch_export.source.team_id == team.pk
     assert batch_export.source.hogql_query == hogql_batch_export_data["hogql_query"]
+    assert batch_export.source.hogql_modifiers == hogql_modifiers
 
     listed = list_batch_exports_ok(client, team.pk)
     assert [export["hogql_query"] for export in listed["results"]] == [hogql_batch_export_data["hogql_query"]]
@@ -631,6 +642,7 @@ def test_create_batch_export_with_hogql_model(
         "schema": None,
         "hogql_query": hogql_batch_export_data["hogql_query"],
         "user_id": user.pk,
+        "hogql_modifiers": hogql_modifiers,
     }
 
 
@@ -704,6 +716,16 @@ def test_create_batch_export_with_hogql_model_allows_query_without_placeholders(
             "filters",
             "'filters' are not supported when 'model' is 'hogql'",
         ),
+        (
+            {"hogql_modifiers": {"notAModifier": True}},
+            "hogql_modifiers",
+            "notAModifier: Extra inputs are not permitted",
+        ),
+        (
+            {"model": "events", "hogql_modifiers": {"convertToProjectTimezone": False}},
+            "hogql_modifiers",
+            "'hogql_modifiers' are only supported when 'model' is 'hogql'",
+        ),
     ],
     ids=[
         "unknown-placeholder",
@@ -711,6 +733,8 @@ def test_create_batch_export_with_hogql_model_allows_query_without_placeholders(
         "missing-hogql-query",
         "unaliased-column",
         "filters",
+        "unknown-modifier",
+        "modifiers-with-events-model",
     ],
 )
 @pytest.mark.usefixtures("hogql_batch_exports_enabled")

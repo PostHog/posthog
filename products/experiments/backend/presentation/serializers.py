@@ -359,6 +359,13 @@ class ExperimentBaseSerializer(
         data["parameters"] = parameters
 
 
+def _dedupe_metric_ordering(value: list[str] | None) -> list[str] | None:
+    """Keep the first occurrence of each uuid. The ordering is a display hint, so a repeat carries no meaning."""
+    if value is None:
+        return None
+    return list(dict.fromkeys(value))
+
+
 class ExperimentSerializer(ExperimentBaseSerializer):
     """Full experiment representation for the detail, create, and update endpoints.
 
@@ -381,6 +388,26 @@ class ExperimentSerializer(ExperimentBaseSerializer):
         required=False,
         allow_null=True,
         help_text="IDs of shared saved metrics to attach to this experiment. Each item has 'id' (saved metric ID) and 'metadata' with 'type' (primary or secondary).",
+    )
+    primary_metrics_ordered_uuids = serializers.ListField(
+        child=serializers.CharField(allow_blank=False),
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Display order of the primary metrics, as metric uuids. This is a display hint only: a metric "
+            "not in the list renders after the listed ones in stored order, and an entry that matches no "
+            "metric is ignored. Send it only to reorder metrics. Adding or removing metrics does not need it."
+        ),
+    )
+    secondary_metrics_ordered_uuids = serializers.ListField(
+        child=serializers.CharField(allow_blank=False),
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Display order of the secondary metrics, as metric uuids. This is a display hint only: a metric "
+            "not in the list renders after the listed ones in stored order, and an entry that matches no "
+            "metric is ignored. Send it only to reorder metrics. Adding or removing metrics does not need it."
+        ),
     )
     allow_unknown_events = serializers.BooleanField(
         required=False,
@@ -786,6 +813,12 @@ class ExperimentSerializer(ExperimentBaseSerializer):
     def validate_excluded_variants(self, value):
         ExperimentService.validate_excluded_variants(value)
         return value
+
+    def validate_primary_metrics_ordered_uuids(self, value: list[str] | None) -> list[str] | None:
+        return _dedupe_metric_ordering(value)
+
+    def validate_secondary_metrics_ordered_uuids(self, value: list[str] | None) -> list[str] | None:
+        return _dedupe_metric_ordering(value)
 
     def validate_exposure_criteria(self, exposure_criteria: dict | None):
         ExperimentService.validate_experiment_exposure_criteria(exposure_criteria)

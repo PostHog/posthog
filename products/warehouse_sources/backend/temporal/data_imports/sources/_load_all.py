@@ -504,6 +504,7 @@ from .gcp_recaptcha_enterprise.source import GcpRecaptchaEnterpriseSource
 from .gcp_recommender.source import GcpRecommenderSource
 from .gcp_security_command_center.source import GcpSecurityCommandCenterSource
 from .gdelt.source import GdeltSource
+from .gem.source import GemSource
 from .genesys_cloud.source import GenesysCloudSource
 from .gerrit.source import GerritSource
 from .getdx.source import GetdxSource
@@ -1136,6 +1137,7 @@ from .spotify_ads.source import SpotifyAdsSource
 from .spotlercrm.source import SpotlerCRMSource
 from .sprig.source import SprigSource
 from .sprinklr.source import SprinklrSource
+from .sprinto.source import SprintoSource
 from .sprout_social.source import SproutSocialSource
 from .squadcast.source import SquadcastSource
 from .square.source import SquareSource

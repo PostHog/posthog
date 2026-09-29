@@ -16,6 +16,7 @@ import {
     describeApiValidationError,
     describeExecCommand,
     describeValidationError,
+    type ExecCommandMeta,
     type ExecInnerCallProperties,
     type ExecToolOptions,
     formatInputValidationError,
@@ -75,6 +76,35 @@ function createExec(
 }
 
 describe('exec tool', () => {
+    describe('help command', () => {
+        it('lists available commands and their argument shapes', async () => {
+            const result = await createExec().handler(mockContext, { command: 'help' })
+
+            expect(result).toContain('search <words or regex_pattern>')
+            expect(result).toContain('call [--json] [--confirm] <tool_name> [json_input]')
+            expect(result).not.toContain('learn <topic...>')
+        })
+
+        it('shows usage for one command', async () => {
+            const result = await createExec().handler(mockContext, { command: 'help search' })
+
+            expect(result).toBe('search <words or regex_pattern> — find tools by name, title, or description')
+        })
+
+        it('shows learn only when it is available', async () => {
+            const exec = createExec(undefined, undefined, { learnCatalog: new ExecLearnCatalog([], undefined) })
+
+            await expect(exec.handler(mockContext, { command: 'help learn' })).resolves.toContain('learn <topic...>')
+        })
+
+        it('directs unknown help topics to the command list', async () => {
+            await expect(createExec().handler(mockContext, { command: 'help unknown' })).rejects.toMatchObject({
+                reason: 'unknown_command',
+                message: 'Unknown command: "unknown". Run "help" to list available commands.',
+            })
+        })
+    })
+
     describe('learn command', () => {
         const guides = [
             {
@@ -91,6 +121,49 @@ describe('exec tool', () => {
             },
         ]
         const learnCatalog = new ExecLearnCatalog(guides, { posthog: undefined })
+
+        it.each([
+            ['learn -s "funnel conversion"', { exec_learn_kind: 'search', exec_search_query: 'funnel conversion' }],
+            [
+                'learn posthog:building-a-dashboard README.md',
+                { exec_learn_kind: 'load', exec_learn_target: 'posthog:building-a-dashboard' },
+            ],
+            [
+                'learn posthog:building-a-dashboard README.md -s "date range"',
+                {
+                    exec_learn_kind: 'load',
+                    exec_learn_target: 'posthog:building-a-dashboard',
+                    exec_search_query: 'date range',
+                },
+            ],
+            ['learn skills', { exec_learn_kind: 'list' }],
+            ['learn -d posthog:building-a-dashboard', { exec_learn_kind: 'describe' }],
+            ['learn analytics', { exec_learn_kind: 'guide' }],
+            ['learn', { exec_learn_kind: 'list' }],
+        ])('reports the learn form for "%s" whether or not learn is available', async (command, expected) => {
+            for (const catalogOption of [{ learnCatalog }, {}]) {
+                const tracked: ExecCommandMeta[] = []
+                const exec = createExec(undefined, undefined, {
+                    ...catalogOption,
+                    trackCommand: (meta) => tracked.push(meta),
+                })
+
+                await exec.handler(mockContext, { command }).catch(() => undefined)
+
+                expect(tracked.at(-1)).toEqual({ exec_verb: 'learn', ...expected })
+            }
+        })
+
+        it('keeps a malformed learn command a usage error and stamps no form', async () => {
+            const tracked: ExecCommandMeta[] = []
+            const exec = createExec(undefined, undefined, { learnCatalog, trackCommand: (meta) => tracked.push(meta) })
+
+            await expect(exec.handler(mockContext, { command: 'learn -s "unterminated' })).rejects.toMatchObject({
+                reason: 'usage',
+                message: 'Unterminated quote in learn command.',
+            })
+            expect(tracked.at(-1)).toEqual({ exec_verb: 'learn' })
+        })
 
         it('lists guide metadata and skill discovery commands without loading content', async () => {
             const exec = createExec(undefined, undefined, { learnCatalog })
@@ -348,14 +421,14 @@ describe('exec tool', () => {
         it('throws usage error for bare call', async () => {
             const exec = createExec()
             await expect(exec.handler(mockContext, { command: 'call' })).rejects.toThrow(
-                'Usage: call [--json] [--confirm] <tool_name> <json_input>'
+                'Usage: call [--json] [--confirm] <tool_name> [json_input]'
             )
         })
 
         it('throws usage error for call --json with no tool name', async () => {
             const exec = createExec()
             await expect(exec.handler(mockContext, { command: 'call --json' })).rejects.toThrow(
-                'Usage: call [--json] [--confirm] <tool_name> <json_input>'
+                'Usage: call [--json] [--confirm] <tool_name> [json_input]'
             )
         })
 
@@ -1801,6 +1874,8 @@ describe('exec tool', () => {
         // from a mistyped verb in analytics. Flag handling differs per verb, so a
         // parser regression silently collapses the funnel back into one bucket.
         it.each([
+            ['help', 'help', undefined],
+            ['help search', 'help', undefined],
             ['tools', 'tools', undefined],
             ['search query-', 'search', undefined],
             ['info execute-sql', 'info', 'execute-sql'],
