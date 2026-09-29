@@ -1356,6 +1356,23 @@ class TestStagedIncrementalCursor:
             {"run_uuid": "old", "last_value": 1, "earliest_value": 5}
         ]
 
+    @pytest.mark.parametrize(
+        "field_type,current,candidate,expected",
+        [
+            (IncrementalFieldType.Integer, None, 3_000, 3_000),
+            (IncrementalFieldType.Integer, 500, 3_000, 3_000),
+            (IncrementalFieldType.Integer, 5_000, 3_000, 5_000),
+            (None, 5_000, 3_000, 5_000),
+        ],
+    )
+    def test_advance_never_moves_the_watermark_back(
+        self, field_type: IncrementalFieldType | None, current: int | None, candidate: int, expected: int
+    ) -> None:
+        schema = self._make_schema(incremental_field_type=field_type, incremental_field_last_value=current)
+        with self._staged_in_memory(schema):
+            schema.advance_incremental_field_last_value(candidate)
+        assert schema.sync_type_config["incremental_field_last_value"] == expected
+
     def test_stage_does_not_park_a_cursor_that_holds_no_value(self) -> None:
         schema = self._make_schema(incremental_staged={"run_uuid": "run-1"})
         with self._staged_in_memory(schema):

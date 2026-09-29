@@ -1049,9 +1049,13 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         serialized = self.serialize_incremental_value(last_value)
 
         def mutate(config: dict[str, Any]) -> None:
-            _advance_promoted_cursor(
-                config, "incremental_field_last_value", serialized, "last", config.get("incremental_field_type")
-            )
+            field_type = config.get("incremental_field_type")
+            current = config.get("incremental_field_last_value")
+            # Unlike a promotion, this value can come from an attempt that read without a usable watermark,
+            # so a pair that cannot be ordered keeps the current watermark.
+            if current is not None and _compare_incremental_values(current, serialized, field_type) is None:
+                return
+            _advance_promoted_cursor(config, "incremental_field_last_value", serialized, "last", field_type)
 
         self.sync_type_config = update_sync_type_config_keys(self.id, self.team_id, mutate=mutate)
 
