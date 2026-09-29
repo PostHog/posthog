@@ -35,8 +35,11 @@ def file_list_exists(key: str) -> bool:
     return object_storage.head_object_strict(file_key=key) is not None
 
 
-def write_file_list(key: str, paths: Sequence[str]) -> None:
-    object_storage.write(key, encode_file_list(paths))
+def write_file_list(key: str, paths: Sequence[str]) -> int:
+    """Write the list of one commit. Returns its stored size in bytes."""
+    body = encode_file_list(paths)
+    object_storage.write(key, body)
+    return len(body)
 
 
 def remove_old_file_lists(team_id: int, slug: RepoSlug, *, keep: int) -> list[str]:

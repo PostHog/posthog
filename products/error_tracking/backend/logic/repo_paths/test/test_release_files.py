@@ -15,6 +15,7 @@ from products.error_tracking.backend.logic import create_release, update_release
 from products.error_tracking.backend.logic.repo_paths.git_lister import GitFetchTarget, GitHostNotAllowed, RepoFileList
 from products.error_tracking.backend.logic.repo_paths.release_files import (
     RepoPathsRetryableError,
+    StoredFileList,
     store_release_file_list,
 )
 
@@ -97,19 +98,23 @@ class TestStoreReleaseFileList(BaseTest):
         self._gitlab_integration("https://gitlab.example.com:8443", "acme/shop")
         release_id = self._release("git@GitLab.example.com:acme/shop.git")
 
-        outcome = store_release_file_list(self.team.id, release_id)
+        result = store_release_file_list(self.team.id, release_id)
 
-        assert outcome == "written"
+        assert result.outcome == "written"
         assert [target.remote.url for target in self.fetched] == ["https://gitlab.example.com:8443/acme/shop.git"]
         content, _ = self.storage.objects[self._key(COMMIT)]
         assert zstd.decompress(content).decode() == "\n".join(sorted(PATHS))
+        assert result.provider == "gitlab"
+        assert result.stored == StoredFileList(
+            path_count=len(PATHS), stored_bytes=len(content), fetched_bytes=1, fetch_seconds=0.1, removed_lists=0
+        )
 
     @override_settings(ERROR_TRACKING_REPO_PATHS_MAX_PATHS=2)
     def test_a_list_above_the_cap_writes_nothing(self) -> None:
         self._gitlab_integration("https://gitlab.example.com", "acme/shop")
         release_id = self._release("https://gitlab.example.com/acme/shop.git")
 
-        assert store_release_file_list(self.team.id, release_id) == "too_large"
+        assert store_release_file_list(self.team.id, release_id).outcome == "too_large"
         assert self.storage.objects == {}
 
     def test_a_refused_git_host_is_final_and_writes_nothing(self) -> None:
@@ -120,7 +125,7 @@ class TestStoreReleaseFileList(BaseTest):
             "products.error_tracking.backend.logic.repo_paths.release_files.list_repository_files",
             side_effect=GitHostNotAllowed("Disallowed target IP"),
         ):
-            assert store_release_file_list(self.team.id, release_id) == "host_not_allowed"
+            assert store_release_file_list(self.team.id, release_id).outcome == "host_not_allowed"
         assert self.storage.objects == {}
 
     @parameterized.expand([("new_list", False, "written"), ("list_stored_before_a_failed_cleanup", True, "exists")])
@@ -134,7 +139,7 @@ class TestStoreReleaseFileList(BaseTest):
             self.storage.put(self._key(COMMIT), b"stored")
         release_id = self._release("https://gitlab.example.com/acme/shop.git")
 
-        assert store_release_file_list(self.team.id, release_id) == expected
+        assert store_release_file_list(self.team.id, release_id).outcome == expected
         assert sorted(self.storage.objects) == sorted([self._key(OLDER_COMMITS[1]), self._key(COMMIT), other_repo])
 
     @parameterized.expand(
@@ -147,7 +152,7 @@ class TestStoreReleaseFileList(BaseTest):
         self._gitlab_integration("https://gitlab.example.com", "acme/shop")
         release_id = self._release(remote_url)
 
-        assert store_release_file_list(self.team.id, release_id) == expected
+        assert store_release_file_list(self.team.id, release_id).outcome == expected
         assert self.fetched == []
 
     @parameterized.expand(
@@ -178,7 +183,7 @@ class TestStoreReleaseFileList(BaseTest):
         ):
             outcome: str
             try:
-                outcome = store_release_file_list(self.team.id, release_id)
+                outcome = store_release_file_list(self.team.id, release_id).outcome
             except RepoPathsRetryableError:
                 outcome = "retry"
 
@@ -203,7 +208,7 @@ class TestStoreReleaseFileList(BaseTest):
         with patch.object(GitHubIntegration, "installation_can_access_repository_strict", side_effect=[check_result]):
             outcome: str
             try:
-                outcome = store_release_file_list(self.team.id, release_id)
+                outcome = store_release_file_list(self.team.id, release_id).outcome
             except RepoPathsRetryableError:
                 outcome = "retry"
 

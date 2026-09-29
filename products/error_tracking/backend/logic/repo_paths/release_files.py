@@ -53,6 +53,8 @@ RepoPathsOutcome = Literal[
     "host_not_allowed",
     "budget_exhausted",
 ]
+RetryableOutcome = Literal["timeout", "error"]
+GitProvider = Literal["github", "gitlab"]
 
 _SOURCE = "error_tracking_repo_paths"
 _GITHUB_HOST = "github.com"
@@ -61,9 +63,26 @@ _GITHUB_TOKEN_PERMISSIONS = {"contents": "read", "metadata": "read"}
 
 
 class RepoPathsRetryableError(Exception):
-    def __init__(self, outcome: Literal["timeout", "error"], message: str) -> None:
+    def __init__(self, outcome: RetryableOutcome, message: str) -> None:
         super().__init__(message)
         self.outcome = outcome
+
+
+@frozen
+class StoredFileList:
+    path_count: int
+    stored_bytes: int
+    fetched_bytes: int
+    fetch_seconds: float
+    removed_lists: int
+
+
+@frozen
+class ReleaseFileListResult:
+    outcome: RepoPathsOutcome | RetryableOutcome
+    repo: ReleaseRepo | None = None
+    provider: GitProvider | None = None
+    stored: StoredFileList | None = None
 
 
 @frozen
@@ -74,7 +93,7 @@ class _GitSource:
     auth_header: Callable[[], str]
 
 
-def store_release_file_list(team_id: int, release_id: str) -> RepoPathsOutcome:
+def store_release_file_list(team_id: int, release_id: str) -> ReleaseFileListResult:
     """Fetch and store the file list of one release commit.
 
     Returns the outcome for every result that an immediate retry cannot change. The workflow tries a
@@ -83,29 +102,39 @@ def store_release_file_list(team_id: int, release_id: str) -> RepoPathsOutcome:
     """
     release = ErrorTrackingRelease.objects.filter(team_id=team_id, id=release_id).first()
     if release is None:
-        return "no_release"
+        return ReleaseFileListResult(outcome="no_release")
     repo = parse_release_repo(release.metadata)
     if not isinstance(repo, ReleaseRepo):
-        return repo
+        return ReleaseFileListResult(outcome=repo)
+    return _store_file_list(team_id, repo)
+
+
+def _store_file_list(team_id: int, repo: ReleaseRepo) -> ReleaseFileListResult:
+    provider: GitProvider | None = None
+
+    def ended(outcome: RepoPathsOutcome) -> ReleaseFileListResult:
+        return ReleaseFileListResult(outcome=outcome, repo=repo, provider=provider)
+
     key = repo_paths_key(team_id, repo.slug, repo.commit)
     if file_list_exists(key):
         # A retry after a worker died between the write and the cleanup lands here, so clean up again.
         remove_old_file_lists(team_id, repo.slug, keep=settings.ERROR_TRACKING_REPO_PATHS_KEEP_PER_REPO)
-        return "exists"
+        return ended("exists")
 
     try:
         source = _git_source(team_id, repo.slug)
         if source is None:
-            return "no_integration"
+            return ended("no_integration")
+        provider = source.budget_owner.provider
         if not consume_git_fetch_budget(source.budget_owner, priority=Priority.BATCH):
-            return "budget_exhausted"
+            return ended("budget_exhausted")
         remote = GitRemote(url=source.url, auth_header=source.auth_header())
     except (EgressBudgetExhausted, GitHubRateLimitError):
-        return "budget_exhausted"
+        return ended("budget_exhausted")
     except GitHubIntegrationError as e:
         if e.status_code is not None and e.status_code >= 500:
             raise RepoPathsRetryableError("error", str(e)) from e
-        return "auth_failed"
+        return ended("auth_failed")
 
     target = GitFetchTarget(
         remote=remote,
@@ -116,22 +145,33 @@ def store_release_file_list(team_id: int, release_id: str) -> RepoPathsOutcome:
     try:
         listed = list_repository_files(target)
     except GitAuthFailed:
-        return "auth_failed"
+        return ended("auth_failed")
     except GitCommitNotFound:
-        return "commit_not_found"
+        return ended("commit_not_found")
     except GitTooLarge:
-        return "too_large"
+        return ended("too_large")
     except GitHostNotAllowed:
-        return "host_not_allowed"
+        return ended("host_not_allowed")
     except (GitTimeout, GitFailed) as e:
         raise RepoPathsRetryableError(e.outcome, str(e)) from e
 
     if len(listed.paths) > settings.ERROR_TRACKING_REPO_PATHS_MAX_PATHS:
-        return "too_large"
-    write_file_list(key, listed.paths)
+        return ended("too_large")
+    stored_bytes = write_file_list(key, listed.paths)
     record_file_list_size(len(listed.paths))
-    remove_old_file_lists(team_id, repo.slug, keep=settings.ERROR_TRACKING_REPO_PATHS_KEEP_PER_REPO)
-    return "written"
+    removed = remove_old_file_lists(team_id, repo.slug, keep=settings.ERROR_TRACKING_REPO_PATHS_KEEP_PER_REPO)
+    return ReleaseFileListResult(
+        outcome="written",
+        repo=repo,
+        provider=provider,
+        stored=StoredFileList(
+            path_count=len(listed.paths),
+            stored_bytes=stored_bytes,
+            fetched_bytes=listed.fetched_bytes,
+            fetch_seconds=listed.seconds,
+            removed_lists=len(removed),
+        ),
+    )
 
 
 def _git_source(team_id: int, slug: RepoSlug) -> _GitSource | None:
