@@ -615,9 +615,12 @@ export const offlineScorerHistoryLogic = kea<offlineScorerHistoryLogicType>([
         ],
     })),
     urlToAction(({ actions, values, props }) => ({
-        [urls.aiObservabilityOfflineScorerHistory(':scorerId')]: ({ scorerId }, search) => {
+        [urls.aiObservabilityOfflineScorerHistory(':scorerId', false)]: ({ scorerId }, search) => {
             if (scorerId === props.scorerId) {
                 const filters = readFilters(search)
+                if (!filters.version && values.definition?.current_version_id) {
+                    filters.version = values.definition.current_version_id
+                }
                 if (!objectsEqual(filters, values.filters)) {
                     actions.replaceFilters(filters)
                 }

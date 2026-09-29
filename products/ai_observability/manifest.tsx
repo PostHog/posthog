@@ -404,8 +404,8 @@ export const manifest: ProductManifest = {
         aiObservabilityTag: (id: string): string => `/ai-evals/taggers/${id}`,
         aiObservabilityEvaluations: (): string => '/ai-evals/evaluations',
         aiObservabilityScorers: (): string => '/ai-evals/evaluations/scorers',
-        aiObservabilityOfflineScorerHistory: (scorerId: string): string =>
-            `/ai-evals/evaluations/scorers/${encodeURIComponent(scorerId)}/offline`,
+        aiObservabilityOfflineScorerHistory: (scorerId: string, encode: boolean = true): string =>
+            `/ai-evals/evaluations/scorers/${encode ? encodeURIComponent(scorerId) : scorerId}/offline`,
         aiObservabilityOfflineEvaluations: (): string => '/ai-evals/evaluations/offline/experiments',
         aiObservabilityOfflineEvaluationExperiment: (experimentId: string, encode: boolean = true): string =>
             `/ai-evals/evaluations/offline/experiments/${encode ? encodeURIComponent(experimentId) : experimentId}`,

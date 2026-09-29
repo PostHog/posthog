@@ -2,6 +2,7 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { dayjs } from 'lib/dayjs'
+import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
 
@@ -77,6 +78,31 @@ describe('offlineScorerHistoryLogic', () => {
         expect(
             jest.mocked(api.aiObservabilityOfflineScorersHistoryList).mock.calls.at(-1)?.[2]?.scorer_version_ids
         ).toBe('older-version')
+    })
+
+    it.each([
+        ['with', { version: OFFLINE_STORY_VERSION.id }],
+        ['without', {}],
+    ])('applies new URL filters %s a version for the same scorer while mounted', async (_, version) => {
+        const logic = offlineScorerHistoryLogic({ scorerId: OFFLINE_STORY_DEFINITION.id, teamId: 1 })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        router.actions.push(urls.aiObservabilityOfflineScorerHistory(OFFLINE_STORY_DEFINITION.id), {
+            ...version,
+            statuses: 'failed',
+            run_source: 'ci',
+        })
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.filters).toMatchObject({
+            version: OFFLINE_STORY_VERSION.id,
+            statuses: 'failed',
+            run_source: 'ci',
+        })
+        expect(jest.mocked(api.aiObservabilityOfflineScorersHistoryList).mock.calls.at(-1)?.[2]).toMatchObject({
+            scorer_version_ids: OFFLINE_STORY_VERSION.id,
+            statuses: 'failed',
+            run_source: 'ci',
+        })
     })
 
     it.each([
