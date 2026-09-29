@@ -79,9 +79,9 @@ class Command(BaseCommand):
             if c["has_spec_id"] and not c["inline_override_matches"]:
                 self.stdout.write(f'    "{c["auto_name"]}": "products.<name>.backend.facade.enums.ChoicesClass",')
                 self.stdout.write(
-                    "    # ChoiceField with custom labels (labels != values) — override must be a choices class path."
-                    "\n    # For a product enum, point at a re-export in backend/facade/enums.py, never at an"
-                    "\n    # internal module: internal targets go stale invisibly when the product refactors."
+                    "    # ChoiceField with custom labels (labels != values). A field built from a choices class"
+                    "\n    # (choices=X.choices) needs no entry: the class name derives the component name. Define"
+                    "\n    # a product enum in backend/facade/enums.py as a posthog.enums.LabeledStrEnum."
                 )
             else:
                 vals = c["values"]
