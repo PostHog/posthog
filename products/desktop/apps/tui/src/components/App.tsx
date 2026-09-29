@@ -44,7 +44,6 @@ import {
   activateRow,
   cursorIndex,
   moveSelection,
-  previewRow,
   selectionKey,
   sidebarRows,
   type WorkPage,
@@ -114,6 +113,8 @@ export function App({
   // The cursor follows a row's identity, since previewing a chat can move rows.
   const [selected, setSelected] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  // Arrows keep walking the sidebar after it hands focus to a chat, until a pane is clicked.
+  const [navigating, setNavigating] = useState(false);
   const closeGuard = useRef(new DoublePress(CLOSE_CONFIRM_MS));
   const sidebarBox = useRef<DOMElement | null>(null);
   const paneBoxes = useRef(new Map<string, DOMElement>());
@@ -312,10 +313,14 @@ export function App({
       return;
     }
     if (key.tab) {
+      setNavigating(false);
       setLayout((current) => cycleFocus(current, key.shift ? -1 : 1));
       return;
     }
     if (!sidebarFocused) {
+      if (navigating && (key.upArrow || key.downArrow)) {
+        navigate(key.downArrow ? 1 : -1);
+      }
       if (key.pageUp) scrollPane(workspace.focusedPaneId, -10);
       if (key.pageDown) scrollPane(workspace.focusedPaneId, 10);
       return;
@@ -323,10 +328,7 @@ export function App({
     if (key.escape) {
       setLayout((current) => focusPane(current, workspace.focusedPaneId));
     } else if (key.downArrow || key.upArrow) {
-      const step = key.downArrow ? 1 : -1;
-      const next = moveSelection(rows, selectedIndex, step);
-      setSelected(selectionKey(rows[next]));
-      setLayout((current) => previewRow(current, rows[next]));
+      navigate(key.downArrow ? 1 : -1);
     } else if (key.leftArrow || key.rightArrow) {
       const row = rows[selectedIndex];
       if (row?.kind !== "workspace") return;
@@ -337,6 +339,7 @@ export function App({
         return next;
       });
     } else if (key.return) {
+      setNavigating(rows[selectedIndex]?.kind === "task");
       activate(selectedIndex);
     }
   });
@@ -347,15 +350,27 @@ export function App({
     if (sidebar && hitTest(click, [["sidebar", sidebar]])) {
       const onScreen = click.row - sidebar.top;
       const index = onScreen === 0 ? 0 : Math.max(0, onScreen - HEADER_GAP);
-      if (moveSelection(rows, index - 1, 1) === index) activate(index);
-      else setLayout(focusSidebar);
+      const row = rows[index];
+      if (
+        row?.kind === "task" ||
+        row?.kind === "workspace" ||
+        row?.kind === "viewMore"
+      ) {
+        setNavigating(row.kind !== "viewMore");
+        activate(index);
+      } else {
+        setLayout(focusSidebar);
+      }
       return;
     }
     const panes = [...paneBoxes.current].map(
       ([paneId, element]) => [paneId, boxOf(element)] as [string, ScreenBox],
     );
     const hit = hitTest(click, panes);
-    if (hit) setLayout((current) => focusPane(current, hit[0]));
+    if (hit) {
+      setNavigating(false);
+      setLayout((current) => focusPane(current, hit[0]));
+    }
   };
   const onWheel = (wheel: Wheel): void => {
     const panes = [...paneBoxes.current].map(
@@ -365,19 +380,36 @@ export function App({
     if (hit) scrollPane(hit[0], wheel.delta * 3);
   };
   // Typing in a focused pane goes to its composer; the app's own keys stay with the app.
+  // Moves the sidebar cursor and hands focus to that chat, so typing goes straight to it.
+  const navigate = (step: 1 | -1): void => {
+    const next = moveSelection(rows, selectedIndex, step);
+    const row = rows[next];
+    setSelected(selectionKey(row));
+    const opened = row && activateRow(layout, row);
+    if (!opened || opened === "viewMore") {
+      setNavigating(false);
+      setLayout(focusSidebar);
+      return;
+    }
+    setNavigating(true);
+    setLayout(opened);
+  };
+
   const onKey = (sequence: string): void => {
     if (isAppKey(sequence)) return;
     const paneId = workspace.focusedPaneId;
-    // Typing from the sidebar carries on in the previewed chat's composer.
+    // Typing from the sidebar carries on in the selected chat's composer.
     if (layout.focus === "sidebar") {
       if (!isTyping(sequence)) return;
+      setNavigating(true);
       setLayout((current) => focusPane(current, paneId));
       composerFor(paneId).handleInput(sequence);
       return;
     }
+    const key = pickerKey(sequence);
+    if (navigating && (key === "up" || key === "down")) return;
     const composer = composerFor(paneId);
     const offer = offers.current.get(paneId);
-    const key = pickerKey(sequence);
     // With an open offer and nothing typed, arrows and Enter drive the picker.
     if (offer && !dismissed.has(offer.id) && key && composer.isEmpty()) {
       onPick(paneId, offer, key);

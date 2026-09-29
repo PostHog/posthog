@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import {
   activeWorkspace,
   focusPane,
-  focusSidebar,
   initialLayout,
   type LayoutState,
   openTask,
@@ -15,7 +14,6 @@ import {
   cursorIndex,
   indicatorFor,
   moveSelection,
-  previewRow,
   selectionKey,
   sidebarRows,
   type WorkPage,
@@ -191,8 +189,8 @@ describe("sidebar selection", () => {
   // Work, Workspace 1, a, b, z, View more
 
   it.each([
-    ["down", 1, 1, 2],
-    ["up onto the heading", 1, -1, 1],
+    ["down", 2, 1, 3],
+    ["up past the workspace heading", 2, -1, 2],
     ["down at the end", 5, 1, 5],
     ["up", 4, -1, 3],
   ])("moves %s", (_, from, step, to) => {
@@ -211,21 +209,7 @@ describe("sidebar selection", () => {
     expect(activateRow(layout, rows[5])).toBe("viewMore");
   });
 
-  it("previews the chat under the cursor while the sidebar keeps focus", () => {
-    const inWorkspace = previewRow(focusSidebar(layout), rows[2]);
-    expect(inWorkspace.focus).toBe("sidebar");
-    expect(activeWorkspace(inWorkspace).focusedPaneId).toBe(
-      rows[2].kind === "task" && rows[2].paneId,
-    );
-
-    const outside = previewRow(focusSidebar(layout), rows[4]);
-    expect(outside.focus).toBe("sidebar");
-    expect(outside.workspaces).toHaveLength(2);
-
-    expect(previewRow(layout, rows[5])).toBe(layout);
-  });
-
-  it("keeps the cursor on the same task when previewing moves rows around", () => {
+  it("keeps the cursor on the same task when opening it moves rows around", () => {
     const main = openTask(initialLayout(), "old");
     const work = page({ tasks: [task("a"), task("b")] });
     const before = sidebarRows({
@@ -238,9 +222,10 @@ describe("sidebar selection", () => {
     const onA = before.findIndex(
       (row) => row.kind === "task" && row.taskId === "a",
     );
+    const opened = activateRow(main, before[onA]);
 
     const after = sidebarRows({
-      layout: previewRow(main, before[onA]),
+      layout: opened === "viewMore" ? main : opened,
       work,
       collapsed: new Set(),
       working: new Set(),
@@ -254,8 +239,8 @@ describe("sidebar selection", () => {
   });
 
   it("starts the cursor on the first row it can select, not the heading", () => {
-    expect(cursorIndex(rows, null)).toBe(1);
+    expect(cursorIndex(rows, null)).toBe(2);
     expect(cursorIndex(rows, selectionKey(rows[4]))).toBe(4);
-    expect(cursorIndex(rows, "task:gone")).toBe(1);
+    expect(cursorIndex(rows, "task:gone")).toBe(2);
   });
 });
