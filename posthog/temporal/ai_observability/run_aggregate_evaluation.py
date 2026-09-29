@@ -597,12 +597,13 @@ class RunAggregateEvaluationWorkflow(PostHogWorkflow):
         # bail out instead of running against config the user just turned off.
         if evaluation["deleted"] or not evaluation["enabled"]:
             disabled_result: WorkflowResult = {
-                "verdict": None,
                 "skipped": True,
                 "skip_reason": "evaluation_deleted" if evaluation["deleted"] else "evaluation_disabled",
                 "evaluation_id": inputs.evaluation_id,
                 "evaluation_type": evaluation_type,
             }
+            if evaluation.get("output_type") != "numeric":
+                disabled_result["verdict"] = None
             return disabled_result
 
         if is_session and inputs.ai_session_id is not None:
@@ -709,13 +710,16 @@ class RunAggregateEvaluationWorkflow(PostHogWorkflow):
             )
 
         workflow_result: WorkflowResult = {
-            "verdict": result["verdict"],
             "reasoning": result["reasoning"],
             "evaluation_id": evaluation["id"],
             "evaluation_type": evaluation_type,
             "is_byok": result.get("is_byok", False),
             "skipped": result.get("skipped", False),
         }
+        if "verdict" in result:
+            workflow_result["verdict"] = result["verdict"]
+        if "score" in result:
+            workflow_result["score"] = result["score"]
         if result.get("skipped"):
             skip_reason = result.get("skip_reason")
             if skip_reason is not None:

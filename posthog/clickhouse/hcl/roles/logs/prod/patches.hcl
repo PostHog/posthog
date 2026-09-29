@@ -37,6 +37,9 @@ database "posthog" {
   # cut alongside it; local and dev carry the is_root_span cut under the original
   # name instead.
   patch_table "trace_spans" {
+    settings = {
+      storage_policy = "s3_tiered"
+    }
     projection "projection_aggregate_counts" {
       query = <<SQL
 SELECT

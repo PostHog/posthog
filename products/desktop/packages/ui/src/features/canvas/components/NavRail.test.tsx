@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   navigateToChannel: vi.fn(),
   navigateToHome: vi.fn(),
   navigateToInbox: vi.fn(),
+  navigateToCommandCenter: vi.fn(),
   openSettings: vi.fn(),
   openBrowserTab: vi.fn(),
 }));
@@ -85,7 +86,8 @@ vi.mock("@posthog/ui/router/navigationBridge", () => ({
   navigateToInbox: (...a: unknown[]) => mocks.navigateToInbox(...a),
   navigateToFeeds: vi.fn(),
   navigateToLoops: vi.fn(),
-  navigateToCommandCenter: vi.fn(),
+  navigateToCommandCenter: (...a: unknown[]) =>
+    mocks.navigateToCommandCenter(...a),
   navigateToSpacesContext: vi.fn(),
 }));
 vi.mock("@posthog/ui/features/canvas/hooks/useProjectTaskFeeds", () => ({
@@ -123,6 +125,7 @@ import {
 import { useCurrentChannelStore } from "@posthog/ui/features/canvas/stores/currentChannelStore";
 import { useSidebarSearchStore } from "@posthog/ui/features/canvas/stores/sidebarSearchStore";
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
+import { isMac } from "@posthog/ui/utils/platform";
 import { NavRail } from "./NavRail";
 
 it("stays above floating sidebar layers", () => {
@@ -263,7 +266,7 @@ describe("NavRail", () => {
     ["/", "Home"],
     ["/activity", "Activity"],
     ["/inbox/pulls/$reportId", "Self-driving"],
-    ["/command-center", "Command Center"],
+    ["/command-center", "More"],
     ["/spaces", "Spaces"],
     ["/spaces/$channelId/loops", "Spaces"],
     ["/spaces/$channelId/context", "Spaces"],
@@ -277,6 +280,34 @@ describe("NavRail", () => {
       "data-selected",
       "true",
     );
+  });
+
+  describe("rail keys", () => {
+    function pressRailKey(direction: "up" | "down"): void {
+      fireEvent.keyDown(document, {
+        key: direction === "up" ? "ArrowUp" : "ArrowDown",
+        code: direction === "up" ? "ArrowUp" : "ArrowDown",
+        ctrlKey: true,
+        altKey: true,
+        metaKey: isMac,
+        shiftKey: !isMac,
+      });
+    }
+
+    it.each([
+      ["/activity", "down", "navigateToCanvases"],
+      ["/activity", "up", "navigateToSpaces"],
+      ["/inbox", "down", "navigateToCommandCenter"],
+      ["/command-center", "down", "navigateToHome"],
+    ] as const)("from %s, %s opens %s", (fullPath, direction, expected) => {
+      mocks.fullPath = fullPath;
+      mocks.href = fullPath;
+      render(<NavRail />);
+
+      pressRailKey(direction);
+
+      expect(mocks[expected]).toHaveBeenCalledOnce();
+    });
   });
 
   describe("with nothing remembered", () => {

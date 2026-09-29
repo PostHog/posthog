@@ -133,14 +133,20 @@ class ErrorTrackingIssuesListQueryRequestSerializer(serializers.Serializer):
     orderDirection = serializers.ChoiceField(
         choices=["ASC", "DESC"], required=False, default="DESC", help_text="Sort direction. Defaults to DESC."
     )
-    limit = serializers.IntegerField(required=False, min_value=1, max_value=100, default=25, help_text="Page size.")
+    limit = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        max_value=100,
+        default=10,
+        help_text="Page size. Defaults to 10. Use nextOffset to fetch more rows instead of a large page.",
+    )
     offset = serializers.IntegerField(required=False, min_value=0, default=0, help_text="Pagination offset.")
     volumeResolution = serializers.IntegerField(
         required=False,
         min_value=0,
         max_value=200,
         default=0,
-        help_text="Number of volume buckets. Defaults to 0 for compact aggregate counts.",
+        help_text="Number of volume buckets. Defaults to 0, which returns only aggregate counts without volume buckets.",
     )
     library = StringOrStringListField(
         required=False, help_text="Filter by SDK/library value from event $lib, for example posthog-js."
@@ -270,7 +276,11 @@ class ErrorTrackingAggregationsSerializer(ErrorTrackingImpactSerializer):
 class ErrorTrackingIssueListItemSerializer(serializers.Serializer):
     id = serializers.UUIDField(help_text="Error tracking issue ID.")
     name = serializers.CharField(required=False, allow_null=True, help_text="Issue name.")
-    description = serializers.CharField(required=False, allow_null=True, help_text="Issue description.")
+    description = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Issue description. List rows truncate it to a short preview; the issue detail query returns it in full.",
+    )
     status = serializers.CharField(required=False, help_text="Issue status.")
     severity = ErrorTrackingIssueSeverityField(
         choices=contracts.ERROR_TRACKING_ISSUE_SEVERITIES,

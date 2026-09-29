@@ -159,14 +159,39 @@ def mailerlite_source(
     )
 
 
-def validate_credentials(api_key: str, path: str = "/subscribers") -> bool:
-    """Confirm the API key is genuine with one cheap probe against a list endpoint."""
-    ok, _status = validate_via_probe(
+INVALID_KEY_ERROR = (
+    "Your MailerLite API key is invalid or has been revoked. Create a new key in your "
+    "MailerLite account settings, then try again."
+)
+MISSING_PERMISSION_ERROR = (
+    "Your MailerLite API key is missing the read permissions needed for this data. "
+    "Grant them in your MailerLite account settings, then try again."
+)
+UNVERIFIED_KEY_ERROR = (
+    "Couldn't check your MailerLite API key because MailerLite didn't respond. Try again in a few minutes."
+)
+
+
+def validate_credentials(api_key: str, path: str = "/subscribers") -> tuple[bool, str | None]:
+    """Probe the API key with one cheap GET against a list endpoint, as ``(is_valid, error)``.
+
+    Only a deterministic 4xx proves the key itself is bad. A 403 means the key is genuine but
+    unscoped, and a 429, a 5xx or a transport failure never verified it at all — blaming the key
+    there sends the user off to replace one that works.
+    """
+    _ok, status = validate_via_probe(
         lambda: make_tracked_session(redact_values=(api_key,)),
         f"{MAILERLITE_BASE_URL}{path}?limit=1",
         headers={"Authorization": f"Bearer {api_key}", "Accept": "application/json"},
     )
-    return ok
+
+    if status == 200:
+        return True, None
+    if status == 403:
+        return False, MISSING_PERMISSION_ERROR
+    if status is not None and 400 <= status < 500 and status != 429:
+        return False, INVALID_KEY_ERROR
+    return False, UNVERIFIED_KEY_ERROR
 
 
 # Envelope keys a webhook delivery adds around the subscriber object. `event` (flat payloads) and

@@ -292,6 +292,18 @@ const createMockContext = (
 })
 
 describe('Tool Filtering - API Scopes', () => {
+    it.each([
+        { scopes: ['billing:read'], visible: true },
+        { scopes: [], visible: false },
+    ])('billing read tools require a scope but no rollout flag: $visible', async ({ scopes, visible }) => {
+        const tools = await getToolsFromContext(createMockContext(scopes), { featureFlags: {} })
+        const names = tools.map((tool) => tool.name)
+
+        for (const name of ['billing-overview-get', 'billing-usage-get', 'billing-spend-get']) {
+            expect(names.includes(name)).toBe(visible)
+        }
+    })
+
     it('should return all tools when user has * scope', async () => {
         const context = createMockContext(['*'])
         const tools = await getToolsFromContext(context)
@@ -312,6 +324,7 @@ describe('Tool Filtering - API Scopes', () => {
         expect(toolNames).toContain('dashboard-get')
         expect(toolNames).toContain('dashboards-get-all')
         expect(toolNames).toContain('dashboard-reorder-tiles')
+        expect(toolNames).toContain('dashboard-transfer-tile')
 
         expect(toolNames).not.toContain('create-feature-flag')
         expect(toolNames).not.toContain('organizations-list')
@@ -915,19 +928,6 @@ describe('Tool Filtering - Feature Flags', () => {
         expect(on).not.toContain('notebooks-partial-update')
     })
 
-    it('billing-mcp-read-tools flag gates the existing billing read tools', () => {
-        const existing = ['billing-overview-get', 'billing-usage-get', 'billing-spend-get']
-        const off = getToolsForFeatures({ featureFlags: { 'billing-mcp-read-tools': false } })
-        for (const tool of existing) {
-            expect(off).not.toContain(tool)
-        }
-
-        const on = getToolsForFeatures({ featureFlags: { 'billing-mcp-read-tools': true } })
-        for (const tool of existing) {
-            expect(on).toContain(tool)
-        }
-    })
-
     it('organization-billing-api flag gates the tools that call the organization billing API', () => {
         const gated = [
             'billing-subscription-get',
@@ -992,7 +992,12 @@ describe('Tool Filtering - Feature Flags', () => {
     })
 
     it('getRequiredFeatureFlags should return flags used by current definitions', () => {
-        const flags = getRequiredFeatureFlags()
+        const allFlags = getRequiredFeatureFlags()
+        expect(allFlags).toContain('self-optimising-workflows')
+        // The flag this branch adds is asserted on the line above and held out of the list and
+        // count below. Those belong to master and move with every flag master adds or drops, so a
+        // stacked branch that adds one does not edit them.
+        const flags = allFlags.filter((flag) => flag !== 'self-optimising-workflows')
         expect(flags).toEqual(
             expect.arrayContaining([
                 'logs-anomalies',
@@ -1013,17 +1018,17 @@ describe('Tool Filtering - Feature Flags', () => {
                 'marketing-analytics-mcp',
                 'product-business-knowledge',
                 'field-notes',
-                'mcp-analytics',
+                'mcp-analytics-intent-routing',
                 'metrics',
                 'endpoints-ai-materialization-fix',
                 'engineering-analytics',
                 'web-analytics-path-cleaning-suggestions',
                 'stamphog',
                 'loops',
+                'loops-hog-flows',
                 'review-hog',
                 'warehouse-person-properties',
                 'billing-alerts',
-                'billing-mcp-read-tools',
                 'organization-billing-api',
                 'streamlit-apps',
                 'posthog-connect',
@@ -1033,9 +1038,10 @@ describe('Tool Filtering - Feature Flags', () => {
                 'data-quality-checks',
                 'context-layer',
                 'warehouse-multi-destination',
+                'autoresearch',
             ])
         )
-        expect(flags).toHaveLength(37)
+        expect(flags).toHaveLength(38)
     })
 
     it('every loops tool is gated on the loops flag', () => {
