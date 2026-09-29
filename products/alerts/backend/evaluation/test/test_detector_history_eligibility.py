@@ -1,0 +1,243 @@
+from copy import deepcopy
+from datetime import UTC, datetime, timedelta
+
+import pytest
+
+from products.alerts.backend.evaluation.detector_history_eligibility import match_detector_series_query
+
+SQL = """
+SELECT toStartOfHour(timestamp) AS bucket, count() AS value
+FROM events
+WHERE timestamp >= toStartOfHour(now()) - INTERVAL 48 HOUR
+  AND timestamp < toStartOfHour(now())
+  AND event = 'signup'
+GROUP BY bucket
+ORDER BY bucket ASC
+"""
+
+
+def _query(sql: str = SQL) -> dict:
+    return {"kind": "HogQLQuery", "query": sql}
+
+
+@pytest.mark.parametrize(
+    "aggregate",
+    [
+        "count()",
+        "countIf(event = 'signup')",
+        "uniqExact(person_id)",
+        "uniqIf(person_id, event = 'signup') - uniqIf(person_id, event = 'cancel')",
+    ],
+)
+@pytest.mark.parametrize("column", ["value", None])
+def test_accepts_bucket_local_aggregations(aggregate: str, column: str | None) -> None:
+    matched = match_detector_series_query(_query(SQL.replace("count()", aggregate)), column=column)
+    assert matched is not None
+    assert matched.window_hours == 48
+    assert matched.column_names == ["bucket", "value"]
+
+
+@pytest.mark.parametrize(
+    "sql",
+    [
+        SQL.replace("ASC", "DESC"),
+        SQL.replace("ORDER BY bucket ASC", "ORDER BY bucket ASC WITH FILL"),
+        SQL.replace("count()", "sum(rand())"),
+        SQL.replace("count()", "row_number() OVER (ORDER BY bucket)"),
+        SQL.replace("count()", "(SELECT count() FROM events)"),
+        SQL.replace("GROUP BY bucket", "GROUP BY bucket, event"),
+        SQL.replace("GROUP BY bucket", "GROUP BY bucket HAVING count() > 2"),
+        SQL.replace("48 HOUR", "100000 HOUR"),
+        SQL.replace("48 HOUR", "1 HOUR"),
+        SQL.replace("timestamp <", "timestamp <="),
+        SQL.replace("toStartOfHour(now())", "now()"),
+        SQL.replace("AS value", "AS timestamp"),
+        SQL.replace("AND event = 'signup'", "AND rand() > 0"),
+        SQL.replace("FROM events", "FROM persons"),
+        SQL.replace("FROM events", "FROM events SAMPLE 0.1"),
+        SQL.replace("AND event = 'signup'", "AND event =~ properties.pattern"),
+        SQL.replace("count()", "countIf(event IN (SELECT event FROM events))"),
+        SQL.replace("count()", "countIf(timestamp >= toStartOfHour(now()) - INTERVAL 6 HOUR)"),
+        SQL.replace(
+            "AND event = 'signup'",
+            "AND (timestamp >= toStartOfHour(now()) - INTERVAL 6 HOUR OR event = 'signup')",
+        ),
+        SQL.replace("AND event = 'signup'", "AND timestamp > toStartOfHour(now()) - INTERVAL 36 HOUR"),
+        SQL.replace("AND event = 'signup'", "AND timestamp < toStartOfHour(now()) - INTERVAL 2 HOUR"),
+        SQL.replace("AND event = 'signup'", "AND timestamp >= toStartOfHour(now()) - INTERVAL 1 HOUR"),
+        SQL.replace("AND event = 'signup'", "AND {filters}"),
+        "SELECT 1",
+        "not valid hogql at all",
+    ],
+)
+def test_rejects_shapes_whose_buckets_are_not_self_contained(sql: str) -> None:
+    assert match_detector_series_query(_query(sql), column="value") is None
+
+
+def test_a_second_recognized_lower_bound_narrows_the_window() -> None:
+    sql = SQL.replace("AND event = 'signup'", "AND timestamp >= toStartOfHour(now()) - INTERVAL 36 HOUR")
+    matched = match_detector_series_query(_query(sql), column="value")
+    assert matched is not None
+    assert matched.window_hours == 36
+
+
+def test_rejects_a_column_that_is_not_the_aggregate() -> None:
+    assert match_detector_series_query(_query(), column="bucket") is None
+
+
+@pytest.mark.parametrize("hours,eligible", [(48, True), (336, True), (2_160, True), (2_161, False)])
+def test_the_window_is_bounded_by_a_sanity_ceiling_not_by_limits(hours: int, eligible: bool) -> None:
+    sql = SQL.replace("48 HOUR", f"{hours} HOUR")
+    matched = match_detector_series_query(_query(sql), column="value")
+    assert (matched is not None) == eligible
+    if matched is not None:
+        assert matched.window_hours == hours
+
+
+def test_an_explicit_limit_never_gates_eligibility() -> None:
+    # Completeness is the evaluation guard's job: a scan the limit cuts fails loud and disables
+    # the alert, so the matcher does not second-guess limits it would have to keep in sync.
+    matched = match_detector_series_query(_query(SQL + " LIMIT 20"), column="value")
+    assert matched is not None
+    assert matched.window_hours == 48
+
+
+NESTED_SQL = """
+SELECT h AS window_start, greatest(viewers, senders) AS value FROM (
+    SELECT toStartOfHour(timestamp) AS h,
+           uniqIf(person_id, event = 'view') AS viewers,
+           uniqIf(person_id, event = 'send') AS senders
+    FROM events
+    WHERE timestamp >= toStartOfHour(now()) - INTERVAL 48 HOUR
+      AND timestamp < toStartOfHour(now())
+      AND properties.grp = 'g1'
+      AND (event = 'view' OR event = 'send')
+    GROUP BY h
+) ORDER BY window_start ASC
+"""
+
+
+def test_accepts_row_local_scalar_calls_in_predicates() -> None:
+    sql = SQL.replace("count()", "countIf(event = 'send' AND toString(properties.previous) = 'inbox')")
+    matched = match_detector_series_query(_query(sql), column="value")
+    assert matched is not None
+
+
+def test_accepts_a_one_level_projection_over_the_aggregation() -> None:
+    matched = match_detector_series_query(_query(NESTED_SQL), column="value")
+    assert matched is not None
+    assert matched.window_hours == 48
+    assert matched.column_names == ["window_start", "value"]
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        ("ORDER BY window_start ASC", ""),
+        ("ORDER BY window_start ASC", "ORDER BY window_start DESC"),
+        ("greatest(viewers, senders)", "any(viewers)"),
+        ("greatest(viewers, senders)", "viewers + missing"),
+        ("GROUP BY h\n)", "GROUP BY h LIMIT 10\n)"),
+        ("FROM events", "FROM persons"),
+    ],
+)
+def test_rejects_projections_that_are_not_bucket_local(mutation: tuple[str, str]) -> None:
+    before, after = mutation
+    assert before in NESTED_SQL
+    assert match_detector_series_query(_query(NESTED_SQL.replace(before, after)), column="value") is None
+
+
+def _last_buckets(at: datetime, hours: int) -> list[datetime]:
+    floor = at.replace(minute=0, second=0, microsecond=0)
+    return [floor - timedelta(hours=back) for back in range(1, hours + 1)]
+
+
+def test_an_alias_named_timestamp_is_refused_at_the_events_level() -> None:
+    # The injected narrowing predicates reference the timestamp column, and ClickHouse resolves
+    # select aliases inside WHERE — a value alias named timestamp binds them to an aggregate.
+    # The bucket carrying the name is refused too (by the matcher itself: GROUP BY timestamp is
+    # ambiguous between the alias and the column).
+    shadowed = SQL.replace("count() AS value", "count() AS timestamp")
+    assert match_detector_series_query(_query(shadowed), column="timestamp") is None
+
+    bucket_named_timestamp = (
+        SQL.replace("AS bucket", "AS timestamp")
+        .replace("GROUP BY bucket", "GROUP BY timestamp")
+        .replace("ORDER BY bucket", "ORDER BY timestamp")
+    )
+    assert match_detector_series_query(_query(bucket_named_timestamp), column="value") is None
+
+    inner_shadow = (
+        NESTED_SQL.replace("AS h", "AS timestamp")
+        .replace("GROUP BY h", "GROUP BY timestamp")
+        .replace("h AS window_start", "timestamp AS window_start")
+    )
+    assert match_detector_series_query(_query(inner_shadow), column="value") is None
+
+
+def test_narrowing_a_projection_bounds_the_inner_query() -> None:
+    matched = match_detector_series_query(_query(NESTED_SQL), column="value")
+    assert matched is not None
+    at = datetime(2026, 9, 22, 12, 44, 11, tzinfo=UTC)
+    narrowed_sql = matched.narrowed_to_buckets(_last_buckets(at, 3), at=at, tz="UTC")["query"]
+    assert "in(toStartOfHour(timestamp), tuple(" in narrowed_sql
+    assert "toIntervalHour(48)" in narrowed_sql
+    assert "now()" not in narrowed_sql
+
+
+def test_narrowing_tightens_the_lower_bound_and_leaves_the_saved_query_alone() -> None:
+    query: dict = {
+        "kind": "DataVisualizationNode",
+        "display": "ActionsLineGraph",
+        "source": {"kind": "HogQLQuery", "query": SQL, "filters": {"dateRange": {"date_from": "-7d"}}},
+    }
+    original = deepcopy(query)
+    matched = match_detector_series_query(query, column="value")
+    assert matched is not None
+
+    at = datetime(2026, 9, 22, 12, 44, 11, tzinfo=UTC)
+    narrowed = matched.narrowed_to_buckets(_last_buckets(at, 3), at=at, tz="UTC")
+    assert query == original
+    assert narrowed["display"] == original["display"]
+    assert narrowed["source"]["filters"] == original["source"]["filters"]
+    narrowed_sql = narrowed["source"]["query"]
+    newest = int(_last_buckets(at, 1)[0].timestamp())
+    assert f"toTimeZone(fromUnixTimestamp({newest}), 'UTC')" in narrowed_sql
+    assert "toIntervalHour(48)" in narrowed_sql
+    assert "signup" in narrowed_sql
+    # The clock is pinned, so the warehouse cannot evaluate the bounds at a different hour.
+    assert "now()" not in narrowed_sql
+    assert f"toTimeZone(fromUnixTimestamp({int(at.timestamp())}), 'UTC')" in narrowed_sql
+    # Narrowing twice must not accumulate bounds on a shared tree.
+    assert matched.narrowed_to_buckets(_last_buckets(at, 3), at=at, tz="UTC")["source"]["query"] == narrowed_sql
+
+
+def test_narrowing_renders_the_anchor_in_the_team_timezone() -> None:
+    matched = match_detector_series_query(_query(), column="value")
+    assert matched is not None
+    at = datetime(2026, 9, 22, 12, 44, 11, tzinfo=UTC)
+    narrowed_sql = matched.narrowed_to_buckets(_last_buckets(at, 3), at=at, tz="Asia/Kolkata")["query"]
+    assert f"toTimeZone(fromUnixTimestamp({int(at.timestamp())}), 'Asia/Kolkata')" in narrowed_sql
+    assert "now()" not in narrowed_sql
+
+
+def test_pinning_distinguishes_the_two_occurrences_of_a_dst_fold_hour() -> None:
+    matched = match_detector_series_query(_query(), column="value")
+    assert matched is not None
+    # Amsterdam leaves DST on 2026-10-25 01:00 UTC: 00:37 and 01:37 UTC are both 02:37 local.
+    first_at = datetime(2026, 10, 25, 0, 37, tzinfo=UTC)
+    second_at = datetime(2026, 10, 25, 1, 37, tzinfo=UTC)
+    first = matched.narrowed_to_buckets(_last_buckets(first_at, 3), at=first_at, tz="Europe/Amsterdam")
+    second = matched.narrowed_to_buckets(_last_buckets(second_at, 3), at=second_at, tz="Europe/Amsterdam")
+    assert first["query"] != second["query"]
+
+
+def test_narrowing_refuses_a_window_it_would_not_shorten() -> None:
+    matched = match_detector_series_query(_query(), column="value")
+    assert matched is not None
+    with pytest.raises(ValueError):
+        matched.narrowed_to_buckets(
+            _last_buckets(datetime(2026, 9, 22, 12, 0, 0, tzinfo=UTC), 48),
+            at=datetime(2026, 9, 22, 12, 0, 0, tzinfo=UTC),
+            tz="UTC",
+        )

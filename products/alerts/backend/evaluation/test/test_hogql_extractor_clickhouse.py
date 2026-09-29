@@ -1,16 +1,28 @@
+from datetime import UTC, datetime, timedelta
+
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseDestroyTablesMixin, _create_event, flush_persons_and_events
+from unittest.mock import patch
+
+from django.test import override_settings
 
 from parameterized import parameterized
 
 from posthog.schema import HogQLAlertConfig
 
+from posthog.hogql import ast
+from posthog.hogql.printer.clickhouse import ClickHousePrinter
+
 from posthog.api.services.query import ExecutionMode
 from posthog.caching.calculate_results import calculate_for_query_based_insight
 
-from products.alerts.backend.evaluation.contract import AlertExtractionError
+from products.alerts.backend.evaluation.contract import AlertExtractionError, ExtractionResult
 from products.alerts.backend.evaluation.detector import evaluate_with_detector
-from products.alerts.backend.evaluation.hogql import HogQLExtractor, extract_hogql_detector_series
+from products.alerts.backend.evaluation.hogql import (
+    HogQLDetectorExtractor,
+    HogQLExtractor,
+    extract_hogql_detector_series,
+)
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.product_analytics.backend.facade.models import Insight
 
@@ -167,3 +179,273 @@ class TestHogQLDetectorPagination(APIBaseTest):
         assert isinstance(normal.result, list)
         assert [list(row) for row in normal.result] == [list(row) for row in calculation.result]
         assert insight.query == saved_query
+
+
+DETECTOR = {"type": "zscore", "threshold": 3.0, "window": 30}
+NESTED_SQL = """SELECT h AS window_start, greatest(viewers, senders) AS value FROM (
+    SELECT toStartOfHour(timestamp) AS h,
+           uniqIf(person_id, event = 'signup') AS viewers,
+           uniqIf(person_id, event = 'signup' AND toString(properties.src) = 'a') AS senders
+    FROM events
+    WHERE timestamp >= toStartOfHour(now()) - INTERVAL 48 HOUR
+      AND timestamp < toStartOfHour(now())
+    GROUP BY h
+) ORDER BY window_start ASC"""
+FLAG_PATH = "products.alerts.backend.evaluation.detector_history.feature_enabled_or_false"
+CALC_PATH = "products.alerts.backend.evaluation.hogql.calculate_for_query_based_insight"
+CAPTURE_PATH = "products.alerts.backend.evaluation.detector_history.ph_background_capture"
+SERIES_SQL = """SELECT toStartOfHour(timestamp) AS bucket, count() AS value FROM events
+    WHERE timestamp >= toStartOfHour(now()) - INTERVAL 48 HOUR
+      AND timestamp < toStartOfHour(now()) GROUP BY bucket ORDER BY bucket ASC"""
+
+
+class TestHogQLDetectorIncrementalHistory(APIBaseTest, ClickhouseDestroyTablesMixin):
+    def _events(self, hours_ago: list[int]) -> None:
+        for index, hour in enumerate(hours_ago):
+            for i in range(1 + index % 4):
+                _create_event(
+                    team=self.team,
+                    event="signup",
+                    distinct_id=f"actor-{hour}-{i}",
+                    timestamp=(datetime.now(UTC) - timedelta(hours=hour)).isoformat(),
+                )
+        flush_persons_and_events()
+
+    def _alert(self) -> AlertConfiguration:
+        insight = Insight.objects.create(team=self.team, query={"kind": "HogQLQuery", "query": SERIES_SQL})
+        return AlertConfiguration.objects.create(
+            team=self.team,
+            insight=insight,
+            name="hourly count anomaly",
+            condition={"type": "absolute_value"},
+            detector_config=DETECTOR,
+            config={
+                "type": "HogQLAlertConfig",
+                "evaluation": "last_row",
+                "column": "value",
+                "label_column": "bucket",
+            },
+            calculation_interval="hourly",
+        )
+
+    def _freeze_clickhouse_clock(self) -> None:
+        # time_machine freezes Python, not the ClickHouse server clock, and the cache reasons about
+        # which buckets the query anchored on now() can have returned.
+        original_visit_call = ClickHousePrinter.visit_call
+
+        def frozen_clock(printer: ClickHousePrinter, node: ast.Call) -> str:
+            if node.name == "now":
+                node = ast.Call(
+                    name="toDateTime",
+                    args=[
+                        ast.Constant(value=datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S")),
+                        ast.Constant(value="UTC"),
+                    ],
+                )
+            return original_visit_call(printer, node)
+
+        clock_patch = patch.object(ClickHousePrinter, "visit_call", frozen_clock)
+        clock_patch.start()
+        self.addCleanup(clock_patch.stop)
+
+    def _extract(self, alert: AlertConfiguration) -> ExtractionResult:
+        return HogQLDetectorExtractor().extract(
+            alert, alert.insight, alert.insight.query, ExecutionMode.CALCULATE_BLOCKING_ALWAYS
+        )
+
+    @staticmethod
+    def _values(result: ExtractionResult) -> list[float | None]:
+        return [point.value for point in result.series[0].points] if result.series else []
+
+    @parameterized.expand(
+        [
+            ("dense_on_the_hour", list(range(1, 41)), "2026-10-25T04:00:00Z"),
+            ("dense_mid_hour", list(range(1, 41)), "2026-10-25T04:37:00Z"),
+            ("sparse_mid_hour", [h for h in range(1, 48) if h % 3], "2026-10-25T04:37:00Z"),
+        ]
+    )
+    def test_matches_the_full_scan_series_and_outcome(self, _name: str, hours_ago: list[int], instant: str) -> None:
+        with time_machine.travel(instant, tick=False):
+            self._events(hours_ago)
+            self._freeze_clickhouse_clock()
+            alert = self._alert()
+
+            with patch(FLAG_PATH, return_value=False):
+                full = self._extract(alert)
+            with patch(FLAG_PATH, return_value=True):
+                self._extract(alert)  # seeds the cache with a full scan
+                with patch(CALC_PATH, wraps=calculate_for_query_based_insight) as calculator:
+                    incremental = self._extract(alert)
+
+        assert len(self._values(full)) == 31
+        assert self._values(incremental) == self._values(full)
+        assert calculator.call_count == 1
+        assert calculator.call_args_list[-1].kwargs["query_override"] is not None
+        assert evaluate_with_detector(incremental, DETECTOR).breaches == evaluate_with_detector(full, DETECTOR).breaches
+
+    def test_a_projection_query_without_a_limit_matches_the_full_scan(self) -> None:
+        with time_machine.travel("2026-10-25T04:37:00Z", tick=False):
+            self._events(list(range(1, 41)))
+            self._freeze_clickhouse_clock()
+            insight = Insight.objects.create(team=self.team, query={"kind": "HogQLQuery", "query": NESTED_SQL})
+            alert = AlertConfiguration.objects.create(
+                team=self.team,
+                insight=insight,
+                name="nested projection anomaly",
+                condition={"type": "absolute_value"},
+                detector_config=DETECTOR,
+                config={
+                    "type": "HogQLAlertConfig",
+                    "evaluation": "last_row",
+                    "column": "value",
+                    "label_column": "window_start",
+                },
+                calculation_interval="hourly",
+            )
+
+            with patch(FLAG_PATH, return_value=False):
+                full = self._extract(alert)
+            with patch(FLAG_PATH, return_value=True):
+                self._extract(alert)
+                with patch(CALC_PATH, wraps=calculate_for_query_based_insight) as calculator:
+                    incremental = self._extract(alert)
+
+        assert self._values(full) != []
+        assert self._values(incremental) == self._values(full)
+        narrowed_sql = calculator.call_args_list[-1].kwargs["query_override"]["query"]
+        assert "now()" not in narrowed_sql
+        assert evaluate_with_detector(incremental, DETECTOR).breaches == evaluate_with_detector(full, DETECTOR).breaches
+
+    def test_a_non_utc_team_serves_cells_rendered_like_the_full_scan(self) -> None:
+        # Cached buckets are stored as UTC instants; the query returns team-local datetimes.
+        # Instant equality would hide the difference, so the rendered label is what's pinned.
+        self.team.timezone = "Europe/Berlin"
+        self.team.save(update_fields=["timezone"])
+        with time_machine.travel("2026-09-22T12:37:00Z", tick=False):
+            self._events(list(range(1, 41)))
+            self._freeze_clickhouse_clock()
+            alert = self._alert()
+            with patch(FLAG_PATH, return_value=False):
+                full = self._extract(alert)
+            with patch(FLAG_PATH, return_value=True):
+                self._extract(alert)
+                incremental = self._extract(alert)
+
+        assert self._values(incremental) == self._values(full)
+        assert str(incremental.series[0].label) == str(full.series[0].label)
+
+    def test_a_late_insert_beyond_the_margin_is_probed_and_folded_in(self) -> None:
+        # Frozen near the real clock: the probe compares real insert times against the
+        # watermark, and a frozen future instant would hide every insert from it.
+        instant = datetime.now(UTC).replace(minute=37, second=0, microsecond=0)
+        with time_machine.travel(instant, tick=False):
+            self._events(list(range(1, 41)))
+            self._freeze_clickhouse_clock()
+            alert = self._alert()
+            with patch(FLAG_PATH, return_value=True):
+                self._extract(alert)
+            _create_event(
+                team=self.team,
+                event="signup",
+                distinct_id="late-actor",
+                timestamp=(instant - timedelta(hours=10)).isoformat(),
+            )
+            flush_persons_and_events()
+            with patch(FLAG_PATH, return_value=True):
+                incremental = self._extract(alert)
+            with patch(FLAG_PATH, return_value=False):
+                full = self._extract(alert)
+
+        # A margin-only rescan cannot see an insert ten hours back, so equality here is the
+        # probe working end to end against the real events_recent table.
+        assert self._values(incremental) == self._values(full)
+
+    def test_shadow_sampling_reports_the_full_scan_comparison(self) -> None:
+        with time_machine.travel("2026-10-25T04:37:00Z", tick=False):
+            self._events(list(range(1, 41)))
+            self._freeze_clickhouse_clock()
+            alert = self._alert()
+            with patch(FLAG_PATH, return_value=False):
+                full = self._extract(alert)
+            with patch(FLAG_PATH, return_value=True):
+                self._extract(alert)
+                with (
+                    override_settings(ALERTS_DETECTOR_HISTORY_SHADOW_SAMPLE=1.0),
+                    patch(CAPTURE_PATH) as capture,
+                ):
+                    incremental = self._extract(alert)
+
+        assert self._values(incremental) == self._values(full)
+        events = [call.kwargs for call in capture.return_value.call_args_list]
+        outcomes = [e["properties"] for e in events if e["event"] == "alert detector cache outcome"]
+        assert len(outcomes) == 1
+        assert outcomes[0]["outcome"] == "cache_hit"
+        assert outcomes[0]["shadow_compared"] is True
+        assert outcomes[0]["shadow_equal"] is True
+        assert outcomes[0]["shadow_diverging_rows"] == 0
+
+    def test_the_second_occurrence_of_a_dst_fold_hour_scans_its_own_buckets(self) -> None:
+        self.team.timezone = "Europe/Amsterdam"
+        self.team.save(update_fields=["timezone"])
+        with time_machine.travel("2026-10-25T00:37:00Z", tick=False):
+            self._events(list(range(1, 41)))
+            self._freeze_clickhouse_clock()
+            alert = self._alert()
+            with patch(FLAG_PATH, return_value=True):
+                self._extract(alert)
+        # 01:37 UTC renders as the same local wall-clock time as 00:37 UTC (02:37 local), so an
+        # ambiguous pin would anchor the scan an hour early and miss the newest closed bucket.
+        with time_machine.travel("2026-10-25T01:37:00Z", tick=False):
+            self._events([1])
+            with patch(FLAG_PATH, return_value=True):
+                incremental = self._extract(alert)
+            with patch(FLAG_PATH, return_value=False):
+                full = self._extract(alert)
+
+        assert self._values(incremental) == self._values(full)
+
+    def test_a_check_an_hour_later_matches_the_full_scan(self) -> None:
+        with time_machine.travel("2026-10-25T04:37:00Z", tick=False):
+            self._events(list(range(1, 41)))
+            self._freeze_clickhouse_clock()
+            alert = self._alert()
+            with patch(FLAG_PATH, return_value=True):
+                self._extract(alert)
+        with time_machine.travel("2026-10-25T05:37:00Z", tick=False):
+            with patch(FLAG_PATH, return_value=True):
+                incremental = self._extract(alert)
+            with patch(FLAG_PATH, return_value=False):
+                full = self._extract(alert)
+
+        assert self._values(incremental) == self._values(full)
+
+    def test_an_event_arriving_inside_the_margin_reaches_its_bucket(self) -> None:
+        with time_machine.travel("2026-10-25T04:00:00Z", tick=False):
+            self._events(list(range(1, 41)))
+            self._freeze_clickhouse_clock()
+            alert = self._alert()
+
+            with patch(FLAG_PATH, return_value=True):
+                self._extract(alert)
+                self._events([2])
+                incremental = self._extract(alert)
+            with patch(FLAG_PATH, return_value=False):
+                full = self._extract(alert)
+
+        assert self._values(incremental) == self._values(full)
+
+    def test_an_event_arriving_beyond_the_margin_leaves_history_as_it_was_measured(self) -> None:
+        with time_machine.travel("2026-10-25T04:00:00Z", tick=False):
+            self._events(list(range(1, 41)))
+            self._freeze_clickhouse_clock()
+            alert = self._alert()
+
+            with patch(FLAG_PATH, return_value=True):
+                before = self._extract(alert)
+                self._events([20])
+                incremental = self._extract(alert)
+            with patch(FLAG_PATH, return_value=False):
+                full = self._extract(alert)
+
+        assert self._values(incremental) == self._values(before)
+        assert self._values(incremental) != self._values(full)
