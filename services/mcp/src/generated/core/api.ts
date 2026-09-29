@@ -246,7 +246,10 @@ export const OrganizationsProjectsCreateBody = () => zod
             .boolean()
             .nullish()
             .describe('Enables the customer conversations \/ live chat product for this project.'),
-        conversations_settings: zod.unknown().optional(),
+        conversations_settings: zod
+            .record(zod.string(), zod.unknown())
+            .nullish()
+            .describe('Settings for Conversations. Must be a JSON object or null.'),
         logs_settings: zod.unknown().optional(),
         proactive_tasks_enabled: zod.boolean().nullish(),
         revenue_analytics_config: zod
@@ -2932,7 +2935,10 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
             .boolean()
             .nullish()
             .describe('Enables the customer conversations \/ live chat product for this project.'),
-        conversations_settings: zod.unknown().optional(),
+        conversations_settings: zod
+            .record(zod.string(), zod.unknown())
+            .nullish()
+            .describe('Settings for Conversations. Must be a JSON object or null.'),
         logs_settings: zod.unknown().optional(),
         proactive_tasks_enabled: zod.boolean().nullish(),
         revenue_analytics_config: zod

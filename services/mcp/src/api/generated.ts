@@ -76214,6 +76214,12 @@ export namespace Schemas {
       updated_at?: string;
     };
 
+    /**
+     * Settings for Conversations. Must be a JSON object or null.
+     * @nullable
+     */
+    export type PatchedProjectBackwardCompatConversationsSettings = { [key: string]: unknown } | null;
+
     export type PatchedProjectBackwardCompatManagedViewsets = {[key: string]: boolean};
 
     /**
@@ -77116,7 +77122,11 @@ export namespace Schemas {
          * @nullable
          */
       conversations_enabled?: boolean | null;
-      conversations_settings?: unknown;
+      /**
+         * Settings for Conversations. Must be a JSON object or null.
+         * @nullable
+         */
+      conversations_settings?: PatchedProjectBackwardCompatConversationsSettings;
       logs_settings?: unknown;
       /** @nullable */
       proactive_tasks_enabled?: boolean | null;
@@ -81237,6 +81247,12 @@ export namespace Schemas {
       updated_at?: string;
     };
 
+    /**
+     * Settings for Conversations. Must be a JSON object or null.
+     * @nullable
+     */
+    export type ProjectBackwardCompatConversationsSettings = { [key: string]: unknown } | null;
+
     export type ProjectBackwardCompatManagedViewsets = {[key: string]: boolean};
 
     /**
@@ -82030,7 +82046,11 @@ export namespace Schemas {
          * @nullable
          */
       conversations_enabled?: boolean | null;
-      conversations_settings?: unknown;
+      /**
+         * Settings for Conversations. Must be a JSON object or null.
+         * @nullable
+         */
+      conversations_settings?: ProjectBackwardCompatConversationsSettings;
       logs_settings?: unknown;
       /** @nullable */
       proactive_tasks_enabled?: boolean | null;
