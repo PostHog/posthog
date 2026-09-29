@@ -55,6 +55,7 @@ from posthog.settings import EE_AVAILABLE
 from posthog.utils import str_to_bool
 
 from products.approvals.backend.mixins import ApprovalHandlingMixin
+from products.approvals.backend.transactions import gated_atomic
 
 logger = logging.getLogger(__name__)
 
@@ -883,7 +884,7 @@ class FileSystemViewSet(ApprovalHandlingMixin, TeamAndOrgViewSetMixin, viewsets.
         instance_created_by = instance.created_by
         deleted_objects: list[dict[str, Any]]
 
-        with transaction.atomic():
+        with gated_atomic():
             if instance.type == "folder" and not query.validated_data["recursive"]:
                 descendants = self._scope_by_project_and_environment(
                     FileSystem.objects.filter(path__startswith=f"{instance.path}/")
@@ -923,7 +924,7 @@ class FileSystemViewSet(ApprovalHandlingMixin, TeamAndOrgViewSetMixin, viewsets.
         items = sorted(serializer.validated_data["items"], key=lambda item: (item["type"], item["ref"]))
         undo_results: list[dict[str, str]] = []
 
-        with transaction.atomic():
+        with gated_atomic():
             for item in items:
                 self._ensure_can_restore(item["type"], item["ref"])
                 try:

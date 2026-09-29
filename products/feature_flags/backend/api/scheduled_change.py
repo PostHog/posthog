@@ -13,7 +13,7 @@ from posthog.api.shared import UserBasicSerializer
 
 from products.approvals.backend.mixins import ApprovalHandlingMixin
 from products.approvals.backend.models import ChangeRequest, ChangeRequestState
-from products.approvals.backend.scheduled_changes import gate_scheduled_change
+from products.approvals.backend.scheduled_changes import gate_flag_change
 from products.approvals.backend.serializers import ChangeRequestSummarySerializer
 from products.feature_flags.backend.api.feature_flag import CanEditFeatureFlag
 from products.feature_flags.backend.facade.config import detect_config_format
@@ -41,7 +41,7 @@ def _gate_scheduled_change_at_creation(
     if flag is None:
         return None
 
-    return gate_scheduled_change(flag, payload, user)
+    return gate_flag_change(flag, payload, user)
 
 
 class ScheduledChangeSerializer(serializers.ModelSerializer):
@@ -366,7 +366,7 @@ class ScheduledChangeSerializer(serializers.ModelSerializer):
         existing = instance.change_request
         # Pass the schedule's own bound CR so re-gating an unchanged action rediscovers and reuses it
         # instead of failing closed on its own pending binding.
-        new_change_request = gate_scheduled_change(
+        new_change_request = gate_flag_change(
             feature_flag, new_payload, self.context["request"].user, current_change_request=existing
         )
         if (

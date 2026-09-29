@@ -64,9 +64,9 @@ class TestScheduledChangeGating(APIBaseTest):
         )
 
     def _gate(self, flag: FeatureFlag, payload: dict) -> ChangeRequest | None:
-        from products.approvals.backend.scheduled_changes import gate_scheduled_change
+        from products.approvals.backend.scheduled_changes import gate_flag_change
 
-        return gate_scheduled_change(flag, payload, self.user)
+        return gate_flag_change(flag, payload, self.user)
 
     def test_scheduled_enable_under_policy_creates_pending_cr_and_does_not_apply(self, _mock_enabled):
         self._enable_policy()
@@ -332,7 +332,7 @@ class TestScheduledChangeGating(APIBaseTest):
         # Re-gating a gated schedule whose payload edit keeps the same gated action must reuse the
         # row's own pending CR — not fail closed on it as a duplicate, and not mint a second one.
         # This is the only path that reaches the current_change_request reuse branch in
-        # gate_scheduled_change (every other PATCH test goes ungated↔gated).
+        # gate_flag_change (every other PATCH test goes ungated↔gated).
         self._enable_policy()
         flag = self._disabled_flag()
 

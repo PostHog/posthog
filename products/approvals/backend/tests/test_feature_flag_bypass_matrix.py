@@ -325,7 +325,7 @@ class TestScheduledChangeBypassMatrix(FeatureFlagBypassMatrixBase):
     A gated scheduled change must therefore leave the flag untouched and the CR EXPIRED."""
 
     def _schedule(self, flag: FeatureFlag, payload: dict, scheduled_at: datetime) -> ScheduledChange:
-        from products.approvals.backend.scheduled_changes import gate_scheduled_change
+        from products.approvals.backend.scheduled_changes import gate_flag_change
 
         return ScheduledChange.objects.create(
             team=self.team,
@@ -334,7 +334,7 @@ class TestScheduledChangeBypassMatrix(FeatureFlagBypassMatrixBase):
             payload=payload,
             scheduled_at=scheduled_at,
             created_by=self.user,
-            change_request=gate_scheduled_change(flag, payload, self.user),
+            change_request=gate_flag_change(flag, payload, self.user),
         )
 
     def test_scheduled_enable_is_gated(self, _mock_enabled):
@@ -684,7 +684,7 @@ class TestBypassMatrixControls(FeatureFlagBypassMatrixBase):
         assert cr.state == ChangeRequestState.APPLIED
 
     def test_scheduled_cr_past_window_is_expired_not_applied(self, _mock_enabled):
-        from products.approvals.backend.scheduled_changes import gate_scheduled_change
+        from products.approvals.backend.scheduled_changes import gate_flag_change
 
         _enable_policy_for(self, "feature_flag.enable")
         flag = self._flag(active=False)
@@ -697,7 +697,7 @@ class TestBypassMatrixControls(FeatureFlagBypassMatrixBase):
             payload=payload,
             scheduled_at=datetime.now(UTC) - timedelta(seconds=30),
             created_by=self.user,
-            change_request=gate_scheduled_change(flag, payload, self.user),
+            change_request=gate_flag_change(flag, payload, self.user),
         )
         cr = scheduled.change_request
         assert cr is not None

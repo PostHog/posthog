@@ -40,7 +40,9 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.approvals.backend.exceptions import ApprovalRequired
 from products.approvals.backend.policies import PolicyEngine
+from products.approvals.backend.scheduled_changes import gate_flag_change
 from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
 from products.feature_flags.backend.encrypted_flag_payloads import REDACTED_PAYLOAD_VALUE
 from products.feature_flags.backend.facade.config import detect_config_format
@@ -217,10 +219,20 @@ def _flip_trashed_flag(flag_id: int, *, team_id: int, user_id: int | None, activ
     flag = FeatureFlag.objects_including_soft_deleted.filter(pk=flag_id, team_id=team_id).first()
     if flag is None:
         return
-    if flag_owner_kind(flag) is not None:
-        _set_trashed_flag_active(flag_id, team_id=team_id, active=active)
-        return
-    set_flag_active(flag, active, team=flag.team, user=User.objects.filter(pk=user_id).first())
+    if flag_owner_kind(flag) is None:
+        # The gate alone, not a serializer write. Trash never ran the dependents check or filter
+        # validation, and routing it through the serializer would start rejecting a flag other
+        # flags depend on, and log a second activity entry beside the file system's own.
+        change_request = gate_flag_change(
+            flag, {"operation": "update_status", "value": active}, User.objects.filter(pk=user_id).first()
+        )
+        if change_request is not None:
+            raise ApprovalRequired(
+                change_request=change_request,
+                message="Approval required",
+                required_approvers=(change_request.policy_snapshot or {}).get("approver_config") or {},
+            )
+    _set_trashed_flag_active(flag_id, team_id=team_id, active=active)
 
 
 def deactivate_trashed_flag(flag_id: int, *, team_id: int, user_id: int | None = None) -> None:
