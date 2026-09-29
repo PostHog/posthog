@@ -24,6 +24,9 @@ from products.demo.backend.logic.matrix.taxonomy_inference import infer_taxonomy
 from .matrix import Matrix
 from .models import EVENT_IDENTIFY, SimEvent, SimPerson
 
+# Matches kafka-python's max_block_ms default, which demo generation relied on
+DEMO_EVENT_MAX_BLOCK_MS = 60_000
+
 
 class MatrixManager:
     # ID of the team under which demo data will be pre-saved
@@ -312,6 +315,9 @@ class MatrixManager:
                 group2_created_at=event.group2_created_at,
                 group3_created_at=event.group3_created_at,
                 group4_created_at=event.group4_created_at,
+                # A run produces hundreds of thousands of events, faster than a local
+                # broker drains them, so wait for queue space instead of failing
+                max_block_ms=DEMO_EVENT_MAX_BLOCK_MS,
             )
 
     @staticmethod

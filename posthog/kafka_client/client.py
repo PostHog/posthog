@@ -175,7 +175,6 @@ _KAFKA_PYTHON_TO_CONFLUENT_KEYS = {
     "linger_ms": "linger.ms",
     "max_in_flight_requests_per_connection": "max.in.flight.requests.per.connection",
     "buffer_memory": "queue.buffering.max.kbytes",
-    "max_block_ms": "queue.buffering.max.ms",
     "topic_metadata_refresh_interval_ms": "topic.metadata.refresh.interval.ms",
     "queue_buffering_max_messages": "queue.buffering.max.messages",
     "sticky_partitioning_linger_ms": "sticky.partitioning.linger.ms",
@@ -194,8 +193,9 @@ def _convert_kafka_python_settings(kafka_python_settings: dict[str, Any]) -> dic
             if key == "buffer_memory":
                 value = value // 1024
             result[confluent_key] = value
-        elif key == "partitioner":
-            # partitioner is handled differently in confluent-kafka, skip it
+        elif key in ("partitioner", "max_block_ms"):
+            # partitioner is handled differently in confluent-kafka, and max_block_ms
+            # is enforced by _KafkaProducer.produce() (librdkafka has no equivalent)
             pass
         else:
             # Pass through unknown keys as-is (might already be confluent-kafka style)
@@ -255,6 +255,10 @@ class _KafkaProducer:
         )
 
         self._test = test
+        # How long produce() waits for room when the local queue is full. confluent-kafka
+        # raises BufferError instead of blocking like kafka-python's max_block_ms did, so
+        # produce() polls and retries within this budget. 0 fails fast.
+        self._max_block_ms: int = resolved_producer_settings.get("max_block_ms", 0)
 
         if test:
             self.producer = KafkaProducerForTests()
@@ -331,9 +335,13 @@ class _KafkaProducer:
         value_serializer: Optional[Callable[[Any], Any]] = None,
         headers: Optional[list[tuple[str, str | bytes]]] = None,
         log_key_on_delivery_failure: bool = False,
+        max_block_ms: Optional[int] = None,
     ) -> ProduceResult:
         """Set `log_key_on_delivery_failure=True` only when `key` cannot carry
-        customer-controlled data (e.g. it is an internal id like a team id)."""
+        customer-controlled data (e.g. it is an internal id like a team id).
+
+        `max_block_ms` overrides the producer's configured budget for waiting on a
+        full local queue; bulk writers pass one, request paths keep the default."""
         if not value_serializer:
             value_serializer = self.json_serializer
         b = value_serializer(data)
@@ -354,13 +362,27 @@ class _KafkaProducer:
             self.producer.produce(topic, value=b, key=key, headers=encoded_headers)
             result.set_result(None, None)
         else:
-            self.producer.produce(
-                topic,
-                value=b,
-                key=key,
-                headers=encoded_headers,
-                on_delivery=lambda err, msg: self._on_delivery(topic, result, err, msg, log_key_on_delivery_failure),
-            )
+            budget_ms = self._max_block_ms if max_block_ms is None else max_block_ms
+            deadline = time.monotonic() + budget_ms / 1000
+            while True:
+                try:
+                    self.producer.produce(
+                        topic,
+                        value=b,
+                        key=key,
+                        headers=encoded_headers,
+                        on_delivery=lambda err, msg: self._on_delivery(
+                            topic, result, err, msg, log_key_on_delivery_failure
+                        ),
+                    )
+                    break
+                except BufferError:
+                    # Local queue is full. Serve delivery reports so librdkafka can
+                    # free space, then retry until the budget runs out.
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise
+                    self.producer.poll(min(remaining, 0.1))
             # Poll to trigger any pending delivery callbacks (non-blocking)
             self.producer.poll(0)
 
@@ -479,7 +501,7 @@ class ClickhouseProducer:
     can target the cluster mapped in TOPIC_ROUTING.
     """
 
-    def produce(self, sql: str, topic: str, data: dict[str, Any]) -> ProduceResult:
+    def produce(self, sql: str, topic: str, data: dict[str, Any], max_block_ms: Optional[int] = None) -> ProduceResult:
         if settings.TEST:
             sync_execute(sql, data)
             result = ProduceResult(topic=topic)
@@ -488,4 +510,4 @@ class ClickhouseProducer:
         # Lazy import: routing imports from this module.
         from posthog.kafka_client.routing import get_producer
 
-        return get_producer(topic=topic).produce(topic=topic, data=data)
+        return get_producer(topic=topic).produce(topic=topic, data=data, max_block_ms=max_block_ms)

@@ -169,7 +169,10 @@ class KafkaClientTestCase(TestCase):
         self.assertEqual(config["max.in.flight.requests.per.connection"], 1000000)
         # buffer_memory is in bytes but confluent expects kbytes.
         self.assertEqual(config["queue.buffering.max.kbytes"], 1048576)
-        self.assertEqual(config["queue.buffering.max.ms"], 1000)
+        # max_block_ms is enforced in produce(), not by librdkafka. queue.buffering.max.ms
+        # is an alias of linger.ms, so mapping to it would silently override linger_ms.
+        self.assertNotIn("queue.buffering.max.ms", config)
+        self.assertNotIn("max_block_ms", config)
         self.assertEqual(config["metadata.max.age.ms"], 15000)
         # Warpstream-friendly tuning knobs wired from the same-named env vars
         # that the Node.js and rust services already use in Helm charts.
@@ -181,6 +184,60 @@ class KafkaClientTestCase(TestCase):
         # Snake-case originals must not leak through to librdkafka.
         self.assertNotIn("enable_idempotence", config)
         self.assertNotIn("compression_type", config)
+
+    # A full local queue raises BufferError. With a max_block_ms budget, produce()
+    # polls to drain the queue and retries; with none (the default) it fails fast,
+    # so request-path callers never stall on an unhealthy cluster.
+    @parameterized.expand(
+        [
+            ("default_fails_fast", None, None, 1, False),
+            ("configured_budget_retries", 1000, None, 3, True),
+            ("per_call_budget_retries", None, 1000, 3, True),
+            ("per_call_zero_overrides_configured", 1000, 0, 1, False),
+            ("budget_exhausted_raises", None, 1000, 1_000_000, False),
+        ]
+    )
+    @patch("posthog.kafka_client.client.time.monotonic")
+    @patch("posthog.kafka_client.client.ConfluentProducer")
+    def test_produce_on_full_queue(
+        self,
+        _name: str,
+        configured_ms: int | None,
+        per_call_ms: int | None,
+        buffer_errors: int,
+        expect_produced: bool,
+        mock_producer_class: MagicMock,
+        mock_monotonic: MagicMock,
+    ):
+        clock = [0.0]
+        mock_monotonic.side_effect = lambda: clock[0]
+        inner = MagicMock()
+        attempts = [0]
+
+        def produce(*args, **kwargs):
+            attempts[0] += 1
+            if attempts[0] <= buffer_errors:
+                raise BufferError("Local: Queue full")
+
+        def poll(timeout: float = 0) -> int:
+            clock[0] += timeout
+            return 0
+
+        inner.produce.side_effect = produce
+        inner.poll.side_effect = poll
+        mock_producer_class.return_value = inner
+        producer_settings = {"max_block_ms": configured_ms} if configured_ms is not None else {}
+
+        with override_settings(KAFKA_PROFILES=_make_profiles(producer_settings=producer_settings)):
+            producer = _KafkaProducer(test=False)
+
+        if expect_produced:
+            producer.produce(topic="t", data={"a": 1}, max_block_ms=per_call_ms)
+            self.assertEqual(attempts[0], buffer_errors + 1)
+        else:
+            with self.assertRaises(BufferError):
+                producer.produce(topic="t", data={"a": 1}, max_block_ms=per_call_ms)
+            self.assertLessEqual(clock[0], 1.0)
 
     @override_settings(KAFKA_PROFILES=_make_profiles(producer_settings={"partitioner": "murmur2_random"}))
     @patch("posthog.kafka_client.client.ConfluentProducer")

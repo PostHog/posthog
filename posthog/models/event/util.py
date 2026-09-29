@@ -68,6 +68,7 @@ def create_event(
     group3_created_at: Optional[Union[datetime, str]] = None,
     group4_created_at: Optional[Union[datetime, str]] = None,
     person_mode: Literal["full", "propertyless", "force_upgrade"] = "full",
+    max_block_ms: Optional[int] = None,
 ) -> str:
     if properties is None:
         properties = {}
@@ -114,7 +115,7 @@ def create_event(
             "person_properties": _json_dumps_for_clickhouse(person_properties),
         }
         p.produce(topic=KAFKA_EVENTS_JSON, sql=INSERT_EVENT_SQL(table_name=EVENTS_JSON_DATA_TABLE), data=json_data)
-    p.produce(topic=KAFKA_EVENTS_JSON, sql=INSERT_EVENT_SQL(), data=data)
+    p.produce(topic=KAFKA_EVENTS_JSON, sql=INSERT_EVENT_SQL(), data=data, max_block_ms=max_block_ms)
 
     return str(event_uuid)
 
