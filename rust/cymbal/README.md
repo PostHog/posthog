@@ -3,11 +3,13 @@
 You throw 'em, we catch 'em.
 
 Cymbal owns the HTTP ingress and full processing pipeline (fingerprinting,
-suppression, Kafka producers, issue linking). The binary runs in one of three
+suppression, Kafka producers, issue linking). The binary runs in one of four
 modes selected by `CYMBAL_MODE` (default `processing`): the processing
 pipeline, the `cymbal.resolution.v1` gRPC symbol-resolution service
-(`CYMBAL_MODE=resolution`), or the Kafka notification consumer
-(`CYMBAL_MODE=notifications`). The notification consumer starts the matching
+(`CYMBAL_MODE=resolution`), the Kafka notification consumer
+(`CYMBAL_MODE=notifications`), or the `cymbal.path_resolution.v1` gRPC service
+that maps frame paths to repository paths (`CYMBAL_MODE=path_resolution`, see
+the [path resolution mode README](src/modes/path_resolution/README.md)). The notification consumer starts the matching
 Temporal lifecycle workflow for every issue-created, issue-reopened, or
 issue-spiking notification. Issue-created is capped per team per hour (see
 [Issue-created rate limit](#issue-created-rate-limit-notifications-mode)).
