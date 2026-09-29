@@ -3355,14 +3355,14 @@ Note: There is no top-level GET /v2/conversations list - conversations are only 
 
 ## Freshdesk — gaps
 
-Today (14): `agents`, `business_hours`, `canned_response_folders`, `companies`, `contacts`, `groups`, `products`, `roles`, `satisfaction_ratings`, `skills`, `sla_policies`, `ticket_fields`, `tickets`, `time_entries`
+Today (20): `agents`, `business_hours`, `canned_response_folders`, `canned_responses`, `companies`, `contact_fields`, `contacts`, `conversations`, `groups`, `products`, `roles`, `satisfaction_ratings`, `skills`, `sla_policies`, `solution_articles`, `solution_categories`, `solution_folders`, `ticket_fields`, `tickets`, `time_entries`
 
 Diffed against: <https://developers.freshdesk.com/api/>
 
-- [ ] `/api/v2/tickets/{id}/conversations` — ticket replies and notes - the actual support conversation behind every ticket row we sync (high)
-- [ ] `/api/v2/contact_fields` — lookup resolving custom contact field IDs and their dropdown choices (high)
-- [ ] `/api/v2/canned_response_folders/{id}/responses` — the canned responses themselves; only their folders are synced today (high)
-- [ ] `/api/v2/solutions/categories (+ /categories/{id}/folders, /folders/{id}/articles)` — knowledge base hierarchy and article stats (hits, thumbs up/down) for deflection analysis (high)
+- [x] `/api/v2/tickets/{id}/conversations` — ticket replies and notes - the actual support conversation behind every ticket row we sync (high)
+- [x] `/api/v2/contact_fields` — lookup resolving custom contact field IDs and their dropdown choices (high)
+- [x] `/api/v2/canned_response_folders/{id}/responses` — the canned responses themselves; only their folders are synced today (high)
+- [x] `/api/v2/solutions/categories (+ /categories/{id}/folders, /folders/{id}/articles)` — knowledge base hierarchy and article stats (hits, thumbs up/down) for deflection analysis (high)
 - [ ] `/api/v2/company_fields` — lookup resolving custom company field IDs and choices (medium)
 - [ ] `/api/v2/custom_objects/schemas (+ /schemas/{id}/records)` — customer-defined objects linked to tickets; schemas act as the lookup for the records (medium)
 - [ ] `/api/v2/customer-satisfaction/surveys/{survey_id}/responses` — new-style CSAT responses; only legacy satisfaction_ratings are synced (medium)

@@ -3,9 +3,27 @@
 from dataclasses import dataclass, field
 from typing import Optional
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    DependentEndpointConfig,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ResponseAction
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 PER_PAGE = 100
+
+
+@dataclass(frozen=True)
+class FreshdeskChainedFanoutConfig:
+    """A second-level fan-out whose parent is itself a fan-out child.
+
+    `build_dependent_resource` resolves its path param from a top-level endpoint, so it cannot
+    express `/solutions/folders/{folder_id}/articles`, where the folder rows themselves come
+    from `/solutions/categories/{category_id}/folders`.
+    """
+
+    parent_name: str
+    resolve_param: str
+    resolve_field: str
 
 
 @dataclass
@@ -24,6 +42,11 @@ class FreshdeskEndpointConfig:
     extra_params: dict[str, str] = field(default_factory=dict)
     # Key the list lives under when the response is an object rather than a bare array.
     data_key: Optional[str] = None
+    # Read by the shared fan-out helper to size parent and child pages.
+    page_size: int = PER_PAGE
+    # Set on a sub-resource that is fetched once per row of a top-level endpoint.
+    fanout: Optional[DependentEndpointConfig] = None
+    chained_fanout: Optional[FreshdeskChainedFanoutConfig] = None
 
 
 def _datetime_incremental_field(name: str) -> IncrementalField:
@@ -35,8 +58,11 @@ def _datetime_incremental_field(name: str) -> IncrementalField:
     }
 
 
-# Top-level Freshdesk v2 endpoints. Fan-out resources (ticket conversations, solution
-# articles) are intentionally omitted from this first cut — see source.py module note.
+# A parent row can be deleted between the listing page it arrived on and the child fetch that
+# follows it, which 404s. That must not sink the whole fan-out.
+IGNORE_DELETED_PARENT: list[ResponseAction] = [{"status_code": 404, "action": "ignore"}]
+
+
 FRESHDESK_ENDPOINTS: dict[str, FreshdeskEndpointConfig] = {
     "tickets": FreshdeskEndpointConfig(
         name="tickets",
@@ -85,6 +111,61 @@ FRESHDESK_ENDPOINTS: dict[str, FreshdeskEndpointConfig] = {
     "business_hours": FreshdeskEndpointConfig(name="business_hours", path="/api/v2/business_hours"),
     "canned_response_folders": FreshdeskEndpointConfig(
         name="canned_response_folders", path="/api/v2/canned_response_folders"
+    ),
+    "contact_fields": FreshdeskEndpointConfig(name="contact_fields", path="/api/v2/contact_fields"),
+    "conversations": FreshdeskEndpointConfig(
+        name="conversations",
+        path="/api/v2/tickets/{ticket_id}/conversations",
+        # The endpoint takes no timestamp filter of its own. Incremental sync instead narrows
+        # the tickets the fan-out walks, so the watermark still has to be a conversation field.
+        default_incremental_field="updated_at",
+        incremental_fields=[_datetime_incremental_field("updated_at")],
+        partition_key="created_at",
+        fanout=DependentEndpointConfig(
+            parent_name="tickets",
+            resolve_param="ticket_id",
+            resolve_field="id",
+            # Conversation rows already carry `ticket_id`; nothing needs injecting from the parent.
+            include_from_parent=[],
+            # Walk the parent oldest-first so the run covers whole tickets in watermark order.
+            parent_params={"order_by": "updated_at", "order_type": "asc"},
+            child_response_actions=IGNORE_DELETED_PARENT,
+        ),
+    ),
+    "canned_responses": FreshdeskEndpointConfig(
+        name="canned_responses",
+        path="/api/v2/canned_response_folders/{folder_id}/responses",
+        fanout=DependentEndpointConfig(
+            parent_name="canned_response_folders",
+            resolve_param="folder_id",
+            resolve_field="id",
+            # Canned response rows already carry `folder_id`.
+            include_from_parent=[],
+            child_response_actions=IGNORE_DELETED_PARENT,
+        ),
+    ),
+    "solution_categories": FreshdeskEndpointConfig(name="solution_categories", path="/api/v2/solutions/categories"),
+    "solution_folders": FreshdeskEndpointConfig(
+        name="solution_folders",
+        path="/api/v2/solutions/categories/{category_id}/folders",
+        fanout=DependentEndpointConfig(
+            parent_name="solution_categories",
+            resolve_param="category_id",
+            resolve_field="id",
+            # A folder row places itself only through the nested `hierarchy` list, so the owning
+            # category has to come from the parent to be queryable as a column.
+            include_from_parent=["id"],
+            parent_field_renames={"id": "category_id"},
+            child_response_actions=IGNORE_DELETED_PARENT,
+        ),
+    ),
+    "solution_articles": FreshdeskEndpointConfig(
+        name="solution_articles",
+        path="/api/v2/solutions/folders/{folder_id}/articles",
+        partition_key="created_at",
+        chained_fanout=FreshdeskChainedFanoutConfig(
+            parent_name="solution_folders", resolve_param="folder_id", resolve_field="id"
+        ),
     ),
 }
 
