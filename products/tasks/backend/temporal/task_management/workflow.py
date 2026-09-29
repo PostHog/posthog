@@ -8,6 +8,7 @@ from typing import Any, Optional
 import temporalio
 from temporalio import workflow
 from temporalio.common import RetryPolicy
+from temporalio.exceptions import is_cancelled_exception
 
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.oauth import PosthogMcpScopes
@@ -72,6 +73,7 @@ from products.tasks.backend.temporal.task_management.activities.pending_followup
     ReadPendingFollowupsInput,
     persist_pending_followups,
     persist_pending_followups_v2,
+    persist_pending_followups_v3,
     read_pending_followups,
 )
 
@@ -92,6 +94,8 @@ _PATCH_ID_GENERATION_SAFE_PENDING_FOLLOWUPS = "tasks-task-management-generation-
 _PATCH_ID_CI_TERMINAL_PR = "tasks-task-management-ci-terminal-pr"
 _PATCH_ID_CI_WAIT = "tasks-task-management-ci-wait"
 _PATCH_ID_CI_IDLE_SKIP_CAP = "tasks-task-management-ci-idle-skip-cap"
+_PATCH_ID_DURABLE_CI_CHECKPOINTS = "tasks-task-management-durable-ci-checkpoints"
+_PATCH_ID_CHECKPOINT_RECOVERY_STATUS = "tasks-task-management-checkpoint-recovery-status"
 _PATCH_ID_CI_WAIT_CAP = "tasks-task-management-ci-wait-cap"
 MAX_CI_WAIT_CHECKS = 96
 _CHILD_SIGNAL_TERMINAL_ERROR_TYPES = {
@@ -537,7 +541,13 @@ class TaskManagementWorkflow(PostHogWorkflow):
                     "error_message": error_message,
                 },
             )
-            await self._update_task_run_status("failed", error_message=error_message, error_type=type(e).__name__)
+            checkpoint_recovery = (
+                _patch_enabled(_PATCH_ID_CHECKPOINT_RECOVERY_STATUS)
+                and isinstance(e, temporalio.exceptions.ActivityError)
+                and e.activity_type in {"persist_pending_followups_v3", "read_pending_followups"}
+            )
+            if not checkpoint_recovery:
+                await self._update_task_run_status("failed", error_message=error_message, error_type=type(e).__name__)
             return TaskRunManagementOutput(
                 success=False,
                 error=error_message,
@@ -648,9 +658,14 @@ class TaskManagementWorkflow(PostHogWorkflow):
         # follow-ups to deliver, spin up a fresh sandbox first. A standalone
         # `complete_task` arriving without follow-ups is dropped — there's
         # nothing meaningful to complete when no sandbox is running.
+        if self._pending_external_followups and _patch_enabled(_PATCH_ID_DURABLE_CI_CHECKPOINTS):
+            self._ci_idle_skips = 0
+            self._ci_wait_checks = 0
         if not self._sandbox_alive:
             if self._pending_external_followups:
                 await self._wait_before_replacement_sandbox()
+                if _patch_enabled(_PATCH_ID_DURABLE_CI_CHECKPOINTS):
+                    await self._persist_pending_followups()
                 workflow.logger.info(
                     "task_management_rebootstrapping_for_followup",
                     extra={"run_id": self._run_id, "pending": len(self._pending_external_followups)},
@@ -664,6 +679,8 @@ class TaskManagementWorkflow(PostHogWorkflow):
         # Forward all pending external follow-ups first; complete_task is
         # terminal and handled last so we don't drop in-flight messages.
         while self._pending_external_followups:
+            if _patch_enabled(_PATCH_ID_DURABLE_CI_CHECKPOINTS):
+                await self._persist_pending_followups()
             followup = self._pending_external_followups.pop(0)
             delivered = await self._signal_child_followup(
                 message=followup.message,
@@ -927,11 +944,17 @@ class TaskManagementWorkflow(PostHogWorkflow):
         try:
             result = await workflow.execute_activity(
                 read_pending_followups,
-                ReadPendingFollowupsInput(run_id=self._run_id),
+                ReadPendingFollowupsInput(
+                    run_id=self._run_id, recover_checkpoint=_patch_enabled(_PATCH_ID_DURABLE_CI_CHECKPOINTS)
+                ),
                 start_to_close_timeout=timedelta(seconds=30),
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
         except Exception as e:
+            if _patch_enabled(_PATCH_ID_DURABLE_CI_CHECKPOINTS):
+                if is_cancelled_exception(e):
+                    raise asyncio.CancelledError from e
+                raise
             workflow.logger.warning(
                 "task_management_restore_pending_failed", extra={"run_id": self._run_id, "error": str(e)}
             )
@@ -974,14 +997,6 @@ class TaskManagementWorkflow(PostHogWorkflow):
         )
 
     async def _persist_pending_followups(self) -> bool:
-        """Mirror the in-memory queue into `TaskRun.state`.
-
-        Best-effort: failure here doesn't compromise the current execution,
-        only the recovery picture if we later restart. Logged so we notice
-        sustained failures. Skips the activity when the payload hasn't
-        changed since the last write — drain paths fire this every iteration
-        and an empty-to-empty no-op would still take a row lock.
-        """
         if self._run_id is None:
             return False
         payload = [asdict(f) for f in self._pending_external_followups]
@@ -1000,9 +1015,12 @@ class TaskManagementWorkflow(PostHogWorkflow):
                 _patch_enabled(_PATCH_ID_GENERATION_SAFE_PENDING_FOLLOWUPS)
                 or persist_ci_idle_skips
                 or persist_ci_wait_checks
+                or _patch_enabled(_PATCH_ID_DURABLE_CI_CHECKPOINTS)
             ):
                 await workflow.execute_activity(
-                    persist_pending_followups_v2,
+                    persist_pending_followups_v3
+                    if _patch_enabled(_PATCH_ID_DURABLE_CI_CHECKPOINTS)
+                    else persist_pending_followups_v2,
                     PersistPendingFollowupsV2Input(
                         run_id=self._run_id,
                         followups=payload,
@@ -1027,6 +1045,10 @@ class TaskManagementWorkflow(PostHogWorkflow):
                 self._last_persisted_ci_wait_checks = ci_wait_checks
             return True
         except Exception as e:
+            if _patch_enabled(_PATCH_ID_DURABLE_CI_CHECKPOINTS):
+                if is_cancelled_exception(e):
+                    raise asyncio.CancelledError from e
+                raise
             workflow.logger.warning(
                 "task_management_persist_pending_failed", extra={"run_id": self._run_id, "error": str(e)}
             )
@@ -1052,9 +1074,12 @@ class TaskManagementWorkflow(PostHogWorkflow):
                 _patch_enabled(_PATCH_ID_GENERATION_SAFE_PENDING_FOLLOWUPS)
                 or persist_ci_idle_skips
                 or persist_ci_wait_checks
+                or _patch_enabled(_PATCH_ID_DURABLE_CI_CHECKPOINTS)
             ):
                 await workflow.execute_activity(
-                    persist_pending_followups_v2,
+                    persist_pending_followups_v3
+                    if _patch_enabled(_PATCH_ID_DURABLE_CI_CHECKPOINTS)
+                    else persist_pending_followups_v2,
                     PersistPendingFollowupsV2Input(
                         run_id=self._run_id,
                         followups=payload,
@@ -1384,6 +1409,18 @@ class TaskManagementWorkflow(PostHogWorkflow):
         self._ci_wait_checks = 0
         ci_message = (self._context.ci_prompt if self._context else None) or DEFAULT_CI_MESSAGE
         self._last_active_time = workflow.now()
+        if _patch_enabled(_PATCH_ID_DURABLE_CI_CHECKPOINTS):
+            self._pending_external_followups.append(
+                PendingExternalFollowup(
+                    message=ci_message,
+                    artifact_ids=[],
+                    source=FOLLOWUP_SOURCE_CI,
+                    sequence=self._next_followup_sequence,
+                )
+            )
+            self._next_followup_sequence += 1
+            await self._drain_external_signals()
+            return
         await self._signal_child_followup(message=ci_message, artifact_ids=[], source=FOLLOWUP_SOURCE_CI)
         if _patch_enabled(_PATCH_ID_CI_IDLE_SKIP_CAP) or _patch_enabled(_PATCH_ID_CI_WAIT_CAP):
             await self._persist_pending_followups()
