@@ -4,6 +4,7 @@ from typing import Any
 from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    EndpointResource,
     RESTAPIConfig,
     RESTClient,
     rest_api_resource,
@@ -19,6 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.sevdesk.se
     BASE_URL,
     ENDPOINTS,
     PAGE_SIZE,
+    REQUEST_TIMEOUT_SECONDS,
 )
 
 
@@ -34,6 +36,7 @@ def validate_credentials(api_token: str, endpoint: str, api_version: str) -> Non
         base_url=f"{BASE_URL}/{api_version}",
         auth=APIKeyAuth(api_key=api_token, name="Authorization", location="header"),
         headers={"Accept": "application/json", "User-Agent": "PostHog warehouse source"},
+        request_timeout=REQUEST_TIMEOUT_SECONDS,
     )
     try:
         next(
@@ -58,28 +61,28 @@ def sevdesk_source(
     resumable_source_manager: ResumableSourceManager[SevdeskResumeConfig],
 ) -> SourceResponse:
     endpoint_config = schema_for_resource(ENDPOINTS, endpoint)
+    resource: EndpointResource = {
+        "name": endpoint,
+        "table_name": endpoint,
+        "primary_key": list(endpoint_config.primary_keys),
+        "write_disposition": "replace",
+        "table_format": "delta",
+        "endpoint": {
+            "path": endpoint_config.path,
+            "params": endpoint_config.params,
+            "data_selector": "objects",
+            "data_selector_malformed_retryable": True,
+            "paginator": {"type": "offset", "limit": PAGE_SIZE, "total_path": None},
+        },
+    }
     config: RESTAPIConfig = {
         "client": {
             "base_url": f"{BASE_URL}/{api_version}",
             "auth": {"type": "api_key", "api_key": api_token, "name": "Authorization", "location": "header"},
             "headers": {"Accept": "application/json", "User-Agent": "PostHog warehouse source"},
+            "request_timeout": REQUEST_TIMEOUT_SECONDS,
         },
-        "resources": [
-            {
-                "name": endpoint,
-                "table_name": endpoint,
-                "primary_key": list(endpoint_config.primary_keys),
-                "write_disposition": "replace",
-                "table_format": "delta",
-                "endpoint": {
-                    "path": endpoint_config.path,
-                    "params": endpoint_config.params,
-                    "data_selector": "objects",
-                    "data_selector_malformed_retryable": True,
-                    "paginator": {"type": "offset", "limit": PAGE_SIZE, "total_path": None},
-                },
-            }
-        ],
+        "resources": [resource],
     }
 
     def save_page_state(state: dict[str, Any] | None) -> None:

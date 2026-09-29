@@ -9,6 +9,7 @@ from requests.exceptions import HTTPError
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sevdesk import (
     SevdeskSourceConfig,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.sevdesk.settings import REQUEST_TIMEOUT_SECONDS
 from products.warehouse_sources.backend.temporal.data_imports.sources.sevdesk.source import SevdeskSource
 
 
@@ -55,6 +56,7 @@ def test_credential_probe_status_mapping(
     request = http.call_args.args[0]
     assert request.url == f"https://my.sevdesk.de/api/v1/{schema_name or 'Contact'}?limit=1&offset=0"
     assert request.headers["Authorization"] == source_config.api_token
+    assert http.call_args.kwargs["timeout"] == REQUEST_TIMEOUT_SECONDS
 
 
 def test_does_not_disguise_request_errors_as_invalid_credentials(

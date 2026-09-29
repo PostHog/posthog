@@ -1,4 +1,5 @@
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
+from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
@@ -9,13 +10,23 @@ from requests.exceptions import HTTPError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import RESTClientRetryableError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sevdesk import (
     SevdeskSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.sevdesk.settings import ENDPOINTS, PAGE_SIZE
+from products.warehouse_sources.backend.temporal.data_imports.sources.sevdesk.settings import (
+    ENDPOINTS,
+    PAGE_SIZE,
+    REQUEST_TIMEOUT_SECONDS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.sevdesk.sevdesk import SevdeskResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.sevdesk.source import SevdeskSource
+
+
+def sync_items(response: SourceResponse) -> Iterable[Any]:
+    items = response.items()
+    assert isinstance(items, Iterable)
+    return items
 
 
 @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
@@ -34,7 +45,7 @@ def test_full_refresh_reads_unfiltered_objects_and_keeps_relationships(
     http.return_value = response({"objects": [row]})
     source = SevdeskSource()
     result = source.source_for_pipeline(source_config, source.get_resumable_source_manager(inputs), inputs)
-    assert list(result.items()) == [[row]]
+    assert list(sync_items(result)) == [[row]]
     assert result.name == endpoint
     assert result.primary_keys == ["id"]
     assert result.partition_keys == ["create"]
@@ -50,6 +61,7 @@ def test_full_refresh_reads_unfiltered_objects_and_keeps_relationships(
         **({"showAll": ["true"]} if endpoint == "Invoice" else {}),
     }
     assert request.headers["Authorization"] == source_config.api_token
+    assert http.call_args.kwargs["timeout"] == REQUEST_TIMEOUT_SECONDS
 
 
 @pytest.mark.parametrize("last_page_size", [0, 1])
@@ -65,7 +77,7 @@ def test_pagination_checkpoints_after_yield_and_resumes_at_next_page(
     manager = source.get_resumable_source_manager(inputs)
     rows = [{"id": str(index)} for index in range(PAGE_SIZE)]
     http.side_effect = [response({"objects": rows}), RuntimeError("interrupted")]
-    iterator = iter(source.source_for_pipeline(source_config, manager, inputs).items())
+    iterator = iter(sync_items(source.source_for_pipeline(source_config, manager, inputs)))
     assert next(iterator) == rows
     assert not manager.has_staged_state()
     with pytest.raises(RuntimeError, match="interrupted"):
@@ -78,7 +90,7 @@ def test_pagination_checkpoints_after_yield_and_resumes_at_next_page(
     http.return_value = response({"objects": last_page})
     resumed_manager = source.get_resumable_source_manager(inputs)
     result = source.source_for_pipeline(source_config, resumed_manager, inputs)
-    assert list(result.items()) == ([last_page] if last_page else [])
+    assert list(sync_items(result)) == ([last_page] if last_page else [])
     request = http.call_args.args[0]
     assert parse_qs(urlsplit(request.url).query)["offset"] == [str(PAGE_SIZE)]
     http.assert_called_once()
@@ -86,7 +98,7 @@ def test_pagination_checkpoints_after_yield_and_resumes_at_next_page(
     assert resumed_manager.load_state() == SevdeskResumeConfig(completed=True)
     http.reset_mock()
     assert (
-        list(source.source_for_pipeline(source_config, source.get_resumable_source_manager(inputs), inputs).items())
+        list(sync_items(source.source_for_pipeline(source_config, source.get_resumable_source_manager(inputs), inputs)))
         == []
     )
     http.assert_not_called()
@@ -105,7 +117,7 @@ def test_malformed_success_does_not_replace_table_with_empty_data(
     source = SevdeskSource()
     manager = source.get_resumable_source_manager(inputs)
     with patch("time.sleep"), pytest.raises(RESTClientRetryableError):
-        list(source.source_for_pipeline(source_config, manager, inputs).items())
+        list(sync_items(source.source_for_pipeline(source_config, manager, inputs)))
     assert not manager.has_staged_state()
 
 
@@ -122,7 +134,7 @@ def test_sync_auth_errors_are_terminal(
     source = SevdeskSource()
     manager = source.get_resumable_source_manager(inputs)
     with pytest.raises(HTTPError) as error:
-        list(source.source_for_pipeline(source_config, manager, inputs).items())
+        list(sync_items(source.source_for_pipeline(source_config, manager, inputs)))
     assert any(pattern in str(error.value) for pattern in source.get_non_retryable_errors())
     assert not manager.has_staged_state()
     http.assert_called_once()
@@ -143,7 +155,7 @@ def test_shared_transport_recovers_from_transient_errors(
     source = SevdeskSource()
     with patch("time.sleep"):
         result = source.source_for_pipeline(source_config, source.get_resumable_source_manager(inputs), inputs)
-        assert list(result.items()) == [[{"id": "42"}]]
+        assert list(sync_items(result)) == [[{"id": "42"}]]
     assert http.call_count == 2
 
 

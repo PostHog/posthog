@@ -6,6 +6,7 @@ from products.warehouse_sources.backend.types import IncrementalField
 
 BASE_URL = "https://my.sevdesk.de/api"
 PAGE_SIZE = 100
+REQUEST_TIMEOUT_SECONDS = (10.0, 60.0)
 
 AUTH_ERROR = "Your sevDesk API token is invalid or expired. Generate a new token in sevDesk and reconnect."
 PERMISSION_ERROR = "Your sevDesk user cannot access this table. Check the user's permissions in sevDesk."
