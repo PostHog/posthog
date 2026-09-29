@@ -1,5 +1,15 @@
+import { useState } from 'react'
+
 import { IconPencil, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonCard, LemonCheckbox, LemonInput, LemonTag, LemonTextArea } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonCard,
+    LemonCheckbox,
+    LemonCollapse,
+    LemonInput,
+    LemonTag,
+    LemonTextArea,
+} from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
@@ -20,6 +30,7 @@ export function ScoutRubricCriterionEditor({
     onExpand: () => void
     onRemove: () => void
 }): JSX.Element {
+    const [detailsExpanded, setDetailsExpanded] = useState(false)
     const disabledReason = saving ? 'Saving rubrics' : undefined
     return (
         <LemonCard hoverEffect={false} className="!p-3">
@@ -104,7 +115,38 @@ export function ScoutRubricCriterionEditor({
                     </LemonField.Pure>
                 </div>
             ) : (
-                <p className="mb-0 mt-2 break-words text-sm text-secondary">{criterion.description}</p>
+                <div className="mt-2 flex flex-col gap-1">
+                    <p className="mb-0 break-words text-sm text-secondary">{criterion.description}</p>
+                    <LemonCollapse
+                        embedded
+                        size="xsmall"
+                        activeKey={detailsExpanded ? 'details' : null}
+                        onChange={(key) => setDetailsExpanded(key !== null)}
+                        panels={[
+                            {
+                                key: 'details',
+                                dataAttr: 'scout-rubric-details',
+                                header: {
+                                    children: detailsExpanded ? 'Hide details' : 'Show details',
+                                    'aria-label': `${detailsExpanded ? 'Hide details' : 'Show details'} for ${criterion.title || 'new criterion'}`,
+                                },
+                                className: '!p-2',
+                                content: (
+                                    <div className="flex flex-col gap-3">
+                                        <p className="mb-0 break-words text-sm">
+                                            <strong>Passes when: </strong>
+                                            <span>{criterion.pass_condition}</span>
+                                        </p>
+                                        <p className="mb-0 break-words text-sm">
+                                            <strong>Applies: </strong>
+                                            <span>{criterion.applicability}</span>
+                                        </p>
+                                    </div>
+                                ),
+                            },
+                        ]}
+                    />
+                </div>
             )}
         </LemonCard>
     )

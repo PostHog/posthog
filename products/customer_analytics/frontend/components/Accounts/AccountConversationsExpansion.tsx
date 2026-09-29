@@ -43,6 +43,7 @@ import {
 import { accountEmailThreadsLogic, MESSAGE_PAGE_SIZE } from './accountEmailThreadsLogic'
 import { periodLabel } from './AccountSummariesExpansion'
 import { AccountSummaryCadencePicker } from './AccountSummaryCadencePicker'
+import type { AccountViewTileLogicProps } from './accountViewTileConfig'
 
 const HedgehogBusiness = pngHoggie(businessEvolutionPng)
 
@@ -297,20 +298,23 @@ function SupportMessage({ message }: { message: AccountSupportTicketMessageApi }
 
 function ConversationDetail({
     accountId,
+    tileProps,
     conversation,
 }: {
     accountId: string
+    tileProps: AccountViewTileLogicProps
     conversation: AccountConversation
 }): JSX.Element {
-    const emailLogic = accountEmailThreadsLogic({ accountId })
+    const emailLogic = accountEmailThreadsLogic({ accountId, instanceId: tileProps.instanceId })
+    const conversationLogic = accountConversationsLogic({ accountId, ...tileProps })
     const { threadDetails, threadDetailsLoading, threadDetailErrors, threadDetailPages } = useValues(emailLogic)
     const {
         expandedSummaryMessageIds,
         supportTicketMessages,
         supportTicketMessagesLoading,
         supportTicketMessageErrors,
-    } = useValues(accountConversationsLogic({ accountId }))
-    const { toggleSummaryMessages } = useActions(accountConversationsLogic({ accountId }))
+    } = useValues(conversationLogic)
+    const { toggleSummaryMessages } = useActions(conversationLogic)
     const { setThreadDetailPage } = useActions(emailLogic)
 
     if (conversation.source === 'slack') {
@@ -443,15 +447,18 @@ function conversationPreview(conversation: AccountConversation): string {
         .trim()
 }
 
+interface AccountConversationsExpansionProps extends AccountViewTileLogicProps {
+    accountId: string
+    embedded?: boolean
+}
+
 export function AccountConversationsExpansion({
     accountId,
     embedded = true,
-}: {
-    accountId: string
-    embedded?: boolean
-}): JSX.Element {
-    const logic = accountConversationsLogic({ accountId })
-    const emailLogic = accountEmailThreadsLogic({ accountId })
+    ...tileProps
+}: AccountConversationsExpansionProps): JSX.Element {
+    const logic = accountConversationsLogic({ accountId, ...tileProps })
+    const emailLogic = accountEmailThreadsLogic({ accountId, instanceId: tileProps.instanceId })
     const {
         conversationsResult,
         conversationsResultLoading,
@@ -472,7 +479,7 @@ export function AccountConversationsExpansion({
         return <LemonSkeleton className="h-64 w-full" />
     }
     const toolbar = (
-        <div className="hide-scrollbar flex items-center gap-4 overflow-x-auto pb-1">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 pb-1">
             <LemonInput
                 type="search"
                 value={searchTerm}
@@ -639,7 +646,7 @@ export function AccountConversationsExpansion({
                 pagination={{ pageSize: 10, useUrl: false }}
                 expandable={{
                     expandedRowRender: (conversation) => (
-                        <ConversationDetail accountId={accountId} conversation={conversation} />
+                        <ConversationDetail accountId={accountId} tileProps={tileProps} conversation={conversation} />
                     ),
                     isRowExpanded: (conversation) => conversation.id === expandedConversationId,
                     rowExpandable: () => true,

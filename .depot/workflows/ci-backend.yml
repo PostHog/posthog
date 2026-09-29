@@ -54,6 +54,11 @@
 #   cache. This job and the mig_schema_key output that feeds it remain depot-exempt.
 # - Deterministic-failure self-cancel: `depot ci cancel` with DEPOT_CI_CANCEL_TOKEN replaces
 #   `gh run cancel` with github.token, which only reaches GitHub Actions runs.
+# - calculate-running-time: canonical's PostHog/posthog-github-action reads the run from the
+#   Actions API by run id, and GitHub has no run for a Depot run id. Here
+#   .github/scripts/capture_depot_running_time.py reads the workflow with `depot ci workflow show`
+#   and DEPOT_CI_CANCEL_TOKEN, then sends the same events with the same property keys and
+#   runner `depot-ci`. Its attempt guard sits on the steps, as canonical's does.
 # - Workflow-name expressions remain literal, so the role cannot switch names through a
 #   variable; the cutover renames the workflow in a plain edit. The gate's hand-off `&&`
 #   is safe only while its status remains optional.
@@ -891,6 +896,16 @@ jobs:
                   key: posthog-segment-durations-${{ github.run_id }}
                   restore-keys: |
                       posthog-segment-durations-
+            - name: Restore the events_json prune manifest from cache
+              # The timing workflow rebuilds it from the newest hourly recording. A miss
+              # leaves the file absent, and the events_json rows then run every listed test.
+              if: github.event_name == 'pull_request'
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: events-schema-prune.json
+                  key: posthog-events-schema-prune-${{ github.run_id }}
+                  restore-keys: |
+                      posthog-events-schema-prune-
             # The backend test selector picks the Django tests this PR needs, and on a legacy
             # diff its product list narrows the product matrix too: turbo-discover.js cannot
             # see which products a posthog/ or ee/ edit reaches, and the selector can, because
@@ -925,9 +940,10 @@ jobs:
                       .test_durations
                       .test_durations.core
                       .test_durations.temporal
+                      events-schema-prune.json
                   include-hidden-files: true
                   overwrite: true
-                  # The per-segment files are cache-only and may legitimately be absent.
+                  # The per-segment files and the prune manifest are cache-only and may legitimately be absent.
                   if-no-files-found: warn
                   # GitHub allows re-runs for 30 days.
                   retention-days: 30
@@ -3469,7 +3485,7 @@ jobs:
                   # rm first so segment files the snapshot lacks don't survive the floating restore
                   rm -f .test_durations.core .test_durations.temporal
                   cp /tmp/test-durations-plan/.test_durations .test_durations
-                  for f in .test_durations.core .test_durations.temporal; do
+                  for f in .test_durations.core .test_durations.temporal events-schema-prune.json; do
                       if [ -f "/tmp/test-durations-plan/$f" ]; then cp "/tmp/test-durations-plan/$f" "$f"; fi
                   done
                   echo "Sharding plan pinned to this run's snapshot"
@@ -3577,13 +3593,13 @@ jobs:
                       fi
                       if [[ "$GITHUB_EVENT_NAME" == "schedule" ]]; then
                           # The hourly run keeps every listed test and records which ones read the
-                          # JSON tables, for "Check the events_json prune manifest" below.
+                          # JSON tables. The timing workflow builds the prune manifest from it.
                           export POSTHOG_EVENTS_SCHEMA_RECORD_PATH=events-schema-record.json
-                      elif [[ "$GITHUB_EVENT_NAME" == "pull_request" && "$GITHUB_HEAD_REF" != trunk-merge/* && -f .github/new-events-schema-prune.json ]]; then
+                      elif [[ "$GITHUB_EVENT_NAME" == "pull_request" && "$GITHUB_HEAD_REF" != trunk-merge/* && -f events-schema-prune.json ]]; then
                           # Skips the tests that a recording showed never read the JSON tables. The
                           # merge queue runs every listed test, so a skipped test whose code starts
                           # to read those tables still fails before the change reaches master.
-                          export POSTHOG_EVENTS_SCHEMA_PRUNE_MANIFEST=.github/new-events-schema-prune.json
+                          export POSTHOG_EVENTS_SCHEMA_PRUNE_MANIFEST=events-schema-prune.json
                       fi
                       # No --store-durations, because the timing data describes legacy-table runs only.
                       # shellcheck disable=SC2086
@@ -3655,20 +3671,6 @@ jobs:
                       exit $exit_code
                   fi
 
-            - name: Check the events_json prune manifest
-              # A test file in the manifest can stay unchanged while the code it covers starts to
-              # read the JSON tables. The hourly run records every listed test, so it fails here
-              # and names the rebuild command.
-              if: ${{ !cancelled() && matrix.json-targets && github.event_name == 'schedule' }}
-              env:
-                  RUN_ID: ${{ github.run_id }}
-                  REVISION: ${{ github.sha }}
-              run: |
-                  if [[ ! -f events-schema-record.json ]]; then
-                      echo "::error::The events_json run wrote no recording, so the prune manifest went unchecked."
-                      exit 1
-                  fi
-                  python posthog/test/events_schema_prune.py check --run-id "$RUN_ID" --revision "$REVISION" .github/new-events-schema-prune.json events-schema-record.json
             - name: Log test environment diagnostics
               if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Temporal' }}
               shell: bash
@@ -3811,7 +3813,9 @@ jobs:
               with:
                   name: events-schema-record-${{ matrix.artifact_key }}${{ github.run_attempt != '1' && format('-attempt{0}', github.run_attempt) || '' }}
                   path: events-schema-record.json
-                  if-no-files-found: ignore
+                  # A successful run must carry every shard's recording, because the prune
+                  # manifest is built from successful runs only.
+                  if-no-files-found: error
                   retention-days: 14
 
             - name: Archive email renders
@@ -3908,9 +3912,9 @@ jobs:
               with:
                   junit-paths: junit-core.xml,junit-core-retry-failures.xml
                   org-slug: posthog-inc
-                  # A native-JSON row uploads under its own variant, so a failure in that mode
-                  # does not read as a flake of the legacy test with the same id.
-                  variant: ${{ matrix.new-events-schema && 'events-json' || '' }}
+                  # Non-default rows upload under their own variant, so a failure only that mode
+                  # hits does not quarantine the default test with the same id.
+                  variant: ${{ matrix.compat && format('compat-{0}', matrix.clickhouse-server-image) || matrix.person-on-events && (matrix.new-events-schema && 'poe-off-events-json' || 'poe-off') || matrix.new-events-schema && 'events-json' || '' }}
                   cli-version: '0.15.4'
                   quarantine: true
                   previous-step-outcome: ${{ steps.run-core-tests.outcome }}
@@ -4620,4 +4624,38 @@ jobs:
                   retention-days: 2
                   overwrite: true
 
-    # calculate-running-time is omitted so Depot runs are not recorded as canonical CI data.
+    calculate-running-time:
+        name: Calculate running time
+        needs: [changes, django_tests]
+        runs-on: depot-ubuntu-24.04
+        timeout-minutes: 5
+        # Run on pull requests to PostHog/posthog + on PostHog/posthog outside of PRs - but never on forks or Dependabot (no secrets access)
+        if: >-
+            !cancelled() && github.actor != 'dependabot[bot]' && (
+            (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog') ||
+            (github.event_name != 'pull_request' && github.repository == 'PostHog/posthog'))
+            && needs.changes.result == 'success'
+        permissions:
+            contents: read
+        steps:
+            # Depot evaluates github.run_attempt as empty in a job-level `if`, so the attempt guard sits on the steps.
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              id: checkout
+              if: github.run_attempt == '1'
+              continue-on-error: true
+              with:
+                  sparse-checkout: .github/scripts/capture_depot_running_time.py
+                  sparse-checkout-cone-mode: false
+            - uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
+              id: setup-depot
+              if: github.run_attempt == '1' && steps.checkout.outcome == 'success'
+              continue-on-error: true
+            - name: Capture running time to PostHog and DevEx PostHog
+              if: github.run_attempt == '1' && steps.setup-depot.outcome == 'success'
+              continue-on-error: true
+              env:
+                  DEPOT_TOKEN: ${{ secrets.DEPOT_CI_CANCEL_TOKEN }}
+                  POSTHOG_API_TOKEN: ${{ secrets.POSTHOG_API_TOKEN }}
+                  POSTHOG_DEVEX_PROJECT_API_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
+                  STATUS_JOB: django_tests
+              run: python3 .github/scripts/capture_depot_running_time.py

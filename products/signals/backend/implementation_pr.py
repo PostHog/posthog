@@ -4,11 +4,12 @@ import re
 from collections.abc import Callable
 from dataclasses import replace
 from datetime import datetime
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Any, Literal
 from uuid import NAMESPACE_URL, uuid5
 
 from django.conf import settings
-from django.db.models import Q
+from django.contrib.postgres.expressions import ArraySubquery
+from django.db.models import F, Lookup, Q
 
 import structlog
 
@@ -36,6 +37,9 @@ from products.tasks.backend.facade import api as tasks_facade
 logger = structlog.get_logger(__name__)
 
 if TYPE_CHECKING:
+    from django.db.backends.base.base import BaseDatabaseWrapper
+    from django.db.models.sql.compiler import SQLCompiler
+
     from posthog.models.user import User
 
 # A report in one of these statuses is finished with its pull request. Anything else still holds
@@ -52,14 +56,20 @@ _PULL_REQUEST_URL_ARRAY_PATTERN = rf'"{_PULL_REQUEST_URL_BODY}([/?#][^"]*)?"'
 _PR_BEARING_LEGACY_TASK_RELATIONSHIPS = (TASK_RUN_TYPE_IMPLEMENTATION, TASK_RUN_TYPE_DISCUSSION)
 
 
+class _EqualsAny(Lookup):
+    """`lhs = ANY(rhs)`, the SQL form an `ArraySubquery` needs on the right side."""
+
+    def as_sql(self, compiler: SQLCompiler, connection: BaseDatabaseWrapper) -> tuple[str, tuple[Any, ...]]:
+        lhs, lhs_params = self.process_lhs(compiler, connection)
+        rhs, rhs_params = self.process_rhs(compiler, connection)
+        return f"{lhs} = ANY({rhs})", (*lhs_params, *rhs_params)
+
+
 def implementation_pr_report_filter(*, team_id: int, active_only: bool = False) -> Q:
-    assignment_pr = Q(assignment__team_id=team_id, assignment__pr_url__regex=_PULL_REQUEST_URL_PATTERN)
-    pull_request_links = SignalReportArtefact.objects.filter(
-        team_id=team_id,
-        type=SignalReportArtefact.ArtefactType.PULL_REQUEST,
-        pull_request__team_id=team_id,
-        pull_request__url__regex=_PULL_REQUEST_URL_PATTERN,
-    )
+    # Every branch is a team-scoped subquery on the report id. A join through `assignment` or
+    # `pull_request` lets the planner scan every team's rows before it applies the team scope.
+    assignments = SignalReportAssignment.all_teams.filter(team_id=team_id, pr_url__regex=_PULL_REQUEST_URL_PATTERN)
+    pull_requests = SignalReportPullRequest.objects.for_team(team_id).filter(url__regex=_PULL_REQUEST_URL_PATTERN)
     task_ids = tasks_facade.task_ids_with_pr_url_subquery(
         team_id,
         pr_bearing_task_run_filter(),
@@ -91,16 +101,22 @@ def implementation_pr_report_filter(*, team_id: int, active_only: bool = False) 
             SignalReportAssignment.PrState.DRAFT,
             SignalReportAssignment.PrState.OPEN,
         ]
-        assignment_pr &= Q(assignment__pr_merged=False) & (
-            Q(assignment__pr_state__isnull=True)
-            | Q(assignment__pr_state="")
-            | Q(assignment__pr_state__in=active_states)
+        assignments = assignments.filter(
+            Q(pr_merged=False) & (Q(pr_state__isnull=True) | Q(pr_state="") | Q(pr_state__in=active_states))
         )
-        pull_request_links = pull_request_links.filter(pull_request__state__in=active_states)
+        pull_requests = pull_requests.filter(state__in=active_states)
+
+    # `pull_request_id IN (subquery)` keeps the cross-team merge join. Only the array form makes
+    # Postgres probe `signals_artefact_pr_report_idx` with this team's PR ids.
+    pull_request_links = SignalReportArtefact.objects.filter(
+        _EqualsAny(F("pull_request_id"), ArraySubquery(pull_requests.values("id"))),
+        team_id=team_id,
+        type=SignalReportArtefact.ArtefactType.PULL_REQUEST,
+    ).values("report_id")
 
     return (
-        assignment_pr
-        | Q(id__in=pull_request_links.values("report_id"))
+        Q(id__in=assignments.values("report_id"))
+        | Q(id__in=pull_request_links)
         | Q(id__in=task_run_artefacts)
         | Q(id__in=legacy_tasks)
         | Q(id__in=assignment_tasks)

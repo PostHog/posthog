@@ -19,7 +19,7 @@ import asyncio
 from collections.abc import Iterable
 from datetime import UTC, date, datetime, time, timedelta
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Optional, cast
+from typing import TYPE_CHECKING, Any, Literal, Optional, cast
 from uuid import UUID
 
 from django.apps import apps
@@ -105,6 +105,7 @@ from products.customer_analytics.backend.facade.enums import (
 from products.customer_analytics.backend.logic import (
     account_presence as _account_presence_logic,
     account_track_rules as _account_track_rules_logic,
+    account_views as _account_views_logic,
     announcements as _announcements_logic,
     channel_summaries as _channel_summaries_logic,
     custom_property_values as _custom_property_values_logic,
@@ -147,6 +148,7 @@ from products.customer_analytics.backend.models import (
     AccountRelationship,
     AccountRelationshipControl,
     AccountRelationshipDefinition,
+    AccountView as AccountViewModel,
     Announcement,
     CustomerJourney,
     CustomerProfileConfig,
@@ -1213,6 +1215,74 @@ def delete_customer_profile_config(
     return True
 
 
+# --- AccountView ---
+
+
+InvalidAccountViewContent = _account_views_logic.InvalidAccountViewContent
+AccountViewVersionConflict = _account_views_logic.AccountViewVersionConflict
+
+
+def _to_account_view(view: AccountViewModel) -> contracts.AccountView:
+    return contracts.AccountView(
+        id=view.id,
+        name=view.name,
+        visibility=cast(Literal["private"], view.visibility),
+        content=view.content,
+        text_content=view.text_content,
+        version=view.version,
+        created_by=view.created_by_id,
+        last_modified_by=view.last_modified_by_id,
+        created_at=view.created_at,
+        updated_at=view.updated_at,
+    )
+
+
+def list_account_views(*, team_id: int, user_id: int) -> list[contracts.AccountView]:
+    return [
+        _to_account_view(view) for view in _account_views_logic.list_account_views(team_id=team_id, user_id=user_id)
+    ]
+
+
+def get_account_view(*, team_id: int, user_id: int, view_id: UUID) -> contracts.AccountView | None:
+    view = _account_views_logic.get_account_view(team_id=team_id, user_id=user_id, view_id=view_id)
+    return _to_account_view(view) if view is not None else None
+
+
+def create_account_view(*, team_id: int, user_id: int, name: str, content: dict[str, Any]) -> contracts.AccountView:
+    return _to_account_view(
+        _account_views_logic.create_account_view(team_id=team_id, user_id=user_id, name=name, content=content)
+    )
+
+
+def update_account_view(
+    *,
+    team_id: int,
+    user_id: int,
+    view_id: UUID,
+    expected_version: int,
+    name: str | None = None,
+    content: dict[str, Any] | None = None,
+) -> contracts.AccountView | None:
+    view = _account_views_logic.update_account_view(
+        team_id=team_id,
+        user_id=user_id,
+        view_id=view_id,
+        expected_version=expected_version,
+        name=name,
+        content=content,
+    )
+    return _to_account_view(view) if view is not None else None
+
+
+def delete_account_view(*, team_id: int, user_id: int, view_id: UUID, expected_version: int) -> bool:
+    return _account_views_logic.delete_account_view(
+        team_id=team_id,
+        user_id=user_id,
+        view_id=view_id,
+        expected_version=expected_version,
+    )
+
+
 # --- UserCustomerAnalyticsConfig ---
 
 
@@ -2014,10 +2084,10 @@ def _expire_stale_running_runs(team_id: int, runs: "Iterable[CustomPropertySyncR
 def _create_running_runs(team_id: int, binding: "WarehouseBinding", trigger: str) -> list[Any]:
     """Insert a 'running' run for each enabled person/group source on the binding that isn't already
     running. The UI shows these as in-progress and disables the trigger while they exist; the sync and
-    backfill activities reconcile them to their terminal state (see record_sync_run). Skipping sources
-    that already have a running run makes this a no-op when a run for the table is already in flight
-    (coalesced). Returns the source ids a placeholder was created for, so the caller can reconcile them
-    to FAILED if the workflow start never happens (see ``_fail_created_runs``)."""
+    backfill activities reconcile them to their terminal state (see record_sync_run). An existing row
+    suppresses only a duplicate placeholder; the binding workflow still receives a signal and opens a
+    new row when its follow-up starts. Returns the source ids a placeholder was created for, so the
+    caller can reconcile them to FAILED if the workflow start never happens (see ``_fail_created_runs``)."""
     # A source and a run name the same binding through different columns: a source's schema binding is
     # the `external_data_schema` FK, a run's is the plain `schema_id`.
     source_field = "saved_query_id" if binding.is_saved_query else "external_data_schema_id"
@@ -2099,12 +2169,42 @@ def _start_backfill(team_id: int, binding: "WarehouseBinding", trigger: str) -> 
 def _start_person_backfill_if_enabled(source: CustomPropertySource) -> None:
     """Auto-start a backfill after a person/group source is created/enabled so historical rows populate
     immediately rather than waiting for the next warehouse run. Profile sources only (an account source
-    has its own Celery sync); deduped per table by the workflow id."""
+    has its own Celery sync); serialized per table by the workflow id."""
     binding = _profile_binding(source)
     if not source.is_enabled or binding is None:
         return
     team_id = source.team_id
     transaction.on_commit(lambda: _start_backfill(team_id, binding, "backfill"))
+
+
+def _stamp_profile_source_provenance(source: CustomPropertySource, binding: "WarehouseBinding") -> None:
+    """Apply the source's current mapping metadata without waiting for a value-hash change."""
+    from products.warehouse_sources.backend.facade.person_property_provenance import (  # noqa: PLC0415
+        stamp_person_property_provenance,
+    )
+
+    column_property_map = source.column_property_map or {}
+    column_descriptions = source.column_descriptions or {}
+    property_descriptions = {
+        column_property_map[column]: description
+        for column, description in column_descriptions.items()
+        if column in column_property_map and description
+    }
+    # Property definitions are keyed by effective project, not team.
+    project_id = Team.objects.filter(pk=source.team_id).values_list("project_id", flat=True).first()
+    if project_id is None:
+        return
+    stamp_person_property_provenance(
+        team_id=source.team_id,
+        project_id=project_id,
+        binding=binding,
+        source_id=str(source.id),
+        definition_id=str(source.definition_id),
+        target=source.definition.target_type,
+        group_type_index=source.definition.group_type_index,
+        property_names=column_property_map.values(),
+        property_descriptions=property_descriptions,
+    )
 
 
 def _triggerable_profile_binding(team_id: int, source_id: str) -> "WarehouseBinding | None":
@@ -2213,22 +2313,27 @@ def trigger_person_property_sync(
 def trigger_person_property_backfill(
     *, team_id: int, source_id: str, trigger: str = "manual", user_access_control: "UserAccessControl | None" = None
 ) -> bool | None:
-    """Start a backfill for a profile source's table. Returns True (started), False (already running →
-    coalesced), or None for an invalid source (→ 400). Requires editor access to the warehouse object
-    (→ 403)."""
+    """Request a backfill for a profile source's table. Returns True when a new visible run starts,
+    False when an existing run receives a guaranteed latest-state follow-up, or None for an invalid
+    source (→ 400). Requires editor access to the warehouse object (→ 403)."""
     binding = _triggerable_profile_binding(team_id, source_id)
     if binding is None:
         return None
     _assert_warehouse_editor(team_id, binding, user_access_control)
     # Placeholder rows before starting, so the activity always finds a running row to reconcile.
     created_source_ids = _create_running_runs(team_id, binding, trigger)
+    # `created_source_ids` covers every enabled source on the binding, not just the one requested —
+    # a sibling source can pick up a fresh placeholder while this source's own run was already in
+    # flight and merely coalesced. Report 'started' only when the requested source is among them.
+    started_new_run = str(source_id) in {str(created_id) for created_id in created_source_ids}
     from products.warehouse_sources.backend.facade.temporal import (  # noqa: PLC0415
         WarehouseBindingMissingError,
         start_person_property_backfill,
     )
 
     try:
-        return start_person_property_backfill(team_id=team_id, binding=binding, trigger=trigger)
+        start_person_property_backfill(team_id=team_id, binding=binding, trigger=trigger)
+        return started_new_run
     except WarehouseBindingMissingError:
         # The warehouse table or view was deleted after the placeholders were created; reconcile them
         # so the source isn't stuck 'running', and report an invalid source (→ 400) rather than a
@@ -2380,27 +2485,60 @@ def create_custom_property_source(
     return _to_custom_property_source_view(source, user_access_control)
 
 
+@transaction.atomic
 def update_custom_property_source(
     *, team_id: int, source_id: str, fields: dict[str, Any], user_access_control: "UserAccessControl | None" = None
 ) -> contracts.CustomPropertySourceView | None:
-    """Apply ``fields`` (source_column / key_column / is_enabled) to a team-scoped source. Re-enabling
-    (is_enabled False→True) resets the failure streak and clears the last error. Returns None (→ 404)
-    when no source matches."""
-    source = CustomPropertySource.objects.for_team(team_id).select_related("definition").filter(id=source_id).first()
+    """Apply writable fields to a team-scoped source. Re-enabling (is_enabled False→True) resets the
+    failure streak and clears the last error. Returns None (→ 404) when no source matches."""
+    source = (
+        CustomPropertySource.objects.for_team(team_id)
+        .select_for_update(of=("self",))
+        .select_related("definition")
+        .filter(id=source_id)
+        .first()
+    )
     if source is None:
         return None
+    fields = dict(fields)
+    profile_mapping_fields = {"column_property_map", "column_descriptions"}.intersection(fields)
+    if profile_mapping_fields:
+        if source.definition.target_type not in _WAREHOUSE_PROFILE_TARGETS:
+            if any(fields[field] is not None for field in profile_mapping_fields):
+                raise CustomPropertySourceValidationError(
+                    "An account property source uses saved_query + source_column, not external_data_schema."
+                )
+            # Account GET responses include these profile-only fields as null. Treating those nulls as
+            # absent keeps the writable representation compatible with a GET/PATCH round trip.
+            for field in profile_mapping_fields:
+                fields.pop(field)
+            profile_mapping_fields.clear()
+        else:
+            validated_map = _validate_column_property_map(fields.get("column_property_map", source.column_property_map))
+            if "column_property_map" in fields:
+                fields["column_property_map"] = validated_map
+            if "column_descriptions" in fields:
+                fields["column_descriptions"] = _validate_column_descriptions(
+                    fields["column_descriptions"], set(validated_map)
+                )
+            elif "column_property_map" in fields:
+                fields["column_descriptions"] = _validate_column_descriptions(
+                    source.column_descriptions, set(validated_map)
+                )
     reenabling = fields.get("is_enabled") is True and not source.is_enabled
+    mapping_changed = "column_property_map" in fields and fields["column_property_map"] != source.column_property_map
+    descriptions_changed = (
+        "column_descriptions" in fields and fields["column_descriptions"] != source.column_descriptions
+    )
     columns_changed = any(
         attr in fields and fields[attr] != getattr(source, attr) for attr in ("source_column", "key_column")
     )
-    # A profile source's backfill drives a real warehouse run, so any change that will trigger one —
-    # re-enabling, or changing the mapped columns while it stays enabled — requires the caller's editor
-    # access on the warehouse object, not account-scope editor alone (matching create). Both routes reach
-    # _start_person_backfill_if_enabled below via ``reenabling or columns_changed``; ``is_enabled`` here is
-    # the post-update state that decides whether that helper actually starts a backfill.
+    columns_changed = columns_changed or mapping_changed
+    # Profile mapping fields always require editor access to the bound warehouse object, including while
+    # disabled. Existing re-enable/column changes require it when they will trigger a backfill.
     will_be_enabled = fields.get("is_enabled", source.is_enabled) is True
     binding = _profile_binding(source)
-    if binding is not None and will_be_enabled and (reenabling or columns_changed):
+    if binding is not None and (profile_mapping_fields or (will_be_enabled and (reenabling or columns_changed))):
         _assert_warehouse_editor(team_id, binding, user_access_control)
     for attr, value in fields.items():
         setattr(source, attr, value)
@@ -2408,10 +2546,15 @@ def update_custom_property_source(
         source.consecutive_failures = 0
         source.last_sync_error = None
     source.save()
+    # Provenance names the source that writes a property, so only a source that will write claims it.
+    # Re-enabling runs a backfill, and that stamps the mapping the source has by then.
+    if binding is not None and will_be_enabled and (mapping_changed or descriptions_changed):
+        _stamp_profile_source_provenance(source, binding)
     # Only re-sync on a change that affects what gets written — not on every (possibly no-op) PATCH.
     if reenabling or columns_changed:
         _enqueue_initial_account_property_sync(source)
-        _start_person_backfill_if_enabled(source)
+        if will_be_enabled:
+            _start_person_backfill_if_enabled(source)
     return _to_custom_property_source_view(source, user_access_control)
 
 
@@ -2908,8 +3051,8 @@ def _account_view_notebooks(account: Account) -> list[str]:
     return [link.notebook.short_id for link in account.notebooks.all()]
 
 
-def _to_account_view(account: Account) -> contracts.AccountView:
-    return contracts.AccountView(
+def _to_account_details(account: Account) -> contracts.AccountDetails:
+    return contracts.AccountDetails(
         id=account.id,
         name=account.name,
         external_id=account.external_id,
@@ -3424,7 +3567,7 @@ def list_accounts_for_view(
     include_churned: bool = False,
     include_ignored: bool = False,
     ordering: str | None = None,
-) -> tuple[list[contracts.AccountView], int]:
+) -> tuple[list[contracts.AccountDetails], int]:
     """The accounts list endpoint, behind the facade: team + object-level access filtering,
     the search / tags / unassigned / ordering query filters, notebook + tag prefetching, and
     pagination. Returns ``(page, total_count)``. ``tags``/``ordering`` are pre-validated by
@@ -3458,25 +3601,25 @@ def list_accounts_for_view(
 
     total_count = queryset.count()
     page = list(queryset[offset : offset + limit])
-    return [_to_account_view(a) for a in page], total_count
+    return [_to_account_details(a) for a in page], total_count
 
 
 def get_account_for_view(
     *, team_id: int, account_id: str, user_access_control: "UserAccessControl", required_level: str | None
-) -> contracts.AccountView:
+) -> contracts.AccountDetails:
     """Fetch one team-scoped account with tags + notebooks, enforcing object-level access.
     Raises ``Account.DoesNotExist`` (→ 404) / ``ResourceForbiddenError`` (→ 403)."""
     account = _get_account_for_detail(team_id, account_id)
     _enforce_object_access(account, user_access_control, required_level)
-    return _to_account_view(account)
+    return _to_account_details(account)
 
 
 def get_account_for_view_by_external_id(
     *, team_id: int, external_id: str, user_access_control: "UserAccessControl", required_level: str | None
-) -> contracts.AccountView:
+) -> contracts.AccountDetails:
     account = _account_detail_queryset(team_id).get(external_id=external_id)
     _enforce_object_access(account, user_access_control, required_level)
-    return _to_account_view(account)
+    return _to_account_details(account)
 
 
 class _Unset(Enum):
@@ -3604,7 +3747,7 @@ def create_account_for_view(
     input: contracts.CreateAccountInput,
     user: "User",
     was_impersonated: bool,
-) -> contracts.AccountView:
+) -> contracts.AccountDetails:
     account = create_account(
         team=team,
         created_by=user,
@@ -3616,7 +3759,7 @@ def create_account_for_view(
         churned_at=input.churned_at,
         was_impersonated=was_impersonated,
     )
-    return _to_account_view(account)
+    return _to_account_details(account)
 
 
 def update_account_for_view(
@@ -3630,7 +3773,7 @@ def update_account_for_view(
     user: "User",
     was_impersonated: bool,
     allow_matching_updates: bool = False,
-) -> contracts.AccountView:
+) -> contracts.AccountDetails:
     account = _get_account_for_detail(team_id, account_id)
     _enforce_object_access(account, user_access_control, required_level)
     previous = Account.objects.unscoped().get(pk=account.pk)
@@ -3676,7 +3819,7 @@ def update_account_for_view(
     # and one backfill per switch is LLM spend nobody asked for.
     if not previous.slack_summary_cadence and account.slack_summary_cadence:
         _dispatch_initial_channel_summary(account)
-    return _to_account_view(account)
+    return _to_account_details(account)
 
 
 # Roughly 70 accounts opting into a daily cadence in one day, far above real use.
