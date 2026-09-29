@@ -20,6 +20,9 @@ import { getExperimentVariants, getFlagVariants } from '../utils'
 
 export type ExperimentWizardStep = 'about' | 'variants' | 'analytics'
 
+/** How someone reached a step: opening the wizard on its first step, reopening it on a later one, or moving within it */
+export type ExperimentWizardStepNavigation = 'start' | 'resume' | 'continue' | 'back' | 'stepper'
+
 const WIZARD_STEPS: ExperimentWizardStep[] = ['about', 'variants', 'analytics']
 
 export function stepStorageKey(): string {
@@ -117,6 +120,17 @@ export interface experimentWizardLogicActions {
     reportExperimentWizardStarted: () => {
         value: true
     } // eventUsageLogic
+    reportExperimentWizardStepViewed: (
+        step: string,
+        stepNumber: number,
+        previousStep: string | null,
+        navigation: string
+    ) => {
+        navigation: string
+        previousStep: string | null
+        step: string
+        stepNumber: number
+    } // eventUsageLogic
     loadFeatureFlagsForAutocomplete: () => {
         value: true
     } // selectExistingFeatureFlagModalLogic
@@ -139,7 +153,11 @@ export interface experimentWizardLogicActions {
     validateFeatureFlagKey: (key: string) => {
         key: string
     } // variantsPanelLogic
-    _applyStep: (step: ExperimentWizardStep) => {
+    _applyStep: (
+        step: ExperimentWizardStep,
+        navigation: ExperimentWizardStepNavigation
+    ) => {
+        navigation: ExperimentWizardStepNavigation
         step: ExperimentWizardStep
     }
     markStepDeparted: (step: ExperimentWizardStep) => {
@@ -228,7 +246,7 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
             selectExistingFeatureFlagModalLogic,
             ['loadFeatureFlagsForAutocomplete', 'loadFeatureFlagsSuccess'],
             eventUsageLogic,
-            ['reportExperimentWizardStarted'],
+            ['reportExperimentWizardStarted', 'reportExperimentWizardStepViewed'],
         ],
     })),
 
@@ -239,7 +257,7 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
         nextStep: true,
         prevStep: true,
         // Internal: applies the step change after departure logic runs.
-        _applyStep: (step: ExperimentWizardStep) => ({ step }),
+        _applyStep: (step: ExperimentWizardStep, navigation: ExperimentWizardStepNavigation) => ({ step, navigation }),
         markStepDeparted: (step: ExperimentWizardStep) => ({ step }),
         resetWizard: true,
         setLinkedFeatureFlag: (flag: FeatureFlagType | null) => ({ flag }),
@@ -363,12 +381,16 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
         ],
     }),
 
-    listeners(({ actions, values }) => ({
-        _applyStep: ({ step }) => {
+    listeners(({ actions, values, selectors }) => ({
+        _applyStep: ({ step, navigation }, _, __, previousState) => {
             try {
                 sessionStorage.setItem(stepStorageKey(), step)
             } catch {
                 // ignore
+            }
+            const previousStep = selectors.currentStep(previousState)
+            if (step !== previousStep) {
+                actions.reportExperimentWizardStepViewed(step, STEP_ORDER[step] + 1, previousStep, navigation)
             }
         },
         resetWizard: () => {
@@ -411,7 +433,7 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
         nextStep: () => {
             actions.markStepDeparted(values.currentStep)
             const currentIndex = WIZARD_STEPS.indexOf(values.currentStep)
-            actions._applyStep(WIZARD_STEPS[Math.min(currentIndex + 1, WIZARD_STEPS.length - 1)])
+            actions._applyStep(WIZARD_STEPS[Math.min(currentIndex + 1, WIZARD_STEPS.length - 1)], 'continue')
 
             const key = values.experiment?.feature_flag_key
             if (key && !values.linkedFeatureFlag && values.featureFlagKeyValidation === null) {
@@ -421,11 +443,11 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
         prevStep: () => {
             actions.markStepDeparted(values.currentStep)
             const currentIndex = WIZARD_STEPS.indexOf(values.currentStep)
-            actions._applyStep(WIZARD_STEPS[Math.max(currentIndex - 1, 0)])
+            actions._applyStep(WIZARD_STEPS[Math.max(currentIndex - 1, 0)], 'back')
         },
         setStep: ({ step }) => {
             actions.markStepDeparted(values.currentStep)
-            actions._applyStep(step)
+            actions._applyStep(step, 'stepper')
 
             const key = values.experiment?.feature_flag_key
             if (key && !values.linkedFeatureFlag && values.featureFlagKeyValidation === null) {
@@ -439,9 +461,16 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
         },
     })),
 
-    events(({ actions }) => ({
+    events(({ actions, values }) => ({
         afterMount: () => {
             actions.reportExperimentWizardStarted()
+            // The wizard reopens on the step saved earlier in the session, so the first view can be a later step
+            actions.reportExperimentWizardStepViewed(
+                values.currentStep,
+                STEP_ORDER[values.currentStep] + 1,
+                null,
+                values.isFirstStep ? 'start' : 'resume'
+            )
             actions.loadFeatureFlagsForAutocomplete()
         },
     })),

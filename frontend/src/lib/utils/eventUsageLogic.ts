@@ -1102,6 +1102,17 @@ export interface eventUsageLogicActions {
         isPrimary: boolean
         metricUuid: string
     }
+    reportExperimentWizardStepViewed: (
+        step: string,
+        stepNumber: number,
+        previousStep: string | null,
+        navigation: string
+    ) => {
+        navigation: string
+        previousStep: string | null
+        step: string
+        stepNumber: number
+    }
     reportExperimentMetricBreakdownRemoved: (
         experiment: Experiment,
         metricUuid: string,
@@ -1929,6 +1940,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             breakdown,
             isPrimary,
         }),
+        reportExperimentWizardStepViewed: (
+            step: string,
+            stepNumber: number,
+            previousStep: string | null,
+            navigation: string
+        ) => ({ step, stepNumber, previousStep, navigation }),
         reportExperimentMetricBreakdownRemoved: (
             experiment: Experiment,
             metricUuid: string,
@@ -2572,6 +2589,14 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 breakdown_type: breakdown.type,
                 breakdown_property: breakdown.property,
                 is_primary_metric: isPrimary,
+            })
+        },
+        reportExperimentWizardStepViewed: ({ step, stepNumber, previousStep, navigation }) => {
+            posthog.capture('experiment wizard step viewed', {
+                step,
+                step_number: stepNumber,
+                previous_step: previousStep,
+                navigation,
             })
         },
         reportExperimentMetricBreakdownRemoved: ({ experiment, metricUuid, breakdown, index, isPrimary }) => {
