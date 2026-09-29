@@ -53,7 +53,7 @@ import pydantic
 from posthog.dags.common import JobOwners, skip_if_already_running
 from posthog.exceptions_capture import capture_exception
 
-from products.growth.backend.enrichment.labels import get_active_config, latest_fetches_qs
+from products.growth.backend.enrichment.labels import get_active_config, latest_fetches_within_qs
 from products.growth.backend.models import EnrichmentLabelResult, EnrichmentPromptConfig, OrganizationEnrichment
 
 # Roughly a day of signups plus headroom. This is the run's spend cap: see the PR description
@@ -78,6 +78,11 @@ class AiEnrichmentConfig(dagster.Config):
         gt=0,
         description="Max orgs attempted per label per run — passed straight through to enrichment_label_batch --limit.",
     )
+    lookback_days: int = pydantic.Field(
+        default=14,
+        gt=0,
+        description="Candidates are orgs whose latest fetch is at most this many days old; passed through to --lookback-days.",
+    )
     workers: int = pydantic.Field(
         default=5,
         gt=0,
@@ -98,27 +103,22 @@ class LabelRunResult:
     error: str | None
 
 
-def count_pending_candidates(label: str, prompt_version: str) -> int:
+def count_pending_candidates(label: str, prompt_version: str, lookback_days: int | None) -> int:
     """How many orgs the batch command would actually attempt for this label right now.
 
-    Mirrors enrichment_label_batch's own targeting (latest fetch per org, minus one already
-    holding a verdict under this exact label + prompt version) rather than importing its
-    private `_attempt_targets` — that generator is a closure over the command's run-scoped
-    counters and circuit breaker, not a reusable query. Also filters to AI-processing-approved
-    orgs: the command enumerates a consent-declined org as "attempted" too, but never spends on
-    it (see `ai_processing_approved` in enrichment/labels.py), so counting it here would make a
-    day of nothing-but-declined-orgs look like a silent failure downstream.
+    Mirrors enrichment_label_batch's own targeting (latest fetch per org within the lookback,
+    minus one already holding a verdict under this exact label + prompt version) rather than
+    importing its private `_attempt_targets`, because that generator is a closure over the
+    command's run-scoped counters and circuit breaker, not a reusable query. Also filters to
+    AI-processing-approved orgs: the command skips a consent-declined org and never counts it as
+    attempted (see `ai_processing_approved` in enrichment/labels.py), so counting it here would
+    make a day of nothing-but-declined-orgs look like a silent failure downstream.
     """
-    latest_fetch_ids = latest_fetches_qs().values_list("id", flat=True)
+    candidates = latest_fetches_within_qs(lookback_days)
     already_labeled = EnrichmentLabelResult.objects.filter(
-        label_name=label, prompt_version=prompt_version, fetch_id__in=latest_fetch_ids
+        label_name=label, prompt_version=prompt_version, fetch_id__in=candidates.values_list("id", flat=True)
     ).values_list("fetch_id", flat=True)
-    return (
-        latest_fetches_qs()
-        .exclude(id__in=already_labeled)
-        .filter(organization__is_ai_data_processing_approved=True)
-        .count()
-    )
+    return candidates.exclude(id__in=already_labeled).filter(organization__is_ai_data_processing_approved=True).count()
 
 
 def count_projected_scores(label: str, prompt_version: str, started_at: datetime) -> int:
@@ -158,13 +158,15 @@ def count_projected_scores(label: str, prompt_version: str, started_at: datetime
     )
 
 
-def _run_one_label(context: dagster.OpExecutionContext, *, label: str, limit: int, workers: int) -> LabelRunResult:
+def _run_one_label(
+    context: dagster.OpExecutionContext, *, label: str, limit: int, lookback_days: int, workers: int
+) -> LabelRunResult:
     """Resolves the label's active version itself, right here — not from a snapshot taken once
     for every label at op start. See the module docstring for why that distinction matters."""
     config = get_active_config(label)
     prompt_version = config.version if config is not None else None
 
-    candidates = count_pending_candidates(label, prompt_version) if prompt_version is not None else 0
+    candidates = count_pending_candidates(label, prompt_version, lookback_days) if prompt_version is not None else 0
     before = (
         EnrichmentLabelResult.objects.filter(label_name=label, prompt_version=prompt_version).count()
         if prompt_version is not None
@@ -177,7 +179,12 @@ def _run_one_label(context: dagster.OpExecutionContext, *, label: str, limit: in
         # expected_version=None when we couldn't resolve one either — the command's own
         # "No active EnrichmentPromptConfig" error already covers that case.
         call_command(
-            "enrichment_label_batch", label=label, limit=limit, workers=workers, expected_version=prompt_version
+            "enrichment_label_batch",
+            label=label,
+            limit=limit,
+            lookback_days=lookback_days,
+            workers=workers,
+            expected_version=prompt_version,
         )
     except Exception as e:
         error = str(e)
@@ -215,7 +222,10 @@ def classify_pending_organizations_op(
         return []
 
     results = [
-        _run_one_label(context, label=label, limit=config.limit, workers=config.workers) for label in active_label_names
+        _run_one_label(
+            context, label=label, limit=config.limit, lookback_days=config.lookback_days, workers=config.workers
+        )
+        for label in active_label_names
     ]
 
     context.add_output_metadata(

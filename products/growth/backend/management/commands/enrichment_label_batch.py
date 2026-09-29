@@ -12,11 +12,13 @@ import threading
 from collections import deque
 from collections.abc import Iterator
 from concurrent.futures import Future, ThreadPoolExecutor
+from datetime import datetime
 from typing import Any
 from uuid import UUID
 
 from django.core.management.base import BaseCommand, CommandError, CommandParser
 from django.db import close_old_connections, connection, transaction
+from django.db.models import Q
 
 import structlog
 
@@ -35,7 +37,7 @@ from products.growth.backend.enrichment.labels import (
     classify_payload,
     get_active_config,
     is_unknown_output,
-    latest_fetches_qs,
+    latest_fetches_within_qs,
     signup_domain_for_organization,
     validate_input_fields,
     validate_output_fields,
@@ -99,6 +101,12 @@ class Command(BaseCommand):
             default=None,
             help="Classify at most this many new orgs and repair at most this many stored scores",
         )
+        parser.add_argument(
+            "--lookback-days",
+            type=int,
+            default=None,
+            help="Consider only orgs whose latest fetch is at most this many days old. Omit to walk the full archive.",
+        )
         parser.add_argument("--workers", type=int, default=5, help="Bounded concurrency for LLM calls")
         parser.add_argument(
             "--max-failures",
@@ -125,6 +133,7 @@ class Command(BaseCommand):
     def handle(self, *args: Any, **options: Any) -> None:
         label: str = options["label"]
         limit: int | None = options["limit"]
+        lookback_days: int | None = options["lookback_days"]
         workers: int = options["workers"]
         max_failures: int = options["max_failures"]
         min_success_rate: float = options["min_success_rate"]
@@ -133,6 +142,8 @@ class Command(BaseCommand):
             raise CommandError("--workers must be at least 1")
         if limit is not None and limit < 1:
             raise CommandError("--limit must be at least 1")
+        if lookback_days is not None and lookback_days < 1:
+            raise CommandError("--lookback-days must be at least 1")
         if max_failures < 1:
             raise CommandError("--max-failures must be at least 1")
 
@@ -158,7 +169,7 @@ class Command(BaseCommand):
             raise CommandError(f"Another enrichment_label_batch run already holds the lock for label {label!r}")
 
         try:
-            self._run(label, config, limit, workers, max_failures, min_success_rate)
+            self._run(label, config, limit, lookback_days, workers, max_failures, min_success_rate)
         finally:
             with connection.cursor() as cursor:
                 cursor.execute("SELECT pg_advisory_unlock(%s)", [lock_key])
@@ -168,6 +179,7 @@ class Command(BaseCommand):
         label: str,
         config: EnrichmentPromptConfig,
         limit: int | None,
+        lookback_days: int | None,
         workers: int,
         max_failures: int,
         min_success_rate: float,
@@ -343,8 +355,8 @@ class Command(BaseCommand):
                 if is_unknown_output(output):
                     counts["unknown"] += 1
 
-        def _id_batches() -> Iterator[list[tuple[UUID, UUID]]]:
-            """Keyset-paginate latest_fetches_qs() over the full archive by organization_id in
+        def _id_batches() -> Iterator[list[tuple[UUID, datetime]]]:
+            """Keyset-paginate latest_fetches_within_qs() newest first by (fetched_at, id) in
             bounded chunks, so a multi-hour run never holds more than one page of full (payload +
             joined Organization) rows in memory. .iterator() alone doesn't guarantee that:
             DISABLE_SERVER_SIDE_CURSORS is true under pgbouncer, which silently degrades
@@ -354,26 +366,30 @@ class Command(BaseCommand):
             --limit is deliberately NOT enforced here: it bounds attempted (non-skipped) orgs, not
             enumerated ones, so it's applied in _attempt_targets instead. Capping the page query
             itself would make a resumed run re-enumerate the same already-processed prefix and
-            attempt 0 forever whenever the first --limit orgs by organization_id already have a
-            result."""
-            last_org_id: UUID | None = None
+            attempt 0 forever whenever the newest --limit candidates already have a result."""
+            candidates = (
+                latest_fetches_within_qs(lookback_days).order_by("-fetched_at", "-id").values_list("id", "fetched_at")
+            )
+            id_qs = candidates
             while True:
-                id_qs = latest_fetches_qs().values_list("id", "organization_id")
-                if last_org_id is not None:
-                    id_qs = id_qs.filter(organization_id__gt=last_org_id)
                 page = list(id_qs[:_ID_BATCH_SIZE])
                 if not page:
                     return
                 yield page
-                last_org_id = page[-1][1]
+                last_id, last_fetched_at = page[-1]
+                id_qs = candidates.filter(
+                    Q(fetched_at__lt=last_fetched_at) | Q(fetched_at=last_fetched_at, id__lt=last_id)
+                )
 
         def _attempt_targets() -> Iterator[OrganizationEnrichmentFetch]:
             for page in _id_batches():
                 if circuit_open.is_set():
                     return
-                fetches = OrganizationEnrichmentFetch.objects.filter(
-                    id__in=[fetch_id for fetch_id, _ in page]
-                ).select_related("organization")
+                fetches = (
+                    OrganizationEnrichmentFetch.objects.filter(id__in=[fetch_id for fetch_id, _ in page])
+                    .select_related("organization")
+                    .order_by("-fetched_at", "-id")
+                )
                 for fetch in fetches:
                     if circuit_open.is_set():
                         return

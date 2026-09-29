@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
 import pytest
@@ -46,10 +46,15 @@ class _EnrichmentDagTestCase(BaseTest):
         params.update(overrides)
         return EnrichmentPromptConfig.objects.create(**params)
 
-    def _fetch(self, organization: Organization | None = None) -> OrganizationEnrichmentFetch:
-        return OrganizationEnrichmentFetch.objects.create(
+    def _fetch(
+        self, organization: Organization | None = None, fetched_at: datetime | None = None
+    ) -> OrganizationEnrichmentFetch:
+        fetch = OrganizationEnrichmentFetch.objects.create(
             organization=organization or self.organization, provider="harmonic", payload={"name": "Acme"}
         )
+        if fetched_at is not None:
+            OrganizationEnrichmentFetch.objects.filter(id=fetch.id).update(fetched_at=fetched_at)
+        return fetch
 
 
 class TestCountPendingCandidates(_EnrichmentDagTestCase):
@@ -57,10 +62,22 @@ class TestCountPendingCandidates(_EnrichmentDagTestCase):
         self._config()
         self._fetch()
 
-        assert count_pending_candidates("test_label", "v1") == 1
+        assert count_pending_candidates("test_label", "v1", lookback_days=None) == 1
 
-    def test_excludes_a_fetch_already_labeled_under_this_exact_version(self):
+    def test_excludes_an_org_whose_latest_fetch_is_older_than_the_lookback(self):
+        self._config()
+        self._fetch()
+        self._fetch(
+            organization=Organization.objects.create(name="stale"), fetched_at=timezone.now() - timedelta(days=15)
+        )
+
+        assert count_pending_candidates("test_label", "v1", lookback_days=14) == 1
+
+    @parameterized.expand([("single_fetch", False), ("re_enriched_org", True)])
+    def test_excludes_a_fetch_already_labeled_under_this_exact_version(self, _name: str, re_enriched: bool) -> None:
         config = self._config()
+        if re_enriched:
+            self._fetch(fetched_at=timezone.now() - timedelta(days=1))
         fetch = self._fetch()
         EnrichmentLabelResult.objects.create(
             organization=self.organization,
@@ -71,7 +88,7 @@ class TestCountPendingCandidates(_EnrichmentDagTestCase):
             model="gpt-5-mini",
         )
 
-        assert count_pending_candidates("test_label", config.version) == 0
+        assert count_pending_candidates("test_label", config.version, lookback_days=None) == 0
 
     def test_a_verdict_under_a_retired_version_does_not_hide_the_candidate(self):
         # A rename or re-version leaves prior verdicts stamped with the old version - see
@@ -87,17 +104,17 @@ class TestCountPendingCandidates(_EnrichmentDagTestCase):
             model="gpt-5-mini",
         )
 
-        assert count_pending_candidates("test_label", "v1") == 1
+        assert count_pending_candidates("test_label", "v1", lookback_days=None) == 1
 
     def test_excludes_an_org_that_declined_ai_processing(self):
         self._config()
         self._fetch()
         Organization.objects.filter(id=self.organization.id).update(is_ai_data_processing_approved=False)
 
-        assert count_pending_candidates("test_label", "v1") == 0
+        assert count_pending_candidates("test_label", "v1", lookback_days=None) == 0
 
     def test_zero_when_there_is_nothing_pending(self):
-        assert count_pending_candidates("test_label", "v1") == 0
+        assert count_pending_candidates("test_label", "v1", lookback_days=None) == 0
 
 
 class TestAiEnrichmentJob(_EnrichmentDagTestCase):
@@ -109,7 +126,11 @@ class TestAiEnrichmentJob(_EnrichmentDagTestCase):
 
         with patch(f"{_MODULE}.call_command") as mock_call_command:
             result = ai_enrichment_job.execute_in_process(
-                run_config={"ops": {"classify_pending_organizations_op": {"config": {"limit": 42, "workers": 3}}}}
+                run_config={
+                    "ops": {
+                        "classify_pending_organizations_op": {"config": {"limit": 42, "workers": 3, "lookback_days": 7}}
+                    }
+                }
             )
 
         assert result.success
@@ -119,6 +140,7 @@ class TestAiEnrichmentJob(_EnrichmentDagTestCase):
             assert call.args == ("enrichment_label_batch",)
             assert call.kwargs["limit"] == 42
             assert call.kwargs["workers"] == 3
+            assert call.kwargs["lookback_days"] == 7
         # expected_version is each label's own currently-resolved version, passed through so the
         # command can abort if it disagrees - see test_a_version_bump_between_labels below.
         assert calls_by_label["label_a"].kwargs["expected_version"] == config_a.version
