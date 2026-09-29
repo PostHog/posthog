@@ -22,6 +22,7 @@ import type {
     ExperimentMetricsRecalculationJobApi,
     ExperimentMetricsRecalculationRequestTriggerEnumApi,
     ExperimentMetricsRecalculationRunApi,
+    ResultSourceEnumApi,
 } from 'products/experiments/frontend/generated/api.schemas'
 
 import { type ExperimentSavedMetric, sharedMetricsToExperimentMetrics } from './utils'
@@ -109,6 +110,16 @@ const coveredMetricUuids = (recalculation: RecalculationPayload): string[] => [
     ...(recalculation.results ?? []).map(({ metric_uuid }) => metric_uuid),
     ...Object.keys((recalculation.metric_errors as Record<string, unknown> | null) ?? {}),
 ]
+
+/**
+ * The trigger that fills a gap, by where the latest payload came from. A real run is healed in place:
+ * heal_latest_run reuses its window, so metrics with rows load from cache. The timeseries fallback is
+ * not a run, so there is no window to reuse and nothing to dim; a cold_run starts fresh.
+ */
+const HEAL_TRIGGER_BY_RESULT_SOURCE = {
+    recalculation: 'heal_latest_run',
+    timeseries_fallback: 'cold_run',
+} as const satisfies Record<ResultSourceEnumApi, ExperimentMetricsRecalculationRequestTriggerEnumApi>
 
 const recalculationHasGap = (experiment: Experiment, recalculation: RecalculationPayload): boolean => {
     if (
@@ -670,14 +681,12 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                     }
 
                     /**
-                     * Heal any terminal latest (a real run, a failed run, or the timeseries fallback) that has a
-                     * gap; otherwise the uncovered metric shows a perpetual loading state, since nothing else
-                     * re-runs on page load. heal_latest_run reuses the latest run's window, so the metrics that
-                     * already have rows load from cache and only the missing ones compute. What is already shown
-                     * stays visible, dimmed, and cells update in place as the run polls.
+                     * Fill any gap in a terminal latest (a real run, a failed run, or the timeseries fallback);
+                     * otherwise the uncovered metric shows a perpetual loading state, since nothing else re-runs
+                     * on page load. What is already shown stays visible and cells update in place as the run polls.
                      */
                     if (recalculationHasGap(props.experiment, recalculation)) {
-                        actions.triggerRecalculation('heal_latest_run')
+                        actions.triggerRecalculation(HEAL_TRIGGER_BY_RESULT_SOURCE[recalculation.result_source])
                     }
                 } catch (error: any) {
                     if (error?.status === 404) {
