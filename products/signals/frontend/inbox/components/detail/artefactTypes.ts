@@ -112,8 +112,10 @@ export interface CheckResultContent {
     check_id?: string
     kind?: string
     title?: string
-    outcome?: 'passed' | 'failed' | 'errored'
+    outcome?: 'passed' | 'failed' | 'errored' | 'inconclusive'
     explanation?: string
+    /** Set only on an `inconclusive` result. */
+    reason?: string | null
     observed_value?: number | null
     baseline_value?: number | null
     threshold?: string | null
