@@ -6,8 +6,8 @@ description: >
   "which reports are actionable?", "what's PostHog flagged recently?", asks about a specific report by
   ID or title, wants to act on / fix / implement a report (turn it into a PR), wants to resolve,
   dismiss, or snooze a report, or wants to see which signal sources are configured. Covers listing, filtering,
-  drilling into, and acting on reports, plus pointers to the deeper `signals` skill when raw signals
-  or semantic search are needed.
+  drilling into, and acting on reports, plus a personal shortlist for "what needs my attention" or
+  "my top five reports". Points to the deeper `signals` skill for raw signals or semantic search.
 ---
 
 # Exploring the Inbox
@@ -27,6 +27,8 @@ the user's actual question.
 ## When to use this skill
 
 - "What's in my inbox?" / "What should I look at first?"
+- "What needs my attention?" / "Show my top five reports" — use
+  [Personal attention shortlist](references/attention-shortlist.md) after the setup check.
 - "Show me actionable reports" / "What's PostHog flagged recently?"
 - "Are there any reports about <topic / product area>?"
 - "What signal sources are configured for this project?"
@@ -190,6 +192,10 @@ If Step 1 found a healthy setup and at least one report exists, continue with th
 filter workflows below.
 
 ## Workflow: triage what's actionable
+
+For a personal next-action list, use [Personal attention shortlist](references/attention-shortlist.md).
+It checks who can act now and returns at most five items by default.
+Use the workflow below for a broader overview by source and actionability.
 
 When the user asks "what should I look at?" or "what's actionable?":
 
