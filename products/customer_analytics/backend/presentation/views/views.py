@@ -30,7 +30,7 @@ from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.pagination import LimitOffsetPagination
-from rest_framework.permissions import BasePermission
+from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.throttling import UserRateThrottle
@@ -47,6 +47,8 @@ from posthog.models import OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.permissions import (
+    AccessControlPermission,
+    APIScopePermission,
     PostHogFeatureFlagPermission,
     TeamMemberAccessPermission,
     TeamMemberLightManagementPermission,
@@ -57,7 +59,11 @@ from posthog.permissions import (
 )
 from posthog.rate_limit import RunSavedQueryRateThrottle
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl, model_to_resource
+from products.access_control.backend.facade.user_access_control import (
+    AccessControlLevel,
+    UserAccessControl,
+    model_to_resource,
+)
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.customer_analytics.backend.facade import api, contracts
 from products.customer_analytics.backend.facade.constants import (
@@ -872,6 +878,15 @@ class FeatureRequestViewSet(
         return Response(FeatureRequestStatusHistorySerializer(instance=history, many=True).data)
 
 
+class AccountViewChangePermission(AccessControlPermission):
+    """The facade applies each view's own rules: account editors change team view contents, and the
+    creator or a project admin changes visibility or deletes. An account editor floor here would
+    block a project admin who only views accounts before those rules run."""
+
+    def _get_required_access_level(self, request: Request, view: Any) -> AccessControlLevel:
+        return "viewer"
+
+
 class AccountViewTemplateViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.GenericViewSet):
     scope_object = "account"
     serializer_class = AccountViewSerializer
@@ -880,6 +895,17 @@ class AccountViewTemplateViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
     pagination_class = None
     permission_classes = [PostHogFeatureFlagPermission]
     posthog_feature_flag = CUSTOMER_ANALYTICS_ACCOUNT_VIEWS_FLAG
+
+    def dangerously_get_permissions(self) -> list[BasePermission]:
+        if self.action not in ("partial_update", "destroy"):
+            raise NotImplementedError()
+        return [
+            IsAuthenticated(),
+            APIScopePermission(),
+            AccountViewChangePermission(),
+            TeamMemberAccessPermission(),
+            PostHogFeatureFlagPermission(),
+        ]
 
     def _is_project_admin(self) -> bool:
         if self.user_access_control.is_organization_admin:
@@ -1082,42 +1108,43 @@ class UserCustomerAnalyticsConfigViewSet(TeamAndOrgViewSetMixin, viewsets.Generi
         user_id = cast(User, request.user).id
         config: contracts.UserCustomerAnalyticsConfig | None = None
 
-        if "pinned_properties" in request.validated_data:
-            pinned_properties = [
-                contracts.PinnedAccountProperty(kind=reference["kind"], id=reference["id"])
-                for reference in request.validated_data["pinned_properties"]
-            ]
-            try:
-                config = api.update_user_customer_analytics_config(
+        with transaction.atomic():
+            if "pinned_properties" in request.validated_data:
+                pinned_properties = [
+                    contracts.PinnedAccountProperty(kind=reference["kind"], id=reference["id"])
+                    for reference in request.validated_data["pinned_properties"]
+                ]
+                try:
+                    config = api.update_user_customer_analytics_config(
+                        team_id=self.team_id,
+                        user_id=user_id,
+                        pinned_properties=pinned_properties,
+                    )
+                except api.InvalidPinnedAccountProperties as error:
+                    raise ValidationError({"pinned_properties": error.errors})
+
+            if "task_digest" in request.validated_data:
+                task_digest = request.validated_data["task_digest"]
+                config = api.update_user_task_digest_preferences(
                     team_id=self.team_id,
                     user_id=user_id,
-                    pinned_properties=pinned_properties,
+                    enabled=task_digest.get("enabled"),
+                    send_time=task_digest.get("send_time"),
+                    cadence=task_digest.get("cadence"),
                 )
-            except api.InvalidPinnedAccountProperties as error:
-                raise ValidationError({"pinned_properties": error.errors})
 
-        if "task_digest" in request.validated_data:
-            task_digest = request.validated_data["task_digest"]
-            config = api.update_user_task_digest_preferences(
-                team_id=self.team_id,
-                user_id=user_id,
-                enabled=task_digest.get("enabled"),
-                send_time=task_digest.get("send_time"),
-                cadence=task_digest.get("cadence"),
-            )
-
-        if "account_detail_tabs" in request.validated_data:
-            account_detail_tabs = request.validated_data["account_detail_tabs"]
-            try:
-                config = api.update_user_account_detail_tabs(
-                    team_id=self.team_id,
-                    user_id=user_id,
-                    ordered_tab_ids=account_detail_tabs["ordered_tab_ids"],
-                    hidden_tab_ids=account_detail_tabs["hidden_tab_ids"],
-                    default_tab_id=account_detail_tabs["default_tab_id"],
-                )
-            except ValueError as error:
-                raise ValidationError({"account_detail_tabs": str(error)})
+            if "account_detail_tabs" in request.validated_data:
+                account_detail_tabs = request.validated_data["account_detail_tabs"]
+                try:
+                    config = api.update_user_account_detail_tabs(
+                        team_id=self.team_id,
+                        user_id=user_id,
+                        ordered_tab_ids=account_detail_tabs["ordered_tab_ids"],
+                        hidden_tab_ids=account_detail_tabs["hidden_tab_ids"],
+                        default_tab_id=account_detail_tabs["default_tab_id"],
+                    )
+                except ValueError as error:
+                    raise ValidationError({"account_detail_tabs": str(error)})
 
         if config is None:
             return self.retrieve(request, *args, **kwargs)
