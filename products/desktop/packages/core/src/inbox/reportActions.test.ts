@@ -198,7 +198,7 @@ describe("buildDiscussReportPrompt", () => {
         question: "This behavior is intentional.",
       });
       expect(prompt).toContain(
-        "The opening question has a separate, best-effort scout-note forwarding path. Only offer to save new feedback learned after the opening turn; do not offer to save the opening question again.",
+        "The opening question has a separate, best-effort scout-note forwarding path. If forwarding was unavailable or refused, and the opening question contains durable feedback, offer to save it in this report's work log after consent; otherwise only offer to save new feedback learned after the opening turn, not the opening question again.",
       );
       expect(prompt).toContain(
         "a correction, a preference, context the report missed, or a fact you verified",
