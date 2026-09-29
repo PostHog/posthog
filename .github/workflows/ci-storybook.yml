@@ -802,6 +802,7 @@ jobs:
               uses: ./.github/actions/trunk-quarantine-gate
               with:
                   junit-paths: common/storybook/junit.xml
+                  test-collection-id: P3SjL3vy
                   variant: ${{ matrix.browser }}
                   previous-step-outcome: ${{ steps.test-runner.outcome }}
                   token: ${{ secrets.TRUNK_API_TOKEN }}

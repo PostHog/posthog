@@ -589,6 +589,7 @@ jobs:
               uses: ./.github/actions/trunk-quarantine-gate
               with:
                   junit-paths: rust/junit-nextest-*.xml
+                  test-collection-id: TewkWR1w
                   previous-step-outcome: ${{ steps.run-tests.outcome }}
                   token: ${{ secrets.TRUNK_API_TOKEN }}
 

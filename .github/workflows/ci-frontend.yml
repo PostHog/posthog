@@ -992,6 +992,7 @@ jobs:
               uses: ./.github/actions/trunk-quarantine-gate
               with:
                   junit-paths: junit-results/junit-${{ matrix.segment }}-${{ matrix.chunk }}.xml
+                  test-collection-id: OZ6hVJ5z
                   previous-step-outcome: ${{ steps.run-jest.outcome }}
                   token: ${{ secrets.TRUNK_API_TOKEN }}
             # Verdict: red a real failure the gate didn't clear as a quarantined flake. != 'success'
@@ -1062,6 +1063,7 @@ jobs:
               uses: ./.github/actions/trunk-quarantine-gate
               with:
                   junit-paths: junit-results/junit-replay-shared.xml
+                  test-collection-id: OZ6hVJ5z
                   variant: replay-shared
                   previous-step-outcome: ${{ steps.run-jest.outcome }}
                   token: ${{ secrets.TRUNK_API_TOKEN }}
