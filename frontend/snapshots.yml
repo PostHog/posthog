@@ -2412,6 +2412,10 @@ snapshots:
         hash: v1.k794b7964.a1866d682eb35809e8a9bea08ec0c7af8cb77581e4667745851bd9db5f49918d.mhIpdnK7yIoTFvovSR-wJrEHGV_7_T3eTvSNRv0UbtY
     customer-analytics-custom-property-sync-runs--loading--light:
         hash: v1.k794b7964.b376cab90219eb5e85b659c1399b40c0d60caf7a91b006c0d168375ed365d2af.61Y57PmrNuzzIfBps59FSyMmFnBf3yzKDcPD6vs5VHI
+    customer-analytics-default-pinned-properties--configured--dark:
+        hash: v1.k794b7964.da6302477c0838d6cbfdabb09aa1e242f0c3c1f7f917bcb54299580dcfa9f995.tjq8S-BHBPQ8gWdwEr_XUyL3BIxpNCFT4tyYjLGk-ZE
+    customer-analytics-default-pinned-properties--configured--light:
+        hash: v1.k794b7964.273b9a90ceade3a30ad9f01f4c9ff61353db29c0fadb46daab82e4a6024a9598.jau9WlsA3gZxLy-MyeDNK7yWZy3N41Er9y90hvTrmcg
     customer-analytics-feature-requests-github-issue--archived--dark:
         hash: v1.k794b7964.6353d8360a139bb403c1ece6b033793a0e9d71ece3e3624c40097d702b8a8393.ZF8kHNdiifHQUHTWzRM0a4tvySXtrbkKOm5fB0l2ie8
     customer-analytics-feature-requests-github-issue--archived--light:
@@ -6523,7 +6527,7 @@ snapshots:
     products-data-modeling-models-overview--narrow-partial-last-page--light:
         hash: v1.k794b7964.d337628955e3ce769a33f45d97ce51958a8db287b1a4344fbf06bd72f172248b.CKw4zIA6QRuweF82g9IMxGqJYkFkxMG-6rAeJ-FExW0
     products-data-modeling-models-overview--paginated--dark:
-        hash: v1.k794b7964.8cac888d0fad47cbd5c4c4092010e2b62ceee02dfd1fed95f577498577cb6474.xae-ilaOzklSJOP6aVJJZKIHqNNukIpgMDve-n1XZUE
+        hash: v1.k794b7964.04f7cffc0837358fc9afa8762a656f323e249db67f044433b7adaa4b0ce2b652.SfyMsOqlXzjqe1QSktV4vKmUrVKkRE55D_fUfL0xymE
     products-data-modeling-models-overview--paginated--light:
         hash: v1.k794b7964.f80388b1c73a52fb6412a33a4666f8f2df1bab209232a313c306a0990c9a3fca.8If9Zb3m9t5VtbIk5BMEGJ3uvzP5pGRsPFV_PIm_wjA
     products-data-modeling-models-overview--partial-last-page--dark:
