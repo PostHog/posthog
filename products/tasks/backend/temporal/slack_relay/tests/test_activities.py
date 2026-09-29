@@ -17,6 +17,7 @@ from posthog.models.user import User
 from posthog.slack.markdown import SLACK_MARKDOWN_TEXT_MAX_LEN
 
 from products.slack_app.backend.models import SlackThreadTaskMapping
+from products.slack_app.backend.slack_thread import record_answered_message_ts
 from products.tasks.backend.logic.services.living_artifacts import SlackFileDeliveryResult
 from products.tasks.backend.models import Task, TaskArtifact, TaskRun
 from products.tasks.backend.temporal.slack_relay.activities import (
@@ -131,6 +132,31 @@ class TestRelaySlackMessage(TestCase):
         )
 
         assert mock_post.call_args.args[0].turn_trace_id == trace_id
+
+    @parameterized.expand(
+        [
+            ("recorded_follow_up", None, "1700.0001"),
+            ("explicit_ts_wins", "1700.0002", "1700.0002"),
+        ]
+    )
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.post_thread_message", autospec=True)
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.delete_progress")
+    def test_relay_resolves_the_message_the_answer_replies_to(
+        self, _name, input_ts, expected_ts, _mock_delete_progress, mock_post
+    ):
+        record_answered_message_ts(str(self.task_run.id), "msg-1", "1700.0001")
+
+        relay_slack_message(
+            RelaySlackMessageInput(
+                run_id=str(self.task_run.id),
+                relay_id=f"relay-answered-{_name}",
+                text="Done.",
+                user_message_ts=input_ts,
+                message_id="msg-1",
+            )
+        )
+
+        assert mock_post.call_args.args[0].context.user_message_ts == expected_ts
 
     _RICH_ANSWER = "## Heading\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n\n- [ ] todo"
 

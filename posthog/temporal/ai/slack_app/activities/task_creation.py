@@ -894,6 +894,7 @@ def forward_posthog_code_followup_activity(
 
     from products.slack_app.backend.api import parse_rules_command, resolve_slack_user
     from products.slack_app.backend.models import SlackThreadTaskMapping
+    from products.slack_app.backend.slack_thread import record_answered_message_ts
     from products.tasks.backend.facade import api as tasks_facade
 
     if parse_rules_command(event_text):
@@ -1082,6 +1083,10 @@ def forward_posthog_code_followup_activity(
 
     # Queue on the workflow so delivery is ordered with the web path. The
     # deterministic message id keeps redelivery idempotent.
+    followup_message_id = _slack_followup_message_id(channel, user_message_ts, thread_ts)
+    if user_message_ts:
+        # Recorded before the signal, so an answer that comes back fast still finds it.
+        record_answered_message_ts(str(task_run.id), followup_message_id, user_message_ts)
     signal_result = tasks_facade.signal_task_run_user_message(
         task_run.id,
         mapping.task_id,
@@ -1089,7 +1094,7 @@ def forward_posthog_code_followup_activity(
         content=user_text,
         artifact_ids=_uploaded_attachment_ids(uploaded_attachments),
         actor_user_id=actor_user.id if actor_user and actor_user.id else None,
-        message_id=_slack_followup_message_id(channel, user_message_ts, thread_ts),
+        message_id=followup_message_id,
         actor_slack_user_id=slack_user_id,
     )
     if signal_result is not True:

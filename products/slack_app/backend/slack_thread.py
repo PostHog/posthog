@@ -3,6 +3,8 @@ from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
+from django.core.cache import cache
+
 import structlog
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
@@ -10,7 +12,10 @@ from slack_sdk.errors import SlackApiError
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.slack.markdown import SLACK_MARKDOWN_TEXT_MAX_LEN, slack_markdown_block
 
-from products.slack_app.backend.feature_flags import is_slack_app_forking_enabled
+from products.slack_app.backend.feature_flags import (
+    is_slack_app_footer_message_link_enabled,
+    is_slack_app_forking_enabled,
+)
 from products.slack_app.backend.services.slack_messages import (
     RunFooter,
     app_home_url,
@@ -19,6 +24,7 @@ from products.slack_app.backend.services.slack_messages import (
     fork_menu_element,
     load_run_footer,
     mentions_slack_user,
+    message_permalink,
     normalize_labeled_mentions_to_bare,
     personal_integrations_url,
     post_slack_thread_reply,
@@ -47,6 +53,9 @@ DEFAULT_FAILURE_RECOVERY_HINT = (
 _TASK_FIELD_LIMIT = 256
 _MARKDOWN_CHUNK_LIMIT = 12000
 _SECTION_TEXT_LIMIT = 3000
+# Matches how long the tasks product keeps a message's sender for the same echo, so a turn
+# that can still tag its sender can also link to what they asked.
+_ANSWERED_MESSAGE_TTL_SECONDS = 2 * 60 * 60
 
 # Slack rejects the request outright for these, and repeating the same blocks cannot change the
 # answer, so the reply is posted plainly instead. The same pair is what the scout delivery in
@@ -162,6 +171,31 @@ class SlackThreadContext:
         )
 
 
+def _answered_message_cache_key(run_id: str, message_id: str) -> str:
+    return f"slack_app:answered-message-ts:{run_id}:{message_id}"
+
+
+def record_answered_message_ts(run_id: str, message_id: str, message_ts: str) -> None:
+    """Remember which Slack message a delivered follow-up came from.
+
+    The agent echoes only the opaque message id back with its answer, so this is how the
+    answer finds the message to link to. Best-effort: a miss costs the footer its link.
+    """
+    try:
+        cache.set(_answered_message_cache_key(run_id, message_id), message_ts, timeout=_ANSWERED_MESSAGE_TTL_SECONDS)
+    except Exception:
+        logger.warning("slack_app_answered_message_record_failed", run_id=run_id, exc_info=True)
+
+
+def get_answered_message_ts(run_id: str, message_id: str) -> str | None:
+    """The Slack message ts `record_answered_message_ts` stored, or `None`."""
+    try:
+        return cache.get(_answered_message_cache_key(run_id, message_id))
+    except Exception:
+        logger.warning("slack_app_answered_message_lookup_failed", run_id=run_id, exc_info=True)
+        return None
+
+
 def _pr_buttons(pr_url: str, task_url: str | None) -> list[dict[str, Any]]:
     buttons: list[dict[str, Any]] = [
         {
@@ -203,6 +237,8 @@ class SlackThreadHandler:
         self._client: WebClient | None = None
         self._bot_user_id: str | None = None
         self._fork_flag: bool | None = None
+        self._reply_to_url: str | None = None
+        self._reply_to_url_resolved = False
 
     @classmethod
     def for_run(
@@ -259,7 +295,22 @@ class SlackThreadHandler:
         if not include_task_url:
             footer = replace(footer, task_url=None)
         configure_url = app_home_url(self._get_integration())
-        return reply_footer_block(footer, configure_url)
+        return reply_footer_block(footer, configure_url, self._reply_to_permalink())
+
+    def _reply_to_permalink(self) -> str | None:
+        """Permalink to the message this reply answers, or `None` outside the rollout or
+        when the message is unknown.
+
+        Messages queue while a turn runs, so an answer can land after later questions. The
+        link tells the reader which one it answers. Memoized, because the flag and the
+        permalink are both network calls.
+        """
+        if not self._reply_to_url_resolved:
+            self._reply_to_url_resolved = True
+            message_ts = self.context.user_message_ts
+            if message_ts and is_slack_app_footer_message_link_enabled(self._get_integration()):
+                self._reply_to_url = message_permalink(self._get_client(), self.context.channel, message_ts)
+        return self._reply_to_url
 
     def _fork_menu(self) -> dict[str, Any] | None:
         """The overflow menu for this reply, or `None` outside the rollout.

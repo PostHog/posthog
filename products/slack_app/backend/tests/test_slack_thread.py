@@ -427,6 +427,46 @@ class TestReplyFooterGate(SimpleTestCase):
         )
         return SlackThreadHandler(context, footer or RunFooter(model="claude-opus-5"))
 
+    @parameterized.expand(
+        [
+            ("in_rollout", True, "1111.2222", True),
+            ("outside_rollout", False, "1111.2222", False),
+            ("answered_message_unknown", True, None, False),
+        ]
+    )
+    @patch.object(SlackThreadHandler, "_get_integration")
+    @patch.object(SlackThreadHandler, "_get_client")
+    def test_footer_links_to_the_answered_message_only_in_the_rollout(
+        self,
+        _name: str,
+        flag_enabled: bool,
+        user_message_ts: str | None,
+        expect_link: bool,
+        mock_get_client,
+        mock_get_integration,
+    ) -> None:
+        mock_client = MagicMock()
+        mock_client.chat_getPermalink.return_value = {"ok": True, "permalink": "https://example.slack.com/p1"}
+        mock_get_client.return_value = mock_client
+        mock_get_integration.return_value = Integration(config={}, integration_id="T1")
+        context = SlackThreadContext(
+            integration_id=1, channel="C001", thread_ts="1234.5678", user_message_ts=user_message_ts
+        )
+
+        with patch(
+            "products.slack_app.backend.slack_thread.is_slack_app_footer_message_link_enabled",
+            return_value=flag_enabled,
+        ):
+            SlackThreadHandler(context, RunFooter(model="claude-opus-5")).post_thread_message(
+                "the answer", with_footer=True
+            )
+
+        line = mock_client.chat_postMessage.call_args.kwargs["blocks"][-1]["elements"][0]["text"]
+        assert line.startswith("<https://example.slack.com/p1|Replying to this message> · ") is expect_link
+        assert mock_client.chat_getPermalink.called is expect_link
+        if expect_link:
+            mock_client.chat_getPermalink.assert_called_once_with(channel="C001", message_ts=user_message_ts)
+
     @patch.object(SlackThreadHandler, "_get_integration")
     @patch.object(SlackThreadHandler, "_get_client")
     def test_streamed_reply_carries_the_footer(self, mock_get_client, mock_get_integration) -> None:

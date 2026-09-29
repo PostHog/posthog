@@ -47,6 +47,7 @@ logger = structlog.get_logger(__name__)
 
 SLACK_APP_AGENT_DESIGN_FLAG = "slack-app-agent-design"
 SLACK_APP_FORKING_FLAG = "slack-app-forking"
+SLACK_APP_FOOTER_MESSAGE_LINK_FLAG = "slack-app-footer-message-link"
 
 
 # Linking a Slack identity to a PostHog user resolves the Slack profile and its email.
@@ -151,4 +152,18 @@ def is_slack_app_forking_enabled(integration: Integration) -> bool:
         SLACK_APP_FORKING_FLAG,
         integration,
         failure_log_key="slack_app_forking_feature_flag_check_failed",
+    )
+
+
+def is_slack_app_footer_message_link_enabled(integration: Integration) -> bool:
+    """Gate for the footer link back to the message a reply answers.
+
+    The link comes from ``chat.getPermalink``, which needs no scope, so this is the flag
+    alone. Keyed on the Slack workspace like the fork
+    menu, so every reply in one thread shows the link or none does.
+    """
+    return _workspace_flag_enabled(
+        SLACK_APP_FOOTER_MESSAGE_LINK_FLAG,
+        integration,
+        failure_log_key="slack_app_footer_message_link_feature_flag_check_failed",
     )

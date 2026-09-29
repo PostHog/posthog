@@ -200,7 +200,7 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
         normalize_labeled_mentions_to_bare,
         project_web_url,
     )
-    from products.slack_app.backend.slack_thread import SlackThreadContext, SlackThreadHandler
+    from products.slack_app.backend.slack_thread import SlackThreadContext, SlackThreadHandler, get_answered_message_ts
     from products.tasks.backend.models import TaskRun
     from products.tasks.backend.temporal.process_task.utils import get_message_actor
 
@@ -245,7 +245,12 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
             origin_product=mapping.task.origin_product,
         )
 
-    context = SlackThreadContext.from_mapping(mapping, user_message_ts=input.user_message_ts)
+    # A turn's own answer carries only the echoed message id, so the Slack message it
+    # answers is looked up from what the follow-up recorded on the way in.
+    user_message_ts = input.user_message_ts or (
+        get_answered_message_ts(input.run_id, input.message_id) if input.message_id else None
+    )
+    context = SlackThreadContext.from_mapping(mapping, user_message_ts=user_message_ts)
     # Mention resolution, most precise first: the echoed message's recorded
     # sender, then the live/mapping actors for pre-rollout runs. Resolved before the
     # handler so the handler knows whoever this reply is actually for.

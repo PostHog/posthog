@@ -809,14 +809,22 @@ def run_context_block(footer: RunFooter) -> dict[str, Any] | None:
     return context_block(" · ".join(segments)) if segments else None
 
 
-def reply_footer_block(footer: RunFooter, configure_url: str | None = None) -> dict[str, Any] | None:
+def reply_footer_block(
+    footer: RunFooter, configure_url: str | None = None, reply_to_url: str | None = None
+) -> dict[str, Any] | None:
     """The footer as a `context` block, or `None` when there is nothing to say.
 
     The answer itself is the message, so this is muted rather than competing with the
     prose. A run with no links and no pinned model contributes no segments and gets no
     trailing line at all.
+
+    ``reply_to_url`` is the permalink of the message this reply answers. It sits outside
+    ``RunFooter`` because it belongs to one turn, and it leads the line because in a busy
+    thread it is what the reader needs to place the answer.
     """
     segments: list[str] = []
+    if reply_to_url:
+        segments.append(f"<{reply_to_url}|Replying to this message>")
     if footer.task_url:
         segments.append(f"<{footer.task_url}|View session>")
     segments.extend(_run_context_segments(footer))
@@ -923,12 +931,21 @@ def thread_permalink(slack: SlackIntegration, channel: str, thread_ts: str) -> s
     Best-effort by design: a permalink is a convenience link on a task and a pointer in
     a forked run's context, never something a run depends on.
     """
+    return message_permalink(slack.client, channel, thread_ts)
+
+
+def message_permalink(client: WebClient, channel: str, message_ts: str) -> str | None:
+    """Permalink for one message, or `None` if Slack won't give us one.
+
+    Best-effort like `thread_permalink`. For a reply inside a thread, Slack's link opens
+    the thread at that reply.
+    """
     try:
-        response = slack.client.chat_getPermalink(channel=channel, message_ts=thread_ts)
+        response = client.chat_getPermalink(channel=channel, message_ts=message_ts)
         if response.get("ok"):
             return response["permalink"]
     except Exception:
-        logger.warning("slack_app_permalink_failed", channel=channel, thread_ts=thread_ts)
+        logger.warning("slack_app_permalink_failed", channel=channel, message_ts=message_ts)
     return None
 
 
