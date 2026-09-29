@@ -26,12 +26,14 @@ export function useKeyboardNavigation<R extends HTMLElement = HTMLElement, I ext
         }
 
         const handleKeyDown = (e: KeyboardEvent): void => {
-            const targetItemIndex = itemsRef.current.findIndex((item) => item.current === e.target)
-            if (e.defaultPrevented || (e.target !== referenceRef.current && targetItemIndex === -1)) {
+            // The document listener sees a shadow host as the target, for example in the toolbar.
+            const target = e.composedPath()[0]
+            const targetItemIndex = itemsRef.current.findIndex((item) => item.current === target)
+            if (e.defaultPrevented || (target !== referenceRef.current && targetItemIndex === -1)) {
                 return
             }
             let fromIndex = targetItemIndex
-            if (e.target === referenceRef.current) {
+            if (target === referenceRef.current) {
                 // A closed menu has no mounted items, so leave the key to the parent menu or the page.
                 if (!itemsRef.current.some((item) => item.current)) {
                     return

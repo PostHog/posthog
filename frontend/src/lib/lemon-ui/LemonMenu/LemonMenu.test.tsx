@@ -2,7 +2,9 @@ import '@testing-library/jest-dom'
 
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
+
+import { FloatingContainerContext } from 'lib/hooks/useFloatingContainerContext'
 
 import { LemonButton } from '../LemonButton'
 import { LemonMenu } from './LemonMenu'
@@ -132,6 +134,34 @@ describe('LemonMenu', () => {
         expect(screen.getByText('Third').closest('button')).toHaveFocus()
         await userEvent.keyboard('{ArrowUp}')
         expect(second).toHaveFocus()
+    })
+
+    it('navigates portal items inside a shadow root', async () => {
+        const host = document.createElement('div')
+        document.body.appendChild(host)
+        const shadowRoot = host.attachShadow({ mode: 'open' })
+        const container = shadowRoot.appendChild(document.createElement('div'))
+
+        function ShadowMenu(): JSX.Element {
+            const [floatingContainer, setFloatingContainer] = useState<HTMLDivElement | null>(null)
+            return (
+                <FloatingContainerContext.Provider value={floatingContainer}>
+                    <LemonMenu items={[{ label: 'First' }, { label: 'Second' }]}>
+                        <LemonButton>Open</LemonButton>
+                    </LemonMenu>
+                    <div ref={setFloatingContainer} />
+                </FloatingContainerContext.Provider>
+            )
+        }
+        const { getByText, findByText } = render(<ShadowMenu />, { container })
+
+        await userEvent.click(getByText('Open'))
+        const first = (await findByText('First')).closest('button')
+        await userEvent.keyboard('{ArrowDown}')
+        expect(shadowRoot.activeElement).toBe(first)
+        await userEvent.keyboard('{ArrowDown}')
+        expect(shadowRoot.activeElement).toBe(getByText('Second').closest('button'))
+        host.remove()
     })
 
     it('navigates portal items after opening and reopening a menu', async () => {
