@@ -9,6 +9,7 @@ from uuid import UUID
 
 from django.db.models import QuerySet
 
+import structlog
 import posthoganalytics
 
 from posthog.event_usage import groups
@@ -32,6 +33,8 @@ from .contracts import (
     DocumentEmbeddingTable as DocumentEmbeddingTable,
     ExceptionSummary as ExceptionSummary,
 )
+
+logger = structlog.get_logger(__name__)
 
 IssueNotFoundError = logic.ErrorTrackingIssueNotFoundError
 ExternalReferenceValidationError = external_references.ErrorTrackingExternalReferenceValidationError
@@ -812,11 +815,12 @@ GITLAB_READ_PROBE_TIMEOUT_SECONDS = 15
 def gitlab_token_can_read_repository(repository_url: str, token: str) -> bool | None:
     """Whether a GitLab project access token can read the repository over git.
 
-    Returns None when the check could not run (a network failure, a timeout), so a caller can
-    decide not to block on an unrelated outage.
+    Returns None when the check could not run (a network failure, a timeout, no git binary), so a
+    caller can decide not to block on an unrelated outage.
     """
     try:
         remote = GitRemote(url=repository_url, auth_header=gitlab_auth_header(token))
         return can_read_repository(remote, timeout_seconds=GITLAB_READ_PROBE_TIMEOUT_SECONDS)
-    except (ValueError, GitListError):
+    except (ValueError, OSError, GitListError) as e:
+        logger.warning("gitlab_read_probe_skipped", error_type=type(e).__name__)
         return None

@@ -3,7 +3,7 @@ from datetime import timedelta
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 from django.utils.timezone import now
 
 import requests
@@ -15,6 +15,7 @@ from posthog.models.integration import GitLabIntegrationError, Integration
 
 from products.access_control.backend.models.role import Role
 from products.error_tracking.backend.facade import api, contracts
+from products.error_tracking.backend.logic.repo_paths.git_lister import GitTimeout
 from products.error_tracking.backend.models import (
     ErrorTrackingExternalReference,
     ErrorTrackingIssue,
@@ -525,3 +526,23 @@ class TestErrorTrackingFacadeAPI(BaseTest):
         assert updated.multiplier == 9
         assert updated.threshold == 50
         assert api.get_spike_detection_config(self.team.id) == updated
+
+
+class TestGitLabTokenCanReadRepository(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("readable", True, True),
+            ("refused", False, False),
+            ("git_timed_out", GitTimeout("git did not finish before the timeout"), None),
+            ("git_binary_missing", FileNotFoundError("git"), None),
+        ]
+    )
+    def test_reports_whether_the_token_can_read(
+        self, _name: str, probe_result: bool | Exception, expected: bool | None
+    ) -> None:
+        with patch.object(api, "can_read_repository", side_effect=[probe_result]):
+            result = api.gitlab_token_can_read_repository(
+                "https://gitlab.example.com/acme/shop.git", "glpat-example-token"
+            )
+
+        assert result is expected
