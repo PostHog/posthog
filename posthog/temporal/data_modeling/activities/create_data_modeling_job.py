@@ -1,4 +1,7 @@
+import uuid
 import dataclasses
+
+from django.db import transaction
 
 from structlog import get_logger
 from structlog.contextvars import bind_contextvars
@@ -7,6 +10,7 @@ from temporalio import activity
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.data_modeling.activities.utils import bind_data_modeling_log_context
 
+from products.data_modeling.backend.facade.api import lock_dag
 from products.data_modeling.backend.facade.models import DataModelingJob, DataModelingJobEngine, Node
 
 LOGGER = get_logger(__name__)
@@ -55,20 +59,28 @@ class RecordSkippedDataModelingJobsInputs:
 def _create_data_modeling_job(
     inputs: CreateDataModelingJobInputs, workflow_id: str, workflow_run_id: str
 ) -> CreatedDataModelingJob:
-    node = Node.objects.prefetch_related("saved_query").get(
-        id=inputs.node_id, team_id=inputs.team_id, dag_id=inputs.dag_id
-    )
-    job = DataModelingJob.objects.create(
-        team_id=inputs.team_id,
-        saved_query=node.saved_query,
-        status=DataModelingJob.Status.RUNNING,
-        engine=inputs.engine,
-        workflow_id=workflow_id,
-        workflow_run_id=workflow_run_id,
-        parent_workflow_id=inputs.parent_workflow_id,
-        created_by_id=node.saved_query.created_by_id if node.saved_query else None,
-        manually_triggered_by_id=inputs.manually_triggered_by_id,
-    )
+    with transaction.atomic():
+        # A move to another DAG refuses while a job of this query is Running, and holds this lock
+        # across that check. Taking it here, around the placement read and the insert both, is
+        # what stops a job from being created against a placement the move has already left. The
+        # rest of this materialization loads the node by team, node and DAG, so such a job would
+        # find nothing, and that includes the activity which records the failure, so the job row
+        # would stay Running with nothing left to close it.
+        lock_dag(inputs.team_id, uuid.UUID(inputs.dag_id))
+        node = Node.objects.prefetch_related("saved_query").get(
+            id=inputs.node_id, team_id=inputs.team_id, dag_id=inputs.dag_id
+        )
+        job = DataModelingJob.objects.create(
+            team_id=inputs.team_id,
+            saved_query=node.saved_query,
+            status=DataModelingJob.Status.RUNNING,
+            engine=inputs.engine,
+            workflow_id=workflow_id,
+            workflow_run_id=workflow_run_id,
+            parent_workflow_id=inputs.parent_workflow_id,
+            created_by_id=node.saved_query.created_by_id if node.saved_query else None,
+            manually_triggered_by_id=inputs.manually_triggered_by_id,
+        )
     return CreatedDataModelingJob(
         job_id=str(job.id),
         saved_query_id=str(node.saved_query.id) if node.saved_query else None,
