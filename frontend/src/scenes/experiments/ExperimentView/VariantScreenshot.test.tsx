@@ -55,7 +55,7 @@ describe('VariantScreenshotEditor', () => {
         })
         await waitFor(() => expect(api.media.upload).toHaveBeenCalled())
 
-        fireEvent.click(screen.getAllByRole('button', { name: 'Remove' })[1])
+        fireEvent.click(screen.getAllByLabelText('Remove')[1])
         expect(onChange).toHaveBeenLastCalledWith(['media-1'])
 
         await act(async () => {
