@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -95,6 +96,29 @@ func StatsHandler(stats *events.Stats, sessionStats *events.SessionStats, redisS
 
 var subID uint64 = 1
 
+func periodicAccessChecks(ctx context.Context, header http.Header, interval time.Duration) <-chan error {
+	errors := make(chan error, 1)
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if err := auth.CheckAccess(ctx, header); err != nil {
+					select {
+					case errors <- err:
+					case <-ctx.Done():
+					}
+					return
+				}
+			}
+		}
+	}()
+	return errors
+}
+
 func StreamEventsHandler(log echo.Logger, subChan chan events.Subscription, unSubChan chan events.Subscription) func(c echo.Context) error {
 	return func(c echo.Context) error {
 		log.Debugf("SSE client connected, ip: %v", c.RealIP())
@@ -169,15 +193,14 @@ func StreamEventsHandler(log echo.Logger, subChan chan events.Subscription, unSu
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("Connection", "keep-alive")
 		timeout := time.After(30 * time.Minute)
-		accessCheck := time.NewTicker(30 * time.Second)
-		defer accessCheck.Stop()
+		accessContext, cancelAccessCheck := context.WithCancel(c.Request().Context())
+		defer cancelAccessCheck()
+		accessErrors := periodicAccessChecks(accessContext, c.Request().Header.Clone(), 30*time.Second)
 		for {
 			select {
-			case <-accessCheck.C:
-				if err := auth.CheckAccess(c.Request().Context(), c.Request().Header); err != nil {
-					log.Warnf("Live stream authorization check failed: %v", err)
-					return nil
-				}
+			case err := <-accessErrors:
+				log.Warnf("Live stream authorization check failed: %v", err)
+				return nil
 			case <-timeout:
 				log.Debug("SSE connection to be terminated after timeout")
 				return nil
