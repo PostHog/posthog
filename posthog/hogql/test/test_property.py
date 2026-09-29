@@ -752,19 +752,20 @@ class TestProperty(BaseTest):
             ),
             self._parse_expr("toString(elements_chain_href) ilike '%href-text.%'"),
         )
-        self.assertEqual(
-            self._property_to_expr(
-                {
-                    "type": "element",
-                    "key": "text",
-                    "value": "text-text.",
-                    "operator": "regex",
-                }
-            ),
-            self._parse_expr(
-                "arrayExists(text -> ifNull(match(toString(text), 'text-text.'), 0), elements_chain_texts)"
-            ),
-        )
+        for text_key in ("text", "$el_text"):
+            self.assertEqual(
+                self._property_to_expr(
+                    {
+                        "type": "element",
+                        "key": text_key,
+                        "value": "text-text.",
+                        "operator": "regex",
+                    }
+                ),
+                self._parse_expr(
+                    "arrayExists(text -> ifNull(match(toString(text), 'text-text.'), 0), elements_chain_texts)"
+                ),
+            )
 
     def test_property_groups(self):
         self.assertEqual(
