@@ -82,7 +82,7 @@ class DoraActionsMixin(EngineeringAnalyticsViewSetBase):
             "DORA-style deploy metrics over the GitHub deployments + deployment_statuses warehouse pair, each "
             "headline with its previous-window twin: deployment frequency, merge-to-deploy lead time (with a "
             "per-bucket box-plot series), and honest proxies for change failure rate and time to restore "
-            "(deploy-status based — no incident data is linked). deploy_data_available is false when the deploy "
+            "(deploy-status based: no incident data is linked). deploy_data_available is false when the deploy "
             "tables aren't synced."
         ),
     )

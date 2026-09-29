@@ -32,8 +32,8 @@ vi.mock("@posthog/ui/features/canvas/hooks/useChannels", () => ({
     isLoading: mocks.channelsLoading,
   }),
 }));
-vi.mock("@posthog/ui/features/canvas/hooks/useChannelsLayout", () => ({
-  useChannelsLayout: () => true,
+vi.mock("@posthog/ui/features/feature-flags/useLoopsHogFlowsEnabled", () => ({
+  useLoopsHogFlowsEnabled: () => false,
 }));
 vi.mock("@posthog/ui/features/canvas/components/ChannelHeader", () => ({
   ChannelHeader: () => <div>Personal space header</div>,
@@ -41,20 +41,13 @@ vi.mock("@posthog/ui/features/canvas/components/ChannelHeader", () => ({
 vi.mock("@posthog/ui/hooks/useSetHeaderContent", () => ({
   useSetHeaderContent: () => {},
 }));
-vi.mock("@posthog/ui/router/navigationBridge", () => ({
-  navigateToNewLoop: vi.fn(),
-}));
-vi.mock("@posthog/ui/features/canvas/hooks/useOrgMembers", () => ({
-  useOrgMembers: () => ({
-    members: [],
-    isLoading: false,
-    isError: false,
-    isComplete: true,
-  }),
+vi.mock("@posthog/ui/features/loops/loopWizardDialogStore", () => ({
+  openNewLoop: vi.fn(),
 }));
 vi.mock("@posthog/ui/features/loops/hooks/useLoops", () => ({
   useLoops: mocks.useLoops,
   useLoopLimits: () => null,
+  useLoopLimitReason: () => null,
 }));
 vi.mock("@posthog/ui/features/loops/components/LoopBuilderComposer", () => ({
   LoopBuilderComposer: () => null,
@@ -63,8 +56,14 @@ vi.mock("@posthog/ui/features/loops/components/LoopFallbacks", () => ({
   LoopsEmptyNotice: () => null,
   LoopsSkeleton: () => <div>Loading loops</div>,
 }));
-vi.mock("@posthog/ui/features/loops/components/LoopRow", () => ({
-  LoopRow: ({ loop }: { loop: { name: string } }) => <div>{loop.name}</div>,
+vi.mock("@posthog/ui/features/loops/components/LoopsTable", () => ({
+  LoopsTable: ({ loops }: { loops: { id: string; name: string }[] }) => (
+    <div>
+      {loops.map((loop) => (
+        <div key={loop.id}>{loop.name}</div>
+      ))}
+    </div>
+  ),
 }));
 vi.mock("@posthog/ui/features/loops/components/LoopsEmptyState", () => ({
   LoopsEmptyState: () => null,
@@ -83,7 +82,11 @@ function loop(
   return {
     id,
     name,
-    context_target: folderId ? { folder_id: folderId, name: folderId } : null,
+    description: "",
+    visibility: "team",
+    enabled: true,
+    disabled_reason: null,
+    context_target: folderId ? { channel_id: folderId, name: folderId } : null,
   } as LoopSchemas.Loop;
 }
 

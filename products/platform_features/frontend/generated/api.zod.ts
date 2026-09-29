@@ -47,16 +47,6 @@ export const CreateBody = /* @__PURE__ */ zod.object({
         .boolean()
         .nullish()
         .describe('When True, this organization allows its data to be used to train PostHog AI models.'),
-    default_experiment_stats_method: zod
-        .union([
-            zod.enum(['bayesian', 'frequentist']).describe('\* `bayesian` - Bayesian\n\* `frequentist` - Frequentist'),
-            zod.enum(['']),
-            zod.null(),
-        ])
-        .optional()
-        .describe(
-            'Default statistical method for new experiments in this organization.\n\n\* `bayesian` - Bayesian\n\* `frequentist` - Frequentist'
-        ),
     default_anonymize_ips: zod
         .boolean()
         .optional()
@@ -105,16 +95,6 @@ export const UpdateBody = /* @__PURE__ */ zod.object({
         .boolean()
         .nullish()
         .describe('When True, this organization allows its data to be used to train PostHog AI models.'),
-    default_experiment_stats_method: zod
-        .union([
-            zod.enum(['bayesian', 'frequentist']).describe('\* `bayesian` - Bayesian\n\* `frequentist` - Frequentist'),
-            zod.enum(['']),
-            zod.null(),
-        ])
-        .optional()
-        .describe(
-            'Default statistical method for new experiments in this organization.\n\n\* `bayesian` - Bayesian\n\* `frequentist` - Frequentist'
-        ),
     default_anonymize_ips: zod
         .boolean()
         .optional()
@@ -163,16 +143,6 @@ export const PartialUpdateBody = /* @__PURE__ */ zod.object({
         .boolean()
         .nullish()
         .describe('When True, this organization allows its data to be used to train PostHog AI models.'),
-    default_experiment_stats_method: zod
-        .union([
-            zod.enum(['bayesian', 'frequentist']).describe('\* `bayesian` - Bayesian\n\* `frequentist` - Frequentist'),
-            zod.enum(['']),
-            zod.null(),
-        ])
-        .optional()
-        .describe(
-            'Default statistical method for new experiments in this organization.\n\n\* `bayesian` - Bayesian\n\* `frequentist` - Frequentist'
-        ),
     default_anonymize_ips: zod
         .boolean()
         .optional()

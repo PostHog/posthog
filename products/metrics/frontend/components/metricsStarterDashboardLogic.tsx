@@ -15,7 +15,6 @@ import type { DashboardType } from '~/types'
 import { metricsAttributeValuesRetrieve, metricsNamesRetrieve } from 'products/metrics/frontend/generated/api'
 import type { _MetricPickerNameApi } from 'products/metrics/frontend/generated/api.schemas'
 
-import type { InsightModel } from '../../../../frontend/src/types'
 import { RECOMMENDED_AGGREGATION_BY_TYPE, nodeAggregationFields, toKnownMetricType } from './metricsViewerLogic'
 
 // A metric name can appear under more than one OTel type, so option identity
@@ -51,7 +50,7 @@ export interface metricsStarterDashboardLogicActions {
         createdDashboard: DashboardType,
         warning?: string
     ) => {
-        createdDashboard: DashboardType<InsightModel>
+        createdDashboard: DashboardType
         warning: string | undefined
     }
     loadMetricOptions: (_: any) => any
@@ -207,7 +206,7 @@ export const metricsStarterDashboardLogic = kea<metricsStarterDashboardLogicType
                 // The core dashboards create endpoint has no generated client yet
                 // (only its sharing sub-resources are in the codegen surface), so this
                 // stays a manual call until the Dashboard viewset is tagged.
-                // nosemgrep: prefer-codegen-api
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use dashboardsCreate() from 'products/dashboards/frontend/generated/api' instead.
                 dashboard = await api.create<DashboardType>(`api/projects/${values.currentTeamId}/dashboards/`, {
                     name,
                 })

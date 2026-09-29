@@ -60,6 +60,7 @@ export interface TaxonomicPopoverProps<ValueType extends TaxonomicFilterValue = 
     definitionPopoverRenderer?: DefinitionPopoverRenderer
     suggestedFiltersLabel?: string
     enableKeywordShortcuts?: boolean
+    promoteSelectedItemToFirstPosition?: boolean
     selectingKeyOnly?: boolean
     /** Called when the popover is opened. */
     onOpen?: () => void
@@ -105,6 +106,7 @@ export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
         definitionPopoverRenderer,
         suggestedFiltersLabel,
         enableKeywordShortcuts,
+        promoteSelectedItemToFirstPosition,
         selectingKeyOnly,
         onOpen,
         width,
@@ -178,6 +180,7 @@ export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
                     definitionPopoverRenderer={definitionPopoverRenderer}
                     suggestedFiltersLabel={suggestedFiltersLabel}
                     enableKeywordShortcuts={enableKeywordShortcuts}
+                    promoteSelectedItemToFirstPosition={promoteSelectedItemToFirstPosition}
                     selectingKeyOnly={selectingKeyOnly}
                     width={width}
                 />

@@ -406,6 +406,7 @@ const meta: Meta = {
                     results: recordings,
                     version: 1,
                 },
+                '/api/projects/:team_id/groups/find': group,
                 '/api/environments/:team_id/groups/find': group,
                 '/api/environments/:team_id/error_tracking/issues/:id/': errorTrackingIssue,
                 '/api/environments/:team_id/error_tracking/issues/:id/fingerprints/': [],

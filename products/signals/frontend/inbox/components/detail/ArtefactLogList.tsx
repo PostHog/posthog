@@ -11,6 +11,7 @@ import {
     IconCalendar,
     IconListCheck,
     IconListTreeConnected,
+    IconPause,
     IconPeople,
     IconPencil,
     IconRefresh,
@@ -44,7 +45,11 @@ import { ArtefactTaskRun } from './ArtefactTaskRun'
 import {
     artefactAttributionLabel,
     artefactLocationLabel,
+    AUTOSTART_SKIP_REASON_LABELS,
+    AutostartSkipContent,
+    CheckLifecycleContent,
     CheckResultContent,
+    CheckScheduledContent,
     CodeReviewContent,
     CodeReferenceContent,
     CommitContent,
@@ -65,6 +70,7 @@ import {
     TitleChangeContent,
 } from './artefactTypes'
 import { prActivityTitle } from './prActivityPresentation'
+import { CHECK_LIFECYCLE_ENTRIES } from './reportCheckPresentation'
 
 /** Map a file extension to a CodeSnippet language for syntax highlighting; falls back to plain text. */
 function languageFromPath(path: string | undefined): Language {
@@ -141,8 +147,12 @@ const ARTEFACT_MARKER: Record<string, ComponentType<{ className?: string }>> = {
     summary_change: IconPencil,
     related_to: IconListTreeConnected,
     report_link: IconListTreeConnected,
+    autostart_skip: IconPause,
     code_review: IconListCheck,
     check_result: IconCalendar,
+    check_scheduled: IconCalendar,
+    check_expired: IconCalendar,
+    check_cancelled: IconCalendar,
     implementation_decision: IconRefresh,
     implementation_replacement: IconRefresh,
     implementation_handover: IconRefresh,
@@ -325,6 +335,32 @@ function ReportLinkBody({ content }: { content: ReportLinkContent }): JSX.Elemen
     )
 }
 
+function AutostartSkipBody({ content }: { content: AutostartSkipContent }): JSX.Element | null {
+    if (!content.detail?.trim()) {
+        return null
+    }
+    const reason = content.skip_reason
+        ? (AUTOSTART_SKIP_REASON_LABELS[content.skip_reason] ?? prettify(content.skip_reason))
+        : null
+    return (
+        <div className="flex flex-col gap-1 text-xs">
+            <div className="flex items-center gap-2">
+                {reason ? <LemonTag type="muted">{reason}</LemonTag> : null}
+                {content.linked_report_id ? (
+                    <Link
+                        to={urls.inboxReport('reports', content.linked_report_id)}
+                        className="inline-flex items-center gap-1"
+                        data-attr="artefact-autostart-skip-open"
+                    >
+                        Open that report <IconExternal className="size-3" />
+                    </Link>
+                ) : null}
+            </div>
+            <ReasoningBody text={content.detail} />
+        </div>
+    )
+}
+
 const CODE_REVIEW_OUTCOME: Record<NonNullable<CodeReviewContent['outcome']>, { label: string; type: LemonTagType }> = {
     published: { label: 'Published on GitHub', type: 'success' },
     stored: { label: 'Review saved', type: 'muted' },
@@ -350,6 +386,29 @@ function CheckResultBody({ content }: { content: CheckResultContent }): JSX.Elem
                     {typeof content.baseline_value === 'number' ? `, was ${content.baseline_value} when set` : ''}
                 </span>
             ) : null}
+        </div>
+    )
+}
+
+/**
+ * The three entries that record a check's life rather than its verdict. They share a shape with
+ * `CheckResultBody`, because a reader scanning the log is following one check through four entries
+ * and a different layout per transition would hide that they are the same thing.
+ */
+function CheckLifecycleBody({
+    title,
+    rationale,
+    detail,
+}: {
+    title?: string
+    rationale?: string
+    detail: string
+}): JSX.Element {
+    return (
+        <div className="flex w-full flex-col items-start gap-1">
+            {title?.trim() ? <span className="text-xs text-default">{title}</span> : null}
+            {rationale?.trim() ? <span className="text-xs text-default">{rationale}</span> : null}
+            {detail ? <span className="text-xs text-tertiary">{detail}</span> : null}
         </div>
     )
 }
@@ -475,6 +534,16 @@ function renderArtefactSummary(artefact: SignalReportArtefact): JSX.Element | nu
                 </LemonTag>
             ) : null
         }
+        case 'check_scheduled':
+        case 'check_expired':
+        case 'check_cancelled': {
+            const { tag } = CHECK_LIFECYCLE_ENTRIES[artefact.type](content as CheckLifecycleContent)
+            return (
+                <LemonTag size="small" type={tag.type}>
+                    {tag.label}
+                </LemonTag>
+            )
+        }
         case 'implementation_decision': {
             const { supersede, blocked_reason } = content as ImplementationDecisionContent
             if (typeof supersede !== 'boolean') {
@@ -574,10 +643,24 @@ function renderArtefactBody({
             return <RelatedReportBody content={content as RelatedToContent} />
         case 'report_link':
             return <ReportLinkBody content={content as ReportLinkContent} />
+        case 'autostart_skip':
+            return <AutostartSkipBody content={content as AutostartSkipContent} />
         case 'code_review':
             return <CodeReviewBody content={content as CodeReviewContent} />
         case 'check_result':
             return <CheckResultBody content={content as CheckResultContent} />
+        case 'check_scheduled':
+        case 'check_expired':
+        case 'check_cancelled': {
+            const c = content as CheckScheduledContent
+            return (
+                <CheckLifecycleBody
+                    title={c.title}
+                    rationale={c.rationale}
+                    detail={CHECK_LIFECYCLE_ENTRIES[artefact.type](c).detail}
+                />
+            )
+        }
         case 'title_change': {
             const c = content as TitleChangeContent
             return <ContentChangeBody previous={c.old_title} current={c.new_title ?? ''} />

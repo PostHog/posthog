@@ -50,6 +50,7 @@ from hogli_commands.complexity_lint import PYTHON_SCOPE, TEST_WARN_AT, TYPESCRIP
 from hogli_commands.depot_mirrors import mirror_violations
 from hogli_commands.devenv.generator import TRACKED_MPROCS_FILES
 from hogli_commands.lockfile_merge import LOCKFILE_GLOBS, missing_resolutions
+from hogli_commands.projections import all_outputs as projection_outputs
 from hogli_commands.size_lint import SCOPE as SIZE_SCOPE
 
 Requirement = Literal["node", "desktop-node", "stack", "clickhouse", "python-env"]
@@ -227,6 +228,24 @@ DIFF_CHECKS: list[DiffCheck] = [
         fix=["hogli", "lint:feature-flags:fix"],
     ),
     DiffCheck(
+        key="api-ratchet",
+        label="new lib/api.ts path method duplicating a generated client",
+        # Both sides of the comparison: a new path method, and a regenerated client
+        # that gives an existing method a twin.
+        triggers=[
+            "frontend/src/lib/api.ts",
+            "frontend/src/lib/api-ratchet-baseline.txt",
+            "frontend/src/generated/core/api.ts",
+            "products/*/frontend/generated/api.ts",
+            ".semgrep/rules/devex/prefer-codegen-api-namespaced.yaml",
+        ],
+        verify=["hogli", "lint:api-ratchet"],
+        # Prune, never update: --update-baseline would grandfather the duplicate the
+        # branch just added, which is the one thing the check exists to stop.
+        fix=["hogli", "lint:api-ratchet", "--prune-baseline", "--write-semgrep"],
+        requires=("python-env",),
+    ),
+    DiffCheck(
         key="workflow-lint",
         label="workflow-convention failure in .github/workflows",
         triggers=[".github/workflows/*.yml", ".github/workflows/*.yaml"],
@@ -258,35 +277,17 @@ DIFF_CHECKS: list[DiffCheck] = [
         requires=("stack",),
     ),
     DiffCheck(
-        key="taxonomy",
-        label="taxonomy JSON out of sync with posthog/taxonomy/taxonomy.py",
-        # From build.py so preflight and build:taxonomy-json can't drift on which diffs
-        # need a regen, plus the generator and its output, so an edit to any side of the
-        # relation is caught.
+        key="projections",
+        label="generated projections out of sync with their Python sources",
+        # From the projection registry, so preflight, build:projections and the registry
+        # cannot drift on which diffs need a regen. The outputs count too, so a hand-edit
+        # to one is caught.
         triggers=[
-            *BUILD_TRIGGERS["build:taxonomy-json"],
-            "bin/build-taxonomy-json.py",
-            "frontend/src/taxonomy/core-filter-definitions-by-group.json",
+            *BUILD_TRIGGERS["build:projections"],
+            *projection_outputs(),
         ],
-        verify=["hogli", "build:taxonomy-json", "--check"],
-        fix=["hogli", "build:taxonomy-json"],
-        requires=("python-env",),
-    ),
-    DiffCheck(
-        key="object-tags",
-        label="generated object-tag registries out of sync with posthog/object_tags/kinds.py",
-        # From build.py so preflight and build:object-tags can't drift on which diffs
-        # need a regen, plus the generator and its outputs, so an edit to any side of
-        # the relation is caught.
-        triggers=[
-            *BUILD_TRIGGERS["build:object-tags"],
-            "bin/build-object-tags-registry.py",
-            "products/desktop/packages/core/src/inbox/objectKinds.generated.ts",
-            "products/desktop/packages/shared/src/objectTagKinds.generated.ts",
-            "frontend/src/lib/components/AgentObjectTags/objectKinds.generated.ts",
-        ],
-        verify=["hogli", "build:object-tags", "--check"],
-        fix=["hogli", "build:object-tags"],
+        verify=["hogli", "build:projections", "--check"],
+        fix=["hogli", "build:projections"],
         requires=("python-env",),
     ),
     DiffCheck(

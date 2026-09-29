@@ -15,7 +15,7 @@ export interface SettingsSearchEntry {
 // display names come from SETTINGS_PAGE_LABELS, not repeated per entry.
 const SETTINGS_SEARCH_INDEX: SettingsSearchEntry[] = [
   {
-    category: "general",
+    category: "appearance",
     label: "Theme",
     keywords: ["appearance", "light", "dark", "system"],
   },
@@ -30,7 +30,12 @@ const SETTINGS_SEARCH_INDEX: SettingsSearchEntry[] = [
     keywords: ["billing", "manage account", "email"],
   },
   {
-    category: "general",
+    category: "appearance",
+    label: "Navigation rail",
+    keywords: ["nav rail", "sidebar", "icon size", "labels", "compact"],
+  },
+  {
+    category: "appearance",
     label: "Mission Control overlay",
     keywords: ["macos", "logo"],
   },

@@ -157,6 +157,9 @@ database "posthog" {
   }
 
   table "kafka_trace_spans_avro" {
+    settings = {
+      input_format_avro_allow_missing_fields = "1"
+    }
     column "uuid" {
       type = "String"
     }
@@ -219,6 +222,9 @@ database "posthog" {
     }
     column "status_code" {
       type = "Int32"
+    }
+    column "retention_days" {
+      type = "Nullable(Int32)"
     }
     engine "kafka" {
       collection           = "warpstream_traces"
@@ -1325,10 +1331,10 @@ SQL
   table "logs_volume_buckets" {
     order_by     = ["team_id", "time_bucket", "service_name", "namespace", "environment", "severity_text"]
     partition_by = "toDate(time_bucket)"
-    ttl          = "time_bucket + toIntervalDay(42)"
+    ttl          = "time_bucket + toIntervalDay(greatest(42, retention_days))"
     settings = {
       index_granularity   = "8192"
-      ttl_only_drop_parts = "1"
+      ttl_only_drop_parts = "0"
     }
     column "team_id" {
       type = "Int32"
@@ -1348,6 +1354,9 @@ SQL
     }
     column "severity_text" {
       type = "LowCardinality(String)"
+    }
+    column "retention_days" {
+      type = "SimpleAggregateFunction(max, UInt16)"
     }
     column "log_count" {
       type = "SimpleAggregateFunction(sum, UInt64)"
@@ -1377,6 +1386,9 @@ SQL
     }
     column "severity_text" {
       type = "LowCardinality(String)"
+    }
+    column "retention_days" {
+      type = "SimpleAggregateFunction(max, UInt16)"
     }
     column "log_count" {
       type = "SimpleAggregateFunction(sum, UInt64)"
@@ -2702,6 +2714,14 @@ SQL
     column "trace_flags_arr" {
       type = "SimpleAggregateFunction(groupArrayArray(10000), Array(Int32))"
     }
+    column "timestamp_min" {
+      type  = "DateTime64(6)"
+      alias = "arrayMin(timestamp_arr)"
+    }
+    column "timestamp_max" {
+      type  = "DateTime64(6)"
+      alias = "arrayMax(timestamp_arr)"
+    }
     index "idx_metric_type_set" {
       expr        = "metric_type"
       type        = "set(10)"
@@ -2715,6 +2735,16 @@ SQL
     index "idx_trace_id_bf" {
       expr        = "trace_id_arr"
       type        = "bloom_filter(0.01)"
+      granularity = 1
+    }
+    index "idx_timestamp_min_minmax" {
+      expr        = "timestamp_min"
+      type        = "minmax"
+      granularity = 1
+    }
+    index "idx_timestamp_max_minmax" {
+      expr        = "timestamp_max"
+      type        = "minmax"
       granularity = 1
     }
     engine "replicated_aggregating_merge_tree" {
@@ -3622,20 +3652,34 @@ SQL
       type        = "bloom_filter(0.001)"
       granularity = 16
     }
-    index "idx_trace_bloom_part" {
+    index "idx_trace_bloom_part_v2" {
       expr        = "trace_id"
-      type        = "bloom_filter(0.00001)"
+      type        = "bloom_filter(0.05)"
       granularity = 99999
     }
-    index "idx_span_id_bloom_part" {
+    index "idx_span_id_bloom_part_v2" {
       expr        = "span_id"
-      type        = "bloom_filter(0.00001)"
+      type        = "bloom_filter(0.05)"
       granularity = 99999
     }
     projection "projection_index_span_id" {
       query = <<SQL
 SELECT _part_offset
 ORDER BY span_id
+SQL
+
+    }
+    projection "projection_index_team_span_id" {
+      query = <<SQL
+SELECT team_id, _part_offset
+ORDER BY span_id
+SQL
+
+    }
+    projection "projection_index_team_trace_id" {
+      query = <<SQL
+SELECT team_id, _part_offset
+ORDER BY trace_id
 SQL
 
     }
@@ -4090,7 +4134,19 @@ SQL
     to_table = "posthog.trace_spans"
     query    = <<SQL
 SELECT
-  * EXCEPT(attributes, resource_attributes, kind, flags, dropped_attributes_count, dropped_events_count, dropped_links_count, status_code),
+  uuid,
+  trace_id,
+  span_id,
+  parent_span_id,
+  trace_state,
+  name,
+  timestamp,
+  end_time,
+  observed_timestamp,
+  service_name,
+  instrumentation_scope,
+  events,
+  links,
   toInt8(kind) AS kind,
   toUInt32(flags) AS flags,
   toUInt32(dropped_attributes_count) AS dropped_attributes_count,
@@ -4102,7 +4158,11 @@ SELECT
   toInt32OrZero(_headers.value[indexOf(_headers.name, 'team_id')]) AS team_id,
   observed_timestamp
   + toIntervalDay(
-    toInt32OrDefault(_headers.value[indexOf(_headers.name, 'retention-days')], toInt32(15))
+    if(
+      (retention_days IS NOT NULL) AND (retention_days > 0),
+      retention_days,
+      toInt32OrDefault(_headers.value[indexOf(_headers.name, 'retention-days')], toInt32(15))
+    )
   ) AS original_expiry_timestamp,
   _partition,
   _topic,
@@ -4450,6 +4510,7 @@ SELECT
   namespace,
   environment,
   severity_text,
+  maxSimpleState(retention_days) AS retention_days,
   sumSimpleState(1) AS log_count
 FROM
   (
@@ -4471,7 +4532,17 @@ FROM
           resource_attributes['env']
         )
       ) AS environment,
-      lower(severity_text) AS severity_text
+      lower(severity_text) AS severity_text,
+      toUInt16(
+        least(
+          intDiv(
+            greatest(dateDiff('microsecond', time_bucket, original_expiry_timestamp), 0)
+            + 86399999999,
+            86400000000
+          ),
+          3650
+        )
+      ) AS retention_days
     FROM posthog.logs34
   )
 GROUP BY
@@ -4495,6 +4566,9 @@ SQL
     }
     column "severity_text" {
       type = "LowCardinality(String)"
+    }
+    column "retention_days" {
+      type = "SimpleAggregateFunction(max, UInt16)"
     }
     column "log_count" {
       type = "SimpleAggregateFunction(sum, UInt64)"
@@ -5399,6 +5473,71 @@ SQL
     column "max_lag" {
       type = "SimpleAggregateFunction(max, Decimal(18, 6))"
     }
+  }
+
+  view "metrics4_view" {
+    query = <<SQL
+SELECT
+  team_id,
+  metric_name,
+  time_bucket,
+  series_fingerprint,
+  resource_fingerprint,
+  timestamp,
+  observed_timestamp,
+  original_expiry_timestamp,
+  service_name,
+  metric_type,
+  value,
+  count,
+  histogram_bounds,
+  histogram_counts,
+  trace_id,
+  span_id,
+  trace_flags,
+  has_labels,
+  unit,
+  aggregation_temporality,
+  is_monotonic,
+  instrumentation_scope
+FROM posthog.metrics2
+WHERE
+  (time_bucket > toDateTime('2026-08-25 00:00:00'))
+AND
+  (time_bucket < toDateTime('2026-09-14 00:00:00'))
+AND
+  (timestamp > toDateTime('2026-08-25 00:00:00'))
+AND
+  (timestamp < toDateTime('2026-09-14 00:00:00'))
+UNION ALL
+SELECT
+  team_id,
+  metric_name,
+  time_bucket,
+  series_fingerprint,
+  resource_fingerprint,
+  point_timestamp AS timestamp,
+  point_observed_timestamp AS observed_timestamp,
+  toDateTime64(original_expiry_date, 6) AS original_expiry_timestamp,
+  service_name,
+  metric_type,
+  point_value AS value,
+  point_count AS count,
+  histogram_bounds,
+  point_histogram_counts AS histogram_counts,
+  point_trace_id AS trace_id,
+  point_span_id AS span_id,
+  point_trace_flags AS trace_flags,
+  toBool(has_labels) AS has_labels,
+  unit,
+  aggregation_temporality,
+  toBool(is_monotonic) AS is_monotonic,
+  instrumentation_scope
+FROM
+  posthog.metrics4_samples ARRAY JOIN timestamp_arr AS point_timestamp, observed_timestamp_arr AS point_observed_timestamp, value_arr AS point_value, count_arr AS point_count, histogram_counts_arr AS point_histogram_counts, trace_id_arr AS point_trace_id, span_id_arr AS point_span_id, trace_flags_arr AS point_trace_flags
+WHERE time_bucket >= toDateTime('2026-09-14 00:00:00')
+SQL
+
   }
 }
 

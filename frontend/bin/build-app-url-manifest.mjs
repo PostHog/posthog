@@ -61,6 +61,8 @@ const EXCLUDED_HELPERS = new Set(['absolute', 'default', 'project', 'currentProj
 // base-only entries are still fine (`/surveys` without its `tab` is a real page), but these resolve
 // to a scene that renders its missing-parameter error, so an entry would be a confident dead link.
 const EXCLUDED_BUILDERS = new Set(['tracingOperation'])
+// Flag-gated surfaces for PostHog staff only: a link an agent hands a customer would land on a scene that refuses them.
+const INTERNAL_BUILDERS = new Set(['decisionPlayground'])
 
 const sentinel = (name) => `:${name}`
 
@@ -300,6 +302,10 @@ function buildManifest(urls) {
         }
         if (EXCLUDED_BUILDERS.has(name)) {
             excluded.push({ name, reason: 'query-only parameters' })
+            continue
+        }
+        if (INTERNAL_BUILDERS.has(name)) {
+            excluded.push({ name, reason: 'internal-only surface' })
             continue
         }
         const fn = urls[name]

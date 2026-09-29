@@ -88,6 +88,9 @@ service PersonHogService {
   // number of rows per call; pending uuids are sent again by the caller.
   // WARNING: Same routing caveat as DeletePersons above.
   rpc DeleteTombstonedPersons(personhog.types.v1.DeleteTombstonedPersonsRequest) returns (personhog.types.v1.DeleteTombstonedPersonsResponse);
+  rpc GetPersonTombstones(personhog.types.v1.GetPersonTombstonesRequest) returns (personhog.types.v1.GetPersonTombstonesResponse);
+  rpc AckPersonTombstones(personhog.types.v1.AckPersonTombstonesRequest) returns (personhog.types.v1.AckPersonTombstonesResponse);
+  rpc ListPersonTombstoneQueue(personhog.types.v1.ListPersonTombstoneQueueRequest) returns (personhog.types.v1.ListPersonTombstoneQueueResponse);
 
   // Person split
   // WARNING: Same routing caveat as DeletePersons above — write operation on person data

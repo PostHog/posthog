@@ -217,7 +217,7 @@ class TestSettleErrorTypesAreNotReportedAsDefects:
         assert "session_runaway" not in EXPECTED_CONTROL_FLOW_ERROR_TYPES
 
 
-def _mock_activities(calls: list[str], exclude: set[str] | None = None) -> list[Any]:
+def _mock_activities(calls: list[str], exclude: set[str] | None = None, *, output_type: str = "boolean") -> list[Any]:
     exclude = exclude or set()
 
     @activity.defn(name="fetch_evaluation_activity")
@@ -228,7 +228,7 @@ def _mock_activities(calls: list[str], exclude: set[str] | None = None) -> list[
             "name": "Hog eval",
             "evaluation_type": "hog",
             "evaluation_config": {},
-            "output_type": "boolean",
+            "output_type": output_type,
             "output_config": {},
             "team_id": 1,
             "enabled": True,
@@ -238,6 +238,8 @@ def _mock_activities(calls: list[str], exclude: set[str] | None = None) -> list[
     @activity.defn(name="execute_trace_hog_eval_activity")
     async def mock_execute_trace_hog(inputs: ExecuteTraceEvaluationInputs) -> EvaluationActivityResult:
         calls.append("execute")
+        if output_type == "numeric":
+            return {"result_type": "numeric", "score": 0.25, "reasoning": "ok", "allows_na": False}
         return {"result_type": "boolean", "verdict": True, "reasoning": "ok", "allows_na": False}
 
     @activity.defn(name="emit_trace_evaluation_event_activity")
@@ -256,11 +258,15 @@ def _mock_activities(calls: list[str], exclude: set[str] | None = None) -> list[
     @activity.defn(name="execute_session_hog_eval_activity")
     async def mock_execute_session_hog(inputs: ExecuteSessionEvaluationInputs) -> EvaluationActivityResult:
         calls.append("execute_session")
+        if output_type == "numeric":
+            return {"result_type": "numeric", "score": 0.25, "reasoning": "ok", "allows_na": False}
         return {"result_type": "boolean", "verdict": True, "reasoning": "ok", "allows_na": False}
 
     @activity.defn(name="execute_session_llm_judge_activity")
     async def mock_execute_session_judge(inputs: ExecuteSessionEvaluationInputs) -> EvaluationActivityResult:
         calls.append("execute_session")
+        if output_type == "numeric":
+            return {"result_type": "numeric", "score": 0.25, "reasoning": "ok", "allows_na": False}
         return {"result_type": "boolean", "verdict": True, "reasoning": "ok", "allows_na": False}
 
     @activity.defn(name="find_evaluation_quiet_point_activity")
@@ -325,7 +331,10 @@ class TestQuietPoint:
 
 class TestRunAggregateEvaluationWorkflow:
     @pytest.mark.asyncio
-    async def test_fixed_window_sleeps_then_evaluates(self):
+    @pytest.mark.parametrize("output_type", ["boolean", "numeric"])
+    async def test_fixed_window_sleeps_then_evaluates(self, output_type: str, caplog: pytest.LogCaptureFixture):
+        caplog.set_level("INFO", logger="temporalio.workflow")
+        caplog.set_level("INFO", logger="temporalio.activity")
         calls: list[str] = []
         task_queue = str(uuid.uuid4())
         async with await WorkflowEnvironment.start_time_skipping() as env:
@@ -333,7 +342,7 @@ class TestRunAggregateEvaluationWorkflow:
                 env.client,
                 task_queue=task_queue,
                 workflows=[RunAggregateEvaluationWorkflow],
-                activities=_mock_activities(calls),
+                activities=_mock_activities(calls, output_type=output_type),
                 workflow_runner=UnsandboxedWorkflowRunner(),
             ):
                 start = await env.get_current_time()
@@ -342,10 +351,15 @@ class TestRunAggregateEvaluationWorkflow:
                     _workflow_inputs({"strategy": "fixed_window", "window_seconds": 600}),
                     id=str(uuid.uuid4()),
                     task_queue=task_queue,
+                    execution_timeout=timedelta(minutes=20),
                 )
                 elapsed = (await env.get_current_time()) - start
         assert calls == ["fetch", "execute", "emit", "telemetry"]
-        assert result["verdict"] is True
+        if output_type == "numeric":
+            assert result["score"] == 0.25
+            assert "verdict" not in result
+        else:
+            assert result["verdict"] is True
         assert elapsed >= timedelta(seconds=600)
         assert elapsed < timedelta(seconds=900)
 

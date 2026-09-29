@@ -6,7 +6,7 @@ that reads each breakdown property off the metric event, attributes it across
 funnel steps with the context's resolved aggregation, and injects the breakdown
 columns into the funnel query CTEs.
 
-Scope: funnel metrics only, for now.
+Scope: funnel metrics only.
 """
 
 from typing import cast
@@ -40,14 +40,13 @@ class ExperimentBreakdownAttributionQueryBuilder:
         events table and the warehouse tables. Those branches carry no breakdown column, so a
         breakdown attributed from ``metric_events`` would reference a column no branch produces.
         Attributing a breakdown off warehouse rows needs a design this builder does not have, so
-        the combination is rejected until integration adds it.
+        the combination is rejected.
 
         A single-step funnel is degenerate for metric-event attribution. A user reaches a named
         bucket only by emitting the step event, which is the same event the funnel counts as the
         conversion, so every named bucket is 100% converted and the per-bucket rate carries no
-        information. The multi-step case raises a wider statistics question (per-bucket buckets
-        condition on a post-exposure event) that the experiments team must settle before wiring;
-        the one-step case is unambiguous, so it is rejected now.
+        information. A multi-step funnel has a related open question, because each bucket
+        conditions on a post-exposure event.
         """
         if self.context.has_data_warehouse_step():
             raise NotImplementedError(
@@ -151,7 +150,7 @@ class ExperimentBreakdownAttributionQueryBuilder:
         The step condition is a per-row flag with no ordering, so this aggregate can pick a step
         occurrence the walk skipped. This is sharpest for specific-step attribution: a step-2 event
         that fires before step_1, then again after, gives the funnel the second occurrence and this
-        aggregate the first. First and last touch now scan every metric step, which is near how
+        aggregate the first. First and last touch scan every metric step, which is near how
         insights treats them, but insights still restricts them to the events the aggregate walks.
         The fix routes per-event values through ``funnel_evaluation_expr`` (or reads them by the
         aggregate's matched-step UUIDs), which changes a shared helper this class does not own.
@@ -180,9 +179,9 @@ class ExperimentBreakdownAttributionQueryBuilder:
     def _top_breakdowns_subquery(self, aliases: list[str]) -> ast.SelectQuery:
         """Top-N breakdown tuples by entity (user) count, pooled across variants.
 
-        Selects from entity_metrics (one row per user) so the ranking measure is the
-        number of experiment units in each breakdown bucket — the funnel analog of
-        insights ranking by frequency.
+        Selects from entity_metrics (one row per user), so the ranking measure is the number of
+        experiment units in each breakdown bucket. This is the funnel equivalent of insights
+        ranking by frequency.
 
         Only users who reach the result are ranked. Users with no variant are dropped by the
         final SELECT, and under "exclude" handling the runner drops multi-variant users after
@@ -223,9 +222,9 @@ class ExperimentBreakdownAttributionQueryBuilder:
 
         Integration should measure the top-N read cost. The same membership subquery is inlined
         once per breakdown column, and ClickHouse re-evaluates an unmaterialized CTE at each
-        reference, so N breakdowns plus the outer read scan entity_metrics N+1 times (the runner
-        caps N at 3, so up to 4). On the optimized funnel path entity_metrics is the single events
-        scan that path exists to compute once. Two fixes, both needing a real experiment timing:
+        reference, so N breakdowns plus the outer read scan entity_metrics N+1 times. On the
+        optimized funnel path entity_metrics is the single events scan that path exists to
+        compute once. Two fixes, both needing a real experiment timing:
         materialize entity_metrics (trades the repeated scan for holding one row per exposed user),
         or compute the membership flag once in a select that wraps the outer query. The wrap cannot
         happen here, because the funnel query builder keeps editing the final SELECT after
