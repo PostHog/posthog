@@ -109,7 +109,6 @@ class TestSignalsProductModuleIntegrity:
             "ScoutSuggestionsCoordinatorWorkflow",
             "CustomSignalAgentWorkflow",
             "SignalReportInboxNotificationWorkflow",
-            "InboxRankingScoringWorkflow",
         ]
         actual_workflow_names = [w.__name__ for w in SIGNALS_PRODUCT_WORKFLOWS]
         assert len(actual_workflow_names) == len(expected_workflows), (
@@ -180,7 +179,6 @@ class TestSignalsProductModuleIntegrity:
             "load_scout_trial_evaluation_activity",
             "judge_scout_trial_run_activity",
             "finish_scout_trial_evaluation_activity",
-            "score_inbox_reports_activity",
             "resume_signals_scout_workflow_step",
             "plan_scout_suggestion_runs_activity",
             "run_scout_suggestions_activity",

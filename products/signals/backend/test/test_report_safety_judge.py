@@ -1,12 +1,17 @@
 import json
+import asyncio
 from datetime import UTC, datetime
+from threading import Event
 
 import pytest
+import time_machine
 from unittest.mock import AsyncMock, patch
 
 from django.test import override_settings
 
 from anthropic.types import Message, TextBlock, Usage
+from fakeredis import FakeRedis
+from temporalio.exceptions import ApplicationError
 
 from posthog.llm.gateway_client import private_scout_gateway
 
@@ -14,6 +19,7 @@ from products.ml_inference.backend.facade.contracts import ChoiceAnswer, Decisio
 from products.signals.backend.temporal.llm import SAFETY_MODEL
 from products.signals.backend.temporal.report_safety_judge import (
     JEV_REPORT_STATE_MAX_BYTES,
+    JEV_REPORT_TIMEOUT_SECONDS,
     SafetyJudgeResponse,
     judge_report_safety,
 )
@@ -119,7 +125,8 @@ async def test_typesafe_block_explains_the_category(
 
 
 @pytest.mark.asyncio
-async def test_typesafe_only_checks_a_large_report_in_complete_chunks() -> None:
+@pytest.mark.parametrize("deadline_expired", [False, True])
+async def test_typesafe_only_checks_a_large_report_in_complete_chunks(deadline_expired: bool) -> None:
     decision = DecisionResult(
         model="jevk5-fp8-0.2",
         answers={
@@ -140,14 +147,44 @@ async def test_typesafe_only_checks_a_large_report_in_complete_chunks() -> None:
         )
         for index, character in enumerate(("a", "b"), start=1)
     ]
+    loop = asyncio.get_running_loop()
+    report_deadline = asyncio.timeout(JEV_REPORT_TIMEOUT_SECONDS)
+    original_timeout = asyncio.timeout
+    release_gateway = Event()
+    calls = 0
+
+    def timeout(seconds: float | None) -> asyncio.Timeout:
+        return report_deadline if seconds == JEV_REPORT_TIMEOUT_SECONDS else original_timeout(seconds)
+
+    def gateway(*_args: object, **_kwargs: object) -> DecisionResult:
+        nonlocal calls
+        calls += 1
+        if deadline_expired and calls == 2:
+            loop.call_soon_threadsafe(report_deadline.reschedule, 0)
+            release_gateway.wait(5)
+        return decision
+
     with (
+        time_machine.travel("2026-01-01", tick=False) as clock,
         patch(f"{DECISION_MODULE_PATH}.posthoganalytics.get_feature_flag", return_value="typesafe-only"),
         patch(f"{DECISION_MODULE_PATH}.posthoganalytics.capture"),
-        patch(f"{DECISION_MODULE_PATH}.decision_api.decide_when_available", return_value=decision) as decide,
+        patch(f"{DECISION_MODULE_PATH}.get_client", return_value=FakeRedis()),
+        patch(f"{DECISION_MODULE_PATH}.decision_api.decide_when_available", side_effect=gateway) as decide,
+        patch(f"{DECISION_MODULE_PATH}.asyncio.sleep", AsyncMock(side_effect=clock.shift)),
+        patch(f"{MODULE_PATH}.asyncio.timeout", side_effect=timeout),
     ):
-        result = await judge_report_safety(team_id=1, signals=signals, report_id="report-1")
+        try:
+            if deadline_expired:
+                with pytest.raises(ApplicationError, match="exceeded its time limit") as error:
+                    await judge_report_safety(team_id=1, signals=signals, report_id="report-1")
+                assert error.value.non_retryable
+                assert error.value.type == "ReportSafetyTimeout"
+            else:
+                result = await judge_report_safety(team_id=1, signals=signals, report_id="report-1")
+                assert result.choice is True
+        finally:
+            release_gateway.set()
 
-    assert result.choice is True
     assert decide.call_count == 2
     states = [call.args[0].state for call in decide.call_args_list]
     assert all(len(json.dumps(state, ensure_ascii=False).encode()) <= JEV_REPORT_STATE_MAX_BYTES for state in states)

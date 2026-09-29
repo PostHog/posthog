@@ -234,6 +234,9 @@ PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[APIScopeObject, APIS
     # Gated on a PSAK so the team-wide secret_api_token (readable by any project member)
     # can't be used to sidestep per-user account access controls.
     ("account", "read"),
+    # Lets a service create customer analytics accounts through the external account POST.
+    # Updates on that route stay team-token only.
+    ("account", "write"),
     # First write-capable PSAK scope: lets a service credential fire a loop via
     # `loops/:id/trigger/`. PSAKs are project-wide, so a leaked key can fire any loop
     # in the project (accepted and documented in products/tasks/docs/LOOPS.md).

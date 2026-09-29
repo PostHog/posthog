@@ -211,6 +211,13 @@ FLAG_EVALUATIONS = DeletionTarget(
 EVENTS_TARGETS: tuple[DeletionTarget, ...] = (EVENTS, EVENTS_JSON)
 PERSONAL_DATA_TARGETS: tuple[DeletionTarget, ...] = (*EVENTS_TARGETS, FLAG_EVALUATIONS)
 
+# sharded_events_json stays registered because deletion support will return when the events cluster
+# is reliably reachable. Keeping the default sweep targets separate makes every verifier follow the
+# same temporary exclusion as deletes_job.
+DEFAULT_DELETION_TARGETS: tuple[DeletionTarget, ...] = tuple(
+    target for target in PERSONAL_DATA_TARGETS if target is not EVENTS_JSON
+)
+
 # Every table squash_person_overrides rewrites person_id on. Derived from the capability rather than
 # listed by hand, so registering a target and forgetting the squash is not expressible.
 SQUASH_TARGETS: tuple[DeletionTarget, ...] = tuple(
