@@ -1,4 +1,4 @@
-"""Replay Vision's Gemini client: the AI gateway when it is enabled for the team, else Google directly with our own key."""
+"""Replay Vision's Gemini client: the AI gateway when enabled for the team, else Google directly with our key."""
 
 from collections.abc import Callable, Iterable, Mapping
 from typing import Any, TypeVar
@@ -14,7 +14,6 @@ from posthog.llm.gateway_client import (
 from posthog.ph_client import feature_enabled_or_false
 
 AI_PRODUCT = "replay_vision"
-# Per-team switch for the gateway route, on top of the AI_GATEWAY_URL/AI_GATEWAY_API_KEY pair.
 GATEWAY_FLAG = "replay-vision-ai-gateway"
 
 _DirectClientT = TypeVar("_DirectClientT")
@@ -24,7 +23,7 @@ def replay_gateway_enabled(team_id: int) -> bool:
     """Whether the team's Gemini calls go through the gateway: the env pair is set and the flag is on."""
     if resolve_ai_gateway_config() is None:
         return False
-    # Local evaluation only: a scan makes many calls, and a flag outage must leave calls direct, not slow them.
+    # Local evaluation only: a scan makes many calls, and a flag outage must leave them direct and fast.
     return feature_enabled_or_false(
         GATEWAY_FLAG,
         team_distinct_id(team_id),
@@ -38,8 +37,7 @@ class _GatewayModelsBase:
     """A plain SDK `models` surface that accepts the analytics wrapper's per-call `posthog_*` kwargs.
 
     The gateway captures the generation, so those kwargs become request headers. Groups have no gateway header.
-    Calls stream, because the gateway cuts a buffered call off at 290s and long scans run past that. The chunks are
-    assembled into the one response a buffered call returns.
+    Calls stream, because the gateway cuts a buffered call off at 290s and long scans run past that.
     """
 
     def __init__(self, models: Any, base_properties: Mapping[str, Any]) -> None:
@@ -120,11 +118,9 @@ class GatewayGeminiClient:
 def assemble_stream(chunks: list[types.GenerateContentResponse]) -> types.GenerateContentResponse:
     """Fold streamed chunks into the response a buffered call returns.
 
-    Parts keep their order, so thought signatures and function calls reach the next turn unchanged. The finish
-    reason and usage come from the last chunk that carries them.
-
-    Raises a 503 `ServerError` when the stream ends with no finish reason and no prompt block: the SDK drops the
-    gateway's in-band error frame, so a cut stream would otherwise pass as a short answer.
+    Parts keep their order, so thought signatures and function calls reach the next turn unchanged. Raises a 503
+    `ServerError` when the stream ends with no finish reason and no prompt block: the SDK drops the gateway's in-band
+    error frame, so a cut stream would otherwise pass as a short answer.
     """
     parts: list[types.Part] = []
     last_candidate: types.Candidate | None = None
@@ -168,8 +164,7 @@ def assemble_stream(chunks: list[types.GenerateContentResponse]) -> types.Genera
 
 
 def _merge_text_parts(parts: Iterable[types.Part]) -> list[types.Part]:
-    # Joins the text deltas of one run so the next turn carries one part per run, not one per chunk. A part with a
-    # thought signature is never merged, because the signature belongs to that exact part.
+    # Joins a run's text deltas so the next turn carries one part per run.
     merged: list[types.Part] = []
     for part in parts:
         previous = merged[-1] if merged else None
@@ -186,7 +181,7 @@ def _merge_text_parts(parts: Iterable[types.Part]) -> list[types.Part]:
 
 
 def _plain_text(part: types.Part) -> bool:
-    # Any other field set (a thought signature, a function call, inline data) makes the part more than text.
+    # Any other field set makes the part more than text; a thought signature belongs to that exact part.
     return part.text is not None and part.model_fields_set <= {"text", "thought"}
 
 
