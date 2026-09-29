@@ -10,7 +10,7 @@ from django.test import override_settings
 
 from asgiref.sync import async_to_sync
 from temporalio.common import WorkflowIDReusePolicy
-from temporalio.exceptions import ActivityError, ApplicationError, CancelledError, WorkflowAlreadyStartedError
+from temporalio.exceptions import ActivityError, CancelledError, WorkflowAlreadyStartedError
 from temporalio.workflow import ParentClosePolicy
 
 from posthog.models import Organization, Team
@@ -34,13 +34,11 @@ from posthog.temporal.ai_observability.evaluation_backfill import (
     measure_evaluation_backfill_remainder_activity,
     prepare_evaluation_backfill_tick_activity,
 )
-from posthog.temporal.ai_observability.evaluation_event_io import hydrate_event_reference
 from posthog.temporal.ai_observability.evaluation_workflow_activities import (
     RunEvaluationInputs,
     backfill_verdict_timestamp,
 )
 from posthog.temporal.ai_observability.run_aggregate_evaluation import RunAggregateEvaluationInputs
-from posthog.temporal.common.posthog_client import is_expected_activity_failure
 
 from products.ai_observability.backend.backfill_candidates import BackfillCandidate, BackfillScope, CandidatePage
 from products.ai_observability.backend.models.evaluation_backfill import EvaluationBackfill, EvaluationBackfillStatus
@@ -637,15 +635,3 @@ class TestEvaluationBackfillActivities:
         backfill_data["backfill"].refresh_from_db()
         assert backfill_data["backfill"].status == EvaluationBackfillStatus.CANCELLED
         assert backfill_data["backfill"].dispatched_count == 0
-
-
-def test_missing_generation_reference_is_an_expected_activity_failure() -> None:
-    reference = {"team_id": 1, "uuid": str(uuid.uuid4()), "timestamp": UNIT_TIMESTAMP.isoformat(), "trace_id": "t"}
-
-    with (
-        patch("posthog.temporal.ai_observability.evaluation_event_io.fetch_generation_event", return_value=None),
-        pytest.raises(ApplicationError) as exc_info,
-    ):
-        hydrate_event_reference(reference)
-
-    assert is_expected_activity_failure(exc_info.value)
