@@ -13,7 +13,7 @@ from rest_framework import exceptions, serializers
 
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
-from posthog.hogql.errors import ExposedHogQLError
+from posthog.hogql.errors import ExposedHogQLError, TableAccessDeniedError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import FindPlaceholders
 from posthog.hogql.printer import prepare_and_print_ast
@@ -55,6 +55,12 @@ def _as_uuid(value: object) -> uuid.UUID | None:
         return uuid.UUID(str(value))
     except (AttributeError, TypeError, ValueError):
         return None
+
+
+def _log_lineage_table_denied(event: str, view: DataWarehouseSavedQuery, error: TableAccessDeniedError) -> None:
+    # Lineage resolves without a user and allows only the data modeling system tables. A view can read
+    # another system table the user has access to, so this denial is expected and not an error.
+    logger.warning(event, team_id=view.team_id, saved_query_id=str(view.id), table=error.table_name)
 
 
 def _view_types_validation_error(e: Exception) -> serializers.ValidationError:
@@ -341,6 +347,8 @@ class DataWarehouseSavedQuerySerializer(
                 except DAG.DoesNotExist:
                     raise serializers.ValidationError({"dag_id": "Invalid DAG ID or DAG does not belong to this team"})
             sync_saved_query_to_dag(view, dag=dag_obj)
+        except TableAccessDeniedError as e:
+            _log_lineage_table_denied("saved_query.dag_sync_table_access_denied", view, e)
         except Exception as e:
             capture_exception(e)
             logger.exception("Failed to sync saved query to DAG", saved_query_name=view.name)
@@ -490,6 +498,8 @@ class DataWarehouseSavedQuerySerializer(
 
             try:
                 view.setup_model_paths()
+            except TableAccessDeniedError as e:
+                _log_lineage_table_denied("saved_query.model_paths_table_access_denied", view, e)
             except Exception as e:
                 capture_exception(e)
                 logger.exception("Failed to update model path when updating view %s", view.name)
@@ -539,6 +549,8 @@ class DataWarehouseSavedQuerySerializer(
                 if dag_id:
                     dag_obj = DAG.objects.filter(id=dag_id, team_id=view.team_id).first()
                 sync_saved_query_to_dag(view, dag=dag_obj)
+            except TableAccessDeniedError as e:
+                _log_lineage_table_denied("saved_query.dag_sync_table_access_denied", view, e)
             except Exception as e:
                 capture_exception(e)
                 logger.exception("Failed to sync saved query to DAG", saved_query_name=view.name)

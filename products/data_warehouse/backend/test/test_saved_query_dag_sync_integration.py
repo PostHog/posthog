@@ -1,7 +1,10 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from parameterized import parameterized
 from rest_framework import status
+
+from posthog.hogql.errors import TableAccessDeniedError
 
 from products.data_modeling.backend.facade.models import DEFAULT_DAG_NAME, DataWarehouseSavedQuery, Node, NodeType
 
@@ -157,11 +160,22 @@ class TestSavedQueryDagSyncIntegration(APIBaseTest):
         node.refresh_from_db()
         self.assertEqual(node.type, NodeType.VIEW)
 
-    def test_dag_sync_failure_does_not_fail_saved_query_operation(self):
+    @parameterized.expand(
+        [
+            ("unexpected_error", Exception("DAG sync failed"), True),
+            ("table_access_denied", TableAccessDeniedError("source_sync_jobs"), False),
+        ]
+    )
+    def test_dag_sync_failure_does_not_fail_saved_query_operation(self, _name, error, expect_captured):
         """Verify that DAG sync failures don't break the main operation."""
-        with patch(
-            "products.data_modeling.backend.logic.saved_query_dag_sync.sync_saved_query_to_dag",
-            side_effect=Exception("DAG sync failed"),
+        with (
+            patch(
+                "products.data_modeling.backend.logic.saved_query_dag_sync.sync_saved_query_to_dag",
+                side_effect=error,
+            ),
+            patch(
+                "products.data_warehouse.backend.presentation.views.saved_query.editing.capture_exception"
+            ) as mock_capture,
         ):
             response = self.client.post(
                 f"/api/environments/{self.team.id}/warehouse_saved_queries/",
@@ -177,3 +191,5 @@ class TestSavedQueryDagSyncIntegration(APIBaseTest):
         # should still exist on dag sync failure
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertTrue(DataWarehouseSavedQuery.objects.filter(id=response.json()["id"]).exists())
+        captured = [call.args[0] for call in mock_capture.call_args_list]
+        self.assertEqual(error in captured, expect_captured)
