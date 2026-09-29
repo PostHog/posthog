@@ -56,6 +56,7 @@ class DeliveryTestCase(BaseTest):
         RecordingWriter.calls = []
         RecordingWriter.fail_for = set()
 
+        delivery.ensure_builtin_destination_writers_registered()
         # The registry is process-global, so these fakes have to come back out or every later
         # test sees destination types this deployment cannot really write.
         self.addCleanup(restore_registered_writers, snapshot_registered_writers())
