@@ -1814,6 +1814,28 @@ export interface TeamMarketingAnalyticsConfigApi {
     campaign_field_preferences?: MarketingAnalyticsCampaignFieldPreferencesApi
 }
 
+/**
+ * * `custom_property` - Custom property
+ * * `relationship` - Relationship
+ */
+export type AccountPropertyPinKindEnumApi =
+    (typeof AccountPropertyPinKindEnumApi)[keyof typeof AccountPropertyPinKindEnumApi]
+
+export const AccountPropertyPinKindEnumApi = {
+    CustomProperty: 'custom_property',
+    Relationship: 'relationship',
+} as const
+
+export interface TeamCustomerAnalyticsPinnedAccountPropertyApi {
+    /** Definition type for this default pinned account property.
+     *
+     * * `custom_property` - Custom property
+     * * `relationship` - Relationship */
+    kind: AccountPropertyPinKindEnumApi
+    /** Project-scoped custom property or relationship definition UUID. */
+    id: string
+}
+
 export interface TeamCustomerAnalyticsConfigApi {
     /** Event used as the activity signal (DAU/WAU/MAU). */
     activity_event?: unknown
@@ -1830,6 +1852,8 @@ export interface TeamCustomerAnalyticsConfigApi {
      * @nullable
      */
     account_group_type_index?: number | null
+    /** Ordered account properties shown until a user saves a personal pinned-property selection. Pass an empty list to show no properties by default. */
+    default_pinned_properties?: TeamCustomerAnalyticsPinnedAccountPropertyApi[]
 }
 
 /**
