@@ -7,6 +7,7 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 import pyarrow as pa
+import fakeredis
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.identifiers import (
@@ -75,14 +76,14 @@ def test_an_eligible_key_type_can_always_be_checkpointed(arrow_type, last_key):
     if not is_orderable_keyset_type(arrow_type):
         pytest.skip(f"{arrow_type} is not an eligible keyset type, so it is never checkpointed")
 
-    manager = ResumableSourceManager[KeysetResumeState](MagicMock(team_id=1, job_id="job-1"), KeysetResumeState)
-    redis = MagicMock()
+    manager = ResumableSourceManager[KeysetResumeState](
+        MagicMock(team_id=1, schema_id="schema-1", job_id="job-1"), KeysetResumeState
+    )
 
     with patch.object(ResumableSourceManager, "_get_redis") as get_redis:
-        get_redis.return_value.__enter__.return_value = redis
+        get_redis.return_value.__enter__.return_value = fakeredis.FakeRedis()
         manager.save_state(KeysetResumeState(last_key=last_key))
         manager.commit()
-        redis.get.return_value = redis.set.call_args.args[1]
         restored = manager.load_state()
 
     assert restored is not None

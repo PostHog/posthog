@@ -1,5 +1,4 @@
 import json
-import functools
 import dataclasses
 import collections.abc
 from contextlib import contextmanager
@@ -20,6 +19,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
     SourceResponse,
 )
 
+# Longer than the longest sync interval (30 days) plus the retries of the run that stopped. A walk
+# too long for one run's retry budget then continues in the next scheduled run instead of starting
+# again from the first row.
+RESUME_STATE_TTL_SECONDS = 60 * 60 * 24 * 35
+
+# The hash field that records which job wrote the state. Namespaces use the other fields.
+_JOB_ID_FIELD = "__job_id__"
+
 
 class ResumableSourceManager(Generic[ResumableData]):
     _inputs: SourceInputs
@@ -39,8 +46,9 @@ class ResumableSourceManager(Generic[ResumableData]):
         self._data_class = data_class
         self._logger = inputs.logger
         self._namespace = namespace
-        # Cursors wait here until commit(). Siblings from with_namespace() share the dict, so the
-        # one commit the pipeline issues after a write covers every namespace a source touched.
+        # Cursors wait here until commit(), keyed by hash field. Siblings from with_namespace() share
+        # the dict, so the one commit the pipeline issues after a write covers every namespace a
+        # source touched.
         self._staged = staged if staged is not None else {}
 
     def with_namespace(self, namespace: str) -> "ResumableSourceManager[ResumableData]":
@@ -67,6 +75,23 @@ class ResumableSourceManager(Generic[ResumableData]):
 
     @property
     def _key(self) -> str:
+        """One Redis hash per schema, with one field per namespace.
+
+        The key is per schema, not per job, because every scheduled run creates a new job. A per-job
+        key means that a run never sees the cursor of the run before it.
+        """
+        return f"posthog:data_warehouse:resumable_source:schema:{self._inputs.team_id}:{self._inputs.schema_id}"
+
+    @property
+    def _field(self) -> str:
+        return self._namespace or ""
+
+    @property
+    def _legacy_key(self) -> str:
+        """The per-job string key that workers wrote before the per-schema hash.
+
+        Read as a fallback, so that a job which is mid-retry during a deploy does not restart.
+        """
         base = f"posthog:data_warehouse:resumable_source:{self._inputs.team_id}:{self._inputs.job_id}"
         return f"{base}:{self._namespace}" if self._namespace else base
 
@@ -121,8 +146,8 @@ class ResumableSourceManager(Generic[ResumableData]):
         A source with nothing outstanding stages inside committing(), which commits at block end.
         """
         json_data = self._dump_json(data)
-        self._logger.debug(f"Staging resumable source state. key={self._key}, data={json_data}")
-        self._staged[self._key] = json_data
+        self._logger.debug(f"Staging resumable source state. key={self._key}, field={self._field}, data={json_data}")
+        self._staged[self._field] = json_data
 
     def has_staged_state(self) -> bool:
         """Whether the next `commit` will write anything."""
@@ -132,14 +157,19 @@ class ResumableSourceManager(Generic[ResumableData]):
         """Persist every staged cursor, across namespaces."""
         if not self._staged:
             return
+        staged = dict(self._staged)
         with self._get_redis() as redis_client:
-            for key, json_data in list(self._staged.items()):
-                self._logger.debug(f"Saving resumable source state. key={key}, data={json_data}")
-                self._write_with_stale_replica_retry(
-                    redis_client,
-                    functools.partial(redis_client.set, key, json_data, ex=60 * 60 * 24),  # 24 hours expiration
-                )
-                del self._staged[key]
+            self._logger.debug(f"Saving resumable source state. key={self._key}, data={staged}")
+
+            def write() -> None:
+                pipe = redis_client.pipeline()
+                pipe.hset(self._key, mapping={**staged, _JOB_ID_FIELD: self._inputs.job_id})
+                pipe.expire(self._key, RESUME_STATE_TTL_SECONDS)
+                pipe.execute()
+
+            self._write_with_stale_replica_retry(redis_client, write)
+            for field in staged:
+                self._staged.pop(field, None)
 
     @contextmanager
     def committing(self) -> collections.abc.Iterator[None]:
@@ -159,21 +189,54 @@ class ResumableSourceManager(Generic[ResumableData]):
         Called once a source has walked its data to completion: leaving the final checkpoint in
         place would let a later attempt resume mid-stream instead of restarting cleanly.
         """
-        self._staged.pop(self._key, None)
+        self._staged.pop(self._field, None)
         with self._get_redis() as redis_client:
-            self._logger.debug(f"Clearing resumable source state. key={self._key}")
+            self._logger.debug(f"Clearing resumable source state. key={self._key}, field={self._field}")
+
+            def write() -> None:
+                redis_client.hdel(self._key, self._field)
+                redis_client.delete(self._legacy_key)
+
+            self._write_with_stale_replica_retry(redis_client, write)
+
+    def clear_all_state(self) -> None:
+        """Drop the resume state of every namespace of the schema.
+
+        The pipeline calls this after a run completes. The state outlives the job that wrote it,
+        so a final cursor that a source did not clear would make the next run skip most of its walk.
+        """
+        self._staged.clear()
+        with self._get_redis() as redis_client:
+            self._logger.debug(f"Clearing all resumable source state. key={self._key}")
+            self._write_with_stale_replica_retry(redis_client, lambda: redis_client.delete(self._key))
+
+    def discard_state_from_other_jobs(self) -> None:
+        """Drop the schema's resume state if a different job wrote it.
+
+        Call this before the source reads any state, for a run that must not continue the walk of an
+        earlier run. Retries of this same job keep their state.
+        """
+        with self._get_redis() as redis_client:
+            owner = redis_client.hget(self._key, _JOB_ID_FIELD)
+            if isinstance(owner, bytes):
+                owner = owner.decode()
+            if owner is None or owner == self._inputs.job_id:
+                return
+            self._logger.debug(f"Discarding resumable source state of another job. key={self._key}, job_id={owner}")
             self._write_with_stale_replica_retry(redis_client, lambda: redis_client.delete(self._key))
 
     def can_resume(self) -> bool:
         with self._get_redis() as redis:
-            exists = redis.exists(self._key) == 1
-            self._logger.debug(f"Checking resumable source state. key={self._key}, exists={exists}")
+            exists = bool(redis.hexists(self._key, self._field)) or redis.exists(self._legacy_key) == 1
+            self._logger.debug(
+                f"Checking resumable source state. key={self._key}, field={self._field}, exists={exists}"
+            )
 
             return exists
 
     def load_state(self) -> ResumableData | None:
         with self._get_redis() as redis:
-            data = redis.get(self._key)
+            data = redis.hget(self._key, self._field) or redis.get(self._legacy_key)
             if not data:
                 self._logger.debug(f"No resumable source state found. key={self._key}")
                 return None

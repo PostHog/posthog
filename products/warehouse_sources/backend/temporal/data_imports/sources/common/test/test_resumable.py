@@ -3,7 +3,9 @@ import typing
 import pytest
 from unittest.mock import MagicMock, patch
 
+import fakeredis
 import redis.exceptions as redis_exceptions
+from parameterized import parameterized
 
 from posthog.dataclasses import frozen
 
@@ -23,8 +25,18 @@ class _SweepPosition:
     cursor: str | None = None
 
 
-def _manager() -> ResumableSourceManager[_SweepPosition]:
-    return ResumableSourceManager[_SweepPosition](MagicMock(team_id=1, job_id="job-1"), _SweepPosition)
+def _manager(job_id: str = "job-1") -> ResumableSourceManager[_SweepPosition]:
+    return ResumableSourceManager[_SweepPosition](
+        MagicMock(team_id=1, schema_id="schema-1", job_id=job_id), _SweepPosition
+    )
+
+
+@pytest.fixture
+def fake_redis() -> typing.Iterator[fakeredis.FakeRedis]:
+    client = fakeredis.FakeRedis()
+    with patch.object(ResumableSourceManager, "_get_redis") as get_redis:
+        get_redis.return_value.__enter__.return_value = client
+        yield client
 
 
 class TestResolveResumeManager:
@@ -51,79 +63,96 @@ class TestResolveResumeManager:
 
 
 class TestResumableSourceManager:
-    def test_state_written_by_a_newer_deploy_still_loads(self):
+    def test_state_written_by_a_newer_deploy_still_loads(self, fake_redis):
         manager = _manager()
-        redis = MagicMock()
-        redis.get.return_value = '{"cursor": "cus_1", "nested_starting_after": "txn_9"}'
+        fake_redis.hset(manager._key, "", '{"cursor": "cus_1", "nested_starting_after": "txn_9"}')
 
-        with patch.object(ResumableSourceManager, "_get_redis") as get_redis:
-            get_redis.return_value.__enter__.return_value = redis
-            state = manager.load_state()
+        assert manager.load_state() == _SweepPosition(cursor="cus_1")
 
-        assert state == _SweepPosition(cursor="cus_1")
+    def test_a_later_job_resumes_the_cursor_an_earlier_job_committed(self, fake_redis):
+        manager = _manager("job-1")
+        manager.save_state(_SweepPosition(cursor="cus_1"))
+        manager.save_state(_SweepPosition(cursor="cus_2"))
+        assert not _manager("job-2").can_resume()
 
-    def test_state_reaches_redis_only_on_commit(self):
+        manager.commit()
+
+        next_job = _manager("job-2")
+        assert next_job.can_resume()
+        assert next_job.load_state() == _SweepPosition(cursor="cus_2")
+
+    def test_committed_state_outlives_the_longest_sync_interval(self, fake_redis):
         manager = _manager()
-        redis = MagicMock()
+        manager.save_state(_SweepPosition(cursor="cus_1"))
+        manager.commit()
 
-        with patch.object(ResumableSourceManager, "_get_redis") as get_redis:
-            get_redis.return_value.__enter__.return_value = redis
-            manager.save_state(_SweepPosition(cursor="cus_1"))
-            manager.save_state(_SweepPosition(cursor="cus_2"))
-            redis.set.assert_not_called()
+        assert fake_redis.ttl(manager._key) > 30 * 24 * 60 * 60
 
-            manager.commit()
-            manager.commit()
-
-        redis.set.assert_called_once_with(
-            "posthog:data_warehouse:resumable_source:1:job-1", '{"cursor":"cus_2"}', ex=60 * 60 * 24
-        )
-
-    def test_committing_persists_the_staged_state_even_when_the_block_raises(self):
+    def test_committing_persists_the_staged_state_even_when_the_block_raises(self, fake_redis):
         manager = _manager()
-        redis = MagicMock()
 
-        with patch.object(ResumableSourceManager, "_get_redis") as get_redis:
-            get_redis.return_value.__enter__.return_value = redis
-            with pytest.raises(RuntimeError):
-                with manager.committing():
-                    manager.save_state(_SweepPosition(cursor="job_1"))
-                    raise RuntimeError("export failed")
+        with pytest.raises(RuntimeError):
+            with manager.committing():
+                manager.save_state(_SweepPosition(cursor="job_1"))
+                raise RuntimeError("export failed")
 
-        redis.set.assert_called_once_with(
-            "posthog:data_warehouse:resumable_source:1:job-1", '{"cursor":"job_1"}', ex=60 * 60 * 24
-        )
+        assert _manager().load_state() == _SweepPosition(cursor="job_1")
 
-    def test_commit_persists_what_a_namespaced_sibling_staged(self):
+    def test_commit_persists_what_a_namespaced_sibling_staged(self, fake_redis):
         manager = _manager()
-        redis = MagicMock()
+        manager.with_namespace("deltas").save_state(_SweepPosition(cursor="cus_3"))
+        manager.commit()
 
-        with patch.object(ResumableSourceManager, "_get_redis") as get_redis:
-            get_redis.return_value.__enter__.return_value = redis
-            manager.with_namespace("deltas").save_state(_SweepPosition(cursor="cus_3"))
-            manager.commit()
+        assert _manager().with_namespace("deltas").load_state() == _SweepPosition(cursor="cus_3")
+        assert not _manager().can_resume()
 
-        redis.set.assert_called_once_with(
-            "posthog:data_warehouse:resumable_source:1:job-1:deltas", '{"cursor":"cus_3"}', ex=60 * 60 * 24
-        )
-
-    def test_clear_state_drops_the_staged_cursor(self):
+    def test_clear_state_drops_the_staged_cursor(self, fake_redis):
         manager = _manager()
-        redis = MagicMock()
+        manager.save_state(_SweepPosition(cursor="cus_1"))
+        manager.clear_state()
+        manager.commit()
 
+        assert not _manager().can_resume()
+
+    def test_clear_all_state_drops_every_namespace(self, fake_redis):
+        manager = _manager()
+        manager.save_state(_SweepPosition(cursor="cus_1"))
+        manager.with_namespace("deltas").save_state(_SweepPosition(cursor="cus_2"))
+        manager.commit()
+
+        manager.clear_all_state()
+
+        assert not _manager().can_resume()
+        assert not _manager().with_namespace("deltas").can_resume()
+
+    @parameterized.expand([("another_job", "job-2", False), ("same_job_retry", "job-1", True)])
+    def test_discard_state_from_other_jobs(self, _name, reading_job, keeps_state):
+        client = fakeredis.FakeRedis()
         with patch.object(ResumableSourceManager, "_get_redis") as get_redis:
-            get_redis.return_value.__enter__.return_value = redis
-            manager.save_state(_SweepPosition(cursor="cus_1"))
-            manager.clear_state()
-            manager.commit()
+            get_redis.return_value.__enter__.return_value = client
+            writer = _manager("job-1")
+            writer.save_state(_SweepPosition(cursor="cus_1"))
+            writer.commit()
 
-        redis.delete.assert_called_once_with("posthog:data_warehouse:resumable_source:1:job-1")
-        redis.set.assert_not_called()
+            reader = _manager(reading_job)
+            reader.discard_state_from_other_jobs()
+
+            assert reader.can_resume() is keeps_state
+
+    def test_state_under_the_per_job_key_of_an_earlier_deploy_still_loads_and_clears(self, fake_redis):
+        manager = _manager()
+        fake_redis.set("posthog:data_warehouse:resumable_source:1:job-1", '{"cursor": "cus_1"}')
+
+        assert manager.load_state() == _SweepPosition(cursor="cus_1")
+
+        manager.clear_state()
+
+        assert not manager.can_resume()
 
     def test_commit_retries_once_after_a_stale_replica_write(self):
         manager = _manager()
         redis = MagicMock()
-        redis.set.side_effect = [
+        redis.pipeline.return_value.execute.side_effect = [
             redis_exceptions.ReadOnlyError("You can't write against a read only replica."),
             None,
         ]
@@ -134,12 +163,12 @@ class TestResumableSourceManager:
             manager.commit()
 
         redis.connection_pool.disconnect.assert_called_once()
-        assert redis.set.call_count == 2
+        assert redis.pipeline.return_value.execute.call_count == 2
 
     def test_clear_state_retries_once_after_a_stale_replica_write(self):
         manager = _manager()
         redis = MagicMock()
-        redis.delete.side_effect = [
+        redis.hdel.side_effect = [
             redis_exceptions.ReadOnlyError("You can't write against a read only replica."),
             None,
         ]
@@ -149,12 +178,12 @@ class TestResumableSourceManager:
             manager.clear_state()
 
         redis.connection_pool.disconnect.assert_called_once()
-        assert redis.delete.call_count == 2
+        assert redis.hdel.call_count == 2
 
     def test_clear_state_raises_when_the_retry_also_hits_a_stale_replica(self):
         manager = _manager()
         redis = MagicMock()
-        redis.delete.side_effect = redis_exceptions.ReadOnlyError("You can't write against a read only replica.")
+        redis.hdel.side_effect = redis_exceptions.ReadOnlyError("You can't write against a read only replica.")
 
         with patch.object(ResumableSourceManager, "_get_redis") as get_redis:
             get_redis.return_value.__enter__.return_value = redis
@@ -162,7 +191,7 @@ class TestResumableSourceManager:
                 manager.clear_state()
 
         redis.connection_pool.disconnect.assert_called_once()
-        assert redis.delete.call_count == 2
+        assert redis.hdel.call_count == 2
 
 
 class TestResumeCoversRun:
