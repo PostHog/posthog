@@ -17,8 +17,10 @@ class TestResolveCookielessTrafficIsRegularModifier:
         ]
     )
     def test_cloud_default_does_not_depend_on_local_flag_state(self, _name, flag_value):
-        with patch(IS_CLOUD, return_value=True), patch(FEATURE_ENABLED, return_value=flag_value):
+        with patch(IS_CLOUD, return_value=True), patch(FEATURE_ENABLED, return_value=flag_value) as feature_enabled:
             assert resolve_cookieless_traffic_is_regular_modifier(MagicMock(), None) is True
+
+        feature_enabled.assert_not_called()
 
     @parameterized.expand([("opted in", True), ("opted out", False)])
     def test_an_explicit_team_setting_wins(self, _name, current):
