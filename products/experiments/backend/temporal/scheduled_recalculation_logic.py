@@ -173,6 +173,14 @@ def count_total_exposures(experiment: Experiment) -> int:
     )
 
     feature_flag = experiment.feature_flag
+    # The FK gives a model instance, and the query field is a pydantic type with no
+    # attribute-based validation, so it must be serialized first.
+    experiment_holdout = experiment.holdout
+    holdout = (
+        {"id": experiment_holdout.id, "name": experiment_holdout.name, "filters": experiment_holdout.filters}
+        if experiment_holdout is not None
+        else None
+    )
     query = ExperimentExposureQuery(
         experiment_id=experiment.id,
         experiment_name=experiment.name,
@@ -180,7 +188,7 @@ def count_total_exposures(experiment: Experiment) -> int:
         start_date=experiment.start_date.isoformat() if experiment.start_date else None,
         end_date=experiment.end_date.isoformat() if experiment.end_date else None,
         exposure_criteria=experiment.exposure_criteria,
-        holdout=experiment.holdout,
+        holdout=holdout,
     )
     with tags_context(
         product=Product.EXPERIMENTS, team_id=experiment.team_id, org_id=str(experiment.team.organization_id)

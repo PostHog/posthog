@@ -15,7 +15,7 @@ from posthog.models.scoping import team_scope
 from posthog.models.team import Team
 
 from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY
-from products.experiments.backend.models.experiment import Experiment, ExperimentMetricsRecalculation
+from products.experiments.backend.models.experiment import Experiment, ExperimentHoldout, ExperimentMetricsRecalculation
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.temporal.scheduled_recalculation_logic import (
     EXPERIMENT_RECALCULATION_MAX_AGE_DAYS,
@@ -255,3 +255,17 @@ class TestScheduledRecalculationLogic(BaseTest):
             return_value=runner,
         ):
             assert count_total_exposures(experiment) == 0
+
+    def test_exposure_count_serializes_a_holdout(self):
+        # The FK gives a model instance and the query field is a pydantic type, so passing the
+        # instance through raises inside the runner and the experiment reads as query-failed.
+        holdout = ExperimentHoldout.objects.create(team=self.team, name="h", filters=[])
+        experiment = self._experiment(holdout=holdout)
+        runner = MagicMock()
+        runner.run.return_value = SimpleNamespace(total_exposures={"control": 10, "test": 10})
+        with patch(
+            "products.experiments.backend.hogql_queries.experiment_exposures_query_runner.ExperimentExposuresQueryRunner",
+            return_value=runner,
+        ) as runner_class:
+            assert count_total_exposures(experiment) == 20
+        assert runner_class.call_args.kwargs["query"].holdout.id == holdout.id
