@@ -1330,7 +1330,7 @@ async def repartition_table_in_place(
             # interrupted write instead of re-streaming the whole table for a scheme it already has.
             await ensure_claim()
             await _persist_resolved_scheme(schema, staged_target, claim_token, logger)
-            table_ref.get_delta_table.cache_clear()
+            table_ref.invalidate_cached_table()
             await logger.ainfo(
                 f"repartition: recovered an unrecorded swap, saved scheme={_format_scheme(staged_target)} "
                 f"schema_id={schema.id}",
@@ -1543,7 +1543,7 @@ async def repartition_table_in_place(
     await _persist_resolved_scheme(schema, resolved, claim_token, logger)
 
     # The cached delta-table object points at the pre-swap files; drop it so callers re-read live.
-    table_ref.get_delta_table.cache_clear()
+    table_ref.invalidate_cached_table()
 
     await logger.ainfo(
         f"repartition: completed schema_id={schema.id} rows={rows_written} "
@@ -1619,7 +1619,7 @@ async def _resume_swap_with_missing_live(
     )
 
     await _persist_resolved_scheme(schema, target, claim_token, logger)
-    table_ref.get_delta_table.cache_clear()
+    table_ref.invalidate_cached_table()
 
     await logger.ainfo(
         f"repartition: recovered from interrupted swap schema_id={schema.id} rows={expected_rows}",
