@@ -704,17 +704,25 @@ class RecordCheckResultRequestSerializer(serializers.Serializer):
 
     check_id = serializers.UUIDField(help_text="The check this run was dispatched to answer, as given in the run note.")
     outcome = serializers.ChoiceField(
-        choices=[
-            (outcome.value, outcome.label)
-            for outcome in (
-                SignalReportCheck.Outcome.PASSED,
-                SignalReportCheck.Outcome.FAILED,
-                SignalReportCheck.Outcome.ERRORED,
-            )
-        ],
+        choices=SignalReportCheck.Outcome.choices,
         help_text=(
-            "`passed` when the expectation still holds, `failed` when it does not, and `errored` when you "
-            "could not establish either. `failed` retires the check, so use it for a conclusion, not a suspicion."
+            "`passed` when the evidence meets the check's stated bar and the expectation holds, `failed` when "
+            "the evidence meets the bar and the expectation does not hold. `inconclusive` when your tools "
+            "worked but the evidence cannot settle the question; give a `reason`. `errored` only when a tool, "
+            "query, or model call failed. `failed` retires the check, so use it for a conclusion, not a suspicion."
+        ),
+    )
+    reason = serializers.ChoiceField(
+        choices=SignalReportCheck.InconclusiveReason.choices,
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Required with `inconclusive`, and refused with any other outcome. `awaiting_data`: the data can "
+            "still arrive (a rollout lag, a soak not complete, too few samples so far), so the check looks again "
+            "later. `unmeasurable`: the data the check needs is not captured. `needs_manual_verification`: only "
+            "a person or another environment can verify it. `no_fix_to_measure`: nothing was changed to fix the "
+            "claim, so no window after a fix exists. A report resolved without a pull request still has a window "
+            "that starts when it resolved. Every reason except `awaiting_data` ends the check."
         ),
     )
     explanation = serializers.CharField(
@@ -729,6 +737,14 @@ class RecordCheckResultRequestSerializer(serializers.Serializer):
         allow_null=True,
         help_text="The number you measured, when the check came down to one. Leave it out otherwise.",
     )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        is_inconclusive = attrs["outcome"] == SignalReportCheck.Outcome.INCONCLUSIVE
+        if is_inconclusive and not attrs.get("reason"):
+            raise serializers.ValidationError({"reason": "An `inconclusive` outcome needs a reason."})
+        if not is_inconclusive and attrs.get("reason"):
+            raise serializers.ValidationError({"reason": "Only an `inconclusive` outcome takes a reason."})
+        return attrs
 
 
 class RecordCheckResultResponseSerializer(serializers.Serializer):
@@ -3162,6 +3178,9 @@ _WRITE_SCOPES_HELP = (
     "scout reads the project and writes only what every scout may write: notebooks, its findings, "
     "and its own memory. Each scope is project-wide and object-level, so a scout holding "
     "`dashboard:write` can update or delete any dashboard in the project, not only ones it made. "
+    "`ticket:write` lets the scout update tickets, manage saved views, and add private notes. "
+    "Scouts cannot send public replies, compose emails, change existing notes, or change customer "
+    "identity fields. Ticket changes can start workflows that message customers. "
     "Grant only what this scout maintains. Only the person the scout's runs act as (whoever "
     "authored it) or a project admin can set it, and a scoped API key must itself carry each scope "
     "it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run."

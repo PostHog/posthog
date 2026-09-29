@@ -1549,7 +1549,9 @@ def property_to_expr(
                 is_json_field=False,
             )
 
-        if property.key == "text":
+        # `$el_text` is the autocapture event property for the same text. The action editor saves it as
+        # `text`, but actions saved through other paths can still carry the event-property key.
+        if property.key == "text" or property.key == "$el_text":
             return parse_expr(
                 "arrayExists(text -> {compare}, elements_chain_texts)",
                 {
