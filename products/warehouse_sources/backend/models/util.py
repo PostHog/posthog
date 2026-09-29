@@ -782,6 +782,8 @@ _POSTHOG_OWNED_BUCKET_SETTING_NAMES = (
     "DATAWAREHOUSE_BUCKET",
     "DICTIONARY_STAGING_S3_BUCKET",
     "IDENTITY_MATCHING_S3_BUCKET",
+    # Another region's app object store, so it holds that region's team data. Deny it even without a known node-role path.
+    "INBOX_RANKING_SERVING_MIRROR_BUCKET",
     "NOTEBOOKS_FRAME_STORE_S3_BUCKET",
     "OBJECT_STORAGE_BUCKET",
     "OBJECT_STORAGE_EXTERNAL_WEB_ANALYTICS_BUCKET",

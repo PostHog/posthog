@@ -207,6 +207,9 @@ const FeatureFlagGetAllSchema = () => {
         search: FeatureFlagsListQueryParams.shape['search'].describe(
             'Search by feature flag key or name (case-insensitive). Use this to find the flag ID for get/update/delete tools.'
         ),
+        active: FeatureFlagsListQueryParams.shape['active'].describe(
+            'Filter by flag state. `"true"` returns enabled flags, `"false"` returns disabled flags, and `"STALE"` returns enabled flags that PostHog classifies as stale.'
+        ),
         limit: z.preprocess(castStringToInt, FeatureFlagsListQueryParams.shape['limit']).optional(),
         offset: z.preprocess(castStringToInt, FeatureFlagsListQueryParams.shape['offset']).optional(),
     })
@@ -243,7 +246,17 @@ const featureFlagGetAll = (): ToolBase<
         const filtered = {
             ...result,
             results: (result.results ?? []).map((item: any) =>
-                pickResponseFields(item, ['id', 'key', 'name', 'updated_at', 'status', 'tags'])
+                pickResponseFields(item, [
+                    'id',
+                    'key',
+                    'name',
+                    'updated_at',
+                    'status',
+                    'tags',
+                    'last_called_at',
+                    'active',
+                    'created_at',
+                ])
             ),
         } as typeof result
         return await withPostHogUrl(
