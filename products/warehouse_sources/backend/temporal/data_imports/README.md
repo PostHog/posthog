@@ -159,7 +159,7 @@ There is no manual replay step for the load phase.
 The extraction-to-load hand-off is a durable Postgres batch queue (adapters in `pipeline_v3/postgres_queue/`, engine in `products/warehouse_sources_queue/backend/core/`), not fire-and-forget messages: batch rows survive consumer crashes, transient failures retry automatically with backoff (`waiting_retry`), a crashed consumer's lease expires and its batches are reclaimed, and a reconcile sweep fails the `ExternalDataJob` for runs whose batches ended up terminally `failed`.
 
 If a job still ends up failed, re-run the sync with the snippets above (use `reset_pipeline: false` to keep existing data).
-Queue rows and their parquet files are pruned after the queue's retention window (see `postgres_queue/README.md`), so there is nothing to replay from S3 after that point either.
+Queue rows and their parquet files are pruned after the queue's retention window (see `products/warehouse_sources_queue/backend/README.md`), so there is nothing to replay from S3 after that point either.
 
 The Kafka-era replay runbook that used to live here reconstructed `ExportSignalMessage`s from S3 and re-produced them to the `data_warehouse_sources_jobs` topic.
 That transport was removed; see git history for the old procedure.
