@@ -18,13 +18,23 @@ from posthog.dataclasses import frozen
 
 from products.tasks.evals.golden_prs.agents import AgentOutcome
 
-from .workspace import apply_diff, delete_branch, fetch_branch_diff, orphan_commit_with_agents_md, push_commit
+from .workspace import (
+    apply_diff,
+    delete_branches,
+    fetch_branch_diff,
+    orphan_commit_with_agents_md,
+    push_commit,
+    remote_branches,
+)
 
 CloudRuntime = Literal["posthog-code"]
 CLOUD_RUNTIME: CloudRuntime = "posthog-code"
 TERMINAL_STATUSES = frozenset({"completed", "failed", "cancelled"})
 POLL_SECONDS = 30
 HTTP_TIMEOUT_SECONDS = 60
+CLOUD_LEDGER = "cloud-ledger.jsonl"
+TIMED_OUT = "The cloud run hit the case timeout."
+STOPPED = "The runner stopped before the run ended."
 
 # Neutral names, because the agent sees both branches and a name that says "eval" or names the
 # rule could change what it does.
@@ -34,6 +44,10 @@ BRANCH_PREFIX = "posthog/scratch-"
 PUSH_INSTRUCTION = (
     "\n\nWhen you finish, commit your changes and push them to the branch `{branch}`. Do not open a pull request."
 )
+
+
+class RunnerStopped(Exception):
+    pass
 
 
 @frozen
@@ -125,14 +139,38 @@ def reply_from_log(log: str) -> str:
     return messages[-1] if messages else ""
 
 
-class CloudAgent:
-    """Runs jobs as cloud tasks on one base branch per AGENTS.md variant, and removes every branch it pushed."""
+def clean_up(ledger: Path, tasks: Tasks, repo: Path, remote: str) -> None:
+    """Delete the branches in `ledger` that are still on `remote`, and cancel its runs that are still open.
 
-    def __init__(self, tasks: Tasks, repo: Path, ref: str, *, repository: str, remote: str) -> None:
+    A runner that crashes, or loses the key agent it pushes with, cannot do this itself.
+    """
+    entries = _log_entries(ledger.read_text()) if ledger.exists() else []
+    recorded = {entry["branch"] for entry in entries if "branch" in entry}
+    delete_branches(repo, remote, *sorted(recorded & remote_branches(repo, remote, BRANCH_PREFIX)))
+    for entry in entries:
+        if "run_id" in entry:
+            handle = RunHandle(task_id=entry["task_id"], run_id=entry["run_id"])
+            if tasks.run(handle).get("status") not in TERMINAL_STATUSES:
+                tasks.cancel(handle)
+
+
+class CloudAgent:
+    """Runs jobs as cloud tasks on one base branch per AGENTS.md variant, and removes every branch it pushed.
+
+    It records each branch and run in `ledger` before it can leave one behind, for `clean_up`.
+    """
+
+    def __init__(self, tasks: Tasks, repo: Path, ref: str, *, repository: str, remote: str, ledger: Path) -> None:
         self._tasks, self._repo, self._ref = tasks, repo, ref
-        self._repository, self._remote = repository, remote
+        self._repository, self._remote, self._ledger = repository, remote, ledger
         self._bases: dict[str, tuple[str, str]] = {}
         self._lock = threading.Lock()
+        self._ledger_lock = threading.Lock()
+        self._stopping = threading.Event()
+
+    def _record(self, **entry: str) -> None:
+        with self._ledger_lock, self._ledger.open("a") as ledger:
+            ledger.write(json.dumps(entry) + "\n")
 
     def _base(self, agents_md: str) -> tuple[str, str]:
         key = hashlib.sha256(agents_md.encode()).hexdigest()
@@ -140,12 +178,13 @@ class CloudAgent:
             if key not in self._bases:
                 commit = orphan_commit_with_agents_md(self._repo, self._ref, agents_md)
                 branch = BRANCH_PREFIX + secrets.token_hex(6)
+                self._record(branch=branch)
                 push_commit(self._repo, self._remote, commit, branch)
                 self._bases[key] = (branch, commit)
             return self._bases[key]
 
-    def _wait(self, handle: RunHandle, timeout_seconds: float) -> tuple[dict, str, bool]:
-        """Wait for the agent's turn to end, then stop the run.
+    def _wait(self, handle: RunHandle, timeout_seconds: float) -> tuple[dict, str, str | None]:
+        """Wait for the agent's turn to end, then stop the run. Also returns why the wait ended early, if it did.
 
         A background run stays in progress after the turn, with its sandbox up, waiting for a
         follow-up message that never comes.
@@ -153,20 +192,29 @@ class CloudAgent:
         deadline = time.monotonic() + timeout_seconds
         while True:
             run, log = self._tasks.run(handle), self._tasks.logs(handle)
-            timed_out = time.monotonic() >= deadline
-            if run.get("status") in TERMINAL_STATUSES or turn_completed(log) or timed_out:
+            if run.get("status") in TERMINAL_STATUSES or turn_completed(log):
+                cut_short = None
                 break
-            time.sleep(POLL_SECONDS)
+            if self._stopping.is_set():
+                cut_short = STOPPED
+                break
+            if time.monotonic() >= deadline:
+                cut_short = TIMED_OUT
+                break
+            self._stopping.wait(POLL_SECONDS)
         if run.get("status") not in TERMINAL_STATUSES:
             self._tasks.cancel(handle)
-        return run, log, timed_out
+        return run, log, cut_short
 
     def run(
         self, *, model: str, prompt: str, agents_md: str, workdir: Path, timeout_seconds: float = 30 * 60
     ) -> AgentOutcome:
         """Run one job and apply the agent's pushed change to `workdir`, a checkout of the same tree."""
+        if self._stopping.is_set():
+            raise RunnerStopped("The runner is stopping, so it starts no more tasks.")
         base_branch, base = self._base(agents_md)
         work_branch = BRANCH_PREFIX + secrets.token_hex(6)
+        self._record(branch=work_branch)
         started = time.monotonic()
         handle = self._tasks.start(
             prompt=prompt + PUSH_INSTRUCTION.format(branch=work_branch),
@@ -174,19 +222,20 @@ class CloudAgent:
             branch=base_branch,
             model=model,
         )
-        run, log, timed_out = self._wait(handle, timeout_seconds)
+        self._record(task_id=handle.task_id, run_id=handle.run_id)
+        run, log, cut_short = self._wait(handle, timeout_seconds)
         duration = round(time.monotonic() - started, 1)
         try:
             diff = fetch_branch_diff(self._repo, self._remote, work_branch, base)
         finally:
-            delete_branch(self._repo, self._remote, work_branch)
+            delete_branches(self._repo, self._remote, work_branch)
         if diff:
             apply_diff(workdir, diff)
-        failure = _failure(run, timed_out, pushed=diff is not None, branch=work_branch)
+        failure = cut_short or _failure(run, pushed=diff is not None, branch=work_branch)
         return AgentOutcome(
             agent_version=f"{CLOUD_RUNTIME} task {handle.task_id} run {handle.run_id}",
             exit_code=0 if failure is None else 1,
-            timed_out=timed_out,
+            timed_out=cut_short == TIMED_OUT,
             duration_seconds=duration,
             failure=failure,
             reply=reply_from_log(log),
@@ -194,16 +243,15 @@ class CloudAgent:
             log=log,
         )
 
+    def stop(self) -> None:
+        """Cut each wait short, cancelling its run, and refuse jobs that have not started."""
+        self._stopping.set()
+
     def close(self) -> None:
-        with self._lock:
-            for branch, _commit in self._bases.values():
-                delete_branch(self._repo, self._remote, branch)
-            self._bases.clear()
+        clean_up(self._ledger, self._tasks, self._repo, self._remote)
 
 
-def _failure(run: dict, timed_out: bool, *, pushed: bool, branch: str) -> str | None:
-    if timed_out:
-        return "The cloud run hit the case timeout."
+def _failure(run: dict, *, pushed: bool, branch: str) -> str | None:
     if run.get("status") in ("failed", "cancelled"):
         return run.get("error_message") or f"The cloud run ended as {run.get('status')}."
     if not pushed:

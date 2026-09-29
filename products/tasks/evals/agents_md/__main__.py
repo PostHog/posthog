@@ -2,6 +2,7 @@
 import os
 import sys
 import json
+import signal
 import hashlib
 import argparse
 import traceback
@@ -19,7 +20,7 @@ from products.tasks.evals.golden_prs.scoring import changed_files
 from products.tasks.evals.golden_prs.workspace import candidate_diff
 
 from .claims import ARMS, REPO_ROOT, Arm, Claim, agents_md_for, build_prompt, load_claims, select_claims
-from .cloud import CLOUD_RUNTIME, CloudAgent, CloudRuntime, TasksClient
+from .cloud import CLOUD_LEDGER, CLOUD_RUNTIME, CloudAgent, CloudRuntime, RunnerStopped, TasksClient, clean_up
 from .detectors import DEFAULT_JUDGE_MODEL, Candidate, Detection, TaskAssessment, TaskStatus, assess_task, detect
 from .workspace import agents_md_at, checkout_with_agents_md, resolve_ref
 
@@ -314,14 +315,9 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     run.add_argument("--case-timeout", type=int, default=DEFAULT_CASE_TIMEOUT_SECONDS, help="Seconds per run.")
     run.add_argument("--ref", default="HEAD", help="The commit whose tree and AGENTS.md the agent works on.")
     run.add_argument("--results-dir", type=Path, default=DEFAULT_RESULTS_DIR)
-    run.add_argument("--repo", type=Path, default=REPO_ROOT)
-    run.add_argument("--posthog-host", default="https://us.posthog.com", help=f"Where {CLOUD_RUNTIME} starts tasks.")
-    run.add_argument("--project-id", type=int, default=2, help=f"The project {CLOUD_RUNTIME} starts tasks in.")
+    add_cloud_arguments(run)
     run.add_argument(
         "--repository", default="PostHog/posthog", help=f"The GitHub repository {CLOUD_RUNTIME} tasks clone."
-    )
-    run.add_argument(
-        "--git-remote", default="origin", help=f"The remote in --repo that {CLOUD_RUNTIME} pushes branches to."
     )
     run.add_argument(
         "--candidate-agents-md",
@@ -330,7 +326,22 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     )
     show = commands.add_parser("report", help="Print a markdown summary of results.")
     show.add_argument("--results-dir", type=Path, default=DEFAULT_RESULTS_DIR)
+    cleanup = commands.add_parser(
+        "cleanup",
+        help=f"Delete the branches and cancel the runs that a stopped {CLOUD_RUNTIME} run left behind.",
+    )
+    cleanup.add_argument("--results-dir", type=Path, default=DEFAULT_RESULTS_DIR)
+    add_cloud_arguments(cleanup)
     return parser.parse_args(argv)
+
+
+def add_cloud_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--repo", type=Path, default=REPO_ROOT)
+    parser.add_argument("--posthog-host", default="https://us.posthog.com", help=f"Where {CLOUD_RUNTIME} starts tasks.")
+    parser.add_argument("--project-id", type=int, default=2, help=f"The project {CLOUD_RUNTIME} starts tasks in.")
+    parser.add_argument(
+        "--git-remote", default="origin", help=f"The remote in --repo that {CLOUD_RUNTIME} pushes branches to."
+    )
 
 
 def jobs_for(
@@ -350,12 +361,33 @@ def agent_label(runtime: str, model: str) -> str:
     return f"{runtime}-{model}".replace("/", "_")
 
 
-def cloud_agent(args: argparse.Namespace, ref: str) -> CloudAgent:
+def tasks_client(args: argparse.Namespace) -> TasksClient:
     api_key = os.environ.get("POSTHOG_PERSONAL_API_KEY")
     if not api_key:
         raise SystemExit(f"The {CLOUD_RUNTIME} runtime needs POSTHOG_PERSONAL_API_KEY with the task:write scope.")
-    tasks = TasksClient(args.posthog_host, args.project_id, api_key)
-    return CloudAgent(tasks, args.repo, ref, repository=args.repository, remote=args.git_remote)
+    return TasksClient(args.posthog_host, args.project_id, api_key)
+
+
+def cloud_agent(args: argparse.Namespace, ref: str, ledger: Path) -> CloudAgent:
+    cloud = CloudAgent(
+        tasks_client(args), args.repo, ref, repository=args.repository, remote=args.git_remote, ledger=ledger
+    )
+
+    def stop(signum: int, _frame: object) -> None:
+        print(f"\n{signal.Signals(signum).name}: cancelling open runs and starting no more jobs.", flush=True)
+        cloud.stop()
+
+    for signum in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+        signal.signal(signum, stop)
+    return cloud
+
+
+def clean_up_results(args: argparse.Namespace) -> int:
+    tasks = tasks_client(args)
+    for ledger in sorted(args.results_dir.rglob(CLOUD_LEDGER)):
+        clean_up(ledger, tasks, args.repo, args.git_remote)
+        print(f"Cleaned up {ledger.parent}")
+    return 0
 
 
 def run_claims(args: argparse.Namespace, selected: list[Claim]) -> int:
@@ -380,7 +412,7 @@ def run_claims(args: argparse.Namespace, selected: list[Claim]) -> int:
     if candidate_agents_md is not None:
         (results_dir / "candidate-agents.md").write_text(candidate_agents_md)
     print(f"{len(jobs)} runs at {ref[:12]}, {args.workers} at a time", flush=True)
-    cloud = cloud_agent(args, ref) if args.runtime == CLOUD_RUNTIME else None
+    cloud = cloud_agent(args, ref, results_dir / CLOUD_LEDGER) if args.runtime == CLOUD_RUNTIME else None
 
     def run_job(item: ModelJob) -> bool:
         name = f"{agent_label(item.runtime, item.model)}/{item.job.name}"
@@ -398,6 +430,9 @@ def run_claims(args: argparse.Namespace, selected: list[Claim]) -> int:
                 candidate_agents_md,
                 cloud,
             )
+        except RunnerStopped:
+            print(f"{name}: skipped, because the runner is stopping", flush=True)
+            return False
         except Exception:
             print(f"{name}: crashed\n{traceback.format_exc()}", flush=True)
             return False
@@ -430,6 +465,8 @@ def main(argv: list[str]) -> int:
     if args.command == "report":
         print(report(load_results(args.results_dir)))
         return 0
+    if args.command == "cleanup":
+        return clean_up_results(args)
     claims = load_claims()
     if args.command == "list":
         for claim in claims:

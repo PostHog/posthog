@@ -66,8 +66,14 @@ def push_commit(repo: Path, remote: str, commit: str, branch: str) -> None:
     _git(repo, "push", "-q", remote, f"{commit}:refs/heads/{branch}", env=os.environ | SCRATCH_PUSH_ENV)
 
 
-def delete_branch(repo: Path, remote: str, branch: str) -> None:
-    _git(repo, "push", "-q", remote, "--delete", branch, check=False, env=os.environ | SCRATCH_PUSH_ENV)
+def delete_branches(repo: Path, remote: str, *branches: str) -> None:
+    if branches:
+        _git(repo, "push", "-q", remote, "--delete", *branches, check=False, env=os.environ | SCRATCH_PUSH_ENV)
+
+
+def remote_branches(repo: Path, remote: str, prefix: str) -> set[str]:
+    listed = _git_out(repo, "ls-remote", "--heads", remote, f"{prefix}*")
+    return {line.split("\trefs/heads/", 1)[1] for line in listed.splitlines()}
 
 
 def fetch_branch_diff(repo: Path, remote: str, branch: str, base: str) -> str | None:

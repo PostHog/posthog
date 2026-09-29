@@ -2,12 +2,21 @@ import json
 import subprocess
 from collections.abc import Callable, Iterator
 from pathlib import Path
+from typing import cast
 
 import pytest
 
+import requests
 from parameterized import parameterized
 
-from products.tasks.evals.agents_md.cloud import CloudAgent, RunHandle, TasksClient, reply_from_log
+from products.tasks.evals.agents_md.cloud import (
+    CloudAgent,
+    RunHandle,
+    RunnerStopped,
+    TasksClient,
+    clean_up,
+    reply_from_log,
+)
 from products.tasks.evals.agents_md.workspace import checkout_with_agents_md
 
 
@@ -39,7 +48,7 @@ def repo(tmp_path: Path) -> Iterator[tuple[Path, Path, str]]:
     yield local, remote, git(local, "rev-parse", "HEAD")
 
 
-def agent_log(*texts: str) -> str:
+def agent_log(*texts: str, turn_done: bool = True) -> str:
     lines = [{"type": "notification", "notification": {"method": "session/update", "params": {"update": {}}}}]
     lines += [
         {
@@ -51,7 +60,8 @@ def agent_log(*texts: str) -> str:
         }
         for text in texts
     ]
-    lines.append({"type": "notification", "notification": {"method": "_posthog/turn_complete", "params": {}}})
+    if turn_done:
+        lines.append({"type": "notification", "notification": {"method": "_posthog/turn_complete", "params": {}}})
     return "\n".join(json.dumps(line) for line in lines)
 
 
@@ -62,6 +72,7 @@ class FakeTasks:
         self.remote, self.work, self.agent, self.status = remote, work, agent, status
         self.started: dict = {}
         self.cancelled = False
+        self.on_poll: Callable[[], None] | None = None
 
     def start(self, *, prompt: str, repository: str, branch: str, model: str) -> RunHandle:
         self.started = {"prompt": prompt, "repository": repository, "branch": branch, "model": model}
@@ -75,10 +86,12 @@ class FakeTasks:
         return RunHandle(task_id="task", run_id="run")
 
     def run(self, handle: RunHandle) -> dict:
+        if self.on_poll:
+            self.on_poll()
         return {"status": self.status, "error_message": "sandbox died" if self.status == "failed" else None}
 
     def logs(self, handle: RunHandle) -> str:
-        return agent_log("Working on it.", "Done. I changed app.py.")
+        return agent_log("Working on it.", "Done. I changed app.py.", turn_done=self.on_poll is None)
 
     def cost(self, handle: RunHandle) -> dict[str, float]:
         return {"total_cost_usd": 0.25}
@@ -91,18 +104,26 @@ def edit_app(clone: Path) -> None:
     (clone / "app.py").write_text("x = 2\n")
 
 
+def cloud_agent(tasks: FakeTasks, local: Path, ref: str, tmp_path: Path) -> CloudAgent:
+    return CloudAgent(
+        tasks, local, ref, repository="PostHog/posthog", remote="origin", ledger=tmp_path / "cloud-ledger.jsonl"
+    )
+
+
 @pytest.mark.parametrize(
-    "agent,status,failure,change",
+    "agent,status,stop_while_waiting,failure,change",
     [
-        pytest.param(edit_app, "completed", None, "+x = 2", id="pushed work"),
-        pytest.param(edit_app, "in_progress", None, "+x = 2", id="turn ended but the run waits for a reply"),
-        pytest.param(None, "completed", "The agent did not push", "", id="pushed nothing"),
-        pytest.param(edit_app, "failed", "sandbox died", "+x = 2", id="run failed"),
+        pytest.param(edit_app, "completed", False, None, "+x = 2", id="pushed work"),
+        pytest.param(edit_app, "in_progress", False, None, "+x = 2", id="turn ended but the run waits for a reply"),
+        pytest.param(None, "completed", False, "The agent did not push", "", id="pushed nothing"),
+        pytest.param(edit_app, "failed", False, "sandbox died", "+x = 2", id="run failed"),
+        pytest.param(edit_app, "in_progress", True, "The runner stopped", "+x = 2", id="runner stopped mid-turn"),
     ],
 )
 def test_cloud_run_brings_the_agent_work_into_the_local_checkout(
     agent: Callable[[Path], None] | None,
     status: str,
+    stop_while_waiting: bool,
     failure: str | None,
     change: str,
     repo: tuple[Path, Path, str],
@@ -110,7 +131,9 @@ def test_cloud_run_brings_the_agent_work_into_the_local_checkout(
 ) -> None:
     local, remote, ref = repo
     tasks = FakeTasks(remote, tmp_path, agent, status)
-    cloud = CloudAgent(tasks, local, ref, repository="PostHog/posthog", remote="origin")
+    cloud = cloud_agent(tasks, local, ref, tmp_path)
+    if stop_while_waiting:
+        tasks.on_poll = cloud.stop
     with checkout_with_agents_md(local, ref, "- rule one\n") as workdir:
         outcome = cloud.run(model="zai-org/glm-5.3", prompt="Change app.py.", agents_md="- rule one\n", workdir=workdir)
         applied = git(workdir, "diff")
@@ -128,7 +151,7 @@ def test_cloud_run_brings_the_agent_work_into_the_local_checkout(
 def test_cloud_base_holds_the_arm_instructions_and_no_history(repo: tuple[Path, Path, str], tmp_path: Path) -> None:
     local, remote, ref = repo
     tasks = FakeTasks(remote, tmp_path, None)
-    cloud = CloudAgent(tasks, local, ref, repository="PostHog/posthog", remote="origin")
+    cloud = cloud_agent(tasks, local, ref, tmp_path)
     with checkout_with_agents_md(local, ref, "- rule one\n") as workdir:
         cloud.run(model="m", prompt="p", agents_md="- rule one\n", workdir=workdir)
         base = git(local, "ls-remote", "origin", tasks.started["branch"]).split()[0]
@@ -138,6 +161,43 @@ def test_cloud_base_holds_the_arm_instructions_and_no_history(repo: tuple[Path, 
         assert git(local, "diff", "--name-only", ref, base) == "AGENTS.md"
     cloud.close()
     assert git(local, "ls-remote", "--heads", "origin") == ""
+
+
+def test_a_stopped_runner_starts_no_more_tasks(repo: tuple[Path, Path, str], tmp_path: Path) -> None:
+    local, remote, ref = repo
+    tasks = FakeTasks(remote, tmp_path, edit_app)
+    cloud = cloud_agent(tasks, local, ref, tmp_path)
+    cloud.stop()
+    with checkout_with_agents_md(local, ref, "- rule one\n") as workdir, pytest.raises(RunnerStopped):
+        cloud.run(model="m", prompt="p", agents_md="- rule one\n", workdir=workdir)
+
+    assert tasks.started == {}
+    assert git(local, "ls-remote", "--heads", "origin") == ""
+
+
+class CrashingTasks(FakeTasks):
+    crashing = True
+
+    def run(self, handle: RunHandle) -> dict:
+        if self.crashing:
+            raise ConnectionError("runner lost")
+        return super().run(handle)
+
+
+def test_clean_up_after_a_crash_cancels_the_open_run_and_deletes_every_branch(
+    repo: tuple[Path, Path, str], tmp_path: Path
+) -> None:
+    local, remote, ref = repo
+    tasks = CrashingTasks(remote, tmp_path, edit_app, status="in_progress")
+    with checkout_with_agents_md(local, ref, "- rule one\n") as workdir, pytest.raises(ConnectionError):
+        cloud_agent(tasks, local, ref, tmp_path).run(model="m", prompt="p", agents_md="- rule one\n", workdir=workdir)
+    git(local, "push", "-q", "origin", f"{ref}:refs/heads/posthog/scratch-not-in-the-ledger")
+
+    tasks.crashing = False
+    clean_up(tmp_path / "cloud-ledger.jsonl", tasks, local, "origin")
+
+    assert tasks.cancelled
+    assert git(local, "ls-remote", "--heads", "origin").split()[1:] == ["refs/heads/posthog/scratch-not-in-the-ledger"]
 
 
 @parameterized.expand(
@@ -185,7 +245,7 @@ class FakeResponse:
 
 
 def start_kimi(session: FakeSession) -> RunHandle:
-    client = TasksClient("https://us.posthog.com", 2, "phx_fake", session=session)
+    client = TasksClient("https://us.posthog.com", 2, "phx_fake", session=cast(requests.Session, session))
     return client.start(prompt="Do it.", repository="PostHog/posthog", branch="base", model="moonshotai/kimi-k3")
 
 

@@ -90,6 +90,17 @@ The prompt asks the agent to push its work to a second branch.
 The runner fetches that branch, applies the change to a local checkout of the same tree, and scores it there.
 It deletes every branch it pushed, including the base branches when the run ends.
 Branch names are random under `posthog/scratch-`, because the agent sees them.
+Ctrl-C, `SIGTERM` or `SIGHUP` stops the runner: it cancels the open runs, starts no more jobs, and deletes its branches.
+The runner records each branch and run in `cloud-ledger.jsonl` in its results folder.
+A runner that crashes, or loses the key it pushes with, leaves branches behind.
+This command deletes them and cancels any run that is still open:
+
+```bash
+POSTHOG_PERSONAL_API_KEY=phx_... python -m products.tasks.evals.agents_md cleanup --results-dir <results dir>
+```
+
+The pushes and the signed base commits use your git credentials for the whole run.
+On a remote box that borrows a forwarded key agent, run over `ssh -t`, so that a lost connection sends `SIGHUP`, and keep the machine that holds the key awake.
 The cloud agent gets PostHog Code's own system prompt and sandbox, so compare its results with a cloud run of a Claude model, not with a local run.
 The case timeout includes the time the sandbox takes to start.
 
