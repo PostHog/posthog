@@ -2,6 +2,7 @@ import uuid
 import asyncio
 
 import pytest
+from unittest.mock import patch
 
 import temporalio.worker
 from temporalio import activity
@@ -14,7 +15,7 @@ from posthog.temporal.experiments.models import (
     ExperimentSavedMetricResult,
     ExperimentSavedMetricsWorkflowInputs,
 )
-from posthog.temporal.experiments.workflows import ExperimentSavedMetricsWorkflow
+from posthog.temporal.experiments.workflows import ExperimentSavedMetricsWorkflow, _record_publish_outcome
 
 FAST_EXPERIMENT = 101
 SLOW_EXPERIMENT = 102
@@ -157,3 +158,27 @@ async def test_a_failed_publish_skips_only_its_own_experiment():
     result = await _run_workflow([mock_discover, mock_calculate, mock_publish])
 
     assert result == {"hour": 2, "total": 2, "succeeded": 2, "failed": 0, "recalculations_synced": 1}
+
+
+@pytest.mark.parametrize(
+    "succeeded,recalculations_synced,expected_status",
+    [(2, 2, "published"), (2, 0, "missing"), (0, 0, None)],
+)
+def test_publish_outcome_counter_feeds_the_missing_publish_alert(succeeded, recalculations_synced, expected_status):
+    """The "missing" emission is the alert signal for runs that compute results users never see. A flipped
+    condition kills the alert; emitting on runs that computed nothing floods it with false positives."""
+    with (
+        patch("temporalio.workflow.metric_meter") as mock_meter,
+        patch("temporalio.workflow.info") as mock_info,
+    ):
+        mock_info.return_value.workflow_type = "experiment-saved-metrics-workflow"
+        _record_publish_outcome(succeeded, recalculations_synced)
+
+    if expected_status is None:
+        mock_meter.assert_not_called()
+        return
+    with_attributes = mock_meter.return_value.with_additional_attributes
+    with_attributes.assert_called_once_with(
+        {"workflow_type": "experiment-saved-metrics-workflow", "status": expected_status}
+    )
+    with_attributes.return_value.create_counter.return_value.add.assert_called_once_with(1)

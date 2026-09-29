@@ -26,6 +26,24 @@ with temporalio.workflow.unsafe.imports_passed_through():
 MAX_CONCURRENT_METRICS = 10
 
 
+def _record_publish_outcome(succeeded: int, recalculations_synced: int) -> None:
+    """Per-run counter behind the missing-publish alert: a run that computed metrics but published zero
+    recalculation rows is the silent-failure mode where results exist yet never reach users.
+
+    A single "missing" run can be legitimate (every row already covered by another run or a manual
+    recalculation), so the threshold lives in the Grafana alert rule, not here. `workflow.metric_meter()`
+    skips emission during replay, so no patch gate is needed."""
+    if succeeded == 0:
+        return
+    status = "published" if recalculations_synced > 0 else "missing"
+    temporalio.workflow.metric_meter().with_additional_attributes(
+        {"workflow_type": temporalio.workflow.info().workflow_type, "status": status}
+    ).create_counter(
+        "experiment_timeseries_publish_runs",
+        "Hourly experiment timeseries runs that computed metrics, by whether they published recalculation rows.",
+    ).add(1)
+
+
 async def _create_recalculations_from_timeseries(
     experiments: set[tuple[int, int]], run_started_at: datetime, semaphore: asyncio.Semaphore
 ) -> int:
@@ -195,6 +213,8 @@ class ExperimentRegularMetricsWorkflow(PostHogWorkflow):
             else:
                 failed += 1
 
+        _record_publish_outcome(succeeded, recalculations_synced)
+
         return {
             "hour": inputs.hour,
             "total": len(experiment_metrics),
@@ -287,6 +307,8 @@ class ExperimentSavedMetricsWorkflow(PostHogWorkflow):
                 succeeded += 1
             else:
                 failed += 1
+
+        _record_publish_outcome(succeeded, recalculations_synced)
 
         return {
             "hour": inputs.hour,
