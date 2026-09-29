@@ -499,10 +499,19 @@ class TestFetchAverageRowSize:
         result = impl.fetch_average_row_size(cursor, "dbo", "t", "SELECT 1", {}, logger)
         assert result is None
 
-    def test_returns_none_on_exception(self, impl, cursor, logger):
+    def test_returns_none_on_exception_without_capturing(self, impl, cursor, logger, mocker):
+        # This `SELECT TOP 100 *` shares its table/columns with the real streaming query, so a
+        # genuine problem (e.g. a column-level permission denial) resurfaces there and is
+        # captured/classified through the normal retryable/non-retryable path. Capturing it here
+        # too would flood error tracking with a handled duplicate — same reasoning as
+        # `get_rows_to_sync` below.
+        capture = mocker.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mssql.mssql.capture_exception"
+        )
         cursor.execute.side_effect = RuntimeError("boom")
         result = impl.fetch_average_row_size(cursor, "dbo", "t", "SELECT 1", {}, logger)
         assert result is None
+        capture.assert_not_called()
 
 
 class TestGetRowsToSync:
@@ -693,6 +702,24 @@ class TestMSSQLSourceNonRetryableErrors:
         ],
     )
     def test_permission_denied_errors_are_non_retryable(self, error_msg):
+        non_retryable = MSSQLSource().get_non_retryable_errors()
+        assert any(pattern in error_msg for pattern in non_retryable.keys()), error_msg
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # SQL Server error 230 — the column-level counterpart of 229: some access to the
+            # object, but a column-level GRANT/DENY blocks SELECT on one specific column.
+            "SQL Server message 230, severity 14, state 1, procedure b'', line 1:\n"
+            "b\"The SELECT permission was denied on the column 'Salary', of the object "
+            "'Employees', database 'mydb', schema 'dbo'.DB-Lib error message 20018, severity 14:\n"
+            'General SQL Server error: Check messages from the SQL Server\n"',
+            # Different column/object/database names must still match the stable substring.
+            "The SELECT permission was denied on the column 'Notes', of the object 'Tickets', "
+            "database 'otherdb', schema 'dbo'.",
+        ],
+    )
+    def test_column_permission_denied_errors_are_non_retryable(self, error_msg):
         non_retryable = MSSQLSource().get_non_retryable_errors()
         assert any(pattern in error_msg for pattern in non_retryable.keys()), error_msg
 
