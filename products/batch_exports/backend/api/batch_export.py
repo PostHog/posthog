@@ -2118,10 +2118,6 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
         return response.Response(result.as_dict())
 
 
-class BatchExportOrganizationViewSet(BatchExportViewSet):
-    filter_rewrite_rules = {"organization_id": "team__organization_id"}
-
-
 @dataclass
 class BatchExportBackfillProgress:
     """Progress information for a batch export backfill."""
