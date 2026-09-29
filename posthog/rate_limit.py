@@ -460,6 +460,11 @@ class PostHogAIAccessRequestIPThrottle(IPThrottle):
     rate = "1/day"
 
 
+class CodexConnectUserThrottle(UserRateThrottle):
+    scope = "codex_connect_user"
+    rate = "10/hour"
+
+
 class BurstRateThrottle(PersonalApiKeyRateThrottle):
     # Throttle class that's applied on all endpoints (except for capture + decide)
     # Intended to block quick bursts of requests, per project
@@ -1095,6 +1100,15 @@ class LLMPromptPublishBurstRateThrottle(PersonalApiKeyOrUserRateThrottle):
     # This protects against accidental loops or scripted abuse while allowing normal usage.
     scope = "llm_prompt_publish_burst"
     rate = "30/minute"
+
+
+class LLMPromptFetchRateThrottle(PersonalApiKeyRateThrottle):
+    # SDK fleets poll prompt fetches on a fixed interval, so the shared sustained budget
+    # (4800/hour) rejects steady polling that the burst budget allows. A per-minute-only
+    # bucket keeps prompt fetches out of the general API budget, mirroring the dedicated
+    # feature_flag_remote_config throttle.
+    scope = "llm_prompt_fetch"
+    rate = "600/minute"
 
 
 class EventValuesBurstThrottle(PersonalApiKeyRateThrottle):
@@ -1932,6 +1946,21 @@ class ComposeTicketBurstThrottle(UserRateThrottle):
 
 class ComposeTicketSustainedThrottle(UserRateThrottle):
     scope = "compose_ticket_sustained"
+    rate = "60/hour"
+
+
+class TicketNoteBurstThrottle(UserRateThrottle):
+    """
+    Private notes get their own bucket, so an agent writing notes cannot use up the compose
+    budget that the same user needs for customer replies.
+    """
+
+    scope = "ticket_note_burst"
+    rate = "10/minute"
+
+
+class TicketNoteSustainedThrottle(UserRateThrottle):
+    scope = "ticket_note_sustained"
     rate = "60/hour"
 
 

@@ -116,11 +116,11 @@ def _get_config_for_interval(
         )
 
     if interval == "hour":
-        # TODO - we should reduce this to 1 hour once we are more confident about hitting 1 hour SLAs.
-        # TODO: Review timeouts for internal stage activity.
         return IntervalConfig(
+            # TODO - we should reduce this to 1 hour once we are more confident about hitting 1 hour SLAs.
             main_start_to_close=max(dt.timedelta(hours=6), override_start_to_close),
-            stage_start_to_close=dt.timedelta(hours=1),
+            # TODO - we should reduce this once we are more confident about hitting 1 hour SLAs.
+            stage_start_to_close=dt.timedelta(hours=2),
             failure_check_window=24,  # A day's worth of runs
         )
 

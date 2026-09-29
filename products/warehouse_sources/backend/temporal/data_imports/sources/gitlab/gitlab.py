@@ -30,6 +30,12 @@ PROJECT_REF_ERROR = (
     "PostHog couldn't read a project from that value. Enter group/project (for example, "
     "mygroup/myproject), the numeric project ID, or the project's GitLab URL."
 )
+# GitLab answers 404 both for a project that doesn't exist and for one the token can't see, so the
+# message has to name both next steps.
+PROJECT_NOT_ACCESSIBLE_ERROR = (
+    "Project '{project}' not found or not accessible with this token. Check the spelling and that "
+    "your token has read access to the project."
+)
 
 
 class GitLabRetryableError(Exception):
@@ -261,7 +267,7 @@ def validate_credentials(
         return False, "Invalid GitLab personal access token"
 
     if response.status_code == 404:
-        return False, f"Project '{project}' not found or not accessible with this token"
+        return False, PROJECT_NOT_ACCESSIBLE_ERROR.format(project=project)
 
     if response.status_code == 403:
         # GitLab returns a raw OAuth-style JSON body (e.g. {"error":"insufficient_scope",...}) here,

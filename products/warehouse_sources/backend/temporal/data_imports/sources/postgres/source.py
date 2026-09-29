@@ -1,5 +1,6 @@
 import logging
-from typing import TYPE_CHECKING, Optional, cast
+from collections.abc import Mapping
+from typing import TYPE_CHECKING, Any, Optional, cast
 
 import structlog
 from psycopg import OperationalError
@@ -25,7 +26,9 @@ from products.warehouse_sources.backend.temporal.data_imports.naming_convention 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     FAST_RETURN_PROBE_TIMEOUT,
     FieldType,
+    ResumableSource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import CursorSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
     HOST_RESOLUTION_EXHAUSTED_MESSAGE,
     HostNotAllowedError,
@@ -34,9 +37,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
     ValidateDatabaseHostMixin,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import resolve_detected_primary_keys
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import SQLSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.keyset import KeysetResumeState
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.location import resolve_source_location
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.postgres import (
@@ -69,6 +74,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.p
     pg_connection,
     postgres_source,
     source_requires_ssl,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.xmin_cursor import (
+    XminCursor,
+    xmin_cursor_from_legacy,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType, IncrementalField, IncrementalFieldType
 
@@ -131,6 +140,20 @@ _INVALID_CREDENTIALS_VALIDATION_ERROR = (
 
 _HOST_RESOLUTION_RETRY_MESSAGE = (
     "PostHog couldn't resolve your database host right now. Check the host name, then try again in a moment."
+)
+
+# libpq and the raw socket layer word the same DNS failure three different ways, so they share one
+# message at validation time.
+_DNS_RESOLUTION_VALIDATION_ERROR = (
+    "Could not resolve the database host. Check that the host is spelled correctly and reachable "
+    "from the public internet."
+)
+
+# libpq appends this hint both to a refused connection and to one the network dropped, which is what
+# a firewall that hasn't allowlisted PostHog looks like from our side.
+_HOST_UNREACHABLE_VALIDATION_ERROR = (
+    "Could not connect to the database on the host and port given. Check the host and port are "
+    "correct, and that PostHog's IP addresses are allowed through your firewall."
 )
 
 PostgresErrors = {
@@ -203,7 +226,7 @@ PostgresErrors = {
         'authentication failures ("too many authentication failures"). This usually means the '
         "username or password is wrong. Check your credentials and try again."
     ),
-    "could not translate host name": "Could not connect to the host",
+    "could not translate host name": _DNS_RESOLUTION_VALIDATION_ERROR,
     # libpq prefixes a DNS-resolution failure with "could not translate host name ..." (matched
     # above), but the same getaddrinfo failure also surfaces as the raw socket wording with no such
     # prefix — "[Errno -2] Name or service not known" (EAI_NONAME) or its EAI_NODATA sibling
@@ -211,15 +234,15 @@ PostgresErrors = {
     # Python-side resolution. `get_non_retryable_errors` already treats both as non-retryable; map
     # them here too so credential validation returns an actionable message instead of surfacing the
     # customer's unresolvable host as captured error noise.
-    "Name or service not known": "Could not resolve the database host. Check that the host is spelled correctly and reachable from the public internet.",
-    "No address associated with hostname": "Could not resolve the database host. Check that the host is spelled correctly and reachable from the public internet.",
+    "Name or service not known": _DNS_RESOLUTION_VALIDATION_ERROR,
+    "No address associated with hostname": _DNS_RESOLUTION_VALIDATION_ERROR,
     # A public host PostHog resolved but can't route to (IPv6-only host, or a firewall dropping our
     # IPs). Placed before the "Is the server running..." entry — some libpq versions append that hint
     # to routing failures too, and the IPv4/pooler guidance here is more actionable. `get_non_retryable_errors`
     # already treats both as non-retryable on the streaming path.
     "Network is unreachable": _HOST_UNREACHABLE_ERROR,
     "No route to host": _HOST_UNREACHABLE_ERROR,
-    "Is the server running on that host and accepting TCP/IP connections": "Could not connect to the host on the port given",
+    "Is the server running on that host and accepting TCP/IP connections": _HOST_UNREACHABLE_VALIDATION_ERROR,
     'database "': "The database named in your connection details doesn't exist on this server. Check the database name is correct and try again.",
     "timeout expired": "Connection timed out. Check that your database is reachable from the public internet and that PostHog's egress IP addresses are allowed through your firewall (see the docs). For a database that can't be exposed publicly, use the SSH tunnel option.",
     "the database system is starting up": "Your database is starting up or recovering. Wait a moment and try again.",
@@ -294,11 +317,16 @@ _FOREIGN_SERVER_UNREACHABLE_ERROR = (
 # down, or its firewall blocks PostHog's IPs. The raw message tells the user nothing actionable, so
 # replace it with concrete guidance on both the validate and sync paths.
 _SSH_GATEWAY_SESSION_ERROR = "Could not establish session to SSH gateway"
-_SSH_GATEWAY_UNREACHABLE_MESSAGE = (
+_SSH_GATEWAY_UNREACHABLE_GUIDANCE = (
     "Could not connect to your SSH tunnel — PostHog couldn't open a session to the SSH gateway. "
     "Check that the SSH host and port point to a reachable SSH server (not the database port), that "
-    "the bastion is running, and that PostHog's IP addresses are allowed through its firewall."
+    "the bastion is running, and that PostHog's IP addresses are allowed through its firewall"
 )
+_SSH_GATEWAY_UNREACHABLE_MESSAGE = f"{_SSH_GATEWAY_UNREACHABLE_GUIDANCE}."
+# The sync path classifies this non-retryable, which switches the schema off, so the customer has
+# to turn it back on once the bastion is reachable again — the setup path has no sync to re-enable.
+# Mirrors `_SSH_HANDSHAKE_EOF_ERROR` below, the same gateway-configuration class.
+_SSH_GATEWAY_UNREACHABLE_SYNC_MESSAGE = f"{_SSH_GATEWAY_UNREACHABLE_GUIDANCE}, then re-enable the sync."
 
 # A source past the SSL cutoff connects with sslmode=require, so a server built without SSL support
 # fails the moment the sync — or a direct query — opens its connection. An SSH tunnel with
@@ -353,10 +381,35 @@ _RECOVERY_CONFLICT_EXHAUSTED_MESSAGE = (
 
 
 @SourceRegistry.register
-class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDatabaseHostMixin):
+class PostgresSource(
+    SQLSource[PostgresSourceConfig],
+    ResumableSource[PostgresSourceConfig, KeysetResumeState],
+    CursorSource[XminCursor],
+    SSHTunnelMixin,
+    ValidateDatabaseHostMixin,
+):
     # xmin replication is Postgres-only; per-table availability is still decided by
     # `SourceSchema.supports_xmin` at discovery.
     supports_xmin = True
+
+    def cursor_class(self) -> type[XminCursor]:
+        return XminCursor
+
+    def cursor_from_legacy(self, sync_type_config: Mapping[str, Any]) -> XminCursor | None:
+        return xmin_cursor_from_legacy(sync_type_config)
+
+    def merge_cursors(self, current: XminCursor, candidate: XminCursor) -> XminCursor:
+        return max(current, candidate, key=lambda cursor: cursor.ceiling_xid8)
+
+    def resume_covers_run(self, *, incremental_or_append: bool, keyset_full_load_enabled: bool = False) -> bool:
+        # Both halves. Keyset seeking is a full-load path, so an incremental or xmin run resumes from
+        # its watermark and keeps the incremental budget. And a full load only resumes once the flag
+        # reaches it — before that it still restarts, so the resumable allowance would buy it nothing
+        # and would cost a whole re-read on each extra attempt.
+        return not incremental_or_append and keyset_full_load_enabled
+
+    def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[KeysetResumeState]:
+        return ResumableSourceManager[KeysetResumeState](inputs, KeysetResumeState)
 
     def __init__(self, source_name: str = "Postgres"):
         super().__init__()
@@ -649,6 +702,18 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 'its configured allow list ("address not in tenant allow_list"). Add PostHog\'s egress IP '
                 "addresses to your database provider's IP allow list, then re-enable the sync."
             ),
+            # Neon words its own IP allow list rejection differently from the Supavisor key above
+            # ("This IP address <ip> is not allowed to connect to this endpoint"), and rejects a
+            # project that blocks public access with "... from a blocked network". Both are the
+            # customer's network policy, so every retry re-hits them until they change it.
+            "is not allowed to connect to this endpoint": (
+                "Your database provider rejected the connection because PostHog's IP address isn't on its "
+                "IP allow list. Add PostHog's egress IP addresses to that allow list, then re-enable the sync."
+            ),
+            "access this endpoint from a blocked network": (
+                "Your database provider blocks connections from the public internet, so PostHog can't "
+                "connect. Allow public access for PostHog's IP addresses, then re-enable the sync."
+            ),
             # A Neon-style proxy rejects the connection for a specific branch/compute endpoint —
             # observed when the branch is archived, suspended, or otherwise restricted from external
             # connections. Deterministic until the customer changes the branch's connection settings.
@@ -856,7 +921,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             ),
             "SSLRequiredError": None,
             "SSL/TLS connection is required": None,
-            _SSH_GATEWAY_SESSION_ERROR: _SSH_GATEWAY_UNREACHABLE_MESSAGE,
+            _SSH_GATEWAY_SESSION_ERROR: _SSH_GATEWAY_UNREACHABLE_SYNC_MESSAGE,
             # paramiko raises a bare, message-less EOFError when the SSH gateway accepts the TCP
             # connection but drops it mid-handshake (a non-SSH service on the port, the bastion
             # refusing PostHog's IPs, a proxy resetting the stream). sshtunnel doesn't wrap it, so
@@ -903,6 +968,18 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 "Your database provider blocked the connection because your project exceeded its data "
                 "transfer quota. Upgrade your provider's plan or wait for the quota to reset, then "
                 "re-enable the sync."
+            ),
+            # A Neon-style proxy refuses the connection because the compute endpoint itself has been
+            # disabled — distinct from the quota entries above, which describe a database that's
+            # still enabled but out of allowance. A disabled endpoint doesn't auto-wake on connect
+            # like a normally suspended one; only an explicit API/console call re-enables it, so every
+            # retry re-hits the same refusal. Match the stable provider sentence; it carries no host
+            # or account detail.
+            "The endpoint has been disabled": (
+                "Your database provider has disabled the compute endpoint, so PostHog can't connect "
+                '("The endpoint has been disabled"). This usually happens when a usage limit is '
+                "exceeded or the endpoint was disabled manually. Re-enable the endpoint from your "
+                "provider's dashboard or API, then re-enable the sync."
             ),
             # The same provider family names some quotas in the refusal and others not at all
             # ("has exceeded the quota"), so the two keys above miss those wordings and the raw
@@ -1753,39 +1830,61 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             inputs.logger.debug(f"probe_new_data: falling back to a full sync: {e}", exc_info=e)
             return None
 
-    def _buffered_cdc_source(self, schema: "ExternalDataSchema", inputs: SourceInputs) -> SourceResponse | None:
-        """A `SourceResponse` reading this schema's S3 change buffer, or None if it isn't flipped.
-
-        Returning None keeps the caller on the legacy `CDCHandledExternally` path, so a source that
-        was never flipped — or a lane the buffer doesn't serve — behaves exactly as before.
-        """
+    def _buffered_cdc_source(self, schema: "ExternalDataSchema", inputs: SourceInputs) -> SourceResponse:
+        """A `SourceResponse` reading this streaming, seeded schema's S3 change buffer."""
         from asgiref.sync import async_to_sync
 
         from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
         from products.warehouse_sources.backend.temporal.data_imports.cdc.companion_jobs import (
             retire_orphaned_companions,
         )
+        from products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane import hand_reset_to_capture
         from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import (
             CDCSourceManager,
+            buffer_expired_unread,
             build_output_lanes,
             clear_listing,
             completed_listing_proof,
-            consumes_buffer,
             has_batches_in_flight,
             served_lanes,
         )
-        from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.config import (
-            PostgresCDCConfig,
-        )
+        from products.warehouse_sources.backend.temporal.data_imports.cdc.types import parse_ingest_mode
 
-        ingest_mode = PostgresCDCConfig.from_source(schema.source).ingest_mode
-        if not consumes_buffer(schema, ingest_mode=ingest_mode):
-            return None
+        if not served_lanes(schema):
+            raise ValueError(
+                f"CDC schema {schema.name} has cdc_table_mode {schema.cdc_table_mode!r}, which no buffer lane "
+                "writes. Set it to 'consolidated', 'cdc_only' or 'both'."
+            )
+
+        def no_op_tick() -> SourceResponse:
+            # An empty response no-ops this tick and keeps the schedule alive. Nothing is listed and
+            # nothing is deleted. An earlier attempt of this same job may have stamped a listing, though, and
+            # the workflow completes the job on this response — so the stamp comes off, or a batch
+            # of that attempt failing later would leave a Completed job proving a listing nothing
+            # drained.
+            clear_listing(inputs.job_id, inputs.team_id)
+            first_lane = served_lanes(schema)[0]
+            return SourceResponse(
+                name=first_lane.resource_name,
+                items=lambda: iter(()),
+                primary_keys=schema.primary_key_columns,
+                cdc_write_mode=first_lane.write_mode,
+                # A change stream carries no seekable key, and `supports_resume` defaults to True.
+                supports_resume=False,
+            )
+
+        if parse_ingest_mode(schema.source.job_inputs) != "buffered":
+            # Until capture converts this legacy source, its buffer holds copies of changes the legacy
+            # lane already delivered, which a read would load a second time. Conversion empties the
+            # buffer before it marks the source buffered.
+            inputs.logger.info("cdc_buffered_waiting_for_legacy_conversion", schema_name=schema.name)
+            return no_op_tick()
 
         # Defense in depth for the v3-forcing invariant: a run that resolved its pipeline version
-        # before the flip, or a worker one deploy behind, would consume this buffer on v2, which
-        # stamps no position on the rows it writes, so every later run would find nothing to resume
-        # from and re-merge the whole buffer. Fail the run loudly instead of degrading silently.
+        # before its table started streaming, or a worker one deploy behind, would consume this
+        # buffer on v2, which stamps no position on the rows it writes, so every later run would
+        # find nothing to resume from and re-merge the whole buffer. Fail the run loudly instead of
+        # degrading silently.
         job = ExternalDataJob.objects.filter(id=inputs.job_id, team_id=inputs.team_id).first()
         if job is not None and job.pipeline_version != ExternalDataJob.PipelineVersion.V3:
             raise ValueError(
@@ -1794,10 +1893,9 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 "the next run resumes from."
             )
 
-        # A CDC reset must travel through snapshot mode (which purges the buffer and re-seeds the
-        # table); every reset writer does that. Standing down here instead would route into
-        # CDCHandledExternally, whose handler pauses this schedule — and nothing on a buffered
-        # source ever unpauses it, so the buffer would age to the S3 TTL unconsumed.
+        # A CDC reset must travel through snapshot mode, which re-seeds the table before the buffer
+        # replays over it; every reset writer does that. Merging the buffer into a wiped table
+        # instead would leave only the rows changed since.
         if inputs.reset_pipeline:
             raise ValueError(
                 f"reset_pipeline is set on buffered CDC schema {schema.name} while cdc_mode is still "
@@ -1805,28 +1903,27 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             )
 
         if has_batches_in_flight(schema):
-            # Reading now would stage rows alongside a delivery that is still landing: a legacy one
-            # carries no position to order against, and a previous attempt of this job holds staged
-            # batches that are still claimable, which the append lane would then write twice.
-            #
-            # An empty response no-ops this tick and keeps the schedule alive, unlike
-            # CDCHandledExternally, which would pause it for good. Nothing is listed and nothing is
-            # deleted. An earlier attempt of this same job may have stamped a listing, though, and
-            # the workflow completes the job on this response — so the stamp comes off, or a batch
-            # of that attempt failing later would leave a Completed job proving a listing nothing
-            # drained.
+            # Reading now would stage rows alongside a delivery that is still landing: a previous
+            # attempt of this job holds staged batches that are still claimable, which the append
+            # lane would then write twice.
             inputs.logger.info("cdc_buffered_waiting_for_in_flight_batches", schema_name=schema.name)
-            clear_listing(inputs.job_id, inputs.team_id)
-            first_lane = served_lanes(schema)[0]
-            return SourceResponse(
-                name=first_lane.resource_name,
-                items=lambda: iter(()),
-                primary_keys=schema.primary_key_columns,
-                cdc_write_mode=first_lane.write_mode,
-            )
+            return no_op_tick()
 
         if job is None:
             raise ValueError(f"Buffered CDC schema {schema.name} has no job row for run {inputs.job_id}")
+
+        proof_time = async_to_sync(completed_listing_proof)(schema)
+        # The bucket deletes a buffer file once it is older than BUFFER_FILE_RETENTION. A table that has
+        # consumed nothing for longer may have lost changes it never loaded, so reading on would leave it
+        # wrong for good, and only a re-snapshot makes it correct. Capture does the reset once this run
+        # has finished, as it does for any reset a sync could interfere with. A recent proof settles it
+        # without the longer read.
+        if proof_time is None and async_to_sync(buffer_expired_unread)(schema):
+            inputs.logger.warning(
+                "cdc_buffer_expired_before_consumption", schema_name=schema.name, last_synced_at=schema.last_synced_at
+            )
+            hand_reset_to_capture(schema, inputs.logger, start_capture=False)
+            return no_op_tick()
 
         # Nothing of any earlier run is executing now, so a companion still Running belongs to a
         # run that died without its `finally` and nothing else will ever close it.
@@ -1841,7 +1938,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             inputs,
             inputs.logger,
             deletion_floor=deletion_floor,
-            proof_time=async_to_sync(completed_listing_proof)(schema),
+            proof_time=proof_time,
         )
         return SourceResponse(
             name=lanes[0].name,
@@ -1849,12 +1946,18 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             primary_keys=schema.primary_key_columns,
             cdc_write_mode=lanes[0].cdc_write_mode,
             lanes=lanes,
+            # A change stream reads a buffer, not a keyed table, so there is no key to seek past.
+            supports_resume=False,
         )
 
-    def source_for_pipeline(self, config: PostgresSourceConfig, inputs: SourceInputs) -> SourceResponse:
+    def source_for_pipeline(  # type: ignore[override]
+        self,
+        config: PostgresSourceConfig,
+        resumable_source_manager: ResumableSourceManager[KeysetResumeState],
+        inputs: SourceInputs,
+    ) -> SourceResponse:
         from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
         from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.exceptions import (
-            CDCHandledExternally,
             ForeignServerUnreachableError,
         )
 
@@ -1883,19 +1986,21 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             source_schema = source_schema or inferred_schema
             source_table_name = source_table_name or inferred_table
 
-        # A buffered source's changes are consumed here like any other source; every other CDC
-        # streaming schema is still dispatched by CDCExtractionWorkflow.
-        if schema.is_cdc and schema.cdc_mode == "streaming":
-            buffered_response = self._buffered_cdc_source(schema, inputs)
-            if buffered_response is not None:
-                return buffered_response
-            raise CDCHandledExternally(
-                f"Schema {schema.name} is in CDC streaming mode — handled by CDCExtractionWorkflow"
-            )
+        # A streaming CDC schema's changes are consumed from the buffer. One that is not seeded, still
+        # snapshotting or with its data deleted, falls through to a full refresh via postgres_source(),
+        # and capture keeps its changes in the buffer until that completes.
+        if schema.is_cdc and schema.cdc_mode == "streaming" and schema.initial_sync_complete:
+            return self._buffered_cdc_source(schema, inputs)
 
-        # CDC snapshot schemas fall through to run initial full_refresh via postgres_source()
         require_ssl = source_requires_ssl(schema.source, config)
         table_rebuild_pending = inputs.reset_pipeline or schema.delta_revive_required is not None
+
+        # A rebuild empties the Delta table, so a checkpoint left from the previous run would have the
+        # read resume mid-table and append into it — losing every row below the checkpoint silently.
+        # Wider than the reset alone: a delta revive wipes the table too, and the pipeline skips its
+        # own reset whenever it can resume.
+        if table_rebuild_pending:
+            resumable_source_manager.clear_state()
 
         # Prefer the per-row `schema_metadata.source_schema` so multi-schema warehouse sources work
         # without needing to encode the schema in `config.schema`. Falls back to `config.schema` for
@@ -1920,18 +2025,15 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 is_initial_sync=not schema.initial_sync_complete,
                 enabled_columns=inputs.enabled_columns,
                 row_filters=inputs.row_filters,
-                # xmin state is read straight off the schema here (the generic `SourceInputs` stays
-                # Postgres-agnostic). xmin rides the normal full per-schema path — no CDC dispatch.
-                # A reset, and a pending corrupt-delta revive, both delete the Delta table before
-                # this read, so the cursor has to go with it: kept, the read covers only the window
-                # since the last run, and the overwrite collapses the table to that slice. The
-                # activity drops the incremental cursor for both cases for the same reason; the xmin
-                # cursor is dropped here because it is read here.
+                # xmin rides the normal full per-schema path, with no CDC dispatch. On a reset or a
+                # pending corrupt-delta revive the activity loads no cursor, because both delete the
+                # Delta table before this read and a kept cursor would collapse it to one window.
                 is_xmin=schema.is_xmin,
-                xmin_last_value=None if table_rebuild_pending else schema.xmin_last_value,
-                xmin_num_wraparound=None if table_rebuild_pending else schema.xmin_num_wraparound,
+                xmin_cursor=self.get_cursor_manager(inputs) if schema.is_xmin else None,
                 byte_bounded_extraction=inputs.byte_bounded_extraction,
                 activity_attempt=inputs.activity_attempt,
+                resumable_source_manager=resumable_source_manager,
+                keyset_full_load_enabled=inputs.keyset_full_load,
             )
         except SqlclientUnableToEstablishSqlconnection as e:
             # A setup query (e.g. the duplicate-PK probe) touched a postgres_fdw foreign table and the

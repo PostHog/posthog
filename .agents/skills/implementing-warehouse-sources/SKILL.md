@@ -44,8 +44,20 @@ Rule of thumb:
 - Pull-only API, no cursor we can persist → `SimpleSource`.
 - Pull-only API with any cursor/next-page/time-filter we can save between runs → `ResumableSource`.
 - Source can call us back with change events → add `WebhookSource` on top of whichever pull base fits.
+- Source's next run starts from a position only the source can compute, not the max of a column → add `CursorSource`.
 
 Databases and file-transfer sources (SFTP, S3) stay on `SimpleSource` unless there's a clear reason otherwise.
+
+### Durable source cursors (`CursorSource`)
+
+The incremental field covers the common case: the pipeline takes the max of a column and the next run filters above it.
+Some positions are not a column max: a Postgres xmin ceiling captured before the read, or a set of Kafka partition offsets.
+For those, add the `CursorSource[CursorT]` mixin from `sources/common/cursor.py` instead of new fields on `SourceResponse` or new keys in `sync_type_config`.
+
+- Define the cursor as a `@frozen` dataclass with a `cursor_kind: ClassVar[str]`. Keep the kind stable, because a changed kind discards every stored cursor. Give fields added later a default, because a stored cursor that lacks a required field is discarded.
+- Implement `cursor_class()`. Override `merge_cursors(current, candidate)` when a run that read less must not move the cursor back (Kafka keeps the per-partition max). Override `cursor_from_legacy()` only when migrating state that was stored under other keys.
+- In `source_for_pipeline`, call `self.get_cursor_manager(inputs)`. `load()` returns the stored cursor, or `None` on a reset or a table rebuild. `stage(cursor)` hands the next cursor to the pipeline.
+- The pipeline persists the staged cursor only after the run's rows are durable (on v3, the loader promotes it with the final batch), and a reset clears it. `postgres/xmin_cursor.py` is the reference.
 
 ## Prefer the shared REST framework
 
@@ -643,9 +655,9 @@ Requirements and behavior:
 
 - **The parent must be a selectable schema of the same source** — it has to produce its own Delta table.
 - **Soft dependency — the child falls back to the parent API.** Declare the parents by overriding `get_required_parent_schemas` on the source (wire it to `required_parents_from_endpoint_configs(ENDPOINTS, schema_name)`; add explicit entries for custom-iterator endpoints). That override is the only declaration: nothing surfaces the relationship through the API, so don't add a schema-payload field for it while the feature is unvalidated.
-  Nothing in the API constrains the selection either: a child can be enabled without its parent, and a parent can be disabled or deleted while children sync. `_warehouse_parent_reuse_available` in `import_data_activity_sync` decides per run — a parent that is missing, disabled, not yet initially synced, or on any sync type other than merge or full refresh sends that run down the legacy parent-API path, so enabling the flag can never break a schema that syncs today. A parent that is merely mid-sync does not force the fallback, because `resolve_parent_table_ref` pins the read to the parent's last completed snapshot via Delta time travel.
+  Nothing in the API constrains the selection either: a child can be enabled without its parent, and a parent can be disabled or deleted while children sync. `_warehouse_parent_reuse_available` in `import_data_activity_sync` decides per run — a parent that is missing, disabled, not yet initially synced, or on any sync type other than merge or full refresh sends that run down the legacy parent-API path, so opting a child in can never break a schema that syncs today. A parent that is merely mid-sync does not force the fallback, because `resolve_parent_table_ref` pins the read to the parent's last completed snapshot via Delta time travel.
   Never enable a parent as a side effect of enabling a child: parent syncs count toward the customer's billed rows.
-- **Feature-flagged.** The whole path is gated by the `warehouse-fanout-parent-reuse` flag (`is_fanout_warehouse_reuse_enabled`); with the flag off, opted-in endpoints silently keep the legacy parent-API path, so rollback is a flag flip.
+- **Small parents stay on the API.** A parent under `MIN_WAREHOUSE_PARENT_ROWS` (1,000 rows) is not worth opening: the Delta read has a fixed cost of a few seconds, more than paging a small listing, and that cohort measured slower when converted. The gate reads the parent table's `row_count`, so it applies per run without configuration. There is no feature flag any more; rollback is a revert.
 - **Strictly streaming — never materialize the parent table.** The reader scans one projected batch at a time with column projection pushed down to the parquet read. Do not add `to_table`, global sorts, or seen-set dedupe to it — parents can be arbitrarily large, and the whole pipeline exists to avoid full-dataset memory. If a caller's semantics depend on parent order (the API returned sorted rows), rework them into per-row filters over the unordered stream (see Sentry's `issue_tag_values` cutoff handling) instead of sorting.
 - **The usable sync types are an allow-list, not a deny-list.** Only merge and full refresh hold one row per key; append accumulates a row per sync and CDC keeps change history, so streaming either would fan the child out once per duplicate, and dedupe would need unbounded state. A new sync type has to opt in deliberately in `_parent_unusable_reason`.
 - **Values carry Delta physical types, not the API's JSON types.** A timestamp comes back as a datetime rather than an ISO string, a nested object as a dict. Because the API fallback engages per run, projecting such a field through `include_from_parent` makes the child's column type flip between runs and trips the merge's type-drift guards. Only project fields whose physical type matches what the API returned (an id string is safe), or normalize in the caller.

@@ -64,6 +64,7 @@ from products.replay_vision.backend.models.replay_observation_media import Repla
 from products.replay_vision.backend.models.replay_observation_view import ReplayObservationView
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerOrigin, ScannerType
 from products.replay_vision.backend.observation_formatting import summarize_observation
+from products.replay_vision.backend.prompt_questions import question_for_snapshot
 from products.replay_vision.backend.scanner_access import (
     accessible_observations,
     can_read_targeted_experiment,
@@ -81,9 +82,11 @@ from products.replay_vision.backend.search import (
     parse_date_bound,
     query_vector_for,
     search_observations,
+    warm_query_vectors,
 )
 from products.replay_vision.backend.search_suggestions import (
     MAX_SUGGESTED_QUERIES,
+    cross_scanner_suggestions,
     merge_suggestions,
     scope_sources,
     stamp_search_viewed,
@@ -356,6 +359,23 @@ class ReplayObservationSerializer(serializers.ModelSerializer):
             if media.asset.content_location
         ]
 
+    prompt_question = serializers.SerializerMethodField(
+        help_text=(
+            "The scanner's prompt condensed into the one question it answers about a session. Null when the "
+            "prompt has changed since this observation was scanned, since the question then describes a "
+            "different prompt; read `scanner_snapshot.scanner_config.prompt` instead."
+        ),
+    )
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_prompt_question(self, obj: ReplayObservation) -> str | None:
+        # Annotated by `hydrate_for_serialization`; a queryset that skipped it just has no question.
+        return question_for_snapshot(
+            snapshot_config=(obj.scanner_snapshot or {}).get("scanner_config"),
+            question=getattr(obj, "scanner_prompt_question", "") or "",
+            source=getattr(obj, "scanner_prompt_question_source", "") or "",
+        )
+
     summary_line = serializers.SerializerMethodField(
         help_text=(
             "One line of plain text saying what the scanner found: its verdict, score, tags or title, then its "
@@ -381,6 +401,7 @@ class ReplayObservationSerializer(serializers.ModelSerializer):
             "workflow_id",
             "scanner_snapshot",
             "scanner_result",
+            "prompt_question",
             "triggered_by",
             "triggered_by_user",
             "backfill_id",
@@ -1449,6 +1470,10 @@ class ObservationSearchResponseSerializer(serializers.Serializer):
         help_text="True when more matches may exist beyond `results`, so the response is a top slice "
         "rather than everything that matched."
     )
+    reranked = serializers.BooleanField(
+        help_text="True when a relevance model reordered the top results after the embedding match. False when "
+        "the results are in embedding distance order, for example because the model did not answer in time."
+    )
 
 
 class SearchSuggestionsQuerySerializer(serializers.Serializer):
@@ -1548,15 +1573,6 @@ class SessionReplayObservationViewSet(ReplayObservationViewSet):
                 "to search Replay Vision observations.",
                 code=AI_CONSENT_REQUIRED_CODE,
             )
-        try:
-            query_vector = query_vector_for(self.team, validated["q"])
-        except requests.RequestException as error:
-            # The embedding worker is unreachable, slow, or failing, so the caller can retry. A rejected
-            # request is a bug on our side, not retryable, and should surface as a 500.
-            if not is_transient_embedding_error(error):
-                raise
-            logger.warning("replay_vision.observation_search.embedding_failed", team_id=self.team_id, exc_info=True)
-            raise EmbeddingUnavailableError()
         filters = ObservationSearchFilters.from_raw(
             verdict=_csv_values(validated.get("verdict")),
             tags=_csv_values(validated.get("tags")),
@@ -1566,15 +1582,25 @@ class SessionReplayObservationViewSet(ReplayObservationViewSet):
             date_to=validated.get("date_to"),
             timezone_info=self.team.timezone_info,
         )
-        response = search_observations(
-            self.team,
-            self.user_access_control,
-            scanner_ids,
-            query_vector,
-            validated["limit"],
-            filters,
-        )
-        return self._search_response(response.results, truncated=response.truncated)
+        team, query = self.team, validated["q"]
+        try:
+            response = search_observations(
+                self.team,
+                self.user_access_control,
+                scanner_ids,
+                lambda: query_vector_for(team, query),
+                validated["limit"],
+                filters,
+                rerank_query=validated["q"],
+            )
+        except requests.RequestException as error:
+            # The embedding worker is unreachable, slow, or failing, so the caller can retry. A rejected
+            # request is a bug on our side, not retryable, and should surface as a 500.
+            if not is_transient_embedding_error(error):
+                raise
+            logger.warning("replay_vision.observation_search.embedding_failed", team_id=self.team_id, exc_info=True)
+            raise EmbeddingUnavailableError()
+        return self._search_response(response.results, truncated=response.truncated, reranked=response.reranked)
 
     @extend_schema(
         parameters=[SearchSuggestionsQuerySerializer],
@@ -1591,8 +1617,9 @@ class SessionReplayObservationViewSet(ReplayObservationViewSet):
         scheduled refresher stored; `search_viewed` records the view separately so this GET has no side effect."""
         params = SearchSuggestionsQuerySerializer(data=request.query_params)
         params.is_valid(raise_exception=True)
-        scanner_ids = self._searchable_scanner_ids(params.validated_data.get("scanner_id"))
-        queries = merge_suggestions([stored for _, stored in scope_sources(self.team_id, scanner_ids)])
+        scanner_id = params.validated_data.get("scanner_id")
+        scanner_ids = self._searchable_scanner_ids(scanner_id)
+        queries = self._displayed_suggestions(scanner_id, scanner_ids, scope_sources(self.team_id, scanner_ids))
         return Response(SearchSuggestionsResponseSerializer({"queries": queries}).data)
 
     @extend_schema(request=SearchSuggestionsQuerySerializer, responses={204: None})
@@ -1603,18 +1630,34 @@ class SessionReplayObservationViewSet(ReplayObservationViewSet):
         throttle_classes=[ReplayVisionSearchBurstRateThrottle, ReplayVisionSearchSustainedRateThrottle],
     )
     def search_viewed(self, request: Request, **kwargs: Any) -> Response:
-        """Record that the Search tab showed suggestions for this scope. A viewed scanner is what the scheduled
-        refresher keeps up to date, so the stamp lives on a CSRF-protected POST rather than the read."""
+        """Record that the Search tab showed suggestions for this scope. The scheduled refresher serves viewed
+        scanners first, so the stamp lives on a CSRF-protected POST rather than the read."""
         params = SearchSuggestionsQuerySerializer(data=request.data)
         params.is_valid(raise_exception=True)
-        scanner_ids = self._searchable_scanner_ids(params.validated_data.get("scanner_id"))
+        scanner_id = params.validated_data.get("scanner_id")
+        scanner_ids = self._searchable_scanner_ids(scanner_id)
+        sources = scope_sources(self.team_id, scanner_ids)
         # The same rows that a view shows are the ones it marks as wanted.
-        stamp_search_viewed(self.team_id, [scanner_id for scanner_id, _ in scope_sources(self.team_id, scanner_ids)])
+        stamp_search_viewed(self.team_id, [scanner_id for scanner_id, _ in sources])
+        # A suggestion is a likely next search, so its vector is cached before anyone clicks it. The phrases
+        # derive from recordings, so they reach the embedding service only with AI data processing on.
+        if is_ai_data_processing_approved(self.team.id):
+            warm_query_vectors(self.team, self._displayed_suggestions(scanner_id, scanner_ids, sources))
         return Response(status=status.HTTP_204_NO_CONTENT)
 
-    def _search_response(self, results: list[ObservationSearchResult], truncated: bool = False) -> Response:
+    def _displayed_suggestions(
+        self, scanner_id: uuid.UUID | None, scanner_ids: list[str], sources: list[tuple[str, list[str]]]
+    ) -> list[str]:
+        """The phrases this viewer sees: the team's own set for the all-scanners view when they can read every
+        scanner it drew on, otherwise the per-scanner merge."""
+        team_phrases = cross_scanner_suggestions(self.team_id, scanner_ids) if scanner_id is None else None
+        return team_phrases or merge_suggestions([stored for _, stored in sources])
+
+    def _search_response(
+        self, results: list[ObservationSearchResult], truncated: bool = False, reranked: bool = False
+    ) -> Response:
         serializer = ObservationSearchResponseSerializer(
-            {"results": results, "truncated": truncated}, context=self.get_serializer_context()
+            {"results": results, "truncated": truncated, "reranked": reranked}, context=self.get_serializer_context()
         )
         return Response(serializer.data)
 

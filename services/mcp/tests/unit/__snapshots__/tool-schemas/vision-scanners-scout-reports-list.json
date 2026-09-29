@@ -1,0 +1,10 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "scanner_id": {
+            "type": "string"
+        }
+    },
+    "required": ["scanner_id"],
+    "type": "object"
+}

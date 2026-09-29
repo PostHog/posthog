@@ -1,16 +1,15 @@
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from functools import partial
 
 from django.conf import settings as django_settings
+from django.core.exceptions import ValidationError as DjangoValidationError
 
 import dagster
 import pydantic
 from clickhouse_driver import Client
-
-from posthog.schema import HogQLVariable
 
 # Pre-warm the HogQL → HogVM bytecode import chain at code-location load time. Compiling a
 # predicate (process_property_removal_shard → compile_hogql_predicate) builds the HogQL
@@ -23,8 +22,6 @@ from posthog.schema import HogQLVariable
 # packages already get cached this way; common.hogvm is the only fresh import on the predicate
 # path, so it is the one that breaks without this.
 import posthog.hogql.compiler.bytecode  # noqa: F401
-from posthog.hogql import ast
-from posthog.hogql.query import HogQLQueryExecutor
 
 from posthog.clickhouse.adhoc_events_deletion import ADHOC_EVENTS_DELETION_TABLE
 from posthog.clickhouse.client import sync_execute
@@ -34,6 +31,7 @@ from posthog.clickhouse.events_json import UNPARSEABLE_PROPERTIES_KEY
 from posthog.clickhouse.workload import Workload
 from posthog.dags.common import JobOwners
 from posthog.dags.deletes import deletes_job
+from posthog.data_deletion import compile_event_uuid_query
 from posthog.models.data_deletion_request import (
     AUTO_APPROVE_INTERVAL_MINUTES,
     DataDeletionRequest,
@@ -50,6 +48,8 @@ from posthog.models.data_deletion_request import (
 )
 from posthog.models.deletion_targets import (
     COVERAGE_DOC,
+    FLAG_EVALUATIONS,
+    PERSONAL_DATA_TARGETS,
     DeletionTarget,
     TargetPlacement,
     UnsweepableRowsError,
@@ -72,8 +72,6 @@ from posthog.models.person.bulk_delete import (
     queue_person_recording_deletion,
     resolve_persons_for_deletion,
 )
-
-from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 from ee.clickhouse.materialized_columns.columns import MaterializedColumnDetails
 
@@ -525,26 +523,15 @@ class HogQLEventDeletionExecutor:
             raise dagster.Failure("The request team or creator no longer exists.") from error
 
         try:
-            variables = {key: HogQLVariable.model_validate(value) for key, value in request.variables.items()}
-        except pydantic.ValidationError as error:
-            raise dagster.Failure("The request contains invalid HogQL variables.") from error
-
-        compiler = HogQLQueryExecutor(
-            query=request.query,
-            team=team,
-            user=user,
-            user_access_control=UserAccessControl(user=user, team=team),
-            variables=variables,
-            workload=Workload.OFFLINE,
-            ch_user=ClickHouseUser.DELETION_EXECUTOR,
-            pretty=False,
-        )
-        selected = compiler.generate_clickhouse_subquery_sql()
-        prepared_ast = compiler.clickhouse_prepared_ast
-        if not isinstance(prepared_ast, (ast.SelectQuery, ast.SelectSetQuery)):
-            raise dagster.Failure("The HogQL query must produce a result set.")
-        if prepared_ast.type is None or len(prepared_ast.type.columns) != 1:
-            raise dagster.Failure("The HogQL query must select exactly one event UUID column.")
+            selected = compile_event_uuid_query(
+                query=request.query,
+                variables=request.variables,
+                team=team,
+                user=user,
+                ch_user=ClickHouseUser.DELETION_EXECUTOR,
+            )
+        except DjangoValidationError as error:
+            raise dagster.Failure(str(error)) from error
 
         database = django_settings.CLICKHOUSE_DATABASE
         insert_sql = (  # nosemgrep: clickhouse-injection-taint
@@ -656,13 +643,19 @@ def _verify_swept(
 
 
 def _event_removal_placements(
-    cluster: ClickhouseCluster, deletion_request: DeletionRequestContext
+    cluster: ClickhouseCluster,
+    deletion_request: DeletionRequestContext,
+    *,
+    skip_targets: Collection[DeletionTarget] = (),
 ) -> list[TargetPlacement]:
     """Targets this event-removal request can sweep, each with the handle that reaches it."""
     events = [] if deletion_request.delete_all_events else deletion_request.events
     # A target that can't hold any of the named events has nothing to sweep, and mutations serialize
     # per table, so enqueueing a no-op one would queue in front of real work.
-    placements = [p for p in resolve_placements(cluster) if p.target.may_hold_any_of(events)]
+    # Skipped targets are dropped before resolve_placements, which raises for an unreachable target
+    # that still holds rows.
+    targets = [t for t in PERSONAL_DATA_TARGETS if t not in skip_targets]
+    placements = [p for p in resolve_placements(cluster, targets) if p.target.may_hold_any_of(events)]
     if not deletion_request.hogql_predicate:
         return placements
 
@@ -675,12 +668,18 @@ def _event_removal_placements(
     return [p for p in placements if p.target.accepts_hogql_predicate]
 
 
+# Immediate deletion leaves flag_evaluations rows to the table's TTL. A HogQL predicate does not
+# compile against that table, so gating on it refused every such request whose team had matching
+# $feature_flag_called rows. Deferred deletion still queues the table's uuids.
+_IMMEDIATE_SKIP_TARGETS = (FLAG_EVALUATIONS,)
+
+
 def _run_immediate_event_deletion(
     context: dagster.OpExecutionContext,
     cluster: ClickhouseCluster,
     deletion_request: DeletionRequestContext,
 ) -> None:
-    placements = _event_removal_placements(cluster, deletion_request)
+    placements = _event_removal_placements(cluster, deletion_request, skip_targets=_IMMEDIATE_SKIP_TARGETS)
     targets = [p.target for p in placements]
 
     context.log.info(f"Starting immediate event deletion on tables {[t.data_table for t in targets]}")
@@ -1542,8 +1541,10 @@ def delete_person_profiles_op(
     `POST /api/projects/:id/persons/bulk_delete/` endpoint and avoids flipping the whole
     request to FAILED after upstream events/recordings ops have already done their work.
 
-    The one exception is the batch Postgres delete: when it fails, every tombstoned person is
-    still in Postgres, so the op raises and the request finalizes as FAILED for a retry.
+    The one exception is the batch Postgres delete or tombstone: when it fails, those persons are
+    still live in Postgres, so the op raises and the request finalizes as FAILED for a retry. A
+    failed ClickHouse publish after a Postgres tombstone does not raise, because the person is
+    deleted and the weekly deletion sweep republishes it.
     """
     if not person_removal.drop_profiles:
         context.log.info("drop_profiles=False, skipping profile deletion")
@@ -1564,12 +1565,13 @@ def delete_person_profiles_op(
         "errors": dagster.MetadataValue.int(len(result.errors)),
     }
     if result.errors:
-        context.log.warning(
-            f"Person profile deletion had {len(result.errors)} per-person failures; "
-            f"Postgres rows remain for failed UUIDs and can be retried via a follow-up request"
-        )
+        context.log.warning(f"Person profile deletion had {len(result.errors)} per-person failures")
         metadata["error_uuids"] = dagster.MetadataValue.text(", ".join(str(u) for u in result.errors))
-    postgres_failures = [f for f in result.failures if f.step is PersonDeletionStep.DELETE_POSTGRES]
+    postgres_failures = [
+        f
+        for f in result.failures
+        if f.step in (PersonDeletionStep.DELETE_POSTGRES, PersonDeletionStep.TOMBSTONE_POSTGRES)
+    ]
     if postgres_failures:
         raise dagster.Failure(
             description=(
@@ -1739,7 +1741,7 @@ def data_deletion_request_person_removal():
 # Pickup sensor: scans for APPROVED requests and launches jobs (max 1 at a time)
 # ---------------------------------------------------------------------------
 
-_DELETION_JOB_NAMES = [
+DELETION_JOB_NAMES = [
     data_deletion_request_event_removal.name,
     data_deletion_request_hogql_event_removal.name,
     data_deletion_request_property_removal.name,
@@ -1770,7 +1772,7 @@ def data_deletion_request_pickup_sensor(context: dagster.SensorEvaluationContext
         dagster.DagsterRunStatus.STARTED,
     ]
     active_count = 0
-    for job_name in _DELETION_JOB_NAMES:
+    for job_name in DELETION_JOB_NAMES:
         active_count += len(
             context.instance.get_run_records(
                 dagster.RunsFilter(job_name=job_name, statuses=active_statuses),

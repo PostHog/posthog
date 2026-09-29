@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useMemo } from 'react'
+import { useRef } from 'react'
 
 import { IconInfo } from '@posthog/icons'
 import { LemonButton, LemonInput, Tooltip } from '@posthog/lemon-ui'
@@ -12,6 +12,7 @@ import { DataModelingNodeType } from '~/types'
 
 import { LineageGraph } from './LineageGraph'
 import { lineageNodeUrl } from './lineageNodeUrl'
+import { LineageSearchResults } from './LineageSearchResults'
 import { LINEAGE_FILTER_TYPES, modelsLineageLogic } from './modelsLineageLogic'
 import { NODE_TYPE_TAG_SETTINGS } from './nodeStyles'
 import { NodeTypeLegend } from './NodeTypeLegend'
@@ -23,6 +24,7 @@ const TYPE_OPTIONS = LINEAGE_FILTER_TYPES.map((type) => ({
 }))
 
 export function ModelsLineageTab(): JSX.Element {
+    const searchInputRef = useRef<HTMLInputElement>(null)
     const {
         nodes,
         nodesLoading,
@@ -30,19 +32,38 @@ export function ModelsLineageTab(): JSX.Element {
         searchTerm,
         typeFilter,
         legendCollapsed,
-        parsedSearch,
         highlightedNodeIds,
+        parsedSearchTerm,
+        lineageSearchAnchor,
+        searchResults,
+        showSearchResults,
+        selectedSearchResult,
+        searchResultAnnouncement,
+        searchFocusRequest,
+        focusNodeIds,
         visibleNodes,
         visibleEdges,
         isFiltered,
     } = useValues(modelsLineageLogic)
-    const { setSearchTerm, setTypeFilter, toggleLegendCollapsed, resetFilters } = useActions(modelsLineageLogic)
-    // A fresh Set on every render would restart the graph's fitView animation each keystroke,
-    // so keep the identity stable while the underlying selectors are unchanged.
-    const focusNodeIds = useMemo(
-        () => (parsedSearch.mode === 'search' ? highlightedNodeIds : new Set(visibleNodes.map((node) => node.id))),
-        [parsedSearch.mode, highlightedNodeIds, visibleNodes]
-    )
+    const {
+        setSearchTerm,
+        setDebouncedSearchTerm,
+        setTypeFilter,
+        moveSearchResult,
+        focusSearchResult,
+        toggleLegendCollapsed,
+        resetFilters,
+    } = useActions(modelsLineageLogic)
+
+    const focusSearchInput = (): void => {
+        const input = searchInputRef.current
+        input?.focus()
+        const trimmedSearchTerm = searchTerm.trimEnd()
+        if (input && trimmedSearchTerm.length > 1 && trimmedSearchTerm.endsWith('+')) {
+            const trailingSelectorPosition = trimmedSearchTerm.length - 1
+            input.setSelectionRange(trailingSelectorPosition, trailingSelectorPosition)
+        }
+    }
 
     return (
         <div className="flex flex-col gap-2">
@@ -51,8 +72,30 @@ export function ModelsLineageTab(): JSX.Element {
                     type="search"
                     size="small"
                     placeholder="Search, or +name for upstream"
+                    aria-label="Search models"
+                    inputRef={searchInputRef}
                     value={searchTerm}
                     onChange={setSearchTerm}
+                    onKeyDown={(event) => {
+                        if (
+                            showSearchResults &&
+                            searchResults.length > 0 &&
+                            (event.key === 'ArrowUp' || event.key === 'ArrowDown')
+                        ) {
+                            event.preventDefault()
+                            // Focus stays in the input here, so there is nothing to restore. Calling
+                            // focusSearchInput would move the caret away from where the user put it.
+                            moveSearchResult(event.key === 'ArrowUp' ? 'previous' : 'next', false)
+                        } else if (event.key === 'Enter' && selectedSearchResult) {
+                            event.preventDefault()
+                            focusSearchResult(selectedSearchResult.id, 'keyboard')
+                            focusSearchInput()
+                        } else if (event.key === 'Escape' && searchTerm) {
+                            event.preventDefault()
+                            setSearchTerm('')
+                            setDebouncedSearchTerm('')
+                        }
+                    }}
                     className="w-72"
                     data-attr="models-lineage-search"
                 />
@@ -83,11 +126,35 @@ export function ModelsLineageTab(): JSX.Element {
                     </>
                 )}
             </div>
-            <div className="h-[calc(100vh-20rem)] min-h-[400px] w-full border rounded bg-bg-light overflow-hidden">
+            <div className="relative h-[calc(100vh-20rem)] min-h-[400px] w-full border rounded bg-bg-light overflow-hidden">
+                <span className="sr-only" aria-live="polite">
+                    {searchResultAnnouncement}
+                </span>
+                {showSearchResults && (
+                    <LineageSearchResults
+                        results={searchResults}
+                        selectedResultId={selectedSearchResult?.id}
+                        anchorResultId={lineageSearchAnchor?.id}
+                        mode={parsedSearchTerm.mode}
+                        onSelect={(nodeId) => {
+                            focusSearchResult(nodeId, 'click')
+                            focusSearchInput()
+                        }}
+                        onPrevious={() => {
+                            moveSearchResult('previous', true)
+                            focusSearchInput()
+                        }}
+                        onNext={() => {
+                            moveSearchResult('next', true)
+                            focusSearchInput()
+                        }}
+                    />
+                )}
                 <LineageGraph
                     nodes={visibleNodes}
                     edges={visibleEdges}
                     focusNodeIds={focusNodeIds}
+                    searchFocusRequest={searchFocusRequest}
                     variant="canvas"
                     interactive
                     showControls
@@ -99,6 +166,7 @@ export function ModelsLineageTab(): JSX.Element {
                     }
                     nodeState={(node) => ({
                         isHighlighted: highlightedNodeIds.has(node.id),
+                        isSelected: selectedSearchResult?.id === node.id,
                         isRunning: node.last_run_status === 'Running',
                     })}
                     onNodeClick={(node) => router.actions.push(lineageNodeUrl(node))}

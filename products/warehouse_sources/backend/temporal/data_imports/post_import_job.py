@@ -45,6 +45,7 @@ from products.warehouse_sources.backend.temporal.data_imports.external_product_h
     data_quality_checks_needed_for,
     emit_signals_enabled_for,
 )
+from products.warehouse_sources.backend.temporal.data_imports.util import with_internal_db_retries
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.calculate_table_size import (
     CalculateTableSizeActivityInputs,
     calculate_table_size_activity,
@@ -335,6 +336,7 @@ def _legacy_step_keys(ctx: PostImportContext) -> list[str]:
 
 
 @activity.defn
+@with_internal_db_retries
 def resolve_post_import_context_activity(inputs: PostImportWorkflowInputs) -> PostImportContext:
     bind_contextvars(team_id=inputs.team_id)
     logger = LOGGER.bind()

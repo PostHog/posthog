@@ -56,6 +56,7 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import prepare_and_print_ast, prepare_ast_for_printing, print_prepared_ast, to_printed_hogql
 from posthog.hogql.property import property_to_expr
+from posthog.hogql.property_access_types import RestrictedProperty
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.test.utils import json_dynamic_read_sql, json_dynamic_read_sql_from_parts
 
@@ -1459,6 +1460,55 @@ class TestPrinter(BaseTest):
         self.assertEqual(json.loads(result[0]) if result[0] is not None else None, expected_groups)
         self.assertEqual(result[1:4], (has_groups, has_organization, int(expected_groups is None)))
         self.assertEqual(result[4], (expected_groups or {}).get("organization"))
+
+    @parameterized.expand(
+        [
+            (None, True),
+            ("$feature/flag.with.dot", True),
+            ("$feature_flags", True),
+            (None, False),
+        ]
+    )
+    def test_feature_flag_json_extracts_match_map_document(self, restricted: str | None, populated: bool) -> None:
+        flags = {"flag.with.dot": "control", "numeric": "42", "enabled": "true"} if populated else {}
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, use_new_events_schema=True)
+        context.restricted_properties = (
+            {RestrictedProperty(name=restricted, property_type=PropertyDefinition.Type.EVENT)} if restricted else set()
+        )
+        extracts = [
+            "JSONExtractString(properties, '$feature_flags', 'flag.with.dot')",
+            "JSONExtractString(properties, '$feature_flags', concat('flag.', 'with.dot'))",
+            "JSONExtractString(properties, '$feature_flags', 'missing')",
+            "JSONExtractRaw(properties, '$feature_flags')",
+            "JSONExtractRaw(properties, '$feature_flags', 'flag.with.dot')",
+            "JSONExtract(properties, '$feature_flags', 'Map(String, String)')",
+            "JSONExtractKeys(properties, '$feature_flags')",
+            "JSONExtractKeysAndValues(properties, '$feature_flags', 'String')",
+            "JSONExtractKeysAndValuesRaw(properties, '$feature_flags')",
+            "JSONExtractArrayRaw(properties, '$feature_flags')",
+            "JSONExtractInt(properties, '$feature_flags', 'numeric')",
+            "JSONExtractUInt(properties, '$feature_flags', 'numeric')",
+            "JSONExtractFloat(properties, '$feature_flags', 'numeric')",
+            "JSONExtractBool(properties, '$feature_flags', 'enabled')",
+        ]
+        expression = "tuple(" + ", ".join(extracts) + ")"
+        printed = self._expr(expression, context)
+        actual = sync_execute(
+            f"SELECT {printed} FROM (SELECT CAST(%(raw)s, %(json_type)s) AS properties) AS events",
+            {
+                **context.values,
+                "raw": json.dumps({"$feature_flags": flags}),
+                "json_type": EVENTS_PROPERTIES_JSON_TYPE(),
+            },
+        )
+        visible_flags = {
+            key: value for key, value in flags.items() if restricted not in ("$feature_flags", f"$feature/{key}")
+        }
+        expected = sync_execute(
+            f"SELECT {expression} FROM (SELECT %(raw)s AS properties)",
+            {"raw": json.dumps({"$feature_flags": visible_flags} if visible_flags else {})},
+        )
+        self.assertEqual(actual, expected)
 
     def test_instance_setting_enables_new_events_schema(self) -> None:
         # The production rollout lever is the instance setting, not the env var — a fresh context
@@ -4194,7 +4244,7 @@ class TestPrinter(BaseTest):
         )
         self.assertEqual(
             (
-                f"SELECT if(equals(%(hogql_val_0)s, %(hogql_val_1)s), toDecimal128(100, 10), if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10)) = 0, toDecimal128(0, 10), multiplyDecimal(divideDecimal(toDecimal128(100, 10), if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10)) = 0, toDecimal128(1, 10), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10)))), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_1)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10))))) AS currency "
+                f"SELECT if(equals(%(hogql_val_0)s, %(hogql_val_1)s), toDecimal128(100, 10), if(ifNull(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10)), toDecimal64(0, 10)) = 0, toDecimal128(0, 10), multiplyDecimal(divideDecimal(toDecimal128(100, 10), if(ifNull(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10)), toDecimal64(0, 10)) = 0, toDecimal128(1, 10), ifNull(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10)), toDecimal64(0, 10)))), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_1)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10))))) AS currency "
                 "LIMIT 50000 SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"
             ),
             printed,
@@ -4207,7 +4257,7 @@ class TestPrinter(BaseTest):
         )
         self.assertEqual(
             (
-                f"SELECT if(equals(%(hogql_val_0)s, %(hogql_val_1)s), toDecimal128(100, 10), if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, today(), toDecimal64(0, 10)) = 0, toDecimal128(0, 10), multiplyDecimal(divideDecimal(toDecimal128(100, 10), if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, today(), toDecimal64(0, 10)) = 0, toDecimal128(1, 10), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, today(), toDecimal64(0, 10)))), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_1)s, today(), toDecimal64(0, 10))))) AS currency "
+                f"SELECT if(equals(%(hogql_val_0)s, %(hogql_val_1)s), toDecimal128(100, 10), if(ifNull(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, today(), toDecimal64(0, 10)), toDecimal64(0, 10)) = 0, toDecimal128(0, 10), multiplyDecimal(divideDecimal(toDecimal128(100, 10), if(ifNull(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, today(), toDecimal64(0, 10)), toDecimal64(0, 10)) = 0, toDecimal128(1, 10), ifNull(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, today(), toDecimal64(0, 10)), toDecimal64(0, 10)))), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_1)s, today(), toDecimal64(0, 10))))) AS currency "
                 "LIMIT 50000 SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"
             ),
             printed,

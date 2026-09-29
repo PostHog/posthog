@@ -353,6 +353,14 @@ export const WebAnalyticsBotRulesCreateBody = /* @__PURE__ */ zod.object({
         .describe('The conditions of this rule. Each one reads a single event property.'),
 })
 
+/**
+ * Re-reads AI citation checks and updates the site's content opportunities. Makes no model calls.
+ * @summary Refresh content opportunities
+ */
+export const WebAnalyticsContentAutopilotOpportunitiesRefreshBody = /* @__PURE__ */ zod.object({
+    profile_id: zod.uuid().describe('Site profile to refresh opportunities for.'),
+})
+
 export const webAnalyticsContentAutopilotProfilesCreateBodyNameMax = 255
 
 export const webAnalyticsContentAutopilotProfilesCreateBodyDomainMax = 2048

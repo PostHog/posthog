@@ -1,6 +1,6 @@
 from collections.abc import Iterable
 from dataclasses import field
-from typing import Literal
+from typing import Literal, TypedDict
 
 from django.db.models import Q
 
@@ -13,6 +13,7 @@ from posthog.slack.formatting import escape_slack_mrkdwn
 from posthog.user_permissions import UserPermissions
 
 from products.signals.backend.facade import api as signals_facade
+from products.slack_app.backend.feature_flags import is_slack_app_oauth_enabled
 from products.slack_app.backend.helpers import local_dev_slack_email
 from products.slack_app.backend.models import SlackSettings, SlackThreadTaskMapping
 from products.slack_app.backend.services.slack_fork_context import get_pending_fork
@@ -349,6 +350,34 @@ class UserAndIntegrationsResolution:
     def resolved_or_first(self) -> Integration | None:
         """The integration this resolution picked, falling back to the oldest one the user can reach."""
         return _resolved_or_oldest(self.integration, self.candidates)
+
+
+def _active_account_exists(email: str | None) -> bool | None:
+    if not email:
+        return None
+    try:
+        return User.objects.filter(email__iexact=email, is_active=True).exists()
+    except Exception:
+        # A database error must not fail the Slack webhook, because Slack replays a failed event.
+        logger.warning("slack_app_account_lookup_failed", exc_info=True)
+        return None
+
+
+class UnresolvedUserProperties(TypedDict):
+    slack_email_available: bool
+    posthog_account_exists: bool | None
+    account_linking_available: bool
+
+
+def unresolved_user_properties(
+    resolution: UserAndIntegrationsResolution, probe: Integration
+) -> UnresolvedUserProperties:
+    """Analytics properties that tell apart the reasons a Slack user was not identified."""
+    return {
+        "slack_email_available": bool(resolution.slack_email),
+        "posthog_account_exists": _active_account_exists(resolution.slack_email),
+        "account_linking_available": is_slack_app_oauth_enabled(probe),
+    }
 
 
 def resolve_user_for_workspace(

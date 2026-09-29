@@ -16,9 +16,8 @@ import { FilterTestAccountsConfiguration as RevenueAnalyticsFilterTestAccountsCo
 
 import { BaseCurrency } from 'lib/components/BaseCurrency/BaseCurrency'
 import { FeaturePreviews, FeaturePreviewsComingSoon } from 'lib/components/FeaturePreviews/FeaturePreviews'
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_SUPPORT } from 'lib/components/SupportedPlatforms/featureSupport'
-import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { PersonalPosthogConnections } from 'lib/integrations/PosthogConnect'
 import { DefaultMinimumDetectableEffect } from 'scenes/experiments/DefaultMinimumDetectableEffect'
 import { GitHub, Linear, Slack } from 'scenes/integrations/definitions'
@@ -52,7 +51,7 @@ import {
 } from '~/layout/navigation-3000/sidepanel/panels/access_control/RolesAccessControls'
 import { AccessControlLevel, AccessControlResourceType, AvailableFeature, Realm } from '~/types'
 
-import { LearnFromSupportSetting } from 'products/business_knowledge/frontend/settings/LearnFromSupportSetting'
+import { LearnFromSupportSetting } from 'products/business_knowledge/frontend/scenes/settings/LearnFromSupportSetting'
 import { AISection } from 'products/conversations/frontend/scenes/settings/AISection'
 import { GeneralSection } from 'products/conversations/frontend/scenes/settings/GeneralSection'
 import { NotificationsSection } from 'products/conversations/frontend/scenes/settings/NotificationsSection'
@@ -197,7 +196,7 @@ import {
     HomepageSetting,
     SidebarItemsSetting,
     SidebarLayoutSetting,
-    SidebarMyToolsSetting,
+    SidebarMyProductsSetting,
 } from './user/SidebarSettings'
 import { ThemeSwitcher } from './user/ThemeSwitcher'
 import { TwoFactorSettings } from './user/TwoFactorSettings'
@@ -850,18 +849,8 @@ export const SETTINGS_MAP: SettingSection[] = [
             {
                 id: 'feature-flag-secure-api-key',
                 title: 'Feature flags secure API key',
-                description: (
-                    <FlaggedFeature
-                        flag={FEATURE_FLAGS.PROJECT_SECRET_API_KEYS}
-                        fallback="Use this key for local evaluation of feature flags or remote config settings. Replaces personal API keys for local evaluation."
-                    >
-                        Deprecated. This key is still usable for local evaluation of feature flags or remote config
-                        settings, but new integrations should use a project secret API key with the feature_flag:read
-                        scope instead.
-                    </FlaggedFeature>
-                ),
-                searchDescription:
-                    'Use this key for local evaluation of feature flags or remote config settings. Replaces personal API keys for local evaluation.',
+                description:
+                    'Deprecated. This key is still usable for local evaluation of feature flags or remote config settings, but new integrations should use a project secret API key with the feature_flag:read scope instead.',
                 docsUrl: 'https://posthog.com/docs/feature-flags/local-evaluation',
                 component: <FlagsSecureApiKeys />,
                 keywords: ['api key', 'secret', 'local evaluation', 'remote config'],
@@ -1856,7 +1845,6 @@ export const SETTINGS_MAP: SettingSection[] = [
         level: 'environment',
         id: 'environment-secret-api-keys',
         title: 'Project secret API keys',
-        flag: 'PROJECT_SECRET_API_KEYS',
         settings: [
             {
                 id: 'environment-secret-api-keys',
@@ -2142,8 +2130,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description:
                     'Choose which email notifications your members receive. Anything you set here they cannot change back themselves.',
                 component: <NotificationGovernanceSetting />,
-                flag: 'ORG_NOTIFICATION_GOVERNANCE',
-                allowForTeam: (t) => (t?.effective_membership_level ?? 0) >= OrganizationMembershipLevel.Admin,
+                organizationAdminOnly: true,
                 keywords: ['notification', 'email', 'member', 'lock', 'digest', 'pipeline'],
             },
         ],
@@ -2352,10 +2339,12 @@ export const SETTINGS_MAP: SettingSection[] = [
             },
             {
                 id: 'sidebar-auto-suggest',
-                title: 'Automatically suggest new tools',
+                title: 'Automatically suggest new products',
                 description:
-                    "When we detect you are using a new tool, we'll automatically add it to your sidebar as a suggestion. We might also suggest tools that are related to the ones you are using when we launch a new one.",
+                    "When we detect you are using a new product, we'll automatically add it to your sidebar as a suggestion. We might also suggest products that are related to the ones you are using when we launch a new one.",
                 component: <SidebarAutoSuggestSetting />,
+                // Suggestions land in custom products, which the simple sidebar does not show.
+                flag: '!SIMPLE_SIDEPANEL',
                 keywords: ['sidebar', 'suggest', 'products', 'apps', 'tools', 'auto'],
             },
             {
@@ -2401,7 +2390,8 @@ export const SETTINGS_MAP: SettingSection[] = [
         level: 'user',
         id: 'user-navigation',
         title: 'Navigation',
-        flag: 'UI_CUSTOMIZATION',
+        // The simple sidebar edits these inline, from its own customize dialog.
+        flag: ['UI_CUSTOMIZATION', '!SIMPLE_SIDEPANEL'],
         settings: [
             {
                 id: 'homepage',
@@ -2428,11 +2418,11 @@ export const SETTINGS_MAP: SettingSection[] = [
             },
             {
                 id: 'sidebar-my-tools',
-                title: 'My Tools',
+                title: 'My products',
                 description:
-                    'Choose which tools appear in the My Tools section of your sidebar. This selection applies to the current project.',
-                component: <SidebarMyToolsSetting />,
-                keywords: ['sidebar', 'tools', 'products', 'apps', 'my tools', 'customize'],
+                    'Choose which products appear in the My products section of your sidebar. This selection applies to the current project.',
+                component: <SidebarMyProductsSetting />,
+                keywords: ['sidebar', 'tools', 'products', 'apps', 'my tools', 'my products', 'customize'],
             },
         ],
     },

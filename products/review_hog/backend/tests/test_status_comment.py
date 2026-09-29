@@ -131,7 +131,7 @@ class TestRenderFinalBody:
                 0,
                 IssuePriority.SHOULD_FIX,
                 None,
-                ["Nothing worth raising this time, so here's a calming picture instead:", "![", "pr-assets"],
+                ["Nothing worth raising this time. Enjoy the moment:", "!["],
                 ["Published", "stayed below"],
             ),
             # Posted on a prior crashed attempt (marker skip): published, but no link to render.
@@ -190,8 +190,11 @@ class TestRenderFinalBody:
         # Held-back findings are otherwise invisible to the author — the comment must not dead-end.
         assert "[View them in PostHog](https://ph.test/project/1/code-review?review=rid)" in body
 
+    @parameterized.expand([("default_on", True), ("author_opted_out", False)])
     @patch(f"{_MODULE}.random.choice", return_value=("https://example.test/dog.png", "A happy dog"))
-    def test_uses_the_randomly_selected_clean_review_media(self, mock_choice: MagicMock) -> None:
+    def test_clean_review_media_follows_the_preference(
+        self, _name: str, celebrate: bool, mock_choice: MagicMock
+    ) -> None:
         body = render_final_body(
             "rid",
             counts={IssuePriority.MUST_FIX: 0, IssuePriority.SHOULD_FIX: 0, IssuePriority.CONSIDER: 0},
@@ -199,10 +202,16 @@ class TestRenderFinalBody:
             held_back_count=0,
             threshold=IssuePriority.SHOULD_FIX,
             review_url=None,
+            celebrate_clean_reviews=celebrate,
         )
 
-        assert "![A happy dog](https://example.test/dog.png)" in body
-        mock_choice.assert_called_once()
+        if celebrate:
+            assert "![A happy dog](https://example.test/dog.png)" in body
+            mock_choice.assert_called_once()
+        else:
+            assert "dog.png" not in body
+            assert "Enjoy the moment" not in body
+            mock_choice.assert_not_called()
 
 
 def _pr_metadata(pr_number: int = 123) -> PRMetadata:

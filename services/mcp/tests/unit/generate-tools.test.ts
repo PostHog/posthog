@@ -98,6 +98,32 @@ describe('composeToolSchema', () => {
         expect(result.toolInputsImports).toEqual([])
     })
 
+    it('requires a PATCH field without removing its Orval description', () => {
+        const config: ToolConfig = {
+            operation: 'things_partial_update',
+            enabled: true,
+            param_overrides: { destination: { required: true } },
+        }
+        const resolved = makeResolved({
+            method: 'PATCH',
+            operation: {
+                operationId: 'things_partial_update',
+                parameters: [],
+                requestBody: {
+                    content: {
+                        'application/json': {
+                            schema: { properties: { destination: { type: 'integer' } } },
+                        },
+                    },
+                },
+            },
+        })
+
+        const result = composeToolSchema(config, resolved, makeSpec(), stubGetQuerySchema)
+
+        expect(result.schemaExpr).toContain("ThingsPartialUpdateBody.shape['destination'].nonoptional()")
+    })
+
     it('collects toolInputsImports from param_overrides with input_schema', () => {
         const config: ToolConfig = {
             operation: 'things_create',
@@ -1337,6 +1363,35 @@ describe('system_prompt_hint flows into tool definitions', () => {
             },
         ]) as Record<string, { system_prompt_hint?: string }>
         expect(definitions['query-logs']?.system_prompt_hint).toBe('Log filtering by severity/service/attribute')
+    })
+})
+
+describe('per-tool category in tool definitions', () => {
+    it.each([
+        { toolCategory: undefined, expected: 'AI observability' },
+        { toolCategory: 'Experiments', expected: 'Experiments' },
+    ])('uses $expected when the tool category is $toolCategory', ({ toolCategory, expected }) => {
+        const toolConfig: EnabledToolConfig = {
+            operation: 'llm_prompts_list',
+            enabled: true,
+            scopes: ['llm_prompt:read'],
+            annotations: { readOnly: true, destructive: false, idempotent: true },
+            ...(toolCategory ? { category: toolCategory } : {}),
+        }
+        const resolved: ResolvedOperation = {
+            method: 'GET',
+            path: '/api/environments/{project_id}/llm_prompts/',
+            operation: { operationId: 'llm_prompts_list', description: 'List prompts' },
+        }
+        const definitions = generateDefinitionsJson([
+            {
+                config: { category: 'AI observability', feature: 'llm_analytics', url_prefix: '/ai-observability', tools: {} },
+                enabledTools: [['llma-prompt-list', toolConfig, resolved]],
+                enabledWrappers: [],
+                yamlDir: '/tmp',
+            },
+        ]) as Record<string, { category?: string; feature?: string }>
+        expect(definitions['llma-prompt-list']).toMatchObject({ category: expected, feature: 'llm_analytics' })
     })
 })
 
