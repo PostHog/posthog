@@ -42,6 +42,7 @@ from enum import Enum
 from typing import Any, Protocol
 
 DEPOT_APP_ID = 219785
+DEPOT_ORG = "ntsdt08fpt"
 DEPOT_WORKFLOW = "Backend CI on Depot"
 WAIT_JOB = "Wait for GitHub Actions to hand off backend tests"
 # Renders the same text as the wait job's name expression in .depot/workflows/ci-backend.yml.
@@ -52,6 +53,19 @@ RACING_EVENT_SECONDS = 2
 GATE_CHECK = f"{DEPOT_WORKFLOW} / Django Tests Pass on Depot"
 DEPOT_RUN_URL = re.compile(r"^https://depot\.dev/orgs/([^/?]+)/workflows/([a-z0-9]+)(?:[?/]|$)")
 PENDING_STATES = frozenset({"queued", "in_progress", "pending", "waiting", "requested"})
+CONCLUSIONS = frozenset(
+    {
+        "success",
+        "failure",
+        "cancelled",
+        "skipped",
+        "timed_out",
+        "neutral",
+        "action_required",
+        "stale",
+        "startup_failure",
+    }
+)
 API_ROOT = "https://api.github.com"
 PAGE_SIZE = 100
 # A 403 also covers a secondary rate limit, which clears, so a few refusals in a row are tolerated.
@@ -72,16 +86,28 @@ class CheckRun:
 
     @classmethod
     def from_api(cls, run: dict[str, Any]) -> "CheckRun":
+        state = (run.get("conclusion") if run.get("status") == "completed" else run.get("status")) or ""
+        url = str(run.get("details_url") or "")
+        parsed = urllib.parse.urlparse(url)
+        query = urllib.parse.parse_qs(parsed.query)
+        match = re.fullmatch(rf"/orgs/{re.escape(DEPOT_ORG)}/workflows/([a-z0-9]+)", parsed.path)
+        if parsed.scheme == "https" and parsed.netloc == "depot.dev" and match:
+            job = query.get("job", [""])[0]
+            url = f"https://depot.dev/orgs/{DEPOT_ORG}/workflows/{match[1]}"
+            if re.fullmatch(r"[a-z0-9]+", job):
+                url += f"?job={job}"
+        else:
+            url = ""
         return cls(
             id=int(run["id"]),
-            state=str((run.get("conclusion") if run.get("status") == "completed" else run.get("status")) or ""),
-            details_url=str(run.get("details_url") or ""),
+            state=state if state in PENDING_STATES | CONCLUSIONS else "unknown",
+            details_url=url,
         )
 
     @property
     def depot_workflow(self) -> str | None:
         match = DEPOT_RUN_URL.match(self.details_url)
-        return match.group(2) if match else None
+        return match.group(2) if match and match.group(1) == DEPOT_ORG else None
 
 
 class Phase(Enum):
@@ -153,10 +179,12 @@ class CheckRunReader:
         sha: str,
         token: str,
         opener: Callable[..., Any] = urllib.request.urlopen,
+        pr_number: int | None = None,
     ) -> None:
         self._repo = repo
         self._sha = sha
         self._token = token
+        self._pr_number = pr_number
         self._opener = opener
         self._cache: dict[str, tuple[str, list[CheckRun]]] = {}
         self._refusals = 0
@@ -177,7 +205,10 @@ class CheckRunReader:
             headers["If-None-Match"] = etag
         try:
             with self._opener(urllib.request.Request(url, headers=headers), timeout=30) as response:
-                return response.status, response.headers.get("ETag", ""), json.loads(response.read().decode("utf-8"))
+                raw = response.read(2_000_001)
+                if len(raw) > 2_000_000:
+                    raise ValueError("oversized check response")
+                return response.status, response.headers.get("ETag", ""), json.loads(raw.decode("utf-8"))
         except urllib.error.HTTPError as error:
             return error.code, "", {}
 
@@ -204,14 +235,30 @@ class CheckRunReader:
                 if page == 1:
                     new_etag = page_etag
                 batch = body["check_runs"]
+                if not isinstance(batch, list) or page > 20:
+                    raise ValueError("invalid or excessive check pages")
                 raw.extend(batch)
                 if len(batch) < PAGE_SIZE:
                     break
                 page += 1
-        except (OSError, http.client.HTTPException, ValueError) as error:
-            sys.stdout.write(f"::warning::check-runs API read failed: {error}\n")
+            runs = [
+                CheckRun.from_api(run)
+                for run in raw
+                # One malformed record is skipped rather than discarding the whole answer.
+                if isinstance(run, dict)
+                and (run.get("app") or {}).get("id") == DEPOT_APP_ID
+                and run.get("name") == name
+                and run.get("head_sha") == self._sha
+                and (
+                    not run.get("pull_requests")
+                    or self._pr_number is None
+                    or any(pr.get("number") == self._pr_number for pr in run["pull_requests"])
+                )
+            ]
+            runs = [run for run in runs if run.depot_workflow is not None]
+        except (OSError, http.client.HTTPException, KeyError, TypeError, ValueError, AttributeError):
+            sys.stdout.write("::warning::check-runs API read failed\n")
             return []
-        runs = [CheckRun.from_api(run) for run in raw]
         # One page's ETag cannot validate the other pages of a paginated response.
         self._cache[name] = (new_etag if page == 1 else "", runs)
         return runs
@@ -361,7 +408,7 @@ def main(argv: Sequence[str]) -> int:
         return 2
     env = os.environ
     event = Event(repo=env["REPO"], sha=env["SHA"], pr_number=int(env["PR_NUMBER"]), event_at=env["EVENT_AT"])
-    reader = CheckRunReader(event.repo, event.sha, env["GH_TOKEN"])
+    reader = CheckRunReader(event.repo, event.sha, env["GH_TOKEN"], pr_number=event.pr_number)
     try:
         result = poll(reader, event, GATE_CHECK, deadline_minutes=90, absent_minutes=15)
     except ReadRefusedError as error:
