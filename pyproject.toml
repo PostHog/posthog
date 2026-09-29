@@ -338,9 +338,7 @@ profile = "black"
 
 [tool.ruff]
 line-length = 120
-# Pinned apart from requires-python. Raising it to py314 makes ruff format drop the parentheses
-# in `except (A, B):` (PEP 758) across the repo, and makes UP037 flag every quoted annotation.
-target-version = "py313"
+target-version = "py314"
 force-exclude = true
 exclude = [
     ".git",
@@ -353,6 +351,13 @@ exclude = [
     # imported desktop app; Biome-linted by its own desktop-* CI
     "products/desktop",
 ]
+
+# Published to PyPI for Python >=3.10, or run on whatever python3 an operator has.
+[tool.ruff.per-file-target-version]
+"common/hogql_parser/setup.py" = "py310"
+"packages/owners-yaml/**" = "py310"
+"tools/hogli/src/**" = "py310"
+"tools/infra-scripts/**" = "py310"
 
 [tool.ruff.lint]
 ignore = [
@@ -370,6 +375,9 @@ ignore = [
     "UP046",  # ~39: generic class → PEP 695 (unsafe)
     "UP047",  # ~37: generic func → PEP 695 (unsafe)
     "UP042",  # ~28: str+Enum → StrEnum (unsafe: changes str()/format() output)
+    # ~2542: unquote annotations (unsafe: most name TYPE_CHECKING-only imports, and on 3.14
+    # inspect.signature() raises NameError for an unquoted one)
+    "UP037",
 ]
 select = [
     "B",

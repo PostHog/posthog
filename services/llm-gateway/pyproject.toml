@@ -61,9 +61,7 @@ exclude = [
 ]
 
 [tool.ruff]
-# Pinned apart from requires-python, like the root: py314 makes ruff format drop the
-# parentheses in `except (A, B):` (PEP 758).
-target-version = "py313"
+target-version = "py314"
 line-length = 120
 indent-width = 4
 

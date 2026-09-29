@@ -84,6 +84,7 @@ jobs:
             - uses: ./.github/actions/setup-uv
               with:
                   enable-cache: false
+                  python-version: '3.14.7'
             - run: uv run .github/scripts/check-dagster-paths.py
 
     # Job to decide if we should run dagster ci
@@ -398,6 +399,11 @@ jobs:
               with:
                   fetch-depth: 1000
                   filter: blob:none
+
+            - name: Set up Python
+              uses: ./.github/actions/setup-python-cached
+              with:
+                  python-version: 3.14.7
 
             - name: Install uv
               uses: ./.github/actions/setup-uv

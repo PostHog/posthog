@@ -1,6 +1,13 @@
 extend = "../pyproject.toml"
 src = [".."]
 
+# Code baked into sandbox images runs on the image's Python, not the repo's.
+[per-file-target-version]
+"notebooks/backend/kernel_package.py" = "py312"
+"notebooks/backend/sandbox/kernel/**" = "py312"
+"stamphog/packages/pr-approval-agent/**" = "py311"
+"tasks/backend/sandbox/images/**" = "py311"
+
 [lint]
 extend-select = ["ANN001", "ANN201", "ANN202", "ANN204"]
 

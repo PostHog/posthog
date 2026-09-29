@@ -49,6 +49,7 @@ jobs:
               uses: ./.github/actions/setup-uv
               with:
                   enable-cache: false
+                  python-version: '3.14.7'
 
             - name: Find Backend CI run to use
               id: find-backend-run

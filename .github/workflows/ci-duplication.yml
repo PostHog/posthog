@@ -48,6 +48,10 @@ jobs:
             - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
                   node-version-file: .nvmrc
+            - name: Set up Python
+              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+              with:
+                  python-version: 3.14.7
             - name: Lint for new duplication
               # Keep the job successful while GitHub marks this failed step as a warning.
               continue-on-error: true

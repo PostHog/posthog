@@ -88,8 +88,12 @@ jobs:
               with:
                   enable-cache: false
 
-            # The preinstalled python3 runs these standalone tests, so no
-            # setup-python step. defusedxml + opentelemetry + the owners resolver are
+            - name: Set up Python
+              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+              with:
+                  python-version-file: 'pyproject.toml'
+
+            # defusedxml + opentelemetry + the owners resolver are
             # report_test_timings.py's script deps; coverage is coverage_report.py's.
             - name: Install pytest
               run: python3 -m pip install --quiet pytest parameterized defusedxml==0.7.1 coverage==7.16.1 opentelemetry-sdk==1.33.1 opentelemetry-exporter-otlp-proto-http==1.33.1 ./packages/owners-yaml
@@ -109,7 +113,6 @@ jobs:
                       tools/test_snob_backend_test_selection_shadow.py \
                       tools/test_test_selection_verdict.py
 
-            # schema-impact.test.js shells out to schema_usage_scan.py via the same
-            # preinstalled python3.
+            # schema-impact.test.js shells out to schema_usage_scan.py via the same python3.
             - name: Node script tests
               run: node --test .github/scripts/*.test.js .github/scripts/*.test.mjs

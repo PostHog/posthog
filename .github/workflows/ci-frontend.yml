@@ -1117,6 +1117,7 @@ jobs:
               if: steps.test-reporter.outputs.available == 'true'
               with:
                   version: '0.12.13'
+                  python-version: '3.14.7'
             - name: Download Jest results
               if: steps.test-reporter.outputs.available == 'true'
               uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0

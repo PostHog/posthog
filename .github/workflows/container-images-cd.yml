@@ -829,6 +829,7 @@ jobs:
               uses: ./.github/actions/setup-uv
               with:
                   enable-cache: false
+                  python-version: '3.14.7'
 
             - name: Check for Python dependency changes that affect analytics platform temporal worker
               id: check_python_changes_analytics_platform_temporal_worker

@@ -76,6 +76,7 @@ jobs:
             - uses: ./.github/actions/setup-uv
               with:
                   enable-cache: false
+                  python-version: '3.14.7'
 
             # Deliberately not continue-on-error: a red tick is what holds the watermark
             # at the last clean one, so the next tick re-covers the window. This workflow

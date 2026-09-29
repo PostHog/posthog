@@ -1,5 +1,9 @@
 extend = "../../pyproject.toml"
 
+# Runs inside the PI sandbox image on its system Python.
+[per-file-target-version]
+"query_performance_ai/sandboxed_autoresearch_agent/**" = "py312"
+
 [lint.extend-per-file-ignores]
 # Pi plugin and in-sandbox driver scripts use stdout as their orchestration
 # protocol (pi-autoresearch's `METRIC name=value` parse format, the campaign

@@ -189,6 +189,7 @@ jobs:
                   clean: false
                   sparse-checkout: |
                       .github/actions/paths-filter
+                      .github/actions/setup-python-cached
                       .github/scripts/ci_backend_route.py
                   sparse-checkout-cone-mode: false
             - name: Clean up data directories with container permissions
@@ -204,6 +205,12 @@ jobs:
               with:
                   client-id: ${{ vars.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
+            - name: Set up Python
+              if: github.event_name == 'pull_request'
+              uses: ./.github/actions/setup-python-cached
+              with:
+                  python-version: 3.14.7
+                  token: ${{ steps.app-token.outputs.token || github.token }}
             - name: Pick the engine that runs the backend tests
               id: route
               if: github.event_name == 'pull_request'
@@ -704,6 +711,14 @@ jobs:
             # Needs pnpm from the step above.
             - name: Install turbo
               uses: ./.github/actions/setup-turbo
+
+            # Runs schema_usage_scan.py, and uv picks it for the scripts below.
+            - name: Set up Python
+              continue-on-error: true
+              uses: ./.github/actions/setup-python-cached
+              with:
+                  python-version: 3.14.7
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             # turbo-discover.js runs .github/scripts/tach_map.py under `uv run
             # --no-project` for the dependent cascade; the script pins tach, so no
@@ -4228,9 +4243,16 @@ jobs:
               if: needs.changes.outputs.engine == 'depot'
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
-                  sparse-checkout: .github/scripts/ci_backend_relay.py
+                  sparse-checkout: |
+                      .github/actions/setup-python-cached
+                      .github/scripts/ci_backend_relay.py
                   sparse-checkout-cone-mode: false
                   persist-credentials: false
+            - name: Set up Python
+              if: needs.changes.outputs.engine == 'depot'
+              uses: ./.github/actions/setup-python-cached
+              with:
+                  python-version: 3.14.7
             # The script finds this event's Depot run by the event in its wait job's check
             # name, then waits for that run's gate. Its docstring explains why check times
             # and pull request lists cannot identify the run.
@@ -4419,6 +4441,11 @@ jobs:
               with:
                   fetch-depth: 1000
                   filter: blob:none
+
+            - name: Set up Python
+              uses: ./.github/actions/setup-python-cached
+              with:
+                  python-version: 3.14.7
 
             - name: Install uv
               uses: ./.github/actions/setup-uv
@@ -4634,6 +4661,7 @@ jobs:
               if: steps.timing-reporter.outputs.available == 'true'
               with:
                   version: '0.12.13'
+                  python-version: '3.14.7'
             - name: Download junit artifacts
               if: steps.timing-reporter.outputs.available == 'true'
               uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v6.0.0
@@ -4717,6 +4745,7 @@ jobs:
             - uses: ./.github/actions/setup-uv
               with:
                   enable-cache: false
+                  python-version: '3.14.7'
               if: steps.reporter.outputs.available == 'true'
             - name: Build coverage report
               # diff-cover is declared inline (PEP 723) in coverage_report.py; uv provisions it.

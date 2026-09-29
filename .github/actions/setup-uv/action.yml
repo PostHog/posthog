@@ -23,6 +23,10 @@ inputs:
         description: Whether to save the uv cache after the job
         required: false
         default: ${{ github.ref == 'refs/heads/master' }}
+    python-version:
+        description: Python version uv uses (sets UV_PYTHON). Empty keeps uv's own discovery.
+        required: false
+        default: ''
 
 outputs:
     cache-hit:
@@ -40,3 +44,4 @@ runs:
               enable-cache: ${{ inputs.enable-cache }}
               cache-dependency-glob: ${{ inputs.cache-dependency-glob }}
               save-cache: ${{ inputs.save-cache }}
+              python-version: ${{ inputs.python-version }}
