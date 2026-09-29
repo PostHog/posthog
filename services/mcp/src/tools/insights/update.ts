@@ -15,7 +15,7 @@ import { ToolInputValidationError } from '@/lib/errors'
 import { GENERATED_TOOLS } from '@/tools/generated/product_analytics'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-export const UPDATABLE_INSIGHT_FIELDS = ['name', 'description', 'query', 'tags', 'favorited', 'dashboards'] as const
+const UPDATABLE_INSIGHT_FIELDS = ['name', 'description', 'query', 'tags', 'favorited', 'dashboards'] as const
 
 type UpdateParams = {
     id: number | string
@@ -35,7 +35,7 @@ const sortedIds = (ids: number[]): number[] => [...ids].sort((a, b) => a - b)
 
 /** Names the requested fields that the saved insight does not hold. `query` is not
  *  compared, because the API normalizes the query it stores. */
-export function unpersistedInsightFields(params: UpdateParams, saved: Schemas.Insight): string[] {
+function unpersistedInsightFields(params: UpdateParams, saved: Schemas.Insight): string[] {
     const mismatched: string[] = []
     if (params.name !== undefined && normalizeText(params.name) !== normalizeText(saved.name)) {
         mismatched.push('name')
