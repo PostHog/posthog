@@ -29,7 +29,7 @@ export const reportKeys = {
 export function useReports(search = "") {
   const session = useAuth((s) => s.session);
   return useQuery({
-    queryKey: search ? [...reportKeys.list, search] : reportKeys.list,
+    queryKey: search ? [...reportKeys.list, "search", search] : reportKeys.list,
     queryFn: () =>
       getClient().getSignalReports({
         status: INBOX_ACTIONABLE_REPORT_STATUS_FILTER,
