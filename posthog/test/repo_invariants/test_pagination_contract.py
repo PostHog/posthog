@@ -125,6 +125,7 @@ EXISTING_CUSTOM_LIST_VIEWSETS = {
     "products.customer_analytics.backend.presentation.views.views.AccountRelationshipViewSet",
     "products.customer_analytics.backend.presentation.views.views.AccountTrackRuleViewSet",
     "products.customer_analytics.backend.presentation.views.views.AccountViewSet",
+    "products.customer_analytics.backend.presentation.views.views.AccountViewTemplateViewSet",
     "products.customer_analytics.backend.presentation.views.views.CalendarSyncViewSet",
     "products.customer_analytics.backend.presentation.views.views.CustomPropertyDefinitionViewSet",
     "products.customer_analytics.backend.presentation.views.views.CustomPropertySourceViewSet",

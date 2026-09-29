@@ -220,6 +220,20 @@ pub fn infer_service_name(log_group: &str) -> String {
     .unwrap_or_else(|| log_group.to_string())
 }
 
+/// The last run of letters in a token. RDS Postgres puts the level inside a colon-delimited
+/// prefix, as in `UTC:10.0.0.1(5432):app@db:[1000]:ERROR:`, so the level is neither the whole
+/// token nor reachable by trimming the ends. Postgres writes the level as the last field before
+/// the message, so the last run is the one to read.
+///
+/// This accepts a false positive: a token whose last run of letters spells a level is read as
+/// that level, such as a request path ending in `/debug`. The three-token window keeps it rare,
+/// because a path has to appear in the first three tokens of the line to be read at all.
+fn last_letter_run(token: &str) -> Option<&str> {
+    token
+        .rsplit(|c: char| !c.is_ascii_alphabetic())
+        .find(|run| !run.is_empty())
+}
+
 /// A JSON body is checked for the usual level keys first; otherwise a leading `ERROR`, `[WARN]`
 /// or `<timestamp> INFO` token is used, because CloudWatch lines carry no severity of their own.
 pub fn infer_severity(message: &str) -> (String, i32) {
@@ -229,7 +243,7 @@ pub fn infer_severity(message: &str) -> (String, i32) {
         message
             .split_whitespace()
             .take(3)
-            .map(|token| token.trim_matches(|c: char| !c.is_ascii_alphabetic()))
+            .filter_map(last_letter_run)
             .find_map(severity_alias)
     });
     let text = text.unwrap_or("info");
@@ -750,10 +764,30 @@ mod tests {
             ("plain line with error later in it", "info", 9),
             ("Errors: 0", "info", 9),
             ("", "info", 9),
+            // The false positive the last-run rule accepts.
+            ("GET /var/log/debug 200", "debug", 5),
         ];
         for (message, text, number) in cases {
             assert_eq!(
                 infer_severity(message),
+                (text.to_string(), number),
+                "{message}"
+            );
+        }
+
+        // RDS Postgres carries the level inside the prefix rather than as its own token.
+        for (level, text, number) in [
+            ("LOG", "info", 9),
+            ("ERROR", "error", 17),
+            ("FATAL", "fatal", 21),
+            ("WARNING", "warn", 13),
+            // PANIC is missing from the shared alias table, which is why it reads as info.
+            ("PANIC", "info", 9),
+        ] {
+            let message =
+                format!("2026-09-28 10:00:00 UTC:10.0.0.1(5432):app@db:[1]:{level}:  detail");
+            assert_eq!(
+                infer_severity(&message),
                 (text.to_string(), number),
                 "{message}"
             );
