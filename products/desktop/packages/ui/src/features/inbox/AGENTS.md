@@ -87,7 +87,7 @@ Do not add frontend-only controls that imply a backend capability. If the UI exp
 
 ## Routes and Shell
 
-`InboxView` is the layout shell for `/inbox/*`. It owns the page header, tab bar, reviewer scope control, and nested route outlet. Route files live in `apps/code/src/renderer/routes/inbox/`.
+`InboxView` is the layout shell for `/inbox/*`. It renders the sectioned `ReportsInboxView` page (or `InboxHomePane` and `InboxTriagePane` under the spaces layout) and a nested route outlet for detail routes. Route files live in `apps/code/src/renderer/routes/inbox/`.
 
 Under the spaces layout Self-driving is a rail destination that owns the column
 beside the rail (`railPaneHasSidebar`, `railPane.ts`). `InboxPane` draws the
