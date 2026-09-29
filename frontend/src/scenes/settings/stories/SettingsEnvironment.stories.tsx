@@ -138,6 +138,43 @@ export const SettingsEnvironmentMarketingAnalytics: Story = {
 
 export const SettingsEnvironmentWebAnalytics: Story = { args: { sectionId: 'environment-web-analytics' } }
 
+const EXPERIMENTS_CONFIG_MOCK = {
+    experiment_recalculation_time: '02:00:00',
+    experiment_recalculation_times: ['02:00:00'],
+    default_experiment_confidence_level: null,
+    default_experiment_stats_method: null,
+    default_only_count_matured_users: false,
+    default_cuped_enabled: false,
+    default_cuped_lookback_days: null,
+    default_minimum_detectable_effect: 5,
+    default_sequential_testing_enabled: false,
+    default_sequential_tuning_parameter: null,
+    flag_cleanup_repository: null,
+}
+
+export const SettingsEnvironmentExperiments: Story = {
+    args: { sectionId: 'environment-experiments' },
+    decorators: [
+        mswDecorator({
+            get: { '/api/projects/:id/experiments_config/': EXPERIMENTS_CONFIG_MOCK },
+        }),
+    ],
+}
+
+export const SettingsEnvironmentExperimentsMultipleRecalculationTimes: Story = {
+    args: { sectionId: 'environment-experiments' },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:id/experiments_config/': {
+                    ...EXPERIMENTS_CONFIG_MOCK,
+                    experiment_recalculation_times: ['02:00:00', '14:00:00'],
+                },
+            },
+        }),
+    ],
+}
+
 export const SettingsEnvironmentReplay: Story = { args: { sectionId: 'environment-replay' } }
 
 export const SettingsEnvironmentSurveys: Story = { args: { sectionId: 'environment-surveys' } }
