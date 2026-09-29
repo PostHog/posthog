@@ -14,7 +14,6 @@ import structlog
 
 from posthog.dataclasses import frozen
 from posthog.ph_client import feature_enabled_or_false
-from posthog.temporal.experiments.utils import DEFAULT_EXPERIMENT_RECALCULATION_HOUR
 
 from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY
 from products.experiments.backend.models.experiment import Experiment, ExperimentMetricsRecalculation
@@ -72,6 +71,12 @@ def find_scheduled_recalculation_candidates(hour: int) -> list[ScheduledRecalcul
     Deliberately applies no metrics filter: an experiment with no metrics gets a run, and the
     recalculation workflow completes it immediately.
     """
+    # Deferred: importing this module runs posthog/temporal/experiments/__init__.py, which pulls
+    # activities.py, which imports back into products.experiments.backend.facade.timeseries.
+    from posthog.temporal.experiments.utils import (  # noqa: PLC0415 — breaks that cycle
+        DEFAULT_EXPERIMENT_RECALCULATION_HOUR,
+    )
+
     now = timezone.now()
     if hour == DEFAULT_EXPERIMENT_RECALCULATION_HOUR:
         time_filter = (
