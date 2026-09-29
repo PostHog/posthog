@@ -232,16 +232,24 @@ class TestUpdateTaskRunStatusActivity:
 
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.parametrize(
-        "status,expected_event",
+        "status,expected_event,agent_version_expected,agent_version_matches_pin",
         [
-            (TaskRun.Status.COMPLETED, "task_run_completed"),
-            (TaskRun.Status.FAILED, "task_run_failed"),
+            (TaskRun.Status.COMPLETED, "task_run_completed", "2.4.213", True),
+            (TaskRun.Status.FAILED, "task_run_failed", "2.4.233", False),
         ],
     )
     @patch("products.tasks.backend.temporal.process_task.activities.update_task_run_status.record_run_token_usage")
     @patch("products.tasks.backend.models.posthoganalytics.capture")
     def test_terminal_transition_captures_analytics_with_usage(
-        self, mock_capture, mock_record, activity_environment, test_task_run, status, expected_event
+        self,
+        mock_capture,
+        mock_record,
+        activity_environment,
+        test_task_run,
+        status,
+        expected_event,
+        agent_version_expected,
+        agent_version_matches_pin,
     ):
         test_task_run.state = {
             **(test_task_run.state or {}),
@@ -250,6 +258,7 @@ class TestUpdateTaskRunStatusActivity:
             "benjamin_effective": True,
             "benjamin_version": "2026.08.1",
             "agent_version": "2.4.213",
+            "agent_version_expected": agent_version_expected,
             "model": "gpt-5.6-sol",
             "runtime_adapter": "codex",
             "budget_guard": {
@@ -279,6 +288,8 @@ class TestUpdateTaskRunStatusActivity:
         assert props["benjamin_enabled"] is True
         assert props["benjamin_version"] == "2026.08.1"
         assert props["agent_version"] == "2.4.213"
+        assert props["agent_version_expected"] == agent_version_expected
+        assert props["agent_version_matches_pin"] is agent_version_matches_pin
         assert props["run_environment"] == test_task_run.environment
         assert props["termination_reason"] is None
         assert props["budget_cap_usd"] == 20
