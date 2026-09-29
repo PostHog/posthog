@@ -23,6 +23,7 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.database.schema.channel_type import ChannelTypeExprs, create_channel_type_expr
 from posthog.hogql.database.schema.exchange_rate import convert_currency_call
+from posthog.hogql.database.schema.persons import REVENUE_ANALYTICS_VIRTUAL_PROPERTIES
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.timings import HogQLTimings
 
@@ -47,6 +48,7 @@ from .attribution_weights import (
 )
 from .conversion_goal_conditions import (
     action_match_expr,
+    action_property_keys,
     add_conversion_goal_property_filters,
     conversion_goal_match_expr,
 )
@@ -586,12 +588,31 @@ class ConversionGoalProcessor:
         for prop in self.goal.properties or []:
             if prop.type in ("person", "cohort"):
                 return False
+        if self._uses_revenue_analytics_property():
+            return False
         # The shared touchpoints precompute is config-agnostic: build_touchpoints_precompute_query()
         # always materializes the default UTM property names. A goal that remaps any tracked field via
         # schema_map would read mismatched columns on the conversion side, so use the direct path.
         if any(self._resolve_field_name(field) != field.event_property for field in TRACKED_FIELDS):
             return False
         return True
+
+    def _uses_revenue_analytics_property(self) -> bool:
+        """The revenue virtual properties resolve only through the revenue analytics join, which the
+        precompute's plain events scan does not carry, so printing its INSERT fails with "Field not found".
+        Other `$virt_` properties map to columns on the events table and precompute fine.
+
+        A substring match, because a HogQL filter's key is a whole expression such as
+        `person.properties.$virt_mrr > 0`.
+        """
+        keys = [getattr(self.goal, "math_property", None)]
+        currency = getattr(self.goal, "math_property_revenue_currency", None)
+        if currency is not None:
+            keys.append(currency.property)
+        keys.extend(getattr(prop, "key", None) for prop in self.goal.properties or [])
+        if self.goal.kind == "ActionsNode":
+            keys.extend(action_property_keys(self.goal, self.team))
+        return any(name in key for key in keys if key for name in REVENUE_ANALYTICS_VIRTUAL_PROPERTIES)
 
     def _should_use_precompute(self, date_from: Optional[datetime], date_to: Optional[datetime]) -> bool:
         """Read-path eligibility: flag on, explicit date range, goal precomputable, no restricted props."""
