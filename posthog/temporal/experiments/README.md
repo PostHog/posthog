@@ -88,6 +88,26 @@ The `ExperimentSavedMetricsWorkflow` follows the same structure but:
 - Uses `calculate_experiment_saved_metric` to process each saved metric
 - Does not filter on empty `metrics`/`metrics_secondary` arrays (saved metrics are separate)
 
+### Scheduled recalculations
+
+The timeseries sync row is assembled from that day's points, so its window is approximate and a
+metric the daily run could not compute has no row at all. A separate workflow therefore starts a
+real recalculation for each eligible experiment, on its own 24 schedules
+(`products/experiments/backend/temporal/schedule.py`).
+
+Those schedules fire at `:30`, after the timeseries schedules at `:00`. The coordinator selects
+experiments with the same rules the daily discovery uses, plus a 12-hour minimum age, an
+organization feature flag, and a 50-exposure floor. It then starts an ordinary
+`ExperimentMetricsRecalculationWorkflow` per experiment, through the same function the API uses.
+
+It skips an experiment whose recalculation is already running, or whose last one finished within
+the hour. That freshness check ignores `timeseries_sync` rows: one is published 30 minutes before
+every scheduled run, so counting it would skip every experiment forever.
+
+The coordinator never waits for the runs it starts. Each run's outcome lands on its own
+`ExperimentMetricsRecalculation` row, and the `experiment scheduled recalculation started` and
+`experiment scheduled recalculation skipped` events carry the coordinator's own decisions.
+
 ## Key concepts
 
 **Workflow**: A durable function that orchestrates the calculation. If it fails partway through, Temporal can resume it from where it left off.
