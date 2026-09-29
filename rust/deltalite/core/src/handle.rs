@@ -9,6 +9,7 @@
 //! (`update_incremental`), which is one log LIST plus the handful of new commit JSONs.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::Instant;
 
 use arrow_array::RecordBatch;
@@ -16,7 +17,8 @@ use arrow_schema::SchemaRef;
 use deltalake::DeltaTable;
 
 use crate::errors::{Error, Result};
-use crate::table::{open_table, wrap_multipart, MultipartConfig};
+use crate::prefetch::CheckpointCache;
+use crate::table::{open_table_prefetched, wrap_multipart, MultipartConfig};
 use crate::upsert::{upsert_cached, RelaxCache, UpsertOptions, UpsertStats};
 
 /// Conflict-retry budget for one upsert call. A concurrent writer can make delta-rs
@@ -25,6 +27,20 @@ use crate::upsert::{upsert_cached, RelaxCache, UpsertOptions, UpsertStats};
 /// keep conflicting, so the only fix is to refresh the snapshot and re-plan.
 const CONFLICT_RETRIES: usize = 5;
 
+/// One live data file as the loaded snapshot records it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LiveFile {
+    /// Path relative to the table root, URL-decoded.
+    pub path: String,
+    /// Size in bytes from the Add action.
+    pub size: i64,
+    /// Modification time in milliseconds since the Unix epoch, from the Add action.
+    pub modification_time: i64,
+    /// Partition column values as the log stores them (strings; `None` is a null
+    /// partition value). Empty for an unpartitioned table.
+    pub partition_values: HashMap<String, Option<String>>,
+}
+
 /// A loaded Delta table plus the per-table caches that make repeated small upserts
 /// cheap: the snapshot (refreshed incrementally, never rebuilt) and the relax memo.
 pub struct TableHandle {
@@ -32,17 +48,27 @@ pub struct TableHandle {
     storage_options: HashMap<String, String>,
     table: DeltaTable,
     relax_cache: RelaxCache,
+    /// Checkpoint bytes the table's stores served the last load from; cleared after
+    /// every load so a handle idling between upserts holds only its snapshot.
+    prefetch: Arc<CheckpointCache>,
+    initial_open_ms: u64,
+    initial_open_reported: bool,
 }
 
 impl TableHandle {
     /// Open an existing Delta table (one full snapshot load).
     pub async fn open(uri: String, storage_options: HashMap<String, String>) -> Result<Self> {
-        let table = open_table(&uri, storage_options.clone()).await?;
+        let started = Instant::now();
+        let (table, prefetch) = open_table_prefetched(&uri, storage_options.clone()).await?;
+        prefetch.clear();
         Ok(Self {
             uri,
             storage_options,
             table,
             relax_cache: RelaxCache::default(),
+            prefetch,
+            initial_open_ms: started.elapsed().as_millis() as u64,
+            initial_open_reported: false,
         })
     }
 
@@ -64,15 +90,69 @@ impl TableHandle {
             .unwrap_or(-1)
     }
 
+    /// Wall-clock ms the full snapshot load in [`TableHandle::open`] took.
+    pub fn initial_open_ms(&self) -> u64 {
+        self.initial_open_ms
+    }
+
+    /// The table id from the snapshot's metadata action.
+    pub fn table_id(&self) -> Result<String> {
+        Ok(self.table.snapshot()?.metadata().id().to_string())
+    }
+
+    /// The table configuration (`delta.*` properties and any custom keys).
+    pub fn configuration(&self) -> Result<HashMap<String, String>> {
+        Ok(self.table.snapshot()?.metadata().configuration().clone())
+    }
+
+    /// The Delta schema of the loaded snapshot as its JSON document
+    /// (`{"type":"struct","fields":[...]}`).
+    pub fn schema_json(&self) -> Result<String> {
+        let schema = self.table.snapshot()?.schema();
+        serde_json::to_string(schema.as_ref())
+            .map_err(|e| Error::Generic(format!("serialising table schema: {e}")))
+    }
+
+    /// Number of live data files in the loaded snapshot.
+    pub fn num_files(&self) -> Result<usize> {
+        Ok(self.table.snapshot()?.log_data().num_files())
+    }
+
+    /// The live data files of the loaded snapshot, served from memory.
+    pub fn files(&self) -> Result<Vec<LiveFile>> {
+        let snapshot = self.table.snapshot()?;
+        Ok(snapshot
+            .log_data()
+            .iter()
+            .map(|view| {
+                // The only public accessor for the raw partition-value strings; the
+                // parsed form would need re-encoding and can be narrowed by a predicate.
+                #[allow(deprecated)]
+                let add = view.add_action();
+                LiveFile {
+                    path: add.path,
+                    size: add.size,
+                    modification_time: add.modification_time,
+                    partition_values: add.partition_values,
+                }
+            })
+            .collect())
+    }
+
     /// Bring the snapshot up to date with commits made elsewhere. Incremental (applies
     /// only commits newer than the loaded version); falls back to a full re-open when
     /// the incremental path fails -- e.g. the table was deleted and recreated at a
     /// lower version, which is not reachable forward from the loaded state.
     pub async fn refresh(&mut self) -> Result<()> {
         if self.table.update_incremental(None).await.is_ok() {
+            self.prefetch.clear();
             return Ok(());
         }
-        self.table = open_table(&self.uri, self.storage_options.clone()).await?;
+        let (table, prefetch) =
+            open_table_prefetched(&self.uri, self.storage_options.clone()).await?;
+        prefetch.clear();
+        self.table = table;
+        self.prefetch = prefetch;
         // The old snapshot is gone; nothing the relax memo verified can be trusted.
         self.relax_cache = RelaxCache::default();
         Ok(())
@@ -131,10 +211,20 @@ impl TableHandle {
                     self.refresh().await?;
                     open_ms += t.elapsed().as_millis() as u64;
                     stats.open_ms = open_ms;
+                    stats.initial_open_ms = self.take_initial_open_ms();
                     return Ok(stats);
                 }
                 Err(e) => return Err(e),
             }
         }
+    }
+
+    /// The open cost, handed out once so per-upsert stats sum to the handle's total.
+    fn take_initial_open_ms(&mut self) -> u64 {
+        if self.initial_open_reported {
+            return 0;
+        }
+        self.initial_open_reported = true;
+        self.initial_open_ms
     }
 }

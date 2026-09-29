@@ -24,6 +24,7 @@ LIST_VIEWSETS_WITHOUT_DIRECT_SHARED_PAGINATION = {
     "products.managed_migrations.backend.api.support_batch_imports.BatchImportSupportViewSet",
     "products.product_analytics.backend.presentation.insight_ee.EnterpriseInsightsViewSet",
     "products.reminders.backend.api.reminder.ReminderViewSet",
+    "products.workflows.backend.api.hog_flow.HogFlowViewSet",
     "products.workflows.backend.api.hog_flow_template.PublicHogFlowTemplateViewSet",
 }
 
@@ -90,6 +91,7 @@ EXISTING_CUSTOM_LIST_VIEWSETS = {
     "products.ai_observability.backend.api.evaluations.EvaluationViewSet",
     "products.ai_observability.backend.api.instrumentation_checklist.AIObservabilityInstrumentationChecklistViewSet",
     "products.ai_observability.backend.api.models.LLMModelsViewSet",
+    "products.ai_observability.backend.api.offline_experiments.OfflineExperimentViewSet",
     "products.ai_observability.backend.api.personal_spend.PersonalSpendViewSet",
     "products.ai_observability.backend.api.provider_keys.LLMProviderKeyViewSet",
     "products.ai_observability.backend.api.review_queues.ReviewQueueItemViewSet",
@@ -104,6 +106,7 @@ EXISTING_CUSTOM_LIST_VIEWSETS = {
     "products.autoresearch.backend.presentation.views.views.AutoresearchSuggestionViewSet",
     "products.autoresearch.backend.presentation.views.views.AutoresearchTrainingRunViewSet",
     "products.batch_exports.backend.api.batch_export.BatchExportRunViewSet",
+    "products.business_knowledge.backend.api.playground.BusinessKnowledgePlaygroundChatViewSet",
     "products.business_knowledge.backend.api.views.KnowledgeGapSuggestionViewSet",
     "products.business_knowledge.backend.api.views.KnowledgeSourceViewSet",
     "products.canvas.backend.presentation.views.CanvasViewSet",

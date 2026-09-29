@@ -47,6 +47,7 @@ class FilloutSource(SimpleSource[FilloutSourceConfig]):
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Fillout",
             iconPath="/static/services/fillout.png",
+            docsUrl="https://posthog.com/docs/cdp/sources/fillout",
             caption="""Enter a Fillout API key to sync forms and submissions.
 
 Supported endpoints:
@@ -91,6 +92,11 @@ You can generate an API key in your Fillout account under **Settings → Develop
         return {
             "401 Client Error": "Invalid Fillout API key. Please update your key and reconnect.",
             "403 Client Error": "Fillout API key is missing the required permissions. Please update the key and reconnect.",
+            # A 400 replays identically on every retry, unlike 401 (a key the REST engine's own
+            # retry can't fix, but that's already caught above) or 429/5xx (already
+            # RESTClientRetryableError). Matched on both regional hosts, same as the 401/403 entries.
+            "400 Client Error: Bad Request for url: https://api.fillout.com": "Fillout rejected the request. Check that the API key can access this form, then reconnect. If this keeps happening, contact support.",
+            "400 Client Error: Bad Request for url: https://eu-api.fillout.com": "Fillout rejected the request. Check that the API key can access this form, then reconnect. If this keeps happening, contact support.",
         }
 
     def get_schemas(

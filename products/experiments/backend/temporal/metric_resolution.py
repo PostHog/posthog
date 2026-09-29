@@ -26,9 +26,10 @@ METRIC_BUILDERS: dict[str, type[ExperimentMetric]] = {
     "retention": ExperimentRetentionMetric,
 }
 
-# The daily timeseries activities build only these. The sync that turns their points into a recalculation reads
-# the same set, so a metric the daily run never computes is not counted as a gap in the row it creates.
-DAILY_TIMESERIES_METRIC_TYPES: frozenset[str] = frozenset({"mean", "funnel", "ratio"})
+# The daily timeseries activities compute every buildable type. A type the recalculation computes but the
+# daily run skips publishes nothing, so the results panel recomputes on first open every morning for the
+# experiments that use it; a deliberate future exclusion must subtract from METRIC_BUILDERS explicitly.
+DAILY_TIMESERIES_METRIC_TYPES: frozenset[str] = frozenset(METRIC_BUILDERS)
 
 
 def is_daily_timeseries_metric(metric: dict[str, Any] | None) -> bool:

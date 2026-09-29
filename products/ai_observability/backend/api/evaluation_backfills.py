@@ -225,6 +225,7 @@ class EvaluationBackfillSerializer(serializers.ModelSerializer):
             "total_count",
             "dispatched_count",
             "skipped_count",
+            "failed_count",
             "remaining_count",
             "created_by",
             "created_at",
@@ -237,9 +238,14 @@ class EvaluationBackfillSerializer(serializers.ModelSerializer):
             "window_start": {"help_text": "Inclusive start of the window, by unit timestamp."},
             "window_end": {"help_text": "Exclusive end of the window."},
             "rerun_existing": {"help_text": "Whether units with an existing result are evaluated again."},
-            "total_count": {"help_text": "Units matched at creation; the ceiling on dispatched_count."},
+            "total_count": {
+                "help_text": "Units matched at creation. Units that land in the window later can take dispatched_count and skipped_count past it."
+            },
             "dispatched_count": {"help_text": "Units the backfill has started an evaluation for so far."},
             "skipped_count": {"help_text": "Units the live path had already covered, so nothing was dispatched."},
+            "failed_count": {
+                "help_text": "Units whose evaluation failed to start. They have no result and count toward remaining_count."
+            },
             "remaining_count": {
                 "help_text": (
                     "Units still holding no result when the run finished, counted at that moment. "
@@ -324,7 +330,10 @@ class EvaluationBackfillViewSet(
     def _clamped_window(self, evaluation: Evaluation, data: dict[str, Any]) -> BackfillWindow:
         """The requested window, bounded to the span whose verdicts can be read back."""
         now = timezone.now()
-        window_end: datetime = min(data["window_end"], now)
+        # Candidates come from `events`, but each generation is read back from `ai_events`, which a
+        # separate pipeline fills later. A generation that has not reached `ai_events` yet fails its
+        # run for good, so the window stops short of the newest events.
+        window_end: datetime = min(data["window_end"], now - timedelta(seconds=INGESTION_LAG_MARGIN_SECONDS))
         settle_hold = settle_horizon(evaluation.target, evaluation.target_config)
         if settle_hold:
             # A trace or session is graded over `settle_hold` from its first event, so a unit any

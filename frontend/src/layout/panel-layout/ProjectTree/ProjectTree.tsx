@@ -32,7 +32,6 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { ContextMenuGroup, ContextMenuItem } from 'lib/ui/ContextMenu/ContextMenu'
 import { DropdownMenuGroup } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { cn } from 'lib/utils/css-classes'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { sceneConfigurations } from 'scenes/scenes'
 
@@ -75,6 +74,8 @@ interface ProjectTreeBaseProps {
     onItemClicked?: (item: TreeDataItem | undefined) => void
     /** Replaces the tree's own tooltip, so a caller can match the tooltips of the rows around the tree. */
     renderItemTooltip?: (item: TreeDataItem) => ReactNode | undefined
+    /** A docs link under the item's tooltip, for callers whose rows link to a product's docs. */
+    renderItemTooltipDocLink?: (item: TreeDataItem) => string | undefined
     /** True while this tree's nav panel is active — refocuses search on panel re-activation. */
     isActiveInPanel?: boolean
 }
@@ -305,10 +306,10 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
                 }
 
                 if (item?.id.startsWith('shortcuts')) {
-                    eventUsageLogic.actions.reportNavbarStarredItemClicked(
-                        item?.record?.type || 'unknown',
-                        item?.name || 'unknown'
-                    )
+                    posthog.capture('navbar starred item clicked', {
+                        item_type: item?.record?.type || 'unknown',
+                        item_name: item?.name || 'unknown',
+                    })
                 }
 
                 // False, because we handle focus of content in LemonTree with mainContentRef prop
@@ -499,6 +500,7 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
                     </ContextMenuGroup>
                 )
             }}
+            renderItemTooltipDocLink={props.renderItemTooltipDocLink}
             renderItemTooltip={(item) => {
                 if (props.renderItemTooltip) {
                     return props.renderItemTooltip(item)
