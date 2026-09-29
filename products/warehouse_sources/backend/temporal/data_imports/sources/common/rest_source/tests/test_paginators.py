@@ -173,6 +173,29 @@ class TestJSONResponseCursorPaginator:
         p.update_state(resp)
         assert p.has_next_page is False
 
+    @pytest.mark.parametrize("param_location", ["query", "json"])
+    def test_stops_when_cursor_repeats(self, param_location: paginators.ParamLocation) -> None:
+        p = JSONResponseCursorPaginator(cursor_path="next", cursor_param="cursor", param_location=param_location)
+        p.update_state(_make_response({"next": "c1"}))
+        p.update_state(_make_response({"next": "c2"}))
+        assert p.has_next_page is True
+        req = Request(method="POST", url="https://api.example.com/items")
+        p.update_request(req)
+        sent = req.json if param_location == "json" else req.params
+        assert sent["cursor"] == "c2"
+
+        with mock.patch.object(paginators.logger, "warning") as warning:
+            p.update_state(_make_response({"next": "c2"}))
+        assert p.has_next_page is False
+        assert p.get_resume_state() is None
+        assert "c2" not in str(warning.call_args)
+
+    def test_stops_when_resumed_page_echoes_saved_cursor(self) -> None:
+        resumed = JSONResponseCursorPaginator(cursor_path="next", cursor_param="cursor")
+        resumed.set_resume_state({"cursor": "c9"})
+        resumed.update_state(_make_response({"next": "c9"}))
+        assert resumed.has_next_page is False
+
 
 class TestOffsetPaginator:
     def test_increments_offset(self) -> None:

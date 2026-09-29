@@ -68,11 +68,7 @@ class BigMailerCursorPaginator(JSONResponseCursorPaginator):
         except Exception:
             body = None
         next_cursor = body.get("cursor") if isinstance(body, dict) and body.get("has_more") else None
-        if next_cursor:
-            self._cursor_value = next_cursor
-            self._has_next_page = True
-        else:
-            self._has_next_page = False
+        self._advance_to(next_cursor)
 
 
 def _client_config(api_key: str) -> ClientConfig:
