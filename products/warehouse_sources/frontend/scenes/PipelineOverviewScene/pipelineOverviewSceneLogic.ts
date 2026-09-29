@@ -217,7 +217,7 @@ export const pipelineOverviewSceneLogic = kea<pipelineOverviewSceneLogicType>([
                     // breakdown over every instance. The breakdown is capped at 100 rows, and a
                     // team with thousands of tables pushes every destination out of that cap.
                     const answers = await Promise.all(
-                        destinations.map(async (destination) => ({
+                        destinations.map(async (destination: ExternalDataDestinationApi) => ({
                             id: destination.id,
                             response: await loadAppMetricsTimeSeries(
                                 {
