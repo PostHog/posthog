@@ -15,7 +15,7 @@ import { TeamManager } from '~/common/utils/team-manager'
 const CUSTOMER_ANALYTICS_CSP_FLAG = 'customer-analytics-csp'
 export const ELIGIBILITY_TIMEOUT_MS = 2 * 60 * 1000
 const ELIGIBILITY_RETRY_MS = 10 * 1000
-const CAPTURE_RETRY_MAX_MS = 60 * 1000
+const CAPTURE_RETRY_MAX_MS = 30 * 60 * 1000
 const CAPTURE_MAX_AGE_MS = 24 * 60 * 60 * 1000
 
 type EligibilityResult = 'ineligible' | 'eligible' | 'retry'
@@ -210,7 +210,7 @@ export class WorkflowConversationCaptureService {
         result.finished = false
         result.invocation.queueParameters = { ...params, attempts }
         result.invocation.queueScheduledAt = DateTime.utc().plus({
-            milliseconds: Math.min(CAPTURE_RETRY_MAX_MS, 1000 * 2 ** Math.min(attempts, 6)),
+            milliseconds: Math.min(CAPTURE_RETRY_MAX_MS, 1000 * 2 ** Math.min(attempts, 11)),
         })
         return result
     }

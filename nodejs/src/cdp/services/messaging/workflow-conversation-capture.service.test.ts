@@ -156,21 +156,27 @@ describe('WorkflowConversationCaptureService', () => {
         )
     })
 
-    it('retries the capture job without invoking the send path when the API is unavailable', async () => {
-        mockInternalFetch.mockRejectedValue(new Error('unavailable'))
-        const invocation: CyclotronJobInvocation = {
-            id: 'capture-job-example',
-            teamId: 1,
-            functionId: 'workflow-example',
-            state: null,
-            queue: 'email',
-            queuePriority: 0,
-            queueParameters: { type: 'emailCapture', capture, attempts: 0 },
+    it.each([
+        [0, 2000],
+        [12, 30 * 60 * 1000],
+    ])(
+        'retries the capture job with backoff after %s attempts when the API is unavailable',
+        async (attempts, delay) => {
+            mockInternalFetch.mockRejectedValue(new Error('unavailable'))
+            const invocation: CyclotronJobInvocation = {
+                id: 'capture-job-example',
+                teamId: 1,
+                functionId: 'workflow-example',
+                state: null,
+                queue: 'email',
+                queuePriority: 0,
+                queueParameters: { type: 'emailCapture', capture, attempts },
+            }
+            const result = await service.executeCapture(invocation)
+            expect(result.finished).toBe(false)
+            expect(result.invocation.queueParameters).toEqual({ type: 'emailCapture', capture, attempts: attempts + 1 })
+            expect(result.invocation.queueScheduledAt?.toMillis()).toBe(Date.now() + delay)
+            expect(result.skipMonitoring).toBe(true)
         }
-        const result = await service.executeCapture(invocation)
-        expect(result.finished).toBe(false)
-        expect(result.invocation.queueParameters).toEqual({ type: 'emailCapture', capture, attempts: 1 })
-        expect(result.invocation.queueScheduledAt?.toMillis()).toBeGreaterThan(Date.now())
-        expect(result.skipMonitoring).toBe(true)
-    })
+    )
 })
