@@ -8,6 +8,7 @@ import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 import type { MockResolverInfo, Mocks } from '~/mocks/utils'
+import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import type {
     CustomPropertyDefinitionApi,
@@ -1035,4 +1036,64 @@ export const RowExpandedUsageNotFound: Story = {
         await userEvent.click(await canvas.findByRole('tab', { name: 'Usage' }, { timeout: 15000 }))
         await canvas.findByText('No billing usage insight here', {}, { timeout: 15000 })
     },
+}
+
+export const FilterGroupsCollapsed: Story = {
+    ...Default,
+    parameters: {
+        pageUrl: `${urls.customerAnalyticsAccounts()}#view=${encodeURIComponent(
+            JSON.stringify({
+                customProperties: [
+                    {
+                        type: PropertyFilterType.Account,
+                        key: 'name',
+                        label: 'Name',
+                        operator: PropertyOperator.IContains,
+                        value: 'Acme',
+                    },
+                    {
+                        type: PropertyFilterType.Account,
+                        key: 'external_id',
+                        label: 'External ID',
+                        operator: PropertyOperator.IsSet,
+                    },
+                ],
+                filterGroups: [
+                    [
+                        {
+                            type: PropertyFilterType.Account,
+                            key: 'name',
+                            label: 'Name',
+                            operator: PropertyOperator.IContains,
+                            value: 'Globex',
+                        },
+                    ],
+                ],
+            })
+        )}`,
+        testOptions: { waitForSelector: '[data-attr="accounts-toggle-filter-groups"]' },
+    },
+}
+
+export const FilterGroupsExpanded: Story = {
+    ...FilterGroupsCollapsed,
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await userEvent.click(await canvas.findByText('Filters'))
+        await canvas.findByText('Add OR group')
+    },
+}
+
+export const FilterGroupsNarrow: Story = {
+    ...FilterGroupsExpanded,
+    decorators: [
+        mswDecorator({
+            post: { [QUERY_ENDPOINT]: mockAccountsTableQuery(SAMPLE_ROWS) },
+        }),
+        (Story) => (
+            <div className="max-w-3xl">
+                <Story />
+            </div>
+        ),
+    ],
 }
