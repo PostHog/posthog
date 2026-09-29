@@ -125,6 +125,9 @@ class WorkflowTemplate:
 
     ``created_by`` carries the core ``User`` row rather than a projection of it, so the
     presentation layer keeps serializing it through core's ``UserBasicSerializer``.
+
+    ``edges`` and ``actions`` hold lists, but a row saved without them keeps the model default
+    ``{}``, so both fields can also be a dict.
     """
 
     id: UUID
@@ -141,7 +144,7 @@ class WorkflowTemplate:
     trigger_masking: dict[str, Any] | None
     conversion: dict[str, Any] | None
     exit_condition: HogFlowTemplateExitCondition
-    edges: list[dict[str, Any]]
-    actions: list[dict[str, Any]]
+    edges: list[dict[str, Any]] | dict[str, Any]
+    actions: list[dict[str, Any]] | dict[str, Any]
     abort_action: str | None
     variables: list[dict[str, Any]] | None
