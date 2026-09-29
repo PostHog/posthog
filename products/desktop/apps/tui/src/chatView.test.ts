@@ -61,4 +61,25 @@ describe("ChatView", () => {
     chat.setTranscript(replies(30), { hasOlder: false });
     expect(plain(chat.render(40, 5))).toEqual(reading);
   });
+
+  it("keeps user messages tight and spaces tool calls from agent replies", () => {
+    const chat = new ChatView();
+    chat.setTranscript([
+      { kind: "user", id: "u1", text: "yo" },
+      { kind: "tool", id: "t1", title: "Summary update", status: "completed" },
+      { kind: "assistant", id: "a1", text: "Hey!" },
+      { kind: "tool", id: "t2", title: "Summary update", status: "completed" },
+    ]);
+    const lines = plain(chat.render(40, 7)).map((line) => line.trim());
+
+    expect(lines).toEqual([
+      "yo",
+      "● Summary update",
+      "",
+      "Hey!",
+      "",
+      "● Summary update",
+      "",
+    ]);
+  });
 });

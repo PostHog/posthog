@@ -192,36 +192,59 @@ describe("runNotice", () => {
       "a queued run with only the first message",
       { status: "queued" },
       [user],
+      false,
       { text: "Starting cloud run…", tone: "working" },
     ],
     [
       "a running run before any reply",
       { status: "in_progress" },
       [user],
+      false,
       { text: "Starting cloud run…", tone: "working" },
     ],
     [
-      "a running run that has replied",
+      "a turn in progress",
       { status: "in_progress" },
       [user, reply],
+      true,
+      { text: "Thinking…", tone: "working" },
+    ],
+    [
+      "a follow-up not yet picked up",
+      { status: "in_progress" },
+      [user, reply, user],
+      false,
+      { text: "Thinking…", tone: "working" },
+    ],
+    [
+      "an idle run that has replied",
+      { status: "in_progress" },
+      [user, reply],
+      false,
       null,
     ],
     [
       "a failed run with a reason",
       { status: "failed", runError: "Sandbox failed to start" },
       [user],
+      false,
       { text: "Sandbox failed to start", tone: "error" },
     ],
     [
       "a failed run without one",
       { status: "failed" },
       [user],
+      false,
       { text: "The run failed.", tone: "error" },
     ],
-    ["a finished run", { status: "completed" }, [user, reply], null],
-  ] as const)("for %s", (_, run, lines, expected) => {
+    ["a finished run", { status: "completed" }, [user, reply], false, null],
+  ] as const)("for %s", (_, run, lines, turnOpen, expected) => {
     expect(
-      runNotice({ ...emptyRunView, loaded: true, ...run }, [...lines]),
+      runNotice(
+        { ...emptyRunView, loaded: true, ...run },
+        [...lines],
+        turnOpen,
+      ),
     ).toEqual(expected);
   });
 });

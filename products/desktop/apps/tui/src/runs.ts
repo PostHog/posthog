@@ -97,13 +97,18 @@ export function withListedRun(
 export function runNotice(
   view: RunView,
   lines: TranscriptLine[],
+  turnOpen: boolean,
 ): { text: string; tone: "working" | "error" } | null {
   if (view.status === "failed") {
     return { text: view.runError || "The run failed.", tone: "error" };
   }
-  const replied = lines.some((line) => line.kind !== "user");
-  if ((view.status === "queued" || view.status === "in_progress") && !replied) {
+  if (view.status !== "queued" && view.status !== "in_progress") return null;
+  if (!lines.some((line) => line.kind !== "user")) {
     return { text: "Starting cloud run…", tone: "working" };
+  }
+  // A turn still going, or a message the agent has not picked up yet.
+  if (turnOpen || lines.at(-1)?.kind === "user") {
+    return { text: "Thinking…", tone: "working" };
   }
   return null;
 }

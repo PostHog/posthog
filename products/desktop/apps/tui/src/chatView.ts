@@ -8,6 +8,8 @@ import {
   type Component,
   Container,
   ScrollView,
+  Spacer,
+  stripTerminalSequences,
   Text,
 } from "@earendil-works/pi-tui";
 import type { TranscriptLine } from "./transcript";
@@ -30,6 +32,35 @@ function assistantMessage(text: string): AssistantMessage {
     timestamp: 0,
   } as AssistantMessage;
 }
+
+const isBlank = (line: string): boolean =>
+  stripTerminalSequences(line).trim() === "";
+
+// pi pads its message blocks for a full screen; panes keep them tight and space them here instead.
+class Trimmed implements Component {
+  constructor(private readonly inner: Component) {}
+
+  render(width: number): string[] {
+    const lines = this.inner.render(width);
+    let start = 0;
+    let end = lines.length;
+    while (start < end && isBlank(lines[start])) start++;
+    while (end > start && isBlank(lines[end - 1])) end--;
+    return lines.slice(start, end);
+  }
+
+  invalidate(): void {
+    this.inner.invalidate();
+  }
+}
+
+// A tool call next to agent text reads as a separate block.
+const needsGap = (
+  previous: TranscriptLine | undefined,
+  line: TranscriptLine,
+): boolean =>
+  (previous?.kind === "tool" && line.kind === "assistant") ||
+  (previous?.kind === "assistant" && line.kind === "tool");
 
 function componentFor(line: TranscriptLine): Component {
   const markdown = getMarkdownTheme();
@@ -62,10 +93,12 @@ export class ChatView {
   private transcriptChanged = false;
 
   setTranscript(lines: TranscriptLine[], { hasOlder = false } = {}): void {
-    this.items = lines.map((line) => ({
-      id: line.id,
-      component: componentFor(line),
-    }));
+    this.items = lines.flatMap((line, index) => {
+      const item = { id: line.id, component: new Trimmed(componentFor(line)) };
+      return needsGap(lines[index - 1], line)
+        ? [{ id: `${line.id}:gap`, component: new Spacer(1) }, item]
+        : [item];
+    });
     if (hasOlder) {
       this.items.unshift({
         id: OLDER_ROW,
