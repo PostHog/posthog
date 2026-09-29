@@ -10,6 +10,7 @@ from posthog.models.person.util import (
     _fetch_persons_by_distinct_ids_via_personhog,
     _fetch_persons_by_uuids_via_personhog,
     _validate_uuids_via_personhog,
+    get_distinct_ids_mapped_by_email,
     get_person_by_pk_or_uuid,
     get_person_ids_and_uuids_by_uuids,
     get_person_uuids_by_distinct_ids,
@@ -591,3 +592,78 @@ class TestGetPersonUuidsByDistinctIdsFieldMask(BaseTest):
         assert "id" in mask
         assert "team_id" in mask
         assert "properties" not in mask
+
+
+class TestGetDistinctIdsMappedByEmail(BaseTest):
+    def _run(self, results, persons, emails):
+        with (
+            patch("posthog.hogql.query.execute_hogql_query", return_value=MagicMock(results=results)),
+            patch("posthog.models.person.util.get_persons_by_uuids", return_value=persons) as by_uuids,
+        ):
+            result = get_distinct_ids_mapped_by_email(self.team.id, emails)
+        return result, by_uuids
+
+    def test_matches_case_insensitively_and_picks_the_best_ranked_candidate(self):
+        # The query ranks each email's candidates best-first, so the first uuid resolves and wins.
+        results = [("a@x.com", ["u1", "u2"])]
+        persons = [MagicMock(uuid="u1", distinct_ids=["did1"])]
+        result, by_uuids = self._run(results, persons, ["A@X.com", "none@x.com"])
+
+        assert result == {"a@x.com": "did1"}
+        # The second candidate is never fetched once the first resolves.
+        by_uuids.assert_called_once()
+
+    def test_falls_back_to_next_candidate_when_best_has_no_distinct_id(self):
+        # A person stays live after all its distinct ids are split away, so the best-ranked
+        # candidate can be unresolvable while a lower-ranked person with the same email is fine.
+        # Dropping the email there would misreport a matchable row as skipped_missing_person.
+        rounds = [[MagicMock(uuid="u1", distinct_ids=[])], [MagicMock(uuid="u2", distinct_ids=["did2"])]]
+        with (
+            patch(
+                "posthog.hogql.query.execute_hogql_query",
+                return_value=MagicMock(results=[("a@x.com", ["u1", "u2"])]),
+            ),
+            patch("posthog.models.person.util.get_persons_by_uuids", side_effect=rounds) as by_uuids,
+        ):
+            result = get_distinct_ids_mapped_by_email(self.team.id, ["a@x.com"])
+
+        assert result == {"a@x.com": "did2"}
+        assert by_uuids.call_args_list[1].args[1] == ["u2"]
+
+    def test_drops_email_whose_only_candidate_has_no_distinct_id(self):
+        persons = [MagicMock(uuid="u1", distinct_ids=[])]
+        result, _ = self._run([("a@x.com", ["u1"])], persons, ["a@x.com"])
+
+        assert result == {}
+
+    def test_empty_input_skips_the_query(self):
+        with patch("posthog.hogql.query.execute_hogql_query") as execute:
+            assert get_distinct_ids_mapped_by_email(self.team.id, ["", ""]) == {}
+        execute.assert_not_called()
+
+
+class TestEmailLookupBatching(SimpleTestCase):
+    def test_batches_emails_and_unions_results(self):
+        # More emails than one chunk must fan out into several bounded queries whose results are unioned.
+        # A single query would be capped at HogQL's default row limit and silently drop most matches on
+        # a large sync, so this guards against collapsing the loop back into one call.
+        persons = [
+            MagicMock(uuid="u1", distinct_ids=["d1"]),
+            MagicMock(uuid="u2", distinct_ids=["d2"]),
+            MagicMock(uuid="u3", distinct_ids=["d3"]),
+        ]
+        batch_results = [
+            MagicMock(results=[("a@x.com", ["u1"]), ("b@x.com", ["u2"])]),
+            MagicMock(results=[("c@x.com", ["u3"])]),
+        ]
+        with (
+            patch("posthog.models.team.Team") as team_cls,
+            patch("posthog.models.person.util._EMAIL_LOOKUP_CHUNK_SIZE", 2),
+            patch("posthog.hogql.query.execute_hogql_query", side_effect=batch_results) as execute,
+            patch("posthog.models.person.util.get_persons_by_uuids", return_value=persons),
+        ):
+            team_cls.objects.get.return_value = MagicMock()
+            result = get_distinct_ids_mapped_by_email(7, ["a@x.com", "b@x.com", "c@x.com"])
+
+        assert execute.call_count == 2
+        assert result == {"a@x.com": "d1", "b@x.com": "d2", "c@x.com": "d3"}
