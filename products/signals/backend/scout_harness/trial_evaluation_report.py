@@ -153,6 +153,8 @@ def build_trial_comparison_report(
         summary="\n".join(summary),
         rubric_source=snapshot.request.rubric_source,
         rubric_revision=revision if isinstance(revision, int) and not isinstance(revision, bool) else 0,
+        rubric_reference_context=snapshot.rubric_reference_context,
+        rubric_reference_generation_id=snapshot.rubric_reference_generation_id,
         criteria=snapshot.criteria,
         baseline_variant_id=snapshot.request.baseline_variant_id,
         judge_model=snapshot.judge_model,
@@ -161,7 +163,11 @@ def build_trial_comparison_report(
         runs=scored,
         evidence=snapshot.runs,
         limitations=[
-            "These scores use mock default criteria, not a reviewed rubric for this scout.",
+            *(
+                ["These scores use mock default criteria, not a reviewed rubric for this scout."]
+                if snapshot.request.rubric_source == "mock"
+                else []
+            ),
             "Each run scores pass verdicts divided by pass and fail verdicts. Variant scores average runs with a decisive score; unknown and not applicable verdicts are excluded.",
             "Rubric coverage is the fraction of applicable verdicts that are pass or fail. Execution failures and judge errors are listed separately.",
             "Differences are descriptive results from these runs, not evidence of statistical significance or a reliable winner.",

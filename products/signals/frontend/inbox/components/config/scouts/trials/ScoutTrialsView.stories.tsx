@@ -219,3 +219,17 @@ export const ScoringUnavailable: Story = {
         scoreDisabledReason: 'Refresh scoring status before starting an evaluation.',
     },
 }
+
+export const MissingSavedRubric: Story = {
+    args: {
+        ...Scored.args,
+        evaluationState: {
+            value: null,
+            loading: false,
+            scoring: false,
+            error: 'Generate suggestions, adopt their reference, and save the rubric before scoring.',
+            notStarted: true,
+        },
+        scoreDisabledReason: null,
+    },
+}

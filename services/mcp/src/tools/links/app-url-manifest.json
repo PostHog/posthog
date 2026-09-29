@@ -274,6 +274,11 @@
         "params": [],
         "scope": "project"
     },
+    "businessKnowledgePlayground": {
+        "template": "/business-knowledge/playground",
+        "params": [],
+        "scope": "project"
+    },
     "businessKnowledgeSettings": {
         "template": "/business-knowledge/settings",
         "params": [],

@@ -1399,14 +1399,17 @@ class TestPromptBuilder(BaseTest):
             # The wrong-tool half of that rule is already policed by the channel tests above
             # (they assert the unheld tool appears nowhere in the whole prompt); these rows pin
             # that the clause names a re-surface path the scout actually holds, on every variant.
-            ("signal_channel", [], "scout-emit-signal"),
-            ("report_both", ["emit_report", "edit_report"], "scout-emit-report"),
-            ("report_emit_only", ["emit_report"], "scout-emit-report"),
-            ("report_edit_only", ["edit_report"], "scout-edit-report"),
+            ("signal_channel", [], "scout-emit-signal", False),
+            ("report_both", ["emit_report", "edit_report"], "scout-emit-report", False),
+            ("report_emit_only", ["emit_report"], "scout-emit-report", False),
+            ("report_edit_only", ["edit_report"], "scout-edit-report", False),
+            ("trial_both", ["emit_report", "edit_report"], "scout-emit-report", True),
+            ("trial_emit_only", ["emit_report"], "scout-emit-report", True),
+            ("trial_edit_only", ["edit_report"], "scout-edit-report", True),
         ]
     )
     def test_followup_section_resurface_clause_channel_matched(
-        self, _name: str, allowed_tools: list[str], resurface_tool: str
+        self, _name: str, allowed_tools: list[str], resurface_tool: str, is_private_trial: bool
     ) -> None:
         name = "signals-scout-fu-" + (_name.replace("_", "-"))
         LLMSkill.objects.create(team=self.team, name=name, description="d", body="b", allowed_tools=allowed_tools)
@@ -1415,6 +1418,7 @@ class TestPromptBuilder(BaseTest):
             run_id="00000000-0000-0000-0000-000000000abc",
             team_id=self.team.id,
             started_at=datetime(2026, 5, 1, 12, 34, 56, tzinfo=UTC),
+            is_private_trial=is_private_trial,
         )
         assert "Follow up on your own past work" in prompt
         # The validation cadence is the scout's own judgment — the section must say so rather
@@ -1427,12 +1431,19 @@ class TestPromptBuilder(BaseTest):
         assert resurface_tool in section.split("# ")[0]
         # Same fail-closed rule for the durable half of the loop: the check endpoints refuse a run
         # whose skill does not list `edit_report`, so only such a scout is pointed at them.
-        if "edit_report" in allowed_tools:
+        if is_private_trial:
+            assert "You cannot create or cancel checks, or record check results" in prompt
+            assert "You may read existing checks on live reports" in prompt
+            assert "scout-report-check" not in prompt
+            assert "and the report-check tools" not in prompt
+        elif "edit_report" in allowed_tools:
             assert "scout-report-check-create" in section.split("# ")[0]
             # A check written in error stays on the report unless the scout knows it can withdraw it.
             assert "scout-report-check-cancel" in section.split("# ")[0]
         else:
             assert "scout-report-check" not in prompt
+        if not is_private_trial:
+            assert "this private trial" not in prompt
 
 
 # Orchestration tests run as plain pytest functions because the async runner uses
@@ -1584,7 +1595,10 @@ def _fake_start_invoking_hook(session: MagicMock, result: object):
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_successful_run_creates_bridge_row_pointing_at_task_run(ateam, aerrors_skill):
+@pytest.mark.parametrize("check_id", [None, "11111111-1111-1111-1111-111111111111"])
+async def test_successful_run_creates_bridge_row_pointing_at_task_run(
+    ateam: Team, aerrors_skill: LLMSkill, check_id: str | None
+) -> None:
     TaskRun = apps.get_model("tasks", "TaskRun")
     session, result = await database_sync_to_async(_make_fake_session, thread_sensitive=False)(
         ateam, "I would investigate /checkout 500s next."
@@ -1605,7 +1619,12 @@ async def test_successful_run_creates_bridge_row_pointing_at_task_run(ateam, aer
                 return_value=42,
             ),
         ):
-            run_result = await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
+            run_result = await arun_signals_scout(
+                team_id=ateam.id,
+                skill_name="signals-scout-errors",
+                triggered_by=TRIGGERED_BY_CHECK if check_id else TRIGGERED_BY_SCHEDULE,
+                check_id=check_id,
+            )
 
     assert run_result.status == TaskRun.Status.COMPLETED.value
     assert run_result.skill_name == "signals-scout-errors"
@@ -1619,6 +1638,7 @@ async def test_successful_run_creates_bridge_row_pointing_at_task_run(ateam, aer
     assert str(bridge.task_run_id) == str(session.task_run.id)
     assert bridge.skill_name == "signals-scout-errors"
     assert bridge.skill_version == 1
+    assert (bridge.metadata or {}).get("check_id") == check_id
     # Agent close-out is persisted on the bridge row so future runs can dedupe
     # against non-emitting runs via the runs-list ILIKE filter.
     assert bridge.summary == "I would investigate /checkout 500s next."
@@ -1797,6 +1817,10 @@ async def test_trial_runs_keep_runtime_and_state_separate_from_the_production_sc
     assert sandbox_context.model == "gpt-5.6-sol"
     assert sandbox_context.reasoning_effort == "high"
     assert sandbox_context.posthog_mcp_scopes == "signals_scout_experiment"
+    prompt = captured[0]["prompt"]
+    assert isinstance(prompt, str)
+    assert "Report follow-up checks are limited in this private trial" in prompt
+    assert "scout-report-check-create" not in prompt
     bridge = await SignalScoutRun.objects.aget(id=outcome.run_id)
     if task_cancelled:
         assert bridge.summary == ""

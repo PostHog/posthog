@@ -22,11 +22,13 @@ from posthog.models import Team, User
 from posthog.models.scoping import team_scope
 from posthog.storage import object_storage
 
+from products.signals.backend.facade.rubrics import default_criteria
 from products.signals.backend.models import SignalScoutConfig
 from products.signals.backend.scout_harness.trial_evaluation import (
     MAX_SOURCE_CHARS,
     MAX_TRACE_BYTES,
     TrialEvaluationError,
+    _request_hash,
     assert_evaluation_access,
     finish_trial_evaluation,
     prepare_trial_evaluation,
@@ -39,6 +41,7 @@ from products.signals.backend.scout_harness.trial_evaluation_types import (
     TrialEvaluationVariant,
     TrialRunJudgment,
 )
+from products.signals.backend.scout_harness.trial_judge import parse_trial_judgment
 from products.signals.backend.scout_harness.trial_launch import ScoutTrialLaunchError, TrialContext, TrialLaunch
 from products.signals.backend.scout_harness.trial_result import TrialWorkflowStatus, export_trial_result
 from products.signals.backend.scout_harness.trial_state import ScoutTrialStore
@@ -50,6 +53,7 @@ from products.signals.backend.temporal.agentic.scout_trial_evaluation import (
     load_scout_trial_evaluation_activity,
 )
 from products.signals.backend.test.test_scout_harness_api import _make_run
+from products.signals.backend.test.test_scout_trial_judge import _reference_context
 from products.skills.backend.models.skills import LLMSkill
 
 MODULE = "products.signals.backend.scout_harness.trial_evaluation"
@@ -73,7 +77,7 @@ class TestScoutTrialEvaluationValidation(SimpleTestCase):
         else:
             first = first.model_copy(update={"launch_ids": [uuid4() for _ in range(20)]})
         request = TrialEvaluationRequest(
-            evaluation_id=uuid4(), baseline_variant_id=baseline, variants=[first, second], rubric_source="mock"
+            evaluation_id=uuid4(), baseline_variant_id=baseline, variants=[first, second], rubric_source="saved"
         )
         with self.assertRaises(TrialEvaluationError):
             prepare_trial_evaluation(config=SignalScoutConfig(team_id=2), user=User(id=17), request=request)
@@ -102,6 +106,18 @@ class TestScoutTrialEvaluation(BaseTest):
             allowed_tools=["emit_report"],
         )
         self.config = SignalScoutConfig.objects.create(team=self.team, skill_name=self.skill.name, enabled=False)
+        self.reference = _reference_context(
+            skill_id=str(self.skill.id),
+            skill_name=self.skill.name,
+            instructions=self.skill.body,
+        )
+        self.config.rubrics = {
+            "revision": 1,
+            "criteria": [criterion.model_dump(mode="json") for criterion in default_criteria()],
+            "reference_context": self.reference.model_dump(mode="json"),
+            "reference_generation_id": str(uuid4()),
+        }
+        self.config.save(update_fields=["rubrics"])
         self.context = TrialContext(
             id=uuid4(),
             team_id=self.team.id,
@@ -171,7 +187,7 @@ class TestScoutTrialEvaluation(BaseTest):
         self.scout_run.task_run.save(update_fields=["state"])
         variant = TrialEvaluationVariant(id=uuid4(), label="Baseline", launch_ids=[self.launch.id])
         self.request = TrialEvaluationRequest(
-            evaluation_id=uuid4(), baseline_variant_id=variant.id, variants=[variant], rubric_source="mock"
+            evaluation_id=uuid4(), baseline_variant_id=variant.id, variants=[variant], rubric_source="saved"
         )
 
     def _save(self, kind: str, identifier: UUID, document: BaseModel) -> None:
@@ -182,18 +198,30 @@ class TestScoutTrialEvaluation(BaseTest):
             raise object_storage.ObjectStorageError("Object already exists")
         self.documents[key] = content
 
-    @parameterized.expand([("1",), ("2",), ("3",), ("4",)])
+    @parameterized.expand([("1",), ("2",), ("3",), ("4",), ("5",), ("6",)])
     def test_snapshot_is_frozen_and_reused_only_for_the_same_request(self, prompt_version: str) -> None:
         snapshot = prepare_trial_evaluation(config=self.config, user=self.user, request=self.request)
-        assert snapshot.judge_prompt_version == "4"
+        assert snapshot.judge_prompt_version == "6"
+        if prompt_version not in {"5", "6"}:
+            self.request = self.request.model_copy(update={"rubric_source": "mock"})
+            snapshot = snapshot.model_copy(
+                update={
+                    "request": self.request,
+                    "request_hash": _request_hash(self.config, self.user, self.request),
+                    "rubric_reference_context": None,
+                    "rubric_reference_generation_id": None,
+                }
+            )
         snapshot = snapshot.model_copy(update={"judge_prompt_version": prompt_version})
         self.documents[f"signals/scout-trials/{self.team.id}/evaluations/{snapshot.evaluation_id}/snapshot.json"] = (
-            snapshot.model_dump_json()
+            snapshot.model_dump_json(exclude_none=True)
         )
         self.scout_run.summary = "A later edit must not change the evidence."
         self.scout_run.save(update_fields=["summary"])
         self.skill.body = "The current skill changed after capture."
         self.skill.save(update_fields=["body"])
+        self.config.rubrics = {}
+        self.config.save(update_fields=["rubrics"])
         repeat = prepare_trial_evaluation(config=self.config, user=self.user, request=self.request)
         assert repeat == snapshot
         assert (
@@ -202,13 +230,15 @@ class TestScoutTrialEvaluation(BaseTest):
         )
         assert snapshot.runs[0].input_tokens == 120
         assert snapshot.criteria
+        if prompt_version in {"5", "6"}:
+            assert snapshot.rubric_reference_context == self.reference
         changed = self.request.model_copy(
             update={"variants": [self.request.variants[0].model_copy(update={"label": "Changed"})]}
         )
         with self.assertRaisesMessage(TrialEvaluationError, "different request"):
             prepare_trial_evaluation(config=self.config, user=self.user, request=changed)
 
-    @parameterized.expand([("1",), ("2",), ("3",), ("4",)])
+    @parameterized.expand([("1",), ("2",), ("3",), ("4",), ("5",), ("6",)])
     def test_saved_report_remains_readable_when_launches_are_disabled(self, prompt_version: str) -> None:
         snapshot = prepare_trial_evaluation(config=self.config, user=self.user, request=self.request)
         snapshot = snapshot.model_copy(update={"judge_prompt_version": prompt_version})
@@ -222,6 +252,126 @@ class TestScoutTrialEvaluation(BaseTest):
             assert read_trial_evaluation_report(snapshot) == report
             with self.assertRaises(ScoutTrialLaunchError):
                 prepare_trial_evaluation(config=self.config, user=self.user, request=self.request)
+
+    @parameterized.expand(
+        [
+            ("unsaved", "Review and save"),
+            ("legacy", "no saved reference instructions"),
+            ("disabled", "1 to 30 uniquely named enabled criteria"),
+            ("instructions_truncated", "reference instructions are incomplete"),
+            ("reference_files_truncated", "reference instructions are incomplete"),
+            ("omitted_reference", "reference instructions are incomplete"),
+            ("truncated_reference", "reference instructions are incomplete"),
+            ("oversized", "exceed the scoring limit"),
+            ("wrong_scout", "do not belong to this scout"),
+            ("malformed", "saved rubric is invalid"),
+            ("mock", "New evaluations require"),
+        ]
+    )
+    def test_unreviewed_or_incomplete_rubric_cannot_create_an_evaluation(self, scenario: str, message: str) -> None:
+        rubric = self.config.rubrics
+        assert isinstance(rubric, dict)
+        if scenario == "unsaved":
+            rubric = {}
+        elif scenario == "legacy":
+            rubric.pop("reference_context")
+        elif scenario == "disabled":
+            for criterion in rubric["criteria"]:
+                criterion["enabled"] = False
+        elif scenario in {"instructions_truncated", "reference_files_truncated"}:
+            rubric["reference_context"][scenario] = True
+        elif scenario == "omitted_reference":
+            rubric["reference_context"]["reference_limits"]["omitted_files"] = 1
+        elif scenario == "truncated_reference":
+            rubric["reference_context"]["reference_limits"]["truncated_files"] = ["rules.md"]
+        elif scenario == "oversized":
+            rubric["reference_context"]["instructions"] = "Synthetic required work. " * 6000
+        elif scenario == "wrong_scout":
+            rubric["reference_context"]["skill_name"] = "signals-scout-other-example"
+        elif scenario == "malformed":
+            rubric["reference_context"]["skill_version"] = "private malformed source text"
+        else:
+            self.request = self.request.model_copy(update={"rubric_source": "mock"})
+        self.config.rubrics = rubric
+        self.config.save(update_fields=["rubrics"])
+        with self.assertRaisesMessage(TrialEvaluationError, message) as raised:
+            prepare_trial_evaluation(config=self.config, user=self.user, request=self.request)
+        assert "private malformed source text" not in str(raised.exception)
+        assert not any("/evaluations/" in key for key in self.documents)
+
+    def test_saved_requirements_ignore_source_edits_candidates_and_unaccepted_suggestions(self) -> None:
+        rubric = self.config.rubrics
+        assert isinstance(rubric, dict)
+        self.skill.is_latest = False
+        self.skill.save(update_fields=["is_latest"])
+        LLMSkill.objects.create(
+            team=self.team,
+            name=self.skill.name,
+            version=2,
+            body="The current scout has a different job.",
+            allowed_tools=["emit_report"],
+        )
+        self.launch = self.launch.model_copy(update={"skill_body": "Do no work."})
+        self._save("launches", self.launch.id, self.launch)
+        disabled = {
+            **rubric["criteria"][0],
+            "id": "custom-disabled",
+            "source": "custom",
+            "enabled": False,
+        }
+        rubric["criteria"].append(disabled)
+        rubric["generation"] = {
+            "id": str(uuid4()),
+            "status": "completed",
+            "requested_at": timezone.now().isoformat(),
+            "suggestions": [{**disabled, "id": "custom-draft", "enabled": True}],
+            "reference_context": self.reference.model_copy(
+                update={"instructions": "Unaccepted new instructions."}
+            ).model_dump(mode="json"),
+        }
+        self.config.save(update_fields=["rubrics"])
+        snapshot = prepare_trial_evaluation(config=self.config, user=self.user, request=self.request)
+        assert snapshot.rubric_reference_context == self.reference
+        assert snapshot.rubric_reference_generation_id == rubric["reference_generation_id"]
+        assert {criterion.id for criterion in snapshot.criteria} == {criterion.id for criterion in default_criteria()}
+        assert (
+            next(source.text for source in snapshot.runs[0].sources if source.kind == "instructions") == "Do no work."
+        )
+
+    @parameterized.expand(["pass", "fail", "not_applicable"])
+    def test_launch_note_alone_cannot_support_a_conclusive_verdict(self, verdict: str) -> None:
+        claim = "I read the required skill successfully."
+        self.launch = self.launch.model_copy(update={"note": claim})
+        self.context = self.context.model_copy(update={"notes": [{"body": "A prior review is available."}]})
+        self._save("launches", self.launch.id, self.launch)
+        self._save("contexts", self.context.id, self.context)
+        snapshot = prepare_trial_evaluation(config=self.config, user=self.user, request=self.request)
+        sources = snapshot.runs[0].sources
+        note = next(source for source in sources if source.text == claim)
+        context = next(source for source in sources if source.kind == "context")
+        assert claim not in context.text
+        assert json.loads(context.text)["notes"] == self.context.notes
+        judgment = parse_trial_judgment(
+            json.dumps(
+                {
+                    "summary": claim,
+                    "criteria": [
+                        {
+                            "criterion_id": criterion.id,
+                            "verdict": verdict,
+                            "reason": claim,
+                            "confidence": "high",
+                            "evidence": [{"source_id": note.id, "quote": claim}],
+                        }
+                        for criterion in snapshot.criteria
+                    ],
+                }
+            ),
+            criteria=snapshot.criteria,
+            sources=sources,
+        )
+        assert all(criterion.verdict == "unknown" for criterion in judgment.criteria)
+        assert claim not in judgment.summary
 
     @parameterized.expand([(None,), ("failed",), ("cancelled",)])
     def test_invalidation_after_export_excludes_the_trial(self, task_status: str | None) -> None:

@@ -680,6 +680,7 @@ def test_a_failure_after_create_destroys_the_fresh_sandbox(mocker, failing_step:
     sandbox.config.snapshot_restored = False
     sandbox.launch_dev_stack_bootstrap.return_value = False
     sandbox.start_cpu_billing_sampler.return_value = True
+    sandbox.execute.return_value = ExecutionResult(stdout='{"version": "1.2.3"}', stderr="", exit_code=0)
     getattr(sandbox, failing_step).side_effect = SandboxRateLimitedError(
         "Sandbox control plane is rate limited", {"sandbox_id": "sandbox-id", "operation": "create_connect_token"}
     )
@@ -708,7 +709,62 @@ def test_a_failure_after_create_destroys_the_fresh_sandbox(mocker, failing_step:
         )
 
     sandbox.destroy.assert_called_once_with()
+    task_run.update_state_atomic.assert_called_once_with("run-id", updates={"agent_version": "1.2.3"})
     task_run.clear_sandbox_connection_state_atomic.assert_called_once_with("run-id", "sandbox-id")
+
+
+@pytest.mark.parametrize(
+    ("manifest_result", "version"),
+    [
+        (ExecutionResult(stdout='{"version": "1.2.3"}', stderr="", exit_code=0), "1.2.3"),
+        (ExecutionResult(stdout="{}", stderr="", exit_code=0), None),
+        (ExecutionResult(stdout="not json", stderr="", exit_code=0), None),
+        (ExecutionResult(stdout="", stderr="not found", exit_code=1), None),
+        (RuntimeError("manifest read failed"), None),
+    ],
+)
+def test_create_sandbox_records_installed_agent_version(
+    mocker, manifest_result: ExecutionResult | Exception, version: str | None
+) -> None:
+    context = _context_for_desktop_bootstrap()
+    context.state = {"await_user_message": True}
+    sandbox = mocker.Mock(id="sandbox-id")
+    sandbox.config.image_fallback = None
+    sandbox.config.snapshot_restored = False
+    sandbox.config.ttl_seconds = 60
+    sandbox.start_cpu_billing_sampler.return_value = True
+    sandbox.launch_dev_stack_bootstrap.return_value = False
+    if isinstance(manifest_result, Exception):
+        sandbox.execute.side_effect = manifest_result
+    else:
+        sandbox.execute.return_value = manifest_result
+    mocker.patch.object(
+        provision_sandbox_module,
+        "get_sandbox_class_for_run_backend",
+        return_value=mocker.Mock(create=mocker.Mock(return_value=sandbox)),
+    )
+    for name in (
+        "emit_agent_log",
+        "_emit_image_source_log",
+        "_apply_modal_network_policy",
+        "record_sandbox_created",
+        "increment_snapshot_usage",
+        "increment_snapshot_restore",
+        "persist_sandbox_connection",
+    ):
+        mocker.patch.object(provision_sandbox_module, name)
+    mocker.patch.object(provision_sandbox_module, "_build_sandbox_tags", return_value={})
+    update_state = mocker.patch.object(provision_sandbox_module.TaskRun, "update_state_atomic")
+
+    result = async_to_sync(provision_sandbox_module._create_sandbox_for_repository)(
+        CreateSandboxForRepositoryInput(context=context, prepared=_prepared_for_create())
+    )
+
+    assert result.sandbox_id == "sandbox-id"
+    if version:
+        update_state.assert_called_once_with("run-id", updates={"agent_version": version})
+    else:
+        update_state.assert_called_once_with("run-id", remove_keys=["agent_version"])
 
 
 def test_create_reads_the_sandbox_template_from_the_run_context(mocker):

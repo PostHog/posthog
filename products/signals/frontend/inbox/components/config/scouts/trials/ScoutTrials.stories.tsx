@@ -9,11 +9,14 @@ import { userLogic } from 'scenes/userLogic'
 import { mswDecorator } from '~/mocks/browser'
 
 import type {
+    ScoutRubricDocumentApi,
+    ScoutRubricSaveApi,
     ScoutTrialEvaluationApi,
     ScoutTrialEvaluationRequestApi,
     ScoutTrialLaunchApi,
 } from 'products/signals/frontend/generated/api.schemas'
 
+import { scoutRubricReferenceFixture } from '../scoutRubricFixtures'
 import { ScoutTrials } from './ScoutTrials'
 import {
     trialFixtureConfig,
@@ -25,6 +28,15 @@ import {
 
 const submissions = new Map<string, ScoutTrialLaunchApi>()
 const evaluations = new Map<string, ScoutTrialEvaluationApi>()
+let rubric: ScoutRubricDocumentApi = {
+    config_id: trialFixtureConfig.id,
+    skill_name: scoutRubricReferenceFixture.skill_name,
+    revision: 2,
+    criteria: trialFixtureReport.criteria.map((criterion) => ({ ...criterion, enabled: true, source: 'custom' })),
+    reference_context: scoutRubricReferenceFixture,
+    reference_generation_id: '00000000-0000-4000-8000-000000000032',
+    generation: null,
+}
 
 const meta: Meta<typeof ScoutTrials> = {
     title: 'Scenes-App/Inbox/Scout comparisons interactive',
@@ -40,6 +52,7 @@ const meta: Meta<typeof ScoutTrials> = {
         },
         mswDecorator({
             get: {
+                '/api/projects/:team/signals/scout/rubrics/:config/': () => [200, rubric],
                 '/api/projects/:team/signals/scout/configs/:config/trial_evaluation_result/': ({ request }) => {
                     const evaluation = evaluations.get(new URL(request.url).searchParams.get('evaluation_id')!)
                     return evaluation ? [200, evaluation] : [404, { detail: 'Evaluation not found.' }]
@@ -65,15 +78,34 @@ const meta: Meta<typeof ScoutTrials> = {
                     ]
                 },
             },
+            put: {
+                '/api/projects/:team/signals/scout/rubrics/:config/': async ({ request }) => {
+                    const payload = (await request.json()) as ScoutRubricSaveApi
+                    rubric = { ...rubric, criteria: payload.criteria, revision: rubric.revision + 1 }
+                    return [200, rubric]
+                },
+            },
             post: {
                 '/api/projects/:team/signals/scout/configs/:config/trial_evaluation/': async ({ request }) => {
                     const payload = (await request.json()) as ScoutTrialEvaluationRequestApi
+                    const existing = evaluations.get(payload.evaluation_id)
+                    if (existing) {
+                        return [200, existing]
+                    }
                     const evaluation: ScoutTrialEvaluationApi = {
                         ...trialFixtureEvaluation,
                         evaluation_id: payload.evaluation_id,
                         request: payload,
                         report: {
                             ...trialFixtureReport,
+                            rubric_source: payload.rubric_source,
+                            rubric_revision: payload.rubric_source === 'saved' ? rubric.revision : 0,
+                            rubric_reference_context:
+                                payload.rubric_source === 'saved' ? scoutRubricReferenceFixture : null,
+                            rubric_reference_generation_id:
+                                payload.rubric_source === 'saved' ? rubric.reference_generation_id : null,
+                            criteria: payload.rubric_source === 'saved' ? rubric.criteria : trialFixtureReport.criteria,
+                            limitations: ['These fixed Storybook judgments demonstrate the scoring interface.'],
                             evaluation_id: payload.evaluation_id,
                             baseline_variant_id: payload.baseline_variant_id,
                             summary:

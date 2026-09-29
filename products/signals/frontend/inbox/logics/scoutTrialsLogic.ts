@@ -14,7 +14,7 @@ import {
 } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import { ApiError } from 'lib/api'
+import { ApiError, readableErrorMessage } from 'lib/api-error'
 import { downloadFile, uuid } from 'lib/utils/dom'
 
 import {
@@ -503,7 +503,7 @@ export const scoutTrialsLogic: LogicWrapper<scoutTrialsLogicType> = kea<scoutTri
                 if (evaluation.loading || evaluation.scoring) {
                     return 'Wait for scoring status to load.'
                 }
-                if (evaluation.error) {
+                if (evaluation.error && !evaluation.notStarted) {
                     return 'Refresh scoring status before retrying.'
                 }
                 if ((!evaluation.value && !evaluation.notStarted) || evaluation.value?.status === 'unknown') {
@@ -656,7 +656,7 @@ export const scoutTrialsLogic: LogicWrapper<scoutTrialsLogicType> = kea<scoutTri
                 values.evaluationState.preparedRequest ?? {
                     evaluation_id: comparison.id,
                     baseline_variant_id: comparison.baselineVariantId,
-                    rubric_source: 'mock',
+                    rubric_source: 'saved',
                     variants: comparison.groups.map((group, index) => ({
                         id: group.variantId,
                         label:
@@ -666,6 +666,7 @@ export const scoutTrialsLogic: LogicWrapper<scoutTrialsLogicType> = kea<scoutTri
                         launch_ids: group.launchIds,
                     })),
                 }
+            actions.updateEvaluation(comparison.id, { preparedRequest: request })
             const manager = cache.disposables
             const context = getContext()
             try {
@@ -677,11 +678,16 @@ export const scoutTrialsLogic: LogicWrapper<scoutTrialsLogicType> = kea<scoutTri
                 if (!manager.isDisposed && getContext() === context) {
                     actions.updateEvaluation(comparison.id, { value: evaluation })
                 }
-            } catch {
+            } catch (error) {
                 if (!manager.isDisposed && getContext() === context) {
+                    const rejected = error instanceof ApiError && error.status === 400
                     actions.updateEvaluation(comparison.id, {
                         value: null,
-                        error: 'Scoring was not confirmed. Refresh its status before retrying; the evaluation ID stays the same.',
+                        notStarted: rejected,
+                        error: rejected
+                            ? readableErrorMessage(error) ||
+                              'Review and save this scout’s rubric and reference before scoring.'
+                            : 'Scoring was not confirmed. Refresh its status before retrying; the evaluation ID stays the same.',
                     })
                 }
             } finally {
@@ -698,8 +704,7 @@ export const scoutTrialsLogic: LogicWrapper<scoutTrialsLogicType> = kea<scoutTri
                 !previous ||
                 state.loading ||
                 state.scoring ||
-                evaluation?.status !== 'completed' ||
-                !evaluation.report?.variants.some((variant) => variant.judge_errors > 0)
+                (evaluation?.status !== 'completed' && evaluation?.status !== 'failed')
             ) {
                 return
             }
@@ -707,7 +712,7 @@ export const scoutTrialsLogic: LogicWrapper<scoutTrialsLogicType> = kea<scoutTri
             actions.registerComparison(previous)
             actions.registerComparison(comparison)
             actions.updateEvaluation(comparison.id, {
-                preparedRequest: { ...evaluation.request, evaluation_id: comparison.id },
+                preparedRequest: { ...evaluation.request, evaluation_id: comparison.id, rubric_source: 'saved' },
             })
             actions.selectComparison(comparison.configId, comparison.id)
         },

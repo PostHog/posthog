@@ -26,6 +26,12 @@ TEAM_READABLE_ORIGIN_PRODUCTS = [
     Task.OriginProduct.EXPERIMENTS,
 ]
 
+# These tasks carry another product's data, so only that product reads them, through its own facade
+# and scopes. Sandbox callers bypass these filters, so the run itself still works.
+PRODUCT_PRIVATE_ORIGIN_PRODUCTS = [
+    Task.OriginProduct.BUSINESS_KNOWLEDGE,
+]
+
 
 def _creator_q(user_id: int | None) -> Q:
     return Q(pk__in=[]) if user_id is None else Q(created_by_id=user_id)
@@ -45,7 +51,11 @@ def task_control_q(user_id: int | None) -> Q:
     legacy_q = Q(channel_id__isnull=True) & (
         _creator_q(user_id) | Q(created_by__isnull=True) | Q(origin_product__in=TEAM_VISIBLE_ORIGIN_PRODUCTS)
     )
-    return (channeled_q | legacy_q) & scout_trial_visibility_q(user_id)
+    return (
+        (channeled_q | legacy_q)
+        & scout_trial_visibility_q(user_id)
+        & ~Q(origin_product__in=PRODUCT_PRIVATE_ORIGIN_PRODUCTS)
+    )
 
 
 def task_visibility_q(user_id: int | None) -> Q:
@@ -58,7 +68,11 @@ def task_visibility_q(user_id: int | None) -> Q:
     legacy_q = Q(channel_id__isnull=True) & (
         _creator_q(user_id) | Q(created_by__isnull=True) | Q(origin_product__in=TEAM_READABLE_ORIGIN_PRODUCTS)
     )
-    return (channeled_q | legacy_q) & scout_trial_visibility_q(user_id)
+    return (
+        (channeled_q | legacy_q)
+        & scout_trial_visibility_q(user_id)
+        & ~Q(origin_product__in=PRODUCT_PRIVATE_ORIGIN_PRODUCTS)
+    )
 
 
 def task_run_visibility_q(user_id: int | None) -> Q:
@@ -72,4 +86,4 @@ def task_run_visibility_q(user_id: int | None) -> Q:
     trial_visibility = ~Task.scout_experiment_q(relation="task")
     if user_id is not None:
         trial_visibility |= Q(task__created_by_id=user_id)
-    return (channeled_q | legacy_q) & trial_visibility
+    return (channeled_q | legacy_q) & trial_visibility & ~Q(task__origin_product__in=PRODUCT_PRIVATE_ORIGIN_PRODUCTS)

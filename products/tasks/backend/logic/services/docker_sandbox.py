@@ -1157,18 +1157,35 @@ class DockerSandbox(AgentServerLaunchMixin):
     def wait_for_agent_server_ready(
         self, allowed_domains: list[str] | None = None, *, claude_model_access: str | None = None
     ) -> None:
-        if self._wait_for_health_check(max_attempts=300 if claude_model_access == "own-subscription" else 240):
+        try:
+            healthy = self._wait_for_health_check(
+                max_attempts=300 if claude_model_access == "own-subscription" else 240
+            )
+        except SandboxTimeoutError:
+            credential_error = self._credential_unavailable_error(
+                self._read_agent_server_log(), context={"sandbox_id": self.id}
+            )
+            if credential_error is not None:
+                raise credential_error from None
+            raise
+        if healthy:
             logger.info(f"Agent-server ready on port {self._host_port}")
             return
-        log_result = self.execute("cat /tmp/agent-server.log 2>/dev/null || echo 'No log file'", timeout_seconds=5)
-        logger.warning(f"Agent-server health check failed for sandbox {self.id}. Log output:\n{log_result.stdout}")
+        log_output = self._read_agent_server_log()
+        logger.warning(f"Agent-server health check failed for sandbox {self.id}. Log output:\n{log_output}")
+        credential_error = self._credential_unavailable_error(log_output, context={"sandbox_id": self.id})
+        if credential_error is not None:
+            raise credential_error
         # Transient timeout Temporal retries — skip error-tracking capture to avoid noisy issues.
         raise SandboxExecutionError(
             "Agent-server failed to start",
-            {"sandbox_id": self.id, "log": log_result.stdout},
+            {"sandbox_id": self.id, "log": log_output},
             cause=RuntimeError("Health check failed after retries"),
             capture=False,
         )
+
+    def _read_agent_server_log(self) -> str:
+        return self.execute("cat /tmp/agent-server.log 2>/dev/null || echo 'No log file'", timeout_seconds=5).stdout
 
     def mark_repo_ready(self, repo_ready_file: str) -> None:
         self.execute(f"touch {shlex.quote(repo_ready_file)}", timeout_seconds=10)

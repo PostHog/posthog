@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
+import { scoutRubricReferenceFixture } from '../scoutRubricFixtures'
 import { ScoutTrialComparisonReport } from './ScoutTrialComparisonReport'
 import { trialFixtureReport } from './scoutTrialsFixtures'
 
@@ -13,6 +14,18 @@ export default meta
 type Story = StoryObj<typeof ScoutTrialComparisonReport>
 
 export const Completed: Story = {}
+export const SavedRubric: Story = {
+    args: {
+        report: {
+            ...trialFixtureReport,
+            rubric_source: 'saved',
+            rubric_revision: 2,
+            rubric_reference_context: scoutRubricReferenceFixture,
+            rubric_reference_generation_id: '00000000-0000-4000-8000-000000000032',
+            limitations: ['Live data may change between runs. These scores describe the captured sample.'],
+        },
+    },
+}
 export const Narrow: Story = {
     decorators: [
         (Story) => (

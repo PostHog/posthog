@@ -113,3 +113,44 @@ A pooled line over several versions uses the frozen threshold of each version, s
 
 After deployment and a new training and scoring run, check that the candidate events carry numeric `holdout_` fields and `refit_classification_threshold`, and that the unseen events carry `classification_threshold`.
 Check the mature grades as each head's horizon becomes available.
+
+## Served-model classification metrics
+
+The unseen grades rescore the newborn pool with the day's candidate and champion.
+They are not the scores the inbox served.
+The served grade closes that gap.
+
+### Score events
+
+Each `inbox_ranking_report_scored` event carries the served threshold of its model:
+
+- `threshold_<head>`: the head's `refit_classification_threshold` from the serving copy's metadata. A serving copy is immutable per model key, so this is the threshold that scored the report.
+- `predicted_<head>`: `p_<head> >= threshold_<head>`. A score equal to the threshold is a positive prediction.
+- `readable_heads`: the heads whose holdout was readable.
+
+A head without a saved threshold has no `threshold_` or `predicted_` property.
+Models trained before thresholds existed have none, and no other value stands in for one.
+
+### The served grade
+
+`inbox_ranking_served_scores` writes `inbox_ranking_served_scores/v1/dt=D/` in the unseen scores schema.
+
+- Population: D's newborn pool, the same reports the unseen grade covers.
+- Score: the earliest scored event in D with the `served` role and this deployment's `environment`.
+- `classification_threshold` comes from `threshold_<head>`, and is null when the event has none.
+- Asset metadata: `served_pool_coverage`, rows per model version, and the heads without a threshold.
+
+`inbox_ranking_unseen_graded` reads the served object next to the unseen object for each scoring partition.
+Its events then carry `model_role = 'served'`, with no new event type.
+A missing served object is a skip in the asset metadata, not a failure.
+
+Caveats:
+
+- The daily promotion can change the served model part of the way through D, so one day's cohort can split across two versions. Grades stay per `(model_name, model_version, model_role)`. Never pool them across versions.
+- A report first scored after D ends, for example when its vector arrived late, is not in D's served rows. `served_pool_coverage` shows this. A later score never fills it in.
+- The sweep scores with the vector current at scoring time. The unseen grade uses the end-of-day vector. Served and candidate grades of one day are two reads, not one paired number.
+- A deployment where the sweep is off writes an empty object with coverage 0 and grades nothing.
+
+After deployment, check the new properties on a live sweep's events.
+Check the first `model_role = 'served'` early grades the next day, and the mature grades as each head's horizon passes.
+Until a model trained with thresholds is served, the events have no threshold properties and the served grades have null classification fields.

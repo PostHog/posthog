@@ -15,6 +15,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import type { scoutTrialsLogicActions, scoutTrialsLogicValues } from '../../../../logics/scoutTrialsLogic'
 import { scoutDisplayName } from '../../../../utils/scoutRunsWindow'
+import { ScoutRubricsButton } from '../ScoutRubricsButton'
 import { ScoutTrialComparisonReport } from './ScoutTrialComparisonReport'
 import { ScoutTrialResultModal } from './ScoutTrialResultModal'
 import { MAX_TRIAL_RUNS, ScoutTrialRow, trialIsActive, trialTaskIsActive } from './scoutTrialUtils'
@@ -64,6 +65,11 @@ export function ScoutTrialsView(props: ScoutTrialsViewProps): JSX.Element {
     const currentSetup = setup?.config_id === selectedConfigId ? setup : null
     const finishedSubmissions = !!batch && !props.hasUnaccepted && !submitting
     const runCountLabel = `${totalRuns} ${totalRuns === 1 ? 'run' : 'runs'}`
+    const selectedConfig = configs?.find((config) => config.id === selectedConfigId)
+    const rubricSource =
+        props.evaluationState.value?.request.rubric_source ??
+        props.evaluationState.preparedRequest?.rubric_source ??
+        'saved'
 
     return (
         <div className="@container flex flex-1 min-h-0 min-w-0 flex-col overflow-auto ph-no-capture ph-replay-block">
@@ -235,11 +241,18 @@ export function ScoutTrialsView(props: ScoutTrialsViewProps): JSX.Element {
                     <div className="flex flex-col gap-3 border-t pt-4">
                         <div className="flex flex-wrap items-center gap-2">
                             <h3 className="m-0 text-base">Score a comparison</h3>
-                            <LemonTag type="warning">Mock rubric</LemonTag>
+                            <LemonTag type={rubricSource === 'mock' ? 'warning' : 'muted'}>
+                                {rubricSource === 'mock' ? 'Mock rubric' : 'Saved rubric'}
+                            </LemonTag>
+                            {selectedConfig && <ScoutRubricsButton config={selectedConfig} />}
                         </div>
                         <p className="m-0 text-sm text-muted">
-                            A model judges the selected comparison against a fixed mock rubric. This is an early
-                            evaluation signal, not a production quality gate. Scoring incurs additional model charges.
+                            <span>
+                                {rubricSource === 'mock'
+                                    ? 'This evaluation uses a fixed mock rubric. New scoring attempts use your saved rubric and its captured scout reference.'
+                                    : 'A model judges this comparison against your saved rubric and its captured scout reference. Review and save both in Rubrics before scoring.'}
+                            </span>
+                            <span> Scoring incurs additional model charges.</span>
                         </p>
                         {props.selectedComparison ? (
                             <>
@@ -288,9 +301,8 @@ export function ScoutTrialsView(props: ScoutTrialsViewProps): JSX.Element {
                                             Download report
                                         </LemonButton>
                                     )}
-                                    {props.evaluationState.value?.report?.variants.some(
-                                        (variant) => variant.judge_errors > 0
-                                    ) && (
+                                    {(props.evaluationState.value?.status === 'completed' ||
+                                        props.evaluationState.value?.status === 'failed') && (
                                         <LemonButton
                                             type="secondary"
                                             onClick={props.newScoringAttempt}
@@ -304,13 +316,12 @@ export function ScoutTrialsView(props: ScoutTrialsViewProps): JSX.Element {
                                         </LemonButton>
                                     )}
                                 </div>
-                                {props.evaluationState.value?.report?.variants.some(
-                                    (variant) => variant.judge_errors > 0
-                                ) && (
+                                {(props.evaluationState.value?.status === 'completed' ||
+                                    props.evaluationState.value?.status === 'failed') && (
                                     <p className="m-0 text-xs text-muted">
-                                        Prepare another evaluation of these same runs to retry judge errors. The
-                                        previous report stays available. You choose when to score; a new attempt may
-                                        charge for all runs again.
+                                        Prepare another evaluation of these same runs. The previous attempt stays
+                                        available. The new attempt uses your current saved rubric and reference. You
+                                        choose when to score; a new attempt may charge for all runs again.
                                     </p>
                                 )}
                                 {props.evaluationState.error && (

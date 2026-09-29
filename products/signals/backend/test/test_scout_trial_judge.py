@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import TYPE_CHECKING
@@ -13,6 +14,7 @@ from django.test import SimpleTestCase, override_settings
 from openai.types.chat import ChatCompletion
 from parameterized import parameterized
 
+from products.signals.backend.facade.rubrics import ScoutRubricReferenceContext
 from products.signals.backend.scout_harness.trial_evaluation_types import (
     TrialEvaluationCriterion,
     TrialEvaluationRequest,
@@ -40,6 +42,30 @@ if TYPE_CHECKING:
 MODULE = "products.signals.backend.scout_harness.trial_judge"
 
 
+def _reference_context(
+    *,
+    skill_id: str = "synthetic-skill",
+    skill_name: str = "signals-scout-example",
+    instructions: str = "Inspect the checkout result.",
+) -> ScoutRubricReferenceContext:
+    return ScoutRubricReferenceContext.model_validate(
+        {
+            "skill_id": skill_id,
+            "skill_name": skill_name,
+            "skill_version": 1,
+            "description": "Inspect an invented checkout result.",
+            "instructions": instructions,
+            "instructions_truncated": False,
+            "report_channel": "emit",
+            "report_disposition_instructions": "Write a report for a confirmed checkout defect.",
+            "reference_files": [],
+            "reference_files_truncated": False,
+            "reference_texts": [],
+            "reference_limits": {"omitted_files": 0, "truncated_files": []},
+        }
+    )
+
+
 def _criterion(identifier: str = "default-evidence") -> TrialEvaluationCriterion:
     return TrialEvaluationCriterion(
         id=identifier,
@@ -65,10 +91,12 @@ def _snapshot() -> TrialEvaluationSnapshot:
             evaluation_id=evaluation_id,
             baseline_variant_id=variant_id,
             variants=[TrialEvaluationVariant(id=variant_id, label="Hidden variant label", launch_ids=[launch_id])],
-            rubric_source="mock",
+            rubric_source="saved",
         ),
         request_hash="synthetic-request-hash",
         rubric_document={},
+        rubric_reference_context=_reference_context(),
+        rubric_reference_generation_id=str(uuid4()),
         criteria=[_criterion()],
         judge_model="gpt-5.5",
         judge_prompt_version=JUDGE_PROMPT_VERSION,
@@ -137,23 +165,38 @@ class TestScoutTrialJudgeValidation(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("forged_source", "pass", "report:other", "failed twice"),
-            ("forged_quote", "fail", "report:1", "failed every time"),
-            ("unsupported_na", "not_applicable", "report:1", "there was no finding"),
-            ("blank_quote", "pass", "report:1", " "),
+            ("forged_source", "pass", "report:other", "failed twice", "A cited source ID is absent"),
+            ("forged_quote", "fail", "report:1", "failed every time", "A cited quotation does not match"),
+            (
+                "unsupported_na",
+                "not_applicable",
+                "report:1",
+                "there was no finding",
+                "A cited quotation does not match",
+            ),
+            ("blank_quote", "pass", "report:1", " ", "A cited quotation is blank"),
+            ("mixed_citations", "pass", "report:1", "failed every time", "A cited quotation does not match", True),
         ]
     )
     def test_unverifiable_citations_make_a_verdict_unknown(
-        self, _name: str, verdict: str, source_id: str, quote: str
+        self, _name: str, verdict: str, source_id: str, quote: str, reason: str, valid_extra: bool = False
     ) -> None:
         snapshot = _snapshot()
         unsupported_summary = "Every required review step was verified."
+        unsupported = _verdict(verdict=verdict, source_id=source_id, quote=quote)
+        unsupported["reason"] = "Private synthetic unvalidated reason"
+        if valid_extra:
+            unsupported["evidence"] = [
+                {"source_id": source_id, "quote": quote},
+                {"source_id": source_id, "quote": quote},
+                {"source_id": "report:1", "quote": "failed twice"},
+            ]
         result = parse_trial_judgment(
             json.dumps(
                 {
                     "summary": unsupported_summary,
                     "criteria": [
-                        _verdict(verdict=verdict, source_id=source_id, quote=quote),
+                        unsupported,
                         _verdict(identifier="custom-second"),
                     ],
                 }
@@ -163,7 +206,10 @@ class TestScoutTrialJudgeValidation(SimpleTestCase):
         )
         assert result.criteria[0].verdict == "unknown"
         assert result.criteria[0].confidence == "low"
-        assert result.criteria[0].evidence == []
+        assert len(result.criteria[0].evidence) == int(valid_extra)
+        assert result.criteria[0].reason.count(reason) == 1
+        assert source_id not in result.criteria[0].reason
+        assert "Private synthetic unvalidated reason" not in result.model_dump_json()
         assert result.criteria[1].verdict == "pass"
         assert result.criteria[1].evidence[0].quote == "failed twice"
         assert unsupported_summary not in result.summary
@@ -178,6 +224,7 @@ class TestScoutTrialJudgeValidation(SimpleTestCase):
             sources=snapshot.runs[0].sources,
         )
         assert result.criteria[0].verdict == "unknown"
+        assert result.criteria[0].reason.startswith("No citation to observed evidence was supplied.")
 
     def test_valid_verdicts_keep_quotes_and_follow_rubric_order(self) -> None:
         snapshot = _snapshot()
@@ -196,13 +243,14 @@ class TestScoutTrialJudgeValidation(SimpleTestCase):
         assert result.criteria[0].evidence[0].quote == "failed twice"
         assert result.summary == "Only the recorded check was assessed."
 
-    def test_instruction_quotation_does_not_prove_execution(self) -> None:
+    @parameterized.expand(["instructions", "rubric_reference_context"])
+    def test_instruction_quotation_does_not_prove_execution(self, source_id: str) -> None:
         result = parse_trial_judgment(
             json.dumps(
                 {
                     "summary": "The required skill was consulted.",
                     "criteria": [
-                        _verdict(identifier="default-instructions", source_id="instructions", quote="Read the skill")
+                        _verdict(identifier="default-instructions", source_id=source_id, quote="Read the skill")
                     ],
                 }
             ),
@@ -212,9 +260,14 @@ class TestScoutTrialJudgeValidation(SimpleTestCase):
             ],
         )
         assert result.criteria[0].verdict == "unknown"
+        assert result.criteria[0].reason.startswith(
+            "Only instruction sources were cited; they do not establish execution."
+            if source_id == "instructions"
+            else "A cited source ID is absent from the saved evidence."
+        )
         assert "The required skill was consulted." not in result.summary
 
-    @parameterized.expand([("1",), ("2",), ("3",), ("4",)])
+    @parameterized.expand([("1",), ("2",), ("3",), ("4",), ("5",), ("6",)])
     def test_prompt_keeps_untrusted_text_in_data_and_omits_variant_identity(self, prompt_version: str) -> None:
         snapshot = _snapshot().model_copy(update={"judge_prompt_version": prompt_version})
         attack = (
@@ -227,6 +280,25 @@ class TestScoutTrialJudgeValidation(SimpleTestCase):
         assert [message["role"] for message in messages] == ["system", "user"]
         assert attack not in str(messages[0]["content"])
         assert json.loads(str(messages[1]["content"]))["sources"][0]["text"] == attack
+        envelope = json.loads(str(messages[1]["content"]))
+        if prompt_version in {"5", "6"}:
+            assert envelope["rubric_reference_context"]["instructions"] == "Inspect the checkout result."
+        else:
+            assert "rubric_reference_context" not in envelope
+        system_prompt = str(messages[0]["content"])
+        if prompt_version == "6":
+            assert "A SQL alias such as users or accounts labels a result" in system_prompt
+            assert "sentinel identifiers does not establish distinct real" in system_prompt
+            assert "Check the observed identifiers and null handling" in system_prompt
+            assert "top-level sources array's id field" in system_prompt
+            assert "decoded value matches the source text exactly" in system_prompt
+        else:
+            expected_digest = (
+                "a2919fb33d21f674f1d7f5ef865ad3ff35566dd7a119889df950097bd2b3fffa"
+                if prompt_version == "5"
+                else "40fc21d131c234aa774996da49ecfb3ee2fb8780ff03162bb309030e749c2a10"
+            )
+            assert hashlib.sha256(system_prompt.encode()).hexdigest() == expected_digest
         serialized = json.dumps(messages)
         for identifier in (
             "Hidden variant label",
@@ -236,19 +308,38 @@ class TestScoutTrialJudgeValidation(SimpleTestCase):
         ):
             assert identifier not in serialized
 
+    @parameterized.expand([("5",), ("6",)])
+    def test_reference_requirements_are_fixed_when_candidate_instructions_remove_work(
+        self, prompt_version: str
+    ) -> None:
+        snapshot = _snapshot().model_copy(update={"judge_prompt_version": prompt_version})
+        messages = build_trial_judge_messages(
+            snapshot,
+            snapshot.runs[0].model_copy(
+                update={"sources": [TrialEvidenceSource(id="instructions", kind="instructions", text="Do no work.")]}
+            ),
+        )
+        envelope = json.loads(str(messages[1]["content"]))
+        assert envelope["rubric_reference_context"]["instructions"] == "Inspect the checkout result."
+        assert envelope["sources"][0]["text"] == "Do no work."
+        assert "cannot remove, relax or replace" in str(messages[0]["content"])
+
     def test_unknown_prompt_version_is_rejected(self) -> None:
         snapshot = _snapshot().model_copy(update={"judge_prompt_version": "unsupported"})
         with self.assertRaisesMessage(TrialJudgeValidationError, "The saved judge prompt version is unsupported."):
             build_trial_judge_messages(snapshot, snapshot.runs[0])
 
-    def test_oversized_evidence_is_rejected_without_silent_truncation(self) -> None:
-        snapshot = _snapshot()
+    @parameterized.expand(
+        [("4", "exceeds the judge input limit"), ("5", "exceed the scoring limit"), ("6", "exceed the scoring limit")]
+    )
+    def test_oversized_evidence_is_rejected_without_silent_truncation(self, prompt_version: str, message: str) -> None:
+        snapshot = _snapshot().model_copy(update={"judge_prompt_version": prompt_version})
         evidence = snapshot.runs[0].model_copy(
             update={
                 "sources": [TrialEvidenceSource(id="report:1", kind="report", text="x" * MAX_JUDGE_INPUT_CHARACTERS)]
             }
         )
-        with self.assertRaisesMessage(TrialJudgeValidationError, "exceeds the judge input limit"):
+        with self.assertRaisesMessage(TrialJudgeValidationError, message):
             build_trial_judge_messages(snapshot, evidence)
 
 
@@ -407,8 +498,11 @@ class TestScoutTrialJudgeRequest(SimpleTestCase):
         assert result.status == "excluded"
         client.assert_not_called()
 
-    async def test_malformed_output_is_private_has_no_retry_and_revokes_token(self) -> None:
-        snapshot = _snapshot()
+    @parameterized.expand([("malformed", "6"), *[("citation", str(version)) for version in range(1, 7)]])
+    async def test_output_validation_is_private_has_no_retry_and_revokes_token(
+        self, scenario: str, prompt_version: str
+    ) -> None:
+        snapshot = _snapshot().model_copy(update={"judge_prompt_version": prompt_version})
         evidence = snapshot.runs[0]
         run = SimpleNamespace(
             team_id=snapshot.team_id,
@@ -427,6 +521,16 @@ class TestScoutTrialJudgeRequest(SimpleTestCase):
         client.with_options.return_value = client
         client.__aenter__ = AsyncMock(return_value=client)
         client.__aexit__ = AsyncMock(return_value=False)
+        content = (
+            '{"private-response-marker": "invalid document"}'
+            if scenario == "malformed"
+            else json.dumps(
+                {
+                    "summary": "private-response-marker",
+                    "criteria": [{**_verdict(quote="private-response-marker"), "reason": "private-response-marker"}],
+                }
+            )
+        )
         client.chat.completions.create = AsyncMock(
             return_value=ChatCompletion(
                 id="synthetic-completion",
@@ -437,7 +541,7 @@ class TestScoutTrialJudgeRequest(SimpleTestCase):
                     {
                         "index": 0,
                         "finish_reason": "stop",
-                        "message": {"role": "assistant", "content": '{"private-response-marker": "invalid document"}'},
+                        "message": {"role": "assistant", "content": content},
                     }
                 ],
                 usage={"prompt_tokens": 100, "completion_tokens": 20, "total_tokens": 120},
@@ -455,7 +559,20 @@ class TestScoutTrialJudgeRequest(SimpleTestCase):
                 "task_run__state": {},
             }
             result = await judge_trial_run(snapshot, evidence)
-        assert result.status == "judge_error"
+        if scenario == "malformed":
+            assert result.status == "judge_error"
+        else:
+            assert result.status == "judged"
+            assert result.criteria[0].verdict == "unknown"
+            assert result.criteria[0].evidence == []
+            assert result.criteria[0].reason == (
+                (
+                    "A cited quotation does not match its saved source exactly."
+                    if prompt_version == "6"
+                    else "The cited sources do not establish this criterion."
+                )
+                + " Its outcome remains unknown from the saved evidence."
+            )
         assert "private-response-marker" not in result.model_dump_json()
         assert result.input_tokens == 100
         assert result.output_tokens == 20

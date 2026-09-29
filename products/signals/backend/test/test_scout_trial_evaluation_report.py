@@ -7,6 +7,7 @@ from parameterized import parameterized
 
 from products.signals.backend.scout_harness.trial_evaluation_report import build_trial_comparison_report
 from products.signals.backend.scout_harness.trial_evaluation_types import (
+    TrialComparisonReport,
     TrialCriterionVerdict,
     TrialEvaluationCriterion,
     TrialEvaluationRequest,
@@ -15,6 +16,7 @@ from products.signals.backend.scout_harness.trial_evaluation_types import (
     TrialRunEvidence,
     TrialRunJudgment,
 )
+from products.signals.backend.test.test_scout_trial_judge import _reference_context
 
 
 class TestScoutTrialEvaluationReport(SimpleTestCase):
@@ -144,7 +146,17 @@ class TestScoutTrialEvaluationReport(SimpleTestCase):
             with self.assertRaisesRegex(ValueError, "exactly one outcome"):
                 build_trial_comparison_report(self.snapshot, incomplete)
 
-    def test_complete_repeats_show_descriptive_improvement_and_saved_provenance(self) -> None:
+    @parameterized.expand(["mock", "saved"])
+    def test_complete_repeats_show_descriptive_improvement_and_saved_provenance(self, source: str) -> None:
+        if source == "saved":
+            self.snapshot = self.snapshot.model_copy(
+                update={
+                    "request": self.snapshot.request.model_copy(update={"rubric_source": "saved"}),
+                    "rubric_document": {"revision": 3},
+                    "rubric_reference_context": _reference_context(),
+                    "rubric_reference_generation_id": str(uuid4()),
+                }
+            )
         judgments = [
             self._judgment(run, "fail" if run.variant_id == self.baseline.id else "pass") for run in self.snapshot.runs
         ]
@@ -152,10 +164,15 @@ class TestScoutTrialEvaluationReport(SimpleTestCase):
         assert report.variants[1].baseline_delta == 1.0
         assert report.variants[1].criteria[0].baseline_delta == 1.0
         assert "+100 percentage points" in report.summary
-        assert report.rubric_source == "mock"
-        assert report.rubric_revision == 0
+        assert report.rubric_source == source
+        assert report.rubric_revision == (3 if source == "saved" else 0)
+        assert any("mock default criteria" in limitation for limitation in report.limitations) == (source == "mock")
+        assert report.rubric_reference_context == self.snapshot.rubric_reference_context
+        assert report.rubric_reference_generation_id == self.snapshot.rubric_reference_generation_id
         assert report.evidence == self.snapshot.runs
         assert report.criteria == self.snapshot.criteria
+        exported = report.model_dump_json(exclude_none=source == "mock")
+        assert TrialComparisonReport.model_validate_json(exported) == report
 
     def test_repeats_have_equal_weight_when_applicable_criteria_differ(self) -> None:
         snapshot = self.snapshot.model_copy(

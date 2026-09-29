@@ -622,7 +622,7 @@ async def prepare_report_context_activity(
                 report.save(update_fields=["last_attempted_at", "next_delivery_date"])
             # Activity failures remain readable by workflow workers from an older release.
             raise ApplicationError(
-                "This evaluation no longer supports reports. For numeric evaluations, set a passing rule and generate the report again.",
+                "This evaluation no longer supports reports. For numeric or categorical evaluations, set a passing rule and generate the report again.",
                 type="ReportNotEligible",
                 non_retryable=True,
             )
@@ -703,12 +703,12 @@ async def run_eval_report_agent_activity(
             from posthog.temporal.ai_observability.eval_reports.report_agent import run_eval_report_agent
 
             evaluation_target = _load_evaluation_target(inputs.team_id, inputs.evaluation_id)
-            numeric_output_configs = _load_numeric_output_configs(inputs.team_id)
+            evaluation_output_configs = _load_evaluation_output_configs(inputs.team_id)
             agent_inputs = inputs
-            if inputs.output_type == "numeric" and not inputs.output_config:
+            if inputs.output_type in ("numeric", "categorical") and not inputs.output_config:
                 # Older workflow payloads omit the rule snapshot.
-                output_config = numeric_output_configs.get(inputs.evaluation_id, {})
-                if not evaluation_supports_reports("numeric", evaluation_target, output_config):
+                output_config = evaluation_output_configs.get(inputs.evaluation_id, {})
+                if not evaluation_supports_reports(inputs.output_type, evaluation_target, output_config):
                     raise ApplicationError(
                         "This evaluation no longer supports reports.", type="ReportNotEligible", non_retryable=True
                     )
@@ -718,7 +718,7 @@ async def run_eval_report_agent_activity(
                     agent_inputs,
                     evaluation_target=evaluation_target,
                     detector_evaluation_ids=_load_detector_evaluation_ids(inputs.team_id),
-                    numeric_output_configs=numeric_output_configs,
+                    evaluation_output_configs=evaluation_output_configs,
                 ),
                 evaluation_target,
             )
@@ -741,14 +741,14 @@ def _load_evaluation_target(team_id: int, evaluation_id: str) -> str:
     return Evaluation.objects.values_list("target", flat=True).get(id=evaluation_id, team_id=team_id)
 
 
-def _load_numeric_output_configs(team_id: int) -> dict[str, dict[str, Any]]:
+def _load_evaluation_output_configs(team_id: int) -> dict[str, dict[str, Any]]:
     from products.ai_observability.backend.models.evaluations import Evaluation
 
     return {
         str(evaluation_id): config
-        for evaluation_id, config in Evaluation.objects.filter(team_id=team_id, output_type="numeric").values_list(
-            "id", "output_config"
-        )
+        for evaluation_id, config in Evaluation.objects.filter(
+            team_id=team_id, output_type__in=("numeric", "categorical")
+        ).values_list("id", "output_config")
     }
 
 
@@ -839,7 +839,7 @@ async def store_report_run_activity(
                     "$ai_report_previous_total_runs": parsed_metrics.previous_total_runs,
                 }
             )
-        if parsed_metrics is not None and parsed_metrics.output_type in ("boolean", "numeric"):
+        if parsed_metrics is not None and parsed_metrics.output_type in ("boolean", "numeric", "categorical"):
             # Preserve the original flat properties for existing boolean-report consumers.
             properties.update(
                 {

@@ -1307,6 +1307,7 @@ const scoutNotesList = (): ToolBase<
                 include_general: params.include_general,
                 limit: params.limit,
                 skill_name: params.skill_name,
+                text: params.text,
             },
         })
         return withInformationalResponse(

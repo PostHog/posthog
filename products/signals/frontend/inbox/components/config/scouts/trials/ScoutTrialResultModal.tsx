@@ -38,7 +38,9 @@ export function ScoutTrialResultModal({
                 )}
                 {judgment && report && (
                     <div className="flex flex-col gap-3">
-                        <h4 className="m-0">Mock rubric evaluation</h4>
+                        <h4 className="m-0">
+                            {report.rubric_source === 'mock' ? 'Mock rubric evaluation' : 'Saved rubric evaluation'}
+                        </h4>
                         <ScoutTrialJudgment
                             judgment={judgment}
                             evidence={report.evidence.find((run) => run.launch_id === result.launch_id)}

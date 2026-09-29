@@ -50,6 +50,8 @@ Polling preserves the runner's saved completion outcome, including cancellation,
 A trial stopped through the task controls records cancellation even when the agent has no final message or only an earlier partial response.
 A poll can recover a missing export without replacing an existing result.
 
+Trials cannot create or cancel report follow-up checks, or record their results. Check lists are unavailable for newly emitted private reports; the API returns an explicit capability error without invalidating the trial. Existing checks on live reports remain readable, including when the trial has privately edited that report. The trial prompt directs planned follow-up to private scratchpad entries.
+
 Individual skill reads and markdown downloads serve the run's pinned candidate.
 Trial sandboxes can use stub skill bundles, which fetch each skill through those reads.
 Full-content bundles are rejected because they cannot apply the run's private candidate; ZIP exports remain unavailable to scoped trial credentials.
@@ -57,31 +59,23 @@ Full-content bundles are rejected because they cannot apply the run's private ca
 The [live comparison plan and script](../../products/signals/eval/experiments/2026-09-long-running-agent-evals/PLAN.md#live-trial-operator-script) describe launch inputs, stored results, and supported scout capabilities.
 Keep downloaded prompts, memory, reports, and transcripts outside version control.
 
-### Rubric mock for comparison development
+### Reviewed scout rubrics
 
-The [mock rubric fixture](../../products/signals/backend/scout_harness/mock_scout_rubric.json) matches the read response in [the scout rubric editor PR](https://github.com/PostHog/posthog/pull/106580), checked at `d7c6c3742ba`.
-It contains the six default criteria, `revision: 0` (unsaved defaults), and `generation: null`.
-These are mock inputs for developing scoring and reports, not a saved or reviewed rubric for the selected scout.
+New comparisons use `rubric_source: saved` and read the scout's reviewed rubric through the existing team-scoped rubric service.
+Generate suggestions in the rubric editor, review the proposed checks and their reference instructions, and explicitly save the selection before scoring.
+Revision zero contains unsaved defaults and cannot be scored, even when suggestion generation has completed.
+Only enabled saved `criteria` are judged; `generation.suggestions` remain drafts until selected and saved.
+Scoring never generates a rubric or falls back to the mock fixture.
 
-Print a mock response for a scout:
+The saved rubric binds its criteria to the reference instructions, description, report rules and reference files captured during generation.
+Editing the scout, its references or a comparison candidate does not change that checklist.
+Only an explicit saved rubric update changes what future evaluations use.
+Rubrics without saved references, or with omitted or truncated reference content, must be regenerated, reviewed and saved before scoring.
 
-```sh
-python products/signals/backend/scout_harness/trial_rubrics.py \
-  --config-id 00000000-0000-4000-8000-000000000001 \
-  --skill-name signals-scout-example
-```
-
-The [rubric reader](../../products/signals/backend/scout_harness/trial_rubrics.py) defines `ScoutRubricReader` and `MockScoutRubricReader` for comparison code.
-`read(config_id=..., skill_name=...)` returns a fresh document with the supplied scout identity and the API's unchanged field names.
-The reader does not write scout configuration, generate criteria, or score runs.
-
-When the real rubric API is available, replace the mock reader with a reader for `GET /api/projects/{team_id}/signals/scout/rubrics/{config_id}/`, preserving that response shape.
-Keep the editor, storage, and generation in the rubric feature; do not add a second implementation to comparisons.
-The real reader must propagate missing-rubric and access errors rather than falling back to mock criteria.
-
-Scoring saves the returned rubric document, enabled criteria and revision with the comparison before judging, so every variant uses the same rubric.
-The evaluation records `rubric_source: mock` separately from the API document and labels its report as a mock rubric evaluation.
-Only enabled `criteria` are judged; `generation.suggestions` remain drafts.
+Scoring freezes the full rubric document, enabled criteria, saved revision and governing references before judging, so every variant uses the same requirements.
+The report and JSON export retain the frozen references and their generation identity for inspection.
+The [mock fixture reader](../../products/signals/backend/scout_harness/trial_rubrics.py) remains available for offline development.
+Existing mock snapshots and reports remain readable, and exact-ID retries reuse their saved request; a new evaluation ID requires the saved rubric.
 
 ### Saved scoring and reports
 
@@ -95,12 +89,18 @@ Session titles and other recognized metadata updates are not tool evidence; unkn
 Trace extraction removes exact repeated updates and duplicate output content, then shares the available evidence budget across the retained tool events in their original order. Verbose early output cannot consume the space reserved for later results; source-count and size limits remain explicit limitations.
 Tool trace fields use labelled text blocks that preserve string values, including quotes, line breaks and literal backslashes. This lets the judge quote returned prose without copying an extra layer of JSON escaping. Call identity, status, errors and inputs remain part of the same bounded source.
 
-The judge receives criteria and evidence without variant labels or scout model settings.
+The judge receives criteria, the fixed reference context and run evidence without variant labels or scout model settings.
+Candidate instructions and starting-context notes cannot remove or relax the saved rubric's requirements.
+Editable launch notes are instructions, so quoting their claims alone cannot prove execution. Saved starting history can establish applicability, but cannot prove actions taken in the evaluated run.
+Reference instructions define the requirements but cannot serve as evidence that the scout performed them.
+The complete judge input must fit the existing 120,000-character limit before dispatch; scoring rejects oversized inputs with an actionable error instead of truncating governing requirements or starting a paid call.
 It returns one verdict per criterion: pass, fail, unknown or not applicable.
 Pass, fail and not applicable require source references and exact quotations from the saved evidence.
 Unverifiable citations become unknown, and quoting an instruction alone cannot prove it was followed.
 When validation makes a verdict unknown, it replaces the model's summary with a notice to review the criterion results and validated evidence.
-New evaluations record judge version 4 for the readable, bounded trace format. Pending versions 1 through 3 use the same model prompt and summary validation with their frozen evidence; previously saved snapshots and reports remain unchanged.
+Version 6 distinguishes missing source IDs, blank or mismatched quotations, instruction-only evidence and missing citations in the normalized reason. These reasons contain no rejected quotations or raw model output.
+New evaluations record judge version 6. Its prompt requires count claims to follow the query and observed identifiers: an aggregate alias or a distinct count of placeholder identifiers does not establish real users or entities. Citations must use the envelope's source IDs and exact text from the corresponding source.
+Pending versions 1 through 5 retain their original prompts, evidence envelopes and citation normalization. Version 5 continues to use its separate, fixed reference context; previously saved snapshots and reports remain unchanged.
 Missing evidence is unknown; not applicable means the criterion does not apply to that run.
 The judge assesses the saved text and does not independently verify external sources or measure recall.
 
@@ -129,10 +129,10 @@ The first accepted launch saves the shared starting history; remaining launches 
 Keep the page open until all submissions are confirmed. Accepted runs continue on the server after the page closes.
 
 The page shows the operator's recent private runs, supports stopping active runs, and exports their captured reports, memory changes, and available usage as JSON.
-Once its runs finish, select a comparison and choose **Score comparison** to use the mock rubric.
+Once its runs finish, select a comparison and choose **Score comparison** to use the reviewed saved rubric.
 The report shows variant and run scores, coverage, criterion verdicts, supporting quotations and separate execution or judging errors, with a JSON export.
 Reloading the page restores saved scoring status without starting another evaluation.
-If a report contains judge errors, **New scoring attempt** prepares a new evaluation of the same scout runs and keeps the old report available.
+After scoring completes or fails, **New scoring attempt** prepares a new evaluation of the same scout runs using the current saved rubric and keeps the old report available.
 Choose **Score comparison** to start that attempt; it may charge for all runs again.
 Browser storage keeps only scout, comparison, variant, baseline and launch IDs, scoped to the project and operator; prompts, labels, evidence and reports stay out of browser storage.
 Unsubmitted prompt edits are lost on reload; start a new comparison instead of reconstructing an uncertain request.
@@ -143,6 +143,11 @@ Shared instructions guide investigations but do not enforce date or file access 
 
 The project API accepts offline experiment results behind the `ai-observability-offline-evaluations` feature flag.
 The harness above still uses event capture; it does not call this API yet.
+
+Experiments and their items, results, and payloads belong to the exact project/environment in the request path.
+Scorers and hosted datasets must belong to that same environment.
+Parent, child, and sibling environments do not share experiment data.
+Existing stored rows retain their current ownership.
 
 Use the base path `/api/projects/{project_id}/ai_observability/offline_experiments/`.
 
@@ -229,3 +234,94 @@ Local and external datasets do not require hosted links; they can use the `*_ide
 Large payloads have separate storage and 30-day deadlines anchored to first acceptance.
 Retries neither extend deadlines nor restore deleted payloads.
 Automatic payload deletion and usage billing are not enabled by these endpoints.
+
+## Postgres experiment reads
+
+Read endpoints use the same feature flag as ingestion.
+The existing event-based offline UI and harness remain separate until they switch to these APIs.
+
+The following GET paths are relative to `/api/projects/{project_id}/ai_observability/`:
+
+| Path                                                               | Response                                                                             |
+| ------------------------------------------------------------------ | ------------------------------------------------------------------------------------ |
+| `offline_experiments/`                                             | Experiments, run context, lifecycle state, and counts.                               |
+| `offline_experiments/{experiment_id}/`                             | One experiment, regardless of list date filters.                                     |
+| `offline_experiments/{experiment_id}/items/`                       | Item metadata, payload availability, and optionally selected scorer-version results. |
+| `offline_experiments/{experiment_id}/items/{item_id}/`             | One item's metadata and payload availability.                                        |
+| `offline_experiments/{experiment_id}/items/{item_id}/results/`     | The item's results with pinned scorer configurations.                                |
+| `offline_experiments/{experiment_id}/items/{item_id}/payload/`     | Shared input, output, expected output, and item metadata.                            |
+| `offline_experiments/{experiment_id}/results/{result_id}/payload/` | One result's reasoning, error details, and metadata.                                 |
+| `offline_experiments/{experiment_id}/scorer_summaries/`            | Summaries grouped by exact scorer version.                                           |
+| `offline_scorers/{definition_id}/history/`                         | Experiment summaries for one stable scorer definition.                               |
+
+Reads accept logged-in sessions and personal API keys.
+Experiment and item metadata, including shared item payloads, require `evaluation:read` and evaluation viewer access.
+Results, result payloads, summaries, history, and scorer filters also require `llm_analytics:read` and viewer access to the corresponding scorer definitions.
+An upload-only credential cannot read stored results or payloads.
+Project secret API keys remain limited to the ingestion and lifecycle operations above.
+Reads allow 600 requests per minute and 6,000 per hour per caller, with shared project limits of 3,000 per minute and 30,000 per hour.
+These limits are separate from ingestion so fetching individual payloads does not consume the upload budget.
+The shared read budget includes child environments of the same parent project.
+
+Experiment responses expose `accepted_item_count` separately from `visible_result_count`, `visible_scorer_definition_count`, and `visible_scorer_version_count`.
+Visible counts include only authorized scorers and are marked with `result_count_scope: "authorized"`.
+For personal keys without `llm_analytics:read`, these three counts are null and `result_count_scope` is `"unavailable"`.
+Declared expected counts remain caller-supplied totals, so they are not a measure of the reader's visible result coverage.
+Missing and inaccessible scorer references produce the same response.
+
+Paginated responses contain `count`, `next_cursor`, and `results`.
+Use `limit` to request between 1 and 100 rows; the default is 50.
+Pass `next_cursor` back as `cursor`, keeping the same filters, to continue.
+Unsupported filters, duplicate query parameters, and selections over the limit return HTTP 400.
+Experiment and history ordering follows execution time with stable identity tie-breakers; server receipt times remain separate fields.
+Uploading experiments can change between requests, so their pages are a live view.
+
+Experiment lists and scorer history support execution-time filters (`date_from`, `date_to`), name search (`search`), run source, lifecycle states (`statuses`), suite key, dataset source and identifiers, application/model/prompt versions, and exact scorer versions.
+Experiment lists also accept `scorer_definition_id`; history uses the scorer definition in its URL and rejects that query parameter.
+The date range includes `date_from` and excludes `date_to`; `statuses` accepts comma-separated `uploading`, `completed`, and `failed` values.
+Use `run_source=not_specified` to select runs without a source.
+Experiment lists include all lifecycle states by default; scorer history includes completed experiments unless other states are selected explicitly.
+Filters use retained identifiers and continue to work after linked resources are deleted.
+
+Item pages can include result cells for up to 20 comma-separated `scorer_version_ids`.
+The page's `scorer_versions` list contains each selected, accessible version's metadata and configuration once, including versions with no results on the page.
+Item result cells link to that list with `scorer_version_id`.
+Version selection preserves unscored items, which have missing cells.
+Use the paginated item results endpoint to inspect additional versions; it includes full scorer metadata and configuration on each result.
+List and summary endpoints do not load input/output or reasoning payloads.
+
+## Scorer versions and summaries
+
+Discover immutable versions through `GET /api/projects/{project_id}/llm_analytics/score_definitions/{definition_id}/versions/`.
+Retrieve a specific version at the same path followed by `{version_id}/`.
+These operations use the existing scorer read permissions and include historical versions without recent results.
+Archived scorers remain addressable, including their versions and offline history, while default scorer selection excludes them.
+Creating another version with an unchanged configuration remains supported.
+
+Experiment summaries and scorer history use the same aggregation rules over all matching results, independently of item pagination or payload availability.
+Different scorer versions remain separate, even when their configurations match.
+
+| Kind        | Summary                                                                                |
+| ----------- | -------------------------------------------------------------------------------------- |
+| Numeric     | Mean of successful values and the successful sample count.                             |
+| Boolean     | True and false counts, with the true rate among successful results.                    |
+| Categorical | Counts and rates per key from the pinned version, including keys with no observations. |
+
+Multiple-selection category rates divide by the successful result count and can add up to more than 100%.
+Error, skipped, and not-applicable outcomes are counted separately and excluded from value summaries.
+No successful results produces a null mean or rate.
+Missing results among observed items are reported separately and do not indicate how many entirely absent items were intended.
+Each repeated trial contributes one item; summaries also expose case and trial coverage without applying per-case weighting.
+Numeric increases and boolean true do not imply better quality unless that meaning is established by the scorer.
+
+## Reading payload availability
+
+Items and results expose their own `payload_state` and `payload_expires_at`.
+Payload detail responses include `available` and `data`, preserving omitted properties, empty objects, and explicit JSON null values.
+`not_provided` means the caller omitted the payload; `expired` means it was removed while its owner was retained.
+An unavailable payload has null `data`, while durable identities, results, and summaries remain readable.
+
+A deadline alone does not mean a cleanup worker has removed the payload.
+Automatic deletion remains separate work.
+Expired input/output is not reconstructed from linked datasets or traces, and missing links do not prevent experiment reads.
+Opening those resources requires their own permissions.

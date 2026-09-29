@@ -1,21 +1,31 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { mockSessionStore, mockTokenStore, mockApiKey, mockSessionScopedStores, mockRefreshTtlCalls } = vi.hoisted(
-    () => ({
-        mockSessionStore: new Map<string, unknown>(),
-        mockTokenStore: new Map<string, unknown>(),
-        mockApiKey: {
-            scopes: ['*'],
-            scoped_teams: [],
-            is_impersonated: undefined as boolean | undefined,
-            suppress_analytics: undefined as boolean | undefined,
-        },
-        mockSessionScopedStores: new Map<string, Map<string, unknown>>(),
-        // Records the keys passed to every session-scoped refreshTtl call (only the
-        // session cache refreshes, so any recorded call is a session refresh).
-        mockRefreshTtlCalls: [] as string[][],
-    })
-)
+const {
+    mockSessionStore,
+    mockTokenStore,
+    mockApiKey,
+    mockSessionScopedStores,
+    mockRefreshTtlCalls,
+    mockRedisFailures,
+} = vi.hoisted(() => ({
+    mockSessionStore: new Map<string, unknown>(),
+    mockTokenStore: new Map<string, unknown>(),
+    mockApiKey: {
+        scopes: ['*'],
+        scoped_teams: [],
+        is_impersonated: undefined as boolean | undefined,
+        suppress_analytics: undefined as boolean | undefined,
+    },
+    mockSessionScopedStores: new Map<string, Map<string, unknown>>(),
+    // Records the keys passed to every session-scoped refreshTtl call (only the
+    // session cache refreshes, so any recorded call is a session refresh).
+    mockRefreshTtlCalls: [] as string[][],
+    mockRedisFailures: {
+        contextError: undefined as Error | undefined,
+        pinWriteGate: undefined as Promise<void> | undefined,
+        contextReads: 0,
+    },
+}))
 
 vi.mock('@/lib/posthog/flags', () => ({
     evaluateFeatureFlags: vi.fn(async () => ({})),
@@ -55,6 +65,9 @@ vi.mock('@/hono/request-context', () => {
             store.set(key, value)
         }),
         setMany: vi.fn(async (entries: Record<string, unknown>) => {
+            if (store === mockTokenStore) {
+                await mockRedisFailures.pinWriteGate
+            }
             for (const [key, value] of Object.entries(entries)) {
                 if (value !== undefined) {
                     store.set(key, value)
@@ -87,14 +100,20 @@ vi.mock('@/hono/request-context', () => {
             return {
                 tokenCache: makeCache(mockTokenStore),
                 sessionScopedCache: props.mcpSessionId ? makeCache(sessionScopedStore(props.mcpSessionId)) : undefined,
-                getContext: vi.fn(async () => ({
-                    stateManager: {
-                        setDefaultOrganizationAndProject: vi.fn(async () => {}),
-                        getApiKey: vi.fn(async () => mockApiKey),
-                        getAiConsentGiven: vi.fn(async () => undefined),
-                        getAvailableFeatures: vi.fn(async () => undefined),
-                    },
-                })),
+                getContext: vi.fn(async () => {
+                    mockRedisFailures.contextReads += 1
+                    if (mockRedisFailures.contextError) {
+                        throw mockRedisFailures.contextError
+                    }
+                    return {
+                        stateManager: {
+                            setDefaultOrganizationAndProject: vi.fn(async () => {}),
+                            getApiKey: vi.fn(async () => mockApiKey),
+                            getAiConsentGiven: vi.fn(async () => undefined),
+                            getAvailableFeatures: vi.fn(async () => undefined),
+                        },
+                    }
+                }),
                 safelyGetAnalyticsContext: vi.fn(async () => undefined),
                 getDistinctId: vi.fn(async () => 'distinct-id'),
                 setMcpContexts: vi.fn(),
@@ -151,6 +170,9 @@ describe('RequestStateResolver MCP client contexts', () => {
         mockTokenStore.clear()
         mockSessionScopedStores.clear()
         mockRefreshTtlCalls.length = 0
+        mockRedisFailures.contextError = undefined
+        mockRedisFailures.pinWriteGate = undefined
+        mockRedisFailures.contextReads = 0
         mockApiKey.scopes = ['*']
         mockApiKey.is_impersonated = undefined
         mockApiKey.suppress_analytics = undefined
@@ -179,6 +201,33 @@ describe('RequestStateResolver MCP client contexts', () => {
             expect(props.suppressAnalytics).toBe(impersonated === true)
         }
     )
+
+    it('handles a Redis context failure while a pinned-context write is pending', async () => {
+        let releasePinWrite!: () => void
+        mockRedisFailures.pinWriteGate = new Promise<void>((resolve) => {
+            releasePinWrite = resolve
+        })
+        mockRedisFailures.contextError = new Error('Command timed out')
+        const unhandled: unknown[] = []
+        const onUnhandled = (error: unknown): void => {
+            unhandled.push(error)
+        }
+        process.on('unhandledRejection', onUnhandled)
+
+        try {
+            const pending = makeResolver().resolve(makeProps())
+            await new Promise<void>((resolve) => setImmediate(resolve))
+            expect(mockRedisFailures.contextReads).toBe(0)
+            expect(unhandled).toEqual([])
+            releasePinWrite()
+            await expect(pending).rejects.toThrow('Command timed out')
+            await new Promise<void>((resolve) => setImmediate(resolve))
+            expect(unhandled).toEqual([])
+        } finally {
+            releasePinWrite()
+            process.off('unhandledRejection', onUnhandled)
+        }
+    })
 
     it.each([
         ['cli', false],

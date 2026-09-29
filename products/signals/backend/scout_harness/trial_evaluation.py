@@ -18,6 +18,7 @@ from posthog.storage import object_storage
 from posthog.sync import database_sync_to_async
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.signals.backend.facade.rubrics import ScoutRubricReferenceContext
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
 from products.signals.backend.scout_harness.trial_evaluation_report import build_trial_comparison_report
 from products.signals.backend.scout_harness.trial_evaluation_types import (
@@ -43,7 +44,7 @@ from products.signals.backend.scout_harness.trial_result import (
     read_trial_result,
     recover_trial_result,
 )
-from products.signals.backend.scout_harness.trial_rubrics import MockScoutRubricReader
+from products.signals.backend.scout_harness.trial_rubrics import SavedScoutRubricReader, ScoutRubricReadError
 from products.signals.backend.scout_harness.trial_state import ScoutTrialStore
 from products.tasks.backend.facade.api import get_task_run_log_size, get_task_run_log_urls, read_task_run_log_content
 
@@ -54,7 +55,7 @@ MAX_EVIDENCE_CHARS = 80_000
 MAX_SOURCE_CHARS = 12_000
 MAX_EVIDENCE_SOURCES = 200
 JUDGE_MODEL = "gpt-5.5"
-JUDGE_PROMPT_VERSION = "4"
+JUDGE_PROMPT_VERSION = "6"
 _Document = TypeVar("_Document", bound=BaseModel)
 
 
@@ -343,11 +344,12 @@ def _run_evidence(launch: TrialLaunch, context: TrialContext, variant_id: UUID) 
         )
     builder = _EvidenceBuilder()
     builder.add("instructions", "instructions", launch.skill_body)
+    builder.add("launch-note", "instructions", launch.note)
     builder.add(
         "context",
         "context",
         json.dumps(
-            {"note": launch.note, "memory": context.memory, "notes": context.notes, "recent_runs": context.recent_runs},
+            {"memory": context.memory, "notes": context.notes, "recent_runs": context.recent_runs},
             ensure_ascii=False,
         ),
     )
@@ -393,6 +395,10 @@ def prepare_trial_evaluation(
         if existing.request_hash != request_hash:
             raise TrialEvaluationError("This evaluation ID was already used for a different request.")
         return existing
+    if request.rubric_source != "saved":
+        raise TrialEvaluationError(
+            "New evaluations require the scout's saved rubric. Choose saved as the rubric source."
+        )
     launches: dict[UUID, TrialLaunch] = {}
     context: TrialContext | None = None
     for variant in request.variants:
@@ -415,7 +421,10 @@ def prepare_trial_evaluation(
             launches[identifier] = launch
     if context is None:
         raise TrialEvaluationError("Choose at least one trial to score.")
-    rubric = MockScoutRubricReader().read(config_id=config.id, skill_name=config.skill_name)
+    try:
+        rubric = SavedScoutRubricReader(team_id=config.team_id).read(config_id=config.id, skill_name=config.skill_name)
+    except ScoutRubricReadError as error:
+        raise TrialEvaluationError(str(error)) from error
     raw_criteria = rubric.get("criteria")
     if not isinstance(raw_criteria, list):
         raise TrialEvaluationError("The scoring rubric has no criteria.")
@@ -438,6 +447,8 @@ def prepare_trial_evaluation(
         request=request,
         request_hash=request_hash,
         rubric_document=rubric,
+        rubric_reference_context=ScoutRubricReferenceContext.model_validate(rubric["reference_context"]),
+        rubric_reference_generation_id=cast(str, rubric["reference_generation_id"]),
         criteria=criteria,
         judge_model=JUDGE_MODEL,
         judge_prompt_version=JUDGE_PROMPT_VERSION,
@@ -447,6 +458,16 @@ def prepare_trial_evaluation(
             for identifier in variant.launch_ids
         ],
     )
+    from products.signals.backend.scout_harness.trial_judge import (  # noqa: PLC0415 -- keep judge dependencies off API startup
+        TrialJudgeValidationError,
+        build_trial_judge_messages,
+    )
+
+    try:
+        for evidence in snapshot.runs:
+            build_trial_judge_messages(snapshot, evidence)
+    except TrialJudgeValidationError as error:
+        raise TrialEvaluationError(str(error)) from error
     stored = _write_once(_key(config.team_id, request.evaluation_id, "snapshot"), snapshot)
     if stored.request_hash != request_hash:
         raise TrialEvaluationError("This evaluation ID was already used for a different request.")

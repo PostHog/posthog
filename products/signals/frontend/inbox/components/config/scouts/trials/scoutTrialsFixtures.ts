@@ -126,6 +126,8 @@ export const trialFixtureReport: TrialComparisonReportApi = {
         'The candidate passed both criteria in each repeat. The baseline missed one evidence citation. These four runs are a descriptive comparison.',
     rubric_source: 'mock',
     rubric_revision: 0,
+    rubric_reference_context: null,
+    rubric_reference_generation_id: null,
     baseline_variant_id: trialFixtureComparison.baselineVariantId,
     judge_model: 'gpt-5.5',
     judge_prompt_version: '1',

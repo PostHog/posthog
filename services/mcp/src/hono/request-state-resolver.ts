@@ -135,23 +135,20 @@ export class RequestStateResolver {
         const reqCtx = new RequestContext(this.redis, this.env, props, requestContext)
 
         const { features, tools, organizationId, projectId, readOnly } = props
-        const contextPromise = reqCtx.getContext()
-        const pinnedSessionContextPromise = projectId ? this.resolveSessionContext(requestContext) : undefined
-
         await this.applyPinnedContext(reqCtx, { organizationId, projectId })
 
+        // Start Redis reads only when Promise.all can observe their timeout rejections.
         // Read the active project back from the token cache (the source every tool
         // resolves through) rather than the request pin, so an in-session switch wins.
-        const cachedProjectId = (await reqCtx.tokenCache.get('projectId')) || projectId
-        if (!cachedProjectId) {
-            const contextForDefault = await contextPromise
-            await contextForDefault.stateManager.setDefaultOrganizationAndProject()
-        }
-
-        const [context, sessionContext] = await Promise.all([
-            contextPromise,
-            pinnedSessionContextPromise ?? this.resolveSessionContext(requestContext),
+        const [context, sessionContext, storedProjectId] = await Promise.all([
+            reqCtx.getContext(),
+            this.resolveSessionContext(requestContext),
+            reqCtx.tokenCache.get('projectId'),
         ])
+        const cachedProjectId = storedProjectId || projectId
+        if (!cachedProjectId) {
+            await context.stateManager.setDefaultOrganizationAndProject()
+        }
         const clientContext = getEffectiveMCPClientContext(requestContext, sessionContext)
 
         // MCP_GATEWAY_FLAG gates no tool of its own — it gates the third-party tools `exec`

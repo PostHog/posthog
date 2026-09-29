@@ -2831,6 +2831,37 @@ class TestUserUIConfigurationValidation(SimpleTestCase):
         self.assertTrue(serializer.is_valid(), serializer.errors)
         self.assertEqual(serializer.validated_data["ui_configuration"], value)
 
+    @parameterized.expand(
+        [
+            (
+                "omitted_key_is_kept",
+                True,
+                {"version": 1, "sidebar": {"density": "compact"}},
+                {"version": 1, "sidebar": {"density": "compact", "starred_products_setup_completed": True}},
+            ),
+            (
+                "omitted_sidebar_is_kept",
+                True,
+                {"version": 1},
+                {"version": 1, "sidebar": {"starred_products_setup_completed": True}},
+            ),
+            ("reset_is_kept", True, None, {"version": 1, "sidebar": {"starred_products_setup_completed": True}}),
+            (
+                "explicit_false_wins",
+                True,
+                {"version": 1, "sidebar": {"starred_products_setup_completed": False}},
+                {"version": 1, "sidebar": {"starred_products_setup_completed": False}},
+            ),
+            ("not_completed_is_untouched", False, {"version": 1}, {"version": 1}),
+        ]
+    )
+    def test_update_keeps_completed_starred_products_setup(self, _name, completed, value, expected):
+        user = User(ui_configuration={"version": 1, "sidebar": {"starred_products_setup_completed": completed}})
+        serializer = UserSerializer(instance=user, data={"ui_configuration": value}, partial=True)
+
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        self.assertEqual(serializer.validated_data["ui_configuration"], expected)
+
 
 @pytest.mark.ee
 class TestToolbarAccessControl(APIBaseTest):

@@ -1142,7 +1142,7 @@ describe('runStreamLogic', () => {
     })
 
     describe('pushHumanMessage', () => {
-        it('appends a human_message item ordered before subsequently ingested assistant frames', async () => {
+        it('appends a timestamped human_message item ordered before subsequently ingested assistant frames', async () => {
             await expectLogic(logic, () => {
                 logic.actions.pushHumanMessage('hello agent')
                 // The agent takes the send up and echoes it, which is what places the message.
@@ -1159,6 +1159,7 @@ describe('runStreamLogic', () => {
                 type: 'human_message',
                 text: 'hello agent',
                 complete: true,
+                startedAt: expect.any(Number),
             })
             expect(logic.values.threadItems[1].type).toEqual('assistant_message')
         })
@@ -1834,6 +1835,7 @@ describe('runStreamLogic', () => {
                     error_message: null,
                     output: null,
                     task_summary: null,
+                    task_tags: [],
                     artifacts: [],
                     state: {
                         pending_user_message: wrapWithPosthogContext(content, [
@@ -2624,6 +2626,7 @@ describe('runStreamLogic', () => {
                     error_message: null,
                     output: null,
                     task_summary: null,
+                    task_tags: [],
                     artifacts: [],
                     state: { resume_from_run_id: 'run-1' },
                 }
@@ -2712,6 +2715,7 @@ describe('runStreamLogic', () => {
                     error_message: null,
                     output: null,
                     task_summary: null,
+                    task_tags: [],
                     artifacts: [],
                     state: { resume_from_run_id: 'run-1' },
                     runtime_adapter: null,
@@ -2767,6 +2771,7 @@ describe('runStreamLogic', () => {
                 error_message: 'Failed to start task workflow',
                 output: null,
                 task_summary: null,
+                task_tags: [],
                 artifacts: [],
                 state: { resume_from_run_id: 'run-1' },
                 runtime_adapter: null,
@@ -3136,6 +3141,7 @@ describe('runStreamLogic', () => {
                 error_message: null,
                 output: null,
                 task_summary: null,
+                task_tags: [],
                 artifacts: [],
                 state: { resume_from_run_id: 'run-1' },
             } satisfies TaskRunDetailDTOApi
@@ -3247,6 +3253,7 @@ describe('runStreamLogic', () => {
                     error_message: null,
                     output: null,
                     task_summary: null,
+                    task_tags: [],
                     artifacts: [],
                     state: { resume_from_run_id: 'run-1' },
                 })
@@ -3669,6 +3676,7 @@ describe('runStreamLogic', () => {
                         error_message: null,
                         output: null,
                         task_summary: null,
+                        task_tags: [],
                         artifacts: [],
                         state: { resume_from_run_id: 'run-0' },
                     })

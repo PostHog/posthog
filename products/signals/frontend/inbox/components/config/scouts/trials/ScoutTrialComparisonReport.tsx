@@ -7,15 +7,17 @@ import type {
     TrialVariantAggregateApi,
 } from 'products/signals/frontend/generated/api.schemas'
 
+import { ScoutRubricReference } from '../ScoutRubricReference'
 import { ScoutTrialJudgment } from './ScoutTrialJudgment'
 import { trialDelta, trialPercentage } from './scoutTrialUtils'
 
 export function ScoutTrialComparisonReport({ report }: { report: TrialComparisonReportApi }): JSX.Element {
+    const rubricLabel = report.rubric_source === 'mock' ? 'Mock rubric' : 'Saved rubric'
     return (
         <div className="flex flex-col gap-3 min-w-0">
             <div className="flex flex-wrap items-center gap-2">
                 <h4 className="m-0">Comparison report</h4>
-                <LemonTag type="warning">Mock rubric</LemonTag>
+                <LemonTag type={report.rubric_source === 'mock' ? 'warning' : 'muted'}>{rubricLabel}</LemonTag>
             </div>
             <p className="m-0 text-sm break-words">{report.summary}</p>
             <p className="m-0 text-xs text-muted">
@@ -74,7 +76,7 @@ export function ScoutTrialComparisonReport({ report }: { report: TrialComparison
                 panels={[
                     {
                         key: 'rubric',
-                        header: `Mock rubric · revision ${report.rubric_revision}`,
+                        header: `${rubricLabel} · revision ${report.rubric_revision}`,
                         content: (
                             <div className="flex flex-col gap-4">
                                 {report.criteria.map((criterion) => (
@@ -98,6 +100,15 @@ export function ScoutTrialComparisonReport({ report }: { report: TrialComparison
                             </div>
                         ),
                     },
+                    ...(report.rubric_reference_context
+                        ? [
+                              {
+                                  key: 'rubric-reference',
+                                  header: 'Scoring reference captured with this rubric',
+                                  content: <ScoutRubricReference reference={report.rubric_reference_context} />,
+                              },
+                          ]
+                        : []),
                     ...report.runs.map((run, runIndex) => ({
                         key: run.launch_id,
                         header: (

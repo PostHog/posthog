@@ -2927,6 +2927,143 @@ class TestUpdateExternalDataSchema:
         mock_add_table.assert_called_once()
         assert mock_add_table.call_args.args == (source, "analytics", "events")
 
+    @staticmethod
+    def _managed_cdc_source_and_full_refresh_schema(team, **schema_fields: Any):
+        source = ExternalDataSource.objects.create(
+            team=team,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            status=ExternalDataSource.Status.RUNNING,
+            source_type=ExternalDataSourceType.POSTGRES,
+            job_inputs={
+                "schema": "",
+                "cdc_enabled": True,
+                "cdc_management_mode": "posthog",
+                "cdc_slot_name": "test_slot",
+                "cdc_publication_name": "test_pub",
+            },
+        )
+        sync_type_config = {
+            "primary_key_columns": ["id"],
+            "schema_metadata": {
+                "columns": [{"name": "id", "data_type": "integer", "is_nullable": False}],
+                "foreign_keys": [],
+                "source_schema": "analytics",
+                "source_table_name": "events",
+            },
+            **schema_fields.pop("sync_type_config", {}),
+        }
+        schema = ExternalDataSchema.objects.create(
+            team=team,
+            source=source,
+            name="analytics.events",
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+            sync_type_config=sync_type_config,
+            **{"should_sync": False, **schema_fields},
+        )
+        return source, schema
+
+    @staticmethod
+    def _patch_cdc_switch(add_table_side_effect: BaseException | None = None) -> contextlib.ExitStack:
+        stack = contextlib.ExitStack()
+        views = "products.warehouse_sources.backend.presentation.views.external_data_schema"
+        stack.enter_context(mock.patch(f"{views}.is_cdc_enabled_for_team", return_value=True))
+        stack.enter_context(mock.patch(f"{views}.external_data_workflow_exists", return_value=False))
+        stack.enter_context(mock.patch(f"{views}.sync_external_data_job_workflow"))
+        stack.enter_context(mock.patch(f"{views}.sync_cdc_extraction_schedule"))
+        stack.enter_context(
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.add_table",
+                side_effect=add_table_side_effect,
+            )
+        )
+        return stack
+
+    @pytest.mark.parametrize(
+        "initial_sync_complete, prior_config",
+        [
+            pytest.param(False, {}, id="never_synced"),
+            pytest.param(True, {}, id="loaded_by_full_refresh"),
+            pytest.param(
+                True,
+                {"cdc_mode": "streaming", "cdc_last_log_position": "0/16B3748", "cdc_deferred_runs": [{"run": 1}]},
+                id="left_over_from_earlier_cdc_period",
+            ),
+        ],
+    )
+    def test_switch_to_cdc_starts_a_fresh_snapshot(
+        self, team, user, client: HttpClient, temporal, initial_sync_complete, prior_config
+    ):
+        client.force_login(user)
+        _, schema = self._managed_cdc_source_and_full_refresh_schema(
+            team, initial_sync_complete=initial_sync_complete, sync_type_config=prior_config
+        )
+
+        with self._patch_cdc_switch():
+            response = client.patch(
+                f"/api/environments/{team.pk}/external_data_schemas/{schema.id}",
+                data={"sync_type": "cdc", "should_sync": True},
+                content_type="application/json",
+            )
+
+        assert response.status_code == 200, response.content
+        schema.refresh_from_db()
+        assert schema.sync_type == ExternalDataSchema.SyncType.CDC
+        assert schema.sync_type_config["cdc_mode"] == "snapshot"
+        assert "cdc_last_log_position" not in schema.sync_type_config
+        assert "cdc_deferred_runs" not in schema.sync_type_config
+        assert schema.initial_sync_complete is False
+
+    @pytest.mark.parametrize(
+        "add_table_error, expected_message, captured",
+        [
+            pytest.param(
+                psycopg.errors.InsufficientPrivilege("must be owner of table events"),
+                "PostgreSQL only lets a table's owner publish it",
+                False,
+                id="table_not_owned",
+            ),
+            pytest.param(
+                psycopg.OperationalError("connection refused"),
+                "Couldn't connect to your database to add analytics.events to change data capture",
+                False,
+                id="database_unreachable",
+            ),
+            pytest.param(
+                RuntimeError("unexpected"),
+                "Couldn't add analytics.events to change data capture",
+                True,
+                id="unexpected_error",
+            ),
+        ],
+    )
+    def test_switch_to_cdc_refused_when_table_cannot_join_publication(
+        self, team, user, client: HttpClient, temporal, add_table_error, expected_message, captured
+    ):
+        client.force_login(user)
+        _, schema = self._managed_cdc_source_and_full_refresh_schema(team, initial_sync_complete=True)
+
+        with (
+            self._patch_cdc_switch(add_table_side_effect=add_table_error),
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.cdc.adapters.capture_exception"
+            ) as mock_capture,
+        ):
+            response = client.patch(
+                f"/api/environments/{team.pk}/external_data_schemas/{schema.id}",
+                data={"sync_type": "cdc", "should_sync": True},
+                content_type="application/json",
+            )
+
+        assert response.status_code == 400, response.content
+        assert expected_message in response.json()["detail"]
+        assert mock_capture.called is captured
+        schema.refresh_from_db()
+        assert schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH
+        assert schema.should_sync is False
+        assert schema.initial_sync_complete is True
+
     def test_delete_data_hides_direct_postgres_table(self, team, user, client: HttpClient, temporal):
         client.force_login(user)
         source = ExternalDataSource.objects.create(

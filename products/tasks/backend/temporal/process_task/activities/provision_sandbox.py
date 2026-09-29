@@ -1,3 +1,4 @@
+import json
 import shlex
 import asyncio
 import logging
@@ -830,6 +831,27 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
         )
 
 
+def _persist_sandbox_agent_version(run_id: str, sandbox: SandboxBase) -> None:
+    version: str | None = None
+    try:
+        result = sandbox.execute("cat /scripts/node_modules/@posthog/agent/package.json", timeout_seconds=10)
+        if result.exit_code == 0:
+            manifest = json.loads(result.stdout)
+            candidate = manifest.get("version") if isinstance(manifest, dict) else None
+            if isinstance(candidate, str) and candidate:
+                version = candidate
+    except Exception:
+        logger.warning("Failed to read sandbox agent version", extra={"run_id": run_id}, exc_info=True)
+
+    try:
+        if version is None:
+            TaskRun.update_state_atomic(run_id, remove_keys=["agent_version"])
+        else:
+            TaskRun.update_state_atomic(run_id, updates={"agent_version": version})
+    except Exception:
+        logger.warning("Failed to persist sandbox agent version", extra={"run_id": run_id}, exc_info=True)
+
+
 @asyncify
 def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> CreateSandboxForRepositoryOutput:
     ctx = input.context
@@ -952,6 +974,7 @@ def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cr
                     "sandbox_creation_with_policy_request", runtime, "modal_requested", "failure"
                 )
             raise
+        _persist_sandbox_agent_version(ctx.run_id, sandbox)
         try:
             if config.outbound_domain_allowlist is not None:
                 emit_agent_log(ctx.run_id, "debug", "Modal sandbox created with network policy requested")

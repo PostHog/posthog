@@ -6,6 +6,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue
 
+from products.signals.backend.facade.rubrics import ScoutRubricReferenceContext
+
 
 class EvaluationDocument(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -21,7 +23,7 @@ class TrialEvaluationRequest(EvaluationDocument):
     evaluation_id: UUID
     baseline_variant_id: UUID
     variants: list[TrialEvaluationVariant] = Field(min_length=1, max_length=10)
-    rubric_source: Literal["mock"]
+    rubric_source: Literal["mock", "saved"]
 
 
 class TrialEvaluationCriterion(EvaluationDocument):
@@ -68,6 +70,8 @@ class TrialEvaluationSnapshot(EvaluationDocument):
     request: TrialEvaluationRequest
     request_hash: str
     rubric_document: dict[str, JsonValue]
+    rubric_reference_context: ScoutRubricReferenceContext | None = None
+    rubric_reference_generation_id: str | None = None
     criteria: list[TrialEvaluationCriterion]
     judge_model: str
     judge_prompt_version: str
@@ -137,8 +141,10 @@ class TrialComparisonReport(EvaluationDocument):
     created_at: datetime
     completed_at: datetime
     summary: str
-    rubric_source: Literal["mock"]
+    rubric_source: Literal["mock", "saved"]
     rubric_revision: int
+    rubric_reference_context: ScoutRubricReferenceContext | None = None
+    rubric_reference_generation_id: str | None = None
     criteria: list[TrialEvaluationCriterion]
     baseline_variant_id: UUID
     judge_model: str
