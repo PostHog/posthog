@@ -19,6 +19,7 @@ from rest_framework.request import Request
 from rest_framework.test import APIRequestFactory
 
 from posthog.auth import (
+    ExportRendererAuthentication,
     InternalAPIAuthentication,
     OAuthAccessTokenAuthentication,
     PersonalAPIKeyAuthentication,
@@ -26,6 +27,7 @@ from posthog.auth import (
     ScopedServiceJWTAuthentication,
     SharingAccessTokenAuthentication,
     SharingPasswordProtectedAuthentication,
+    mint_export_renderer_token,
 )
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models import SharePassword, SharingConfiguration, User
@@ -53,6 +55,7 @@ from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
 from posthog.test.api_keys import create_project_secret_api_key
 
 from products.dashboards.backend.models.dashboard_widget import DashboardWidget
+from products.exports.backend.models.exported_asset import ExportedAsset
 
 
 class TestActivityLogModel(BaseTest):
@@ -494,6 +497,20 @@ class TestBearerAuthenticationReplacesSessionActor(BaseTest):
             )
             token = sharing_configuration.generate_password_protected_token(share_password)
             return SharingPasswordProtectedAuthentication(), bearer(token), None, str(share_password.id)
+        if credential_type == "export_renderer":
+            exported_asset = ExportedAsset.objects.create(
+                team=self.team,
+                created_by=self.user,
+                export_format=ExportedAsset.ExportFormat.PNG,
+                export_context={"session_recording_id": "recording-id"},
+            )
+            token = mint_export_renderer_token(
+                user_id=self.user.id,
+                team_id=self.team.id,
+                exported_asset_id=exported_asset.id,
+                scope="session_recording:read",
+            )
+            return ExportRendererAuthentication(), bearer(token), self.user, str(exported_asset.id)
         request = factory.get("/", headers={"X-Internal-Api-Secret": "activity-log-test-internal-secret"})
         return InternalAPIAuthentication(), request, None, None
 
@@ -505,6 +522,7 @@ class TestBearerAuthenticationReplacesSessionActor(BaseTest):
             ("internal_api_secret",),
             ("sharing_access_token",),
             ("sharing_password",),
+            ("export_renderer",),
         ]
     )
     def test_rows_name_the_bearer_credential_not_an_impersonated_session(self, credential_type: str) -> None:
