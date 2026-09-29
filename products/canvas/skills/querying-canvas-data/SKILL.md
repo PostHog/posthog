@@ -231,9 +231,11 @@ channel. Use `canvas-state-set` when the user asks to change those values; read 
 unrelated keys, and use the scope the canvas source expects.
 
 Canvas discussions use the generic comment tools. Read them with `comments-list` filtered to
-`scope=desktop_canvas`, the canvas id as `item_id`, and its `discussion_task_id` as `task_id`. Create
-a root comment or reply with `comments-create`, using the same scope and ids (put the task id in
-`item_context.taskId`). The same public-channel and personal-channel visibility rules apply.
+`scope=desktop_canvas` and the canvas id as `item_id`. Create a root comment or reply with
+`comments-create`, using the same scope and item id. A thread belongs to the canvas, so a task id is
+optional. Put one in `item_context.taskId` only when that task generated or published the canvas;
+the API refuses any other task. The space of the canvas controls access: a user who can see the
+space can read and write its comments.
 
 ## PostHog writes — ph.actions
 

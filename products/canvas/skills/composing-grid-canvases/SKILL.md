@@ -91,8 +91,12 @@ Batch the layout writes (one publish for an initial layout, surgical patches aft
 
 ## Canvas comments
 
-Users leave feedback as comment threads on the canvas, anchored to its conversation task.
-List them with the task comment tools (`tasks-comments-list`, `tasks-comments-retrieve`) on your task before and after changing the canvas, and address the open ones — a comment naming a broken widget is your brief for fixing it.
+Users leave feedback as comment threads on the canvas.
+A thread belongs to the canvas, not to a task, so any run can read all of them.
+List them with `canvas-comments-list` and read a full thread with `canvas-comments-retrieve` before and after you change the canvas.
+Address the open threads: a comment that names a broken widget is your brief to fix it.
+If those tools are not available, use `tasks-comments-list` and `tasks-comments-retrieve` on your task.
+They show only the threads written on versions that your task made.
 
 ## Editing a grid
 

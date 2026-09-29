@@ -200,7 +200,8 @@ class TestCommentSlackDm(CommentActivityTestCase):
 
         assert self._dm_channels() == []
 
-    def test_canvas_comment_dms_a_recipient_who_can_access_its_space(self):
+    @parameterized.expand([("with_task", True), ("without_task", False)])
+    def test_canvas_comment_dms_a_recipient_who_can_access_its_space(self, _name: str, with_task: bool):
         generation_channel = Channel.objects.create(
             team=self.team,
             name="generation",
@@ -221,9 +222,13 @@ class TestCommentSlackDm(CommentActivityTestCase):
             channel=canvas_channel,
             name="Launch canvas",
             created_by=self.peer,
-            generation_task_id=self.task.id,
+            generation_task_id=self.task.id if with_task else None,
         )
-        comment = self._comment(scope="desktop_canvas", item_id=str(canvas.id))
+        comment = self._comment(
+            scope="desktop_canvas",
+            item_id=str(canvas.id),
+            item_context={"anchor": {"kind": "document"}, **({"taskId": str(self.task.id)} if with_task else {})},
+        )
 
         self._record_activity(comment, [self.author.id])
 
