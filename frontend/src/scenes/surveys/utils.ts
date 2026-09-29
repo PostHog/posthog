@@ -569,6 +569,17 @@ export function doesSurveyRepeatOnEveryEvent(survey: Pick<Survey, 'conditions'>)
     return !!(survey.conditions?.events?.repeatedActivation && (survey.conditions?.events?.values?.length ?? 0) > 0)
 }
 
+/**
+ * Mirrors `canSurveyActivateRepeatedly` in @posthog/core. The SDKs skip both the local "already
+ * seen" record and the internal targeting flag when that returns true, so a SurveySchedule.Always
+ * survey shows again on every activation even though its event trigger leaves repeatedActivation
+ * off. Frequency copy must read the schedule as well as the trigger, or it promises a once-per-user
+ * cadence the SDK does not apply.
+ */
+export function doesSurveyShowOnEveryActivation(survey: Pick<Survey, 'conditions' | 'schedule'>): boolean {
+    return doesSurveyRepeatOnEveryEvent(survey) || survey.schedule === SurveySchedule.Always
+}
+
 export interface RecurringSurveyScheduleInfo {
     /** Total number of days the survey runs from its launch date before auto-closing. */
     totalDurationDays: number

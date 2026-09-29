@@ -13,6 +13,7 @@ import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
 import { useMaxTool } from 'scenes/max/useMaxTool'
 import { SceneExport } from 'scenes/sceneTypes'
+import { doesSurveyShowOnEveryActivation } from 'scenes/surveys/utils'
 import { urls } from 'scenes/urls'
 
 import { FeatureFlagFilters, Survey, SurveyMatchType, SurveyType } from '~/types'
@@ -211,9 +212,7 @@ export function SurveyDisplaySummary({
                         <span>
                             When the user sends the following events (
                             <span>
-                                {survey.conditions?.events?.repeatedActivation
-                                    ? 'every time they occur'
-                                    : 'once per user'}
+                                {doesSurveyShowOnEveryActivation(survey) ? 'every time they occur' : 'once per user'}
                             </span>
                             ):
                         </span>{' '}
