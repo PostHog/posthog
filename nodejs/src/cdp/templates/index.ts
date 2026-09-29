@@ -55,6 +55,7 @@ import { template as vercelLogDrainTemplate } from './_sources/vercel/vercel_log
 import { template as incomingWebhookTemplate } from './_sources/webhook/incoming_webhook.template'
 import { template as botDetectionTemplate } from './_transformations/bot-detection/bot-detection.template'
 import { template as defaultTransformationTemplate } from './_transformations/default/default.template'
+import { template as deviceMarketingNamesTemplate } from './_transformations/device-marketing-names/device-marketing-names.template'
 import { template as downsamplingTemplate } from './_transformations/downsampling/downsampling.template'
 import { template as dropEventsTemplate } from './_transformations/drop-events/drop-events.template'
 import { template as filterPropertiesTemplate } from './_transformations/filter-properties/filter-properties.template'
@@ -140,6 +141,7 @@ export const HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS: HogFunctionTemplate[] = [
     hashPropertiesTemplate,
     urlNormalizationTemplate,
     semverFlattenerTemplate,
+    deviceMarketingNamesTemplate,
     timestampParserTemplate,
     downsamplingTemplate,
     urlParametersToPropertiesTemplate,
