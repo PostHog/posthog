@@ -424,8 +424,9 @@ class ReplayScannerPromptSuggestionViewSet(
             suggestion.applied_at = timezone.now()
             suggestion.applied_by = cast(User, request.user)
             suggestion.save(update_fields=["status", "applied_at", "applied_by"])
-        # A model call, so it waits until the row locks above are released.
-        ReplayScanner.objects.filter(pk=scanner.pk).update(
+        # A model call, so it waits until the row locks above are released. Conditional on the config, so an
+        # edit that lands meanwhile keeps its own question.
+        ReplayScanner.objects.filter(pk=scanner.pk, scanner_config=config).update(
             **question_fields_for_save(
                 team_id=self.team_id,
                 scanner_type=scanner.scanner_type,

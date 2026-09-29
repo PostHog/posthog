@@ -96,21 +96,21 @@ def _clean(question: str) -> str | None:
 
 
 def _generate(*, prompt: str, scanner_type: str, team_id: int) -> str | None:
-    api_key = settings.REPLAY_VISION_GEMINI_API_KEY or settings.GEMINI_API_KEY
-    client = genai.Client(
-        api_key=api_key,
-        # Privacy mode keeps customer content out of the internal project, where it could not be deleted on request.
-        posthog_privacy_mode=True,
-        posthog_client=posthoganalytics.default_client,
-        http_options={"timeout": _MODEL_CALL_TIMEOUT_MS},
-    )
     config = GenerateContentConfig(
         system_instruction=_SYSTEM_PROMPT,
         response_mime_type="application/json",
         response_json_schema=_LlmQuestion.model_json_schema(),
         temperature=0.2,
     )
+    # Client setup is inside the guard too: a missing key must fall back, not fail the save.
     try:
+        client = genai.Client(
+            api_key=settings.REPLAY_VISION_GEMINI_API_KEY or settings.GEMINI_API_KEY,
+            # Privacy mode keeps customer content out of the internal project, where it could not be deleted on request.
+            posthog_privacy_mode=True,
+            posthog_client=posthoganalytics.default_client,
+            http_options={"timeout": _MODEL_CALL_TIMEOUT_MS},
+        )
         response = client.models.generate_content(
             model=_QUESTION_MODEL,
             contents=f"Scanner type: {scanner_type}\n\nInstructions:\n{prompt}",
@@ -159,6 +159,15 @@ def question_fields_for_save(
     return condense_prompt(team_id=team_id, scanner_type=scanner_type, scanner_config=scanner_config).as_fields()
 
 
+def scanner_question(scanner: ReplayScanner) -> str:
+    """The question for the scanner's current prompt. A question written for another prompt, or none yet, falls
+    back to the prompt's first line."""
+    prompt = _prompt_of(scanner.scanner_config)
+    if scanner.prompt_question and scanner.prompt_question_source == prompt_fingerprint(prompt):
+        return scanner.prompt_question
+    return fallback_question(prompt)
+
+
 def question_for_snapshot(*, snapshot_config: object, question: str, source: str) -> str | None:
     """The scanner's question if it came from the prompt this observation was scanned with, else None."""
     if not question or source != prompt_fingerprint(_prompt_of(snapshot_config)):
@@ -183,7 +192,7 @@ def backfill_prompt_questions(
 
     Writes through a queryset update, so the scanner's version, updated_at and activity log stay untouched.
     The update is conditional on the prompt still being the one condensed, so an edit that lands mid-run wins.
-    Each distinct prompt is condensed once per run, since many scanners share one word for word.
+    Each distinct prompt is condensed once per run and scanner type, since many scanners share one word for word.
     """
     scanners = ReplayScanner.all_origins.order_by("created_at")
     if not include_inline:
@@ -191,7 +200,7 @@ def backfill_prompt_questions(
     if team_id is not None:
         scanners = scanners.filter(team_id=team_id)
     checked = written = 0
-    condensed: dict[str, PromptQuestion] = {}
+    condensed: dict[tuple[str, str], PromptQuestion] = {}
     for scanner in scanners.only(
         "id", "team_id", "scanner_type", "scanner_config", "prompt_question_source"
     ).iterator():
@@ -204,12 +213,14 @@ def backfill_prompt_questions(
         written += 1
         if dry_run:
             continue
-        question = condensed.get(source)
+        # The phrasing depends on the scanner type, so the same prompt on another type gets its own question.
+        key = (source, scanner.scanner_type)
+        question = condensed.get(key)
         if question is None:
             question = condense_prompt(
                 team_id=scanner.team_id, scanner_type=scanner.scanner_type, scanner_config=scanner.scanner_config
             )
-            condensed[source] = question
+            condensed[key] = question
         ReplayScanner.all_origins.filter(pk=scanner.pk, scanner_config=scanner.scanner_config).update(
             **question.as_fields()
         )

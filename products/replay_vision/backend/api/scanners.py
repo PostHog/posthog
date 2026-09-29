@@ -112,7 +112,7 @@ from products.replay_vision.backend.models.replay_scanner import (
     ScannerType,
     apply_experiment_targeting,
 )
-from products.replay_vision.backend.prompt_questions import question_fields_for_save
+from products.replay_vision.backend.prompt_questions import question_fields_for_save, scanner_question
 from products.replay_vision.backend.queries import (
     ESTIMATE_STALE_AFTER,
     MIN_SAMPLING_RATE,
@@ -491,11 +491,10 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             "classifiers add `tags`, scorers add `scale`, summarizers add optional `length`."
         ),
     )
-    prompt_question = serializers.CharField(
-        read_only=True,
+    prompt_question = serializers.SerializerMethodField(
         help_text=(
             "The current prompt condensed by AI into the one question the scanner answers about a session. "
-            "Written with every prompt change; falls back to the prompt's first line when the model is unavailable."
+            "Falls back to the prompt's first line when no question matches the current prompt."
         ),
     )
     query = extend_schema_field(RecordingsQuery)(  # type: ignore[arg-type, type-var]
@@ -693,6 +692,10 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             "feedback_themes",
             "user_access_level",
         ]
+
+    @extend_schema_field(serializers.CharField())
+    def get_prompt_question(self, scanner: ReplayScanner) -> str:
+        return scanner_question(scanner)
 
     @extend_schema_field(serializers.IntegerField())
     def get_credits_per_observation(self, scanner: ReplayScanner) -> int:

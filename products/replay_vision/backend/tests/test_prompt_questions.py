@@ -24,6 +24,7 @@ from products.replay_vision.backend.prompt_questions import (
     TEMPLATE_QUESTIONS,
     backfill_prompt_questions,
     condense_prompt,
+    scanner_question,
 )
 from products.replay_vision.backend.tests.helpers import snapshot_for
 
@@ -77,6 +78,7 @@ class TestPromptQuestions(APIBaseTest):
                 "Did the user struggle to complete checkout?",
             ),
             ("model_error", None, PROMPT, True, "Did the user struggle to complete checkout?"),
+            ("client_setup_fails", "setup-fails", PROMPT, True, "Did the user struggle to complete checkout?"),
             (
                 "no_ai_consent",
                 "Did the user struggle at checkout?",
@@ -98,6 +100,8 @@ class TestPromptQuestions(APIBaseTest):
     def test_condense_prompt(self, _name: str, reply: str | None, prompt: str, consent: bool, expected: str) -> None:
         if reply is None:
             self.client_mock.return_value.models.generate_content.side_effect = RuntimeError("provider down")
+        elif reply == "setup-fails":
+            self.client_mock.side_effect = ValueError("missing API key")
         else:
             _model_says(self.client_mock, reply)
         self.organization.is_ai_data_processing_approved = consent
@@ -109,6 +113,29 @@ class TestPromptQuestions(APIBaseTest):
         assert question.source == prompt_fingerprint(prompt)
         if not consent:
             self.client_mock.return_value.models.generate_content.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("matches_the_prompt", "Did the user struggle at checkout?", PROMPT, "Did the user struggle at checkout?"),
+            (
+                "written_for_another_prompt",
+                "Did the user abandon their cart?",
+                "Other prompt",
+                "Did the user struggle to complete checkout?",
+            ),
+            ("none_yet", "", "", "Did the user struggle to complete checkout?"),
+        ]
+    )
+    def test_scanner_question_only_trusts_a_question_for_the_current_prompt(
+        self, _name: str, question: str, source_prompt: str, expected: str
+    ) -> None:
+        scanner = self._scanner()
+        ReplayScanner.objects.filter(pk=scanner.pk).update(
+            prompt_question=question, prompt_question_source=prompt_fingerprint(source_prompt) if source_prompt else ""
+        )
+        scanner.refresh_from_db()
+
+        assert scanner_question(scanner) == expected
 
     def test_scanner_writes_keep_the_question_in_step_with_the_prompt(self) -> None:
         created = self.client.post(

@@ -1093,7 +1093,7 @@ export interface ReplayScannerApi {
     creation_method?: ScannerCreationMethodEnumApi | null
     /** Type-specific configuration. All scanner types require `prompt`; monitors add optional `allow_inconclusive`, classifiers add `tags`, scorers add `scale`, summarizers add optional `length`. */
     scanner_config: unknown
-    /** The current prompt condensed by AI into the one question the scanner answers about a session. Written with every prompt change; falls back to the prompt's first line when the model is unavailable. */
+    /** The current prompt condensed by AI into the one question the scanner answers about a session. Falls back to the prompt's first line when no question matches the current prompt. */
     readonly prompt_question: string
     /** Persisted `RecordingsQuery` shape used to pick candidate sessions. `date_from`/`date_to` are stripped on save — the schedule controls time, not the user. */
     query?: unknown
@@ -1221,7 +1221,7 @@ export interface PatchedReplayScannerApi {
     creation_method?: ScannerCreationMethodEnumApi | null
     /** Type-specific configuration. All scanner types require `prompt`; monitors add optional `allow_inconclusive`, classifiers add `tags`, scorers add `scale`, summarizers add optional `length`. */
     scanner_config?: unknown
-    /** The current prompt condensed by AI into the one question the scanner answers about a session. Written with every prompt change; falls back to the prompt's first line when the model is unavailable. */
+    /** The current prompt condensed by AI into the one question the scanner answers about a session. Falls back to the prompt's first line when no question matches the current prompt. */
     readonly prompt_question?: string
     /** Persisted `RecordingsQuery` shape used to pick candidate sessions. `date_from`/`date_to` are stripped on save — the schedule controls time, not the user. */
     query?: unknown

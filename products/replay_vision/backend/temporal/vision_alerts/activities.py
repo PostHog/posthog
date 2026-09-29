@@ -59,7 +59,7 @@ from products.replay_vision.backend.models.vision_alert import (
     VisionAlertMetric,
 )
 from products.replay_vision.backend.observation_formatting import describe_output, explanation_text, plain_snippet
-from products.replay_vision.backend.prompt_questions import fallback_question
+from products.replay_vision.backend.prompt_questions import scanner_question
 from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.vision_alerts.constants import (
     CLEANUP_BATCH_SIZE,
@@ -526,9 +526,7 @@ def _direction_label(alert: VisionAlertConfiguration) -> str:
 
 
 def _base_properties(alert: VisionAlertConfiguration, now: datetime) -> dict:
-    scanner = alert.scanner
-    # A scanner saved before questions existed has none until the backfill reaches it.
-    question = scanner.prompt_question or fallback_question((scanner.scanner_config or {}).get("prompt") or "")
+    question = scanner_question(alert.scanner)
     return {
         "alert_id": str(alert.id),
         "alert_name": alert.name,
