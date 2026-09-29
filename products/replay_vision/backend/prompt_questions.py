@@ -9,6 +9,8 @@ prompt can tell the question no longer describes it.
 import uuid
 
 from django.conf import settings
+from django.core.cache import cache
+from django.utils import timezone
 
 import structlog
 import posthoganalytics
@@ -28,6 +30,8 @@ _QUESTION_MODEL = "gemini-3.5-flash-lite"
 # Runs inline in the save request, so a slow provider call falls back rather than hold the save up.
 _MODEL_CALL_TIMEOUT_MS = 10_000
 MAX_QUESTION_CHARS = 160
+# Saves are not throttled for signed-in users, so this caps how many model calls one team's edits can make.
+MAX_MODEL_CALLS_PER_TEAM_PER_HOUR = 60
 
 _SYSTEM_PROMPT = f"""
 You condense the instructions a team wrote for a session-replay scanner into the single question the
@@ -126,9 +130,26 @@ def _generate(*, prompt: str, scanner_type: str, team_id: int) -> str | None:
         return None
 
 
-def condense_prompt(*, team_id: int, scanner_type: str, scanner_config: object) -> PromptQuestion:
+def _budget_key(team_id: int) -> str:
+    return f"replay_vision:prompt_question:budget:{team_id}:{timezone.now():%Y-%m-%dT%H}"
+
+
+def _take_model_call(team_id: int) -> bool:
+    """Count one model call against the team's hourly budget. False once the budget is spent."""
+    key = _budget_key(team_id)
+    try:
+        calls = cache.incr(key)
+    except ValueError:
+        # First call this hour: start the counter.
+        cache.set(key, 1, timeout=2 * 3600)
+        calls = 1
+    return calls <= MAX_MODEL_CALLS_PER_TEAM_PER_HOUR
+
+
+def condense_prompt(*, team_id: int, scanner_type: str, scanner_config: object, metered: bool = True) -> PromptQuestion:
     """The question for this prompt. Never raises: without a usable model answer it falls back to the prompt's
-    first line, so every scanner carries a question to show."""
+    first line, so every scanner carries a question to show. `metered` counts the call against the team's
+    hourly budget; the backfill, run by an operator, skips it."""
     prompt = _prompt_of(scanner_config)
     source = prompt_fingerprint(prompt)
     if not prompt.strip():
@@ -137,7 +158,7 @@ def condense_prompt(*, team_id: int, scanner_type: str, scanner_config: object) 
         return PromptQuestion(question=TEMPLATE_QUESTIONS[prompt], source=source)
     question = None
     # The prompt is the team's own text, but it still only goes to the model under the org's AI consent.
-    if is_ai_data_processing_approved(team_id):
+    if is_ai_data_processing_approved(team_id) and (not metered or _take_model_call(team_id)):
         question = _generate(prompt=prompt, scanner_type=scanner_type, team_id=team_id)
     if question is None:
         logger.warning("replay_vision.prompt_question.fell_back", team_id=team_id)
@@ -218,7 +239,10 @@ def backfill_prompt_questions(
         question = condensed.get(key)
         if question is None:
             question = condense_prompt(
-                team_id=scanner.team_id, scanner_type=scanner.scanner_type, scanner_config=scanner.scanner_config
+                team_id=scanner.team_id,
+                scanner_type=scanner.scanner_type,
+                scanner_config=scanner.scanner_config,
+                metered=False,
             )
             condensed[key] = question
         # Zero rows when the prompt was edited mid-run, which is then not a write of ours.

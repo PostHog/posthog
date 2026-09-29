@@ -4,6 +4,7 @@ from typing import Any
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.core.cache import cache
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -20,8 +21,10 @@ from products.replay_vision.backend.models.replay_scanner import (
     prompt_fingerprint,
 )
 from products.replay_vision.backend.prompt_questions import (
+    MAX_MODEL_CALLS_PER_TEAM_PER_HOUR,
     MAX_QUESTION_CHARS,
     TEMPLATE_QUESTIONS,
+    _budget_key,
     backfill_prompt_questions,
     condense_prompt,
     scanner_question,
@@ -113,6 +116,15 @@ class TestPromptQuestions(APIBaseTest):
         assert question.source == prompt_fingerprint(prompt)
         if not consent:
             self.client_mock.return_value.models.generate_content.assert_not_called()
+
+    def test_team_over_its_hourly_budget_falls_back_without_a_model_call(self) -> None:
+        cache.set(_budget_key(self.team.id), MAX_MODEL_CALLS_PER_TEAM_PER_HOUR, timeout=3600)
+        self.addCleanup(cache.delete, _budget_key(self.team.id))
+
+        question = condense_prompt(team_id=self.team.id, scanner_type="monitor", scanner_config={"prompt": PROMPT})
+
+        assert question.question == "Did the user struggle to complete checkout?"
+        self.client_mock.return_value.models.generate_content.assert_not_called()
 
     @parameterized.expand(
         [
