@@ -263,11 +263,6 @@ def build_evaluate_prompt_suggestion_workflow_id(suggestion_id: UUID) -> str:
     return f"{EVALUATE_PROMPT_SUGGESTION_WORKFLOW_NAME}-{suggestion_id}"
 
 
-def replay_vision_distinct_id(team_id: int) -> str:
-    """`posthog_distinct_id` for analytics events emitted by Replay Vision when no human user is attributable."""
-    return f"replay-vision:{team_id}"
-
-
 # Search suggestion refresher: hourly, bounded per run and per day so cost tracks scanners people look at.
 SEARCH_SUGGESTIONS_WORKFLOW_NAME = "replay-vision-refresh-search-suggestions"
 SEARCH_SUGGESTIONS_WORKFLOW_ID = "replay-vision-search-suggestions-refresher"

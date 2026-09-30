@@ -60,16 +60,6 @@
     font-size: 12px;
     line-height: 1.5;
     color: var(--today-muted);
-
-    &--nested {
-        padding-left: 30px;
-    }
-}
-
-.TodayPane__hash {
-    font-family: var(--font-mono);
-    font-size: 13px;
-    color: var(--today-faint);
 }
 
 .TodayPaneRow {
@@ -83,10 +73,6 @@
     color: var(--today-body-text);
     text-align: left;
     border-radius: 8px;
-
-    &--nested {
-        padding-left: 30px;
-    }
 
     &[data-active='true'] {
         color: var(--today-ink);
@@ -133,12 +119,15 @@
     white-space: nowrap;
 }
 
-.TodayPaneRow__chevron {
-    flex: 0 0 14px;
-    width: 14px;
-    height: 14px;
-    color: var(--today-faint);
-    transition: transform 0.16s;
+.TodayPaneRow__wrap:has(.TodayPaneRow__meta) {
+    .TodayPaneRow--withAction {
+        padding-right: 8px;
+    }
+
+    &:hover .TodayPaneRow__meta,
+    &:focus-within .TodayPaneRow__meta {
+        visibility: hidden;
+    }
 }
 
 .TodayPaneRow__wrap {

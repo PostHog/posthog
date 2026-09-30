@@ -399,6 +399,7 @@ field_name_overrides: dict[AuditableScope, dict[str, str]] = {
         "run_interval_minutes": "run interval (minutes)",
         "emit": "emit findings",
         "pause_reason": "pause reason",
+        "managed_by": "managed by",
         "auto_pause_exempt": "never pause for inactivity",
         "write_scopes": "write access",
     },
@@ -610,6 +611,15 @@ activity_visibility_restrictions: list[dict[str, Any]] = [
         "exclude_when": {},
         "allow_staff": True,
     },
+    *(
+        {
+            "scope": scope,
+            "activities": ["commented", "created task", "completed task", "reopened task"],
+            "exclude_when": {},
+            "allow_staff": True,
+        }
+        for scope in ("desktop_canvas", "canvas")
+    ),
 ]
 
 field_exclusions: dict[AuditableScope, list[str]] = {
@@ -923,8 +933,6 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         # Reads through UserFacetSettings' own fail-closed TeamScopedManager, which has no
         # ambient team scope at signal-handling time (same reason Loop excludes triggers/fires).
         "facet_settings",
-        # Same fail-closed manager, on the WorkflowProposal relation a user can resolve.
-        "resolved_workflow_proposals",
     ],
     "AlertConfiguration": [
         "last_checked_at",
