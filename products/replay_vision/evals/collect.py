@@ -37,14 +37,15 @@ def main() -> None:
     parser.add_argument(
         "--upload",
         metavar="OBJECT_KEY",
-        help="After collecting, upload the dataset into object storage under this key. "
-        "Refuses a key that already holds a dataset.",
+        help="After collecting, upload the dataset into object storage under this key, in the bucket "
+        "REPLAY_VISION_EVAL_DATASET_BUCKET names. Refuses a key that already holds a dataset.",
     )
     parser.add_argument(
         "--from",
         dest="from_key",
         metavar="OBJECT_KEY",
-        help="Download the pinned dataset under this key into --output first, then extend it with new cases.",
+        help="Download the pinned dataset under this key (in the bucket REPLAY_VISION_EVAL_DATASET_BUCKET names) "
+        "into --output first, then extend it with new cases.",
     )
     args = parser.parse_args()
 

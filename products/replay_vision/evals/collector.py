@@ -606,7 +606,7 @@ def collect(
         created_at=dt.datetime.now(dt.UTC).isoformat(),
         host=host,
         project_id=project_id,
-        organization_id=int(environment["organization"]),
+        organization_id=str(environment["organization"]),
         cases=list(merged.values()),
     )
     save_dataset(output, dataset)

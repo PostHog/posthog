@@ -90,7 +90,7 @@ class GoldenDataset(BaseModel, frozen=True):
     project_id: int
     # For the consent re-check at eval time. Optional so manifests collected before it was recorded
     # still load; those fall back to the organization endpoint with the project id.
-    organization_id: int | None = None
+    organization_id: str | None = None
     cases: list[GoldenCase] = Field(default_factory=list)
 
 
@@ -124,7 +124,7 @@ def ensure_dataset_consent(dataset: GoldenDataset, api_key: str) -> None:
             f"{dataset.host}/api/environments/{dataset.project_id}/", headers=headers, timeout=60
         )
         environment.raise_for_status()
-        organization_id = int(environment.json()["organization"])
+        organization_id = str(environment.json()["organization"])
     organization = requests.get(f"{dataset.host}/api/organizations/{organization_id}/", headers=headers, timeout=60)
     organization.raise_for_status()
     if not organization.json().get("is_ai_data_processing_approved"):
@@ -153,6 +153,12 @@ class _DatasetObjectLocation:
 
 
 def _bucket_and_key(bucket: str | None, key: str | None) -> _DatasetObjectLocation:
+    from django.conf import settings  # noqa: PLC0415 - keeps Django off the eval import path
+
+    # With storage disabled the client is a stub whose writes do nothing, so an upload would report
+    # success without writing the pin.
+    if not settings.OBJECT_STORAGE_ENABLED:
+        raise RuntimeError("OBJECT_STORAGE_ENABLED is off, so the pinned golden dataset cannot be read or written")
     raw_bucket = bucket if bucket is not None else os.environ.get(DATASET_BUCKET_ENV_VAR, "").strip()
     raw_key = key if key is not None else os.environ.get(DATASET_KEY_ENV_VAR, "").strip()
     if not raw_bucket or not raw_key:

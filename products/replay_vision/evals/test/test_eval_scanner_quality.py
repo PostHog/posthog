@@ -1,16 +1,21 @@
 from __future__ import annotations
 
+import sys
 import json
 import time
+import uuid
 import random
 import asyncio
 import datetime as dt
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import boto3
+from botocore.client import Config as BotoConfig
 from google.genai import types as genai_types
 from pydantic import ValidationError
 
@@ -26,7 +31,11 @@ from products.replay_vision.backend.temporal.types import (
     ScannerSnapshot,
     VerificationRecord,
 )
-from products.replay_vision.evals import collector, eval_scanner_quality
+from products.replay_vision.evals import (
+    collect as collect_cli,
+    collector,
+    eval_scanner_quality,
+)
 from products.replay_vision.evals.collector import (
     _VideoAsset,
     asset_is_recorded_video,
@@ -34,10 +43,14 @@ from products.replay_vision.evals.collector import (
     order_candidates,
 )
 from products.replay_vision.evals.dataset import (
+    DATASET_BUCKET_ENV_VAR,
+    DATASET_ENV_VAR,
+    DATASET_KEY_ENV_VAR,
     GoldenCase,
     GoldenDataset,
     download_pinned_dataset,
     ensure_dataset_consent,
+    load_dataset,
     parse_utc,
     save_dataset,
     upload_pinned_dataset,
@@ -355,13 +368,17 @@ def test_parse_utc_rejects_naive_timestamps() -> None:
     assert parse_utc("2026-08-01T12:00:00+12:00") == dt.datetime(2026, 8, 1, 0, 0, 0, tzinfo=dt.UTC)
 
 
+# Organization ids are UUID strings in the API.
+_ORG_ID = "0199bbbb-0000-7000-8000-000000000001"
+
+
 @pytest.mark.parametrize("approved", [True, False])
 def test_ensure_dataset_consent_reads_the_source_org(approved: bool) -> None:
     dataset = GoldenDataset(
         created_at=dt.datetime.now(dt.UTC).isoformat(),
         host="https://us.posthog.com",
         project_id=2,
-        organization_id=1,
+        organization_id=_ORG_ID,
         cases=[],
     )
     response = MagicMock()
@@ -387,7 +404,7 @@ def test_ensure_dataset_consent_refuses_without_a_key_or_a_trusted_host(host: st
         created_at=dt.datetime.now(dt.UTC).isoformat(),
         host=host,
         project_id=2,
-        organization_id=1,
+        organization_id=_ORG_ID,
         cases=[],
     )
     with patch("requests.get") as get, pytest.raises(RuntimeError, match=error):
@@ -404,14 +421,14 @@ def test_ensure_dataset_consent_resolves_the_org_on_legacy_manifests() -> None:
         cases=[],
     )
     environment = MagicMock()
-    environment.json.return_value = {"organization": 7}
+    environment.json.return_value = {"organization": _ORG_ID}
     organization = MagicMock()
     organization.json.return_value = {"is_ai_data_processing_approved": True}
     with patch("requests.get", side_effect=[environment, organization]) as get:
         ensure_dataset_consent(dataset, "test-key")
     assert get.call_count == 2
     assert get.call_args_list[0].args[0].endswith("/api/environments/2/")
-    assert get.call_args_list[1].args[0].endswith("/api/organizations/7/")
+    assert get.call_args_list[1].args[0].endswith(f"/api/organizations/{_ORG_ID}/")
 
 
 def _golden_case_on_disk(case_id: str, root: Path, *, write_files: bool = True) -> GoldenCase:
@@ -431,7 +448,7 @@ def test_upload_pinned_dataset_writes_every_case_and_the_manifest_last(tmp_path:
         created_at=dt.datetime.now(dt.UTC).isoformat(),
         host="https://us.posthog.com",
         project_id=2,
-        organization_id=1,
+        organization_id=_ORG_ID,
         cases=[_golden_case_on_disk("c1", tmp_path), _golden_case_on_disk("c2", tmp_path)],
     )
     uploaded: list[str] = []
@@ -460,7 +477,7 @@ def test_upload_pinned_dataset_refuses_a_dataset_with_missing_local_files(tmp_pa
         created_at=dt.datetime.now(dt.UTC).isoformat(),
         host="https://us.posthog.com",
         project_id=2,
-        organization_id=1,
+        organization_id=_ORG_ID,
         cases=[_golden_case_on_disk("c1", tmp_path, write_files=False)],
     )
     with (
@@ -475,7 +492,7 @@ def test_upload_pinned_dataset_refuses_a_key_that_already_holds_a_manifest(tmp_p
         created_at=dt.datetime.now(dt.UTC).isoformat(),
         host="https://us.posthog.com",
         project_id=2,
-        organization_id=1,
+        organization_id=_ORG_ID,
         cases=[_golden_case_on_disk("c1", tmp_path)],
     )
     with (
@@ -489,24 +506,35 @@ def test_upload_pinned_dataset_refuses_a_key_that_already_holds_a_manifest(tmp_p
     write.assert_not_called()
 
 
-def test_collector_reuses_only_cases_from_the_collected_team(tmp_path: Path) -> None:
+def test_collect_records_the_org_and_reuses_only_the_collected_teams_cases(tmp_path: Path) -> None:
     same_team = _golden_case_on_disk("c1", tmp_path)
     other_team = _golden_case_on_disk("c2", tmp_path).model_copy(update={"team_id": 3})
     inputs = build_llm_inputs(_FakeApi(), 2, "sess-1")  # type: ignore[arg-type]
     assert inputs is not None
     for case in (same_team, other_team):
         case.inputs_path(tmp_path).write_text(inputs.model_dump_json())
-    save_dataset(
-        tmp_path,
-        GoldenDataset(
-            created_at=dt.datetime.now(dt.UTC).isoformat(),
-            host="https://us.posthog.com",
-            project_id=2,
-            organization_id=1,
-            cases=[same_team, other_team],
-        ),
+    save_dataset(tmp_path, _pinned_dataset(same_team, other_team))
+    api = MagicMock()
+    api.get_json.side_effect = lambda path: (
+        {"id": 2, "project_id": 2, "organization": _ORG_ID, "name": "Team"}
+        if path == "/api/environments/2/"
+        else {"is_ai_data_processing_approved": True}
     )
-    assert list(collector._reusable_existing_cases(tmp_path, team_id=2)) == ["c1"]
+
+    with (
+        patch.object(collector, "PostHogApi", return_value=api),
+        patch.object(collector, "fetch_product_context_via_api", return_value=""),
+        patch.object(collector, "EventDescriptionLookup"),
+        patch.object(collector, "_fetch_candidates", return_value=[]),
+        patch.object(collector, "lookup_video_assets", return_value={}),
+    ):
+        dataset = collector.collect(
+            host="https://us.posthog.com", project_id=2, api_key="test-key", output=tmp_path, per_type=1
+        )
+
+    assert dataset.organization_id == _ORG_ID
+    assert [case.case_id for case in dataset.cases] == ["c1"]
+    assert load_dataset(tmp_path) == dataset
 
 
 def test_download_pinned_dataset_replaces_existing_local_case_files(tmp_path: Path) -> None:
@@ -514,7 +542,7 @@ def test_download_pinned_dataset_replaces_existing_local_case_files(tmp_path: Pa
         created_at=dt.datetime.now(dt.UTC).isoformat(),
         host="https://us.posthog.com",
         project_id=2,
-        organization_id=1,
+        organization_id=_ORG_ID,
         cases=[_golden_case_on_disk("c1", tmp_path), _golden_case_on_disk("c2", tmp_path, write_files=False)],
     )
     remote = {case.case_id: case for case in dataset.cases}
@@ -549,7 +577,7 @@ def test_download_pinned_dataset_fails_when_a_case_video_is_absent_remote(tmp_pa
         created_at=dt.datetime.now(dt.UTC).isoformat(),
         host="https://us.posthog.com",
         project_id=2,
-        organization_id=1,
+        organization_id=_ORG_ID,
         cases=[_golden_case_on_disk("c1", tmp_path, write_files=False)],
     )
     with patch(
@@ -560,6 +588,131 @@ def test_download_pinned_dataset_fails_when_a_case_video_is_absent_remote(tmp_pa
     ):
         with pytest.raises(RuntimeError, match="missing video for case c1"):
             download_pinned_dataset(tmp_path, bucket="test-bucket", key=_PIN_KEY)
+
+
+@pytest.fixture
+def real_pin_key(settings: Any) -> Iterator[str]:
+    settings.OBJECT_STORAGE_ENABLED = True
+    prefix = f"test-replay-vision-pin-{uuid.uuid4().hex}"
+    yield f"{prefix}/v1/manifest.json"
+    s3 = boto3.resource(
+        "s3",
+        endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
+        aws_access_key_id=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+        aws_secret_access_key=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+        config=BotoConfig(signature_version="s3v4"),
+        region_name="us-east-1",
+    )
+    s3.Bucket(settings.OBJECT_STORAGE_BUCKET).objects.filter(Prefix=prefix).delete()
+
+
+def _pinned_dataset(*cases: GoldenCase) -> GoldenDataset:
+    return GoldenDataset(
+        created_at=dt.datetime.now(dt.UTC).isoformat(),
+        host="https://us.posthog.com",
+        project_id=2,
+        organization_id=_ORG_ID,
+        cases=list(cases),
+    )
+
+
+def test_pinned_dataset_round_trips_through_real_object_storage(
+    tmp_path: Path, real_pin_key: str, settings: Any
+) -> None:
+    source, target = tmp_path / "source", tmp_path / "target"
+    dataset = _pinned_dataset(_golden_case_on_disk("c1", source), _golden_case_on_disk("c2", source))
+    bucket = settings.OBJECT_STORAGE_BUCKET
+
+    upload_pinned_dataset(source, dataset, bucket=bucket, key=real_pin_key)
+    downloaded = download_pinned_dataset(target, bucket=bucket, key=real_pin_key)
+
+    assert downloaded == dataset
+    for case in dataset.cases:
+        assert case.video_path(target).read_bytes() == case.video_path(source).read_bytes()
+        assert case.inputs_path(target).read_text() == case.inputs_path(source).read_text()
+    with pytest.raises(RuntimeError, match="upload under a new key prefix"):
+        upload_pinned_dataset(source, dataset, bucket=bucket, key=real_pin_key)
+
+
+@pytest.mark.parametrize("operation", ["upload", "download"])
+def test_pinned_dataset_refuses_when_object_storage_is_disabled(tmp_path: Path, settings: Any, operation: str) -> None:
+    settings.OBJECT_STORAGE_ENABLED = False
+    dataset = _pinned_dataset(_golden_case_on_disk("c1", tmp_path))
+    with pytest.raises(RuntimeError, match="OBJECT_STORAGE_ENABLED"):
+        if operation == "upload":
+            upload_pinned_dataset(tmp_path, dataset, bucket="test-bucket", key=_PIN_KEY)
+        else:
+            download_pinned_dataset(tmp_path, bucket="test-bucket", key=_PIN_KEY)
+
+
+def test_collect_cli_extends_a_pin_under_a_new_key(
+    tmp_path: Path, real_pin_key: str, settings: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    bucket = settings.OBJECT_STORAGE_BUCKET
+    pinned = _pinned_dataset(_golden_case_on_disk("c1", tmp_path / "seed"))
+    upload_pinned_dataset(tmp_path / "seed", pinned, bucket=bucket, key=real_pin_key)
+    new_key = real_pin_key.replace("/v1/", "/v2/")
+    output = tmp_path / "output"
+    seen_before_collect: list[list[str]] = []
+
+    def fake_collect(*, output: Path, **_: Any) -> GoldenDataset:
+        seen_before_collect.append([case.case_id for case in load_dataset(output).cases])
+        grown = _pinned_dataset(*pinned.cases, _golden_case_on_disk("c2", output))
+        save_dataset(output, grown)
+        return grown
+
+    monkeypatch.setenv("POSTHOG_API_KEY", "test-key")
+    monkeypatch.setenv(DATASET_BUCKET_ENV_VAR, bucket)
+    monkeypatch.setattr(sys, "argv", ["collect", "--output", str(output), "--from", real_pin_key, "--upload", new_key])
+    with patch("products.replay_vision.evals.collector.collect", side_effect=fake_collect):
+        collect_cli.main()
+
+    assert seen_before_collect == [["c1"]]
+    grown = download_pinned_dataset(tmp_path / "grown", bucket=bucket, key=new_key)
+    assert [case.case_id for case in grown.cases] == ["c1", "c2"]
+    original = download_pinned_dataset(tmp_path / "original", bucket=bucket, key=real_pin_key)
+    assert [case.case_id for case in original.cases] == ["c1"]
+
+
+@pytest.mark.parametrize("pinned", [True, False])
+@pytest.mark.parametrize("approved", [True, False])
+def test_eval_scanner_quality_checks_consent_before_scanning(
+    tmp_path: Path, settings: Any, monkeypatch: pytest.MonkeyPatch, pinned: bool, approved: bool
+) -> None:
+    settings.OBJECT_STORAGE_ENABLED = True
+    root = tmp_path / "dataset"
+    dataset = _pinned_dataset(_golden_case_on_disk("c1", root))
+    manifest = dataset.model_dump_json().encode()
+    if pinned:
+        monkeypatch.setenv(DATASET_BUCKET_ENV_VAR, "test-bucket")
+        monkeypatch.setenv(DATASET_KEY_ENV_VAR, _PIN_KEY)
+    else:
+        save_dataset(root, dataset)
+    monkeypatch.setenv(DATASET_ENV_VAR, str(root))
+    monkeypatch.setenv("POSTHOG_API_KEY", "test-key")
+    consent = MagicMock()
+    consent.json.return_value = {"is_ai_data_processing_approved": approved}
+    one_shot = AsyncMock()
+
+    with (
+        patch.object(eval_scanner_quality, "gemini_api_key", return_value="test-gemini-key"),
+        patch(
+            "posthog.storage.object_storage.read_bytes",
+            side_effect=lambda key, bucket=None, missing_ok=False: manifest if key == _PIN_KEY else b"{}",
+        ) as read_bytes,
+        patch("requests.get", return_value=consent),
+        patch.object(eval_scanner_quality, "OneShotPrivateEval", one_shot),
+    ):
+        if approved:
+            asyncio.run(eval_scanner_quality.eval_scanner_quality(MagicMock()))
+        else:
+            with pytest.raises(RuntimeError, match="withdrawn AI data-processing consent"):
+                asyncio.run(eval_scanner_quality.eval_scanner_quality(MagicMock()))
+
+    assert read_bytes.called == pinned
+    assert one_shot.call_count == (1 if approved else 0)
+    if approved:
+        assert [case.metadata["case_id"] for case in one_shot.call_args.kwargs["cases"]] == ["c1"]
 
 
 def test_apply_known_freeform_tags_only_touches_freeform_classifiers() -> None:

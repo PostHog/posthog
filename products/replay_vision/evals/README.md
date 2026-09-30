@@ -90,7 +90,7 @@ A pinned dataset fixes that (see "Pinning the dataset" below): a person curates 
 A pinned dataset is the same directory, uploaded to object storage under one stable key so every run scans the same footage:
 
 ```bash
-POSTHOG_API_KEY=... python -m products.replay_vision.evals.collect \
+POSTHOG_API_KEY=... REPLAY_VISION_EVAL_DATASET_BUCKET=... python -m products.replay_vision.evals.collect \
     --project-id 2 --per-type 25 --output ~/.posthog/replay-vision-golden-dataset \
     --upload replay-vision/golden/v1/manifest.json
 ```
