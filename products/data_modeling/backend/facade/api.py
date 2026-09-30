@@ -55,6 +55,7 @@ _LAZY = {
     "MaterializationForbiddenError": "facade.contracts",
     "MaterializationRefusedError": "facade.contracts",
     "enable_saved_query_materialization": "logic.saved_query_materialization",
+    "saved_query_ids_by_workflow_id": "logic.saved_query_reads",
     "saved_query_materialized_at": "logic.saved_query_freshness",
     "latest_saved_query_materialization_job": "logic.saved_query_freshness",
     "is_materialization_fresh": "logic.saved_query_freshness",
