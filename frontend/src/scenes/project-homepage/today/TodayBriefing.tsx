@@ -3,7 +3,6 @@ import { useActions, useValues } from 'kea'
 import { LemonBanner } from '@posthog/lemon-ui'
 
 import { Link } from 'lib/lemon-ui/Link'
-import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { urls } from 'scenes/urls'
 
 import { TodayAskBox } from './TodayAskBox'
@@ -54,8 +53,7 @@ function BriefingSegment({ segment }: { segment: TodayBriefingSegment }): JSX.El
 
 function TodayBriefingReports(): JSX.Element {
     const { reportSummary, reports, briefing, hoveredReportId, moreReportCount } = useValues(todayLogic)
-    const { openReport, setHoveredReportId } = useActions(todayLogic)
-    const { askSidePanelMax } = useActions(maxGlobalLogic)
+    const { askAi, openReport, setHoveredReportId } = useActions(todayLogic)
 
     return (
         <>
@@ -107,7 +105,7 @@ function TodayBriefingReports(): JSX.Element {
                 <button
                     type="button"
                     data-attr="today-ask-about-edition"
-                    onClick={() => askSidePanelMax('Walk me through what changed in my product today.')}
+                    onClick={() => askAi('Walk me through what changed in my product today.')}
                 >
                     ask PostHog AI to walk you through it
                 </button>
