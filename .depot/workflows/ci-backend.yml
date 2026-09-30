@@ -346,6 +346,10 @@ jobs:
         permissions:
             contents: read
         steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: .github/scripts/cancel_superseded_depot_runs.py
+                  sparse-checkout-cone-mode: false
             - uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
             - name: Cancel this PR's older runs
               continue-on-error: true
@@ -353,56 +357,7 @@ jobs:
                   DEPOT_TOKEN: ${{ secrets.DEPOT_CI_CANCEL_TOKEN }}
                   REPO: ${{ github.repository }}
                   PR_NUMBER: ${{ github.event.pull_request.number }}
-              run: |
-                  set -uo pipefail
-                  own_workflow=$(sed -nE 's|^https://depot\.dev/orgs/[^/]+/workflows/([a-z0-9]+).*|\1|p' <<<"${DEPOT_JOB_URL:-}")
-                  if [ -z "$own_workflow" ]; then
-                      echo "::warning::DEPOT_JOB_URL names no workflow, so no run was cancelled."
-                      exit 0
-                  fi
-                  # Depot creates a run before its workflow, so poll until every older run has one.
-                  attempts=12
-                  for attempt in $(seq 1 "$attempts"); do
-                      # Workflows first, so the run of every listed workflow is in the run list.
-                      if ! workflows=$(depot ci workflow list --repo "$REPO" --pr "$PR_NUMBER" --trigger pull_request --status queued --status running --status finished --status failed --status cancelled -n 200 -o json) ||
-                          ! runs=$(depot ci run list --repo "$REPO" --pr "$PR_NUMBER" --trigger pull_request --status queued --status running -n 200 -o json); then
-                          echo "::warning::Could not list this PR's Depot runs, so no run was cancelled."
-                          exit 0
-                      fi
-                      # A same-second tie between two commits cancels neither: the run id cannot tell which is the head.
-                      if ! plan=$(jq -nr --arg own "$own_workflow" --argjson workflows "$workflows" --argjson runs "$runs" '
-                          ($runs | INDEX(.run_id)) as $run
-                          | ($workflows | map(.run_id)) as $has_workflow
-                          | [$workflows[] | select(.workflow_path == "ci-backend.yml" and $run[.run_id] != null)] as $backend
-                          | ($backend | map(select(.workflow_id == $own)) | first) as $me
-                          | if any($runs[]; .created_at | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$") | not) then "unordered"
-                            elif $me == null then 1
-                            else $run[$me.run_id] as $mine
-                              | ([$runs[] | select([.created_at, .run_id] < [$mine.created_at, $mine.run_id] and (.run_id | IN($has_workflow[]) | not))] | length),
-                                ($backend[] | $run[.run_id] as $other
-                                  | select((.status == "queued" or .status == "running")
-                                      and ($other.created_at < $mine.created_at
-                                          or ($other.created_at == $mine.created_at and $other.run_id < $mine.run_id and $other.head_sha == $mine.head_sha)))
-                                  | "\(.run_id) \(.workflow_id)")
-                            end'); then
-                          echo "::warning::Could not read the Depot run lists, so no run was cancelled."
-                          exit 0
-                      fi
-                      {
-                          read -r waiting
-                          if [ "$waiting" = unordered ]; then
-                              echo "::warning::A Depot run has no whole-second created_at, so no run was cancelled."
-                              exit 0
-                          fi
-                          while read -r run workflow; do
-                              echo "Cancelling superseded run $run (workflow $workflow)"
-                              depot ci cancel "$run" --workflow "$workflow" || echo "::warning::Could not cancel run $run"
-                          done
-                      } <<<"$plan"
-                      [ "$waiting" -eq 0 ] && exit 0
-                      [ "$attempt" -lt "$attempts" ] && sleep 15
-                  done
-                  echo "::warning::An older run of this PR still had no workflow to cancel."
+              run: python3 .github/scripts/cancel_superseded_depot_runs.py
     # Job to decide if we should run backend ci
     # See .github/actions/paths-filter/README.md for filter semantics
     changes:
