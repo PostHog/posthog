@@ -1206,7 +1206,14 @@ export const integrationsLogic = kea<integrationsLogicType>([
                                 oauth_verifier: searchParams.oauth_verifier,
                             },
                         })
-                        const url = new URL(integration.config.next || replaceUrl, window.location.origin)
+                        const nextUrl =
+                            typeof integration.config === 'object' &&
+                            integration.config !== null &&
+                            'next' in integration.config &&
+                            typeof integration.config.next === 'string'
+                                ? integration.config.next
+                                : replaceUrl
+                        const url = new URL(nextUrl, window.location.origin)
                         url.searchParams.set(OAUTH_INTEGRATION_ID_PARAM, String(integration.id))
                         replaceUrl = url.pathname + url.search + url.hash
                         actions.loadIntegrations()
