@@ -26,7 +26,6 @@ function isToolItem(item: FileSystemImport): boolean {
     return !!item.href && !(type in fileSystemTypes && !TOOL_FILE_SYSTEM_TYPES.has(type))
 }
 
-/** The href of the tool whose page holds this path. The longest tool path wins. */
 export function toolHrefForPath(
     path: string,
     tools: Pick<FileSystemImport, 'href'>[] = [...getTreeItemsProducts(), ...getTreeItemsMetadata()].filter(isToolItem)

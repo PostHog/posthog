@@ -23,6 +23,8 @@ describe('libraryUtils', () => {
         ['/workflows/abc/workflow', 'workflows'],
         ['/replay/playlists/abc', 'session_recording_playlist'],
         ['/feature_flags', null],
+        ['/feature_flags/templates', null],
+        ['/workflows/library/templates/new', null],
         ['/notebooks/abc', null],
     ])('finds the object type of %s', (path, type) => {
         expect(libraryTypeForPath(path)).toBe(type)

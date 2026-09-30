@@ -1,3 +1,5 @@
+import { routes } from 'scenes/scenes'
+
 import { fileSystemTypes } from '~/products'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 
@@ -37,25 +39,47 @@ export function libraryObjectHref(entry: Pick<FileSystemEntry, 'href' | 'type' |
 
 const REF_PLACEHOLDER = 'LIBRARY_REF'
 
-/** The saved object type whose page this path opens, such as `feature_flag` for `/feature_flags/12`. */
-export function libraryTypeForPath(path: string): string | null {
-    let match: { type: string; prefix: string } | null = null
-    for (const [type, definition] of Object.entries(fileSystemTypes)) {
-        if (TOOL_FILE_SYSTEM_TYPES.has(type)) {
+function routeSegments(route: string): string[] {
+    return route.split(/[?#]/)[0].split('/').filter(Boolean)
+}
+
+let parsedRoutes: { scene: string; parts: string[] }[] | null = null
+let objectTypeByScene: Map<string, string> | null = null
+
+// The router prefers a fixed segment to a parameter, so `/feature_flags/templates` opens its own scene.
+function sceneForPath(path: string): string | null {
+    parsedRoutes ??= Object.entries(routes).map(([route, [scene]]) => ({ scene, parts: routeSegments(route) }))
+    const segments = routeSegments(path)
+    let best: { scene: string; params: number } | null = null
+    for (const { scene, parts } of parsedRoutes) {
+        const wildcard = parts[parts.length - 1] === '*'
+        const fixedLength = wildcard ? parts.length - 1 : parts.length
+        if (wildcard ? segments.length <= fixedLength : segments.length !== fixedLength) {
             continue
         }
-        const href = definition.href(REF_PLACEHOLDER)
-        const prefix = href.slice(0, Math.max(href.indexOf(REF_PLACEHOLDER), 0))
-        if (
-            prefix.endsWith('/') &&
-            path.length > prefix.length &&
-            path.startsWith(prefix) &&
-            (!match || prefix.length > match.prefix.length)
-        ) {
-            match = { type, prefix }
+        if (!parts.slice(0, fixedLength).every((part, index) => part.startsWith(':') || part === segments[index])) {
+            continue
+        }
+        const params = parts.filter((part) => part.startsWith(':') || part === '*').length
+        if (!best || params < best.params) {
+            best = { scene, params }
         }
     }
-    return match?.type ?? null
+    return best?.scene ?? null
+}
+
+export function libraryTypeForPath(path: string): string | null {
+    if (!objectTypeByScene) {
+        objectTypeByScene = new Map()
+        for (const [type, definition] of Object.entries(fileSystemTypes)) {
+            const scene = TOOL_FILE_SYSTEM_TYPES.has(type) ? null : sceneForPath(definition.href(REF_PLACEHOLDER))
+            if (scene && !objectTypeByScene.has(scene)) {
+                objectTypeByScene.set(scene, type)
+            }
+        }
+    }
+    const scene = sceneForPath(path)
+    return (scene && objectTypeByScene.get(scene)) || null
 }
 
 /** The last segment of a file system path, with escaped slashes restored. */
