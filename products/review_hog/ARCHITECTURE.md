@@ -71,7 +71,8 @@ dependency manifests delivers a human-review warning instead of the link and nev
 **TODO (BLOCKING public release): the three remaining injection-surface hardening items from the July e2e
 GO conditions.** Manual review and resolution are available to explicitly enabled projects for
 repositories their teams own. This is a limited rollout; the feature flag does not establish repository or
-comment trust. The path backstop above is built; these
+comment trust. Operators must assess both before enabling resolution. DECISIONS.md Stage 7 records the
+2026-09-30 decision to accept the existing risks for this limited manual rollout. The path backstop above is built; these
 are deliberately deferred (maintainer decisions 2026-08-06 and 2026-08-10, recorded in DECISIONS.md Stage 7)
 and MUST land before public release or resolution on untrusted PRs or repositories the team does not own:
 
@@ -677,6 +678,9 @@ See [DECISIONS.md](./DECISIONS.md) for the "reuse the leaf, own the model" bound
   and all project ReviewHog APIs. Staff also need the flag; normal membership and scope checks still apply.
   Set every release condition to the **project** group, match its **id** property against the allowed project
   IDs, and use 100% rollout. Replace broader conditions and include existing projects before deployment.
+  This property identifies the **active environment** in both the browser and API. Include each environment
+  that should have access; enabling a parent does not enable its child environments. ReviewHog shares its
+  data under the parent project, but access remains independently flag-gated in each environment.
   Use the `id` property rather than the group key: the browser
   and MCP use the project's UUID as the group key, while the backend permission passes its numeric ID.
   Newly enabled projects get manual review and resolution. Each project needs a GitHub App integration
@@ -699,8 +703,9 @@ See [DECISIONS.md](./DECISIONS.md) for the "reuse the leaf, own the model" bound
   The PR author's linked GitHub identity must map to an active member of the team's organization with `review_authored_prs` enabled.
 - **Internal UI features** use `show_internal_features` in the settings response, true only for the first
   `REVIEWHOG_TEAM_IDS` entry. That project retains Flash and all automation controls. Other enabled projects
-  show manual review and resolution without Flash or automation controls, and their settings reads do not
-  query Stamphog. Existing automation routing and its configuration remain separate from the flag.
+  show manual review and resolution without Flash or automation controls, except that saved Inbox or
+  Stamphog opt-ins remain visible until switched off. Their settings reads do not query Stamphog.
+  Existing automation routing and its configuration remain separate from the flag.
 
 **Triggers.** Six entry points feed the same per-PR `ReviewPRQueueWorkflow`: the `run_review` CLI (manual / eval), the
 `reviewhog` **label** on a `PostHog/posthog` PR (a thin GitHub Action → `POST /api/review_hog/trigger`), a **UI**

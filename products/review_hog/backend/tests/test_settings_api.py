@@ -138,17 +138,34 @@ class TestReviewUserSettingsAPI(APIBaseTest):
         assert rows.count() == 1
         assert rows.get().version == 1
 
-    def test_environment_url_resolves_to_the_canonical_team(self) -> None:
+    def test_environment_flag_access_uses_the_url_team_but_settings_use_the_parent(self) -> None:
         # With an environment (child team) id in the URL, the canonicalized `for_team` filter and a
         # raw-id create kwarg used to contradict each other: the row landed on the parent, the get
         # never matched, and every call after the first 500ed on the unique constraint.
         env = Team.objects.create(organization=self.organization, parent_team=self.team, name="env")
         url = f"/api/projects/{env.id}/review_hog/settings/"
+        enabled_project_id = str(self.team.id)
 
-        first = self.client.get(url)
-        second = self.client.patch(url, {"urgency_threshold": "must_fix"}, format="json")
+        def enabled_for_project(
+            key: str,
+            _distinct_id: str,
+            *,
+            group_properties: dict[str, dict[str, str]] | None = None,
+            **_kwargs: object,
+        ) -> bool:
+            return key == "review-hog" and (group_properties or {}).get("project", {}).get("id") == enabled_project_id
+
+        with patch("posthoganalytics.feature_enabled", side_effect=enabled_for_project):
+            parent = self.client.patch(self.url, {"urgency_threshold": "should_fix"}, format="json")
+            assert parent.status_code == 200
+            assert self.client.get(url).status_code == 403
+
+            enabled_project_id = str(env.id)
+            first = self.client.get(url)
+            second = self.client.patch(url, {"urgency_threshold": "must_fix"}, format="json")
 
         assert first.status_code == 200
+        assert first.json()["urgency_threshold"] == "should_fix"
         assert second.status_code == 200
         row = ReviewUserSettings.objects.for_team(self.team.id).get(user_id=self.user.id)
         assert row.team_id == self.team.id

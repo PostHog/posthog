@@ -215,14 +215,20 @@ including for staff. Normal membership and API scopes still apply. Set every rel
 **project** group, match its **id** property against the allowed project IDs, and use 100% rollout.
 Replace broader conditions and include existing projects before deployment. Use the `id` property,
 since frontend and backend group keys differ.
+The property identifies the active environment: explicitly include every environment that should have
+access. A parent project's flag does not enable its child environments, even though ReviewHog stores
+their settings and reviews under the shared parent project.
 
 Newly enabled projects get manual review and resolution. The first `REVIEWHOG_TEAM_IDS` entry retains
 Flash and all automation UI (`show_internal_features`); other projects do not query Stamphog.
+Existing Inbox or Stamphog opt-ins remain visible in other projects until the user switches them off.
 Each project needs a GitHub App integration covering the repository; review skills seed automatically.
 Existing automation routing and label secrets stay unchanged.
 
-Use resolution for explicitly enabled projects reviewing repositories their teams own. Public or untrusted use
-still requires the hardening listed in
+Use resolution only for explicitly enabled trusted projects reviewing repositories their teams own.
+Ownership does not authenticate commenters: operators must assess repository and comment trust before
+enabling resolution. The current risk acceptance covers this limited manual rollout, including the
+missing commenter authorization and the post-push path check. Public or untrusted use still requires the hardening listed in
 [ReviewHog's architecture](../../products/review_hog/ARCHITECTURE.md#status--next).
 
 ReviewHog Flash uses `gpt-6-luna` for review, blind-spot checks, and validation.
