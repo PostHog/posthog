@@ -135,6 +135,7 @@ from products.workflows.backend.facade.contracts import (
     WorkflowDraftChanged,
     WorkflowDraftExists,
     WorkflowRevisionNotFound,
+    WorkflowRevisionSummary,
     WorkflowScheduleNotFound,
 )
 from products.workflows.backend.facade.email_health import (
@@ -155,7 +156,7 @@ from products.workflows.backend.facade.proposals import (
     unstage_workflow_proposals,
     version_outcome,
 )
-from products.workflows.backend.facade.revisions import get_revision, list_revisions, restore_revision
+from products.workflows.backend.facade.revisions import count_revisions, get_revision, list_revisions, restore_revision
 from products.workflows.backend.facade.schedules import (
     compute_next_occurrences,
     create_schedule,
@@ -4092,6 +4093,19 @@ class HogFlowFilterSet(FilterSet):
         return queryset.filter(optimization__enabled=True).exclude(status=HogFlow.State.ARCHIVED)
 
 
+class _RevisionPages:
+    """Lets LimitOffsetPagination page revisions in the database, as it did over a queryset."""
+
+    def __init__(self, hog_flow_id: uuid_mod.UUID) -> None:
+        self.hog_flow_id = hog_flow_id
+
+    def count(self) -> int:
+        return count_revisions(self.hog_flow_id)
+
+    def __getitem__(self, page: slice) -> list[WorkflowRevisionSummary]:
+        return list_revisions(self.hog_flow_id, offset=page.start or 0, limit=page.stop - (page.start or 0))
+
+
 class HogFlowPagination(LimitOffsetPagination):
     default_limit = 100
     max_limit = 500
@@ -5336,7 +5350,7 @@ class HogFlowViewSet(
         # Version history: one snapshot per live-content change, newest first. Content is fetched
         # per-version via the detail endpoint — the list stays light.
         instance = self.get_object()
-        page = self.paginate_queryset(list_revisions(instance.pk))
+        page = self.paginate_queryset(_RevisionPages(instance.pk))
         return self.get_paginated_response(HogFlowRevisionBasicSerializer(page, many=True).data)
 
     @extend_schema(

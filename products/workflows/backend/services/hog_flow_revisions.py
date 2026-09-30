@@ -16,13 +16,17 @@ from products.workflows.backend.models.hog_flow_revision import HogFlowRevision
 from products.workflows.backend.services.workflow_proposals import unstage_workflow_proposals
 
 
-def list_revisions(hog_flow_id: UUID) -> list[WorkflowRevisionSummary]:
+def count_revisions(hog_flow_id: UUID) -> int:
+    return HogFlowRevision.objects.filter(hog_flow_id=hog_flow_id).count()
+
+
+def list_revisions(hog_flow_id: UUID, *, offset: int, limit: int) -> list[WorkflowRevisionSummary]:
     # Content is fetched per version via get_revision, so the list stays light.
     revisions = (
         HogFlowRevision.objects.filter(hog_flow_id=hog_flow_id)
         .order_by("-version")
         .select_related("created_by")
-        .defer("content")
+        .defer("content")[offset : offset + limit]
     )
     return [
         WorkflowRevisionSummary(version=r.version, created_at=r.created_at, created_by=r.created_by) for r in revisions
