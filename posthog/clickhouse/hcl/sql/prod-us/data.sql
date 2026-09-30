@@ -1727,7 +1727,10 @@ CREATE TABLE posthog.web_sessions_dimensional_preaggregated (
   utm_content String,
   referring_domain String,
   entry_pathname String,
+  entry_hostname String,
   pageview_count UInt64,
+  is_bounce Bool,
+  session_duration Int64,
   computed_at DateTime64(6, 'UTC') DEFAULT now(),
   expires_at DateTime64(6, 'UTC') DEFAULT now() + toIntervalDay(7)
 ) ENGINE = Distributed('aux', 'posthog', 'sharded_web_sessions_dimensional_preaggregated', cityHash64(person_id));

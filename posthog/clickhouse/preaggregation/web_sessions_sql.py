@@ -53,9 +53,15 @@ CREATE TABLE IF NOT EXISTS {table_name}
     utm_content String,
     referring_domain String,
     entry_pathname String,
+    entry_hostname String,
 
     -- Pageviews in the session, so a read can report views next to visitors and sessions.
     pageview_count UInt64,
+
+    -- Session-level values from the sessions table, so a read can report bounce rate and duration
+    -- without joining back to sessions.
+    is_bounce Bool,
+    session_duration Int64,
 
     computed_at DateTime64(6, 'UTC') DEFAULT now(),
     expires_at DateTime64(6, 'UTC') DEFAULT now() + INTERVAL 7 DAY

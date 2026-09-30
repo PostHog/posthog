@@ -7445,8 +7445,17 @@ database "posthog" {
     column "entry_pathname" {
       type = "String"
     }
+    column "entry_hostname" {
+      type = "String"
+    }
     column "pageview_count" {
       type = "UInt64"
+    }
+    column "is_bounce" {
+      type = "Bool"
+    }
+    column "session_duration" {
+      type = "Int64"
     }
     column "computed_at" {
       type    = "DateTime64(6, 'UTC')"
