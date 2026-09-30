@@ -548,7 +548,9 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
         )
         definitions_by_id = {
             str(pd.id): pd
-            for pd in PropertyDefinition.objects.filter(id__in=[rule.property_definition_id for rule in rules])
+            for pd in PropertyDefinition.objects.filter(
+                team_id=team.id, id__in=[rule.property_definition_id for rule in rules]
+            )
         }
 
         results = []

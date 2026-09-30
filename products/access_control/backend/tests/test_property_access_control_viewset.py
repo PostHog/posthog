@@ -35,7 +35,7 @@ class TestPropertyAccessControlViewSet(APIBaseTest):
             property_type="String",
             type=PropertyDefinition.Type.EVENT,
         )
-        self.url = f"/api/environments/{self.team.pk}/property_access_controls/"
+        self.url = f"/api/projects/{self.team.pk}/property_access_controls/"
         self.list_url = f"{self.url}?property_definition_id={self.prop_def.id}"
 
     def _post(self, data: dict, *, ai_property: bool = False):
@@ -92,71 +92,54 @@ class TestPropertyAccessControlViewSet(APIBaseTest):
             == status.HTTP_204_NO_CONTENT
         )
 
-    @parameterized.expand(
-        [
-            (False, "current"),
-            (True, "current"),
-            (False, "sibling"),
-            (True, "sibling"),
-            (True, "secondary"),
-        ]
-    )
-    def test_ai_rule_reuses_existing_definition_and_preserves_other_rules(
-        self, legacy_definition: bool, environment: str
-    ) -> None:
-        target_team = (
-            self.team
-            if environment == "current"
-            else Team.objects.create(organization=self.organization, project_id=self.team.project_id)
-        )
-        definition_team = target_team if environment == "secondary" else self.team
-        url = f"/api/environments/{target_team.pk}/property_access_controls/"
+    @parameterized.expand([(False,), (True,)])
+    def test_ai_rule_reuses_existing_definition_and_preserves_other_rules(self, legacy_definition: bool) -> None:
         definition = PropertyDefinition.objects.create(
-            team=definition_team,
+            team=self.team,
             project_id=None if legacy_definition else self.team.project_id,
             name="$ai_input",
             type=PropertyDefinition.Type.EVENT,
             property_type="String",
         )
         member_rule = PropertyAccessControl.objects.create(
-            team=definition_team,
+            team=self.team,
             property_definition=definition,
             organization_member=self.organization_membership,
             access_level="read",
         )
-        original_rule = PropertyAccessControl.objects.create(
-            team=definition_team, property_definition=definition, access_level="read"
-        )
-        response = self.client.post(url, {"ai_property": "$ai_input", "access_level": "none"}, format="json")
+        PropertyAccessControl.objects.create(team=self.team, property_definition=definition, access_level="read")
+        response = self.client.post(self.url, {"ai_property": "$ai_input", "access_level": "none"}, format="json")
         assert response.status_code == status.HTTP_200_OK
         rule = PropertyAccessControl.objects.get(id=response.json()["id"])
         assert rule.property_definition_id == definition.id
-        assert rule.team_id == target_team.id
-        assert self.client.get(f"{url}?property_definition_id={definition.id}").json()["default_access_level"] == "none"
+        assert rule.team_id == self.team.id
+        assert (
+            self.client.get(f"{self.url}?property_definition_id={definition.id}").json()["default_access_level"]
+            == "none"
+        )
         assert get_restricted_property_names(
-            team_id=target_team.id, user=None, property_type=PropertyDefinition.Type.EVENT
+            team_id=self.team.id, user=None, property_type=PropertyDefinition.Type.EVENT
         ) == {"$ai_input"}
 
         updated = self.client.post(
-            url, {"property_definition_id": str(definition.id), "access_level": "read"}, format="json"
+            self.url, {"property_definition_id": str(definition.id), "access_level": "read"}, format="json"
         )
         assert updated.status_code == status.HTTP_200_OK
         assert updated.json()["id"] == response.json()["id"]
-        assert self.client.get(f"{url}?property_definition_id={definition.id}").json()["default_access_level"] == "read"
         assert (
-            self.client.delete(f"{url}?property_definition_id={definition.id}").status_code
+            self.client.get(f"{self.url}?property_definition_id={definition.id}").json()["default_access_level"]
+            == "read"
+        )
+        assert (
+            self.client.delete(f"{self.url}?property_definition_id={definition.id}").status_code
             == status.HTTP_204_NO_CONTENT
         )
         assert not PropertyAccessControl.objects.filter(id=rule.id).exists()
-        if environment == "sibling":
-            original_rule.refresh_from_db()
-            assert original_rule.access_level == "read"
-
         definition.refresh_from_db()
         member_rule.refresh_from_db()
         assert definition.property_type == "String"
         assert member_rule.access_level == "read"
-        assert PropertyDefinition.objects.filter(team__project_id=self.team.project_id, name="$ai_input").count() == 1
+        assert PropertyDefinition.objects.filter(team=self.team, name="$ai_input").count() == 1
 
     @parameterized.expand([(True,), (False,)])
     def test_property_rule_rejects_definition_from_another_project(self, legacy_definition: bool) -> None:
@@ -232,16 +215,12 @@ class TestPropertyAccessControlViewSet(APIBaseTest):
         assert str(response.json()["role"]) == str(role.id)
 
     @parameterized.expand([("default",), ("member",), ("role",)])
-    def test_shared_ai_rule_remains_visible_in_settings(self, scope: str) -> None:
-        sibling = Team.objects.create(organization=self.organization, project_id=self.team.project_id)
+    def test_ai_rule_remains_visible_in_settings(self, scope: str) -> None:
         definition = PropertyDefinition.objects.create(
-            team=sibling,
+            team=self.team,
             project_id=self.team.project_id,
             name="$ai_input",
             type=PropertyDefinition.Type.EVENT,
-        )
-        sibling_rule = PropertyAccessControl.objects.create(
-            team=sibling, property_definition=definition, access_level="read"
         )
         subject: dict[str, str] = {}
         query: dict[str, str] = {}
@@ -274,8 +253,6 @@ class TestPropertyAccessControlViewSet(APIBaseTest):
         deleted = self.client.delete(f"{self.url}?{delete_query}")
         assert deleted.status_code == status.HTTP_204_NO_CONTENT
         assert self.client.get(settings_url, query).json()["results"] == []
-        sibling_rule.refresh_from_db()
-        assert sibling_rule.access_level == "read"
 
     def test_update_existing_rule(self):
         # create a rule

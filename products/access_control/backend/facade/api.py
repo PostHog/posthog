@@ -22,7 +22,6 @@ from typing import cast
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import Q
 from django.http import Http404
 from django.shortcuts import get_object_or_404
 
@@ -105,7 +104,7 @@ def _get_property_definition(property_definition_id: str, team_id: int) -> Prope
     try:
         return get_object_or_404(
             PropertyDefinition.objects.alias(effective_project_id=effective_project_id_expr()),
-            Q(effective_project_id=project_id) | Q(project_id__isnull=True, team_id=team_id),
+            effective_project_id=project_id,
             id=property_definition_id,
         )
     except Http404 as exc:
@@ -330,24 +329,12 @@ def _get_or_create_ai_property_definition(team_id: int, property_name: str) -> P
     project_definitions = PropertyDefinition.objects.alias(effective_project_id=effective_project_id_expr()).filter(
         effective_project_id=project_id
     )
-    definition: PropertyDefinition | None = project_definitions.filter(
-        name=property_name, type=PropertyDefinition.Type.EVENT, group_type_index=None
-    ).first()
-    if definition is None:
-        definition = PropertyDefinition.objects.filter(
-            team_id=team_id,
-            project_id__isnull=True,
-            name=property_name,
-            type=PropertyDefinition.Type.EVENT,
-            group_type_index=None,
-        ).first()
-    if definition is None:
-        definition, _ = project_definitions.get_or_create(
-            name=property_name,
-            type=PropertyDefinition.Type.EVENT,
-            group_type_index=None,
-            defaults={"team_id": team_id, "project_id": project_id},
-        )
+    definition, _ = project_definitions.get_or_create(
+        name=property_name,
+        type=PropertyDefinition.Type.EVENT,
+        group_type_index=None,
+        defaults={"team_id": team_id, "project_id": project_id},
+    )
     return definition
 
 
