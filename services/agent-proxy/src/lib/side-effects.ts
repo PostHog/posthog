@@ -184,7 +184,21 @@ export function isAgentGenerationEvent(event: Record<string, unknown>): boolean 
 
 const CALLBACK_TIMEOUT_MS = 10_000
 const RETRY_DELAY_MS = 1000
-const RETRYABLE_KINDS: ReadonlySet<SideEffectKind> = new Set(['awaiting_input', 'turn_failed', 'budget_steer'])
+const RETRYABLE_KINDS: ReadonlySet<SideEffectKind> = new Set([
+    'awaiting_input',
+    'turn_failed',
+    'budget_steer',
+    'process_killed',
+])
+const PROCESS_KILLED_METHOD = '_posthog/process_killed'
+
+interface ProcessKilledPayload {
+    comm: string
+    signal: string
+    tree_rss_bytes: number
+    memory_current_bytes: number
+    memory_limit_bytes: number
+}
 
 function fetchErrorCode(err: unknown): string | undefined {
     if (!(err instanceof Error)) {
@@ -235,9 +249,10 @@ function fireCallback(
         turnCompleted?: boolean
         turnSucceeded?: boolean
         budgetSteer?: { sequence: number; timestamp?: string; params: Record<string, unknown> }
+        processKilled?: { sequence: number; payload: ProcessKilledPayload }
     } = {}
 ): void {
-    const { releaseClaim, turnCompleted, turnSucceeded, budgetSteer } = options
+    const { releaseClaim, turnCompleted, turnSucceeded, budgetSteer, processKilled } = options
     if (!config.djangoCallbackBaseUrl) {
         // Dev environment without AGENT_PROXY_DJANGO_CALLBACK_URL — skip silently.
         void releaseMilestoneClaim(releaseClaim, runId, kind)
@@ -260,6 +275,7 @@ function fireCallback(
                   delivered_at: budgetSteer.params['delivered_at'],
               }
             : {}),
+        ...(processKilled ? { sequence: processKilled.sequence, process_killed: processKilled.payload } : {}),
         kind,
         agent_active: agentActive,
         task_id: taskId,
@@ -297,8 +313,8 @@ function fireCallback(
                 'dispatched' in payload &&
                 payload.dispatched === true
             if (!dispatched) {
-                if (kind === 'budget_steer') {
-                    logger.warn('side_effect:budget_steer_not_captured', { run: runId })
+                if (kind === 'budget_steer' || kind === 'process_killed') {
+                    logger.warn(`side_effect:${kind}_not_captured`, { run: runId })
                 }
                 await releaseMilestoneClaim(releaseClaim, runId, kind)
             }
@@ -336,6 +352,61 @@ export function captureBudgetSteerIfNeeded(
             ...(typeof event['timestamp'] === 'string' ? { timestamp: event['timestamp'] } : {}),
             params: params as Record<string, unknown>,
         },
+    })
+}
+
+function byteCount(value: unknown): number | null {
+    return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? Math.trunc(value) : null
+}
+
+function parseProcessKilled(event: Record<string, unknown>): ProcessKilledPayload | null {
+    if (event['type'] !== ACP_NOTIFICATION_TYPE) {
+        return null
+    }
+    const notification = event['notification']
+    if (typeof notification !== 'object' || notification === null || Array.isArray(notification)) {
+        return null
+    }
+    const { method, params } = notification as Record<string, unknown>
+    if (method !== PROCESS_KILLED_METHOD || typeof params !== 'object' || params === null || Array.isArray(params)) {
+        return null
+    }
+    const fields = params as Record<string, unknown>
+    const comm = fields['comm']
+    const signal = fields['signal']
+    const treeRssBytes = byteCount(fields['treeRssBytes'])
+    const memoryCurrentBytes = byteCount(fields['memoryCurrentBytes'])
+    const memoryLimitBytes = byteCount(fields['memoryLimitBytes'])
+    if (typeof comm !== 'string' || typeof signal !== 'string') {
+        return null
+    }
+    if (treeRssBytes === null || memoryCurrentBytes === null || memoryLimitBytes === null) {
+        return null
+    }
+    return {
+        comm,
+        signal,
+        tree_rss_bytes: treeRssBytes,
+        memory_current_bytes: memoryCurrentBytes,
+        memory_limit_bytes: memoryLimitBytes,
+    }
+}
+
+export function captureProcessKilledIfNeeded(
+    runId: string,
+    sequence: number,
+    event: Record<string, unknown>,
+    taskId: string,
+    teamId: number,
+    originalToken: string,
+    config: Config
+): void {
+    const payload = parseProcessKilled(event)
+    if (payload === null) {
+        return
+    }
+    fireCallback(runId, 'process_killed', false, taskId, teamId, originalToken, config, {
+        processKilled: { sequence, payload },
     })
 }
 

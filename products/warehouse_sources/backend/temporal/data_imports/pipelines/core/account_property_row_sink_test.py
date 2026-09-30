@@ -9,6 +9,7 @@ from django.db import OperationalError
 
 import pyarrow as pa
 import pyarrow.parquet as pq
+import deltalake.exceptions
 
 from products.warehouse_sources.backend.temporal.data_imports.external_product_hooks import (
     AccountPropertySourceProjection,
@@ -189,6 +190,65 @@ async def test_stage_delta_snapshot_falls_back_to_latest_version_after_a_vacuum_
 
     filesystem = MagicMock()
     filesystem.open_input_file.side_effect = _open_input_file
+
+    with (
+        patch.object(
+            sink,
+            "_get_projection",
+            new=AsyncMock(
+                return_value=[
+                    AccountPropertySourceProjection(
+                        key_column="organization_id",
+                        columns=frozenset({"organization_id", "mrr"}),
+                    )
+                ]
+            ),
+        ),
+        patch.object(sink, "clear", new=AsyncMock()) as clear,
+        patch.object(sink, "stage_chunk", new=AsyncMock()) as stage_chunk,
+        patch.object(sink, "_get_fs", return_value=filesystem),
+        patch(f"{_MODULE}.deltalake.DeltaTable", side_effect=_open_delta_table) as open_delta,
+        patch(f"{_MODULE}.delta_storage_options", return_value={"region_name": "us-east-1"}),
+    ):
+        staged = await sink.stage_delta_snapshot("s3://data-warehouse/dlt/table", 7)
+
+    assert staged is True
+    assert clear.await_count == 2
+    cast(AsyncMock, sink.logger.awarning).assert_awaited_once()
+    assert open_delta.call_args_list == [
+        call("s3://data-warehouse/dlt/table", version=7, storage_options={"region_name": "us-east-1"}),
+        call("s3://data-warehouse/dlt/table", version=None, storage_options={"region_name": "us-east-1"}),
+    ]
+    stage_chunk.assert_awaited_once()
+    assert stage_chunk.await_args is not None
+    assert stage_chunk.await_args.args[1].to_pydict() == fresh_table.to_pydict()
+
+
+@pytest.mark.asyncio
+async def test_stage_delta_snapshot_falls_back_to_latest_version_after_a_full_refresh_race() -> None:
+    # Same queued-for-hours race as the vacuum test above, but the intervening materialize run did a
+    # full refresh instead: it reset the table and recommitted it from scratch, so the pinned version
+    # isn't just missing its files — the log itself no longer reaches that version. delta-rs surfaces
+    # that as a DeltaError ("LogSegment end version ... not the same as the specified end version ...")
+    # rather than the OSError the vacuum case raises.
+    sink = _sink()
+    fresh_table = pa.table({"organization_id": ["org-1"], "mrr": [100]})
+    fresh_output = pa.BufferOutputStream()
+    pq.write_table(fresh_table, fresh_output)
+
+    current_delta_table = MagicMock()
+    current_delta_table.file_uris.return_value = ["s3://data-warehouse/dlt/current.parquet"]
+
+    def _open_delta_table(table_uri, version, storage_options):
+        if version == 7:
+            raise deltalake.exceptions.DeltaError(
+                "Kernel error: Generic delta kernel error: LogSegment end version 0 not the same "
+                "as the specified end version 7"
+            )
+        return current_delta_table
+
+    filesystem = MagicMock()
+    filesystem.open_input_file.return_value = pa.BufferReader(fresh_output.getvalue())
 
     with (
         patch.object(

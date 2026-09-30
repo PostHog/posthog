@@ -249,6 +249,18 @@ describe('sourceCatalogLogic', () => {
         expect(byName.Mango.existingSource).toBeUndefined()
     })
 
+    it('records which "Coming soon" sources the visit already asked about', () => {
+        const logic = sourceCatalogLogic()
+        const apple = logic.values.catalogItems.find((item) => item.name === 'Apple')!
+
+        logic.actions.registerInterest(apple)
+        logic.actions.registerInterest(apple)
+
+        // The tile swaps to a confirmation once it is in here, so a second entry would let the
+        // same source be registered twice.
+        expect(logic.values.registeredInterestSources).toEqual(['Apple'])
+    })
+
     it('leaves the incoming webhook source out of a catalog restricted to warehouse sources', () => {
         const logic = sourceCatalogLogic({ allowedSources: ['Stripe'] })
         const unmountRestricted = logic.mount()

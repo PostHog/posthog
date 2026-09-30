@@ -122,6 +122,13 @@ export interface errorTrackingIssueSceneLogicActions {
         issueId: string | undefined
         mutationName: string
     } // issueActionsLogic
+    splitIssueSuccess: (
+        id: string,
+        newIssueIds: string[]
+    ) => {
+        id: string
+        newIssueIds: string[]
+    } // issueActionsLogic
     updateIssueAssignee: (
         id: string,
         assignee: ErrorTrackingIssueAssignee | null
@@ -673,6 +680,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                 'updateIssueName',
                 'updateIssueDescription',
                 'mutationFailure',
+                'splitIssueSuccess',
             ],
             linkedReportsLogic({ issueId: props.id }),
             ['loadLinkedReports'],
@@ -1052,9 +1060,20 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
             updateAssignee: ({ assignee }) => actions.updateIssueAssignee(props.id, assignee),
             updateStatus: ({ status }) => actions.updateIssueStatus(props.id, status),
             updateSeverity: ({ severity }) => actions.updateIssueSeverity(props.id, severity),
-            mutationFailure: ({ mutationName }) => {
-                if (mutationName === 'updateIssueSeverity') {
+            mutationFailure: ({ mutationName, issueId }) => {
+                if (mutationName === 'updateIssueSeverity' && issueId === props.id) {
                     actions.loadIssue()
+                }
+            },
+            splitIssueSuccess: ({ id }) => {
+                if (id === props.id) {
+                    actions.loadIssue()
+                    actions.loadSummary()
+                    actions.loadIssueFingerprints()
+                    actions.loadSpikeEvents()
+                    eventsSourceLogic
+                        .findMounted({ query: values.eventsQuery, queryKey: values.eventsQueryKey })
+                        ?.actions.loadData('force_blocking')
                 }
             },
             selectEvent: ({ event }) => {
@@ -1069,17 +1088,8 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                     )
                 }
             },
-            [issueActionsLogic.actionTypes.mutationSuccess]: ({ mutationName }) => {
-                if (mutationName === 'mergeIssues' || mutationName === 'splitIssues') {
-                    actions.loadIssue()
-                    actions.loadSummary()
-                    actions.loadIssueFingerprints()
-                    actions.loadSpikeEvents()
-                    eventsSourceLogic
-                        .findMounted({ query: values.eventsQuery, queryKey: values.eventsQueryKey })
-                        ?.actions.loadData('force_blocking')
-                }
-                if (mutationName === 'createIssueCohort') {
+            [issueActionsLogic.actionTypes.mutationSuccess]: ({ mutationName, issueId }) => {
+                if (mutationName === 'createIssueCohort' && issueId === props.id) {
                     actions.loadIssue()
                 }
             },

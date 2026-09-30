@@ -21,6 +21,7 @@ from posthog.ph_client import get_client
 
 from products.signals.backend.ranking.serving_manifest import ServingManifest
 from products.signals.dags.inbox_ranking.common import snapshot_bounds
+from products.signals.dags.inbox_ranking.training.examples import ConsentExclusion
 from products.signals.dags.inbox_ranking.training.promotion import PromotionDecision
 from products.signals.dags.inbox_ranking.training.unseen import CANDIDATE_ROLE, HeadGrade
 
@@ -67,6 +68,10 @@ class HeadExampleCounts:
     # Of the positives, how many sit on their report's birth day: most outcomes land there, so a
     # drop in this share is the first sign the birth-day rule stopped keeping them.
     birth_day_positives: int
+    # The earliest report-creation day the head kept, and whether the row budget dropped older days,
+    # so a chart shows when the budget starts to cut history.
+    example_window_start: datetime.date | None
+    example_cap_bound: bool
 
 
 def candidate_events(metadata: Mapping[str, Any]) -> list[TrainingEvent]:
@@ -104,6 +109,7 @@ def examples_events(
     feature_set: str,
     snapshots: int,
     backfilled_rows: int,
+    excluded: ConsentExclusion,
     per_head: Mapping[str, HeadExampleCounts],
 ) -> list[TrainingEvent]:
     """One event per head with its example and positive counts; the run-level counts repeat on each.
@@ -120,10 +126,16 @@ def examples_events(
                 "run_id": run_id,
                 "snapshots": snapshots,
                 "backfilled_state_rows_excluded": backfilled_rows,
+                "excluded_no_training_consent_reports": excluded.reports,
+                "excluded_no_training_consent_teams": excluded.teams,
                 "head": head,
                 "rows": counts.rows,
                 "positives": counts.positives,
                 "birth_day_positives": counts.birth_day_positives,
+                "example_window_start": counts.example_window_start.isoformat()
+                if counts.example_window_start
+                else None,
+                "example_cap_bound": counts.example_cap_bound,
             },
         )
         for head, counts in per_head.items()
@@ -140,8 +152,9 @@ def promotion_event(
     champion_version: str,
     incumbent_champion_version: str,
     champion_aucs: Mapping[str, float],
+    champion_eces: Mapping[str, float],
 ) -> TrainingEvent:
-    """`champion_aucs` were scored by the incumbent on this candidate's holdout; after a promotion
+    """`champion_aucs` and `champion_eces` were scored by the incumbent on this candidate's holdout; after a promotion
     `champion_version` is the candidate, so the incumbent is carried separately. Every version here
     belongs to `model_name`: promotion compares a candidate to the champion of its own family."""
     return TrainingEvent(
@@ -156,6 +169,7 @@ def promotion_event(
             "champion_version": champion_version,
             "incumbent_champion_version": incumbent_champion_version,
             **{f"champion_{head}_auc_on_this_holdout": auc for head, auc in champion_aucs.items()},
+            **{f"champion_{head}_ece_on_this_holdout": ece for head, ece in champion_eces.items()},
         },
     )
 
@@ -170,6 +184,7 @@ def serving_manifest_event(
     copied_keys: Sequence[str] = (),
     present_keys: Sequence[str] = (),
     bytes_copied: int = 0,
+    mirror_published: bool | None = None,
 ) -> TrainingEvent:
     """What the day's manifest published. A run that wrote nothing still reports, with `reason`:
     the manifest is what makes the sweep serve anything, so a silent gap in this series would read
@@ -191,6 +206,8 @@ def serving_manifest_event(
             "model_keys": [entry.key for entry in manifest.models],
             "model_roles": {entry.key: entry.roles for entry in manifest.models},
         }
+    if mirror_published is not None:
+        properties["mirror_published"] = mirror_published
     return TrainingEvent(event=SERVING_MANIFEST_PUBLISHED_EVENT, properties=properties)
 
 
