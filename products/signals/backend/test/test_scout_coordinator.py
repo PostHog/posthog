@@ -707,6 +707,29 @@ _NO_ENROLLMENT = Enrollment(wildcard=False, explicit=set(), skip=set())
 
 
 @pytest.mark.django_db
+class TestTeamDeletedDuringPlanning:
+    @parameterized.expand([("wildcard", False), ("seeded", True)])
+    def test_deleted_team_does_not_fail_planning_for_other_teams(self, _name: str, needs_seed: bool) -> None:
+        org = Organization.objects.create(name="deleted-team-org")
+        live_team = Team.objects.create(organization=org, name="live-team")
+        deleted_team = Team.objects.create(organization=org, name="deleted-team")
+        for team in (live_team, deleted_team):
+            with team_scope(team.id, canonical=True):
+                _create_skill(team, "signals-scout-errors")
+                _create_config(team, "signals-scout-errors")
+        participating = [(deleted_team, needs_seed), (live_team, needs_seed)]
+        Team.objects.filter(id=deleted_team.id).delete()
+
+        with patch(
+            "products.signals.backend.temporal.agentic.scout_coordinator._participating_teams",
+            return_value=participating,
+        ):
+            planned = _collect_planned_runs(Enrollment(wildcard=not needs_seed, explicit=set(), skip=set()))
+
+        assert PlannedRun(team_id=live_team.id, skill_name="signals-scout-errors") in planned
+
+
+@pytest.mark.django_db
 class TestBackgroundEnrollment:
     def _team(self, *, approved: bool = True) -> Team:
         org = Organization.objects.create(name="background-org", is_ai_data_processing_approved=approved)
