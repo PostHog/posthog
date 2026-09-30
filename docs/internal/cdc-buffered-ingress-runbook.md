@@ -67,11 +67,14 @@ A table whose data was deleted is still streaming but not seeded; its next sync 
 **Buffer files are deleted at the start of the next run**, before they are read, so the run that
 proves a file consumed is never the run that deletes it. A file goes when it is strictly below the
 floor — the lowest position any of the schema's tables holds — or when it sits exactly at the floor
-and predates a listing by a run that went on to complete every table it writes. The floor alone is
+and a run that went on to complete every table it writes already read it. The floor alone is
 not enough at its own boundary: capture flushes a transaction bigger than its budget across several
 files that all carry that transaction's commit position, so a file at the floor may be the unread
 tail of one. A completed listing is what proves otherwise. For a `both` run, both jobs have to have
 completed, or a file could be deleted while the history table still owed it.
+Each listing records the name and ETag of the files at its highest position, and a file that still
+carries a recorded ETag holds exactly what that run read, so the next run deletes it. A file the
+listing did not record goes once its mtime predates the listing by a clock-skew margin.
 
 **A lane resumes from its own table.** A failed run can leave one table holding rows the other does
 not, so each reads back the highest commit position it holds. The merge lane drops only what is
@@ -305,6 +308,7 @@ twice, so a `both` source's synced-row count roughly halved when it moved to the
 
 **The merge lane re-bills the rows at its position until the file holding them is deleted.** It
 keeps every row at its position deliberately, since dropping one would lose a later event for the
-same key at that same commit, and a kept row is a staged row. That is one transaction's rows, for
-the tick or two until the completed-listing proof clears the file. The history lane matches those
-rows by content and bills none of them.
+same key at that same commit, and a kept row is a staged row. That happens only when the file
+changed after the last completed listing recorded it, or that listing never saw it; otherwise the
+next run deletes the file before reading it. The history lane matches those rows by content and
+bills none of them.
