@@ -9,6 +9,7 @@ from parameterized import parameterized
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
@@ -178,6 +179,27 @@ class TestWorkflowProposals(APIBaseTest):
         )
         self._publish(flow_id)
         assert WorkflowProposal.objects.for_team(self.team.id).get(id=proposal["id"]).status == "suggested"
+
+    def test_discarding_a_child_environment_draft_returns_the_suggestion_to_the_queue(self, _mock_flag):
+        child = Team.objects.create(
+            organization=self.organization, project=self.team.project, name="child env", parent_team=self.team
+        )
+        flow = HogFlow.objects.create(team=child, name="Child flow", draft={"actions": [_trigger_action()]})
+        # The approve endpoint does not reach a child environment's suggestions, so store one as approved.
+        proposal = WorkflowProposal(
+            hog_flow=flow,
+            title="Point the webhook somewhere that answers",
+            rationale="Every call to the current URL failed over the last week.",
+            content={"actions": [_trigger_action()]},
+            base_version=1,
+            status=WorkflowProposal.Status.APPROVED,
+        )
+        proposal.save()
+
+        discard = self.client.post(f"/api/projects/{child.id}/hog_flows/{flow.id}/discard_draft", {})
+
+        assert discard.status_code == 200, discard.json()
+        assert WorkflowProposal.objects.for_team(child.id).get(id=proposal.id).status == "suggested"
 
     def _edit_the_webhook_step_and_publish(self, flow_id: str) -> None:
         self.client.patch(
