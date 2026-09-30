@@ -14,6 +14,7 @@ export interface surveyGlobalWaitPeriodLogicValues {
     days: number | undefined
     draftDays: number | null | undefined
     draftEnabled: boolean | null
+    editDisabledReason: string | null
     enabled: boolean
     nextDays: number | null
     saveDisabledReason: string | null
@@ -52,6 +53,10 @@ export interface surveyGlobalWaitPeriodLogicMeta {
             currentTeam: TeamPublicType | TeamType | null,
             nextDays: number | null,
             savedDays: number | null
+        ) => string | null
+        editDisabledReason: (
+            currentTeam: TeamPublicType | TeamType | null,
+            currentTeamLoading: boolean
         ) => string | null
     }
 }
@@ -131,6 +136,16 @@ export const surveyGlobalWaitPeriodLogic = kea<surveyGlobalWaitPeriodLogicType>(
                     return `Enter a whole number of days from 1 to ${MAX_WAIT_PERIOD_DAYS}.`
                 }
                 return nextDays === savedDays ? 'No changes to save' : null
+            },
+        ],
+        // The save response clears the draft, so an edit made while it runs would be lost.
+        editDisabledReason: [
+            (s) => [s.currentTeam, s.currentTeamLoading],
+            (currentTeam: TeamPublicType | TeamType | null, currentTeamLoading: boolean): string | null => {
+                if (!currentTeam) {
+                    return 'Loading project settings'
+                }
+                return currentTeamLoading ? 'Saving changes' : null
             },
         ],
     }),

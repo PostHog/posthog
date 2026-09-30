@@ -39,8 +39,10 @@ describe('surveyGlobalWaitPeriodLogic', () => {
         await expectLogic(logic, () => {
             logic.actions.setDays(45)
             logic.actions.save()
-        }).toDispatchActions([
-            teamLogic.actionCreators.updateCurrentTeam({ survey_config: { seenSurveyWaitPeriodInDays: 45 } }),
-        ])
+        })
+            .toDispatchActions([
+                teamLogic.actionCreators.updateCurrentTeam({ survey_config: { seenSurveyWaitPeriodInDays: 45 } }),
+            ])
+            .toMatchValues({ editDisabledReason: 'Saving changes' })
     })
 })

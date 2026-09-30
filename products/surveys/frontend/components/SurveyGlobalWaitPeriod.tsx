@@ -8,7 +8,8 @@ import { TeamMembershipLevel } from 'lib/constants'
 import { MAX_WAIT_PERIOD_DAYS, surveyGlobalWaitPeriodLogic } from './surveyGlobalWaitPeriodLogic'
 
 export function SurveyGlobalWaitPeriod(): JSX.Element {
-    const { enabled, days, saveDisabledReason, currentTeamLoading } = useValues(surveyGlobalWaitPeriodLogic)
+    const { enabled, days, saveDisabledReason, editDisabledReason, currentTeamLoading } =
+        useValues(surveyGlobalWaitPeriodLogic)
     const { setEnabled, setDays, save } = useActions(surveyGlobalWaitPeriodLogic)
     const restrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,
@@ -23,7 +24,7 @@ export function SurveyGlobalWaitPeriod(): JSX.Element {
                 bordered
                 checked={enabled}
                 onChange={setEnabled}
-                disabledReason={restrictedReason}
+                disabledReason={restrictedReason ?? editDisabledReason}
             />
             {enabled && (
                 <div className="flex flex-wrap items-center gap-2 text-sm">
@@ -36,7 +37,7 @@ export function SurveyGlobalWaitPeriod(): JSX.Element {
                         value={days}
                         onChange={setDays}
                         className="w-20 tabular-nums"
-                        disabledReason={restrictedReason}
+                        disabledReason={restrictedReason ?? editDisabledReason}
                         data-attr="survey-global-wait-period-input"
                     />
                     <span>days after they see one.</span>
