@@ -598,8 +598,6 @@ SPECTACULAR_SETTINGS = {
             "MetricsRecalculationStatusEnum": "products.experiments.backend.models.experiment.ExperimentMetricsRecalculation.Status",
             # Matches tasks' LoopVisibility (personal/team).
             "MCPAgentGrantScopeEnum": "products.mcp_store.backend.models.AGENT_GRANT_SCOPE_CHOICES",
-            # BatchExport.Model and BatchExportOnDemand.Model are identical.
-            "ModelEnum": "products.batch_exports.backend.models.batch_export.BatchExport.Model",
             # Matches Subscription frequency (daily/weekly/monthly).
             "RecurrenceIntervalEnum": "products.reminders.backend.models.reminder.Reminder.RecurrenceInterval",
             # Matches the messaging email channel setup provider list.
@@ -1006,6 +1004,12 @@ API_QUERIES_BUDGET_FREE_BYTES_PER_HOUR: int = get_from_env(
 )
 API_QUERIES_BUDGET_PAID_MULTIPLIER: float = get_from_env("API_QUERIES_BUDGET_PAID_MULTIPLIER", 10.0, type_cast=float)
 API_QUERIES_BUDGET_CAPACITY_HOURS: float = get_from_env("API_QUERIES_BUDGET_CAPACITY_HOURS", 24.0, type_cast=float)
+API_QUERIES_BUDGET_BYTES_PER_EVENT_PER_HOUR: float = get_from_env(
+    "API_QUERIES_BUDGET_BYTES_PER_EVENT_PER_HOUR", 82_000.0, type_cast=float
+)
+API_QUERIES_BUDGET_MAX_BYTES_PER_HOUR: float = get_from_env(
+    "API_QUERIES_BUDGET_MAX_BYTES_PER_HOUR", 5_000_000_000_000.0, type_cast=float
+)
 
 ####
 # /api/environments deprecation
@@ -1304,6 +1308,10 @@ AI_GATEWAY_INTERNAL_TOKEN = get_from_env("AI_GATEWAY_INTERNAL_TOKEN", "")
 # secret for routing LLM calls through the gateway. Unset = direct to the provider.
 AI_GATEWAY_URL = get_from_env("AI_GATEWAY_URL", "")
 AI_GATEWAY_API_KEY = get_from_env("AI_GATEWAY_API_KEY", "")
+
+# Decision model behind the preview HogQL `__preview_promptJev` function. Per environment, so a
+# different model can be measured without a code change.
+HOGQL_PROMPT_JEV_MODEL = get_from_env("HOGQL_PROMPT_JEV_MODEL", "posthog/hogference/jevk5-fp8-0.2")
 
 # Projected into gateway_credential.json: a JSON team_id -> tier map
 # ("free"/"pro"/"enterprise") for the gateway's rate-limit bucket.
