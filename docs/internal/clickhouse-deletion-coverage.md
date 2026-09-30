@@ -4,7 +4,8 @@ Which ClickHouse tables a data deletion reaches, which rely on their TTL instead
 
 Deleting a person's data is not a property of the events table.
 It is a property of every table that stores rows attributable to a person.
-`posthog/models/deletion_targets.py` is the one list of those tables; this document is the reasoning behind it.
+`posthog/models/deletion_targets.py` lists event-shaped targets and tables that need custom reconciliation.
+This document explains each choice.
 
 ## The sweeps
 
@@ -101,6 +102,89 @@ Leaving one out stays possible, and `PERSON_ID_REWRITE_EXEMPT` is where that dec
 Native property-removal requests fail when the selected rows retain a requested permanent or temporary property, or a matching person `$set`/`$set_once` instruction.
 They also fail when that property class has quarantine diagnostics, because malformed raw data cannot prove that the requested value is absent.
 The gate runs before shard processing and again during verification, with the same event, time-range, and insertion-marker bounds.
+
+## Person-account membership
+
+`sharded_person_group_membership` has no TTL.
+`CUSTOM_RECONCILIATION_TABLES` records its coverage outside the event-shaped target list.
+The Customer analytics facade in `products/customer_analytics/backend/facade/membership_deletion.py` owns its deletion hooks.
+The storage and config tables live on AUX.
+Each hook resolves their placement, mutates one host per storage shard, waits for all replicas, and checks the distributed read table on DATA.
+A missing table is a rollout no-op.
+An unreachable table whose proxy returns rows fails the request.
+
+### Identity and profile deletion
+
+Membership stores `distinct_id`, not event-time `person_id`.
+The read query resolves current identity through the latest `person_distinct_ids` mapping.
+It excludes deleted mappings and groups several distinct IDs that map to one person.
+A merge therefore returns one person.
+A split or reassignment follows the new mapping.
+Neither operation rewrites membership solely to fix reads.
+The read query owns these semantics.
+
+Synchronous profile deletion and the queued Celery path remove membership before either the hard delete or Postgres tombstone.
+They fetch the person's distinct IDs again from the personhog primary so a reassignment before deletion does not erase the new owner's membership.
+They delete in bounded batches and verify zero survivors through `person_group_membership`.
+A membership failure keeps the profile for retry and records the `delete_membership` step.
+The person-removal Dagster request fails on that step rather than marking the request complete.
+Direct ClickHouse profile tombstones and the Temporal person purge use the same hook.
+
+### Team deletion
+
+Team teardown removes both membership and `person_group_membership_config` before removing identity mappings.
+The queued team arm in `deletes_job` also calls this hook before its profile-table sweep.
+It verifies through `person_group_membership` and `distributed_person_group_membership_config`.
+These tables do not join the single-host `delete_team_data_from` loop.
+That loop cannot reach AUX or sweep several storage shards.
+The Temporal whole-team person purge clears membership but keeps eligibility, since it does not delete the team.
+
+### Event deletion and group-property removal
+
+An event UUID does not identify an aggregate row.
+Deleting source events does not reverse a materialized view.
+The generic event-table sweep cannot safely remove membership.
+Immediate event removal, person event removal, and `deletes_job` therefore run custom reconciliation:
+
+1. Before the source mutation, stage affected `(team_id, group_type_index, group_key, distinct_id)` keys in ClickHouse.
+2. Wait for the existing source mutations on every replica.
+3. Delete the staged aggregate keys on every membership shard.
+4. Compute min/max activity from surviving source events and reinsert keys that still have evidence.
+5. Compare the distributed aggregate with surviving events before completing the request.
+
+Deferred event requests, including HogQL requests and queued UUID drains, reconcile when `deletes_job` drains their queue.
+The drain reads and recomputes from the event targets selected for that run.
+It refuses a skipped source that holds events for affected membership rows.
+Thus the default native-JSON skip cannot silently preserve an association that the request should remove.
+Empty membership leaves the existing source-table gap unchanged.
+
+Property removal stages keys only when the request removes the team's configured `$group_N` event property.
+It stages before fan-out and before shard work, then reconciles after all source rewrites pass verification.
+Unrelated event properties and person properties do not rewrite membership.
+The staging rewrite lets ClickHouse recompute true `MATERIALIZED` group columns when properties change.
+It resets `DEFAULT` columns explicitly.
+A failed source rewrite or reconciliation fails the request.
+Existing native-JSON property-removal refusal gates still apply.
+
+Staging uses replicated `membership_deletion_keys_<hash>` storage with a distributed proxy.
+The hash comes from the request ID, or the serialized async drain's fixed operation ID.
+Key lists never enter Temporal or Dagster payloads.
+Queries restrict source reads to affected teams and match membership by staged keys.
+They use synchronous distributed inserts, a 30-minute query limit, and a 2 GiB memory limit.
+Key sets stop at one million entries or 256 MiB and throw on overflow.
+A request that exceeds those bounds fails rather than dropping keys.
+Retries keep staged keys after failure, even when source deletion already finished.
+They run a fresh aggregate mutation, recompute, and verify again.
+Successful reconciliation drops the staging tables.
+Person and team deletion also sweep staged keys and verify their distributed proxies.
+This prevents retained staging data from restoring erased membership on a later retry.
+Do not drop a failed request's staging tables until its retry succeeds or all affected membership has been erased.
+
+Concurrent ingestion and backfill can insert after a mutation.
+Deploy these hooks before starting membership writes.
+Writers must honor team deletion and must not race deletion or reconciliation with historical backfill.
+Stop live writes before rolling back the hooks.
+Keep the hooks until stored membership is gone or the tables are dropped.
 
 ## Tables on TTL alone
 

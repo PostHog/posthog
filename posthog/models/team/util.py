@@ -8,9 +8,11 @@ from django.db import connections
 import structlog
 
 from posthog.cache_utils import cache_for
+from posthog.clickhouse.cluster import get_cluster
 from posthog.models.async_migration import is_async_migration_complete
 
 from products.ai_training.backend.facade.api import queue_training_deletion
+from products.customer_analytics.backend.facade.membership_deletion import delete_team_membership
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 
 logger = structlog.get_logger(__name__)
@@ -189,6 +191,9 @@ def _delete_persons_for_teams(team_ids: list[int]) -> None:
 
     from posthog.personhog_client.client import personhog_call
 
+    if not team_ids:
+        return
+    delete_team_membership(get_cluster(), team_ids)
     for team_id in team_ids:
         personhog_call(
             "delete_persons_for_team",

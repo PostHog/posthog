@@ -35,6 +35,7 @@ from posthog.personhog_client.client import personhog_call, require_personhog_cl
 from posthog.personhog_client.converters import proto_person_to_model
 from posthog.personhog_client.metrics import PERSONHOG_TEAM_MISMATCH_TOTAL, get_client_name
 from posthog.personhog_client.proto import (
+    CONSISTENCY_LEVEL_STRONG,
     AckedPersonTombstone,
     AckPersonTombstonesRequest,
     DeletePersonsMode,
@@ -51,6 +52,8 @@ from posthog.personhog_client.proto import (
     ReadOptions,
 )
 from posthog.settings import TEST
+
+from products.customer_analytics.backend.facade.membership_deletion import delete_person_membership, has_team_membership
 
 logger = structlog.get_logger(__name__)
 
@@ -202,6 +205,8 @@ def _paginated_get_distinct_ids_for_person(
     team_id: int,
     person_id: int,
     page_size: int = 5000,
+    *,
+    read_options: ReadOptions | None = None,
 ) -> list[DistinctIdForPerson]:
     """Fetch all distinct IDs for a single person using keyset pagination."""
     client = _get_client()
@@ -214,6 +219,7 @@ def _paginated_get_distinct_ids_for_person(
             person_id=person_id,
             limit=page_size,
             cursor_id=cursor_id,
+            read_options=read_options,
         )
 
         resp = client.get_distinct_ids_for_person(request)
@@ -959,6 +965,11 @@ def delete_person(person: Person, distinct_ids: list[DistinctIdForPerson] | None
     ``distinct_ids`` can be prefetched in batch (see ``delete_persons_profile``) to
     avoid one RPC per person; when omitted it is fetched here.
     """
+    if has_team_membership(person.team_id):
+        current_ids = _paginated_get_distinct_ids_for_person(
+            person.team_id, person.pk, page_size=5000, read_options=ReadOptions(consistency=CONSISTENCY_LEVEL_STRONG)
+        )
+        delete_person_membership(person.team_id, [d.id for d in current_ids])
     # This is racy https://github.com/PostHog/posthog/issues/11590
     if distinct_ids is None:
         distinct_ids = _get_distinct_ids_with_version(person)

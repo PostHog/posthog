@@ -48,6 +48,7 @@ from posthog.models.data_deletion_request import (
 )
 from posthog.models.deletion_targets import (
     COVERAGE_DOC,
+    EVENTS_TARGETS,
     FLAG_EVALUATIONS,
     PERSONAL_DATA_TARGETS,
     DeletionTarget,
@@ -71,6 +72,13 @@ from posthog.models.person.bulk_delete import (
     delete_persons_profile,
     queue_person_recording_deletion,
     resolve_persons_for_deletion,
+)
+
+from products.customer_analytics.backend.facade.membership_deletion import (
+    cleanup_membership_deletion,
+    reconcile_membership_deletion,
+    removes_account_group_property,
+    stage_membership_deletion,
 )
 
 from ee.clickhouse.materialized_columns.columns import MaterializedColumnDetails
@@ -674,6 +682,23 @@ def _event_removal_placements(
 _IMMEDIATE_SKIP_TARGETS = (FLAG_EVALUATIONS,)
 
 
+def _membership_event_sources(cluster: ClickhouseCluster) -> list[tuple[str, bool]]:
+    return [(p.target.read_table, p.target.uses_new_events_schema) for p in resolve_placements(cluster, EVENTS_TARGETS)]
+
+
+def _stage_property_membership(cluster: ClickhouseCluster, request: DeletionRequestContext) -> None:
+    if not removes_account_group_property(request.team_id, request.properties):
+        return
+    if request.inserted_at_marker is None:
+        raise dagster.Failure("Property removal marker is missing. Reload the request before retrying.")
+    marker = request.inserted_at_marker.astimezone(UTC).strftime("%Y-%m-%d %H:%M:%S.%f")
+    sources = []
+    for table, json_schema in _membership_event_sources(cluster):
+        predicate, params = _property_removal_where(request, inserted_at_max=marker, json_schema=json_schema)
+        sources.append((table, json_schema, predicate, params))
+    stage_membership_deletion(cluster, request.request_id, sources)
+
+
 def _run_immediate_event_deletion(
     context: dagster.OpExecutionContext,
     cluster: ClickhouseCluster,
@@ -684,6 +709,15 @@ def _run_immediate_event_deletion(
 
     context.log.info(f"Starting immediate event deletion on tables {[t.data_table for t in targets]}")
 
+    sources = _membership_event_sources(cluster)
+    stage_membership_deletion(
+        cluster,
+        deletion_request.request_id,
+        [
+            (table, json_schema, *event_removal_where(deletion_request, use_new_events_schema=json_schema))
+            for table, json_schema in sources
+        ],
+    )
     swept_shards = 0
     for placement in placements:
         target = placement.target
@@ -725,6 +759,9 @@ def _run_immediate_event_deletion(
             else portable_event_removal_where(deletion_request)
         ),
     )
+
+    reconcile_membership_deletion(cluster, deletion_request.request_id, sources)
+    cleanup_membership_deletion(cluster, deletion_request.request_id)
 
     context.add_output_metadata(
         {
@@ -932,6 +969,7 @@ def get_property_removal_shards(
         # marker — which the sweep would never touch — can't refuse the request forever.
         _refuse_property_removal_unsweepable(cluster, unsweepable, deletion_request, marker_str)
 
+    _stage_property_membership(cluster, deletion_request)
     shards = sorted(cluster.shards)
     context.log.info(f"Fanning out property removal {deletion_request.request_id} to {len(shards)} shard op(s)")
     for shard_num in shards:
@@ -977,6 +1015,7 @@ def process_property_removal_shard(
     drift. The marker is persisted on the request by the load op, so every retry
     agrees on which rows are already cleaned and never re-inserts a second twin.
     """
+    _stage_property_membership(cluster, deletion_request)
     db = django_settings.CLICKHOUSE_DATABASE
     properties = deletion_request.properties
     person_properties = deletion_request.person_properties
@@ -1088,7 +1127,17 @@ def process_property_removal_shard(
         # marker's second is in scope but shares its truncated second — the version must be
         # STRICTLY greater or the merge tie stays arbitrary for exactly those rows.
         update_parts.append("_timestamp = toDateTime(toDateTime64(%(inserted_at_marker)s, 6, 'UTC')) + 1")
+        computed_columns = {
+            row[0]
+            for row in client.execute(
+                "SELECT name FROM system.columns WHERE database = %(db)s AND table = %(table)s AND default_kind = 'MATERIALIZED'",
+                {"db": db, "table": temp},
+            )
+        }
         for col_name, is_nullable in affected_mat_cols + affected_person_mat_cols:
+            # ClickHouse recomputes MATERIALIZED columns when properties change and refuses explicit assignments.
+            if col_name in computed_columns:
+                continue
             default = "NULL" if is_nullable else "''"
             update_parts.append(f"`{col_name}` = {default}")
 
@@ -1337,6 +1386,8 @@ def verify_property_removal(
                 f"{duplicates} cleaned uuids are duplicated. Investigate before re-approving."
             )
         )
+    reconcile_membership_deletion(cluster, deletion_request.request_id, _membership_event_sources(cluster))
+    cleanup_membership_deletion(cluster, deletion_request.request_id)
     context.log.info("Property removal verified: no residual originals, no duplicated cleaned rows.")
     return deletion_request
 
@@ -1470,6 +1521,10 @@ def delete_person_events_op(
     # Schema-agnostic columns only (team_id, person_id, timestamp), so one predicate serves every
     # target.
     predicate, params = _person_event_predicate(person_removal)
+    sources = _membership_event_sources(cluster)
+    stage_membership_deletion(
+        cluster, person_removal.request_id, [(table, json_schema, predicate, params) for table, json_schema in sources]
+    )
     swept_shards = 0
     for placement in placements:
         target = placement.target
@@ -1495,6 +1550,8 @@ def delete_person_events_op(
     except UnsweptRowsError as exc:
         raise dagster.Failure(description=f"Deletion request {person_removal.request_id}: {exc}") from exc
 
+    reconcile_membership_deletion(cluster, person_removal.request_id, sources)
+    cleanup_membership_deletion(cluster, person_removal.request_id)
     context.add_output_metadata(
         {
             "shards_processed": dagster.MetadataValue.int(swept_shards),
@@ -1541,8 +1598,8 @@ def delete_person_profiles_op(
     `POST /api/projects/:id/persons/bulk_delete/` endpoint and avoids flipping the whole
     request to FAILED after upstream events/recordings ops have already done their work.
 
-    The one exception is the batch Postgres delete or tombstone: when it fails, those persons are
-    still live in Postgres, so the op raises and the request finalizes as FAILED for a retry. A
+    Membership removal and the batch Postgres delete or tombstone fail the request.
+    Those failures keep profiles for retry, so the request must not report completion. A
     failed ClickHouse publish after a Postgres tombstone does not raise, because the person is
     deleted and the weekly deletion sweep republishes it.
     """
@@ -1567,16 +1624,22 @@ def delete_person_profiles_op(
     if result.errors:
         context.log.warning(f"Person profile deletion had {len(result.errors)} per-person failures")
         metadata["error_uuids"] = dagster.MetadataValue.text(", ".join(str(u) for u in result.errors))
-    postgres_failures = [
+    blocking_failures = [
         f
         for f in result.failures
-        if f.step in (PersonDeletionStep.DELETE_POSTGRES, PersonDeletionStep.TOMBSTONE_POSTGRES)
+        if f.step
+        in (
+            PersonDeletionStep.DELETE_POSTGRES,
+            PersonDeletionStep.TOMBSTONE_POSTGRES,
+            PersonDeletionStep.DELETE_MEMBERSHIP,
+        )
     ]
-    if postgres_failures:
+    if blocking_failures:
+        delete_kind = "membership" if blocking_failures[0].step is PersonDeletionStep.DELETE_MEMBERSHIP else "Postgres"
         raise dagster.Failure(
             description=(
-                f"Deletion request {person_removal.request_id}: the Postgres delete failed for "
-                f"{len(postgres_failures)} persons ({postgres_failures[0].error})"
+                f"Deletion request {person_removal.request_id}: the {delete_kind} delete failed for "
+                f"{len(blocking_failures)} persons ({blocking_failures[0].error})"
             ),
             metadata=metadata,
         )

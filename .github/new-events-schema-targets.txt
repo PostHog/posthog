@@ -26,6 +26,7 @@ posthog/session_recordings/queries
 posthog/clickhouse/test
 ee/clickhouse
 products/customer_analytics/backend/hogql_queries
+products/customer_analytics/backend/test/test_membership_deletion.py
 products/error_tracking/backend/hogql_queries
 products/marketing_analytics/backend/hogql_queries
 products/marketing_analytics/backend/services/test_attribution_health.py

@@ -39,6 +39,7 @@ from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.deletion_targets import (
     COVERAGE_DOC,
     DEFAULT_DELETION_TARGETS,
+    EVENTS_TARGETS,
     PERSONAL_DATA_TARGETS,
     DeletionTarget,
     _any_node_has,
@@ -56,6 +57,13 @@ from posthog.models.person.sql import (
     PERSONS_TABLE,
 )
 
+from products.customer_analytics.backend.facade.membership_deletion import (
+    cleanup_membership_deletion,
+    delete_team_membership,
+    reconcile_membership_deletion,
+    refuse_unswept_membership_sources,
+    stage_membership_deletion,
+)
 from products.error_tracking.backend.facade.api import DocumentEmbeddingTable, document_embedding_tables
 
 
@@ -691,6 +699,42 @@ def delete_events(
 
     # Every target this run sweeps must get the delete, or rows survive on the one that missed it.
     placements = resolve_placements(cluster, _targets_named(swept_targets))
+    membership_sources = [p.target for p in placements if p.target in EVENTS_TARGETS]
+    membership_predicate = (
+        f"team_id GLOBAL IN (SELECT team_id FROM {load_and_verify_deletes_dictionary.qualified_name} "
+        f"UNION ALL SELECT team_id FROM {load_and_verify_adhoc_event_deletes_dictionary.qualified_name}) "
+        f"AND ({_DELETE_PREDICATE})"
+    )
+    refuse_unswept_membership_sources(
+        cluster,
+        [
+            (
+                t.read_table,
+                t.uses_new_events_schema,
+                membership_predicate,
+                _delete_predicate_params(
+                    load_and_verify_deletes_dictionary, load_and_verify_adhoc_event_deletes_dictionary
+                ),
+            )
+            for t in EVENTS_TARGETS
+            if t not in membership_sources
+        ],
+    )
+    stage_membership_deletion(
+        cluster,
+        "async_deletes",
+        [
+            (
+                t.read_table,
+                t.uses_new_events_schema,
+                membership_predicate,
+                _delete_predicate_params(
+                    load_and_verify_deletes_dictionary, load_and_verify_adhoc_event_deletes_dictionary
+                ),
+            )
+            for t in membership_sources
+        ],
+    )
     reuse_floor = _mutation_reuse_floor(cluster)
     delete_mutation_runners = [
         (
@@ -723,6 +767,29 @@ def delete_events(
     }
 
     return (load_and_verify_deletes_dictionary, cluster_mutations)
+
+
+@dagster.op
+def finish_membership_deletion(
+    cluster: dagster.ResourceParam[ClickhouseCluster],
+    pending_deletes_dictionary: PendingDeletesDictionary,
+    swept_targets: list[str],
+) -> PendingDeletesDictionary:
+    sources = [(t.read_table, t.uses_new_events_schema) for t in _targets_named(swept_targets) if t in EVENTS_TARGETS]
+    reconcile_membership_deletion(cluster, "async_deletes", sources)
+    team_ids = [
+        row[0]
+        for row in cluster.any_host_by_role(
+            Query(
+                f"SELECT DISTINCT team_id FROM {pending_deletes_dictionary.source.qualified_name} WHERE deletion_type = %(type)s",
+                {"type": DeletionType.Team},
+            ),
+            NodeRole.DATA,
+        ).result()
+    ]
+    delete_team_membership(cluster, team_ids)
+    cleanup_membership_deletion(cluster, "async_deletes")
+    return pending_deletes_dictionary
 
 
 @dagster.op
@@ -1151,6 +1218,7 @@ def deletes_job():
     # Delete all data requested
     delete_mutations = delete_events(pending_deletes_dictionary, adhoc_event_deletes_dictionary, swept_targets)
     pending_deletes_dictionary = wait_for_delete_mutations_in_shards(delete_mutations)
+    pending_deletes_dictionary = finish_membership_deletion(pending_deletes_dictionary, swept_targets)
     document_mutations = delete_event_documents(pending_deletes_dictionary)
     pending_deletes_dictionary = wait_for_delete_mutations_in_shards.alias("wait_for_document_delete_mutations")(
         document_mutations
