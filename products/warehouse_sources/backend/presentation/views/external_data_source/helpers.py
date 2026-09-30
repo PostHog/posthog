@@ -425,11 +425,11 @@ def ssh_tunnel_connection_changed(existing: Any, incoming: Any) -> bool:
 
 
 # Nested containers that keep their secrets one level down, not at the top level: the
-# SourceFieldSelectConfig ones (Stripe `auth_method`, Snowflake `auth_type`, ServiceNow
-# `auth_method`) key their selected branch as `selection`; the SourceFieldSwitchGroupConfig
+# SourceFieldSelectConfig ones (Stripe `auth_method`, Snowflake `auth_type`, Kafka
+# `authentication`) key their selected branch as `selection`; the SourceFieldSwitchGroupConfig
 # one (Billomat's `registered_app`) keys it as `enabled` instead, but the same carried-over-
 # secret check below applies either way.
-_NESTED_AUTH_CONTAINERS = ("auth_method", "auth_type", "registered_app")
+_NESTED_AUTH_CONTAINERS = ("auth_method", "auth_type", "authentication", "registered_app")
 
 # Secrets the edit form can never re-supply (parsed into the individual fields on create, then
 # stripped from API reads and hidden in the edit form), so gating credential re-entry on them would

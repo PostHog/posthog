@@ -938,6 +938,7 @@ async def _run(
     source_cursor_manager: SourceCursorManager[Any] | None = None,
 ) -> PipelineResult:
     try:
+        reset_pipeline = reset_pipeline or source_response.destination_reset_required
         models = await _get_models(job_inputs.run_id)
 
         use_v3 = models.job.pipeline_version == ExternalDataJob.PipelineVersion.V3
