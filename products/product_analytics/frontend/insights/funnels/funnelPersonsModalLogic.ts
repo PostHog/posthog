@@ -178,7 +178,7 @@ export const funnelPersonsModalLogic = kea<funnelPersonsModalLogicType>([
             const title = funnelTitle({
                 converted,
                 step: stepNo,
-                label: step.name,
+                label: step.custom_name ?? step.name,
                 seriesId: step.order,
                 order_type: values.funnelsFilter?.funnelOrderType,
             })
@@ -203,7 +203,7 @@ export const funnelPersonsModalLogic = kea<funnelPersonsModalLogicType>([
             const title = funnelTitle({
                 converted,
                 step: stepNo,
-                label: step.name,
+                label: step.custom_name ?? step.name,
                 seriesId: step.order,
                 order_type: values.funnelsFilter?.funnelOrderType,
             })
