@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
-from django.db import router, transaction
+from django.db import transaction
 from django.db.models import Case, Max, OuterRef, Q, QuerySet, Subquery, When
 from django.db.models.functions import Greatest
 from django.utils.timezone import now
@@ -64,7 +64,7 @@ def _record_insight_views(
         return
     rows = sorted(last_viewed_at_by_insight_id.items())
     # Ignoring conflicts works with both uniqueness layouts; the update sees a concurrent winning insert.
-    with transaction.atomic(using=router.db_for_write(InsightViewed)):
+    with transaction.atomic():
         InsightViewed.objects.bulk_create(
             [
                 InsightViewed(team_id=team_id, user_id=user_id, insight_id=insight_id, last_viewed_at=viewed_at)
