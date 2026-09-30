@@ -86,13 +86,14 @@ const RECENT_SESSIONS = [
         archived: false,
         last_activity_at: '2026-09-28T18:05:00Z',
         latest_run: {
+            id: 'run-1',
             status: 'completed',
             environment: 'cloud',
             output: { pr_url: 'https://github.com/example-org/webapp/pull/421' },
         },
         description_preview: 'Retry the billing webhook three times with a backoff before it reports a failure.',
         repository: 'example-org/webapp',
-        created_by: { id: 2, first_name: 'Grace', last_name: 'Hopper', email: 'grace@example.com' },
+        created_by: { id: 179, first_name: 'John', last_name: 'Baker', email: 'john@example.com' },
     },
     {
         id: 'task-2',
@@ -217,7 +218,7 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2026-09-28 18:30:00',
         pageUrl: urls.projectHomepage(),
-        featureFlags: [FEATURE_FLAGS.TODAY_RAIL_NAV],
+        featureFlags: [FEATURE_FLAGS.TODAY_RAIL_NAV, FEATURE_FLAGS.POSTHOG_CODE_TASK_ANALYSIS],
         testOptions: { waitForLoadersToDisappear: true },
     },
 }
