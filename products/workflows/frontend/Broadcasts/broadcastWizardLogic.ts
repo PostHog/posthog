@@ -74,6 +74,15 @@ const EMAIL_AUTOSAVE_RETRY_MS = 2000
 
 export const BROADCAST_WIZARD_STEPS: BroadcastWizardStep[] = ['recipients', 'goal', 'content', 'schedule', 'review']
 
+// Shown in the stepper, and named to PostHog AI so it points the user at the step they can see.
+export const BROADCAST_WIZARD_STEP_LABELS: Record<BroadcastWizardStep, string> = {
+    recipients: 'Recipients',
+    goal: 'Goal',
+    content: 'Content',
+    schedule: 'Schedule',
+    review: 'Review',
+}
+
 export type BroadcastScheduleMode = 'now' | 'later' | 'recurring'
 
 // The value stored in the email action's `inputs.email.value`, mirroring the
@@ -1041,6 +1050,10 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             })
         },
         applyExternalEdit: ({ broadcast, base }) => {
+            // PostHog AI can change the recipients, so the audience size shown must follow.
+            if (changedElsewhere(broadcast, base, readAudience)) {
+                actions.loadBlastRadius()
+            }
             const composerDraft = loadComposerDraft(broadcast.id)
             if (!composerDraft) {
                 return
