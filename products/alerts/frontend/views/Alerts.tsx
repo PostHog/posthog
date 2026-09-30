@@ -5,6 +5,8 @@ import { Suspense, useEffect } from 'react'
 import { LemonSkeleton, LemonTabs } from '@posthog/lemon-ui'
 
 import { AccessDenied } from 'lib/components/AccessDenied'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { urls } from 'scenes/urls'
 
@@ -23,8 +25,12 @@ const loadLogsAlertingSection = (): Promise<{
         default: module.LogsAlertingSection,
     }))
 
+const loadPlatformAlerts = (): Promise<{ default: typeof import('./PlatformAlerts').PlatformAlerts }> =>
+    import('./PlatformAlerts').then((module) => ({ default: module.PlatformAlerts }))
+
 const InsightAlerts = lazyWithRetry(loadInsightAlerts)
 const LogsAlertingSection = lazyWithRetry(loadLogsAlertingSection)
+const PlatformAlerts = lazyWithRetry(loadPlatformAlerts)
 
 interface AlertsProps {
     alertId: AlertType['id'] | null
@@ -33,6 +39,7 @@ interface AlertsProps {
 const ALERTS_DESCRIPTION: Record<AlertsTab, string> = {
     [AlertsTab.INSIGHTS]: 'Monitor insight metrics and get notified when conditions are met.',
     [AlertsTab.LOGS]: 'Monitor matching logs and get notified when they cross a threshold.',
+    [AlertsTab.PLATFORM]: 'See the state of alerts running on the shared alerts platform.',
 }
 
 function AlertsPanelSkeleton(): JSX.Element {
@@ -48,8 +55,10 @@ function AlertsPanelSkeleton(): JSX.Element {
 export function Alerts({ alertId }: AlertsProps): JSX.Element {
     const { push } = useActions(router)
     const { searchParams } = useValues(router)
+    const { featureFlags } = useValues(featureFlagLogic)
     const canViewInsightAlerts = hasEffectiveResourceAccess(AccessControlResourceType.Insight)
     const canViewLogAlerts = hasEffectiveResourceAccess(AccessControlResourceType.Logs)
+    const canViewPlatformAlerts = !!featureFlags[FEATURE_FLAGS.PLATFORM_ALERTS]
 
     useEffect(() => {
         void loadInsightAlerts()
@@ -61,13 +70,14 @@ export function Alerts({ alertId }: AlertsProps): JSX.Element {
         requestedTab: typeof searchParams.alert_type === 'string' ? searchParams.alert_type : undefined,
         canViewInsightAlerts,
         canViewLogAlerts,
+        canViewPlatformAlerts,
     })
 
     if (activeTab === null) {
         return <AccessDenied />
     }
 
-    const tabs = getAlertsTabs({ canViewInsightAlerts, canViewLogAlerts })
+    const tabs = getAlertsTabs({ canViewInsightAlerts, canViewLogAlerts, canViewPlatformAlerts })
 
     const switchTab = (tab: AlertsTab): void => {
         const nextSearchParams = { ...searchParams }
@@ -85,7 +95,13 @@ export function Alerts({ alertId }: AlertsProps): JSX.Element {
             />
             <LemonTabs<AlertsTab> activeKey={activeTab} onChange={switchTab} tabs={tabs} sceneInset />
             <Suspense fallback={<AlertsPanelSkeleton />}>
-                {activeTab === AlertsTab.LOGS ? <LogsAlertingSection /> : <InsightAlerts alertId={alertId} />}
+                {activeTab === AlertsTab.LOGS ? (
+                    <LogsAlertingSection />
+                ) : activeTab === AlertsTab.PLATFORM ? (
+                    <PlatformAlerts />
+                ) : (
+                    <InsightAlerts alertId={alertId} />
+                )}
             </Suspense>
         </>
     )

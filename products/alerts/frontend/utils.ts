@@ -9,6 +9,7 @@ import type { AlertCheck, AlertCheckDelivery } from './types'
 export enum AlertsTab {
     INSIGHTS = 'insights',
     LOGS = 'logs',
+    PLATFORM = 'platform',
 }
 
 export function hasEffectiveResourceAccess(resourceType: AccessControlResourceType): boolean {
@@ -46,11 +47,13 @@ interface AlertsAccessState {
     requestedTab: string | undefined
     canViewInsightAlerts: boolean
     canViewLogAlerts: boolean
+    canViewPlatformAlerts?: boolean
 }
 
 interface AlertsTabsState {
     canViewInsightAlerts: boolean
     canViewLogAlerts: boolean
+    canViewPlatformAlerts?: boolean
 }
 
 export function getActiveAlertsTab({
@@ -58,12 +61,16 @@ export function getActiveAlertsTab({
     requestedTab,
     canViewInsightAlerts,
     canViewLogAlerts,
+    canViewPlatformAlerts = false,
 }: AlertsAccessState): AlertsTab | null {
     if (alertId !== null) {
         return canViewInsightAlerts ? AlertsTab.INSIGHTS : null
     }
     if (requestedTab === AlertsTab.LOGS && canViewLogAlerts) {
         return AlertsTab.LOGS
+    }
+    if (requestedTab === AlertsTab.PLATFORM && canViewPlatformAlerts) {
+        return AlertsTab.PLATFORM
     }
     if (canViewInsightAlerts) {
         return AlertsTab.INSIGHTS
@@ -77,6 +84,7 @@ export function getActiveAlertsTab({
 export function getAlertsTabs({
     canViewInsightAlerts,
     canViewLogAlerts,
+    canViewPlatformAlerts = false,
 }: AlertsTabsState): { key: AlertsTab; label: string }[] {
     const tabs: { key: AlertsTab; label: string }[] = []
     if (canViewInsightAlerts) {
@@ -84,6 +92,9 @@ export function getAlertsTabs({
     }
     if (canViewLogAlerts) {
         tabs.push({ key: AlertsTab.LOGS, label: 'Log alerts' })
+    }
+    if (canViewPlatformAlerts) {
+        tabs.push({ key: AlertsTab.PLATFORM, label: 'Platform' })
     }
     return tabs
 }

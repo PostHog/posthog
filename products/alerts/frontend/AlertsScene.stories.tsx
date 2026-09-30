@@ -1,5 +1,6 @@
 import { Meta, StoryObj } from '@storybook/react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -14,6 +15,7 @@ import {
 
 import type { LogsAlertConfigurationApi } from 'products/logs/frontend/generated/api.schemas'
 
+import type { PlatformAlertConfigurationApi } from './generated/api.schemas'
 import { AlertType } from './types'
 
 const createdBy = {
@@ -232,6 +234,72 @@ export const EmptyLogAlerts: Story = {
         mswDecorator({
             get: {
                 '/api/projects/:team_id/logs/alerts/': EMPTY_PAGINATED_RESPONSE,
+            },
+        }),
+    ],
+}
+
+const platformAlerts = [
+    {
+        id: '0199a1b2-0000-7000-8000-000000000001',
+        name: 'Checkout errors',
+        enabled: true,
+        source_kind: 'logs',
+        source_config: {},
+        threshold_count: 50,
+        threshold_operator: 'above',
+        window_minutes: 5,
+        check_interval_minutes: 1,
+        evaluation_periods: 1,
+        datapoints_to_alarm: 1,
+        cooldown_minutes: 0,
+        schedule_restriction: null,
+        next_check_at: '2026-07-16T12:01:00Z',
+        consecutive_failures: 0,
+        created_at: '2026-07-10T09:00:00Z',
+        updated_at: '2026-07-16T11:00:00Z',
+        alerts: [
+            {
+                id: '0199a1b2-0000-7000-8000-000000000011',
+                grouping_key: '',
+                state: 'firing',
+                firing_started_at: '2026-07-16T11:42:00Z',
+                last_notified_at: null,
+                snooze_until: null,
+            },
+        ],
+    },
+    {
+        id: '0199a1b2-0000-7000-8000-000000000002',
+        name: 'Payment service timeouts',
+        enabled: false,
+        source_kind: 'logs',
+        source_config: {},
+        threshold_count: 10,
+        threshold_operator: 'above',
+        window_minutes: 15,
+        check_interval_minutes: 5,
+        evaluation_periods: 3,
+        datapoints_to_alarm: 2,
+        cooldown_minutes: 30,
+        schedule_restriction: null,
+        next_check_at: null,
+        consecutive_failures: 2,
+        created_at: '2026-07-11T09:00:00Z',
+        updated_at: '2026-07-15T08:00:00Z',
+        alerts: [],
+    },
+] satisfies PlatformAlertConfigurationApi[]
+
+export const PlatformAlerts: Story = {
+    parameters: {
+        pageUrl: `${urls.alerts()}?alert_type=platform`,
+        featureFlags: [FEATURE_FLAGS.PLATFORM_ALERTS],
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/platform_alerts/': toPaginatedResponse(platformAlerts),
             },
         }),
     ],
