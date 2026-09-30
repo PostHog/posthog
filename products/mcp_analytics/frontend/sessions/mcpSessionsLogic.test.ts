@@ -36,6 +36,13 @@ const TOOL_FILTER: AnyPropertyFilter = {
     type: PropertyFilterType.Event,
 }
 
+const SESSION_FILTER: AnyPropertyFilter = {
+    key: '$session_id',
+    value: ['linked-session'],
+    operator: PropertyOperator.Exact,
+    type: PropertyFilterType.Event,
+}
+
 describe('mcpSessionsLogic', () => {
     let logic: ReturnType<typeof mcpSessionsLogic.build>
 
@@ -89,7 +96,7 @@ describe('mcpSessionsLogic', () => {
         expect(listMock).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({ has_errors: undefined }))
     })
 
-    it('deep-links a session through search', async () => {
+    it('deep-links a session through the shared property filters', async () => {
         listMock.mockResolvedValue({
             results: [{ session_id: 'linked-session', session_start: '2026-01-01T00:00:00Z' }],
             has_next: false,
@@ -97,20 +104,19 @@ describe('mcpSessionsLogic', () => {
         toolCallsMock.mockResolvedValue({ results: [], has_next: false })
 
         await expectLogic(logic, () => {
-            router.actions.push(urls.mcpAnalyticsSessions(), { search: 'linked-session' })
+            router.actions.push(urls.mcpAnalyticsSessions(), {
+                search: 'ignored-session',
+                properties: [SESSION_FILTER],
+            })
         }).toDispatchActions(['loadSessionsSuccess', 'loadToolCallsSuccess'])
 
-        expect(logic.values.filters.search).toBe('linked-session')
         expect(logic.values.selectedSessionId).toBe('linked-session')
-        expect(listMock).toHaveBeenLastCalledWith(
-            expect.anything(),
-            expect.objectContaining({ search: 'linked-session' })
-        )
+        expect(listMock.mock.lastCall?.[1]).toMatchObject({ properties: JSON.stringify([SESSION_FILTER]) })
+        expect(listMock.mock.lastCall?.[1].search).toBeUndefined()
     })
 
     it.each([
         ['nothing', () => {}, false],
-        ['search', () => logic.actions.setFilters({ search: 'abc' }), true],
         ['has errors', () => logic.actions.setFilters({ hasErrors: false }), true],
         ['date range', () => logic.actions.setDateFilter('-30d', null), true],
         ['property filter', () => mcpAnalyticsFiltersLogic.actions.setPropertyFilters([TOOL_FILTER]), true],

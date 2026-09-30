@@ -21,15 +21,32 @@ import {
 import { formatPercentage } from 'lib/utils/numbers'
 import { urls } from 'scenes/urls'
 
+import { PropertyFilterType, PropertyOperator } from '~/types'
+
 import { type NotableSession } from '../mcpDashboardOverviewLogic'
 import { formatDuration, truncateSessionId } from './formatters'
 
-// Link to the Sessions tab, keeping the dashboard's date range so a linked session resolves in the
-// same window. A sessionId becomes the search term (filtering the list to it and selecting it);
-// without one, opens the full list.
 export function sessionsUrl(searchParams: Record<string, any>, sessionId?: string): string {
-    const { search: _search, ...rest } = searchParams
-    return combineUrl(urls.mcpAnalyticsSessions(), sessionId ? { ...rest, search: sessionId } : rest).url
+    const { search: _search, properties, ...rest } = searchParams
+    const otherProperties = Array.isArray(properties)
+        ? properties.filter((filter) => filter?.key !== '$session_id')
+        : []
+    const nextProperties = sessionId
+        ? [
+              ...otherProperties,
+              {
+                  key: '$session_id',
+                  value: [sessionId],
+                  operator: PropertyOperator.Exact,
+                  type: PropertyFilterType.Event,
+              },
+          ]
+        : otherProperties
+
+    return combineUrl(urls.mcpAnalyticsSessions(), {
+        ...rest,
+        ...(nextProperties.length > 0 ? { properties: nextProperties } : {}),
+    }).url
 }
 
 const DESTRUCTIVE_ERROR_PCT = 5
