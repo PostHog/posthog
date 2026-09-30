@@ -12,12 +12,8 @@ script = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(script)
 
 
-def at(second: int) -> datetime:
-    return datetime.fromisoformat(f"2026-09-30T12:00:{second:02d}Z")
-
-
 def run(run_id: str, second: int) -> "script.Run":
-    return script.Run(run_id=run_id, created_at=at(second))
+    return script.Run(run_id=run_id, created_at=datetime.fromisoformat(f"2026-09-30T12:00:{second:02d}Z"))
 
 
 def workflow(run_id: str, path: str = "ci-backend.yml") -> "script.Workflow":
@@ -25,20 +21,21 @@ def workflow(run_id: str, path: str = "ci-backend.yml") -> "script.Workflow":
 
 
 @pytest.mark.parametrize(
-    "runs,expected",
+    "runs,others,expected",
     [
-        pytest.param([run("old", 0), run("mine", 6)], ["old"], id="run_created_before_the_event"),
-        pytest.param([run("mine", 6), run("new", 9)], [], id="own_and_later_runs_kept"),
-        pytest.param([run("same_second", 5)], [], id="run_created_in_the_event_second_kept"),
+        pytest.param([run("old", 0), run("me", 5)], ["old"], ["old"], id="older_run"),
+        pytest.param([run("me", 0), run("new", 5)], ["new"], [], id="newer_run_never_cancels_self"),
+        pytest.param([run("old", 0), run("me", 5), run("new", 9)], ["old", "new"], ["old"], id="newer_run_left_alone"),
+        pytest.param([run("a", 5), run("me", 5), run("z", 5)], ["a", "z"], ["a", "z"], id="same_second_tie"),
     ],
 )
-def test_superseded_cancels_only_runs_created_before_the_kept_event(
-    runs: list["script.Run"], expected: list[str]
-) -> None:
-    workflows = [workflow(each.run_id) for each in runs]
+def test_superseded(runs: list["script.Run"], others: list[str], expected: list[str]) -> None:
+    workflows = [workflow("me"), *(workflow(run_id) for run_id in others)]
 
-    assert [target.run_id for target in script.superseded(at(5), workflows, runs)] == expected
+    assert [target.run_id for target in script.superseded("wme", workflows, runs)] == expected
 
 
 def test_superseded_ignores_other_workflow_files() -> None:
-    assert script.superseded(at(5), [workflow("old", path="other.yml")], [run("old", 0)]) == []
+    workflows = [workflow("me"), workflow("old", path="other.yml")]
+
+    assert script.superseded("wme", workflows, [run("old", 0), run("me", 5)]) == []

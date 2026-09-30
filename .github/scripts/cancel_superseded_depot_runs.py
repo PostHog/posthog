@@ -1,16 +1,19 @@
 #!/usr/bin/env python3
 """Cancel the Backend CI runs on Depot CI that a later event of the same pull request superseded.
 
-GitHub Actions runs this script in the pull request event it kept. Its concurrency group keeps one
-run per pull request, so every Depot run created before this event belongs to an event GitHub
-Actions already dropped. Depot creates each run after its own event, so this event's run and any
-later one are never touched. GitHub Actions makes the decision, and Depot never orders runs itself.
+Only a run that knows the event GitHub Actions kept runs this script: the run GitHub Actions
+named in its hand-off, or a run whose commit GitHub Actions kept for itself. So every run of the
+pull request that Depot created at the same time or earlier belongs to an event GitHub Actions
+dropped. A hand-off comes at least a minute after its event and Depot creates a run within
+seconds of its event, so an older run is never the one GitHub Actions names next. The script
+never cancels its own run, and compares Depot's own timestamps only.
 See "Superseded runs" in .agents/skills/depot-ci/references/posthog-check-run-semantics.md.
 
 Standard library only: the job runs this with the runner's python3 before any install.
 """
 
 import os
+import re
 import sys
 import json
 import subprocess
@@ -21,6 +24,7 @@ from datetime import datetime
 WORKFLOW_PATH = "ci-backend.yml"
 ACTIVE = ("queued", "running")
 ALL = (*ACTIVE, "finished", "failed", "cancelled")
+DEPOT_JOB_URL = re.compile(r"^https://depot\.dev/orgs/[^/?]+/workflows/([a-z0-9]+)")
 CLI_TIMEOUT_SECONDS = 60
 
 
@@ -37,12 +41,17 @@ class Workflow:
     path: str
 
 
-def superseded(event_at: datetime, active_workflows: Sequence[Workflow], runs: Sequence[Run]) -> list[Workflow]:
-    created = {run.run_id: run.created_at for run in runs}
+def superseded(own_workflow_id: str, active_workflows: Sequence[Workflow], runs: Sequence[Run]) -> list[Workflow]:
+    runs_by_id = {run.run_id: run for run in runs}
+    own = {workflow.workflow_id: workflow for workflow in active_workflows}[own_workflow_id]
+    me = runs_by_id[own.run_id]
     return [
         workflow
         for workflow in active_workflows
-        if workflow.path == WORKFLOW_PATH and workflow.run_id in created and created[workflow.run_id] < event_at
+        if workflow.path == WORKFLOW_PATH
+        and workflow.run_id != me.run_id
+        and workflow.run_id in runs_by_id
+        and runs_by_id[workflow.run_id].created_at <= me.created_at
     ]
 
 
@@ -60,9 +69,12 @@ def list_pr(noun: str, repo: str, pr_number: str, statuses: Sequence[str]) -> li
 
 
 def main() -> int:
+    match = DEPOT_JOB_URL.match(os.environ.get("DEPOT_JOB_URL", ""))
+    if not match:
+        sys.stdout.write("::warning::DEPOT_JOB_URL names no workflow, so no run was cancelled.\n")
+        return 0
     repo, pr_number = os.environ["REPO"], os.environ["PR_NUMBER"]
     try:
-        event_at = datetime.fromisoformat(os.environ["EVENT_AT"])
         # Workflows first, so the run of every listed workflow is in the run list.
         workflows = [
             Workflow(workflow_id=row["workflow_id"], run_id=row["run_id"], path=row["workflow_path"])
@@ -72,7 +84,7 @@ def main() -> int:
             Run(run_id=row["run_id"], created_at=datetime.fromisoformat(row["created_at"]))
             for row in list_pr("run", repo, pr_number, ALL)
         ]
-        targets = superseded(event_at, workflows, runs)
+        targets = superseded(match[1], workflows, runs)
     except (subprocess.SubprocessError, KeyError, ValueError) as error:
         sys.stdout.write(f"::warning::Could not read this PR's Depot runs, so no run was cancelled: {error!r}\n")
         return 0

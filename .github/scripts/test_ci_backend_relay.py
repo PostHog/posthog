@@ -22,8 +22,9 @@ SPEC.loader.exec_module(relay)
 DEPOT_WORKFLOW_FILE = Path(__file__).parents[2] / ".depot" / "workflows" / "ci-backend.yml"
 PR = 105723
 EVENT_AT = "2026-09-24T09:54:20Z"
-EVENT = relay.Event(repo="PostHog/posthog", sha="a8a3755cf964", pr_number=PR, event_at=EVENT_AT, workflow="live")
+EVENT = relay.Event(repo="PostHog/posthog", sha="a8a3755cf964", pr_number=PR, event_at=EVENT_AT)
 EVENT_WAIT = relay.wait_check_name(PR, EVENT_AT)
+STARTED = relay.event_check_name(relay.STARTED_JOB, PR, EVENT_AT)
 PLAIN_WAIT = f"{relay.DEPOT_WORKFLOW} / {relay.WAIT_JOB}"
 
 
@@ -71,17 +72,24 @@ def test_mirrored_checks_carry_the_names_the_relay_reads() -> None:
     assert handoff["env"]["GATE_CHECK"] == gate["env"]["GATE_CHECK"] == relay.GATE_CHECK
 
 
-def test_depot_waits_for_the_hand_off_check_github_posts() -> None:
-    github = yaml.safe_load((Path(__file__).parents[1] / "workflows" / "ci-backend.yml").read_text())
-    step = next(
-        step
-        for step in github["jobs"]["hand-off-to-depot"]["steps"]
-        if step.get("name") == "Name the Depot workflow that runs the tests"
-    )
-    posted = step["env"]["HANDOFF_CHECK"].replace("${{ needs.changes.outputs.depot_workflow }}", "w1")
-    awaited = re.search(r'HANDOFF_CHECK="([^"]+)"', DEPOT_WORKFLOW_FILE.read_text())
+def test_depot_waits_for_the_hand_off_check_the_relay_posts() -> None:
+    awaited = re.search(r'named="([^"]+)"', DEPOT_WORKFLOW_FILE.read_text())
     assert awaited is not None
-    assert awaited.group(1).replace("${BASH_REMATCH[1]}", "w1") == posted
+    assert awaited.group(1).replace("${BASH_REMATCH[1]}", "w1") == relay.NAMED_HANDOFF.format(workflow="w1")
+
+
+@pytest.mark.parametrize("failures,posted", [(0, True), (2, True), (3, False)])
+def test_post_handoff_retries_transient_failures(failures: int, posted: bool) -> None:
+    calls: list[Any] = []
+
+    def opener(request: Any, timeout: int) -> FakeResponse:
+        calls.append(json.loads(request.data))
+        if len(calls) <= failures:
+            raise urllib.error.URLError("unavailable")
+        return FakeResponse(b"{}", "")
+
+    assert relay.post_handoff("PostHog/posthog", "abc", "t", "w1", opener=opener, sleep=lambda _: None) is posted
+    assert calls[-1]["name"] == relay.NAMED_HANDOFF.format(workflow="w1")
 
 
 @pytest.mark.parametrize(
@@ -124,37 +132,54 @@ def test_depot_waits_for_the_hand_off_check_github_posts() -> None:
     ],
 )
 def test_progress_of_this_events_run(event_waits: list[Any], gates: list[Any], expected: tuple[Any, str]) -> None:
-    wait = relay.current_check(event_waits, EVENT.workflow)
+    wait = relay.current_check(event_waits, "live")
     result = relay.progress(wait, gates)
     assert (result.phase, result.state) == expected
-
-
-class FakeReader:
-    def __init__(self, polls: Sequence[dict[str, list[Any]]], advance_on: str = EVENT_WAIT) -> None:
-        self._polls = list(polls)
-        self._advance_on = advance_on
-        self.poll = 0
-        self.reads: list[str] = []
-
-    def read(self, name: str) -> list[Any]:
-        self.reads.append(name)
-        if name == self._advance_on:
-            self.poll += 1
-        answer = self._polls[min(self.poll, len(self._polls)) - 1].get(name, [])
-        if isinstance(answer, Exception):
-            raise answer
-        return answer
 
 
 class FakeClock:
     def __init__(self) -> None:
         self.now = 0.0
+        self.sleeps = 0
 
     def __call__(self) -> float:
         return self.now
 
     def sleep(self, seconds: float) -> None:
         self.now += seconds
+        self.sleeps += 1
+
+
+class FakeReader:
+    """Answers each poll of `relay.poll` from the next dict, advancing on every sleep."""
+
+    def __init__(self, polls: Sequence[dict[str, Any]], clock: FakeClock) -> None:
+        self._polls = list(polls)
+        self._clock = clock
+        self.reads: list[str] = []
+
+    def read(self, name: str) -> list[Any]:
+        self.reads.append(name)
+        answer = self._polls[min(self._clock.sleeps, len(self._polls) - 1)].get(name, [])
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+
+
+def poll(polls: Sequence[dict[str, Any]], hand_off: Any = lambda workflow: True) -> tuple[Any, FakeClock, FakeReader]:
+    clock = FakeClock()
+    reader = FakeReader(polls, clock)
+    result = relay.poll(
+        reader,
+        EVENT,
+        relay.GATE_CHECK,
+        hand_off=hand_off,
+        deadline_minutes=90,
+        absent_minutes=15,
+        clock=clock,
+        sleep=clock.sleep,
+    )
+    return result, clock, reader
 
 
 @pytest.mark.parametrize(
@@ -163,53 +188,58 @@ class FakeClock:
         pytest.param(
             [
                 {
-                    EVENT_WAIT: [run(1, "success"), run(2, "success", workflow="duplicate")],
+                    STARTED: [run(1, "success", workflow="duplicate"), run(2, "success")],
+                    EVENT_WAIT: [run(3, "success", workflow="duplicate"), run(4, "success")],
                     relay.GATE_CHECK: [run(10, "success"), run(11, "failure", workflow="duplicate")],
                 }
             ],
             (relay.Phase.FINISHED, "success"),
             0,
-            id="the handed-off workflow decides, not a newer one of the same event",
+            id="the newest started workflow is handed off and decides",
         ),
-        pytest.param([{}], (relay.Phase.ABSENT, ""), 15, id="no run fails after the grace window"),
         pytest.param(
-            [{EVENT_WAIT: [run(1, "success")]}] * 16
-            + [{EVENT_WAIT: relay.ReadFailedError("Cannot read")}]
-            + [{EVENT_WAIT: [run(1, "success")], relay.GATE_CHECK: [run(10, "success")]}],
+            [{}] * 6
+            + [{STARTED: [run(1, "success")], EVENT_WAIT: [run(2, "success")], relay.GATE_CHECK: [run(3, "success")]}],
+            (relay.Phase.FINISHED, "success"),
+            3,
+            id="a late Depot start is still handed off",
+        ),
+        pytest.param([{}], (relay.Phase.ABSENT, ""), 15, id="no started run fails after the grace window"),
+        pytest.param(
+            [{STARTED: [run(1, "success")], EVENT_WAIT: [run(2, "success")]}] * 16
+            + [{STARTED: [run(1, "success")], EVENT_WAIT: relay.ReadFailedError("Cannot read")}]
+            + [{STARTED: [run(1, "success")], EVENT_WAIT: [run(2, "success")], relay.GATE_CHECK: [run(10, "success")]}],
             (relay.Phase.FINISHED, "success"),
             16,
             id="a failed read after the grace window keeps waiting",
         ),
         pytest.param(
-            [{EVENT_WAIT: [run(1, "success")]}],
+            [{STARTED: [run(1, "success")], EVENT_WAIT: [run(2, "success")]}],
             (relay.Phase.RUNNING, ""),
             90,
             id="a running gate hits the overall deadline",
         ),
     ],
 )
-def test_poll_waits_out_a_replacement_before_failing(
-    polls: list[dict[str, list[Any]]], expected: tuple[Any, str], min_minutes: int
+def test_poll_follows_the_handed_off_workflow(
+    polls: list[dict[str, Any]], expected: tuple[Any, str], min_minutes: int
 ) -> None:
-    clock = FakeClock()
-    result = relay.poll(
-        FakeReader(polls),
-        EVENT,
-        relay.GATE_CHECK,
-        deadline_minutes=90,
-        absent_minutes=15,
-        clock=clock,
-        sleep=clock.sleep,
-    )
+    result, clock, _ = poll(polls)
     assert (result.phase, result.state) == expected
     assert clock.now >= min_minutes * 60
 
 
+def test_poll_fails_with_the_api_error_when_the_hand_off_cannot_be_posted() -> None:
+    result, _, reader = poll([{STARTED: [run(1, "success")], EVENT_WAIT: [run(2, "success")]}], lambda workflow: False)
+    code, lines = relay.relay_gate(result, EVENT, "123")
+    assert code == 1
+    assert "refused the Depot hand-off" in lines[0]
+    assert EVENT_WAIT not in reader.reads
+
+
 def test_poll_does_not_use_an_ambiguous_plain_named_wait() -> None:
-    clock = FakeClock()
-    reader = FakeReader([{PLAIN_WAIT: [run(1, "success")], relay.GATE_CHECK: [run(2, "success")]}])
-    result = relay.poll(
-        reader, EVENT, relay.GATE_CHECK, deadline_minutes=90, absent_minutes=15, clock=clock, sleep=clock.sleep
+    result, _, reader = poll(
+        [{STARTED: [run(1, "success")], PLAIN_WAIT: [run(2, "success")], relay.GATE_CHECK: [run(3, "success")]}]
     )
     assert result.phase == relay.Phase.ABSENT
     assert PLAIN_WAIT not in reader.reads
@@ -345,23 +375,15 @@ def test_cancelled_gate_reports_only_current_selected_prerequisite(
     roots = [run(2, state, workflow)]
     if newer:
         roots.append(run(3, newer, workflow))
-    clock = FakeClock()
-    result = relay.poll(
-        FakeReader(
-            [
-                {
-                    EVENT_WAIT: [run(1, "success")],
-                    relay.GATE_CHECK: [run(5, "cancelled")],
-                    f"{relay.DEPOT_WORKFLOW} / {name}": roots,
-                }
-            ]
-        ),
-        EVENT,
-        relay.GATE_CHECK,
-        deadline_minutes=90,
-        absent_minutes=15,
-        clock=clock,
-        sleep=clock.sleep,
+    result, clock, _ = poll(
+        [
+            {
+                STARTED: [run(0, "success")],
+                EVENT_WAIT: [run(1, "success")],
+                relay.GATE_CHECK: [run(5, "cancelled")],
+                f"{relay.DEPOT_WORKFLOW} / {name}": roots,
+            }
+        ]
     )
     code, lines = relay.relay_gate(result, EVENT, "123")
     assert code == 1
@@ -376,23 +398,15 @@ def test_cancelled_gate_reports_only_current_selected_prerequisite(
 @pytest.mark.parametrize("name", relay.PREREQUISITES)
 def test_failed_gate_keeps_retry_options_after_a_prerequisite_failure(name: str) -> None:
     # Without Depot's self-cancel, the prerequisite may have failed on a retryable setup step.
-    clock = FakeClock()
-    result = relay.poll(
-        FakeReader(
-            [
-                {
-                    EVENT_WAIT: [run(1, "success")],
-                    relay.GATE_CHECK: [run(5, "failure")],
-                    f"{relay.DEPOT_WORKFLOW} / {name}": [run(2, "failure")],
-                }
-            ]
-        ),
-        EVENT,
-        relay.GATE_CHECK,
-        deadline_minutes=90,
-        absent_minutes=15,
-        clock=clock,
-        sleep=clock.sleep,
+    result, _, _ = poll(
+        [
+            {
+                STARTED: [run(0, "success")],
+                EVENT_WAIT: [run(1, "success")],
+                relay.GATE_CHECK: [run(5, "failure")],
+                f"{relay.DEPOT_WORKFLOW} / {name}": [run(2, "failure")],
+            }
+        ]
     )
     code, lines = relay.relay_gate(result, EVENT, "123")
     assert code == 1

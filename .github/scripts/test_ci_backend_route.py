@@ -4,7 +4,6 @@ import importlib.util
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -165,19 +164,15 @@ def test_parse_percent_fails_closed(raw: str | None, expected: int) -> None:
 @pytest.mark.parametrize(
     "labels,started,expected",
     [
-        (json.dumps(["other"]), "w1", "engine=depot\nreason=bucket 30 < 50%\ndepot_workflow=w1\n"),
-        ("null", "w1", "engine=depot\nreason=bucket 30 < 50%\ndepot_workflow=w1\n"),
-        ("", "w1", "engine=depot\nreason=bucket 30 < 50%\ndepot_workflow=w1\n"),
-        ("[]", None, "engine=github\nreason=Depot CI started no run for this event\ndepot_workflow=\n"),
-        (
-            json.dumps(["ci-backend-depot"]),
-            None,
-            "engine=github\nreason=Depot CI started no run for this event\ndepot_workflow=\n",
-        ),
+        (json.dumps(["other"]), True, "engine=depot\nreason=bucket 30 < 50%\n"),
+        ("null", True, "engine=depot\nreason=bucket 30 < 50%\n"),
+        ("", True, "engine=depot\nreason=bucket 30 < 50%\n"),
+        ("[]", False, "engine=github\nreason=Depot CI started no run for this event\n"),
+        (json.dumps(["ci-backend-depot"]), False, "engine=github\nreason=Depot CI started no run for this event\n"),
     ],
 )
 def test_main_writes_outputs(
-    labels: str, started: str | None, expected: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    labels: str, started: bool, expected: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     output = tmp_path / "out"
     monkeypatch.setenv("GITHUB_OUTPUT", str(output))
@@ -186,7 +181,7 @@ def test_main_writes_outputs(
     monkeypatch.setenv("PR_NUMBER", "7")
     monkeypatch.setenv("LABELS", labels)
     monkeypatch.setattr(route, "fetch_handoff_checks", lambda repo, sha, token: [])
-    monkeypatch.setattr(route, "depot_workflow", lambda *_: started)
+    monkeypatch.setattr(route, "depot_started", lambda *_: started)
     monkeypatch.setenv("REPO", "PostHog/posthog")
     monkeypatch.setenv("SHA", "abc")
     monkeypatch.setenv("GH_TOKEN", "t")
@@ -211,7 +206,7 @@ def test_main_keeps_a_handed_off_commit_on_depot_after_rollback(
     monkeypatch.setenv("SHA", "abc")
     monkeypatch.setenv("GH_TOKEN", "t")
     monkeypatch.setattr(route, "fetch_handoff_checks", fetch)
-    monkeypatch.setattr(route, "depot_workflow", lambda *_: None)
+    monkeypatch.setattr(route, "depot_started", lambda *_: False)
     assert route.main() == 0
     assert output.read_text().startswith("engine=depot\n")
 
@@ -252,35 +247,32 @@ class FakeReader:
     def __init__(self, polls: list[bool | Exception]) -> None:
         self.polls = polls
 
-    def read(self, name: str) -> list[SimpleNamespace]:
+    def read(self, name: str) -> list[str]:
         assert name == f"Backend CI on Depot / Depot run started (PR 7, event {EVENT_AT})"
         answer = self.polls.pop(0) if len(self.polls) > 1 else self.polls[0]
         if isinstance(answer, Exception):
             raise answer
-        # Two events in one second share the started check's name; the newest check names the workflow.
-        return (
-            [SimpleNamespace(id=2, depot_workflow="w1"), SimpleNamespace(id=1, depot_workflow="w0")] if answer else []
-        )
+        return ["check"] if answer else []
 
 
 @pytest.mark.parametrize(
     "polls,started,routed_after",
     [
-        ([True], "w1", 15),
-        ([False, False, True], "w1", 15),
-        ([route.ReadFailedError("boom"), True], "w1", 15),
-        ([False], None, 15),
-        ([route.ReadRefusedError("refused")], None, 15),
-        ([False], None, 400),
+        ([True], True, 15),
+        ([False, False, True], True, 15),
+        ([route.ReadFailedError("boom"), True], True, 15),
+        ([False], False, 15),
+        ([route.ReadRefusedError("refused")], False, 15),
+        ([False], False, 400),
     ],
 )
-def test_depot_workflow_waits_for_the_started_check_of_the_event(
-    polls: list[bool | Exception], started: str | None, routed_after: int
+def test_depot_started_waits_for_the_started_check_of_the_event(
+    polls: list[bool | Exception], started: bool, routed_after: int
 ) -> None:
     now = [EVENT_EPOCH + routed_after]
 
     def sleep(seconds: float) -> None:
         now[0] += seconds
 
-    assert route.depot_workflow(FakeReader(polls), 7, EVENT_AT, clock=lambda: now[0], sleep=sleep) == started
+    assert route.depot_started(FakeReader(polls), 7, EVENT_AT, clock=lambda: now[0], sleep=sleep) is started
     assert now[0] <= max(EVENT_EPOCH + route.DEPOT_START_SECONDS + route.DEPOT_POLL_SECONDS, EVENT_EPOCH + routed_after)

@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Follow the Depot CI workflow that took over one pull request event, and read one of its checks.
+"""Hand one pull request event to one Depot CI workflow, and relay that workflow's gate.
 
-GitHub Actions hands a pull request event to one Depot workflow, which ci_backend_route.py
-picks and names (see "Superseded runs" in
-.agents/skills/depot-ci/references/posthog-check-run-semantics.md). The relay reads that
-workflow's checks only, matched by the Depot workflow id in each check's details URL. Check
-times and pull request lists cannot pick out a Depot run, because Depot backdates the checks
-of cancelled jobs and can leave its check suite without a pull request.
+Depot starts a workflow for every pull request event, and two events in the same second share
+every name that carries the event. So the relay names the workflow: it takes the newest
+`Depot run started` check of this event, posts a hand-off check that names its workflow id,
+and reads the checks of that workflow only, matched by the id in each check's details URL.
+Depot's wait job runs the tests only in the workflow a hand-off names. See "Finding one
+event's Depot run" in .agents/skills/depot-ci/references/posthog-check-run-semantics.md.
 
 Standard library only: the relay job runs this with the runner's python3 before any install.
 """
@@ -34,6 +34,10 @@ DEPOT_ORG = "ntsdt08fpt"
 MIRROR_APP_ID = 2492437
 DEPOT_WORKFLOW = "Backend CI on Depot"
 WAIT_JOB = "Wait for GitHub Actions to hand off backend tests"
+# The first step of Depot's wait job posts this check; .depot/workflows/ci-backend.yml builds the same name.
+STARTED_JOB = "Depot run started"
+# Depot's wait job runs the tests only after a check of this name, for its own workflow id.
+NAMED_HANDOFF = "Hand off backend tests to Depot workflow {workflow}"
 # Renders the same text as the wait job's name expression in .depot/workflows/ci-backend.yml.
 EVENT_SUFFIX = " (PR {pr}, event {event_at})"
 # How a pull request event payload renders `updated_at`.
@@ -293,8 +297,36 @@ class Event:
     pr_number: int
     # The pull request's `updated_at` in this event's payload.
     event_at: str
-    # The Depot workflow GitHub Actions handed this event to, empty when Depot started none.
-    workflow: str
+
+
+def post_handoff(
+    repo: str,
+    sha: str,
+    token: str,
+    workflow: str,
+    opener: Callable[..., Any] = urllib.request.urlopen,
+    sleep: Callable[[float], None] = time.sleep,
+) -> bool:
+    """Post the check that lets Depot workflow `workflow` run this commit's tests, retrying transient failures."""
+    body = {"name": NAMED_HANDOFF.format(workflow=workflow), "head_sha": sha, "status": "completed"}
+    request = urllib.request.Request(
+        f"{API_ROOT}/repos/{repo}/check-runs",
+        data=json.dumps({**body, "conclusion": "success"}).encode(),
+        method="POST",
+        headers={
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+            "Authorization": f"Bearer {token}",
+        },
+    )
+    for attempt in range(1, 4):
+        try:
+            with opener(request, timeout=30):
+                return True
+        except (urllib.error.URLError, OSError, http.client.HTTPException) as error:
+            sys.stdout.write(f"::warning::Hand-off check not posted ({attempt}/3): {error}\n")
+        sleep(5 * attempt)
+    return False
 
 
 def prerequisite_failure(reader: CheckReader, wait: CheckRun, current: Progress) -> Progress:
@@ -310,30 +342,39 @@ def poll(
     event: Event,
     check_name: str,
     *,
+    hand_off: Callable[[str], bool],
     deadline_minutes: int,
     absent_minutes: int,
     clock: Callable[[], float] = time.monotonic,
     sleep: Callable[[float], None] = time.sleep,
 ) -> Progress:
-    """Polls until the handed-off workflow's check finishes or is cancelled, or a deadline passes.
+    """Hands the event to its newest started workflow, then polls until that workflow's check finishes.
 
-    Depot posts the wait job's check only when that job ends, so an absent one gets
-    `absent_minutes` before the relay gives up on the workflow.
+    Depot can start late and posts the wait job's check only when that job ends, so a missing
+    workflow or wait check gets `absent_minutes` before the relay gives up.
     """
-    if not event.workflow:
-        return Progress(Phase.ABSENT)
     start = clock()
+    started_name = event_check_name(STARTED_JOB, event.pr_number, event.event_at)
     event_name = wait_check_name(event.pr_number, event.event_at)
+    workflow = None
     current = Progress(Phase.ABSENT)
     while True:
         try:
-            wait = current_check(reader.read(event_name), event.workflow)
-            checks = reader.read(check_name) if wait and wait.state == "success" else []
-            current = progress(wait, checks)
-            # Depot cancels its own run only after a deterministic prerequisite failure. A gate that
-            # failed without the cancel can follow a retryable one, so it keeps the retry options.
-            if current.phase == Phase.CANCELLED and wait and wait.state == "success":
-                current = prerequisite_failure(reader, wait, current)
+            if workflow is None and (started := reader.read(started_name)):
+                newest = max(started, key=lambda check: check.id).depot_workflow
+                if newest and hand_off(newest):
+                    workflow = newest
+                    sys.stdout.write(f"Handed the tests to Depot workflow {workflow}\n")
+                else:
+                    current = Progress(Phase.ABSENT, "hand-off not posted")
+            if workflow:
+                wait = current_check(reader.read(event_name), workflow)
+                checks = reader.read(check_name) if wait and wait.state == "success" else []
+                current = progress(wait, checks)
+                # Depot cancels its own run only after a deterministic prerequisite failure. A gate that
+                # failed without the cancel can follow a retryable one, so it keeps the retry options.
+                if current.phase == Phase.CANCELLED and wait and wait.state == "success":
+                    current = prerequisite_failure(reader, wait, current)
             sys.stdout.write(f"Depot run for this event: {current.phase.value} {current.state}".rstrip() + "\n")
             elapsed = clock() - start
             if current.phase in (Phase.FINISHED, Phase.DECLINED, Phase.CANCELLED):
@@ -400,6 +441,8 @@ def relay_gate(result: Progress, event: Event, run_id: str) -> tuple[int, list[s
         ]
     if result.phase == Phase.DECLINED:
         return 1, [f"::error::Depot declined the hand-off for {event.sha} (wait job: {result.state})"]
+    if result.phase == Phase.ABSENT and result.state:
+        return 1, [f"::error::The GitHub API refused the Depot hand-off for {event.sha}. Re-run this job."]
     if result.phase == Phase.ABSENT:
         return 1, [f"::error::Depot CI started no run for this event of {event.sha}"]
     return 1, [f"::error::No Depot verdict for {event.sha} within the relay's deadline"]
@@ -410,16 +453,14 @@ def main(argv: Sequence[str]) -> int:
         sys.stderr.write("usage: ci_backend_relay.py gate\n")
         return 2
     env = os.environ
-    event = Event(
-        repo=env["REPO"],
-        sha=env["SHA"],
-        pr_number=int(env["PR_NUMBER"]),
-        event_at=env["EVENT_AT"],
-        workflow=env.get("DEPOT_WORKFLOW", ""),
-    )
+    event = Event(repo=env["REPO"], sha=env["SHA"], pr_number=int(env["PR_NUMBER"]), event_at=env["EVENT_AT"])
     reader = CheckRunReader(event.repo, event.sha, env["GH_TOKEN"], pr_number=event.pr_number)
+
+    def hand_off(workflow: str) -> bool:
+        return post_handoff(event.repo, event.sha, env["GH_TOKEN"], workflow)
+
     try:
-        result = poll(reader, event, GATE_CHECK, deadline_minutes=90, absent_minutes=15)
+        result = poll(reader, event, GATE_CHECK, hand_off=hand_off, deadline_minutes=90, absent_minutes=15)
     except ReadRefusedError as error:
         sys.stdout.write(f"::error::{error}\n")
         return 1
