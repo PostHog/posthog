@@ -1,5 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { projectLogic } from 'scenes/projectLogic'
+
 import { useMocks } from '~/mocks/jest'
 import { QuickFilterContext } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
@@ -80,6 +82,44 @@ describe('quickFilterValuesLogic', () => {
         failRequests = false
         await expectLogic(logic, () => logic.actions.setSearch('')).toDispatchActions(['loadValues', 'setValues'])
         expect(logic.values.discoveredValuesStatus).toEqual('loaded')
+        expect(valuesOf(logic)).toEqual(['web', 'posthog-python'])
+    })
+
+    it.each([
+        { description: 'keeps fresh values when the dropdown opens again', minutesLater: 1, expectedRequests: 1 },
+        {
+            description: 'refreshes values older than five minutes when the dropdown opens again',
+            minutesLater: 6,
+            expectedRequests: 2,
+        },
+    ])('$description', async ({ minutesLater, expectedRequests }) => {
+        const now = jest.spyOn(Date, 'now').mockReturnValue(1_000_000)
+        try {
+            const logic = quickFilterValuesLogic({ context, propertyName: '$lib' })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['setValues'])
+
+            now.mockReturnValue(1_000_000 + minutesLater * 60_000)
+            logic.actions.setSearch('')
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(requests).toHaveLength(expectedRequests)
+            expect(logic.values.discoveredValuesStatus).toEqual('loaded')
+        } finally {
+            now.mockRestore()
+        }
+    })
+
+    it('loads once the project loads when mounted before it is known', async () => {
+        projectLogic.mount()
+        projectLogic.actions.loadCurrentProjectSuccess(null)
+        const logic = quickFilterValuesLogic({ context, propertyName: '$lib' })
+        logic.mount()
+        expect(logic.values.discoveredValuesStatus).toEqual('error')
+
+        projectLogic.actions.loadCurrentProjectSuccess({ id: 997, name: 'Test project' } as any)
+        await expectLogic(logic).toDispatchActions(['loadValues', 'setValues'])
+
         expect(valuesOf(logic)).toEqual(['web', 'posthog-python'])
     })
 })

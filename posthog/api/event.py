@@ -407,6 +407,9 @@ class EventViewSet(
                 "event_name",
                 OpenApiTypes.STR,
                 many=True,
+                # The generated client emits repeated keys only for params the spec marks explode,
+                # and getlist below needs repeated keys, because a comma-joined value matches no event.
+                explode=True,
                 description="Only read values from events with these names. Repeat to pass several. "
                 "Required with a personal API key. Projects that read values from the precomputed "
                 "property values table ignore this filter.",

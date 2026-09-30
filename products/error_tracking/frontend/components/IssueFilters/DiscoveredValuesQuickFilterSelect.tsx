@@ -20,8 +20,19 @@ import {
 import { QuickFilterContext } from '~/queries/schema/schema-general'
 import { QuickFilter, QuickFilterOption } from '~/types'
 
-const ANY_VALUE = '__any__'
-const STATUS_VALUE = '__status__'
+// Controls and property values share one item list. The prefixes keep a property value such as
+// "control:any" from acting as a control, because every value item starts with VALUE_PREFIX.
+const ANY_ITEM = 'control:any'
+const STATUS_ITEM = 'control:status'
+const VALUE_PREFIX = 'value:'
+
+function toItem(optionId: string): string {
+    return `${VALUE_PREFIX}${optionId}`
+}
+
+function fromItem(item: string): string | null {
+    return item.startsWith(VALUE_PREFIX) ? item.slice(VALUE_PREFIX.length) : null
+}
 
 export interface DiscoveredValuesQuickFilterSelectProps {
     filter: QuickFilter
@@ -45,20 +56,20 @@ export function DiscoveredValuesQuickFilterSelect({
     const statusMessage = discoveredValuesMessage(discoveredValuesStatus, search, discoveredOptions.length)
 
     const items = useMemo(() => {
-        const optionIds = withSelectedOption(discoveredOptions, selectedOptionId).map((option) => option.id)
-        return [ANY_VALUE, ...optionIds, ...(statusMessage ? [STATUS_VALUE] : [])]
+        const valueItems = withSelectedOption(discoveredOptions, selectedOptionId).map((option) => toItem(option.id))
+        return [ANY_ITEM, ...valueItems, ...(statusMessage ? [STATUS_ITEM] : [])]
     }, [discoveredOptions, selectedOptionId, statusMessage])
 
     return (
         <Combobox
             items={items}
-            value={selectedOptionId ?? ANY_VALUE}
+            value={selectedOptionId === null ? ANY_ITEM : toItem(selectedOptionId)}
             inputValue={search}
             // Search runs on the server, so the list shows the returned values unfiltered
             filter={null}
             autoHighlight
             highlightItemOnHover
-            itemToStringLabel={(value: string) => (value === ANY_VALUE ? anyLabel : value)}
+            itemToStringLabel={(item: string) => (item === ANY_ITEM ? anyLabel : (fromItem(item) ?? ''))}
             onInputValueChange={(value: string, { reason }) => {
                 if (reason === 'input-change' || reason === 'input-clear') {
                     setSearch(value)
@@ -69,11 +80,15 @@ export function DiscoveredValuesQuickFilterSelect({
                     setSearch('')
                 }
             }}
-            onValueChange={(value: string | null) => {
-                if (!value || value === STATUS_VALUE) {
+            onValueChange={(item: string | null) => {
+                if (item === ANY_ITEM) {
+                    onChange(null)
                     return
                 }
-                onChange(value === ANY_VALUE ? null : resolveQuickFilterOption(filter, value))
+                const optionId = item === null ? null : fromItem(item)
+                if (optionId !== null) {
+                    onChange(resolveQuickFilterOption(filter, optionId))
+                }
             }}
         >
             <ComboboxTrigger
@@ -99,16 +114,16 @@ export function DiscoveredValuesQuickFilterSelect({
                     </InputGroupAddon>
                 </ComboboxInput>
                 <ComboboxList>
-                    {(value: string) =>
-                        value === STATUS_VALUE ? (
-                            <ComboboxItem key={value} value={value} disabled className="text-sm">
+                    {(item: string) =>
+                        item === STATUS_ITEM ? (
+                            <ComboboxItem key={item} value={item} disabled className="text-sm">
                                 <Text size="sm" variant="muted" className="italic">
                                     {statusMessage}
                                 </Text>
                             </ComboboxItem>
                         ) : (
-                            <ComboboxItem key={value} value={value} className="text-sm">
-                                <span className="truncate">{value === ANY_VALUE ? anyLabel : value}</span>
+                            <ComboboxItem key={item} value={item} className="text-sm">
+                                <span className="truncate">{item === ANY_ITEM ? anyLabel : fromItem(item)}</span>
                             </ComboboxItem>
                         )
                     }
