@@ -8,11 +8,14 @@ import { OrganizationMembershipLevel } from 'lib/constants'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
+import { recentSourceOptions } from '~/layout/today/todayRecentFilters'
+import { TodayRecentSort } from '~/layout/today/todayRecentOrder'
 import { todaySessionMenuLogic } from '~/layout/today/todaySessionMenuLogic'
 import { SPACE_COMPOSE_PARAM, spaceLabel, todaySpacesLogic } from '~/layout/today/todaySpacesLogic'
-import { TodayWorkGroup, groupByDay, sessionItem } from '~/layout/today/todayWorkItems'
-import { Breadcrumb, TeamPublicType, TeamType } from '~/types'
+import { TodayWorkItem, sessionItem } from '~/layout/today/todayWorkItems'
+import { Breadcrumb, TeamPublicType, TeamType, UserType } from '~/types'
 
 import type { EmbeddedTaskComposerProps } from 'products/posthog_ai/frontend/api/runner'
 
@@ -26,6 +29,15 @@ import {
     tasksList,
 } from '../generated/api'
 import { ChannelDTOApi, PatchedChannelUpdateApi, TaskListItemApi, TaskUserBasicInfoApi } from '../generated/api.schemas'
+import {
+    SpaceFeedFilters,
+    SpaceFeedGrouping,
+    SpaceFeedSection,
+    SpaceFeedType,
+    filterSpaceFeedItems,
+    spaceFeedSections,
+} from './spaceFeedEntries'
+import { spaceFeedViewLogic } from './spaceFeedViewLogic'
 import { sessionIdsWithPullRequests } from './taskPullRequests'
 
 const SPACE_FEED_LIMIT = 50
@@ -59,6 +71,13 @@ export type SpaceComposerRepositoryConfig = EmbeddedTaskComposerProps['initialRe
 export interface spaceSceneLogicValues {
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     currentTeamId: number | null // teamLogic
+    pinnedItems: TodayWorkItem[] // todaySpacesLogic
+    unreadSessionIds: Set<string> // todaySpacesLogic
+    user: UserType | null // userLogic
+    filters: SpaceFeedFilters // spaceFeedViewLogic
+    grouping: SpaceFeedGrouping // spaceFeedViewLogic
+    sort: TodayRecentSort // spaceFeedViewLogic
+    types: SpaceFeedType[] // spaceFeedViewLogic
     activeTab: SpaceTab
     autoArchiveCustomDays: number | null
     autoArchiveCustomError: string | null
@@ -71,8 +90,11 @@ export interface spaceSceneLogicValues {
     composerRepositoryConfig: SpaceComposerRepositoryConfig
     creatorId: number | null
     dominantRepository: string | null
-    feedGroups: TodayWorkGroup[]
+    feedItems: TodayWorkItem[]
     feedRepositories: Record<string, string | null>
+    feedSections: SpaceFeedSection[]
+    feedSourceOptions: string[]
+    filteredFeedItems: TodayWorkItem[]
     members: TaskUserBasicInfoApi[]
     membersLoading: boolean
     savingSpace: boolean
@@ -213,7 +235,21 @@ export interface spaceSceneLogicMeta {
             space: ChannelDTOApi | null
         ) => string | null
         activeTab: (location: { hash: string; pathname: string; search: string }) => SpaceTab
-        feedGroups: (sessions: TaskListItemApi[]) => TodayWorkGroup[]
+        feedItems: (sessions: TaskListItemApi[]) => TodayWorkItem[]
+        feedSourceOptions: (feedItems: TodayWorkItem[], filters: SpaceFeedFilters) => string[]
+        filteredFeedItems: (
+            feedItems: TodayWorkItem[],
+            filters: SpaceFeedFilters,
+            user: UserType | null,
+            unreadSessionIds: Set<string>,
+            pinnedItems: TodayWorkItem[]
+        ) => TodayWorkItem[]
+        feedSections: (
+            filteredFeedItems: TodayWorkItem[],
+            types: SpaceFeedType[],
+            sort: TodayRecentSort,
+            grouping: SpaceFeedGrouping
+        ) => SpaceFeedSection[]
         dominantRepository: (sessions: TaskListItemApi[]) => string | null
         feedRepositories: (
             sessions: TaskListItemApi[],
@@ -237,7 +273,16 @@ export const spaceSceneLogic = kea<spaceSceneLogicType>([
     props({} as SpaceSceneLogicProps),
     key((props) => props.id),
     connect(() => ({
-        values: [teamLogic, ['currentTeam', 'currentTeamId']],
+        values: [
+            teamLogic,
+            ['currentTeam', 'currentTeamId'],
+            todaySpacesLogic,
+            ['pinnedItems', 'unreadSessionIds'],
+            userLogic,
+            ['user'],
+            spaceFeedViewLogic,
+            ['filters', 'grouping', 'sort', 'types'],
+        ],
         actions: [
             todaySessionMenuLogic,
             ['sessionUpdated'],
@@ -379,10 +424,39 @@ export const spaceSceneLogic = kea<spaceSceneLogicType>([
             (location: { pathname: string }): SpaceTab =>
                 location.pathname.endsWith('/settings') ? 'settings' : 'feed',
         ],
-        feedGroups: [
+        feedItems: [
             (s) => [s.sessions],
-            (sessions: TaskListItemApi[]): TodayWorkGroup[] =>
-                groupByDay(sessions.filter((task) => !task.archived).map(sessionItem)),
+            (sessions: TaskListItemApi[]): TodayWorkItem[] =>
+                sessions.filter((task) => !task.archived).map(sessionItem),
+        ],
+        feedSourceOptions: [
+            (s) => [s.feedItems, s.filters],
+            (feedItems: TodayWorkItem[], filters: SpaceFeedFilters): string[] =>
+                recentSourceOptions(feedItems, filters.sources),
+        ],
+        filteredFeedItems: [
+            (s) => [s.feedItems, s.filters, s.user, s.unreadSessionIds, s.pinnedItems],
+            (
+                feedItems: TodayWorkItem[],
+                filters: SpaceFeedFilters,
+                user: UserType | null,
+                unreadSessionIds: Set<string>,
+                pinnedItems: TodayWorkItem[]
+            ): TodayWorkItem[] =>
+                filterSpaceFeedItems(feedItems, filters, {
+                    userId: user?.id ?? null,
+                    unreadIds: unreadSessionIds,
+                    pinnedIds: new Set(pinnedItems.map((item) => item.id)),
+                }),
+        ],
+        feedSections: [
+            (s) => [s.filteredFeedItems, s.types, s.sort, s.grouping],
+            (
+                filteredFeedItems: TodayWorkItem[],
+                types: SpaceFeedType[],
+                sort: TodayRecentSort,
+                grouping: SpaceFeedGrouping
+            ): SpaceFeedSection[] => spaceFeedSections(filteredFeedItems, types, sort, grouping),
         ],
         // Like PostHog Desktop, a card names its repository only when it differs from the space's most used one.
         // A tie goes to the repository of the most recently active session.

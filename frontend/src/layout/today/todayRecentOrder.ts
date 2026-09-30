@@ -8,6 +8,18 @@ export type TodayRecentGrouping = 'date' | 'space' | 'repository'
 export const DEFAULT_RECENT_SORT: TodayRecentSort = 'recent'
 export const DEFAULT_RECENT_GROUPING: TodayRecentGrouping = 'date'
 
+export const RECENT_GROUPING_OPTIONS: { value: TodayRecentGrouping; label: string }[] = [
+    { value: 'date', label: 'Date' },
+    { value: 'space', label: 'Space' },
+    { value: 'repository', label: 'Repository' },
+]
+
+export const RECENT_SORT_OPTIONS: { value: TodayRecentSort; label: string }[] = [
+    { value: 'recent', label: 'Recent activity' },
+    { value: 'created', label: 'Date created' },
+    { value: 'alpha', label: 'Name' },
+]
+
 export interface TodayRecentSection {
     key: string
     /** Null for a run with nothing to call it, like an alphabetical list. */
