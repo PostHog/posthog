@@ -1,21 +1,17 @@
 import clsx from 'clsx'
 import { toHtml } from 'hast-util-to-html'
 import xml from 'highlight.js/lib/languages/xml'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { common, createLowlight } from 'lowlight'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useId, useMemo, useRef } from 'react'
 
 import { LemonBanner, LemonTabs, LemonTextArea } from '@posthog/lemon-ui'
-
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { SurveyQuestionDescriptionContentType } from '~/types'
 
-import { htmlToPlainText, isRichTextCompatibleHtml, plainTextToHtml } from './surveyRichText'
+import { htmlEditorLogic } from './htmlEditorLogic'
 import { SurveyRichTextEditor } from './SurveyRichTextEditor'
-
-type HTMLEditorTab = SurveyQuestionDescriptionContentType | 'rich'
 
 const lowlight = createLowlight(common)
 lowlight.register({ xml })
@@ -165,7 +161,7 @@ export function HTMLEditor({
     className,
 }: {
     value?: string
-    onChange: (value: any) => void
+    onChange: (value: string) => void
     onTabChange: (key: SurveyQuestionDescriptionContentType) => void
     activeTab: SurveyQuestionDescriptionContentType
     textPlaceholder?: string
@@ -173,49 +169,16 @@ export function HTMLEditor({
     disableTabSwitching?: boolean
     className?: string
 }): JSX.Element {
-    const richTextEnabled = useFeatureFlag('SURVEYS_RICH_TEXT_DESCRIPTIONS')
-    const [htmlTab, setHtmlTab] = useState<'rich' | 'html' | null>(null)
-    const [pendingConversion, setPendingConversion] = useState<'toHtml' | 'toText' | null>(null)
-    const richTextCompatible = useMemo(() => isRichTextCompatibleHtml(value ?? ''), [value])
-    const defaultHtmlTab = richTextCompatible ? 'rich' : 'html'
-    const shownTab: HTMLEditorTab =
-        activeTab === 'text' ? 'text' : richTextEnabled ? (htmlTab ?? defaultHtmlTab) : 'html'
-
-    // Pick the tab once, so that an edit in the HTML tab does not move the author to the rich text tab
-    useEffect(() => {
-        if (activeTab === 'html' && htmlTab === null) {
-            setHtmlTab(defaultHtmlTab)
-        }
-    }, [activeTab, htmlTab, defaultHtmlTab])
-
-    // Convert the value once the parent has stored the new content type, so the two updates do not race
-    useEffect(() => {
-        const targetTab = pendingConversion === 'toHtml' ? 'html' : 'text'
-        if (!pendingConversion || activeTab !== targetTab) {
-            return
-        }
-        setPendingConversion(null)
-        if (value) {
-            onChange(pendingConversion === 'toHtml' ? plainTextToHtml(value) : htmlToPlainText(value))
-        }
-    }, [pendingConversion, activeTab, value, onChange])
-
-    const handleTabChange = (key: HTMLEditorTab): void => {
-        if (key !== 'text') {
-            setHtmlTab(key)
-        }
-        const nextContentType = key === 'text' ? 'text' : 'html'
-        if (nextContentType !== activeTab) {
-            setPendingConversion(key === 'rich' ? 'toHtml' : shownTab === 'rich' ? 'toText' : null)
-            onTabChange(nextContentType)
-        }
-    }
+    const editorKey = useId()
+    const logic = htmlEditorLogic({ editorKey, value: value ?? '', activeTab, onChange, onTabChange })
+    const { richTextEnabled, richTextCompatible, shownTab, textTabValue, richTabValue } = useValues(logic)
+    const { selectTab } = useActions(logic)
 
     return (
         <>
             <LemonTabs
                 activeKey={shownTab}
-                onChange={disableTabSwitching ? undefined : handleTabChange}
+                onChange={disableTabSwitching ? undefined : selectTab}
                 tabs={[
                     {
                         key: 'text',
@@ -223,7 +186,7 @@ export function HTMLEditor({
                         content: (
                             <LemonTextArea
                                 minRows={textMinRows}
-                                value={pendingConversion === 'toText' ? htmlToPlainText(value ?? '') : value}
+                                value={textTabValue}
                                 onChange={(v) => onChange(v)}
                                 placeholder={textPlaceholder}
                                 className={className}
@@ -242,14 +205,7 @@ export function HTMLEditor({
                                               edit it here, that formatting is removed. Use the HTML tab to keep it.
                                           </LemonBanner>
                                       )}
-                                      <SurveyRichTextEditor
-                                          value={
-                                              pendingConversion === 'toHtml'
-                                                  ? plainTextToHtml(value ?? '')
-                                                  : (value ?? '')
-                                          }
-                                          onChange={onChange}
-                                      />
+                                      <SurveyRichTextEditor value={richTabValue} onChange={onChange} />
                                       <div className="text-xs text-secondary">
                                           Formatting shows in web surveys. Some mobile SDKs don't show formatted
                                           descriptions.
