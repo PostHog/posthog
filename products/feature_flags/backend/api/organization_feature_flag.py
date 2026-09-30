@@ -24,13 +24,14 @@ from posthog.constants import AvailableFeature
 from posthog.models import Team, User
 from posthog.models.filters.filter import Filter
 from posthog.models.group_type_mapping import (
+    GROUP_TYPES_CACHE_KEY_PREFIX,
     GroupTypesUnavailable,
     get_group_types_for_project,
     get_group_types_for_projects,
 )
 from posthog.rate_limit import CopyFlagsBurstRateThrottle, CopyFlagsSustainedRateThrottle
 from posthog.user_permissions import UserPermissions
-from posthog.utils import safe_int
+from posthog.utils import safe_cache_delete, safe_int
 
 from products.access_control.backend.facade.user_access_control import (
     UserAccessControl,
@@ -63,6 +64,7 @@ SCHEDULED_DEPENDENCY_COPY_PERMISSION_ERROR = (
 )
 TARGET_DEPENDENCY_CREATE_PERMISSION_WARNING = "Cannot automatically copy dependencies because you do not have permission to create feature flags in one or more target projects."
 EXISTING_TARGET_SCHEDULE_DEPENDENCY_WARNING = "Pending scheduled changes already attached to the target flag were left unchanged and may change this copied flag later."
+GROUP_TYPES_UNAVAILABLE_COPY_ERROR = "Couldn't read the group types needed to copy this flag. Try again in a moment."
 
 
 @dataclass(frozen=True)
@@ -1319,7 +1321,7 @@ class OrganizationFeatureFlagView(
                     except (ValueError, TypeError):
                         continue
 
-        self._remap_group_type_indexes(filters, source_flag.team, target_team)
+        self._remap_group_type_indexes(filters, source_flag.key, source_flag.team, target_team)
 
         if target_flag_access_context is not None:
             flag_dependency_warnings = self._remap_flag_dependencies_with_target_context(
@@ -1418,8 +1420,8 @@ class OrganizationFeatureFlagView(
                         source_context.schedule_dependency_contexts_by_id,
                         source_dependency_keys,
                         disabled_source_dependency_keys,
-                        source_flag.team,
-                        target_team,
+                        source_team=source_flag.team,
+                        target_team=target_team,
                     )
                     schedule_dependency_warnings.extend(copied_schedule_dependency_warnings)
             except Exception as e:
@@ -1447,7 +1449,9 @@ class OrganizationFeatureFlagView(
             result["flag_dependency_warnings"] = flag_dependency_warnings
         return result
 
-    def _remap_group_type_indexes(self, filters: dict[str, Any], source_team: Team, target_team: Team) -> None:
+    def _remap_group_type_indexes(
+        self, filters: dict[str, Any], flag_key: str, source_team: Team, target_team: Team
+    ) -> None:
         """Translate group aggregation indexes into the target project's own indexes.
 
         A group type index is allocated per project, in the order group types first appear, so the
@@ -1465,7 +1469,7 @@ class OrganizationFeatureFlagView(
             return
 
         index_map = self._build_group_type_index_map(
-            {source_index for _, _, source_index in slots}, source_team, target_team
+            {source_index for _, _, source_index in slots}, flag_key, source_team, target_team
         )
         for container, key, source_index in slots:
             container[key] = index_map[source_index]
@@ -1482,29 +1486,33 @@ class OrganizationFeatureFlagView(
                     yield prop, "group_type_index"
 
     def _build_group_type_index_map(
-        self, source_indexes: set[int], source_team: Team, target_team: Team
+        self, source_indexes: set[int], flag_key: str, source_team: Team, target_team: Team
     ) -> dict[int, int]:
         try:
             return self._map_group_type_indexes(
                 source_indexes,
+                flag_key,
                 get_group_types_for_project(source_team.project_id, caller_tag="flags/copy-flags"),
                 get_group_types_for_project(target_team.project_id, caller_tag="flags/copy-flags"),
             )
         except ValueError:
-            # The cached read holds a snapshot for minutes, and it reports an unreachable mapping
-            # store as an empty list, so an index that does not resolve can mean either. Confirm
-            # against the batch read, which reads past the cache and raises GroupTypesUnavailable
-            # instead of answering "missing" when the store cannot be read.
+            # get_group_types_for_project can return a list cached for up to five minutes, or an
+            # empty list when the store is unreachable. Confirm with get_group_types_for_projects,
+            # which skips that cache. During an outage it returns each project's last-known-good
+            # list (up to 24 hours old) and raises GroupTypesUnavailable only for a project with none.
+            project_ids = [source_team.project_id, target_team.project_id]
             try:
-                confirmed_group_types = get_group_types_for_projects(
-                    [source_team.project_id, target_team.project_id], caller_tag="flags/copy-flags"
-                )
+                confirmed_group_types = get_group_types_for_projects(project_ids, caller_tag="flags/copy-flags")
             except GroupTypesUnavailable as error:
-                raise ValueError(
-                    "Couldn't read the group types needed to copy this flag. Try again in a moment."
-                ) from error
+                raise ValueError(GROUP_TYPES_UNAVAILABLE_COPY_ERROR) from error
+            # The batch read does not refresh the five-minute entries. Those entries still hold the
+            # lists that did not contain the group type. Deleting them makes the next remap in this
+            # copy read fresh lists.
+            for project_id in project_ids:
+                safe_cache_delete(f"{GROUP_TYPES_CACHE_KEY_PREFIX}{project_id}")
             return self._map_group_type_indexes(
                 source_indexes,
+                flag_key,
                 confirmed_group_types[source_team.project_id],
                 confirmed_group_types[target_team.project_id],
             )
@@ -1512,6 +1520,7 @@ class OrganizationFeatureFlagView(
     def _map_group_type_indexes(
         self,
         source_indexes: set[int],
+        flag_key: str,
         source_group_types: list[dict[str, Any]],
         target_group_types: list[dict[str, Any]],
     ) -> dict[int, int]:
@@ -1527,13 +1536,13 @@ class OrganizationFeatureFlagView(
             source_group_type = source_group_types_by_index.get(source_index)
             if source_group_type is None:
                 raise ValueError(
-                    "This flag aggregates by a group type that no longer exists in the source project "
+                    f"Flag '{flag_key}' aggregates by a group type that no longer exists in the source project "
                     f"(index {source_index}). Fix the flag's release conditions, then copy it again."
                 )
             target_index = target_indexes_by_group_type.get(source_group_type)
             if target_index is None:
                 raise ValueError(
-                    f"This flag aggregates by the group type '{source_group_type}', which the target project "
+                    f"Flag '{flag_key}' aggregates by the group type '{source_group_type}', which the target project "
                     "does not have. Send an event for that group type to the target project, then copy the flag again."
                 )
             index_map[source_index] = target_index
@@ -1696,7 +1705,7 @@ class OrganizationFeatureFlagView(
             payload_filters = self._get_schedule_payload_filters(updated_payload)
             if payload_filters is not None:
                 try:
-                    self._remap_group_type_indexes(payload_filters, source_team, target_team)
+                    self._remap_group_type_indexes(payload_filters, target_flag.key, source_team, target_team)
                 except ValueError as error:
                     # Skip the one schedule rather than fail the whole copy, matching how an
                     # unremappable flag dependency is handled below.
