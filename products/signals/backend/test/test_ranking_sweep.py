@@ -141,7 +141,7 @@ class TestReportsDueForScoring(ClickhouseTestMixin, BaseTest):
         self._vector(resolved, hours_ago=5)
         suppressed = self._report(status=SignalReport.Status.SUPPRESSED)
         self._vector(suppressed, hours_ago=5)
-        too_old = self._report(age_days=40)
+        too_old = self._report(age_days=10)
         self._vector(too_old, hours_ago=5)
         self._report()
         other_team = Team.objects.create(organization=self.organization)

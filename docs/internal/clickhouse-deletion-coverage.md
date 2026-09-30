@@ -109,8 +109,6 @@ Each is a decision that erasure may lag by the retention window.
 
 - `sharded_events_recent` — a transient mirror of the last few days of events, 7-day TTL keyed on `inserted_at`. It partitions by day with `ttl_only_drop_parts = 1`, so a part drops only once its newest row expires: the real worst case is about 8 days plus TTL-merge lag, not a flat 7. Short enough to accept as the erasure bound, and a sweep would race the TTL for little benefit.
 
-- `person_property_mutation_log_data` retains submitted person updates for 30 days from the Kafka message timestamp. It stores only `team_id`, `event_uuid`, `properties`, and `ingested_at`, so person-based sweeps cannot target it directly. Daily partitions drop after their newest row expires, plus TTL-merge lag.
-
 Session recordings, the dead letter queue, and logs are likewise TTL-reclaimed.
 That decision predates this document; the older `posthog/models/async_deletion/delete_events.py` records it in a comment, but that module is legacy and is not the source of truth here.
 
@@ -253,6 +251,13 @@ After person A merges into B, a deletion of B is queued under B's uuid, so any r
 A target that leaves the capability unset strands its rows permanently, because the squash deletes the overrides that recorded the mapping right after applying them.
 That is the accepted cost for `sharded_events_json`, which is exempt on purpose.
 Rows a merge stranded before `sharded_flag_evaluations` joined the squash age out with their partition.
+
+`flag_evaluations_backfill_job` (`posthog/dags/flag_evaluations_backfill.py`) is a second producer.
+It copies `person_id` from `sharded_events`, so its rows meet the same parity.
+It leaves `inserted_at` to the column default, which is the event `timestamp`, so every copied row sits inside the `inserted_at` bound of any request made after its event.
+It does not copy a day while a `squash_person_overrides`, `deletes_job` or data deletion request run is queued or executing.
+A day copied during one of them can read a row before the job rewrites it and insert it after the job sweeps `sharded_flag_evaluations`, which keeps what the job removed.
+When one of those runs starts during a copy, the shard stops, and its error names the rows to delete before the backfill runs again.
 
 ## Related, and deliberately unchanged
 
