@@ -18,6 +18,7 @@ import {
     canHandOff,
     chatItem,
     groupByDay,
+    lastRunMessage,
     sessionItem,
     shortTimeAgo,
 } from './todayWorkItems'
@@ -192,5 +193,19 @@ describe('todayWorkItems', () => {
         } as TaskListItemApi)
 
         expect(activeCloudRunId(item)).toBe(runId)
+    })
+
+    it.each<[string, Record<string, unknown> | null, string | null]>([
+        ['no output', null, null],
+        ['a message that is not text', { final_message: 42 }, null],
+        ['a blank message', { final_message: '  \n ' }, null],
+        [
+            'a message over many lines',
+            { final_message: 'Opened the PR.\n\n  Tests pass.' },
+            'Opened the PR. Tests pass.',
+        ],
+        ['a long message', { final_message: `${'word '.repeat(60)}end` }, `${'word '.repeat(47)}word…`],
+    ])('reads the last message from %s', (_name, output, expected) => {
+        expect(lastRunMessage(output)).toBe(expected)
     })
 })

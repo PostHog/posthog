@@ -11,6 +11,7 @@ import { urls } from 'scenes/urls'
 import { newSpaceLogic } from 'products/tasks/frontend/spaces/newSpaceLogic'
 
 import { TodayPaneSection, TodayPaneSectionProps } from './TodayPaneSection'
+import { TodayPreviewCard } from './TodayPreviewCard'
 import { TodayRecentFilterMenu } from './TodayRecentFilterMenu'
 import { TodayRecentSearchField } from './TodayRecentSearchField'
 import { TodaySessionRow } from './TodaySessionRow'
@@ -276,6 +277,7 @@ export function TodaySpacesSidebar(): JSX.Element {
                                         dataAttr="today-space-row"
                                         action={<TodaySpaceActions space={space} />}
                                         actionCount={2}
+                                        preview={{ kind: 'space', space }}
                                     />
                                 ))}
                                 {visibleSpaces.length <= 1 && (
@@ -295,6 +297,7 @@ export function TodaySpacesSidebar(): JSX.Element {
                     </TodayPaneSection>
                 </div>
             </div>
+            <TodayPreviewCard />
         </TooltipProvider>
     )
 }

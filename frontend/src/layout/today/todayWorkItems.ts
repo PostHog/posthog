@@ -1,8 +1,9 @@
 import { Dayjs, dayjs } from 'lib/dayjs'
+import { fullNameOrEmail } from 'lib/utils/strings'
 
 import { ConversationDetail } from '~/types'
 
-import { TaskListItemApi } from 'products/tasks/frontend/generated/api.schemas'
+import { TaskListItemApi, TaskRunDetailDTOApi } from 'products/tasks/frontend/generated/api.schemas'
 import { TaskPullRequest, taskPullRequests } from 'products/tasks/frontend/spaces/taskPullRequests'
 
 export type TodayWorkItemKind = 'session' | 'chat'
@@ -16,6 +17,7 @@ export interface TodayWorkItem {
     status: string | null
     channel: string | null
     createdById: number | null
+    createdByName: string | null
     latestRunId: string | null
     runEnvironment: string | null
     originProduct: string | null
@@ -23,6 +25,8 @@ export interface TodayWorkItem {
     source: string | null
     repository: string | null
     pullRequests: TaskPullRequest[]
+    /** The closing message of the last turn the run finished, in one line. */
+    lastMessage: string | null
 }
 
 export interface TodayWorkGroup {
@@ -30,6 +34,8 @@ export interface TodayWorkGroup {
     label: string
     items: TodayWorkItem[]
 }
+
+const LAST_MESSAGE_MAX_CHARS = 240
 
 const FINISHED_RUN_STATUSES = new Set(['completed', 'failed', 'cancelled'])
 const ACTIVE_RUN_STATUSES = new Set(['not_started', 'queued', 'in_progress'])
@@ -64,12 +70,14 @@ export function sessionItem(task: TaskListItemApi): TodayWorkItem {
         status: task.latest_run?.status ?? null,
         channel: task.channel ?? null,
         createdById: task.created_by?.id ?? null,
+        createdByName: task.created_by ? fullNameOrEmail(task.created_by) : null,
         latestRunId: task.latest_run?.id ?? null,
         runEnvironment: task.latest_run?.environment ?? null,
         originProduct: task.origin_product ?? null,
         source: task.origin_product || null,
         repository: task.repository || null,
         pullRequests: taskPullRequests(task.latest_run?.output),
+        lastMessage: lastRunMessage(task.latest_run?.output),
     }
 }
 
@@ -83,13 +91,29 @@ export function chatItem(conversation: ConversationDetail): TodayWorkItem {
         status: null,
         channel: null,
         createdById: conversation.user?.id ?? null,
+        createdByName: conversation.user ? fullNameOrEmail(conversation.user) : null,
         latestRunId: null,
         runEnvironment: null,
         originProduct: null,
         source: 'posthog_ai',
         repository: null,
         pullRequests: [],
+        lastMessage: null,
     }
+}
+
+export function lastRunMessage(output: TaskRunDetailDTOApi['output'] | undefined): string | null {
+    const message = output?.final_message
+    if (typeof message !== 'string') {
+        return null
+    }
+    const collapsed = message.replace(/\s+/g, ' ').trim()
+    if (collapsed.length <= LAST_MESSAGE_MAX_CHARS) {
+        return collapsed || null
+    }
+    const cut = collapsed.slice(0, LAST_MESSAGE_MAX_CHARS)
+    const lastSpace = cut.lastIndexOf(' ')
+    return `${(lastSpace > LAST_MESSAGE_MAX_CHARS / 2 ? cut.slice(0, lastSpace) : cut).trimEnd()}…`
 }
 
 export function buildRecentItems(

@@ -37,6 +37,7 @@ export function TodaySessionRow({ item, pinned, dataAttr, surface }: TodaySessio
             to={urls.aiTask(item.id)}
             active={location.pathname.endsWith('/ai') && searchParams.task === item.id}
             dataAttr={dataAttr}
+            preview={{ kind: 'session', item }}
             badge={
                 pullRequest ? (
                     <TaskPullRequestChip

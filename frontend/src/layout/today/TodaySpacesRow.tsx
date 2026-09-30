@@ -1,6 +1,13 @@
+import { PreviewCard } from '@base-ui/react/preview-card'
+
 import { Button, cn } from '@posthog/quill'
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
+
+import { TodayPreviewPayload, todayPreviewCardHandle } from './todayPreviewCardHandle'
+
+const PREVIEW_OPEN_DELAY_MS = 400
+const PREVIEW_CLOSE_DELAY_MS = 100
 
 interface TodaySpacesRowProps {
     label: string
@@ -13,6 +20,8 @@ interface TodaySpacesRowProps {
     badge?: JSX.Element | null
     /** How many icon buttons `action` holds, so the label truncates before them. */
     actionCount?: 1 | 2
+    /** What the hover card shows for this row. The row has no card without it. */
+    preview?: TodayPreviewPayload
 }
 
 export function TodaySpacesRow({
@@ -24,8 +33,9 @@ export function TodaySpacesRow({
     action,
     badge,
     actionCount = 1,
+    preview,
 }: TodaySpacesRowProps): JSX.Element {
-    return (
+    const row = (
         <div className="group/row relative flex min-w-0 items-center">
             <Button
                 size="row"
@@ -54,5 +64,17 @@ export function TodaySpacesRow({
                 </div>
             )}
         </div>
+    )
+    if (!preview) {
+        return row
+    }
+    return (
+        <PreviewCard.Trigger
+            handle={todayPreviewCardHandle}
+            payload={preview}
+            delay={PREVIEW_OPEN_DELAY_MS}
+            closeDelay={PREVIEW_CLOSE_DELAY_MS}
+            render={row}
+        />
     )
 }

@@ -45,7 +45,26 @@ const SPACES = [
         created_at: '2026-09-02T09:00:00Z',
         starred: true,
         system_role: null,
+        created_by: { id: 179, first_name: 'John', last_name: 'Baker', email: 'john@example.com' },
     },
+    {
+        id: 'space-launch',
+        name: 'launch-plan',
+        channel_type: 'private',
+        github_integration: null,
+        repositories: ['example-org/web'],
+        auto_archive_after_days: null,
+        created_at: '2026-09-03T09:00:00Z',
+        starred: true,
+        system_role: null,
+        created_by: { id: 1, first_name: 'Ada', last_name: 'Lovelace', email: 'ada@example.com' },
+    },
+]
+
+const SPACE_MEMBERS = [
+    { id: 1, first_name: 'Ada', last_name: 'Lovelace', email: 'ada@example.com' },
+    { id: 179, first_name: 'John', last_name: 'Baker', email: 'john@example.com' },
+    { id: 180, first_name: '', last_name: '', email: 'sam@example.com' },
 ]
 
 const CONVERSATIONS = [
@@ -91,7 +110,11 @@ const RECENT_SESSIONS = [
             id: 'run-1',
             status: 'completed',
             environment: 'cloud',
-            output: { pr_url: 'https://github.com/example-org/webapp/pull/421' },
+            output: {
+                pr_url: 'https://github.com/example-org/webapp/pull/421',
+                final_message:
+                    'I added a retry with a backoff to the billing webhook.\n\nThe new test covers three failures in a row, and the PR is ready for review.',
+            },
         },
         description_preview: 'Retry the billing webhook three times with a backoff before it reports a failure.',
         repository: 'example-org/webapp',
@@ -193,6 +216,7 @@ const meta: Meta = {
                     },
                 ],
                 '/api/projects/:team_id/task_channels/': SPACES,
+                '/api/projects/:team_id/task_channels/:id/members/': SPACE_MEMBERS,
                 '/api/projects/:team_id/task_channels/:id/': (req) => [
                     200,
                     SPACES.find((space) => space.id === req.params.id) ?? SPACES[0],
@@ -292,5 +316,23 @@ export const LibraryFeatureFlags: Story = {
 export const ToolsPane: Story = {
     play: async ({ canvasElement }) => {
         await userEvent.click(await within(canvasElement).findByLabelText('Tools'))
+    },
+}
+
+async function hoverRailRow(canvasElement: HTMLElement, name: string): Promise<void> {
+    const canvas = within(canvasElement)
+    await userEvent.click(await canvas.findByLabelText('Spaces'))
+    await userEvent.hover(await canvas.findByText(name))
+}
+
+export const SessionHoverCard: Story = {
+    play: async ({ canvasElement }) => {
+        await hoverRailRow(canvasElement, 'Add a retry to the billing webhook')
+    },
+}
+
+export const SpaceHoverCard: Story = {
+    play: async ({ canvasElement }) => {
+        await hoverRailRow(canvasElement, 'launch-plan')
     },
 }
