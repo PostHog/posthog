@@ -1,4 +1,5 @@
 import type {
+    ContentAutopilotOpportunityApi,
     ContentAutopilotProposalApi,
     ContentAutopilotProposalListApi,
     ContentAutopilotRunApi,
@@ -114,3 +115,55 @@ export const EXAMPLE_PROPOSAL_LIST: ContentAutopilotProposalListApi = {
     created_at: EXAMPLE_PROPOSAL.created_at,
     updated_at: EXAMPLE_PROPOSAL.updated_at,
 }
+
+const EXAMPLE_GAP: ContentAutopilotOpportunityApi['gap'] = {
+    checks: 9,
+    cited_checks: 0,
+    mentioned_checks: 0,
+    citation_rate: 0,
+    engines: ['claude-web-search', 'openai-web-search', 'exa-answer'],
+    engines_not_citing: ['claude-web-search', 'openai-web-search', 'exa-answer'],
+    competitor_urls: ['https://rival.example.com/replay'],
+    competitor_domains: ['rival.example.com', 'reviews.example.org'],
+    engine_search_queries: ['open source session replay', 'session replay self hosted'],
+    our_cited_urls: [],
+    latest_answers: [],
+    last_checked_at: '2026-08-26T09:00:00Z',
+}
+
+export const EXAMPLE_OPPORTUNITIES: ContentAutopilotOpportunityApi[] = [
+    {
+        id: '00000000-0000-4000-8000-000000000301',
+        profile_id: EXAMPLE_PROFILE.id,
+        run_id: null,
+        proposal_id: null,
+        kind: 'ai_visibility_gap',
+        title: 'What is the best open source session replay tool?',
+        score: 1,
+        recommended_type: 'new_content',
+        target_url: '',
+        evidence: [],
+        gap: EXAMPLE_GAP,
+        status: 'new',
+        last_refreshed_at: '2026-08-26T12:00:00Z',
+        created_at: '2026-08-26T12:00:00Z',
+        updated_at: '2026-08-26T12:00:00Z',
+    },
+    {
+        id: '00000000-0000-4000-8000-000000000302',
+        profile_id: EXAMPLE_PROFILE.id,
+        run_id: EXAMPLE_RUN.id,
+        proposal_id: EXAMPLE_PROPOSAL.id,
+        kind: 'ai_visibility_gap',
+        title: 'Does web analytics work without cookies?',
+        score: 0.64,
+        recommended_type: 'page_improvement',
+        target_url: 'https://docs.example.com/docs/web-analytics',
+        evidence: [],
+        gap: { ...EXAMPLE_GAP, cited_checks: 3, mentioned_checks: 6, engines_not_citing: ['exa-answer'] },
+        status: 'drafted',
+        last_refreshed_at: '2026-08-26T12:00:00Z',
+        created_at: '2026-08-26T12:00:00Z',
+        updated_at: '2026-08-26T12:00:00Z',
+    },
+]
