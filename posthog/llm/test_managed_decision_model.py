@@ -26,9 +26,17 @@ class TestAppPromptCache(SimpleTestCase):
         APP_PROMPT_CACHE.clear()
         self.addCleanup(APP_PROMPT_CACHE.clear)
 
+    @parameterized.expand(
+        [
+            ("found", {"return_value": {"prompt": "p"}}),
+            ("failing", {"side_effect": RuntimeError("cache unavailable")}),
+        ]
+    )
     @override_settings(CLOUD_DEPLOYMENT="US")
-    @patch("posthog.storage.llm_prompt_cache.get_prompt_by_name_from_cache", return_value={"prompt": "p"})
-    def test_each_prompt_and_version_is_read_once_per_refresh(self, read) -> None:
+    def test_each_prompt_and_version_is_read_once_per_refresh(self, _name: str, read_behavior: dict) -> None:
+        read = self.enterContext(
+            patch("posthog.storage.llm_prompt_cache.get_prompt_by_name_from_cache", **read_behavior)
+        )
         for _ in range(2):
             managed_decision_model.get_app_prompt("a")
             managed_decision_model.get_app_prompt("a", version=1)

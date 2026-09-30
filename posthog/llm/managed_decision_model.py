@@ -31,7 +31,12 @@ def get_app_prompt(prompt_name: str, *, version: int | None = None) -> PromptRes
     # The cache helper only reads team.id, so an unsaved instance saves a query per lookup.
     team = Team(id=POSTHOG_PROMPTS_TEAM_ID)
     label = PROMPT_LABEL if version is None else None
-    serialized = get_prompt_by_name_from_cache(team, prompt_name, version=version, label=label)
+    try:
+        serialized = get_prompt_by_name_from_cache(team, prompt_name, version=version, label=label)
+    except Exception:
+        # The cached None serves the bundled copy until the next lookup, so a fault does not 500 the pickers.
+        logger.exception("managed_prompt_lookup_failed", prompt_name=prompt_name)
+        return None
     if serialized is None:
         return None
     return PromptResult(
