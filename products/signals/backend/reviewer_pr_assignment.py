@@ -12,8 +12,8 @@ nobody picks up, and a wrong owner costs one reassignment.
 Without the flag the older rule stands: every suggested reviewer who opted in through
 `SignalUserAutonomyConfig.github_assign_on_pull_request` is added, and there is no DRI.
 
-Suggested reviewers with a connected GitHub account receive review requests. Existing assignees
-and existing requested reviewers are left alone.
+Suggested reviewers with a connected GitHub account receive review requests. The pull request
+author, assignees, and existing requested reviewers are left alone.
 
 Best effort throughout: a GitHub failure must never break the claim, sync, or reviewer edit that
 triggered it.
@@ -326,7 +326,9 @@ def _request_reviews(
     reviewers: list[str],
 ) -> list[str]:
     existing = {
-        str(login).lower() for login in [*(pr.get("assignees") or []), *(pr.get("requested_reviewers") or [])] if login
+        str(login).lower()
+        for login in [pr.get("author"), *(pr.get("assignees") or []), *(pr.get("requested_reviewers") or [])]
+        if login
     }
     wanted = [login for login in reviewers if login.lower() not in existing]
     if not wanted:
@@ -460,17 +462,8 @@ def assign_reviewers_to_pull_request(*, team_id: int, report_id: str, pr_url: st
     if pr is None:
         return []
 
-    _request_reviews(
-        github,
-        team_id=team_id,
-        report_id=report_id,
-        parsed=parsed,
-        pr=pr,
-        reviewers=reviewers,
-    )
-
     if dri_enabled:
-        return _assign_one_dri(
+        assigned = _assign_one_dri(
             github,
             team_id=team_id,
             report_id=report_id,
@@ -479,9 +472,22 @@ def assign_reviewers_to_pull_request(*, team_id: int, report_id: str, pr_url: st
             opted_in=set(logins),
             reviewers=reviewers,
         )
-    if not logins:
-        return []
-    return _add_assignees(github, team_id=team_id, report_id=report_id, parsed=parsed, logins=logins) or []
+    else:
+        assigned = (
+            _add_assignees(github, team_id=team_id, report_id=report_id, parsed=parsed, logins=logins) or []
+            if logins
+            else []
+        )
+
+    _request_reviews(
+        github,
+        team_id=team_id,
+        report_id=report_id,
+        parsed=parsed,
+        pr={**pr, "assignees": [*(pr.get("assignees") or []), *assigned]},
+        reviewers=reviewers,
+    )
+    return assigned
 
 
 def _assign_one_dri(

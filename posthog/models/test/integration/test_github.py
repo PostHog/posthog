@@ -1133,7 +1133,7 @@ class TestGitHubIntegrationModel(BaseTest):
         sent = mock_post.call_args.kwargs["json_body"]["assignees"]
         assert sent == ["alice", *[f"user{i}" for i in range(9)]]
 
-    def test_request_pull_request_reviews_posts_a_deduplicated_bounded_list(self):
+    def test_request_pull_request_reviews_posts_deduplicated_bounded_batches(self):
         integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
         github = GitHubIntegration(integration)
         mock_response = MagicMock(status_code=201)
@@ -1144,10 +1144,19 @@ class TestGitHubIntegrationModel(BaseTest):
             result = github.request_pull_request_reviews("PostHog/posthog", 123, requested)
 
         assert result == {"success": True, "requested_reviewers": ["alice"]}
-        assert mock_post.call_args.args[0] == (
-            "https://api.github.com/repos/PostHog/posthog/pulls/123/requested_reviewers"
-        )
-        assert mock_post.call_args.kwargs["json_body"] == {"reviewers": ["alice", *[f"user{i}" for i in range(14)]]}
+        url = "https://api.github.com/repos/PostHog/posthog/pulls/123/requested_reviewers"
+        assert mock_post.call_args_list == [
+            call(
+                url,
+                endpoint="/repos/{owner}/{repo}/pulls/{pull_number}/requested_reviewers",
+                json_body={"reviewers": ["alice", *[f"user{i}" for i in range(14)]]},
+            ),
+            call(
+                url,
+                endpoint="/repos/{owner}/{repo}/pulls/{pull_number}/requested_reviewers",
+                json_body={"reviewers": [f"user{i}" for i in range(14, 20)]},
+            ),
+        ]
 
     def test_add_pull_request_assignees_reports_a_github_error(self):
         integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
