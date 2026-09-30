@@ -2697,17 +2697,45 @@ describe('featureFlagLogic', () => {
     })
 
     describe('restoreFeatureFlag', () => {
+        // One test here rejects the restore request on purpose; kea-loaders would log the failure
+        beforeEach(silenceKeaLoadersErrors)
+        afterEach(resumeKeaLoadersErrors)
+
         // deleteWithUndo hands the callback the `undo: true` that restore sets, so branching on it
         // takes the delete path and drops the restored flag out of the files tree.
         it('puts the restored flag back in the files tree', async () => {
             const updateSpy = jest.spyOn(api, 'update').mockResolvedValue({ ...MOCK_FEATURE_FLAG, deleted: false })
             try {
-                await expectLogic(logic, () =>
-                    logic.actions.restoreFeatureFlag(MOCK_FEATURE_FLAG)
-                ).toFinishAllListeners()
+                await expectLogic(logic, () => logic.actions.restoreFeatureFlag(MOCK_FEATURE_FLAG))
+                    .toDispatchActions(['restoreFeatureFlag'])
+                    .toMatchValues({ featureFlagRestoreLoading: true })
+                    .toDispatchActions(['restoreFeatureFlagFinished'])
+                    .toMatchValues({ featureFlagRestoreLoading: false })
+                    .toFinishAllListeners()
 
                 expect(refreshTreeItem).toHaveBeenCalledWith('feature_flag', String(MOCK_FEATURE_FLAG.id))
                 expect(deleteFromTree).not.toHaveBeenCalled()
+                expect(updateSpy.mock.calls[0][1]).toEqual({
+                    id: MOCK_FEATURE_FLAG.id,
+                    name: MOCK_FEATURE_FLAG.name,
+                    deleted: false,
+                })
+            } finally {
+                updateSpy.mockRestore()
+            }
+        })
+
+        it('stops loading and leaves the tree alone when the restore fails', async () => {
+            const updateSpy = jest.spyOn(api, 'update').mockRejectedValue(new Error('nope'))
+            try {
+                await expectLogic(logic, () => logic.actions.restoreFeatureFlag(MOCK_FEATURE_FLAG))
+                    .toDispatchActions(['restoreFeatureFlag'])
+                    .toMatchValues({ featureFlagRestoreLoading: true })
+                    .toDispatchActions(['restoreFeatureFlagFinished'])
+                    .toMatchValues({ featureFlagRestoreLoading: false })
+                    .toFinishAllListeners()
+
+                expect(refreshTreeItem).not.toHaveBeenCalled()
             } finally {
                 updateSpy.mockRestore()
             }

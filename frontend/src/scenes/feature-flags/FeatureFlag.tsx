@@ -399,7 +399,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                 {({ disabledReason }) => (
                                     <ButtonPrimitive
                                         menuItem
-                                        disabled={!!disabledReason || featureFlagActiveUpdateLoading}
+                                        disabled={!!disabledReason}
                                         {...(disabledReason && { tooltip: disabledReason })}
                                         data-attr={
                                             featureFlag.archived ? 'unarchive-feature-flag' : 'archive-feature-flag'
@@ -416,6 +416,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                         disabledReasons={{
                                             "You have only 'View' access for this feature flag. To make changes, please contact the flag's creator.":
                                                 !featureFlag.can_edit,
+                                            'Updating…': featureFlagActiveUpdateLoading,
                                         }}
                                     >
                                         {featureFlag.archived ? <IconRewind /> : <IconArchive />}
@@ -432,7 +433,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                 <ButtonPrimitive
                                     menuItem
                                     variant="danger"
-                                    disabled={!!disabledReason || featureFlagRestoreLoading}
+                                    disabled={!!disabledReason}
                                     {...(disabledReason && { tooltip: disabledReason })}
                                     data-attr={featureFlag.deleted ? 'restore-feature-flag' : 'delete-feature-flag'}
                                     onClick={() => {
@@ -449,6 +450,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                     disabledReasons={{
                                         "You have only 'View' access for this feature flag. To make changes, please contact the flag's creator.":
                                             !featureFlag.can_edit,
+                                        'Restoring…': featureFlagRestoreLoading,
                                     }}
                                 >
                                     {featureFlag.deleted ? <IconRewind /> : <IconTrash />}
@@ -477,8 +479,10 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                     : undefined
                             }
                         >
-                            This feature flag is deleted. It's hidden from the flag list and can't be evaluated. Restore
-                            it to use it again.
+                            This feature flag is deleted. It's hidden from the flag list and can't be evaluated.{' '}
+                            {featureFlag.can_edit
+                                ? 'Restore it to use it again.'
+                                : 'Ask someone with edit access to restore it.'}
                         </LemonBanner>
                     )}
                     {featureFlag.archived && (

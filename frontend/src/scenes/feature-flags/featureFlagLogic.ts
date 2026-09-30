@@ -3966,7 +3966,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         deleteFeatureFlag: async ({ featureFlag }) => {
             await deleteWithUndo({
                 endpoint: `projects/${values.currentProjectId}/feature_flags`,
-                object: { name: featureFlag.key, id: featureFlag.id },
+                object: { id: featureFlag.id, name: featureFlag.name },
                 callback: (undo) => {
                     featureFlag.id && actions.deleteFlag(featureFlag.id)
                     if (undo) {
@@ -3984,7 +3984,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             try {
                 await deleteWithUndo({
                     endpoint: `projects/${values.currentProjectId}/feature_flags`,
-                    object: { name: featureFlag.key, id: featureFlag.id },
+                    object: { id: featureFlag.id, name: featureFlag.name },
                     undo: true,
                     // deleteWithUndo passes back its own `undo` flag, which restore always sets, so
                     // this runs only for a successful restore: put the flag back in the tree.
