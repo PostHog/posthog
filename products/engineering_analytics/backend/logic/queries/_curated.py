@@ -14,8 +14,9 @@ into these fragments.
 """
 
 import math
+import hashlib
 import threading
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Sequence
 from concurrent.futures import Future
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -23,7 +24,10 @@ from functools import partial
 from typing import TYPE_CHECKING
 
 from django.conf import settings
+from django.core.cache import cache
 from django.db import connection
+
+import structlog
 
 from posthog.schema import HogQLQueryResponse
 
@@ -65,7 +69,11 @@ from products.engineering_analytics.backend.logic.views import (
 )
 
 if TYPE_CHECKING:
+    from posthog.models.user import User
+
     from products.access_control.backend.facade.user_access_control import UserAccessControl
+
+logger = structlog.get_logger(__name__)
 
 _QUERY_PAGE_SIZE = 5000
 
@@ -605,6 +613,86 @@ class CuratedGitHubSource:
                 return rows
             cursor = tuple(page[-1][index] for _column, index in page_key)
 
+    @property
+    def _user(self) -> "User | None":
+        # Forward the real user, not just the access control: a userless build drops the access
+        # control and fails closed (see _compute_system_table_access_decision), so the user is what
+        # lets HogQL honor the per-table warehouse ACL.
+        return self._user_access_control.user if self._user_access_control is not None else None
+
+    @property
+    def _bypass_warehouse_access_control(self) -> bool:
+        # No user means a system / Temporal / CLI caller (the facade's documented userless path).
+        # There is no principal to honor the ACL with, so bypass it rather than fail closed and
+        # strip the tables — bypass is set ONLY in this genuinely userless case.
+        return self._user_access_control is None
+
+    def _catalog(self) -> Database:
+        with self._lock:
+            if self._database is None:
+                # The catalog is slow to build for a team with many warehouse tables, and every query
+                # of one request reads the same one.
+                self._database = Database.create_for(
+                    team=self._team,
+                    user=self._user,
+                    user_access_control=self._user_access_control,
+                    modifiers=create_default_modifiers_for_team(self._team),
+                    bypass_warehouse_access_control=self._bypass_warehouse_access_control,
+                    trigger="engineering_analytics",
+                )
+            return self._database
+
+    def read_through[V](
+        self, *, sql: str, keys: Sequence[int], load: Callable[[list[int]], dict[int, V]], ttl_seconds: int
+    ) -> dict[int, V]:
+        """``load``'s value for every key, reusing values another request computed in the last
+        ``ttl_seconds``. ``load`` gets the keys with no cached value and must return one for each.
+
+        ``sql`` is the query ``load`` runs, before its placeholders. Its hash names the cache, so a
+        change to that query, the prices it renders or the tables it resolves starts a fresh one. A
+        cached value is served only when this reader's catalog grants every table that query reads,
+        the decision the query itself would get. A cache that fails to answer loads every key.
+        """
+        prefix = f"engineering_analytics:{self._team.pk}:{hashlib.sha256(sql.encode()).hexdigest()}"
+        cache_keys = {key: f"{prefix}:{key}" for key in keys}
+        cached: dict[str, V] = {}
+        if self._may_read_every_table_in(sql):
+            try:
+                cached = cache.get_many(list(cache_keys.values()))
+            except Exception:
+                logger.warning("engineering_analytics_cache_read_failed", exc_info=True)
+        values = {key: cached[cache_key] for key, cache_key in cache_keys.items() if cache_key in cached}
+        missing = [key for key in keys if key not in values]
+        if not missing:
+            return values
+        loaded = load(missing)
+        try:
+            cache.set_many({cache_keys[key]: value for key, value in loaded.items()}, timeout=ttl_seconds)
+        except Exception:
+            logger.warning("engineering_analytics_cache_write_failed", exc_info=True)
+        return {**values, **loaded}
+
+    def _may_read_every_table_in(self, sql: str) -> bool:
+        # A table name that is part of a longer name adds one more table to check. So a match on the
+        # text can refuse a cached value, but it can never serve a value that the query would deny.
+        tables = [
+            table
+            for table in (
+                self._tables.pull_requests,
+                self._tables.workflow_runs,
+                self._tables.workflow_jobs,
+                self._tables.team_members,
+                self._tables.issue_events,
+                self._tables.deployments,
+                self._tables.deployment_statuses,
+                self._tables.reviews,
+                self._depot_job_attempts_table.table if self._depot_job_attempts_table else None,
+            )
+            if table and table in sql
+        ]
+        catalog = self._catalog()
+        return not any(catalog.is_table_access_denied(table) for table in tables)
+
     def run(
         self,
         sql: str,
@@ -629,23 +717,15 @@ class CuratedGitHubSource:
         ``logs`` table). The warehouse-ACL reasoning above governs warehouse tables only and is a no-op
         for such reads — those tables carry no per-table ACL, so the ``team_id`` scope is their boundary.
         """
-        uac = self._user_access_control
-        user = uac.user if uac is not None else None
-        bypass_warehouse_access_control = uac is None
         with self._lock:
             if self._queries_remaining is not None:
                 if self._queries_remaining <= 0:
                     raise QueryWorkLimitExceededError
                 self._queries_remaining -= 1
-            if self._database is None:
-                self._database = Database.create_for(
-                    team=self._team,
-                    user=user,
-                    user_access_control=uac,
-                    modifiers=create_default_modifiers_for_team(self._team),
-                    bypass_warehouse_access_control=bypass_warehouse_access_control,
-                    trigger="engineering_analytics",
-                )
+        uac = self._user_access_control
+        user = self._user
+        bypass_warehouse_access_control = self._bypass_warehouse_access_control
+        database = self._catalog()
         with tags_context(product=Product.ENGINEERING_ANALYTICS, feature=Feature.QUERY, team_id=self._team.pk):
             return execute_hogql_query(
                 query=parse_select(sql, placeholders=placeholders),
@@ -662,7 +742,7 @@ class CuratedGitHubSource:
                     user=user,
                     user_access_control=uac,
                     bypass_warehouse_access_control=bypass_warehouse_access_control,
-                    database=self._database,
+                    database=database,
                 ),
             )
 

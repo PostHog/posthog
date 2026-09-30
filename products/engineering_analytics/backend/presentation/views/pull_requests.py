@@ -92,7 +92,8 @@ class PullRequestActionsMixin(EngineeringAnalyticsViewSetBase):
             "Open pull requests plus any merged or closed since date_from (default -30d), newest first, each with "
             "its head-SHA CI rollup. The list is capped; when more match, `truncated` is true and the ci_cards "
             "counts can exceed it. open_to_merge_seconds is coarse: it fuses draft and ready-for-review time; "
-            "CI counts can lag until late completions settle."
+            "CI counts can lag until late completions settle. Cost and billable minutes can lag new CI by up to "
+            "5 minutes."
         ),
     )
     @action(detail=False, methods=["get"], pagination_class=None)
@@ -120,7 +121,8 @@ class PullRequestActionsMixin(EngineeringAnalyticsViewSetBase):
         description=(
             "Open pull requests that need attention: failing CI, or stuck (open, non-draft, non-bot, older than "
             "7 days), by the same rules as the ci_cards counts. Failing first, then newest, capped; `total` counts "
-            "every match in the whole open backlog, however old."
+            "every match in the whole open backlog, however old. Cost and billable minutes can lag new CI by up to "
+            "5 minutes."
         ),
     )
     @action(detail=False, methods=["get"], pagination_class=None)

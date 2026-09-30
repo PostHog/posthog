@@ -9,14 +9,18 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.hogql.database.database import Database
+
 from products.engineering_analytics.backend.facade import api
 from products.engineering_analytics.backend.facade.contracts import (
     CIStatusRollup,
     MetricQuality,
     PRLifecycleEventKind,
     PRState,
+    PullRequestList,
 )
 from products.engineering_analytics.backend.logic.queries import pull_request_list
+from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 from products.engineering_analytics.backend.logic.views.source_schema import (
     ISSUE_EVENTS_COLUMNS,
     PULL_REQUESTS_COLUMNS,
@@ -328,12 +332,15 @@ class TestPullRequestEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
         # No issue-events source seeded: the column degrades to NULL (never 0) and the query still runs.
         assert by_number[14].merged_at is not None and by_number[14].ready_to_merge_seconds is None
 
-    def test_pull_request_list_includes_cost_when_jobs_synced(self) -> None:
+    def test_pull_request_list_includes_cost_and_reuses_it(self) -> None:
         # With the jobs source synced, the list carries per-PR cost + billable minutes.
         self._create_table(
             "github_pull_requests",
             PULL_REQUESTS_COLUMNS,
-            [_pr_row(70, "alice", "open", 0, _ago(1), head_sha="sha70")],
+            [
+                _pr_row(70, "alice", "open", 0, _ago(1), head_sha="sha70"),
+                _pr_row(71, "bob", "open", 0, _ago(1), head_sha="sha71"),
+            ],
         )
         self._create_table(
             "github_workflow_runs",
@@ -345,10 +352,29 @@ class TestPullRequestEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
             WORKFLOW_JOBS_COLUMNS,
             [_job_row(94000, 9400, "build", "success", labels='["depot-ubuntu-22.04-4"]')],
         )
-        item = next(i for i in api.list_pull_requests(team=self.team).items if i.number == 70)
+
+        def list_counting_cost_queries() -> tuple[PullRequestList, int]:
+            with mock.patch.object(CuratedGitHubSource, "run", autospec=True, wraps=CuratedGitHubSource.run) as run:
+                result = api.list_pull_requests(team=self.team)
+            queries = [
+                call for call in run.call_args_list if call.kwargs["query_type"] == "engineering_analytics.pr_costs"
+            ]
+            return result, len(queries)
+
+        result, cost_queries = list_counting_cost_queries()
+        assert cost_queries == 1
+        item = next(i for i in result.items if i.number == 70)
         # One 120s job on a 4-vCPU tier: 2 min x $0.004 x 2.
         assert item.estimated_cost_usd == pytest.approx(0.016)
         assert item.billable_minutes == pytest.approx(2.0)
+
+        # PR 71 has no jobs, and a repeat read reuses both answers rather than scanning the jobs again.
+        repeat, cost_queries = list_counting_cost_queries()
+        assert cost_queries == 0
+        assert next(i for i in repeat.items if i.number == 70).estimated_cost_usd == pytest.approx(0.016)
+        with mock.patch.object(Database, "is_table_access_denied", return_value=True):
+            _, cost_queries = list_counting_cost_queries()
+        assert cost_queries == 1
 
     def test_ready_to_merge_semantics(self) -> None:
         # PR 20: only the LAST ready counts. PR 21: no transitions, whole life inside the window ->
