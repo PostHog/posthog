@@ -6,13 +6,13 @@ import { WorkflowAppliedOutcome } from './WorkflowAppliedOutcome'
 import { workflowProposalsLogic } from './workflowProposalsLogic'
 import { WorkflowSuggestionCard } from './WorkflowSuggestionCard'
 
-function SuggestionsOffNotice(): JSX.Element {
+function SuggestionsOffNotice({ disabledReason }: { disabledReason: string | undefined }): JSX.Element {
     return (
         <div className="flex flex-col gap-2">
             <h3 className="mb-0">Suggestions are off for this workflow</h3>
             <p className="mb-0 text-secondary">
-                Turn on "Suggest improvements" in the workflow menu to have PostHog read how this workflow performs and
-                suggest changes. Only the workflows you turn on are read.
+                {disabledReason ??
+                    'Turn on "Suggest improvements" in the workflow menu to have PostHog read how this workflow performs and suggest changes. Only the workflows you turn on are read.'}
             </p>
         </div>
     )
@@ -34,6 +34,7 @@ export function WorkflowSuggestions({ id }: { id: string }): JSX.Element {
         pendingProposals,
         appliedProposals,
         outcomes,
+        optimizationDisabledReason,
         optimizationEnabled,
         optimization,
         optimizationLoading,
@@ -53,7 +54,7 @@ export function WorkflowSuggestions({ id }: { id: string }): JSX.Element {
     const notice = optimizationUnreadable ? (
         <SuggestionsUnreadableNotice />
     ) : !optimizationEnabled ? (
-        <SuggestionsOffNotice />
+        <SuggestionsOffNotice disabledReason={optimizationDisabledReason} />
     ) : null
 
     if (notice && nothingFiled) {
