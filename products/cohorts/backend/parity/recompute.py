@@ -1,9 +1,8 @@
 """Recompute-oracle support screen, tree composition, and backfill-aware classification.
 
 The ``--oracle recompute`` mode compares the folded shadow topic (``members(fold)``) against a
-membership set recomputed from ``events`` with evaluator semantics (the "oracle"), instead of the
-old-pipeline ``cohort_membership`` table the R-FRESH/R-STALE classifier uses. This module holds the
-pure logic: which cohorts the oracle can reproduce, how leaf member-sets fold into a tree, and how
+membership set recomputed from ``events`` with evaluator semantics (the "oracle"). This module holds
+the pure logic: which cohorts the oracle can reproduce, how leaf member-sets fold into a tree, and how
 the fold-vs-oracle diff is segmented by backfill day-domain.
 
 Oracle semantics are pinned to the Rust reference so the recompute matches what the processor emits:
@@ -44,10 +43,13 @@ from zoneinfo import ZoneInfo
 from posthog.dataclasses import frozen
 
 from products.cohorts.backend.models.leaf_shape import BehavioralLeafKey, behavioral_leaf_key
-from products.cohorts.backend.parity.classifier import VERDICT_FAIL, VERDICT_PASS, VERDICT_SKIP
 from products.cohorts.backend.parity.eligibility import explain_unsupported_window, resolve_behavioral_window
 from products.cohorts.backend.parity.fold import MembershipRecord, ReconcileRunCompleteness, members
 from products.cohorts.backend.parity.tzdates import window_dates
+
+VERDICT_PASS = "PASS"
+VERDICT_FAIL = "FAIL"
+VERDICT_SKIP = "SKIP"
 
 _I32_MIN = -(2**31)
 _I32_MAX = 2**31 - 1

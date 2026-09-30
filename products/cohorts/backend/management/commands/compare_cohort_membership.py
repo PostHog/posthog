@@ -1,13 +1,7 @@
-"""Classified parity report: new Rust cohort pipeline vs an oracle.
+"""Parity report: new Rust cohort pipeline vs an oracle.
 
-Three oracle modes select what the folded shadow topic (the new pipeline's converged membership) is
+Two oracle modes select what the folded shadow topic (the new pipeline's converged membership) is
 compared against:
-
-- ``--oracle old-pipeline`` (default): the argMax of ClickHouse ``cohort_membership`` — the legacy
-  Temporal recompute. The diff is bounded to the observed universe O = persons the new pipeline
-  decided on since the store wipe; never-computed persons (old - O) are excluded from the gate and
-  feed a separate missed-emission probe. Divergences are classified (R-FRESH / R-STALE /
-  suspect-missing / dormant) so expected skew is separated from real bugs.
 
 - ``--oracle recompute``: membership recomputed from ``events`` with evaluator semantics (window,
   count>=1 floor, operator, tree composition), then diffed with backfill-aware segmentation — the
@@ -15,7 +9,7 @@ compared against:
   hard gate; under-count (oracle - fold) is segmented by day-domain so the boundary-day decay gap is
   separated from real seed/unseeded misses.
 
-- ``--oracle population``: the population the legacy batch calculation wrote to ClickHouse
+- ``--oracle population`` (default): the population the legacy batch calculation wrote to ClickHouse
   ``cohortpeople`` at the cohort's pinned ``version`` — the set the cohort page shows. The fold is
   bounded to each cohort's ``last_calculation`` and the two sets are diffed directly. No filter is
   read, so no cohort shape is unsupported; equally, nothing is adjudicated. Report-only, always
@@ -23,7 +17,6 @@ compared against:
 
 Run from a toolbox/web pod (needs KAFKA_INGESTION_HOSTS + the offline ClickHouse host):
 
-    manage.py compare_cohort_membership --team-id 2 --since "2026-07-07T19:11:00Z"
     manage.py compare_cohort_membership --team-id 2 --cohort-id 433564 --since "2026-07-24T02:00:00Z" --oracle recompute
     manage.py compare_cohort_membership --team-id 2 --since "2026-07-07T19:11:00Z" --oracle population
 """
@@ -45,7 +38,6 @@ from posthog.models.team.team import Team
 
 from products.cohorts.backend.backfill.pinning import pin_conditions_for_cohorts
 from products.cohorts.backend.models.cohort import Cohort
-from products.cohorts.backend.parity.classifier import ClassifierConfig, CohortComparison, classify_cohort, summarize
 from products.cohorts.backend.parity.eligibility import EMITTING_CLASSES, ScreenedCohort, screen_team
 from products.cohorts.backend.parity.fold import fold_membership_changes, members, reconcile_completeness_by_cohort
 from products.cohorts.backend.parity.kafka_io import (
@@ -82,25 +74,15 @@ from products.cohorts.backend.parity.recompute import (
     summarize_recompute,
 )
 from products.cohorts.backend.parity.report import (
-    format_notes,
     format_population_summary,
     format_population_table,
     format_recompute_notes,
     format_recompute_summary,
     format_recompute_table,
-    format_reconcile_notes,
-    format_summary,
-    format_table,
-    to_json,
     to_population_json,
     to_recompute_json,
 )
-from products.cohorts.backend.parity.snapshots import (
-    load_cohort_population,
-    load_old_membership,
-    load_realtime_cohorts,
-    make_activity_probe,
-)
+from products.cohorts.backend.parity.snapshots import load_cohort_population, load_realtime_cohorts
 from products.cohorts.backend.parity.tzdates import resolve_zoneinfo, window_start_utc
 
 SHADOW_TOPIC_RETENTION_DAYS = 7
@@ -108,8 +90,6 @@ SHADOW_TOPIC_RETENTION_DAYS = 7
 # a past state: reconcile markers and decisions made since are excluded, so say so.
 RECOMPUTE_STALE_AT_MINUTES = 15
 
-DEFAULT_THRESHOLD_PCT = 0.5
-DEFAULT_WARMUP_SAMPLE = 5000
 DEFAULT_GRACE_MINUTES = 10
 # A cohort window wider than this drives an unbounded `events` scan for no diagnostic gain; the Rust
 # side treats such a window as "never evicts" rather than sliding, so SKIP instead of scanning.
@@ -125,14 +105,6 @@ MAX_DIFF_TARGETS = 50_000
 EVICTION_LOOKBACK_DAYS = 1
 
 # Deliberate coverage limits, restated with every report so a clean run is not over-read.
-COVERAGE_CAVEATS = (
-    "the diff is bounded to persons the new pipeline decided on (O); old-only persons outside O are excluded and only probed for missed emissions",
-    "suspect_missing gates FAIL only where the store provably covers the window (window <= pipeline age, or property-only cohorts); on longer windows unobserved actives are unresolvable until warmup (no snapshot resolves pre-since qualifiers) and report as WARMUP",
-    "minute/hour-window cohorts get suspect≈0 by construction — the probe cutoff collapses to now",
-    "cohorts with no recompute clock (never recomputed, or the stamp cleared by an edit) count all only_new as fresh (residual_new is 0 there)",
-    "a partial drain (poll timeout or --max-messages) understates the new side and biases toward FAIL",
-)
-
 RECOMPUTE_CAVEATS = (
     "the oracle reproduces only performed_event / performed_event_multiple leaves with a string event key, no event_filters (property matching is HogVM bytecode, not SQL), and whole-day sliding windows within --max-window-days; everything else SKIPs",
     "over-count (false_members) is the hard gate; the sweep-lag share — still a member one day-slide back, or entered within --grace-minutes — is reported but not gated",
@@ -297,9 +269,8 @@ def _within_target_cap(targets: list[str], side: str, notes: list[str]) -> bool:
 
 
 # Which oracle mode each mode-specific flag parameterizes. A registry rather than per-mode reject
-# lists: with three modes, pairwise lists drift into silently accepting a flag that does nothing.
+# lists, which drift into silently accepting a flag that does nothing.
 _MODE_FLAGS = {
-    "old-pipeline": ("threshold", "warmup_sample", "no_classify"),
     "recompute": ("at", "run_id", "grace_minutes", "max_window_days", "max_oracle_members"),
     "population": ("with_ids", "max_oracle_members"),
 }
@@ -323,7 +294,7 @@ def _reject_flags(options: dict[str, Any], mode: str) -> None:
 
 
 class Command(BaseCommand):
-    help = "Compare new-pipeline (shadow topic) vs an oracle (old pipeline, recompute or population) cohort membership"
+    help = "Compare new-pipeline (shadow topic) vs an oracle (recompute or population) cohort membership"
 
     def add_arguments(self, parser: CommandParser) -> None:
         parser.add_argument("--team-id", type=int, required=True)
@@ -331,14 +302,14 @@ class Command(BaseCommand):
             "--since",
             type=str,
             required=True,
-            help="ISO8601 cutoff; must be the processor store-wipe time. Wrong values poison the fold and the warmup clock.",
+            help="ISO8601 cutoff; must be the processor store-wipe time. Wrong values poison the fold.",
         )
         parser.add_argument("--cohort-id", type=int, default=None, help="Limit to one cohort")
         parser.add_argument(
             "--oracle",
             choices=sorted(_MODE_FLAGS),
-            default="old-pipeline",
-            help="What to compare the fold against (default old-pipeline, byte-identical to prior behavior)",
+            default="population",
+            help="What to compare the fold against (default population)",
         )
         parser.add_argument(
             "--with-ids",
@@ -378,24 +349,6 @@ class Command(BaseCommand):
             default=None,
             help=f"recompute/population only: cohorts whose oracle set (leaf members / cohortpeople population) "
             f"exceeds this SKIP rather than being materialized in memory (default {DEFAULT_MAX_ORACLE_MEMBERS})",
-        )
-        parser.add_argument(
-            "--threshold",
-            type=float,
-            default=None,
-            help=f"old-pipeline only: max residual %% for PASS (default {DEFAULT_THRESHOLD_PCT})",
-        )
-        parser.add_argument(
-            "--warmup-sample",
-            type=int,
-            default=None,
-            help=f"old-pipeline only: persons sampled per cohort for the missed-emission probe over old - O; "
-            f"0 skips it (default {DEFAULT_WARMUP_SAMPLE})",
-        )
-        parser.add_argument(
-            "--no-classify",
-            action="store_true",
-            help="old-pipeline only: O-bounded raw diff, no R-FRESH/R-STALE rules or suspect probe",
         )
         parser.add_argument("--shadow-topic", type=str, default=DEFAULT_SHADOW_TOPIC)
         parser.add_argument("--marker-topic", type=str, default=DEFAULT_MARKER_TOPIC)
@@ -458,7 +411,6 @@ class Command(BaseCommand):
             selected_ids = [c.pk for c in cohorts]
         screened = screen_team({c.pk: c.filters for c in cohorts}, cascade_enabled=True)
         names = {c.pk: c.name or "Untitled" for c in cohorts}
-        last_calc = {c.pk: c.last_realtime_cohort_calculation_at for c in cohorts}
         # Each cohort's legacy population was calculated on its own schedule, so the population
         # oracle's clock is per cohort — one team-wide instant cannot bound a multi-cohort fold.
         selected = set(selected_ids)
@@ -549,7 +501,7 @@ class Command(BaseCommand):
                 as_json=as_json,
                 log=log,
             )
-        elif oracle == "population":
+        else:
             self._report_population(
                 options=options,
                 team_id=team_id,
@@ -565,21 +517,6 @@ class Command(BaseCommand):
                 drain_warnings=warnings,
                 as_json=as_json,
                 log=log,
-            )
-        else:
-            self._report_old_pipeline(
-                options=options,
-                team_id=team_id,
-                since=since,
-                now=now,
-                selected_ids=selected_ids,
-                screened=screened,
-                names=names,
-                last_calc=last_calc,
-                new_state=new_state,
-                fold_stats=fold_stats,
-                drain_warnings=warnings,
-                as_json=as_json,
             )
 
     def _validate_recompute_flags(self, options: dict[str, Any]) -> None:
@@ -598,82 +535,6 @@ class Command(BaseCommand):
                 # CohortBackfillRun is a UUID model; an unparseable id would otherwise surface as a
                 # raw Django ValidationError traceback after the drain.
                 raise CommandError(f"--run-id is not a UUID: {options['run_id']!r}") from err
-
-    def _report_old_pipeline(
-        self,
-        *,
-        options: dict[str, Any],
-        team_id: int,
-        since: datetime,
-        now: datetime,
-        selected_ids: list[int],
-        screened: Any,
-        names: dict[int, str],
-        last_calc: dict[int, Any],
-        new_state: Any,
-        fold_stats: Any,
-        drain_warnings: list[str],
-        as_json: bool,
-    ) -> None:
-        threshold_pct = DEFAULT_THRESHOLD_PCT if options["threshold"] is None else options["threshold"]
-        warmup_sample = DEFAULT_WARMUP_SAMPLE if options["warmup_sample"] is None else options["warmup_sample"]
-        classifier_config = ClassifierConfig(
-            since=since,
-            now=now,
-            threshold_pct=threshold_pct,
-            warmup_sample=warmup_sample,
-            classify=not options["no_classify"],
-            activity_probe=make_activity_probe(team_id),
-        )
-        completeness_by_cohort = reconcile_completeness_by_cohort(fold_stats)
-        rows: list[CohortComparison] = []
-        for cid in sorted(selected_ids):
-            s = screened[cid]
-            old_members = load_old_membership(team_id, cid) if s.emits else set()
-            rows.append(
-                classify_cohort(
-                    screened=s,
-                    name=names[cid],
-                    old_members=old_members,
-                    new_state=new_state.get(cid, {}),
-                    last_realtime_calculation_at=last_calc[cid],
-                    config=classifier_config,
-                    notes=format_reconcile_notes(completeness_by_cohort.get(cid, ())),
-                )
-            )
-
-        summary = summarize(rows, config=classifier_config)
-        summary.warnings.extend(drain_warnings)
-
-        if as_json:
-            # No "oracle" key here: the default path stays byte-identical to the pre-flag output.
-            meta = {
-                "team_id": team_id,
-                "since": since.isoformat(),
-                "now": now.isoformat(),
-                "shadow_topic": options["shadow_topic"],
-                "threshold_pct": threshold_pct,
-                "warmup_sample": warmup_sample,
-                "classify": not options["no_classify"],
-                "caveats": list(COVERAGE_CAVEATS),
-            }
-            self.stdout.write(json.dumps(to_json(rows, summary, meta), indent=2))
-        else:
-            self.stdout.write("")
-            self.stdout.write(format_table(rows))
-            notes = format_notes(rows)
-            if notes:
-                self.stdout.write("\nnotes:\n" + notes)
-            self.stdout.write("")
-            self.stdout.write(format_summary(summary))
-            self.stdout.write("caveats:")
-            for caveat in COVERAGE_CAVEATS:
-                self.stdout.write(f"  {caveat}")
-
-        if summary.failed:
-            raise CommandError(
-                f"{summary.failed} eligible cohort(s) FAIL the {threshold_pct}% parity gate (residual or suspect-missing)"
-            )
 
     def _report_population(
         self,
