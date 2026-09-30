@@ -6,6 +6,7 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { BindLogic } from 'kea'
 import { expectLogic, partial } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 
@@ -419,6 +420,41 @@ describe('experimentWizardLogic', () => {
             logic.mount()
 
             expect(logic.values.currentStep).toBe('about')
+        })
+
+        it('reports each step view with the step it came from and how it was reached', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.nextStep()
+                logic.actions.setStep('about')
+            }).toDispatchActions([
+                logic.actionCreators.reportExperimentWizardStepViewed('variants', 2, 'about', 'continue'),
+                logic.actionCreators.reportExperimentWizardStepViewed('about', 1, 'variants', 'stepper'),
+            ])
+
+            // Going back from the first step doesn't change the step, so it isn't a new view
+            await expectLogic(logic, () => {
+                logic.actions.prevStep()
+            }).toNotHaveDispatchedActions(['reportExperimentWizardStepViewed'])
+        })
+
+        it('reports the first view as a resume when the wizard reopens on a later step', async () => {
+            logic.actions.setStep('analytics')
+            logic.unmount()
+            createLogic.unmount()
+
+            const capture = jest.spyOn(posthog, 'capture')
+            createLogic = createExperimentLogic()
+            createLogic.mount()
+            logic = experimentWizardLogic()
+            logic.mount()
+
+            expect(capture).toHaveBeenCalledWith('experiment wizard step viewed', {
+                step: 'analytics',
+                step_number: 3,
+                previous_step: null,
+                navigation: 'resume',
+            })
+            capture.mockRestore()
         })
 
         it('remount preserves step when sessionStorage is not cleared', async () => {
