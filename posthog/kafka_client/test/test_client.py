@@ -184,13 +184,12 @@ class KafkaClientTestCase(TestCase):
 
     @override_settings(KAFKA_PROFILES=_make_profiles(producer_settings={"partitioner": "murmur2_random"}))
     @patch("posthog.kafka_client.client.ConfluentProducer")
-    def test_kafka_producer_partitioner_is_dropped(self, mock_producer_class: MagicMock):
-        """partitioner is handled differently in confluent-kafka and must not leak through."""
+    def test_kafka_producer_partitioner_flows_to_confluent_config(self, mock_producer_class: MagicMock):
+        """partitioner is a librdkafka property, so the configured value must reach the producer."""
         mock_producer_class.return_value = MagicMock()
         _KafkaProducer(test=False)
         config = mock_producer_class.call_args[0][0]
-        self.assertNotIn("partitioner", config)
-        self.assertNotIn("partitioner", config.values())
+        self.assertEqual(config["partitioner"], "murmur2_random")
 
     @override_settings(
         KAFKA_BASE64_KEYS=True,

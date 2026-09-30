@@ -181,6 +181,7 @@ _KAFKA_PYTHON_TO_CONFLUENT_KEYS = {
     "sticky_partitioning_linger_ms": "sticky.partitioning.linger.ms",
     "enable_idempotence": "enable.idempotence",
     "compression_type": "compression.type",
+    "partitioner": "partitioner",
 }
 
 
@@ -194,9 +195,6 @@ def _convert_kafka_python_settings(kafka_python_settings: dict[str, Any]) -> dic
             if key == "buffer_memory":
                 value = value // 1024
             result[confluent_key] = value
-        elif key == "partitioner":
-            # partitioner is handled differently in confluent-kafka, skip it
-            pass
         else:
             # Pass through unknown keys as-is (might already be confluent-kafka style)
             result[key] = value
