@@ -1,3 +1,4 @@
+import json
 import math
 import time
 import threading
@@ -20,6 +21,9 @@ SAFETY_RESPONSE_FIELDS = {
     "signals-signal-safety-system-one": ("safe", "threat_type", "explanation"),
     "signals-report-safety-system-one": ("choice", "explanation"),
 }
+SAFETY_REDACTION_INSTRUCTION = (
+    "Never reproduce a credential, token, key, cookie, or other secret value in the explanation"
+)
 
 
 @frozen
@@ -83,8 +87,14 @@ def _parse_prompt(result: PromptResult, fallback: SystemOnePrompt) -> SystemOneP
         return None
     response_fields = SAFETY_RESPONSE_FIELDS.get(fallback.name)
     if response_fields is not None and (
-        "json" not in policy.lower() or any(f'"{field}"' not in policy for field in response_fields)
+        "json" not in policy.lower()
+        or any(f'"{field}"' not in policy for field in response_fields)
+        or SAFETY_REDACTION_INSTRUCTION not in policy
     ):
+        return None
+    if fallback.name == "signals-report-safety-system-one" and len(
+        json.dumps(policy, ensure_ascii=False).encode()
+    ) > len(json.dumps(fallback.policy, ensure_ascii=False).encode()):
         return None
     if not isinstance(result.version, int) or result.version < 1:
         return None

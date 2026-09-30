@@ -90,16 +90,18 @@ def test_malformed_managed_actionability_policy_is_rejected(policy: str) -> None
     [
         (
             "signals-signal-safety-system-one",
-            'Respond with JSON only: {"safe": true, "threat_type": "", "explanation": ""}',
+            'Respond with JSON only: {"safe": true, "threat_type": "", "explanation": ""}\n'
+            "Never reproduce a credential, token, key, cookie, or other secret value in the explanation.",
         ),
         (
             "signals-report-safety-system-one",
-            'Respond with JSON only: {"choice": true, "explanation": ""}',
+            'Respond with JSON only: {"choice": true, "explanation": ""}\n'
+            "Never reproduce a credential, token, key, cookie, or other secret value in the explanation.",
         ),
     ],
 )
 def test_managed_safety_policy_requires_the_json_response_contract(name: str, policy: str) -> None:
-    fallback = bundled_prompt(name, "bundled policy", "question", 0.9)
+    fallback = bundled_prompt(name, policy, "question", 0.9)
     config = {"model": DEFAULT_SYSTEM_ONE_MODEL, "question": "question", "threshold": 0.9}
 
     valid = PromptResult(source="api", name=name, version=2, prompt=policy, config=config)
@@ -122,6 +124,35 @@ def test_bundled_safety_policy_is_accepted_as_a_managed_version(fallback: System
     )
 
     assert _parse_prompt(result, fallback) is not None
+
+
+@pytest.mark.parametrize("fallback", [SIGNAL_SAFETY_SYSTEM_ONE_PROMPT, REPORT_SAFETY_SYSTEM_ONE_PROMPT])
+def test_managed_safety_policy_requires_secret_redaction(fallback: SystemOnePrompt) -> None:
+    policy = fallback.policy.replace(
+        "Never reproduce a credential, token, key, cookie, or other secret value in the explanation", ""
+    )
+    result = PromptResult(
+        source="api",
+        name=fallback.name,
+        version=2,
+        prompt=policy,
+        config={"model": fallback.model, "question": fallback.question, "threshold": fallback.threshold},
+    )
+
+    assert _parse_prompt(result, fallback) is None
+
+
+def test_managed_report_policy_cannot_reduce_signal_headroom() -> None:
+    fallback = REPORT_SAFETY_SYSTEM_ONE_PROMPT
+    result = PromptResult(
+        source="api",
+        name=fallback.name,
+        version=2,
+        prompt=fallback.policy + "\nAdditional guidance.",
+        config={"model": fallback.model, "question": fallback.question, "threshold": fallback.threshold},
+    )
+
+    assert _parse_prompt(result, fallback) is None
 
 
 def test_failed_refresh_reverts_a_managed_safety_prompt_to_bundled() -> None:
