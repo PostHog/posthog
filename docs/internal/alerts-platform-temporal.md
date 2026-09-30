@@ -40,6 +40,10 @@ There is no routing flag: the flow is tick → orchestration → evaluation → 
 It uses SKIP overlap, a one-minute catchup window, a 50-second workflow execution timeout,
 and one workflow attempt. Creation does not trigger an immediate run; the next minute starts it.
 Delivery has no schedule: evaluation starts its delivery child.
+The same command registers `alerts-platform-record-inventory-schedule`, with the same policy and a 30-second execution timeout.
+It starts `alerts-platform-record-inventory` on the orchestration queue every minute, apart from the tick.
+That workflow counts configurations and alerts for the health dashboard gauges, with a 1-second statement timeout per query and one activity attempt.
+A failed count is logged and the next minute tries again, so the inventory never delays or fails a tick.
 New schedules start unpaused. Registration updates existing schedules to this policy while retaining their state from Temporal, including manual pauses.
 To stop future ticks, pause the schedule in Temporal; resume it there when ready. Pausing does not stop workflows already running.
 Reverting the code that registers a schedule does not remove one already registered.

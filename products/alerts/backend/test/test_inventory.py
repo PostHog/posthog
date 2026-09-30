@@ -17,7 +17,15 @@ NOW = datetime(2026, 9, 30, 12, tzinfo=UTC)
 
 
 class TestAlertInventory(BaseTest):
-    def _configuration(self, team: Team, *, enabled: bool, states: list[tuple[str, datetime | None]]) -> None:
+    def _configuration(
+        self,
+        team: Team,
+        *,
+        enabled: bool,
+        states: list[tuple[str, datetime | None]] | None = None,
+        interval: int = 5,
+        next_check_at: datetime | None = None,
+    ) -> None:
         configuration = PlatformAlertConfiguration.objects.unscoped().create(
             team=team,
             name="alert",
@@ -26,9 +34,10 @@ class TestAlertInventory(BaseTest):
             threshold_count=1,
             threshold_operator="above",
             window_minutes=5,
-            check_interval_minutes=5,
+            check_interval_minutes=interval,
+            next_check_at=next_check_at,
         )
-        for index, (state, snooze_until) in enumerate(states):
+        for index, (state, snooze_until) in enumerate(states or []):
             PlatformAlert.objects.unscoped().create(
                 team=team,
                 configuration=configuration,
@@ -59,6 +68,27 @@ class TestAlertInventory(BaseTest):
             ("logs", "broken", False): 1,
         }
         assert len(inventory.alerts) == len(SourceKind) * len(PlatformAlert.State) * 2
+
+    def test_counts_enabled_configurations_per_cadence_slot_and_for_the_largest_team(self) -> None:
+        other_team = Team.objects.create(organization=self.organization)
+        for minutes in (0, 5, 2):
+            self._configuration(self.team, enabled=True, next_check_at=NOW + timedelta(minutes=minutes))
+        self._configuration(other_team, enabled=True, interval=1, next_check_at=NOW)
+        self._configuration(other_team, enabled=True, next_check_at=None)
+        self._configuration(other_team, enabled=False, next_check_at=NOW + timedelta(minutes=2))
+
+        inventory = count_inventory(NOW)
+
+        # NOW falls on minute 0 of a 5-minute cadence, so 5 minutes later is slot 0 again.
+        assert {(s.source, s.interval_minutes, s.slot): s.count for s in inventory.slots} == {
+            ("logs", 1, 0): 1,
+            ("logs", 5, 0): 2,
+            ("logs", 5, 1): 0,
+            ("logs", 5, 2): 1,
+            ("logs", 5, 3): 0,
+            ("logs", 5, 4): 0,
+        }
+        assert {(t.source, t.count) for t in inventory.largest_teams} == {("logs", 3)}
 
     def test_a_slow_count_is_canceled_by_the_statement_timeout(self) -> None:
         def slow_count(

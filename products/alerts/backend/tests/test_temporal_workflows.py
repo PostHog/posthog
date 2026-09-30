@@ -60,6 +60,7 @@ from products.alerts.backend.temporal.workflows import (
     AlertsPlatformInputs,
     AlertsPlatformOrchestrateWorkflow,
     alerts_platform_discover_demand_activity,
+    alerts_platform_record_inventory_activity,
 )
 
 
@@ -524,13 +525,16 @@ class TestDemandDiscovery(APIBaseTest):
 
         assert result.batch_keys_by_source == {}
 
-    async def test_discovery_returns_demand_when_the_inventory_count_fails(self) -> None:
-        with patch(
-            "products.alerts.backend.temporal.workflows.count_inventory", side_effect=OperationalError("timeout")
+    async def test_a_failed_inventory_count_does_not_fail_its_activity(self) -> None:
+        with (
+            patch(
+                "products.alerts.backend.temporal.workflows.count_inventory", side_effect=OperationalError("timeout")
+            ),
+            patch("products.alerts.backend.temporal.workflows.record_inventory") as record,
         ):
-            result = await alerts_platform_discover_demand_activity(DemandDiscoveryInputs(cutoff=self.tick.isoformat()))
+            await alerts_platform_record_inventory_activity()
 
-        assert result.batch_keys_by_source == {}
+        record.assert_not_called()
 
     def test_discovery_rejects_a_limit_below_one(self) -> None:
         with pytest.raises(ValueError):

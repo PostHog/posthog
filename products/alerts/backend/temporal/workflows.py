@@ -77,15 +77,14 @@ class AlertsPlatformInputs:
 
 @activity.defn
 async def alerts_platform_discover_demand_activity(inputs: DemandDiscoveryInputs) -> AlertDemand:
-    demand = await database_sync_to_async_pool(discover_demand)(inputs.cutoff)
-    await _record_inventory(dt.datetime.now(dt.UTC))
-    return demand
+    return await database_sync_to_async_pool(discover_demand)(inputs.cutoff)
 
 
-async def _record_inventory(now: dt.datetime) -> None:
-    """Dashboard telemetry, so a failure is logged and never fails the tick."""
+@activity.defn
+async def alerts_platform_record_inventory_activity() -> None:
+    """Dashboard telemetry, so a failure is logged and the next minute's run tries again."""
     try:
-        inventory = await database_sync_to_async_pool(count_inventory)(now)
+        inventory = await database_sync_to_async_pool(count_inventory)(dt.datetime.now(dt.UTC))
     except Exception as error:
         LOGGER.warning("alerts_platform_inventory_failed", error=str(error))
         return
@@ -121,6 +120,19 @@ async def alerts_platform_deliver_preview_activity(preview: AlertDeliveryPreview
         ],
     )
     safe_record(increment_deliveries_previewed, preview.source.value)
+
+
+@workflow.defn(name="alerts-platform-record-inventory")
+class AlertsPlatformRecordInventoryWorkflow(PostHogWorkflow):
+    inputs_cls = AlertsPlatformInputs
+
+    @workflow.run
+    async def run(self, inputs: AlertsPlatformInputs) -> None:
+        await workflow.execute_activity(
+            alerts_platform_record_inventory_activity,
+            start_to_close_timeout=dt.timedelta(seconds=20),
+            retry_policy=RetryPolicy(maximum_attempts=1),
+        )
 
 
 @workflow.defn(name="alerts-platform-deliver-preview")
@@ -384,8 +396,12 @@ class AlertsPlatformOrchestrateWorkflow(PostHogWorkflow):
 SHARED_ORCHESTRATION_WORKFLOWS: list[type[PostHogWorkflow]] = [
     AlertsPlatformOrchestrateWorkflow,
     AlertsPlatformSourceDispatchWorkflow,
+    AlertsPlatformRecordInventoryWorkflow,
 ]
-SHARED_ORCHESTRATION_ACTIVITIES: list[Callable[..., object]] = [alerts_platform_discover_demand_activity]
+SHARED_ORCHESTRATION_ACTIVITIES: list[Callable[..., object]] = [
+    alerts_platform_discover_demand_activity,
+    alerts_platform_record_inventory_activity,
+]
 EVALUATION_WORKFLOWS: list[type[PostHogWorkflow]] = [AlertsPlatformEvaluateWorkflow]
 EVALUATION_ACTIVITIES: list[Callable[..., object]] = [
     alerts_platform_probe_postgres_activity,
