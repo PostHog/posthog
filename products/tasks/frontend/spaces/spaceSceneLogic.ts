@@ -15,12 +15,14 @@ import { Breadcrumb } from '~/types'
 
 import {
     taskChannelsDestroy,
+    taskChannelsMembersRetrieve,
+    taskChannelsMembersUpdate,
     taskChannelsPartialUpdate,
     taskChannelsRetrieve,
     taskChannelsStarCreate,
     tasksList,
 } from '../generated/api'
-import { ChannelDTOApi, PatchedChannelUpdateApi, TaskListItemApi } from '../generated/api.schemas'
+import { ChannelDTOApi, PatchedChannelUpdateApi, TaskListItemApi, TaskUserBasicInfoApi } from '../generated/api.schemas'
 
 const SPACE_FEED_LIMIT = 50
 
@@ -36,6 +38,8 @@ export interface spaceSceneLogicValues {
     activeTab: SpaceTab
     breadcrumbs: Breadcrumb[]
     feedGroups: TodayWorkGroup[]
+    members: TaskUserBasicInfoApi[]
+    membersLoading: boolean
     savingSpace: boolean
     sessions: TaskListItemApi[]
     sessionsLoading: boolean
@@ -54,6 +58,21 @@ export interface spaceSceneLogicActions {
     loadSpaces: () => any // todaySpacesLogic
     deleteSpace: () => {
         value: true
+    }
+    loadMembers: () => any
+    loadMembersFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadMembersSuccess: (
+        members: TaskUserBasicInfoApi[],
+        payload?: any
+    ) => {
+        members: TaskUserBasicInfoApi[]
+        payload?: any
     }
     loadSessions: () => any
     loadSessionsFailure: (
@@ -87,6 +106,21 @@ export interface spaceSceneLogicActions {
     }
     savingFinished: () => {
         value: true
+    }
+    setMemberIds: (userIds: number[]) => number[]
+    setMemberIdsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    setMemberIdsSuccess: (
+        members: TaskUserBasicInfoApi[],
+        payload?: number[]
+    ) => {
+        members: TaskUserBasicInfoApi[]
+        payload?: number[]
     }
     setStarred: (starred: boolean) => {
         starred: boolean
@@ -137,6 +171,14 @@ export const spaceSceneLogic = kea<spaceSceneLogicType>([
             {
                 loadSpace: async () =>
                     values.currentTeamId ? await taskChannelsRetrieve(String(values.currentTeamId), props.id) : null,
+            },
+        ],
+        members: [
+            [] as TaskUserBasicInfoApi[],
+            {
+                loadMembers: async () => await taskChannelsMembersRetrieve(String(values.currentTeamId), props.id),
+                setMemberIds: async (userIds: number[]) =>
+                    await taskChannelsMembersUpdate(String(values.currentTeamId), props.id, { user_ids: userIds }),
             },
         ],
         sessions: [
@@ -208,6 +250,22 @@ export const spaceSceneLogic = kea<spaceSceneLogicType>([
     listeners(({ actions, props, values }) => ({
         sessionUpdated: () => {
             actions.loadSessions()
+        },
+        loadSpaceSuccess: ({ space }) => {
+            if (space?.channel_type === 'private') {
+                actions.loadMembers()
+            }
+        },
+        spaceSaved: ({ space }) => {
+            if (space.channel_type === 'private') {
+                actions.loadMembers()
+            }
+        },
+        setMemberIdsFailure: ({ errorObject }) => {
+            toast.error({
+                title: (errorObject as { detail?: string })?.detail ?? 'Couldn’t update the members. Try again.',
+            })
+            actions.loadMembers()
         },
         updateSpace: async ({ patch }) => {
             try {
