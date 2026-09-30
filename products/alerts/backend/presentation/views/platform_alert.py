@@ -113,7 +113,7 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnl
     queryset = PlatformAlertConfiguration.objects.unscoped()
 
     def _should_skip_parents_filter(self) -> bool:
-        # for_team() resolves a child environment to its parent team, where the rows live. The
+        # safely_get_queryset scopes a child environment to its parent team, where the rows live. The
         # default parent-lookup filter would AND the raw URL team id back in and hide them.
         return True
 
@@ -133,12 +133,12 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnl
             readable.append(source_kind)
         return readable
 
-    def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
+    def safely_get_queryset(self, queryset: QuerySet) -> QuerySet[PlatformAlertConfiguration]:
+        canonical_team_id = self.team.parent_team_id or self.team.id
+        alerts = PlatformAlert.objects.for_team(canonical_team_id, canonical=True).order_by("grouping_key")
         return (
-            PlatformAlertConfiguration.objects.for_team(self.team_id)
+            PlatformAlertConfiguration.objects.for_team(canonical_team_id, canonical=True)
             .filter(source_kind__in=self._readable_source_kinds())
-            .prefetch_related(
-                Prefetch("alerts", queryset=PlatformAlert.objects.for_team(self.team_id).order_by("grouping_key"))
-            )
-            .order_by("-created_at")
+            .prefetch_related(Prefetch("alerts", queryset=alerts))
+            .order_by("-created_at", "-id")
         )

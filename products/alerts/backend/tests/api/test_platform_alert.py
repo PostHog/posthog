@@ -55,7 +55,7 @@ class TestPlatformAlertAPI(APIBaseTest):
         configuration = self._create_configuration(self.team, "API errors", legacy_configuration_id)
         firing_started_at = datetime(2026, 9, 16, 10, tzinfo=UTC)
         with team_scope(self.team.id):
-            PlatformAlert.objects.create(
+            alert = PlatformAlert.objects.create(
                 team=self.team,
                 configuration=configuration,
                 grouping_key="checkout",
@@ -81,7 +81,7 @@ class TestPlatformAlertAPI(APIBaseTest):
         assert results[0]["legacy_configuration_id"] == str(legacy_configuration_id)
         assert results[0]["alerts"] == [
             {
-                "id": results[0]["alerts"][0]["id"],
+                "id": str(alert.id),
                 "grouping_key": "checkout",
                 "state": "firing",
                 "firing_started_at": "2026-09-16T10:00:00Z",
