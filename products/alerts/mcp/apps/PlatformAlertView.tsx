@@ -105,7 +105,9 @@ const GROUP_COLUMNS: DataTableColumn<PlatformAlertGroupData>[] = [
         key: 'firing_started_at',
         header: 'Firing since',
         render: (row): ReactNode => (
-            <span className="text-muted-foreground text-xs">{optionalTime(row.firing_started_at, 'Not firing')}</span>
+            <span className="text-muted-foreground text-xs">
+                {optionalTime(row.firing_started_at, row.state === 'firing' ? 'Start unknown' : 'Not firing')}
+            </span>
         ),
     },
     {
