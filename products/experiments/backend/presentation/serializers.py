@@ -11,7 +11,7 @@ from typing import Annotated, Any, TypeGuard
 
 from django.utils import timezone
 
-from drf_spectacular.utils import extend_schema_field
+from drf_spectacular.utils import extend_schema_field, extend_schema_serializer
 from opentelemetry import trace
 from pydantic import (
     Field as PydanticField,
@@ -26,6 +26,7 @@ from posthog.schema import (
     EventPropertyFilter,
     ExperimentApiExposureCriteria,
     ExperimentApiMetric,
+    ExperimentMetric,
     ExperimentParameters,
     ExperimentRunningTimeCalculation,
     MultipleVariantHandling,
@@ -51,6 +52,7 @@ from products.experiments.backend.llm_metric_templates import TEMPLATE_NAMES
 from products.experiments.backend.metric_events import MetricSourceRole
 from products.experiments.backend.metric_utils import apply_metric_date_range, refresh_action_names_in_metric
 from products.experiments.backend.models.experiment import (
+    LEGACY_METRIC_KINDS,
     Experiment,
     ExperimentHoldout,
     ExperimentMetricsRecalculation,
@@ -170,6 +172,11 @@ class ExperimentExposureCriteriaField(serializers.JSONField):
 
 @extend_schema_field(ExperimentRunningTimeCalculation)  # type: ignore[arg-type]
 class ExperimentRunningTimeCalculationField(serializers.JSONField):
+    pass
+
+
+@extend_schema_field(ExperimentMetric)  # type: ignore[arg-type]
+class ExperimentMetricDefinitionField(serializers.JSONField):
     pass
 
 
@@ -366,6 +373,28 @@ def _dedupe_metric_ordering(value: list[str] | None) -> list[str] | None:
     return list(dict.fromkeys(value))
 
 
+@extend_schema_serializer(component_name="ExperimentToSavedMetric")
+class ExperimentSavedMetricLinkSerializer(ExperimentToSavedMetricSerializer):
+    """A shared metric's link to one experiment, as the experiment API returns it."""
+
+    # The link model has no such attribute, so this serializer renders it as null.
+    # ExperimentSerializer.to_representation sets the value from the served query.
+    effective_query = ExperimentMetricDefinitionField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "The metric this experiment calculates for this shared metric: `query` with the per-experiment "
+            "overrides from `metadata` applied (breakdowns, breakdown_limit, and funnel breakdown attribution). "
+            "Results, fingerprints and queries for this metric use this definition, not `query`. "
+            "Null for a legacy shared metric (kind ExperimentTrendsQuery or ExperimentFunnelsQuery), "
+            "which takes no overrides."
+        ),
+    )
+
+    class Meta(ExperimentToSavedMetricSerializer.Meta):
+        fields = [*ExperimentToSavedMetricSerializer.Meta.fields, "effective_query"]
+
+
 class ExperimentSerializer(ExperimentBaseSerializer):
     """Full experiment representation for the detail, create, and update endpoints.
 
@@ -382,7 +411,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
         allow_null=True,
         help_text="ID of a holdout group to exclude from the experiment.",
     )
-    saved_metrics = ExperimentToSavedMetricSerializer(many=True, source="experimenttosavedmetric_set", read_only=True)
+    saved_metrics = ExperimentSavedMetricLinkSerializer(many=True, source="experimenttosavedmetric_set", read_only=True)
     saved_metrics_ids = serializers.ListField(
         child=serializers.JSONField(),
         required=False,
@@ -663,6 +692,16 @@ class ExperimentSerializer(ExperimentBaseSerializer):
                         only_count_matured_users=instance.only_count_matured_users,
                         excluded_variants=instance.excluded_variants or [],
                     )
+
+        # Derived from the served query after the loop above, so that the effective definition carries the
+        # same fingerprint and refreshed action names. Clients send it to /query as is.
+        for saved_metric in saved_metrics:
+            query = saved_metric.get("query")
+            saved_metric["effective_query"] = (
+                resolve_saved_metric_definition(query, saved_metric.get("metadata"))
+                if query and query.get("kind") not in LEGACY_METRIC_KINDS
+                else None
+            )
 
         return data
 

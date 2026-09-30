@@ -6652,6 +6652,13 @@ export namespace Schemas {
       Decrease: 'decrease',
     } as const;
 
+    export type ExperimentMeanMetricMetricType = typeof ExperimentMeanMetricMetricType[keyof typeof ExperimentMeanMetricMetricType];
+
+
+    export const ExperimentMeanMetricMetricType = {
+      Mean: 'mean',
+    } as const;
+
     export type ExperimentDataWarehouseNodeResponse = { [key: string]: unknown } | null;
 
     export interface ExperimentDataWarehouseNode {
@@ -6692,7 +6699,7 @@ export namespace Schemas {
       kind?: 'ExperimentMetric';
       /** Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile). */
       lower_bound_percentile?: number | null;
-      metric_type?: 'mean';
+      metric_type: ExperimentMeanMetricMetricType;
       name?: string | null;
       response?: ExperimentMeanMetricResponse;
       sharedMetricId?: number | null;
@@ -6705,6 +6712,13 @@ export namespace Schemas {
       /** version of the node, used for schema migrations */
       version?: number | null;
     }
+
+    export type ExperimentFunnelMetricMetricType = typeof ExperimentFunnelMetricMetricType[keyof typeof ExperimentFunnelMetricMetricType];
+
+
+    export const ExperimentFunnelMetricMetricType = {
+      Funnel: 'funnel',
+    } as const;
 
     export type ExperimentFunnelMetricResponse = { [key: string]: unknown } | null;
 
@@ -6721,7 +6735,7 @@ export namespace Schemas {
       goal?: ExperimentMetricGoal | null;
       isSharedMetric?: boolean | null;
       kind?: 'ExperimentMetric';
-      metric_type?: 'funnel';
+      metric_type: ExperimentFunnelMetricMetricType;
       name?: string | null;
       response?: ExperimentFunnelMetricResponse;
       series: (EventsNode | ActionsNode | ExperimentDataWarehouseNode)[];
@@ -6739,6 +6753,13 @@ export namespace Schemas {
       upper_bound_percentile?: number | null;
     }
 
+    export type ExperimentRatioMetricMetricType = typeof ExperimentRatioMetricMetricType[keyof typeof ExperimentRatioMetricMetricType];
+
+
+    export const ExperimentRatioMetricMetricType = {
+      Ratio: 'ratio',
+    } as const;
+
     export type ExperimentRatioMetricResponse = { [key: string]: unknown } | null;
 
     export interface ExperimentRatioMetric {
@@ -6751,7 +6772,7 @@ export namespace Schemas {
       goal?: ExperimentMetricGoal | null;
       isSharedMetric?: boolean | null;
       kind?: 'ExperimentMetric';
-      metric_type?: 'ratio';
+      metric_type: ExperimentRatioMetricMetricType;
       name?: string | null;
       numerator: EventsNode | ActionsNode | ExperimentDataWarehouseNode;
       numerator_outlier_handling?: ExperimentMetricOutlierHandling | null;
@@ -6761,6 +6782,13 @@ export namespace Schemas {
       /** version of the node, used for schema migrations */
       version?: number | null;
     }
+
+    export type ExperimentRetentionMetricMetricType = typeof ExperimentRetentionMetricMetricType[keyof typeof ExperimentRetentionMetricMetricType];
+
+
+    export const ExperimentRetentionMetricMetricType = {
+      Retention: 'retention',
+    } as const;
 
     export type ExperimentExposureNodeResponse = { [key: string]: unknown } | null;
 
@@ -6790,7 +6818,7 @@ export namespace Schemas {
       goal?: ExperimentMetricGoal | null;
       isSharedMetric?: boolean | null;
       kind?: 'ExperimentMetric';
-      metric_type?: 'retention';
+      metric_type: ExperimentRetentionMetricMetricType;
       name?: string | null;
       response?: ExperimentRetentionMetricResponse;
       retention_window_end: number;
@@ -41399,6 +41427,11 @@ export namespace Schemas {
       recommended_sample_size?: number | null;
     }
 
+    export type ExperimentMetric = ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric;
+
+    /**
+     * A shared metric's link to one experiment, as the experiment API returns it.
+     */
     export interface ExperimentToSavedMetric {
       readonly id: number;
       experiment: number;
@@ -41407,6 +41440,8 @@ export namespace Schemas {
       readonly created_at: string;
       readonly query: unknown;
       readonly name: string;
+      /** The metric this experiment calculates for this shared metric: `query` with the per-experiment overrides from `metadata` applied (breakdowns, breakdown_limit, and funnel breakdown attribution). Results, fingerprints and queries for this metric use this definition, not `query`. Null for a legacy shared metric (kind ExperimentTrendsQuery or ExperimentFunnelsQuery), which takes no overrides. */
+      readonly effective_query: ExperimentMetric | null;
     }
 
     /**
