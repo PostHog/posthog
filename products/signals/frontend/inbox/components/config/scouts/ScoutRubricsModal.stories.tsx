@@ -39,6 +39,7 @@ const DOCUMENT: ScoutRubricDocumentApi = {
 const GENERATION: NonNullable<ScoutRubricDocumentApi['generation']> = {
     id: 'example-generation',
     status: 'completed',
+    context: '',
     requested_at: '2026-09-01T10:00:00Z',
     completed_at: '2026-09-01T10:02:00Z',
     task_id: 'example-task',
@@ -95,6 +96,17 @@ export default meta
 type Story = StoryObj<typeof ScoutRubricsModal>
 
 export const SharedDefaults: Story = {}
+
+export const WithFocus: Story = {
+    play: async ({ canvasElement }) => {
+        const modal = within(canvasElement.ownerDocument.body)
+        await userEvent.click(await modal.findByText('Additional focus (optional)'))
+        await userEvent.type(
+            modal.getByLabelText('What matters most to you?'),
+            'Please emphasize whether comparisons use consistent filters and enough data.'
+        )
+    },
+}
 
 export const SuggestionsReady: Story = {
     decorators: [mswDecorator({ get: { [RUBRICS_URL]: () => [200, { ...DOCUMENT, generation: GENERATION }] } })],
