@@ -124,6 +124,7 @@ class TestReviewHogTriggerApi(APIBaseTest):
             HTTP_AUTHORIZATION="Bearer secret-token",
         )
         self.assertEqual(resp.status_code, status.HTTP_202_ACCEPTED, resp.content)
+        mock_start.assert_called_once()
         self.assertEqual(mock_start.call_args.kwargs["pr_url"], f"https://github.com/{repo}/pull/7")
 
     @override_settings(REVIEWHOG_TEAM_IDS=[])
