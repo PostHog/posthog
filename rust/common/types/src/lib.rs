@@ -20,7 +20,6 @@ pub use event::LibraryInfo;
 pub use event::PersonMode;
 pub use event::RawEngageEvent;
 pub use event::RawEvent;
-pub use event::COOKIELESS_SENTINEL_VALUE;
 
 // Teams
 pub use team::ProjectId;

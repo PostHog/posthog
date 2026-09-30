@@ -1269,13 +1269,11 @@ original property ordering and formatting.
 | `options.product_tour_id` | `$product_tour_id` | |
 | `options.process_person_profile` | `$process_person_profile` | |
 
-`RawOptions::validate_for` reads the four expected option keys before injection and ignores every other key:
+`RawOptions::validate` reads the four expected option keys before injection and ignores every other key:
 
 - Boolean options accept booleans, numbers (zero is off), `true`/`t`/`yes`/`y`/`on`/`1` and `false`/`f`/`no`/`n`/`off`/`0` in any case, and numeric strings. `null` and blank strings mean "not set".
 - `product_tour_id` accepts a non-empty string, forwarded unchanged. `null` and blank strings mean "not set".
-- Any other value for an expected key drops the event with `invalid_options`.
-- A `distinct_id` of `$posthog_cookieless` without `cookieless_mode: true` drops the event with `cookieless_mode_required`, because ingestion would merge every such visitor into one person.
-- Both drops emit the `invalid_options` ingestion warning, whose `invalidOptions` detail names the failed keys.
+- Any other value for an expected key drops the event with `invalid_options`, and emits the `invalid_options` ingestion warning, whose `invalidOptions` detail names the failed keys.
 - The batch-level `capture_internal` and `historical_migration` flags use the same boolean reader. An unreadable value means "not set" and never fails the batch.
 
 ### IngestionEvent / IngestionData

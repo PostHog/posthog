@@ -548,7 +548,7 @@ fn validate_events(
             Ok(raw_ts) => {
                 // observe_malformed_events counts and logs this drop with the
                 // other validate-stage drops.
-                let options = match event.options.validate_for(&event.distinct_id) {
+                let options = match event.options.validate() {
                     Ok(opts) => opts,
                     Err(err) => {
                         events.push(WrappedEvent {
@@ -1864,8 +1864,9 @@ mod tests {
 
     #[rstest::rstest]
     #[case::bad_value("user-1", serde_json::json!({"cookieless_mode": [1, 2, 3]}), Some("invalid_options"))]
-    #[case::placeholder_without_option("$posthog_cookieless", serde_json::json!(null), Some("cookieless_mode_required"))]
-    #[case::padded_placeholder_is_trimmed_first("  $posthog_cookieless ", serde_json::json!({}), Some("cookieless_mode_required"))]
+    #[case::placeholder_without_option("$posthog_cookieless", serde_json::json!(null), None)]
+    #[case::placeholder_null_option("$posthog_cookieless", serde_json::json!({"cookieless_mode": null}), None)]
+    #[case::placeholder_false("$posthog_cookieless", serde_json::json!({"cookieless_mode": false}), None)]
     #[case::placeholder_with_option("$posthog_cookieless", serde_json::json!({"cookieless_mode": true}), None)]
     fn validate_events_option_rules_drop_only_the_offending_event(
         #[case] distinct_id: &str,
@@ -4927,9 +4928,9 @@ mod tests {
         );
     }
 
-    /// Both option drop reasons reach the sender per event and share one
-    /// `invalid_options` warning that names each failed key once, and lenient
-    /// boolean forms pass, on the analytics and AI deployments alike.
+    /// Option drops reach the sender per event and share one `invalid_options`
+    /// warning that names each failed key once, and lenient boolean forms pass,
+    /// on the analytics and AI deployments alike.
     #[rstest::rstest]
     #[case::analytics_deployment(CaptureMode::Events, "$pageview")]
     #[case::ai_deployment(CaptureMode::Ai, "$ai_generation")]
@@ -4951,11 +4952,8 @@ mod tests {
             options: RawOptions(options),
             ..named_event(event_name)
         };
-        let placeholder = event("$posthog_cookieless", serde_json::json!(null));
-        let placeholder_again = event(
-            "$posthog_cookieless",
-            serde_json::json!({"cookieless_mode": false}),
-        );
+        let bad_cookieless = event("user-3", serde_json::json!({"cookieless_mode": "maybe"}));
+        let bad_cookieless_again = event("user-4", serde_json::json!({"cookieless_mode": [1]}));
         let bad_tour = event("user-1", serde_json::json!({"product_tour_id": 5}));
         let cookieless_ok = event(
             "$posthog_cookieless",
@@ -4979,12 +4977,12 @@ mod tests {
         );
         let expected: HashMap<Uuid, (EventResult, Option<&str>)> = HashMap::from([
             (
-                placeholder.uuid.parse().unwrap(),
-                (EventResult::Drop, Some("cookieless_mode_required")),
+                bad_cookieless.uuid.parse().unwrap(),
+                (EventResult::Drop, Some("invalid_options")),
             ),
             (
-                placeholder_again.uuid.parse().unwrap(),
-                (EventResult::Drop, Some("cookieless_mode_required")),
+                bad_cookieless_again.uuid.parse().unwrap(),
+                (EventResult::Drop, Some("invalid_options")),
             ),
             (
                 bad_tour.uuid.parse().unwrap(),
@@ -4998,8 +4996,8 @@ mod tests {
             ),
         ]);
         let batch = valid_batch(vec![
-            placeholder,
-            placeholder_again,
+            bad_cookieless,
+            bad_cookieless_again,
             bad_tour,
             cookieless_ok,
             lenient_ok,
@@ -5016,7 +5014,7 @@ mod tests {
         assert_eq!(results, expected);
 
         let emitted = collector.emitted();
-        assert_eq!(emitted.len(), 1, "both option reasons share one warning");
+        assert_eq!(emitted.len(), 1, "every option drop shares one warning");
         assert_eq!(emitted[0].warning, WarningType::InvalidOptions);
         assert_eq!(emitted[0].count, 3);
         assert_eq!(
@@ -5527,10 +5525,7 @@ mod tests {
         let payload = batch_payload(&events);
         let batch: Batch = serde_json::from_slice(&payload).unwrap();
         assert_eq!(batch.batch.len(), 1);
-        let opts = batch.batch[0]
-            .options
-            .validate_for(&batch.batch[0].distinct_id)
-            .unwrap();
+        let opts = batch.batch[0].options.validate().unwrap();
         assert_eq!(opts.cookieless_mode, None);
         assert_eq!(opts.disable_skew_correction, None);
         assert_eq!(opts.product_tour_id, None);
@@ -5543,10 +5538,7 @@ mod tests {
         let payload = batch_payload(&events);
         let batch: Batch = serde_json::from_slice(&payload).unwrap();
         assert_eq!(batch.batch.len(), 1);
-        let opts = batch.batch[0]
-            .options
-            .validate_for(&batch.batch[0].distinct_id)
-            .unwrap();
+        let opts = batch.batch[0].options.validate().unwrap();
         assert_eq!(opts.cookieless_mode, Some(true));
         assert_eq!(opts.disable_skew_correction, Some(true));
         assert_eq!(opts.product_tour_id.as_deref(), Some("tour-v2"));

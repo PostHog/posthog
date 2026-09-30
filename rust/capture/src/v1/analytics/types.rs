@@ -2,7 +2,7 @@ use std::io;
 use std::ops::Not;
 
 use chrono::{DateTime, SecondsFormat, Utc};
-use common_types::{CapturedEventHeaders, HasEventName, COOKIELESS_SENTINEL_VALUE};
+use common_types::{CapturedEventHeaders, HasEventName};
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use serde_json::Value;
@@ -23,7 +23,7 @@ impl io::Write for StringWriter<'_> {
     }
 }
 
-use super::constants::{DETAIL_COOKIELESS_MODE_REQUIRED, DETAIL_INVALID_OPTIONS};
+use super::constants::DETAIL_INVALID_OPTIONS;
 use crate::ordering::{person_ordering, OrderingGuarantee};
 use crate::v1::context::RequestContext;
 use crate::v1::sinks::event::Event as SinkEvent;
@@ -177,55 +177,30 @@ impl OptionKeys {
     }
 }
 
-/// Why `RawOptions::validate_for` rejected an event's options. The event is
-/// dropped either way.
+/// The expected option keys whose values capture cannot read, which drops the
+/// event. Empty when `options` is not a JSON object.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum OptionsError {
-    /// Expected keys whose values capture cannot read. Empty when `options`
-    /// is not a JSON object.
-    InvalidValues(OptionKeys),
-    /// The distinct_id is the cookieless placeholder but `cookieless_mode` is
-    /// not true.
-    CookielessModeRequired,
-}
+pub struct OptionsError(pub OptionKeys);
 
 impl OptionsError {
     /// The per-event `details` tag, which also labels the malformed-event metric.
     pub fn detail(self) -> &'static str {
-        match self {
-            Self::InvalidValues(_) => DETAIL_INVALID_OPTIONS,
-            Self::CookielessModeRequired => DETAIL_COOKIELESS_MODE_REQUIRED,
-        }
+        DETAIL_INVALID_OPTIONS
     }
 
     /// The expected keys to name in logs and in the ingestion warning.
     pub fn failed_keys(self) -> OptionKeys {
-        match self {
-            Self::InvalidValues(keys) => keys,
-            Self::CookielessModeRequired => OptionKeys::of(ExpectedOption::CookielessMode),
-        }
+        self.0
     }
 }
 
 impl RawOptions {
-    /// Validate the options of an event with this (already trimmed) distinct_id.
-    /// An unreadable value wins over the placeholder check.
-    pub fn validate_for(&self, distinct_id: &str) -> Result<Options, OptionsError> {
-        let options = self.validate()?;
-        // Ingestion replaces the placeholder with a per-visitor id only when
-        // cookieless mode is on. Without it, every visitor of the project
-        // merges into one person and one hot partition.
-        if distinct_id == COOKIELESS_SENTINEL_VALUE && options.cookieless_mode != Some(true) {
-            return Err(OptionsError::CookielessModeRequired);
-        }
-        Ok(options)
-    }
-
-    fn validate(&self) -> Result<Options, OptionsError> {
+    /// Read the expected option keys leniently and ignore every other key.
+    pub fn validate(&self) -> Result<Options, OptionsError> {
         let map = match &self.0 {
             Value::Null => return Ok(Options::default()),
             Value::Object(map) => map,
-            _ => return Err(OptionsError::InvalidValues(OptionKeys::default())),
+            _ => return Err(OptionsError(OptionKeys::default())),
         };
 
         let mut invalid = OptionKeys::default();
@@ -259,7 +234,7 @@ impl RawOptions {
         if invalid.is_empty() {
             Ok(options)
         } else {
-            Err(OptionsError::InvalidValues(invalid))
+            Err(OptionsError(invalid))
         }
     }
 }
@@ -381,10 +356,10 @@ impl WrappedEvent {
     /// events need it.
     pub fn failed_option_keys(&self) -> OptionKeys {
         match self.details {
-            Some(DETAIL_INVALID_OPTIONS | DETAIL_COOKIELESS_MODE_REQUIRED) => self
+            Some(DETAIL_INVALID_OPTIONS) => self
                 .event
                 .options
-                .validate_for(&self.event.distinct_id)
+                .validate()
                 .err()
                 .map_or_else(OptionKeys::default, OptionsError::failed_keys),
             _ => OptionKeys::default(),
@@ -1055,7 +1030,7 @@ mod tests {
     // --- RawOptions::validate coercion matrix ---
 
     fn invalid(keys: &[ExpectedOption]) -> OptionsError {
-        OptionsError::InvalidValues(keys.iter().fold(OptionKeys::default(), |acc, key| {
+        OptionsError(keys.iter().fold(OptionKeys::default(), |acc, key| {
             acc.union(OptionKeys::of(*key))
         }))
     }
@@ -1279,44 +1254,6 @@ mod tests {
         assert_eq!(batch.batch.len(), 1);
         let err = batch.batch[0].options.validate().unwrap_err();
         assert_eq!(err, invalid(&[ExpectedOption::CookielessMode]));
-    }
-
-    // --- RawOptions::validate_for: the cookieless placeholder rule ---
-
-    #[rstest::rstest]
-    #[case::placeholder_with_true("$posthog_cookieless", serde_json::json!({"cookieless_mode": true}), Ok(()))]
-    #[case::placeholder_with_yes("$posthog_cookieless", serde_json::json!({"cookieless_mode": "yes"}), Ok(()))]
-    #[case::placeholder_with_one("$posthog_cookieless", serde_json::json!({"cookieless_mode": 1}), Ok(()))]
-    #[case::placeholder_without_options("$posthog_cookieless", serde_json::json!(null), Err(OptionsError::CookielessModeRequired))]
-    #[case::placeholder_empty_options("$posthog_cookieless", serde_json::json!({}), Err(OptionsError::CookielessModeRequired))]
-    #[case::placeholder_null_option("$posthog_cookieless", serde_json::json!({"cookieless_mode": null}), Err(OptionsError::CookielessModeRequired))]
-    #[case::placeholder_blank_option("$posthog_cookieless", serde_json::json!({"cookieless_mode": ""}), Err(OptionsError::CookielessModeRequired))]
-    #[case::placeholder_false("$posthog_cookieless", serde_json::json!({"cookieless_mode": false}), Err(OptionsError::CookielessModeRequired))]
-    #[case::placeholder_no("$posthog_cookieless", serde_json::json!({"cookieless_mode": "no"}), Err(OptionsError::CookielessModeRequired))]
-    #[case::bad_value_wins("$posthog_cookieless", serde_json::json!({"cookieless_mode": "maybe"}), Err(invalid(&[ExpectedOption::CookielessMode])))]
-    #[case::other_bad_value_wins("$posthog_cookieless", serde_json::json!({"cookieless_mode": true, "product_tour_id": 5}), Err(invalid(&[ExpectedOption::ProductTourId])))]
-    #[case::real_id_without_options("user-1", serde_json::json!(null), Ok(()))]
-    #[case::uppercase_is_not_placeholder("$POSTHOG_COOKIELESS", serde_json::json!(null), Ok(()))]
-    #[case::suffix_is_not_placeholder("$posthog_cookieless_1", serde_json::json!(null), Ok(()))]
-    fn raw_options_validate_for_placeholder(
-        #[case] distinct_id: &str,
-        #[case] options: serde_json::Value,
-        #[case] expected: Result<(), OptionsError>,
-    ) {
-        let result = RawOptions(options).validate_for(distinct_id).map(|_| ());
-        assert_eq!(result, expected);
-    }
-
-    #[rstest::rstest]
-    #[case::invalid_values(invalid(&[ExpectedOption::ProcessPersonProfile]), "invalid_options", vec!["process_person_profile"])]
-    #[case::cookieless_mode_required(OptionsError::CookielessModeRequired, "cookieless_mode_required", vec!["cookieless_mode"])]
-    fn options_error_detail_and_failed_keys(
-        #[case] err: OptionsError,
-        #[case] detail: &str,
-        #[case] keys: Vec<&str>,
-    ) {
-        assert_eq!(err.detail(), detail);
-        assert_eq!(err.failed_keys().names().collect::<Vec<_>>(), keys);
     }
 
     #[test]
@@ -2208,7 +2145,7 @@ mod tests {
         #[case] expected: bool,
     ) {
         let mut wrapped = pageview_event();
-        wrapped.options = options_with(key, raw).validate_for("user-42").unwrap();
+        wrapped.options = options_with(key, raw).validate().unwrap();
         let (_, data) = serialize_and_parse(&wrapped, &serialize_ctx());
         assert_eq!(data.properties[property], serde_json::Value::Bool(expected));
     }
