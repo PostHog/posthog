@@ -23,16 +23,62 @@ const RESPONSE_MESSAGE =
 
 const PRODUCT_AREA_NUDGE = ` Next time, set \`product_area\` to one of: ${FEEDBACK_PRODUCT_AREAS.join(', ')}.`
 
-const normalizeProductArea = (value: string | undefined): string | undefined => {
-    const normalized = value
-        ?.trim()
+type FeedbackProductArea = (typeof FEEDBACK_PRODUCT_AREAS)[number]
+
+const PRODUCT_AREA_ALIASES = new Map<string, FeedbackProductArea>(
+    Object.entries({
+        insights: 'product_analytics',
+        dashboards: 'product_analytics',
+        trends: 'product_analytics',
+        funnels: 'product_analytics',
+        retention: 'product_analytics',
+        cohorts: 'product_analytics',
+        persons: 'product_analytics',
+        alerts: 'product_analytics',
+        subscriptions: 'product_analytics',
+        replay: 'session_replay',
+        replay_vision: 'session_replay',
+        flags: 'feature_flags',
+        sql: 'data_warehouse',
+        hogql: 'data_warehouse',
+        data_warehouse_sources: 'data_warehouse',
+        cdp_destinations: 'data_pipelines',
+        destinations: 'data_pipelines',
+        batch_exports: 'data_pipelines',
+        ai_observability: 'llm_analytics',
+        llm_observability: 'llm_analytics',
+        signals: 'posthog_ai',
+        inbox: 'posthog_ai',
+        self_driving: 'posthog_ai',
+    })
+)
+
+const isKnownProductArea = (value: string | undefined): value is FeedbackProductArea =>
+    (FEEDBACK_PRODUCT_AREAS as readonly (string | undefined)[]).includes(value)
+
+const toKey = (value: string): string =>
+    value
+        .trim()
         .toLowerCase()
         .replace(/[\s-]+/g, '_')
-    return normalized || undefined
-}
 
-const isKnownProductArea = (value: string | undefined): boolean =>
-    (FEEDBACK_PRODUCT_AREAS as readonly (string | undefined)[]).includes(value)
+// Agents often send compound areas like "session replay / replay vision"; the first part names the product.
+const normalizeProductArea = (value: string | undefined): string | undefined => {
+    if (!value?.trim()) {
+        return undefined
+    }
+    const key = toKey(value)
+    for (const candidate of [key, toKey(value.split('/')[0] ?? value)]) {
+        if (isKnownProductArea(candidate)) {
+            return candidate
+        }
+        const alias = PRODUCT_AREA_ALIASES.get(candidate)
+        if (alias) {
+            return alias
+        }
+    }
+    return key
+}
 
 export const submitFeedbackHandler: ToolBase<typeof schema, Result>['handler'] = async (
     context: Context,
