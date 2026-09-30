@@ -31,6 +31,7 @@ import { spaceLabel } from '~/layout/today/todaySpacesLogic'
 import { SpaceFeed } from './SpaceFeed'
 import { SpaceSceneLogicProps, SpaceTab, spaceSceneLogic } from './spaceSceneLogic'
 import { SpaceSettings } from './SpaceSettings'
+import { SpaceTaskComposer } from './SpaceTaskComposer'
 
 export const scene: SceneExport<SpaceSceneLogicProps> = {
     component: SpaceScene,
@@ -121,7 +122,10 @@ export function SpaceScene({ id }: SpaceSceneLogicProps): JSX.Element {
                         </TabsTrigger>
                     </TabsList>
                     <TabsContent value="feed">
-                        <SpaceFeed id={id} />
+                        <div className="flex max-w-3xl flex-col gap-4">
+                            <SpaceTaskComposer id={id} />
+                            <SpaceFeed id={id} />
+                        </div>
                     </TabsContent>
                     <TabsContent value="settings">
                         <SpaceSettings key={space?.id} id={id} />

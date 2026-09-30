@@ -8,9 +8,15 @@ import { spaceSceneLogic } from './spaceSceneLogic'
 
 describe('spaceSceneLogic', () => {
     let sessionSpace = 'space-a'
+    let createdTaskBody: Record<string, unknown> | null = null
+    let runBody: Record<string, unknown> | null = null
+    let deletedTaskId: string | null = null
 
     beforeEach(() => {
         sessionSpace = 'space-a'
+        createdTaskBody = null
+        runBody = null
+        deletedTaskId = null
         useMocks({
             get: {
                 '/api/projects/:team_id/task_channels/': [],
@@ -28,6 +34,22 @@ describe('spaceSceneLogic', () => {
                             ? [{ id: 'task-1', title: 'Session', channel, archived: false, last_activity_at: null }]
                             : []
                     return [200, { results, count: results.length }]
+                },
+            },
+            post: {
+                '/api/projects/:team_id/tasks/': async ({ request }) => {
+                    createdTaskBody = (await request.json()) as Record<string, unknown>
+                    return [201, { id: 'task-new', channel: createdTaskBody.channel }]
+                },
+                '/api/projects/:team_id/tasks/:id/run/': async ({ request }) => {
+                    runBody = (await request.json()) as Record<string, unknown>
+                    return [200, { id: 'task-new', run: { id: 'run-1' } }]
+                },
+            },
+            delete: {
+                '/api/projects/:team_id/tasks/:id/': ({ params }) => {
+                    deletedTaskId = String(params.id)
+                    return [204]
                 },
             },
             patch: {
@@ -94,5 +116,36 @@ describe('spaceSceneLogic', () => {
         await expectLogic(logic).toDispatchActions(['spaceSaved', 'loadMembersSuccess'])
 
         expect(logic.values.members.map((member) => member.id)).toEqual([7])
+    })
+
+    it('starts the session in this space and clears the field', async () => {
+        const logic = spaceSceneLogic({ id: 'space-a' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setTaskDraft('  Fix the checkout bug  ')
+        logic.actions.createTask()
+        await expectLogic(logic).toDispatchActions(['createTaskSuccess', 'loadSessionsSuccess'])
+
+        expect(createdTaskBody).toMatchObject({ description: 'Fix the checkout bug', channel: 'space-a' })
+        expect(runBody).toMatchObject({ mode: 'interactive', pending_user_message: 'Fix the checkout bug' })
+        expect(logic.values).toMatchObject({ creatingTask: false, taskDraft: '' })
+    })
+
+    it.each([
+        ['the task create', '/api/projects/:team_id/tasks/', null],
+        ['the run start', '/api/projects/:team_id/tasks/:id/run/', 'task-new'],
+    ])('keeps the prompt and unlocks the field when %s fails', async (_, failingUrl, expectedDeletedTaskId) => {
+        useMocks({ post: { [failingUrl]: () => [500, { detail: 'Error' }] } })
+        const logic = spaceSceneLogic({ id: 'space-a' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setTaskDraft('Fix the checkout bug')
+        logic.actions.createTask()
+        await expectLogic(logic).toDispatchActions(['createTaskFailure'])
+
+        expect(logic.values).toMatchObject({ creatingTask: false, taskDraft: 'Fix the checkout bug' })
+        expect(deletedTaskId).toBe(expectedDeletedTaskId)
     })
 })
