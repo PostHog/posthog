@@ -1477,6 +1477,15 @@ describe('survey filters', () => {
             exportAlias: '"Status (2)"',
         },
         {
+            column: {
+                type: TaxonomicFilterGroupType.EventProperties,
+                key: 'Q1: Which types of content would you like to see more of?',
+            } as const,
+            tableSelect: 'column_0 AS "properties.Q1: Which types of content would you like to see more of?"',
+            tableRead: 'properties."Q1: Which types of content would you like to see more of?" AS column_0',
+            exportAlias: '"Q1: Which types of content would you like to see more of? (2)"',
+        },
+        {
             column: { type: TaxonomicFilterGroupType.EventProperties, key: '`a`, 1 AS `b`' } as const,
             tableSelect: 'column_0 AS "properties.`a`, 1 AS `b`"',
             tableRead: 'properties."`a`, 1 AS `b`" AS column_0',

@@ -1030,7 +1030,7 @@ export function buildSurveyResponsesExportQuery(
 
     for (const { question, index } of questions) {
         const title = question.question.replace(/\s+/g, ' ').trim()
-        columns.push(`Q${index + 1}${title ? `: ${title}` : ''}`)
+        columns.push(uniqueColumnName(`Q${index + 1}${title ? `: ${title}` : ''}`, columns))
         const answer = mergedAnswerAlias(index)
         expressions.push(
             question.type === SurveyQuestionType.MultipleChoice
