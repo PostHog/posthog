@@ -36,7 +36,7 @@ You author reports directly via the report channel (`scout-emit-report` / `scout
 `project-get` (no `id`, so it reads the active project) is the supported read path for the team's revenue config. Its `revenue_analytics_config` field carries:
 
 - `events[]` — one `RevenueAnalyticsEventItem` per configured revenue event: `eventName`, `revenueProperty`, `revenueCurrencyProperty` (`{property}` or `{static}`), `subscriptionProperty`, `productProperty`, `couponProperty`, `currencyAwareDecimal`.
-- `filter_test_accounts` — whether revenue views drop test accounts.
+- `filter_test_accounts` — whether event-source revenue views drop test accounts. Stripe and other warehouse views ignore it.
 
 Revenue goals no longer exist. Do not look for `goals`.
 
@@ -170,7 +170,7 @@ Stripe source healthy, but invoice line items missing the `period` property. The
 
 #### Test-account contamination
 
-`revenue_analytics_config.filter_test_accounts = false` (from `project-get`) on a project with a `person.properties.email` filter set up for test accounts. Internal QA charges are being counted as real revenue. Easy scratchpad entry; report-worthy if the scratchpad shows the team has historically asked about "revenue jumped overnight" incidents and the cause was QA traffic.
+`revenue_analytics_config.filter_test_accounts = false` (from `project-get`) on a project with configured revenue events and a `person.properties.email` filter set up for test accounts. Internal QA charges from those events are being counted as real revenue. The flag controls only event-source views, so it does not explain QA charges in a Stripe or other warehouse view, and turning it on does not remove them. Easy scratchpad entry; report-worthy if the scratchpad shows the team has historically asked about "revenue jumped overnight" incidents and the cause was QA traffic.
 
 ### Save memory as you go
 
