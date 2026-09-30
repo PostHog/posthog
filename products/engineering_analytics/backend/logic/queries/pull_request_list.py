@@ -11,6 +11,8 @@ from datetime import datetime
 
 from posthog.hogql import ast
 
+from posthog.dataclasses import frozen
+
 from products.engineering_analytics.backend.facade.contracts import (
     AttentionPullRequestList,
     Author,
@@ -62,14 +64,10 @@ _SELECT = f"""
         coalesce(ci.failing, 0) AS failing,
         coalesce(ci.pending, 0) AS pending,
         coalesce(ci.inconclusive, 0) AS inconclusive,
-        ci.failing_workflows AS failing_workflows,
-        coalesce(rp.pushes, 0) AS pushes,
-        coalesce(rp.rerun_cycles, 0) AS rerun_cycles
+        ci.failing_workflows AS failing_workflows
         __EXTRA_COLUMNS__
     FROM __PR_SOURCE__ AS pr
     LEFT JOIN ci_rollup AS ci ON ci.head_sha = pr.head_sha
-    LEFT JOIN runs_by_pr AS rp
-        ON rp.repo_owner = pr.repo_owner AND rp.repo_name = pr.repo_name AND rp.pr_number = pr.number
     __READY_JOIN__
     WHERE __ROWS__
     ORDER BY __ORDER_BY__
@@ -77,55 +75,77 @@ _SELECT = f"""
 """
 
 
-# Per-push CI rounds for the visible PRs, for the push-history sparkline. Verdicts collapse like
-# ``ci_rollup``: latest run per (push, workflow) via argMax, then any decisive failure turns the
-# round red and any not-yet-completed run marks it pending. Wall time is the round's earliest run
-# start to its latest completed run end (``updated_at`` is the end time the duration column uses).
+# What the author did to each visible PR: its per-push CI rounds for the push-history sparkline, and
+# the ``pushes`` and ``rerun_cycles`` counts. Verdicts collapse like ``ci_rollup``: latest run per
+# (push, workflow) via argMax, then any decisive failure turns the round red and any not-yet-completed
+# run marks it pending. Wall time is the round's earliest run start to its latest completed run end
+# (``updated_at`` is the end time the duration column uses).
 #
-# Merge-queue gate runs are excluded for the same reason as ``runs_by_pr`` (see its docstring), and
-# for one specific to here: they are the newest rounds a PR has, since they happen at merge time, so
-# leaving them in would push the author's real pushes out of the capped window below.
+# Merge-queue gate runs are excluded, even though the runs builder credits them to the PR they were
+# landing. A gate branch's head SHA is a rebase the queue made, so counting it would report a push
+# nobody made, once per merge attempt. They are also the newest rounds a PR has, since they happen at
+# merge time, so leaving them in would push the author's real pushes out of the capped window below.
+# Cost and CI-health surfaces keep the gate run, because they measure spend and outcomes, not authoring.
 #
-# ``LIMIT __PUSH_HISTORY_LIMIT__ BY (repo_owner, repo_name, pr_number)`` bounds the scan to the most
+# Every result is keyed on ``(repo_owner, repo_name, pr_number)``, not ``pr_number`` alone, because PR
+# numbers restart per repository and a source can span repositories.
+#
+# ``LIMIT __PUSH_HISTORY_LIMIT__ BY (repo_owner, repo_name, pr_number)`` bounds the result to the most
 # recent N pushes per PR *in ClickHouse* (rows are ordered newest-first, so the cap keeps the newest),
 # rather than fetching every push and slicing in Python — a PR with hundreds of pushes never ships more
-# than the sparkline shows. The trailing ``LIMIT`` is the overall ceiling (≤ 1000 PRs × N); without it
-# HogQL applies its default 100-row limit and silently truncates the whole result.
-_PUSH_HISTORY_SELECT = """
+# than the sparkline shows. The window counts run before ``LIMIT BY``, so ``pushes`` and
+# ``rerun_cycles`` still cover every push. The trailing ``LIMIT`` is the overall ceiling (≤ 1000 PRs ×
+# N); without it HogQL applies its default 100-row limit and silently truncates the whole result.
+_PUSH_ACTIVITY_SELECT = """
     SELECT
-        repo_owner, repo_name, pr_number, head_sha,
-        min(first_start) AS started_at,
-        if(countIf(last_end IS NOT NULL) = 0, NULL, dateDiff('second', min(first_start), max(last_end))) AS wall_seconds,
-        countIf(s = 'completed' AND c IN (__DECISIVE_FAILURES__)) > 0 AS failed,
-        countIf(s IS NULL OR s != 'completed') > 0 AS pending
+        repo_owner, repo_name, pr_number, head_sha, started_at, wall_seconds, failed, pending,
+        countIf(head_sha IS NOT NULL) OVER (PARTITION BY repo_owner, repo_name, pr_number) AS pushes,
+        sum(rerun_runs) OVER (PARTITION BY repo_owner, repo_name, pr_number) AS rerun_cycles
     FROM (
         SELECT
-            repo_owner, repo_name, pr_number, head_sha, workflow_name,
-            min(run_started_at) AS first_start,
-            max(if(status = 'completed', updated_at, NULL)) AS last_end,
-            argMax(status, run_started_at) AS s,
-            argMax(conclusion, run_started_at) AS c
-        FROM __RUNS_SOURCE__ AS r
-        WHERE pr_number IN {pr_numbers} AND NOT is_merge_queue
-        GROUP BY repo_owner, repo_name, pr_number, head_sha, workflow_name
+            repo_owner, repo_name, pr_number, head_sha,
+            min(first_start) AS started_at,
+            if(countIf(last_end IS NOT NULL) = 0, NULL, dateDiff('second', min(first_start), max(last_end))) AS wall_seconds,
+            countIf(s = 'completed' AND c IN (__DECISIVE_FAILURES__)) > 0 AS failed,
+            countIf(s IS NULL OR s != 'completed') > 0 AS pending,
+            sum(rerun_runs) AS rerun_runs
+        FROM (
+            SELECT
+                repo_owner, repo_name, pr_number, head_sha, workflow_name,
+                min(run_started_at) AS first_start,
+                max(if(status = 'completed', updated_at, NULL)) AS last_end,
+                argMax(status, run_started_at) AS s,
+                argMax(conclusion, run_started_at) AS c,
+                countIf(run_attempt > 1) AS rerun_runs
+            FROM __RUNS_SOURCE__ AS r
+            WHERE pr_number IN {pr_numbers} AND NOT is_merge_queue
+            GROUP BY repo_owner, repo_name, pr_number, head_sha, workflow_name
+        )
+        GROUP BY repo_owner, repo_name, pr_number, head_sha
     )
-    GROUP BY repo_owner, repo_name, pr_number, head_sha
     ORDER BY started_at DESC
     LIMIT __PUSH_HISTORY_LIMIT__ BY (repo_owner, repo_name, pr_number)
     LIMIT 100000
 """
 
 
-def query_pr_push_history(
+@frozen
+class PushActivity:
+    pushes: int
+    rerun_cycles: int
+    # Oldest first and capped to the most recent ``_PUSH_HISTORY_LIMIT`` pushes, while ``pushes`` counts every push.
+    history: list[PushCISample]
+
+
+def query_pr_push_activity(
     *, curated: CuratedGitHubSource, pr_numbers: list[int]
-) -> dict[tuple[str, str, int], list[PushCISample]]:
-    """Per-PR push rounds keyed by (repo_owner, repo_name, pr_number), oldest first, capped in
-    ClickHouse to the most recent ``_PUSH_HISTORY_LIMIT`` per PR. Scoped to the visible PR numbers so
-    the scan tracks the page (same shape as ``query_pr_costs``)."""
+) -> dict[tuple[str, str, int], PushActivity]:
+    """Per-PR push activity keyed by (repo_owner, repo_name, pr_number). Scoped to the visible PR
+    numbers so the scan tracks the page (same shape as ``query_pr_costs``). A PR with no CI has no entry."""
     if not pr_numbers:
         return {}
     sql = (
-        _PUSH_HISTORY_SELECT.replace("__RUNS_SOURCE__", curated.run_source())
+        _PUSH_ACTIVITY_SELECT.replace("__RUNS_SOURCE__", curated.run_source())
         .replace("__PUSH_HISTORY_LIMIT__", str(_PUSH_HISTORY_LIMIT))
         .replace("__DECISIVE_FAILURES__", DECISIVE_FAILURE_CONCLUSIONS_SQL)
     )
@@ -134,9 +154,24 @@ def query_pr_push_history(
         query_type="engineering_analytics.pr_push_history",
         placeholders={"pr_numbers": ast.Constant(value=pr_numbers)},
     )
-    by_pr: dict[tuple[str, str, int], list[PushCISample]] = {}
-    for repo_owner, repo_name, pr_number, head_sha, started_at, wall_seconds, failed, pending in response.results or []:
-        by_pr.setdefault((repo_owner, repo_name, int(pr_number)), []).append(
+    activity: dict[tuple[str, str, int], PushActivity] = {}
+    for (
+        repo_owner,
+        repo_name,
+        pr_number,
+        head_sha,
+        started_at,
+        wall_seconds,
+        failed,
+        pending,
+        pushes,
+        rerun_cycles,
+    ) in response.results or []:
+        key = (repo_owner, repo_name, int(pr_number))
+        pr_activity = activity.setdefault(
+            key, PushActivity(pushes=int(pushes), rerun_cycles=int(rerun_cycles or 0), history=[])
+        )
+        pr_activity.history.append(
             PushCISample(
                 head_sha=head_sha,
                 started_at=started_at,
@@ -147,7 +182,9 @@ def query_pr_push_history(
         )
     # The query returns newest-first (so the per-PR cap keeps the newest pushes); the contract is
     # oldest-first, so reverse each PR's list back to chronological order.
-    return {key: samples[::-1] for key, samples in by_pr.items()}
+    for pr_activity in activity.values():
+        pr_activity.history.reverse()
+    return activity
 
 
 def _query_rows(
@@ -163,7 +200,7 @@ def _query_rows(
     extra_columns: str = "",
 ) -> list[tuple]:
     """``scope_where`` is over unqualified curated PR columns and must keep every row ``rows_where``
-    keeps, because it prunes the runs rollups (see ``pr_list_rollup_query``)."""
+    keeps, because it prunes the CI rollup (see ``pr_rollup_query``)."""
     select = (
         _SELECT.replace("__READY_TO_MERGE__", f"{ready.expr} AS ready_to_merge_seconds")
         .replace("__READY_JOIN__", ready.join)
@@ -173,7 +210,7 @@ def _query_rows(
         .replace("__LIMIT__", str(limit))
     )
     response = curated.run(
-        curated.pr_list_rollup_query(select, pr_scope_where=scope_where, ready=ready),
+        curated.pr_rollup_query(select, pr_scope_where=scope_where, ready=ready),
         query_type=query_type,
         placeholders=placeholders,
     )
@@ -186,9 +223,9 @@ def _enrich(*, curated: CuratedGitHubSource, rows: list[tuple]) -> list[PullRequ
     pr_numbers = sorted({int(row[0]) for row in rows})
     with curated.concurrent_reads() as reads:
         costs_read = reads.submit(lambda: query_pr_costs(curated=curated, pr_numbers=pr_numbers))
-        pushes_read = reads.submit(lambda: query_pr_push_history(curated=curated, pr_numbers=pr_numbers))
-    cost_by_pr, pushes_by_pr = costs_read.result(), pushes_read.result()
-    return [_map_row(row, cost_by_pr, pushes_by_pr) for row in rows]
+        activity_read = reads.submit(lambda: query_pr_push_activity(curated=curated, pr_numbers=pr_numbers))
+    cost_by_pr, activity_by_pr = costs_read.result(), activity_read.result()
+    return [_map_row(row, cost_by_pr, activity_by_pr) for row in rows]
 
 
 def query_pull_request_list(
@@ -235,7 +272,7 @@ def query_attention_pull_requests(*, curated: CuratedGitHubSource) -> AttentionP
 def _map_row(
     row: tuple,
     cost_by_pr: dict[tuple[str, str, int], PRCostAggregate],
-    pushes_by_pr: dict[tuple[str, str, int], list[PushCISample]],
+    activity_by_pr: dict[tuple[str, str, int], PushActivity],
 ) -> PullRequestListItem:
     (
         number,
@@ -258,10 +295,9 @@ def _map_row(
         pending,
         inconclusive,
         failing_workflows,
-        pushes,
-        rerun_cycles,
     ) = row
     cost = cost_by_pr.get((repo_owner, repo_name, number))
+    activity = activity_by_pr.get((repo_owner, repo_name, number))
     return PullRequestListItem(
         number=number,
         title=title,
@@ -289,9 +325,9 @@ def _map_row(
             inconclusive=inconclusive,
             failing_workflows=list(failing_workflows or []),
         ),
-        pushes=pushes,
-        rerun_cycles=rerun_cycles,
+        pushes=activity.pushes if activity else 0,
+        rerun_cycles=activity.rerun_cycles if activity else 0,
         estimated_cost_usd=cost.estimated_cost_usd if cost else None,
         billable_minutes=(cost.billable_seconds / 60) if cost else None,
-        push_history=pushes_by_pr.get((repo_owner, repo_name, number), []),
+        push_history=activity.history if activity else [],
     )
