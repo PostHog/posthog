@@ -102,9 +102,6 @@ export interface toolbarConfigLogicActions {
     setAuthStatus: (status: 'authenticating' | 'checking' | 'error' | 'idle') => {
         status: 'authenticating' | 'checking' | 'error' | 'idle'
     }
-    setUiHostBlockedByCsp: (blocked: boolean) => {
-        blocked: boolean
-    }
     setOAuthTokens: (
         accessToken: string,
         refreshToken: string | null,
@@ -113,6 +110,9 @@ export interface toolbarConfigLogicActions {
         accessToken: string
         clientId: string
         refreshToken: string | null
+    }
+    setUiHostBlockedByCsp: (blocked: boolean) => {
+        blocked: boolean
     }
     showButton: () => {
         value: true
@@ -789,7 +789,11 @@ function verifyUiHostReachability(
     // or a wrong ui_host. Only the securitypolicyviolation event tells them apart.
     let blockedByCsp = false
     const onCspViolation = (event: SecurityPolicyViolationEvent): void => {
-        if (event.disposition === 'enforce' && isSameOrigin(event.blockedURI, values.uiHost)) {
+        if (
+            event.disposition === 'enforce' &&
+            event.effectiveDirective === 'connect-src' &&
+            isSameOrigin(event.blockedURI, values.uiHost)
+        ) {
             blockedByCsp = true
         }
     }

@@ -376,15 +376,26 @@ describe('toolbar toolbarConfigLogic', () => {
     })
 
     describe('CSP detection in the reachability check', () => {
-        const captureCheckEvents = (): jest.SpyInstance =>
-            jest.spyOn(toolbarPosthogJS, 'capture').mockImplementation(() => undefined)
+        const UI_HOST = 'https://selfhosted.example.com'
+        let captureSpy: jest.SpyInstance
 
-        const checkErrorTypes = (spy: jest.SpyInstance): unknown[] =>
-            spy.mock.calls.filter((c) => c[0] === 'toolbar ui host check').map((c) => c[1].error_type)
+        beforeEach(() => {
+            jest.useFakeTimers()
+            captureSpy = jest.spyOn(toolbarPosthogJS, 'capture').mockImplementation(() => undefined)
+        })
 
-        const dispatchCspViolation = (blockedURI: string): void => {
+        afterEach(() => {
+            captureSpy.mockRestore()
+            jest.useRealTimers()
+        })
+
+        const checkErrorTypes = (): unknown[] =>
+            captureSpy.mock.calls.filter((c) => c[0] === 'toolbar ui host check').map((c) => c[1].error_type)
+
+        const dispatchCspViolation = (blockedURI: string, effectiveDirective = 'connect-src'): void => {
             const event = new Event('securitypolicyviolation') as any
             event.blockedURI = blockedURI
+            event.effectiveDirective = effectiveDirective
             event.disposition = 'enforce'
             document.dispatchEvent(event)
         }
@@ -400,37 +411,38 @@ describe('toolbar toolbarConfigLogic', () => {
             })
         }
 
-        it('reports csp_blocked when a CSP violation targets the uiHost', async () => {
-            const captureSpy = captureCheckEvents()
-            mockBlockedCheck(() => dispatchCspViolation('https://selfhosted.example.com/toolbar_oauth/check'))
-            const logic = toolbarConfigLogic.build({ uiHost: 'https://selfhosted.example.com' } as any)
+        const mountAndFinishCheck = async (): Promise<ReturnType<typeof toolbarConfigLogic.build>> => {
+            const logic = toolbarConfigLogic.build({ uiHost: UI_HOST } as any)
             logic.mount()
+            await jest.advanceTimersByTimeAsync(100)
+            return logic
+        }
 
-            await expectLogic(logic).delay(0).toMatchValues({ authStatus: 'error', uiHostBlockedByCsp: true })
-            expect(checkErrorTypes(captureSpy)).toEqual(['csp_blocked'])
-            captureSpy.mockRestore()
+        it('reports csp_blocked when a CSP violation targets the uiHost', async () => {
+            mockBlockedCheck(() => dispatchCspViolation(`${UI_HOST}/toolbar_oauth/check`))
+            const logic = await mountAndFinishCheck()
+
+            expect(logic.values).toMatchObject({ authStatus: 'error', uiHostBlockedByCsp: true })
+            expect(checkErrorTypes()).toEqual(['csp_blocked'])
         })
 
         it('reports csp_blocked when the violation event arrives after the fetch rejects', async () => {
-            const captureSpy = captureCheckEvents()
-            mockBlockedCheck(() => setTimeout(() => dispatchCspViolation('https://selfhosted.example.com'), 10))
-            const logic = toolbarConfigLogic.build({ uiHost: 'https://selfhosted.example.com' } as any)
-            logic.mount()
+            mockBlockedCheck(() => setTimeout(() => dispatchCspViolation(UI_HOST), 10))
+            const logic = await mountAndFinishCheck()
 
-            await expectLogic(logic).delay(200).toMatchValues({ authStatus: 'error', uiHostBlockedByCsp: true })
-            expect(checkErrorTypes(captureSpy)).toEqual(['csp_blocked'])
-            captureSpy.mockRestore()
+            expect(logic.values).toMatchObject({ authStatus: 'error', uiHostBlockedByCsp: true })
+            expect(checkErrorTypes()).toEqual(['csp_blocked'])
         })
 
-        it('keeps network_or_cors when the CSP violation targets a different host', async () => {
-            const captureSpy = captureCheckEvents()
-            mockBlockedCheck(() => dispatchCspViolation('https://other.example.com/script.js'))
-            const logic = toolbarConfigLogic.build({ uiHost: 'https://selfhosted.example.com' } as any)
-            logic.mount()
+        it.each([
+            ['targets a different host', 'https://other.example.com/script.js', 'connect-src'],
+            ['is not a connect-src violation', `${UI_HOST}/static/script.js`, 'script-src-elem'],
+        ])('keeps network_or_cors when the CSP violation %s', async (_, blockedURI, effectiveDirective) => {
+            mockBlockedCheck(() => dispatchCspViolation(blockedURI, effectiveDirective))
+            const logic = await mountAndFinishCheck()
 
-            await expectLogic(logic).delay(200).toMatchValues({ authStatus: 'error', uiHostBlockedByCsp: false })
-            expect(checkErrorTypes(captureSpy)).toEqual(['network_or_cors'])
-            captureSpy.mockRestore()
+            expect(logic.values).toMatchObject({ authStatus: 'error', uiHostBlockedByCsp: false })
+            expect(checkErrorTypes()).toEqual(['network_or_cors'])
         })
     })
 
