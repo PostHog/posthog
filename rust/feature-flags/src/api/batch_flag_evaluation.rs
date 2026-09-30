@@ -100,6 +100,11 @@ pub struct BatchFlagEvaluationResponse {
 
 const DEFAULT_LIMIT: i64 = 1_000;
 
+/// A page evaluates its persons one at a time under `BATCH_FLAG_EVAL_TIMEOUT_MS`. A retry of a
+/// person that timed out waits the persons pool timeouts a second time. The cap keeps a
+/// sustained stall from spending the page timeout on retries.
+const MAX_PERSON_RETRIES_PER_PAGE: u32 = 20;
+
 #[derive(Debug)]
 pub enum BatchFlagEvaluationError {
     Unauthorized,
@@ -368,28 +373,30 @@ fn failure_code(result: &Result<FlagsResponse, FlagError>, target_key: &str) -> 
     }
 }
 
-/// Other failures, such as a missing dependency or an unsupported filter, fail the same way on
-/// every attempt. An unknown code gets no retry, so a new kind of failure cannot double the load
-/// on the persons pools.
+/// Whether a failure code comes from a transient database fault or a timeout, which a second
+/// evaluation can fix. Other failures, such as a missing dependency, an unsupported filter, or a
+/// `database_error` from a query that cannot succeed, fail the same way on every attempt. An
+/// unknown code gets no retry, so a new kind of failure cannot double the load on the persons
+/// pools.
 fn is_transient_failure(code: &str) -> bool {
     code.starts_with("timeout")
         || matches!(
             code,
-            "database_error"
-                | "database_unavailable"
+            "database_unavailable"
                 | "no_more_connections"
                 | "query_wait_timeout"
-                | "healthcheck_failed"
-                | "flag_condition_retry"
                 | "group_mapping_retry"
                 | "hash_key_override_error"
         )
 }
 
-/// The persons pools size their acquire and statement timeouts for the /flags request timeout.
-/// Django leaves a person whose evaluation failed out of the cohort.
+/// Evaluates a person a second time when the first evaluation fails with a transient code. The
+/// persons pools size their timeouts for /flags. Django leaves a failed person out of the cohort.
+/// Each retry uses one unit of `retries_left`. When the budget is empty, a failed person gets no
+/// second attempt, so a degraded replica cannot double the queries of a whole page.
 async fn evaluate_with_one_retry<F, Fut>(
     target_key: &str,
+    retries_left: &mut u32,
     mut evaluate: F,
 ) -> Result<FlagsResponse, FlagError>
 where
@@ -397,9 +404,12 @@ where
     Fut: std::future::Future<Output = Result<FlagsResponse, FlagError>>,
 {
     let first = evaluate().await;
-    if !failure_code(&first, target_key).is_some_and(|code| is_transient_failure(&code)) {
+    if *retries_left == 0
+        || !failure_code(&first, target_key).is_some_and(|code| is_transient_failure(&code))
+    {
         return first;
     }
+    *retries_left -= 1;
 
     let second = evaluate().await;
     let outcome = if failure_code(&second, target_key).is_some() {
@@ -567,6 +577,7 @@ async fn handle_batch_flag_evaluation(
 
     let mut matched_person_uuids: Vec<Uuid> = Vec::new();
     let mut errors_count: u64 = 0;
+    let mut retries_left = MAX_PERSON_RETRIES_PER_PAGE;
 
     for row in rows {
         // Persons with zero distinct_ids (almost-deleted) are skipped.
@@ -614,7 +625,7 @@ async fn handle_batch_flag_evaluation(
                     .await
             }
         };
-        let evaluation = evaluate_with_one_retry(&target_key, evaluate).await;
+        let evaluation = evaluate_with_one_retry(&target_key, &mut retries_left, evaluate).await;
 
         match evaluation {
             Ok(response) => match response.flags.get(&target_key) {
@@ -672,18 +683,18 @@ mod tests {
     use super::*;
     use crate::api::types::{FlagDetails, FromFeatureAndMatch};
     use crate::config::DEFAULT_TEST_CONFIG;
+    use crate::flags::flag_match_reason::FeatureFlagMatchReason;
+    use crate::flags::flag_matching::FeatureFlagMatch;
     use crate::mock;
     use crate::utils::graph_utils::DependencyType;
     use crate::utils::test_utils::TestContext;
     use common_database::{get_pool_with_config, PoolConfig};
+    use metrics_util::debugging::DebuggingRecorder;
     use std::collections::HashMap;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::Duration;
 
-    fn target_flag_response(error: FlagError, failed: bool) -> Result<FlagsResponse, FlagError> {
-        let flag = mock!(FeatureFlag, key: "target".to_string());
-        let mut details = FlagDetails::create_error(&flag, &error, None);
-        details.failed = failed;
+    fn target_flag_response(details: FlagDetails) -> Result<FlagsResponse, FlagError> {
         Ok(FlagsResponse::new(
             false,
             HashMap::from([("target".to_string(), details)]),
@@ -692,8 +703,23 @@ mod tests {
         ))
     }
 
+    fn failed_target_flag(error: FlagError) -> Result<FlagsResponse, FlagError> {
+        let flag = mock!(FeatureFlag, key: "target".to_string());
+        target_flag_response(FlagDetails::create_error(&flag, &error, None))
+    }
+
     fn evaluated() -> Result<FlagsResponse, FlagError> {
-        target_flag_response(FlagError::DatabaseUnavailable, false)
+        let flag = mock!(FeatureFlag, key: "target".to_string());
+        target_flag_response(FlagDetails::create(
+            &flag,
+            &FeatureFlagMatch {
+                matches: false,
+                variant: None,
+                reason: FeatureFlagMatchReason::NoConditionMatch,
+                condition_index: None,
+                payload: None,
+            },
+        ))
     }
 
     fn database_unavailable() -> Result<FlagsResponse, FlagError> {
@@ -701,31 +727,66 @@ mod tests {
     }
 
     #[rstest::rstest]
-    #[case::error(database_unavailable, evaluated, 2, false)]
+    #[case::error(database_unavailable, evaluated, 1, 2, false, Some("recovered"))]
     #[case::transient_failed_flag(
-        || target_flag_response(FlagError::DatabaseUnavailable, true),
-        evaluated,
-        2,
-        false
-    )]
-    #[case::dependency_failed_flag(
-        || target_flag_response(FlagError::DependencyNotFound(DependencyType::Cohort, 1), true),
+        || failed_target_flag(FlagError::DatabaseUnavailable),
         evaluated,
         1,
-        true
+        2,
+        false,
+        Some("recovered")
     )]
-    #[case::evaluated(evaluated, evaluated, 1, false)]
-    #[case::retry_fails(database_unavailable, database_unavailable, 2, true)]
+    #[case::timeout_error(
+        || Err(FlagError::TimeoutError(Some("query_canceled".to_string()))),
+        evaluated,
+        1,
+        2,
+        false,
+        Some("recovered")
+    )]
+    #[case::timeout_failed_flag(
+        || failed_target_flag(FlagError::TimeoutError(None)),
+        evaluated,
+        1,
+        2,
+        false,
+        Some("recovered")
+    )]
+    #[case::dependency_failed_flag(
+        || failed_target_flag(FlagError::DependencyNotFound(DependencyType::Cohort, 1)),
+        evaluated,
+        1,
+        1,
+        true,
+        None
+    )]
+    #[case::database_error(
+        || Err(FlagError::DatabaseError(sqlx::Error::ColumnNotFound("id".to_string()), None)),
+        evaluated,
+        1,
+        1,
+        true,
+        None
+    )]
+    #[case::evaluated(evaluated, evaluated, 1, 1, false, None)]
+    #[case::retry_fails(database_unavailable, database_unavailable, 1, 2, true, Some("failed"))]
+    #[case::budget_spent(database_unavailable, evaluated, 0, 1, true, None)]
     #[tokio::test]
     async fn test_evaluate_with_one_retry(
         #[case] first_attempt: fn() -> Result<FlagsResponse, FlagError>,
         #[case] second_attempt: fn() -> Result<FlagsResponse, FlagError>,
+        #[case] retry_budget: u32,
         #[case] expected_attempts: usize,
         #[case] expected_failed: bool,
+        #[case] expected_outcome: Option<&str>,
     ) {
+        let recorder = DebuggingRecorder::new();
+        let snapshotter = recorder.snapshotter();
+        let _guard = metrics::set_default_local_recorder(&recorder);
         let attempts = AtomicUsize::new(0);
+        let mut retries_left = retry_budget;
 
-        let result = evaluate_with_one_retry("target", || {
+        let result = evaluate_with_one_retry("target", &mut retries_left, || {
             let attempt = attempts.fetch_add(1, Ordering::SeqCst);
             async move {
                 if attempt == 0 {
@@ -737,12 +798,34 @@ mod tests {
         })
         .await;
 
-        assert_eq!(attempts.load(Ordering::SeqCst), expected_attempts);
+        let attempts = attempts.load(Ordering::SeqCst);
+        assert_eq!(attempts, expected_attempts);
+        assert_eq!(retries_left, retry_budget + 1 - attempts as u32);
         let failed = match result {
             Ok(response) => response.flags["target"].failed,
             Err(_) => true,
         };
         assert_eq!(failed, expected_failed);
+        let outcomes: Vec<String> = snapshotter
+            .snapshot()
+            .into_vec()
+            .into_iter()
+            .filter(|(key, ..)| key.key().name() == FLAG_BATCH_EVAL_PERSON_RETRIES_COUNTER)
+            .flat_map(|(key, ..)| {
+                key.key()
+                    .labels()
+                    .filter(|label| label.key() == "outcome")
+                    .map(|label| label.value().to_string())
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+        assert_eq!(
+            outcomes,
+            expected_outcome
+                .map(str::to_string)
+                .into_iter()
+                .collect::<Vec<_>>()
+        );
     }
 
     #[tokio::test]

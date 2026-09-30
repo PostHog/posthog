@@ -355,24 +355,25 @@ Queries exceeding 500ms are logged at WARN level with timing information.
 
 ### Environment variables
 
-| Variable                                  | Default  | Purpose                                                          |
-| ----------------------------------------- | -------- | ---------------------------------------------------------------- |
-| `READ_DATABASE_URL`                       | required | Main database read replica URL                                   |
-| `WRITE_DATABASE_URL`                      | required | Main database primary URL                                        |
-| `PERSONS_READ_DATABASE_URL`               | empty    | Persons database read replica (enables routing)                  |
-| `PERSONS_WRITE_DATABASE_URL`              | empty    | Persons database primary (enables routing)                       |
-| `MAX_PG_CONNECTIONS`                      | 10       | Max connections per pool                                         |
-| `MIN_NON_PERSONS_READER_CONNECTIONS`      | 0        | Min idle connections for non-persons reader                      |
-| `MIN_NON_PERSONS_WRITER_CONNECTIONS`      | 0        | Min idle connections for non-persons writer                      |
-| `MIN_PERSONS_READER_CONNECTIONS`          | 0        | Min idle connections for persons reader                          |
-| `MIN_PERSONS_WRITER_CONNECTIONS`          | 0        | Min idle connections for persons writer                          |
-| `ACQUIRE_TIMEOUT_SECS`                    | 1        | Connection acquisition timeout                                   |
-| `IDLE_TIMEOUT_SECS`                       | 300      | Idle connection timeout                                          |
-| `TEST_BEFORE_ACQUIRE`                     | true     | Validate connections before use                                  |
-| `NON_PERSONS_READER_STATEMENT_TIMEOUT_MS` | 2000     | Statement timeout for non-persons reads                          |
-| `PERSONS_READER_STATEMENT_TIMEOUT_MS`     | 1000     | Statement timeout for persons reads                              |
-| `WRITER_STATEMENT_TIMEOUT_MS`             | 2000     | Statement timeout for writes                                     |
-| `BEHAVIORAL_COHORTS_READ_DATABASE_URL`    | empty    | Behavioral cohorts database (enables realtime cohort evaluation) |
+| Variable                                    | Default  | Purpose                                                          |
+| ------------------------------------------- | -------- | ---------------------------------------------------------------- |
+| `READ_DATABASE_URL`                         | required | Main database read replica URL                                   |
+| `WRITE_DATABASE_URL`                        | required | Main database primary URL                                        |
+| `PERSONS_READ_DATABASE_URL`                 | empty    | Persons database read replica (enables routing)                  |
+| `PERSONS_WRITE_DATABASE_URL`                | empty    | Persons database primary (enables routing)                       |
+| `MAX_PG_CONNECTIONS`                        | 10       | Max connections per pool                                         |
+| `MIN_NON_PERSONS_READER_CONNECTIONS`        | 0        | Min idle connections for non-persons reader                      |
+| `MIN_NON_PERSONS_WRITER_CONNECTIONS`        | 0        | Min idle connections for non-persons writer                      |
+| `MIN_PERSONS_READER_CONNECTIONS`            | 0        | Min idle connections for persons reader                          |
+| `MIN_PERSONS_WRITER_CONNECTIONS`            | 0        | Min idle connections for persons writer                          |
+| `ACQUIRE_TIMEOUT_SECS`                      | 1        | Connection acquisition timeout                                   |
+| `IDLE_TIMEOUT_SECS`                         | 300      | Idle connection timeout                                          |
+| `TEST_BEFORE_ACQUIRE`                       | true     | Validate connections before use                                  |
+| `NON_PERSONS_READER_STATEMENT_TIMEOUT_MS`   | 2000     | Statement timeout for non-persons reads                          |
+| `PERSONS_READER_STATEMENT_TIMEOUT_MS`       | 1000     | Statement timeout for persons reads                              |
+| `WRITER_STATEMENT_TIMEOUT_MS`               | 2000     | Statement timeout for writes                                     |
+| `BEHAVIORAL_COHORTS_READ_DATABASE_URL`      | empty    | Behavioral cohorts database (enables realtime cohort evaluation) |
+| `BATCH_FLAG_EVAL_SCAN_STATEMENT_TIMEOUT_MS` | 10000    | Statement timeout for the batch evaluation person scan           |
 
 ### Tuning guidance
 
@@ -397,15 +398,18 @@ One database call can wait the full acquire timeout and then run until the state
 Keep `ACQUIRE_TIMEOUT_SECS` plus each pool's statement timeout well under `REQUEST_TIMEOUT_MS`.
 Otherwise the request can time out while its query still runs, and sqlx closes the connection instead of returning it to the pool.
 The service logs a warning at startup for each pool where the sum does not fit.
+It skips a pool that aliases another pool, because an aliased pool runs with the other pool's statement timeout.
 Hash key override calls do not retry a timeout.
 They do retry a transient error.
 Each retry waits for a connection and runs the query again, so this sum bounds one acquire and one statement, not the whole call.
 A hash key override write chains two acquires and four statements across two pools in one attempt.
-The foreign keys on `posthog_featureflaghashkeyoverride` are deferred, so Postgres checks them at `COMMIT`.
+The foreign key from `posthog_featureflaghashkeyoverride` to `posthog_person` is deferred, so Postgres checks it at `COMMIT`.
 `statement_timeout` does not cover `COMMIT`.
 The write runs `SET CONSTRAINTS ALL IMMEDIATE` first, so the foreign key check on the person row runs inside the insert, under the writer statement timeout.
 The batch evaluation endpoint shares these pools, so its per-person lookups get the same limits.
-When a database error or a timeout fails a person, the endpoint evaluates the person a second time before it counts them in `errors_count`.
+When a transient database fault or a timeout fails a person, the endpoint evaluates the person a second time before it counts them in `errors_count`.
+A `database_error` gets no second attempt, because it comes from a query that fails the same way every time.
+Each page allows at most 20 of these retries, so a sustained stall cannot spend the page timeout on retries.
 Django leaves a person in that count out of the static cohort.
 `flags_batch_eval_person_retries_total` counts these retries by `outcome` (`recovered` or `failed`).
 

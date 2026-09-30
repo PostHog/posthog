@@ -50,27 +50,39 @@ impl DatabasePools {
     ///
     /// This bounds one call, not one request. A request that runs several calls in sequence can
     /// still outlast the request timeout.
+    ///
+    /// A pool that aliases another pool runs with that pool's statement timeout. The check skips
+    /// an aliased pool, because its own setting has no effect.
     fn pools_over_request_timeout(config: &Config) -> Vec<(&'static str, u64)> {
         let acquire_ms = config.acquire_timeout_secs.saturating_mul(1000);
+        let routing = config.is_persons_db_routing_enabled();
+        let writes = !*config.skip_writes;
         [
             (
                 pool_names::NON_PERSONS_READER,
                 config.non_persons_reader_statement_timeout_ms,
+                true,
             ),
             (
                 pool_names::PERSONS_READER,
                 config.persons_reader_statement_timeout_ms,
+                routing,
             ),
             (
                 pool_names::PERSONS_WRITER,
                 config.writer_statement_timeout_ms,
+                routing && writes,
             ),
             (
                 pool_names::NON_PERSONS_WRITER,
                 config.writer_statement_timeout_ms,
+                writes,
             ),
         ]
         .into_iter()
+        .filter_map(|(pool, statement_timeout_ms, own_pool)| {
+            own_pool.then_some((pool, statement_timeout_ms))
+        })
         .chain(config.is_behavioral_cohorts_db_configured().then_some((
             pool_names::BEHAVIORAL_COHORTS,
             Self::BEHAVIORAL_COHORTS_STATEMENT_TIMEOUT_MS,
@@ -418,6 +430,18 @@ mod tests {
     )]
     #[case::longer_request_timeout(
         &[("ACQUIRE_TIMEOUT_SECS", "4"), ("REQUEST_TIMEOUT_MS", "7000")],
+        &[]
+    )]
+    #[case::persons_pools_aliased(
+        &[
+            ("PERSONS_READ_DATABASE_URL", ""),
+            ("PERSONS_WRITE_DATABASE_URL", ""),
+            ("PERSONS_READER_STATEMENT_TIMEOUT_MS", "0"),
+        ],
+        &[]
+    )]
+    #[case::writers_aliased(
+        &[("SKIP_WRITES", "true"), ("WRITER_STATEMENT_TIMEOUT_MS", "0")],
         &[]
     )]
     fn test_pools_over_request_timeout(
