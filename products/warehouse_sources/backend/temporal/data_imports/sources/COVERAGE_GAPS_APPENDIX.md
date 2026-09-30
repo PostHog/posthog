@@ -3376,7 +3376,7 @@ Note: Ticket conversations and canned responses are per-parent sub-resources, so
 
 ## Freshsales — gaps
 
-Today (13): `completed_tasks`, `contacts`, `deal_pipelines`, `deal_stages`, `deals`, `leads`, `lifecycle_stages`, `open_tasks`, `owners`, `past_appointments`, `sales_accounts`, `sales_activities`, `upcoming_appointments`
+Today (18): `completed_tasks`, `contacts`, `deal_pipelines`, `deal_stages`, `deals`, `lead_sources`, `leads`, `lifecycle_stages`, `list_contacts`, `lists`, `open_tasks`, `owners`, `past_appointments`, `sales_accounts`, `sales_activities`, `sales_activity_outcomes`, `sales_activity_types`, `upcoming_appointments`
 
 Diffed against: <https://developers.freshworks.com/crm/api/>
 
@@ -3384,12 +3384,12 @@ Diffed against: <https://developers.freshworks.com/crm/api/>
 - [x] `/api/selector/deal_stages` — lookup resolving deal_stage_id, required for any pipeline or conversion analysis (high)
 - [x] `/api/selector/deal_pipelines` — lookup resolving deal_pipeline_id on deals (high)
 - [x] `/api/selector/lifecycle_stages` — lookup resolving lifecycle_stage_id on contacts and accounts (high)
-- [ ] `/api/selector/lead_sources` — lookup resolving lead_source_id - the core attribution dimension (high)
-- [ ] `/api/selector/sales_activity_types (+ /sales_activity_outcomes)` — lookups resolving type and outcome IDs on the sales_activities already synced (high)
+- [x] `/api/selector/lead_sources` — lookup resolving lead_source_id - the core attribution dimension (high). Added as `lead_sources`.
+- [x] `/api/selector/sales_activity_types (+ /sales_activity_outcomes)` — lookups resolving type and outcome IDs on the sales_activities already synced (high). Added as `sales_activity_types` and `sales_activity_outcomes`.
 - [ ] `/api/selector/contact_statuses` — lookup resolving contact_status_id (medium)
 - [ ] `/api/selector/territories` — lookup resolving territory_id for regional breakdowns (medium)
-- [ ] `/api/lists (+ /lists/{id} contacts)` — marketing lists and their contact membership (medium)
-- [ ] `/api/cpq/products` — product catalog referenced by deals and quotes (medium)
+- [x] `/api/lists (+ /lists/{id} contacts)` — marketing lists and their contact membership (medium). Added as `lists` and `list_contacts` (fan-out over `lists` to `/api/contacts/lists/{id}`).
+- ~~`/api/cpq/products`~~ — not listable: the API reference documents create, view by id, update, delete and bulk actions on `/api/cpq/products`, but no endpoint that lists the catalog (medium)
 - [ ] `/api/cpq/cpq_documents (+ /{id}/related_products)` — quotes/documents with their product line items - quoted vs won revenue (medium)
 - [ ] `/api/contacts/{id}/activities.json` — per-contact activity timeline (notes, calls, emails) not reachable from any synced table (medium)
 
