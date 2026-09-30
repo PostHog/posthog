@@ -24,9 +24,9 @@ def mock_redis_client() -> Mock:
     """Mock Redis client with in-memory storage"""
     mock = Mock()
     mock.storage = {}
-    # The real client returns bytes, even for a value that was set as a str
-    mock.get = lambda k: v.encode() if isinstance(v := mock.storage.get(k), str) else v
-    mock.set = lambda k, v: mock.storage.update({k: v}) or None
+    mock.get = lambda k: mock.storage.get(k)
+    # redis-py encodes a str value on write, so the real client stores and returns bytes
+    mock.set = lambda k, v: mock.storage.update({k: v.encode() if isinstance(v, str) else v}) or None
     return mock
 
 
@@ -276,8 +276,6 @@ class TestSyncFeatureFlagLastCalled(BaseTest):
         mock_get_client.return_value = redis_mock
         mock_sync_execute.return_value = []
 
-        # A Redis error on the read fails the run. Celery then retries it instead of the run taking
-        # the lookback fallback
         with self.assertRaises(RedisConnectionError):
             sync_feature_flag_last_called()
 
@@ -337,15 +335,9 @@ class TestSyncFeatureFlagLastCalled(BaseTest):
     def test_failed_lock_release_does_not_mask_original_error(
         self, mock_get_client: MagicMock, mock_sync_execute: MagicMock
     ) -> None:
-        redis_mock = mock_redis_client()
-        checkpoint_key = "posthog:feature_flag_last_called_sync:last_timestamp"
-        checkpoint_time = tz.make_aware(datetime(2024, 6, 15, 11, 55, 0))
-        redis_mock.storage[checkpoint_key] = checkpoint_time.isoformat().encode()
-        mock_get_client.return_value = redis_mock
+        mock_get_client.return_value = mock_redis_client()
         mock_sync_execute.side_effect = ClickHouseAtCapacity()
 
-        # The lock release runs while the ClickHouse error propagates. A Redis error in the release
-        # must not replace the error that Celery sees
         with patch("django.core.cache.cache.delete", side_effect=RedisConnectionError("redis is down")):
             with self.assertRaises(ClickHouseAtCapacity):
                 sync_feature_flag_last_called()
@@ -398,8 +390,8 @@ class TestSyncFeatureFlagLastCalled(BaseTest):
         checkpoint_key = "posthog:feature_flag_last_called_sync:last_timestamp"
         stored_timestamp = redis_mock.storage.get(checkpoint_key)
         assert stored_timestamp is not None
-        assert "2024-06-15" in stored_timestamp
-        assert "2024-06-15T11:59:00" in stored_timestamp
+        assert b"2024-06-15" in stored_timestamp
+        assert b"2024-06-15T11:59:00" in stored_timestamp
 
     @time_machine.travel("2024-06-15 12:00:00", tick=False)
     @patch("posthog.clickhouse.client.sync_execute")
@@ -533,7 +525,7 @@ class TestSyncFeatureFlagLastCalledChunking(BaseTest):
         # Checkpoint stops at the end of the first chunk, so the unread window from 11:50
         # onwards is retried next run rather than skipped
         stored = redis_mock.storage.get(checkpoint_key)
-        assert stored == tz.make_aware(datetime(2024, 6, 15, 11, 50, 0)).isoformat()
+        assert stored == tz.make_aware(datetime(2024, 6, 15, 11, 50, 0)).isoformat().encode()
 
     @time_machine.travel("2024-06-15 12:00:00", tick=False)
     @patch("posthog.clickhouse.client.sync_execute")
@@ -678,7 +670,7 @@ class TestSyncFeatureFlagLastCalledChunking(BaseTest):
         # Checkpoint should still be updated
         stored = redis_mock.storage.get(checkpoint_key)
         assert stored is not None
-        assert "2024-06-15T11:59:00" in stored
+        assert b"2024-06-15T11:59:00" in stored
 
         # Flag should remain unchanged
         self.flag1.refresh_from_db()

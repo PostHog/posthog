@@ -1257,10 +1257,9 @@ def _queue_delete_team_recordings(team_ids: list[int], deleted_by: str) -> None:
     queue=CeleryQueue.FEATURE_FLAGS_LONG_RUNNING.value,
     # sync_execute wraps TOO_MANY_SIMULTANEOUS_QUERIES/CANNOT_SCHEDULE_TASK into
     # ClickHouseAtCapacity, which CH_TRANSIENT_ERRORS includes.
-    # The lock and the checkpoint live in Redis. A Redis error leaves the checkpoint unmoved. The next
-    # scheduled run then resumes from it. The retry makes the run catch up within minutes instead of
-    # at that next run. django-redis re-raises the redis-py error that ConnectionInterrupted wraps.
-    # RedisError therefore also covers the cache calls on the lock.
+    # The lock and the checkpoint live in Redis. A retry resumes from the unmoved checkpoint within
+    # minutes instead of at the next scheduled run. django-redis re-raises the redis-py error that
+    # ConnectionInterrupted wraps. RedisError therefore also covers the cache calls on the lock.
     autoretry_for=(*FEATURE_FLAG_SYNC_TRANSIENT_ERRORS, RedisError),
     retry_backoff=30,
     retry_backoff_max=120,
@@ -1340,12 +1339,11 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
     try:
         redis_client = get_client()
 
-        # Get last sync timestamp from Redis or use lookback. A Redis error on this read fails the
-        # run. Celery then retries the run. The lookback fallback would rescan up to
+        # Get last sync timestamp from Redis or use lookback. A Redis error on this read propagates so
+        # that Celery retries the run. The lookback fallback would rescan up to
         # FEATURE_FLAG_LAST_CALLED_AT_SYNC_MAX_LOOKBACK_HOURS of chunks that the checkpoint already covers.
         last_sync_str = redis_client.get(FEATURE_FLAG_LAST_CALLED_SYNC_KEY)
-
-        last_sync_timestamp = None
+        last_sync_timestamp = timezone.now() - timedelta(days=settings.FEATURE_FLAG_LAST_CALLED_AT_SYNC_LOOKBACK_DAYS)
         if last_sync_str:
             try:
                 parsed_timestamp = datetime.fromisoformat(last_sync_str.decode())
@@ -1355,10 +1353,6 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
                 )
             except ValueError as e:
                 logger.warning("Failed to parse last sync timestamp", error=str(e))
-        if last_sync_timestamp is None:
-            last_sync_timestamp = timezone.now() - timedelta(
-                days=settings.FEATURE_FLAG_LAST_CALLED_AT_SYNC_LOOKBACK_DAYS
-            )
 
         # Cap lookback to prevent excessive scanning when checkpoint is stale/missing.
         # Capture now once to avoid drift between max_lookback and current_sync_timestamp.
