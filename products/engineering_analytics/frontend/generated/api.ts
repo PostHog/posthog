@@ -103,7 +103,7 @@ export const getEngineeringAnalyticsAttentionPullRequestsUrl = (
 }
 
 /**
- * Open pull requests that need attention: failing CI, or stuck (open, non-draft, non-bot, older than 7 days). Failing first, then newest, capped; `total` counts every match. The same rules as the ci_cards counts, over the whole open backlog, so an old stuck pull request is never crowded out.
+ * Open pull requests that need attention: failing CI, or stuck (open, non-draft, non-bot, older than 7 days), by the same rules as the ci_cards counts. Failing first, then newest, capped; `total` counts every match in the whole open backlog, however old.
  */
 export const engineeringAnalyticsAttentionPullRequests = async (
     projectId: string,

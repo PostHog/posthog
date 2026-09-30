@@ -12,7 +12,12 @@ import {
 import type { RepoOverviewApi, WorkflowRunActivityApi } from '../generated/api.schemas'
 import { HUB_PREVIEW_MAX, HUB_PREVIEW_ROWS, HUB_PREVIEW_STEP } from '../lib/preview'
 import { engineeringAnalyticsFiltersLogic } from './engineeringAnalyticsFiltersLogic'
-import { PullRequestRow, engineeringAnalyticsLogic, toPullRequestRow } from './engineeringAnalyticsLogic'
+import {
+    PullRequestRow,
+    engineeringAnalyticsLogic,
+    loaderStatusFromError,
+    toPullRequestRow,
+} from './engineeringAnalyticsLogic'
 import type { WorkflowHealthRow } from './engineeringAnalyticsLogic'
 
 const projectId = (): string => String(ApiConfig.getCurrentProjectId())
@@ -202,7 +207,7 @@ export const repoOverviewLogic = kea<repoOverviewLogicType>([
             {
                 loadAttention: () => false,
                 loadAttentionSuccess: () => false,
-                loadAttentionFailure: () => true,
+                loadAttentionFailure: (_, { errorObject }) => loaderStatusFromError(errorObject) === 'error',
             },
         ],
         overviewFailed: [
@@ -300,11 +305,6 @@ export const repoOverviewLogic = kea<repoOverviewLogicType>([
 
     listeners(({ actions }) => ({
         [engineeringAnalyticsFiltersLogic.actionTypes.setDateRange]: () => {
-            actions.loadOverview()
-            actions.loadRepoActivity()
-        },
-        [engineeringAnalyticsLogic.actionTypes.setSourceId]: () => {
-            actions.loadAttention()
             actions.loadOverview()
             actions.loadRepoActivity()
         },
