@@ -32,7 +32,7 @@ class TestTeamsReplySignal(BaseTest):
             teams_tenant_id="tenant-abc",
         )
 
-    @patch("products.conversations.backend.tasks.post_reply_to_teams.delay")
+    @patch("products.conversations.backend.tasks.teams.post_reply_to_teams.delay")
     def test_team_message_enqueues_teams_reply(self, mock_delay, mock_on_commit):
         Comment.objects.create(
             team=self.team,
@@ -48,7 +48,7 @@ class TestTeamsReplySignal(BaseTest):
         assert call_kwargs["teams_conversation_id"] == "19:conv@thread.tacv2"
         assert call_kwargs["teams_service_url"] == "https://smba.trafficmanager.net/teams/"
 
-    @patch("products.conversations.backend.tasks.post_reply_to_teams.delay")
+    @patch("products.conversations.backend.tasks.teams.post_reply_to_teams.delay")
     def test_private_message_does_not_enqueue_teams_reply(self, mock_delay, mock_on_commit):
         Comment.objects.create(
             team=self.team,
@@ -61,7 +61,7 @@ class TestTeamsReplySignal(BaseTest):
 
         mock_delay.assert_not_called()
 
-    @patch("products.conversations.backend.tasks.post_reply_to_teams.delay")
+    @patch("products.conversations.backend.tasks.teams.post_reply_to_teams.delay")
     def test_customer_message_does_not_enqueue_teams_reply(self, mock_delay, mock_on_commit):
         Comment.objects.create(
             team=self.team,
@@ -73,7 +73,7 @@ class TestTeamsReplySignal(BaseTest):
 
         mock_delay.assert_not_called()
 
-    @patch("products.conversations.backend.tasks.post_reply_to_teams.delay")
+    @patch("products.conversations.backend.tasks.teams.post_reply_to_teams.delay")
     def test_from_teams_message_does_not_echo(self, mock_delay, mock_on_commit):
         Comment.objects.create(
             team=self.team,
@@ -86,7 +86,7 @@ class TestTeamsReplySignal(BaseTest):
 
         mock_delay.assert_not_called()
 
-    @patch("products.conversations.backend.tasks.post_reply_to_teams.delay")
+    @patch("products.conversations.backend.tasks.teams.post_reply_to_teams.delay")
     def test_widget_ticket_does_not_enqueue_teams_reply(self, mock_delay, mock_on_commit):
         widget_ticket = Ticket.objects.create_with_number(
             team=self.team,
@@ -106,7 +106,7 @@ class TestTeamsReplySignal(BaseTest):
 
         mock_delay.assert_not_called()
 
-    @patch("products.conversations.backend.tasks.post_reply_to_teams.delay")
+    @patch("products.conversations.backend.tasks.teams.post_reply_to_teams.delay")
     def test_teams_disabled_does_not_enqueue(self, mock_delay, mock_on_commit):
         self.team.conversations_settings = {"teams_enabled": False}
         self.team.save()
@@ -122,7 +122,7 @@ class TestTeamsReplySignal(BaseTest):
 
         mock_delay.assert_not_called()
 
-    @patch("products.conversations.backend.tasks.post_reply_to_teams.delay")
+    @patch("products.conversations.backend.tasks.teams.post_reply_to_teams.delay")
     def test_no_created_by_does_not_enqueue(self, mock_delay, mock_on_commit):
         Comment.objects.create(
             team=self.team,

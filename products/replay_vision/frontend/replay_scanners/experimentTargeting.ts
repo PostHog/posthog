@@ -1,6 +1,6 @@
 import { getExperimentVariants } from 'scenes/experiments/utils'
 
-import { NodeKind } from '~/queries/schema/schema-general'
+import { NodeKind, type RecordingsQuery } from '~/queries/schema/schema-general'
 import { Experiment } from '~/types'
 
 import type { ScannerExperimentTargetingApi } from 'products/replay_vision/frontend/generated/api.schemas'
@@ -65,6 +65,19 @@ export function buildExperimentTargeting(context: ExperimentScannerContext): Sca
 }
 
 /**
+ * The query keys an experiment-scoped scanner takes from its experiment. The population is never
+ * one of them: it lives in `experiment_targeting`, and the API rejects an exposure filter set here.
+ * Every entry point that creates such a scanner reads this, so the test-account default cannot
+ * drift between them.
+ */
+export function experimentScannerQuery(experiment: Experiment): Pick<RecordingsQuery, 'kind' | 'filter_test_accounts'> {
+    return {
+        kind: NodeKind.RecordingsQuery,
+        filter_test_accounts: experiment.exposure_criteria?.filterTestAccounts ?? false,
+    }
+}
+
+/**
  * Keeps the requested variant key only if the loaded experiment actually has it. A URL can carry a
  * stale `?variant=old-key`, which would target a variant that no longer exists; dropping it falls
  * back to all variants (null) rather than persisting an impossible target.
@@ -90,8 +103,8 @@ export function prefillScannerForExperiment(scanner: ReplayScanner, context: Exp
         name: experimentScannerName(scanner.name, context.experiment.name),
         experiment_targeting: buildExperimentTargeting(context),
         query: {
-            ...(scanner.query ?? { kind: NodeKind.RecordingsQuery }),
-            filter_test_accounts: context.experiment.exposure_criteria?.filterTestAccounts ?? false,
+            ...scanner.query,
+            ...experimentScannerQuery(context.experiment),
         },
     }
 }

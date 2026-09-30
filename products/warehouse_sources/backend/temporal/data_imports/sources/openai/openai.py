@@ -189,17 +189,32 @@ def _from_unix_seconds(value: Any) -> datetime | None:
     return datetime.fromtimestamp(int(value), tz=UTC)
 
 
-def validate_credentials(api_key: str) -> bool:
+_KEY_REJECTED_MESSAGE = (
+    "OpenAI rejected your Admin API key. Check the key starts with sk-admin, was created by an "
+    "organization owner, and hasn't been revoked."
+)
+
+# `validate_via_probe` reports a transport failure as a `None` status, so anything that isn't a 401
+# leaves the key unjudged. Kept apart from the rejection message: telling someone their key is wrong
+# when OpenAI never answered sends them off to mint a replacement that fails the same way.
+_PROBE_FAILED_MESSAGE = "PostHog couldn't check your Admin API key with OpenAI. Wait a few minutes and try again."
+
+
+def validate_credentials(api_key: str) -> tuple[bool, str | None]:
     # A single cheap probe against the smallest list endpoint confirms the admin key is genuine.
     # 200 => valid. 403 => valid key without a scope we probed here; still a real key, so accept it
     # at create time (sync-time 403s are caught by get_non_retryable_errors). 401 => bad key.
-    ok, _status = validate_via_probe(
+    ok, status = validate_via_probe(
         lambda: make_tracked_session(redact_values=(api_key,)),
         f"{OPENAI_BASE_URL}/v1/organization/projects?limit=1",
         headers={"Authorization": f"Bearer {api_key}", **_headers()},
         ok_statuses=(200, 403),
     )
-    return ok
+    if ok:
+        return True, None
+    if status == 401:
+        return False, _KEY_REJECTED_MESSAGE
+    return False, _PROBE_FAILED_MESSAGE
 
 
 def _row_id(*parts: Any) -> str:
@@ -346,9 +361,11 @@ def openai_source(
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
 
     if config.fan_out_over_projects:
-        # Project-scoped resources have no org-wide list endpoint; enumerate every project (archived
-        # included, since they are still referenced by historical usage/cost rows) and fetch the
-        # resource per project.
+        # Project-scoped resources have no org-wide list endpoint; enumerate the projects and fetch
+        # the resource per project. Archived ones are left out: OpenAI rejects every project-scoped
+        # read under an archived project, which would fail the whole schema on the first one. The
+        # `projects` table keeps them (see its `extra_params`) so historical usage/cost rows still
+        # resolve their project.
         projects_config = OPENAI_ENDPOINTS["projects"]
         rest_config: RESTAPIConfig = {
             "client": client_config,
@@ -358,7 +375,7 @@ def openai_source(
                     "name": "projects",
                     "endpoint": {
                         "path": projects_config.path,
-                        "params": {"limit": ENTITY_PAGE_SIZE, **projects_config.extra_params},
+                        "params": {"limit": ENTITY_PAGE_SIZE},
                         "data_selector": "data",
                         "paginator": _EntityPaginator(),
                     },

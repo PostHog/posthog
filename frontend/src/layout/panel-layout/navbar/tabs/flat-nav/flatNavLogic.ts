@@ -13,6 +13,7 @@ export interface FlatNavProductItem {
     path: string
     label: string
     href: string
+    type?: string
     iconType?: FileSystemIconType
     iconColor?: FileSystemIconColor
     tag?: 'alpha' | 'beta'
@@ -64,7 +65,7 @@ export const flatNavLogic = kea<flatNavLogicType>([
                     if (
                         !product?.href ||
                         (product.flag && !(featureFlags as Record<string, boolean | string>)[product.flag]) ||
-                        // Tools the user has no access to are hidden instead of shown disabled
+                        // Products the user has no access to are hidden instead of shown disabled
                         getProductAccessDisabledReason(product)
                     ) {
                         continue
@@ -73,6 +74,7 @@ export const flatNavLogic = kea<flatNavLogicType>([
                         path: product.path,
                         label: product.displayLabel || unescapePath(splitPath(product.path).pop() ?? product.path),
                         href: product.href,
+                        type: product.type,
                         iconType: product.iconType ?? (product.type as FileSystemIconType | undefined),
                         iconColor: product.iconColor,
                         tag: product.tags?.[0],

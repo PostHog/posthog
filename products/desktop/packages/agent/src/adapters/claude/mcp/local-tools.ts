@@ -8,7 +8,7 @@ import {
   LOCAL_TOOLS_MCP_NAME,
   type LocalToolCtx,
   type LocalToolGateMeta,
-} from "../../local-tools";
+} from "@posthog/harness/extensions/local-tools";
 
 /**
  * In-process SDK MCP server exposing the enabled local tools to the Claude

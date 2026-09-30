@@ -72,8 +72,9 @@ export function SessionSummaryPanelView({
         {state.status === "pending" && (
           <div className="flex items-start gap-2">
             <Spinner
-              size={13}
-              className="mt-0.5 shrink-0 text-muted-foreground"
+              size="sm"
+              aria-hidden="true"
+              className="mt-0.5 text-muted-foreground"
             />
             <Text className="text-[12.5px] text-muted-foreground">
               Writing the summary. About 30 seconds. You can keep working, and

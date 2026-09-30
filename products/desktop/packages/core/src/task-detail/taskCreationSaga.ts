@@ -102,6 +102,12 @@ export class TaskCreationSaga extends Saga<
   ): Promise<TaskCreationOutput> {
     const taskId = input.taskId;
     const isPiRuntime = input.runtime === "pi";
+    const claudeCloudModelAccess = isPiRuntime
+      ? undefined
+      : input.claudeCloudModelAccess;
+    const codexCloudModelAccess = isPiRuntime
+      ? undefined
+      : input.codexCloudModelAccess;
     const folderPromise =
       !taskId && input.repoPath
         ? this.resolveFolder(input.repoPath)
@@ -112,7 +118,11 @@ export class TaskCreationSaga extends Saga<
       : await this.importClaudeSession(input);
 
     const warmPayload =
-      !isPiRuntime && !taskId && input.workspaceMode === "cloud"
+      !isPiRuntime &&
+      !taskId &&
+      input.workspaceMode === "cloud" &&
+      claudeCloudModelAccess !== "own-subscription" &&
+      codexCloudModelAccess !== "own-subscription"
         ? await this.prepareWarmActivation(input)
         : null;
 
@@ -436,6 +446,8 @@ export class TaskCreationSaga extends Saga<
             branch,
             adapter: cloudAdapter,
             ...(isPiRuntime ? { piRuntime: true } : {}),
+            claudeModelAccess: claudeCloudModelAccess,
+            codexModelAccess: codexCloudModelAccess,
             model: input.model,
             reasoningLevel: input.reasoningLevel,
             contextWindow: isPiRuntime ? undefined : input.contextWindow,
@@ -456,6 +468,13 @@ export class TaskCreationSaga extends Saga<
           });
           if (!taskRun?.id) {
             throw new Error("Failed to create cloud run");
+          }
+
+          if (claudeCloudModelAccess === "own-subscription") {
+            await this.deps.sessionService.designateClaudeSubscription(
+              task.id,
+              taskRun.id,
+            );
           }
 
           if (!isPiRuntime && input.relayedMcpServers?.length) {
@@ -787,9 +806,10 @@ export class TaskCreationSaga extends Saga<
             repository: input.repository ?? null,
             repositories: input.repositories,
             branch: input.branch ?? null,
-            runtimeAdapter: input.adapter ?? null,
+            runtimeAdapter: input.adapter ?? "claude",
             model: input.model ?? null,
             reasoningEffort: input.reasoningLevel ?? null,
+            permissionMode: input.executionMode ?? null,
             sandboxEnvironmentId: input.sandboxEnvironmentId ?? null,
             customImageId: input.customImageId ?? null,
           })
@@ -851,7 +871,10 @@ export class TaskCreationSaga extends Saga<
           this.deps.fileReadClient,
         );
         const canActivateWarmRun =
-          input.runtime !== "pi" && !warmPayload?.suppressWarmReuse;
+          input.runtime !== "pi" &&
+          !warmPayload?.suppressWarmReuse &&
+          input.claudeCloudModelAccess !== "own-subscription" &&
+          input.codexCloudModelAccess !== "own-subscription";
         const result = await this.deps.posthogClient.createTask({
           description,
           naming_source: namingSource,
@@ -893,7 +916,7 @@ export class TaskCreationSaga extends Saga<
             input.workspaceMode === "cloud" &&
             canActivateWarmRun &&
             input.runtime !== "pi"
-              ? (input.adapter ?? null)
+              ? (input.adapter ?? "claude")
               : undefined,
           model:
             input.workspaceMode === "cloud" &&
@@ -906,6 +929,13 @@ export class TaskCreationSaga extends Saga<
             canActivateWarmRun &&
             input.runtime !== "pi"
               ? (input.reasoningLevel ?? null)
+              : undefined,
+          initial_permission_mode:
+            input.workspaceMode === "cloud" &&
+            canActivateWarmRun &&
+            input.runtime !== "pi"
+              ? (input.executionMode ??
+                (input.adapter === "codex" ? "auto" : "plan"))
               : undefined,
           sandbox_environment_id:
             input.workspaceMode === "cloud" && canActivateWarmRun

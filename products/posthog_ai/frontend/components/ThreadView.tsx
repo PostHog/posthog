@@ -1,22 +1,28 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { type ReactNode, memo, useCallback, useEffect, useMemo, useState } from 'react'
 
 import { inStorybookTestRunner } from 'lib/utils/dom'
 
-import { runStreamLogic } from '../logics/runStreamLogic'
+import { isTerminalRunStatus, runStreamLogic } from '../logics/runStreamLogic'
 import { ReasoningAnswer } from '../messages/ReasoningAnswer'
 import type { ThreadItem } from '../types/streamTypes'
+import { groupThreadActivity, type ThreadDisplayItem } from '../utils/groupThreadActivity'
 import { getRandomThinkingMessage } from '../utils/thinkingMessages'
-import { type TurnTrailer, computeTurnTrailers } from '../utils/turnTrailers'
-import { ContextUsageBar } from './ContextUsageBar'
+import { resolveToolCall } from '../utils/toolResolver'
+import { TurnHoverStore } from '../utils/turnHoverStore'
+import { type TurnTrailer, computeTurnTrailers, mapRowsToTurnSeparator } from '../utils/turnTrailers'
+import { ContextUsageChip } from './ContextUsageChip'
 import { PullRequestCard } from './PullRequestCard'
 import { RunAlertActivity } from './RunAlertActivity'
 import { RunContext } from './RunContext'
+import { ThreadActivityGroup } from './ThreadActivityGroup'
 import { ThreadRow } from './ThreadRow'
+import { lookupToolRenderer } from './tool/toolRegistry'
+import { TurnReveal } from './TurnReveal'
 import { VirtualizedThread } from './VirtualizedThread'
 
 /** Stable row key — defined at module scope so `getItemKey` never changes identity across renders. */
-function getThreadItemKey(item: ThreadItem): string {
+function getThreadItemKey(item: ThreadDisplayItem): string {
     return item.id
 }
 
@@ -41,11 +47,15 @@ const THREAD_ITEM_HEIGHT_ESTIMATES: Partial<Record<ThreadItem['type'], number>> 
     debug: 30,
 }
 
-function estimateThreadItemHeight(item: ThreadItem): number {
+function estimateThreadItemHeight(item: ThreadDisplayItem): number {
+    if (item.type === 'activity_group') {
+        return 48
+    }
     return THREAD_ITEM_HEIGHT_ESTIMATES[item.type] ?? 56
 }
 
 interface ThreadViewProps {
+    scrollRestorationKey?: string
     /**
      * Pass `false` when an ancestor already owns scroll (the live Max column + auto-scroller) — rows then
      * render in document flow, unchanged from the pre-virtualized layout. Defaults to virtualized.
@@ -78,6 +88,7 @@ interface ThreadViewProps {
  * header/footer rows.
  */
 export function ThreadView({
+    scrollRestorationKey,
     virtualized = true,
     showContextUsage = false,
     renderTurnTrailer,
@@ -91,14 +102,29 @@ export function ThreadView({
         toolInvocations,
         isThinking,
         streamPhase,
+        showThinkingIndicator,
         runArtifacts,
         turnComplete,
         currentRunStatus,
         contextUsage,
         runConnectionState,
         logBootstrapLoading,
+        pendingPermissionRequest,
     } = useValues(runStreamLogic)
     const turnCancelled = currentRunStatus === 'cancelled'
+    // A replayed error from an earlier run in the chain is not this run's ending while a newer run is
+    // still going, so it keeps the softer title.
+    const runEnded = isTerminalRunStatus(currentRunStatus)
+    const displayItems = useMemo(() => {
+        const standaloneToolIds = new Set<string>()
+        for (const [id, invocation] of toolInvocations) {
+            const resolved = resolveToolCall(invocation)
+            if (lookupToolRenderer(resolved.resolvedKey, !!resolved.innerToolName).keepVisible) {
+                standaloneToolIds.add(id)
+            }
+        }
+        return groupThreadActivity(threadItems, standaloneToolIds)
+    }, [threadItems, toolInvocations])
     // The last human message anchors the thread. Reopening a saved conversation lands on it — the last
     // meaningful turn, response below — when at least a viewport of content follows it (otherwise the
     // bottom); a fresh send (a new key) pins the thread to the bottom to follow the streaming response.
@@ -107,13 +133,14 @@ export function ThreadView({
         [threadItems]
     )
     // Only computed when a trailer renderer is supplied — bare ThreadViews pay nothing.
-    const turnTrailers = useMemo(
-        () => (renderTurnTrailer ? computeTurnTrailers(threadItems) : null),
-        [threadItems, renderTurnTrailer]
+    const turns = useMemo(
+        () =>
+            renderTurnTrailer
+                ? { trailers: computeTurnTrailers(threadItems), rowTurnIds: mapRowsToTurnSeparator(displayItems) }
+                : null,
+        [threadItems, displayItems, renderTurnTrailer]
     )
-    const hasActiveProgressItem = threadItems.some(
-        (item) => item.type === 'progress' && item.progressSteps?.some((step) => step.status === 'in_progress')
-    )
+    const [turnHoverStore] = useState(() => new TurnHoverStore())
 
     // Header/footer are kept as memoized leaf components with stable element identity so they don't rebuild
     // `VirtualizedThread`'s `renderRow` (and re-sweep visible rows) on every streamed frame. Each is wrapped
@@ -132,18 +159,17 @@ export function ThreadView({
     // The connection banner (reconnecting / connection-failed) owns the footer line when present, so it
     // takes precedence over the thinking indicator (a mid-run reconnect otherwise reads as normal thinking).
     const showConnectionStatus = !!runConnectionState
-    // `provisioning` (conversations/open POST + cold boot before run_started) also shows the indicator,
-    // gated by !hasActiveProgressItem so real `_posthog/progress` boot steps take precedence.
     const showThinking =
-        (streamPhase === 'thinking' || streamPhase === 'provisioning') &&
-        !hasActiveProgressItem &&
-        !showConnectionStatus
+        showThinkingIndicator &&
+        !showConnectionStatus &&
+        !pendingPermissionRequest &&
+        displayItems.at(-1)?.type !== 'activity_group'
     const thinkingPhase = streamPhase === 'provisioning' ? 'provisioning' : 'thinking'
     // Post-turn only: a reconnect refetch can fold in a pr_url mid-run, so gate on !isThinking.
     const pullRequestUrl = !isThinking ? runArtifacts.prUrl : undefined
     // Context usage rides the thread footer, but only between turns (idle) — never while the agent is
-    // working, where the thinking line takes the footer. `ContextUsageBar` self-hides without data.
-    const showContextUsageFooter = showContextUsage && !isThinking && !!contextUsage
+    // working, where the thinking line takes the footer. `ContextUsageChip` self-hides without data.
+    const showContextUsageFooter = showContextUsage && streamPhase === 'idle' && !!contextUsage
     const footer = useMemo(
         () =>
             showThinking || pullRequestUrl || showContextUsageFooter || showConnectionStatus || footerExtra ? (
@@ -172,43 +198,82 @@ export function ThreadView({
     )
 
     const renderItem = useCallback(
-        (item: ThreadItem, index: number): JSX.Element => {
-            if (item.type === 'turn_separator' && renderTurnTrailer) {
-                const trailer = turnTrailers?.get(item.id)
+        (item: ThreadDisplayItem, index: number): JSX.Element => {
+            if (item.type === 'activity_group') {
+                const isLast = index === displayItems.length - 1
                 return (
                     <VirtualizedThread.Row className={rowClassName}>
-                        {trailer ? renderTurnTrailer(trailer) : null}
+                        <TurnReveal store={turnHoverStore} turnId={turns?.rowTurnIds.get(item.id)}>
+                            <ThreadActivityGroup
+                                group={item}
+                                toolInvocations={toolInvocations}
+                                active={isLast && isThinking}
+                                waitingForInput={isLast && !!pendingPermissionRequest}
+                                cancelled={isLast && (turnCancelled || currentRunStatus === 'failed')}
+                                renderItem={(activity) => (
+                                    <ThreadRow
+                                        item={activity}
+                                        isLast={false}
+                                        isThinking={false}
+                                        toolInvocations={toolInvocations}
+                                        turnComplete={turnComplete}
+                                        turnCancelled={turnCancelled}
+                                    />
+                                )}
+                            />
+                        </TurnReveal>
+                    </VirtualizedThread.Row>
+                )
+            }
+            if (item.type === 'turn_separator' && renderTurnTrailer) {
+                const trailer = turns?.trailers.get(item.id)
+                return (
+                    <VirtualizedThread.Row className={rowClassName}>
+                        {trailer ? (
+                            <TurnReveal store={turnHoverStore} turnId={item.id}>
+                                {renderTurnTrailer(trailer)}
+                            </TurnReveal>
+                        ) : null}
                     </VirtualizedThread.Row>
                 )
             }
             return (
                 <VirtualizedThread.Row className={rowClassName}>
-                    <ThreadRow
-                        item={item}
-                        isLast={index === threadItems.length - 1}
-                        isThinking={isThinking}
-                        toolInvocations={toolInvocations}
-                        turnComplete={turnComplete}
-                        turnCancelled={turnCancelled}
-                    />
+                    <TurnReveal store={turnHoverStore} turnId={turns?.rowTurnIds.get(item.id)}>
+                        <ThreadRow
+                            item={item}
+                            isLast={index === displayItems.length - 1}
+                            isThinking={isThinking}
+                            toolInvocations={toolInvocations}
+                            turnComplete={turnComplete}
+                            turnCancelled={turnCancelled}
+                            runEnded={runEnded}
+                        />
+                    </TurnReveal>
                 </VirtualizedThread.Row>
             )
         },
         [
-            threadItems.length,
+            displayItems.length,
             isThinking,
             toolInvocations,
             turnComplete,
             turnCancelled,
             rowClassName,
             renderTurnTrailer,
-            turnTrailers,
+            turns,
+            turnHoverStore,
+            pendingPermissionRequest,
+            currentRunStatus,
+            runEnded,
         ]
     )
 
     return (
         <VirtualizedThread.Root
-            items={threadItems}
+            key={scrollRestorationKey}
+            scrollRestorationKey={scrollRestorationKey}
+            items={displayItems}
             getItemKey={getThreadItemKey}
             estimateItemHeight={estimateThreadItemHeight}
             anchorItemKey={anchorItemKey}
@@ -269,14 +334,22 @@ const ThreadFooter = memo(function ThreadFooter({
     // `runConnectionState` is self-subscribed here (like `currentProgress`) so the frequently-updating
     // reconnect attempt counter stays isolated to this leaf and never destabilizes `ThreadView`'s footer.
     const { currentProgress, runConnectionState } = useValues(runStreamLogic)
+    const { retryConnection } = useActions(runStreamLogic)
     // `gap-1.5` matches the thread's inter-row gap (`VirtualizedThread`'s `gap` default) so stacked footer
     // items keep the same vertical rhythm as the thread.
     return (
         <div className="flex flex-col gap-1.5">
-            {showConnectionStatus && runConnectionState && <RunAlertActivity {...runConnectionState} />}
-            {showThinking && <ThinkingIndicator progress={currentProgress} phase={thinkingPhase} />}
+            {showConnectionStatus && runConnectionState && (
+                <RunAlertActivity {...runConnectionState} onRetry={retryConnection} />
+            )}
+            {showThinking && (
+                <ThinkingIndicator
+                    progress={thinkingPhase === 'provisioning' ? null : currentProgress}
+                    phase={thinkingPhase}
+                />
+            )}
             {pullRequestUrl && <PullRequestCard prUrl={pullRequestUrl} branch={prBranch} />}
-            {showContextUsage && <ContextUsageBar />}
+            {showContextUsage && <ContextUsageChip />}
             {extra}
         </div>
     )

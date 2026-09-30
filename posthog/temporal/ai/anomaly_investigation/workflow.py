@@ -10,7 +10,7 @@ import re
 import json
 import asyncio
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 from typing import TYPE_CHECKING, Optional
 from uuid import UUID
 
@@ -22,11 +22,17 @@ from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.models import Team, User
-from posthog.tasks.alerts.utils import INSIGHT_ALERT_FIRING_EVENT, dispatch_alert_notification, record_alert_delivery
-from posthog.temporal.ai.anomaly_investigation.charts import png_to_b64, render_series_chart
+from posthog.tasks.alerts.charts import png_to_b64, render_series_chart
+from posthog.tasks.alerts.metric_definition import describe_metric_definition
+from posthog.tasks.alerts.utils import (
+    _inconclusive_is_suppressed,
+    _should_suppress_notification,
+    dispatch_alert_notification,
+    prepare_alert_insight_chart_url,
+    record_alert_delivery,
+)
 from posthog.temporal.ai.anomaly_investigation.event_provenance import alerted_series_event, describe_event_provenance
-from posthog.temporal.ai.anomaly_investigation.metric_definition import describe_metric_definition
-from posthog.temporal.ai.anomaly_investigation.notebook import NotebookRenderContext, build_investigation_notebook
+from posthog.temporal.ai.anomaly_investigation.notebook import NotebookRenderContext, build_investigation_markdown
 from posthog.temporal.ai.anomaly_investigation.prompts import build_anomaly_context
 from posthog.temporal.ai.anomaly_investigation.report import InvestigationReport
 from posthog.temporal.ai.anomaly_investigation.runner import run_investigation
@@ -35,11 +41,11 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.utils import absolute_uri
 
-from products.alerts.backend.destinations import list_active_alert_destinations
 from products.alerts.backend.investigation_episode import EpisodeInvestigations, episode_investigations
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, InvestigationStatus
-from products.exports.backend.facade import api as exports
 from products.notebooks.backend.facade import api as notebooks
+from products.notebooks.backend.facade.content import build_markdown_notebook_content
+from products.product_analytics.backend.facade.api import insights_including_soft_deleted_for_team
 from products.signals.backend.facade import api as signals
 
 if TYPE_CHECKING:
@@ -83,15 +89,6 @@ _MAX_DESCRIPTION_CHARS = 3000
 # Matches a sentence-ending punctuation mark followed by whitespace or end-of-string,
 # used to clip the summary teaser on a sentence boundary instead of mid-word.
 _SENTENCE_END_RE = re.compile(r"[.!?](?=\s|$)")
-
-# TTL for the tokenized chart URL embedded in Slack. Slack fetches the image at delivery,
-# but the URL must stay resolvable while people scroll back to the message; 30 days matches
-# the delivery-URL TTL used for task chart artifacts (products/tasks living_artifacts).
-_INSIGHT_CHART_URL_TTL = timedelta(days=30)
-
-# The stored PNG outlives its delivery URL by one day so the URL can never point at a
-# deleted asset; without an explicit TTL the format default keeps the PNG for six months.
-_INSIGHT_CHART_ASSET_TTL = timedelta(days=31)
 
 
 @dataclass
@@ -150,10 +147,10 @@ async def investigate_anomaly_activity(inputs: AnomalyInvestigationWorkflowInput
 
     await _update_status(alert_check, InvestigationStatus.RUNNING)
 
-    insight = alert.insight
+    insight = await sync_to_async(_evaluated_insight, thread_sensitive=False)(alert, alert_check)
     metric_description = insight.name or f"Insight {insight.short_id}"
-    detector_type = (alert.detector_config or {}).get("type") or "threshold"
-    series_index = (alert.config or {}).get("series_index", 0)
+    detector_type = _evaluated_detector_type(alert, alert_check)
+    series_index = _evaluated_series_index(alert, alert_check)
 
     # Measured up front rather than left to a tool call: without it the agent has only the
     # event's name to go on, and an opaque name invites it to invent the machinery behind it.
@@ -173,7 +170,9 @@ async def investigate_anomaly_activity(inputs: AnomalyInvestigationWorkflowInput
         calculated_value=alert_check.calculated_value,
         interval=alert_check.interval,
         # The alerted series, not series 0 — matching how the check and the chart pick it.
-        metric_definition=describe_metric_definition(insight.query, series_index=series_index),
+        metric_definition=describe_metric_definition(
+            insight.query, series_index=series_index, alert_config=alert.config
+        ),
         event_provenance=event_provenance,
     )
 
@@ -183,6 +182,10 @@ async def investigate_anomaly_activity(inputs: AnomalyInvestigationWorkflowInput
     anomaly_context = await sync_to_async(_build_multimodal_context, thread_sensitive=False)(
         alert=alert,
         context_text=anomaly_context_text,
+        triggered_dates=list(alert_check.triggered_dates or []),
+        triggered_points=list(alert_check.triggered_points or []),
+        series_index=series_index,
+        detector_type=detector_type,
     )
 
     try:
@@ -199,7 +202,7 @@ async def investigate_anomaly_activity(inputs: AnomalyInvestigationWorkflowInput
         await _mark_failed(alert_check, f"Agent run failed: {err}")
         raise
 
-    notebook_content = build_investigation_notebook(
+    notebook_markdown = build_investigation_markdown(
         NotebookRenderContext(
             alert=alert,
             alert_check=alert_check,
@@ -211,8 +214,8 @@ async def investigate_anomaly_activity(inputs: AnomalyInvestigationWorkflowInput
     notebook = await sync_to_async(notebooks.create_notebook, thread_sensitive=False)(
         team.id,
         title=f"Investigation — {alert.name or 'anomaly alert'}",
-        content=notebook_content,
-        text_content=result.report.summary,
+        content=build_markdown_notebook_content(notebook_markdown),
+        text_content=notebook_markdown,
         created_by_id=user.id,
         last_modified_by_id=user.id,
         creation_source=notebooks.NotebookCreationSource.TEMPORAL_AGENT,
@@ -222,7 +225,7 @@ async def investigate_anomaly_activity(inputs: AnomalyInvestigationWorkflowInput
     # short grace applies (INVESTIGATION_NOTIFY_GRACE_MINUTES), and a slow render sitting
     # between the DONE update and the dispatch would let the sweep force-send its fallback
     # notification mid-render. While the status is RUNNING the sweep waits much longer.
-    insight_chart_url = await sync_to_async(_prepare_insight_chart_url, thread_sensitive=False)(
+    insight_chart_url = await sync_to_async(prepare_alert_insight_chart_url, thread_sensitive=False)(
         alert=alert,
         alert_check=alert_check,
         user=user,
@@ -446,70 +449,6 @@ def _build_signal_description(
     return description
 
 
-def _inconclusive_is_suppressed(verdict: str | None, inconclusive_action: str | None) -> bool:
-    """Whether an inconclusive verdict is held back by the alert's configured policy."""
-    return verdict == "inconclusive" and (inconclusive_action or "notify") == "suppress"
-
-
-def _should_suppress_notification(verdict: str | None, inconclusive_action: str | None) -> bool:
-    """Whether the verdict holds the notification back: false positives always suppress,
-    inconclusive follows the alert's configured policy."""
-    return verdict == "false_positive" or _inconclusive_is_suppressed(verdict, inconclusive_action)
-
-
-def _prepare_insight_chart_url(
-    *,
-    alert: AlertConfiguration,
-    alert_check: AlertCheck,
-    user: User,
-    verdict: str | None,
-) -> str | None:
-    """Render the alerted insight to a PNG and mint a URL Slack can embed as an image block.
-
-    Skipped when nothing would show it: a suppressed verdict, an already-delivered check
-    (the common case for non-gated alerts, whose notification the main task sent
-    synchronously), or no active Slack destination (only the Slack template renders the
-    chart). Best-effort: on any failure (render error, no viewer access for the
-    investigation user, export infrastructure down) return None so the notification still
-    goes out, just without the chart.
-    """
-    if _should_suppress_notification(verdict, alert.investigation_inconclusive_action):
-        return None
-    pending = AlertCheck.objects.filter(
-        id=alert_check.id, notification_sent_at__isnull=True, notification_suppressed_by_agent=False
-    ).exists()
-    if not pending:
-        return None
-    try:
-        destinations = list_active_alert_destinations(
-            team_id=alert.team_id, alert_id=str(alert.id), allowed_event_ids=(INSIGHT_ALERT_FIRING_EVENT,)
-        )
-        if not any(destination.destination_type == "slack" for destination in destinations):
-            return None
-        asset, content = exports.render_png_export(
-            team=alert.team,
-            created_by=user,
-            insight_id=alert.insight_id,
-            # System render: keep it out of the user's export listings and quota.
-            is_system=True,
-            expires_after=datetime.now(UTC) + _INSIGHT_CHART_ASSET_TTL,
-        )
-        if content is None:
-            logger.info(
-                "anomaly_investigation.insight_chart_render_failed",
-                alert_id=str(alert.id),
-                asset_id=asset.id,
-                exception=asset.exception,
-            )
-            return None
-        return exports.get_delivery_image_url(
-            team_id=alert.team_id, asset_id=asset.id, expiry_delta=_INSIGHT_CHART_URL_TTL
-        )
-    except Exception:
-        logger.exception("anomaly_investigation.insight_chart_render_failed", alert_id=str(alert.id))
-        return None
-
-
 def _deliver_investigation_outcome(
     *,
     alert,
@@ -582,7 +521,11 @@ def _deliver_investigation_outcome(
         if insight_chart_url:
             extra_properties["insight_chart_url"] = insight_chart_url
         try:
-            deliveries = dispatch_alert_notification(alert, check, breaches, extra_properties=extra_properties or None)
+            # render_chart=False: the chart was already rendered above, before this
+            # transaction took its row lock.
+            deliveries = dispatch_alert_notification(
+                alert, check, breaches, extra_properties=extra_properties or None, render_chart=False
+            )
             record_alert_delivery(alert, check, deliveries, stamp_on_empty=True)
         except Exception:
             logger.exception(
@@ -650,6 +593,9 @@ def _dispatch_verdict_change_followup(
                 breaches,
                 extra_properties=extra_properties,
                 idempotency_key=f"{check.id}:investigation-verdict-change",
+                # The caller holds a row lock, and this check was already notified, so
+                # prepare_alert_insight_chart_url would return None anyway.
+                render_chart=False,
             )
     except Exception:
         # Best-effort, like the signal emit: the verdict is persisted and the user already
@@ -768,17 +714,65 @@ async def _mark_failed(alert_check, reason: str) -> None:
     )
 
 
-def _build_multimodal_context(*, alert, context_text: str):
+def _evaluated_series_index(alert, alert_check) -> int:
+    """The series the check judged, which the alert can have been repointed away from since."""
+    saved = (alert_check.triggered_metadata or {}).get("series_index")
+    if isinstance(saved, int) and not isinstance(saved, bool):
+        return saved
+    return (alert.config or {}).get("series_index", 0)
+
+
+def _evaluated_detector_type(alert, alert_check) -> str:
+    """The detector that produced the check, which the alert can have been moved off since."""
+    metadata = alert_check.triggered_metadata or {}
+    saved = metadata.get("detector_type")
+    if isinstance(saved, str) and saved:
+        return saved
+    # Checks saved before the type was recorded: only AI checks carried a verdict.
+    if isinstance(metadata.get("verdict_is_anomaly"), bool):
+        return "llm"
+    return (alert.detector_config or {}).get("type") or "threshold"
+
+
+def _evaluated_insight(alert, alert_check):
+    """The insight the check judged, which the alert can have been repointed away from since."""
+    saved = (alert_check.triggered_metadata or {}).get("insight_id")
+    if not isinstance(saved, int) or isinstance(saved, bool) or saved == alert.insight_id:
+        return alert.insight
+    # The judged insight can be soft-deleted by now; its definition is still what the check was about.
+    found = insights_including_soft_deleted_for_team(team_id=alert.team_id, insight_ids=[saved])
+    return found[0] if found else alert.insight
+
+
+def _build_multimodal_context(
+    *,
+    alert,
+    context_text: str,
+    triggered_dates: list[str],
+    triggered_points: list[int] | None = None,
+    series_index: int | None = None,
+    detector_type: str | None = None,
+):
     """Return a LangChain HumanMessage content value — either a plain string or a
     list of content blocks with the text and a rendered chart PNG.
 
+    ``detector_type`` is the detector that produced the check under investigation, and
+    ``triggered_points`` the indices it flagged, paired with ``triggered_dates``.
     Best-effort: if the detector can't simulate or the chart fails to render, we
     fall back to text-only so the investigation still runs.
     """
-    if alert.detector_config is None or alert.insight is None:
+    if alert.insight is None:
+        return context_text
+    # The alert's detector can change while an investigation waits to start. A saved AI
+    # verdict is charted from its own markers, with no scores from whatever detector the
+    # alert carries now, and even after the alert moved to a plain threshold.
+    judged_by_model = detector_type == "llm"
+    if alert.detector_config is None and not judged_by_model:
         return context_text
 
-    sim = _run_detector_simulation(alert=alert, team=alert.team, date_from=None)
+    sim = _run_detector_simulation(
+        alert=alert, team=alert.team, date_from=None, series_index=series_index, score=not judged_by_model
+    )
     if isinstance(sim, str) or not sim:
         logger.info("anomaly_investigation.chart_skipped", alert_id=str(alert.id), reason=str(sim)[:120])
         return context_text
@@ -788,11 +782,13 @@ def _build_multimodal_context(*, alert, context_text: str):
     if not dates or not values:
         return context_text
 
+    triggered_indices = _restore_triggered_indices(dates, triggered_points or [], triggered_dates)
+
     png = render_series_chart(
         dates=dates,
         values=values,
-        triggered_indices=sim.get("triggered_indices") or [],
-        scores=sim.get("scores") or None,
+        triggered_indices=triggered_indices,
+        scores=None if judged_by_model else sim.get("scores") or None,
         title=(alert.insight.name or alert.name or "Metric")[:80],
     )
     if not png:
@@ -809,6 +805,24 @@ def _build_multimodal_context(*, alert, context_text: str):
             },
         },
     ]
+
+
+def _restore_triggered_indices(dates: list[str], saved_points: list[int], saved_dates: list[str]) -> list[int]:
+    """Where the check's flagged points sit in the series as fetched now.
+
+    The series can have gained or lost points at either end since the check ran, so the
+    saved indices are matched to their dates as one block and shifted together. A SQL
+    series can repeat a date label, so matching on dates alone would mark every row that
+    shares one; the block match keeps one row per flagged point. A check with no saved
+    indices, or whose block no longer lines up, falls back to the dates.
+    """
+    pairs = list(zip(saved_points, saved_dates))
+    if pairs and len(saved_points) == len(saved_dates):
+        for offset in sorted(range(-len(dates), len(dates) + 1), key=abs):
+            if all(0 <= index + offset < len(dates) and dates[index + offset] == date for index, date in pairs):
+                return sorted(index + offset for index, _ in pairs)
+    wanted = set(saved_dates)
+    return [index for index, date in enumerate(dates) if date in wanted]
 
 
 async def _pick_investigation_user(alert) -> User | None:

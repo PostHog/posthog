@@ -14,7 +14,7 @@ from litellm.llms.anthropic.experimental_pass_through.adapters.handler import (
 )
 
 from llm_gateway.anthropic_request import convert_enabled_thinking_to_adaptive, force_stream_usage
-from llm_gateway.anthropic_stream import observe_anthropic_stream
+from llm_gateway.anthropic_stream import repair_anthropic_stream
 from llm_gateway.config import Settings, _normalize_cost_key
 
 # Modal endpoints are OpenAI-compatible vLLM servers; no native litellm provider.
@@ -150,7 +150,7 @@ def make_modal_anthropic_call(api_base: str, modal_key: str, modal_secret: str) 
         _inject_modal_params(kwargs, api_base, modal_key, modal_secret)
         response = await LiteLLMMessagesToCompletionTransformationHandler.async_anthropic_messages_handler(**kwargs)
         if isinstance(response, AsyncIterator):
-            return observe_anthropic_stream(response, "modal")
+            return repair_anthropic_stream(response, "modal")
         return response
 
     return llm_call

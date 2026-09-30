@@ -45,8 +45,12 @@ Fork of `@anthropic-ai/claude-agent-acp`. Upstream repo: https://github.com/anth
   of upstream's raw-explanation `agent_message_chunk` (supersedes the v0.42.0
   "Refusal handling" port and the v0.44.0 `model_refusal_fallback` skip)
 - SettingsManager `PreToolUse` hook for permission rules
+- Sandbox memory watchdog notice (`session/memory-kill-hook.ts`): `PostToolUse`/`PostToolUseFailure` hook that tells the agent when the watchdog stopped a Bash process tree
 - `ensureLocalSettings` / `clearStatsigCache`
 - `ELECTRON_RUN_AS_NODE` / `ENABLE_TOOL_SEARCH` env vars
+- `machine-auth.ts` (`MachineClaudeAuth`, `applyMachineClaudeAuth`): strips gateway/telemetry env
+  and sets `CLAUDE_CONFIG_DIR` or `CLAUDE_CODE_OAUTH_TOKEN` so a session bills the user's own
+  Claude plan instead of the PostHog gateway
 
 ## Intentional Divergences
 

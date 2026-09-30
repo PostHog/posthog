@@ -14,6 +14,8 @@ import {
 
 const series = (labels: string[], ...namedValues: [string, number[]][]): AppMetricsTimeSeriesResponse => ({
     labels,
+    interval: 'day',
+    timezone: 'UTC',
     series: namedValues.map(([name, values]) => ({ name, values })),
 })
 

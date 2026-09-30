@@ -10,6 +10,7 @@ import structlog
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse
 from rest_framework import mixins, serializers, status, viewsets
+from rest_framework.exceptions import ValidationError as DRFValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.utils.urls import replace_query_param
@@ -32,13 +33,15 @@ from products.access_control.backend.facade.user_access_control import (
 )
 from products.approvals.backend.exceptions import ApprovalRequired, PolicyConflict
 from products.approvals.backend.scheduled_changes import gate_scheduled_change
+from products.approvals.backend.transactions import gated_atomic
 from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty
 from products.cohorts.backend.models.util import get_all_cohort_dependencies, sort_cohorts_topologically
-from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
 from products.feature_flags.backend.encrypted_flag_payloads import (
     get_decrypted_flag_payloads,
     get_decrypted_flag_payloads_protected,
 )
+from products.feature_flags.backend.facade.api import create_flag, serialize_flags, update_flag
+from products.feature_flags.backend.facade.config import ConfigFormatError
 from products.feature_flags.backend.flag_analytics import get_cached_evaluations_7d_by_team
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.scheduled_change import ScheduledChange
@@ -494,14 +497,18 @@ class OrganizationFeatureFlagView(
                 return Response({"error": str(error)}, status=status.HTTP_400_BAD_REQUEST)
 
         copy_source_flags = [*dependency_graph.dependency_flags, flag_to_copy]
-        copy_source_contexts = {
-            source_flag.id: self._get_feature_flag_copy_source_context(
-                source_flag,
-                copy_schedule,
-                user,
-            )
-            for source_flag in copy_source_flags
-        }
+        copy_source_contexts: dict[int, FeatureFlagCopySourceContext] = {}
+        for source_flag in copy_source_flags:
+            try:
+                copy_source_contexts[source_flag.id] = self._get_feature_flag_copy_source_context(
+                    source_flag, copy_schedule, user
+                )
+            except ConfigFormatError:
+                subject = "This flag" if source_flag.id == flag_to_copy.id else f"Dependency flag '{source_flag.key}'"
+                return Response(
+                    {"error": f"{subject} uses a configuration format that cannot be copied yet."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
         successful_projects = []
         failed_projects = []
@@ -517,7 +524,7 @@ class OrganizationFeatureFlagView(
                 )
                 continue
             try:
-                with transaction.atomic():
+                with gated_atomic():
                     target_flag_access_context = (
                         self._get_accessible_target_flags_by_key(
                             [source_flag.key for source_flag in copy_source_flags],
@@ -1346,26 +1353,27 @@ class OrganizationFeatureFlagView(
             "is_remote_configuration": source_flag.is_remote_configuration,
             "has_encrypted_payloads": source_flag.has_encrypted_payloads,
         }
-        context = {
-            "request": request,
-            "team_id": target_project_id,
-            "project_id": target_project_id,
-        }
-
         original_request_method = request.method
         try:
             # FeatureFlagSerializer validates create/update semantics from the request method.
             request.method = "PATCH" if existing_flag else "POST"
-            if existing_flag:
-                feature_flag_serializer = FeatureFlagSerializer(
-                    existing_flag, data=flag_data, partial=True, context=context
-                )
-            else:
-                feature_flag_serializer = FeatureFlagSerializer(data=flag_data, context=context)
-
             try:
-                feature_flag_serializer.is_valid(raise_exception=True)
-                saved_flag = feature_flag_serializer.save(team_id=target_project_id)
+                # The copied payload holds the source flag's fields, so the target project's own
+                # tag and evaluation context requirements cannot apply to it.
+                copy_exemption = {"skip_team_flag_requirements": True}
+                if existing_flag:
+                    saved_flag = update_flag(
+                        existing_flag,
+                        flag_data,
+                        team=target_team,
+                        user=user,
+                        request=request,
+                        serializer_context=copy_exemption,
+                    )
+                else:
+                    saved_flag = create_flag(
+                        flag_data, team=target_team, user=user, request=request, serializer_context=copy_exemption
+                    )
                 if target_flag_access_context is not None:
                     target_flag_access_context.flags_by_key[source_flag.key] = saved_flag
             except IntegrityError as e:
@@ -1375,10 +1383,8 @@ class OrganizationFeatureFlagView(
                         "It was left unchanged."
                     ) from e
                 raise
-            except Exception as e:
-                if feature_flag_serializer.errors:
-                    raise ValueError(feature_flag_serializer.errors) from e
-                raise
+            except DRFValidationError as e:
+                raise ValueError(e.detail) from e
         finally:
             request.method = original_request_method
 
@@ -1421,7 +1427,12 @@ class OrganizationFeatureFlagView(
                 )
                 schedule_copy_error = str(e)
 
-        result = dict(feature_flag_serializer.data)
+        # Neither branch reaches here redacted: FeatureFlagSerializer.create() never redacts, and
+        # update_flag reloads the stored ciphertext over the redaction update() did. Redact both the
+        # way every other flag read path does, so only a personal API key sees the payloads.
+        self._redact_encrypted_payloads(request, saved_flag)
+        copy_context = {"request": request, "team_id": target_team.id, "project_id": target_project_id}
+        result = dict(serialize_flags([saved_flag], context=copy_context)[0])
         result["team_id"] = saved_flag.team_id
         result["updated_existing"] = existing_flag is not None
         if schedule_copy_error:

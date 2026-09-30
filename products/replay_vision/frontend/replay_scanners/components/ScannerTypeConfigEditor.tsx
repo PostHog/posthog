@@ -13,8 +13,10 @@ import {
     LemonTextArea,
 } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useMaxTool } from 'scenes/max/useMaxTool'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
@@ -23,6 +25,19 @@ import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
 import { replayScannerLogic } from '../replayScannerLogic'
 import { ClassifierScannerConfig, SummarizerScannerConfig, scannerTypeLabel } from '../types'
+
+/** Whether this form should offer no AI help at all.
+ *
+ * In the goal-based flow the AI path is the flow itself, so someone who turned it down to build by
+ * hand gets one path or the other rather than a half-AI middle. Only while creating: editing a
+ * saved scanner is not that choice, and someone who did use the flow keeps the entry points so they
+ * can rework what it drafted. Multivariate flag, so a truthy check would strip the control arm too
+ * and change what the experiment compares. */
+function useManualWithoutAi(scannerId: string): boolean {
+    const { isNew, goalDraft } = useValues(replayScannerLogic({ id: scannerId }))
+    const { featureFlags } = useValues(featureFlagLogic)
+    return isNew && !goalDraft && featureFlags[FEATURE_FLAGS.VISION_GOAL_BASED_CREATION_FLOW] === 'test'
+}
 
 export const SUMMARIZER_LENGTH_OPTIONS: { value: SummarizerScannerConfig['length']; label: string }[] = [
     { value: 'short', label: 'Short (1-2 sentences)' },
@@ -47,6 +62,7 @@ function ScannerPromptField({
     const { setScannerValue } = useActions(logic)
     // The AI already wrote this prompt one step ago, so offering to write it reads as a no-op.
     const promptWasDrafted = isNew && !!goalDraft
+    const manualWithoutAi = useManualWithoutAi(scannerId)
 
     const onDraftedPrompt = useCallback(
         (toolOutput: { prompt?: string; error?: string }) => {
@@ -91,7 +107,7 @@ function ScannerPromptField({
         <div className="space-y-2">
             <div className="flex flex-wrap items-center justify-between gap-2">
                 <label className="text-sm font-medium">{label}</label>
-                {openMax && (
+                {openMax && !manualWithoutAi && (
                     <LemonButton
                         size="xsmall"
                         type="secondary"
@@ -183,6 +199,7 @@ function ClassifierTagsField({ scannerId }: { scannerId: string }): JSX.Element 
     const hasTags = (config?.tags ?? []).length > 0
     // The draft already filled these in, so the offer is more of them, not a first set.
     const categoriesWereDrafted = isNew && !!goalDraft && !!config?.tags?.length
+    const manualWithoutAi = useManualWithoutAi(scannerId)
     // The param only survives on a new scanner whose config a valid template prefilled: the picker
     // drops it when the blank card is chosen, and loadScanner strips it on load when a goal draft
     // outranks the template or the key is unknown.
@@ -205,21 +222,23 @@ function ClassifierTagsField({ scannerId }: { scannerId: string }): JSX.Element 
                             >
                                 Clear all
                             </LemonButton>
-                            <LemonButton
-                                size="xsmall"
-                                type="secondary"
-                                icon={<IconAI />}
-                                loading={tagSuggestionsLoading}
-                                disabledReason={
-                                    hasPrompt ? undefined : 'Add a prompt first so suggestions match your goal'
-                                }
-                                onClick={() => loadTagSuggestions()}
-                                data-attr="replay-vision-suggest-tags-with-ai"
-                            >
-                                {categoriesWereDrafted
-                                    ? 'Suggest more categories'
-                                    : 'Suggest categories with PostHog AI'}
-                            </LemonButton>
+                            {!manualWithoutAi && (
+                                <LemonButton
+                                    size="xsmall"
+                                    type="secondary"
+                                    icon={<IconAI />}
+                                    loading={tagSuggestionsLoading}
+                                    disabledReason={
+                                        hasPrompt ? undefined : 'Add a prompt first so suggestions match your goal'
+                                    }
+                                    onClick={() => loadTagSuggestions()}
+                                    data-attr="replay-vision-suggest-tags-with-ai"
+                                >
+                                    {categoriesWereDrafted
+                                        ? 'Suggest more categories'
+                                        : 'Suggest categories with PostHog AI'}
+                                </LemonButton>
+                            )}
                         </span>
                     </span>
                 }

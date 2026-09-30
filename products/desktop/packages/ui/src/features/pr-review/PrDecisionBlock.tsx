@@ -2,7 +2,6 @@ import {
   CaretDownIcon,
   CheckCircleIcon,
   CheckIcon,
-  CircleNotchIcon,
   GitMergeIcon,
   MinusCircleIcon,
   XCircleIcon,
@@ -15,11 +14,11 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-  Spinner,
 } from "@posthog/quill";
-import { Spin } from "@posthog/ui/primitives/Spinner";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { useState } from "react";
 import { PrChecksSection } from "./PrChecksSection";
+import { PrSkillMenu } from "./PrSkillMenu";
 import { useApprovePr } from "./useApprovePr";
 import { useMarkPrReady } from "./useMarkPrReady";
 import { useMergePr } from "./useMergePr";
@@ -116,9 +115,7 @@ export function PrDecisionBlock({ prUrl }: PrDecisionBlockProps) {
     </span>
   ) : gate.pendingChecks > 0 ? (
     <span className="flex items-center gap-1.5 text-(--amber-11)">
-      <Spin>
-        <CircleNotchIcon size={14} />
-      </Spin>
+      <Spinner size="md" />
       Checks running
     </span>
   ) : gate.totalChecks === 0 ? (
@@ -149,9 +146,11 @@ export function PrDecisionBlock({ prUrl }: PrDecisionBlockProps) {
       </div>
 
       <div className="flex flex-wrap items-center gap-2.5">
+        <PrSkillMenu prUrl={prUrl} />
         <Button
           type="button"
           variant="outline"
+          loading={approve.isPending}
           disabled={approveDisabled}
           onClick={() => approve.mutate({ prUrl })}
           className={BIG_BUTTON}
@@ -169,6 +168,7 @@ export function PrDecisionBlock({ prUrl }: PrDecisionBlockProps) {
           <Button
             type="button"
             variant="primary"
+            loading={merge.isPending}
             disabled={mergeDisabled}
             onClick={() => merge.mutate({ prUrl, method })}
             className={BIG_BUTTON}
@@ -208,11 +208,11 @@ export function PrDecisionBlock({ prUrl }: PrDecisionBlockProps) {
               type="button"
               variant="outline"
               size="sm"
+              loading={markReady.isPending}
               disabled={markReady.isPending}
               onClick={() => markReady.mutate({ prUrl, action: "ready" })}
               className="gap-1.5"
             >
-              {markReady.isPending && <Spinner />}
               Ready for review
             </Button>
           </>

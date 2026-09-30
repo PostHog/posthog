@@ -103,6 +103,7 @@ IntervieweeContext
 KernelRuntime
 LLMModelConfiguration
 LLMPrompt
+LLMPromptDependency
 LLMPromptLabel
 LLMProviderKey
 LLMSkill
@@ -124,12 +125,12 @@ Notebook
 NotificationEvent
 ObjectMediaPreview
 OptOutSyncConfig
-PersistedFolder
 PluginConfig
 ProductTour
 ProjectSecretAPIKey
 PropertyAccessControl
 QueryTabState
+QueueJob
 QuickFilter
 QuickFilterContext
 Reminder

@@ -2,14 +2,15 @@ import { IconInfo } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 import { LemonSelect } from '@posthog/lemon-ui'
 
-import { FUNNEL_STEP_COUNT_LIMIT } from '~/scenes/insights/EditorFilters/FunnelsQuerySteps'
 import { BreakdownAttributionType, StepOrderValue } from '~/types'
+
+import { FUNNEL_STEP_COUNT_LIMIT } from 'products/product_analytics/frontend/insights/funnels/editor/FunnelsQuerySteps'
 
 /**
  * @deprecated
  * Legacy funnel attribution select for ExperimentView.
  * Frozen copy for legacy experiments - do not modify.
- * Forked from https://github.com/PostHog/posthog/blob/master/frontend/src/scenes/insights/EditorFilters/AttributionFilter.tsx
+ * Forked from https://github.com/PostHog/posthog/blob/master/products/product_analytics/frontend/insights/funnels/editor/FunnelAttributionFilter.tsx
  */
 export function LegacyFunnelAttributionSelect({
     value,

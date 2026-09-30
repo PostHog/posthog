@@ -34,7 +34,13 @@ export function ComputationTimeWithRefresh({ disableRefresh }: { disableRefresh?
 
     return (
         <div className="flex items-center text-secondary z-10">
-            Computed {lastRefresh ? dayjs(lastRefresh).fromNow() : 'a while ago'}
+            {/* Both halves get their own element so neither is a bare text node React tracks: once a
+                page-translation extension replaces such a node with a <font> element, React's writes
+                land on the detached node and the time freezes, and removing it throws
+                removeChild NotFoundError (react#11538). The relative time also opts out of
+                translation, since it is rewritten every 15s. */}
+            <span>Computed&nbsp;</span>
+            <span translate="no">{lastRefresh ? dayjs(lastRefresh).fromNow() : 'a while ago'}</span>
             {!disableRefresh && (
                 <>
                     <span className="px-1">•</span>

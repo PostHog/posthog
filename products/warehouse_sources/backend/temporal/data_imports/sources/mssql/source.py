@@ -2,20 +2,20 @@ from typing import Optional, cast
 
 from sshtunnel import BaseSSHTunnelForwarderError
 
-from posthog.schema import (
+from posthog.exceptions_capture import capture_exception
+
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
     SourceFieldSSHTunnelConfig,
 )
-
-from posthog.exceptions_capture import capture_exception
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
+    HostNotAllowedError,
     SSHTunnelMixin,
+    TemporaryHostResolutionError,
     ValidateDatabaseHostMixin,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
@@ -36,16 +36,30 @@ _FIREWALL_BLOCKED_ERROR = (
     "try again. New rules can take a few minutes to take effect."
 )
 
+# The two connect-time conditions the sync path maps below, reached through the connect form
+# instead. Both need the network cause named, not just the two values: FreeTDS reports a wrong host
+# or port and a server it cannot reach at all in the same words.
+_SERVER_UNREACHABLE_VALIDATION_ERROR = (
+    "Could not reach your SQL Server on the host and port given. Check the host and port are "
+    "correct, and that PostHog's IP addresses are allowed through your firewall."
+)
+
+_CONNECTION_TIMED_OUT_ERROR = (
+    "Connection timed out. Check that your server is reachable from the public internet and that "
+    "PostHog's IP addresses are allowed through your firewall. For a server that can't be exposed "
+    "publicly, use the SSH tunnel option."
+)
+
 MSSQLErrors = {
     # SQL Server error 18456 is an authentication failure (wrong username/password, or the login is
     # disabled), not a problem with the database field. Surface the same wording the sibling SQL
     # sources use and match the stable prefix, not the volatile "'<username>'." that follows it.
     "Login failed for user": "Invalid user or password",
-    "Adaptive Server is unavailable or does not exist": "Could not connect to SQL server - check server host and port",
+    "Adaptive Server is unavailable or does not exist": _SERVER_UNREACHABLE_VALIDATION_ERROR,
     # Azure SQL error 40615 — the server-level firewall rejected the connecting client IP. The full
     # message echoes the server name and client IP, so match the stable, distinctive phrase instead.
     "is not allowed to access the server": _FIREWALL_BLOCKED_ERROR,
-    "connection timed out": "Could not connect to SQL server - check server firewall settings",
+    "connection timed out": _CONNECTION_TIMED_OUT_ERROR,
 }
 
 _MSSQL_IMPLEMENTATION = MSSQLImplementation()
@@ -68,6 +82,13 @@ class MSSQLSource(SQLSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             # A fresh connection from the next Temporal retry resolves it; keep it out of
             # error tracking so it doesn't surface as noise.
             "Unexpected EOF from the server",
+            # pymssql's own InterfaceError, raised when `Cursor.execute` calls `cancel()` to
+            # clear pending results and finds the connection already dead (`assert_connected`
+            # in pymssql's `_mssql.pyx`). It's the same underlying DBPROCESS-death class as the
+            # 20017 case above — the driver's own retry loop tried to reuse a connection that
+            # died between opening and the query running — just surfaced through a different
+            # internal code path. A fresh connection from the next Temporal retry resolves it.
+            "Not connected to any MS SQL server",
         }
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
@@ -94,6 +115,12 @@ class MSSQLSource(SQLSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             # same login can never succeed. Match the stable message text, not the object/database
             # names that follow it.
             "The SELECT permission was denied on the object": "Your SQL Server login doesn't have permission to read one of the tables or views being synced. Grant it SELECT access (for example via the db_datareader role or an explicit GRANT SELECT) on the objects you want to import, then re-enable the sync.",
+            # SQL Server error 230 — the column-level counterpart of 229: the login has some
+            # access to the object but a column-level GRANT/DENY blocks SELECT on one specific
+            # column ("...denied on the column 'X' of the object 'Y'..."). Same fix as the
+            # object-level case, just scoped to a column, so retrying replays the identical
+            # denial. Match the stable phrase, not the volatile column/object/database names.
+            "The SELECT permission was denied on the column": "Your SQL Server login doesn't have permission to read one of the columns being synced. Grant it SELECT access on that column (for example via the db_datareader role or an explicit column-level GRANT SELECT), then re-enable the sync.",
             # SQL Server error 208 — the SELECT we run during the sync references an object the
             # server can't resolve. Either the table/view we're syncing was dropped or renamed
             # after schema discovery, or (as seen in practice) the view we select from has a body
@@ -109,6 +136,13 @@ class MSSQLSource(SQLSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             # whose definition selects a column that's no longer present. Fixed source-data shape,
             # so retrying won't help.
             "Invalid column name": "One of the columns being synced no longer exists in your SQL Server. A column was likely dropped or renamed, or a view's definition references a column that's no longer present. Fix the column or view definition at the source, then re-enable the sync.",
+            # SQL Server error 209 — a name in the object we select from resolves to more than one
+            # column. Our SELECT reads a single qualified object and only ever names columns
+            # discovered from information_schema, so the ambiguity is inside a view body: most often
+            # a `SELECT *` over a join that went stale when a base table gained a same-named column.
+            # The view keeps failing until it is refreshed or rewritten, so retrying replays the
+            # identical 209. Match the stable error text, not the column name that follows it.
+            "Ambiguous column name": "A view you're syncing has a column name that exists in more than one of the tables it reads, so SQL Server can't resolve it. Fix or refresh the view definition at the source, then re-enable the sync.",
             # SQL Server error 245 — an implicit type conversion fails on a specific row's value
             # (e.g. converting the varchar 'SFDR' to int). Our SELECT does no casts and the
             # incremental predicate only ever compares like types, so this conversion lives in the
@@ -180,9 +214,11 @@ class MSSQLSource(SQLSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatabase
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.MSSQL,
+            name=ExternalDataSourceType.MSSQL,
             category=DataWarehouseSourceCategory.DATABASES,
-            keywords=["sql server", "sql", "mssql"],
+            # This connector is also how you connect Azure SQL Database, but nothing in the label
+            # or name carries "Azure", so a search for it fuzzy-matched unrelated sources instead.
+            keywords=["sql server", "sql", "mssql", "azure", "azure sql", "azure sql database"],
             label="Microsoft SQL Server",
             caption="Enter your Microsoft SQL Server/Azure SQL Server credentials to automatically pull your SQL data into the PostHog Data warehouse.",
             iconPath="/static/services/sql-azure.png",
@@ -274,6 +310,10 @@ class MSSQLSource(SQLSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatabase
 
         try:
             self.get_schemas(config, team_id, api_version=api_version)
+        except (HostNotAllowedError, TemporaryHostResolutionError) as e:
+            # The host policy refused the host, or its lookup never answered. Both carry their own
+            # user-facing wording and neither is a PostHog defect, so they are not captured.
+            return False, str(e)
         except OperationalError as e:
             error_msg = " ".join(str(n) for n in e.args)
             for key, value in MSSQLErrors.items():

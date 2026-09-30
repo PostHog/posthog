@@ -3,15 +3,16 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
+vi.mock("@posthog/ui/features/canvas/hooks/useWorkLayout", () => ({
+  useWorkLayout: () => false,
+}));
 vi.mock("@posthog/ui/features/canvas/hooks/useChannelsLayout", () => ({
   useChannelsLayout: () => false,
 }));
-vi.mock("@posthog/host-router/react", () => ({
-  useHostTRPC: () => ({
-    dashboards: { saveContext: { mutationKey: () => ["save-context"] } },
-  }),
-}));
 vi.mock("@posthog/ui/shell/analytics", () => ({ track: vi.fn() }));
+vi.mock("@posthog/ui/features/feature-flags/useFeatureFlag", () => ({
+  useFeatureFlag: () => false,
+}));
 vi.mock("@posthog/ui/features/canvas/hooks/useSelectedCanvasId", () => ({
   useSelectedCanvasId: () => useSelectedCanvasId(),
 }));
@@ -35,6 +36,7 @@ const {
 vi.mock("@tanstack/react-router", () => ({
   Outlet: () => null,
   useNavigate: () => vi.fn(),
+  useSearch: () => ({}),
   useParams: (opts?: {
     select?: (p: Record<string, string | undefined>) => unknown;
   }) => {
@@ -45,13 +47,13 @@ vi.mock("@tanstack/react-router", () => ({
     select,
   }: {
     select: (s: {
-      location: { pathname: string };
+      location: { pathname: string; href: string; state: object };
       matches: { routeId: string }[];
     }) => unknown;
   }) => {
     const pathname = usePathname();
     return select({
-      location: { pathname },
+      location: { pathname, href: pathname, state: {} },
       matches: [{ routeId: "/spaces/$channelId/tasks/$taskId" }],
     });
   },
@@ -95,7 +97,7 @@ vi.mock("@posthog/ui/features/sessions/components/useComments", () => ({
         content: "First",
         item_id: "canvas-1",
         item_context: { anchor: { kind: "document" } },
-        scope: "desktop_canvas",
+        scope: "canvas",
         source_comment: null,
         completed_at: null,
       },
@@ -105,7 +107,7 @@ vi.mock("@posthog/ui/features/sessions/components/useComments", () => ({
         content: "Second",
         item_id: "canvas-1",
         item_context: { anchor: { kind: "document" } },
-        scope: "desktop_canvas",
+        scope: "canvas",
         source_comment: null,
         completed_at: null,
       },

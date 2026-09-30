@@ -15,7 +15,8 @@ use std::future::Future;
 use std::str::FromStr;
 
 use anyhow::{bail, Context, Result};
-use cohort_seeder::domain::RunId;
+use chrono::{DateTime, Utc};
+use cohort_seeder::domain::{DayIdx, DaySchedule, PlannedDay, RunId, UtcMillis};
 use cohort_seeder::store::chunks::{ChunkStoreError, PlanOutcome};
 use cohort_seeder::store::completion::CompletionStoreError;
 use serde_json::{json, Value};
@@ -25,8 +26,8 @@ use sqlx::{Connection, PgConnection, PgPool};
 use uuid::Uuid;
 
 /// The `cohort_backfill_*` DDL (plus a schema-local `posthog_cohort` projection), pinned to Django
-/// migration 0012, applied fresh into each test schema.
-pub const DDL: &str = include_str!("../fixtures/cohort_backfill_0012.sql");
+/// migration 0015, applied fresh into each test schema.
+pub const DDL: &str = include_str!("../fixtures/cohort_backfill_0015.sql");
 /// A live cohort condition hash used by the superseded-load fixtures.
 pub const ACTIVE_HASH: &str = "active0000000000";
 /// A superseded cohort condition hash used by the superseded-load fixtures.
@@ -354,4 +355,22 @@ pub fn behavioral_filter(hash: &str, event_name: &str) -> Value {
             "bytecode": ["_H", 1, 32, event_name, 32, "event", 1, 1, 11],
         }]}
     })
+}
+
+/// Days before a run's boundary, planned the way the seeder plans them: claimable at once.
+pub fn historical<const N: usize>(days: [DayIdx; N]) -> [PlannedDay; N] {
+    days.map(|day| PlannedDay {
+        day,
+        schedule: DaySchedule::Historical,
+    })
+}
+
+/// A day from the boundary day on, held the way the seeder holds it until the day has ended.
+pub fn trailing(day: DayIdx, claimable_after: DateTime<Utc>) -> PlannedDay {
+    PlannedDay {
+        day,
+        schedule: DaySchedule::Trailing {
+            claimable_after: UtcMillis::new(claimable_after.timestamp_millis()),
+        },
+    }
 }

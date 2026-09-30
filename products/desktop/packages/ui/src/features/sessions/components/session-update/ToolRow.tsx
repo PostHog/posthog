@@ -5,8 +5,8 @@ import {
   ChatMarkerContent,
   ChatMarkerIcon,
   cn,
-  Spinner,
 } from "@posthog/quill";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { type ReactNode, useState } from "react";
 import { useChatThreadChrome } from "../chat-thread/chatThreadChrome";
 import {

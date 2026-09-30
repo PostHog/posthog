@@ -56,6 +56,7 @@ const sessionService = {
   rememberInitialCloudPrompt: vi.fn(),
   markTaskCreationInFlight: vi.fn(),
   clearVisibleTaskStarting: vi.fn(),
+  designateClaudeSubscription: vi.fn(),
 } as unknown as SessionService;
 
 const createTask = (overrides: Partial<Task> = {}): Task => ({
@@ -138,6 +139,48 @@ describe("TaskCreationSaga", () => {
       }),
     );
   });
+
+  it.each([true, false])(
+    "starts a cold subscription run only when credential designation succeeds (%s)",
+    async (designationSucceeds) => {
+      const createTaskMock = vi.fn().mockResolvedValue(createTask());
+      const createTaskRunMock = vi.fn().mockResolvedValue(createRun());
+      const startTaskRunMock = vi
+        .fn()
+        .mockResolvedValue(createTask({ latest_run: createRun() }));
+      const designate = vi.mocked(sessionService.designateClaudeSubscription);
+      designate.mockImplementationOnce(async () => {
+        if (!designationSucceeds) throw new Error("Host unavailable");
+      });
+      const saga = makeSaga({
+        createTask: createTaskMock,
+        createTaskRun: createTaskRunMock,
+        startTaskRun: startTaskRunMock,
+      });
+
+      const result = await saga.run({
+        content: "Ship the fix",
+        repository: "posthog/posthog",
+        workspaceMode: "cloud",
+        branch: "main",
+        adapter: "claude",
+        claudeCloudModelAccess: "own-subscription",
+      });
+
+      expect(createTaskMock.mock.calls[0][0].branch).toBeUndefined();
+      expect(createTaskRunMock).toHaveBeenCalledWith(
+        "task-123",
+        expect.objectContaining({
+          claudeModelAccess: "own-subscription",
+        }),
+      );
+      expect(designate).toHaveBeenCalledWith("task-123", "run-123");
+      expect(result.success).toBe(designationSucceeds);
+      expect(startTaskRunMock).toHaveBeenCalledTimes(
+        designationSucceeds ? 1 : 0,
+      );
+    },
+  );
 
   it("waits for the cloud run response before surfacing the task", async () => {
     const createdTask = createTask();
@@ -524,6 +567,7 @@ describe("TaskCreationSaga", () => {
       repository: "posthog/posthog",
       workspaceMode: "cloud",
       runtime: "pi",
+      claudeCloudModelAccess: "own-subscription",
       branch: "main",
       adapter: "codex",
       model: "gpt-5.4",
@@ -539,6 +583,7 @@ describe("TaskCreationSaga", () => {
         branch: "main",
         adapter: undefined,
         piRuntime: true,
+        claudeModelAccess: undefined,
         model: "gpt-5.4",
         reasoningLevel: "high",
         initialPermissionMode: undefined,
@@ -549,6 +594,7 @@ describe("TaskCreationSaga", () => {
       pendingUserArtifactIds: undefined,
     });
     expect(piRunner.create).not.toHaveBeenCalled();
+    expect(sessionService.designateClaudeSubscription).not.toHaveBeenCalled();
   });
 
   it("uploads initial cloud attachments before starting the run", async () => {
@@ -772,6 +818,8 @@ describe("TaskCreationSaga", () => {
       repository: "posthog/posthog",
       workspaceMode: "cloud",
       branch: "main",
+      adapter: "claude",
+      executionMode: "plan",
       cloudAutoPublish: true,
     });
 
@@ -779,9 +827,10 @@ describe("TaskCreationSaga", () => {
     expect(mockHost.takeWarmTaskLease).toHaveBeenCalledWith({
       repository: "posthog/posthog",
       branch: "main",
-      runtimeAdapter: null,
+      runtimeAdapter: "claude",
       model: null,
       reasoningEffort: null,
+      permissionMode: "plan",
       sandboxEnvironmentId: null,
       customImageId: null,
     });
@@ -798,6 +847,7 @@ describe("TaskCreationSaga", () => {
         branch: "main",
         pending_user_message: "/my-skill do it",
         pending_user_artifact_ids: ["skill-artifact-1"],
+        initial_permission_mode: "plan",
         // Warm activation skips run creation, so the choice must ride along here.
         auto_publish: true,
       }),

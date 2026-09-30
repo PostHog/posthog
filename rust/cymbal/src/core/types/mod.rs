@@ -24,4 +24,8 @@ pub struct Mechanism {
     pub source: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub synthetic: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exception_id: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent_id: Option<u64>,
 }

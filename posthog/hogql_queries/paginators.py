@@ -15,6 +15,21 @@ from posthog.hogql.constants import (
 from posthog.hogql.query import execute_hogql_query
 
 
+def get_query_limit(query: ast.SelectQuery | ast.SelectSetQuery) -> int | None:
+    """Return a constant row limit, or None when the query has no usable one.
+
+    A percentage limit resolves to a row count only after the result size is known, and WITH TIES
+    can return more rows than the stated limit, so neither gives a hard cap a caller could pad or
+    compare row counts against.
+    """
+    if query.limit_percent or query.limit_with_ties:
+        return None
+    limit = query.limit
+    if isinstance(limit, ast.Constant) and type(limit.value) is int and limit.value >= 0:
+        return limit.value
+    return None
+
+
 class HogQLHasMorePaginator:
     """
     Paginator that fetches one more result than requested to determine if there are more results.
@@ -38,6 +53,25 @@ class HogQLHasMorePaginator:
         default_rows = get_default_limit_for_context(limit_context)
         limit = min(max_rows, default_rows if (limit is None or limit <= 0) else limit)
         return cls(limit=limit, offset=offset, limit_context=limit_context)
+
+    @classmethod
+    def from_alert_query(
+        cls, query: ast.SelectQuery | ast.SelectSetQuery, *, limit_context: LimitContext
+    ) -> "HogQLHasMorePaginator | None":
+        if not isinstance(query, ast.SelectQuery) or query.limit_percent or query.limit_with_ties:
+            return None
+        limit = get_query_limit(query) if query.limit is not None else get_default_limit_for_context(limit_context)
+        if limit is None or limit <= 0:
+            return None
+        # The extra probe row must fit under the execution cap to prove completeness.
+        if limit >= get_max_limit_for_context(limit_context):
+            return None
+        offset = query.offset
+        if offset is None:
+            return cls(limit=limit, offset=None, limit_context=limit_context)
+        if not isinstance(offset, ast.Constant) or type(offset.value) is not int or offset.value < 0:
+            return None
+        return cls(limit=limit, offset=offset.value, limit_context=limit_context)
 
     def paginate(self, query: Union[ast.SelectQuery, ast.SelectSetQuery]) -> Union[ast.SelectQuery, ast.SelectSetQuery]:
         if isinstance(query, ast.SelectQuery):

@@ -1,6 +1,5 @@
 import {
   CaretDown,
-  CircleNotch,
   Folder as FolderIcon,
   FolderOpen,
   GitBranch,
@@ -28,7 +27,7 @@ import {
 } from "@posthog/quill";
 import type { RegisteredFolder } from "@posthog/ui/features/folders/types";
 import { useFolders } from "@posthog/ui/features/folders/useFolders";
-import { Spin } from "@posthog/ui/primitives/Spinner";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { toast } from "@posthog/ui/primitives/toast";
 import { FIELD_TRIGGER_CLASS } from "@posthog/ui/styles/fieldTrigger";
 import { Text } from "@radix-ui/themes";
@@ -179,9 +178,7 @@ export function FolderPicker({
         </Text>
       </div>
       {isOpening ? (
-        <Spin className="shrink-0 text-(--gray-9)">
-          <CircleNotch size={14} />
-        </Spin>
+        <Spinner size="md" className="shrink-0 text-(--gray-9)" />
       ) : (
         <CaretDown size={14} className="shrink-0 text-(--gray-9)" />
       )}
@@ -195,9 +192,7 @@ export function FolderPicker({
         {isOpening ? "Opening..." : displayValue || placeholder}
       </span>
       {isOpening ? (
-        <Spin className="text-muted-foreground">
-          <CircleNotch size={10} />
-        </Spin>
+        <Spinner size="xs" className="text-muted-foreground" />
       ) : (
         <CaretDown size={10} weight="bold" className="text-muted-foreground" />
       )}

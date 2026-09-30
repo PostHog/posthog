@@ -4,7 +4,7 @@ from threading import Barrier
 from uuid import UUID
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import BaseTest, NonAtomicBaseTest
 from unittest.mock import patch
 
@@ -67,7 +67,7 @@ class TestErrorTracking(ErrorTrackingIssueTestMixin, BaseTest):
         ErrorTrackingIssue.objects.filter(id=source.id).update(state_updated_at=source_stamp)
         assert latest_issue_state_watermark(self.team.id) == source_stamp
 
-        with freeze_time("2022-01-10T12:05:00"):
+        with time_machine.travel("2022-01-10T12:05:00", tick=False):
             assert target.merge(issue_ids=[source.id])[0] == ErrorTrackingIssueMergeResult.MERGED
 
         target.refresh_from_db()
@@ -336,7 +336,7 @@ class TestErrorTracking(ErrorTrackingIssueTestMixin, BaseTest):
             assert assignment is not None
             assert assignment.user_id == users[expected_key].id
 
-    @freeze_time("2025-01-01")
+    @time_machine.travel("2025-01-01", tick=False)
     def test_error_tracking_issue_first_seen_earliest_fingerprint(self):
         issue = self.create_issue(["fingerprint_one"])
 
@@ -354,11 +354,11 @@ class TestErrorTracking(ErrorTrackingIssueTestMixin, BaseTest):
     def test_list_issues_created_since_filters_and_orders(self):
         from products.error_tracking.backend.facade import api
 
-        with freeze_time("2020-01-01T00:00:00Z"):
+        with time_machine.travel("2020-01-01T00:00:00Z", tick=False):
             ErrorTrackingIssue.objects.create(team=self.team, name="old")
-        with freeze_time("2026-01-02T00:00:00Z"):
+        with time_machine.travel("2026-01-02T00:00:00Z", tick=False):
             recent_a = ErrorTrackingIssue.objects.create(team=self.team, name="a")
-        with freeze_time("2026-01-03T00:00:00Z"):
+        with time_machine.travel("2026-01-03T00:00:00Z", tick=False):
             recent_b = ErrorTrackingIssue.objects.create(team=self.team, name="b")
 
         previews = api.list_issues_created_since(team_id=self.team.id, since=datetime(2026, 1, 1, tzinfo=UTC), limit=10)
@@ -369,7 +369,7 @@ class TestErrorTracking(ErrorTrackingIssueTestMixin, BaseTest):
     def test_list_issues_created_since_respects_limit(self):
         from products.error_tracking.backend.facade import api
 
-        with freeze_time("2026-01-02T00:00:00Z"):
+        with time_machine.travel("2026-01-02T00:00:00Z", tick=False):
             for index in range(3):
                 ErrorTrackingIssue.objects.create(team=self.team, name=f"issue_{index}")
 
@@ -379,9 +379,9 @@ class TestErrorTracking(ErrorTrackingIssueTestMixin, BaseTest):
     def test_list_first_fingerprints_returns_earliest_per_issue(self):
         from products.error_tracking.backend.facade import api
 
-        with freeze_time("2026-01-02T00:00:00Z"):
+        with time_machine.travel("2026-01-02T00:00:00Z", tick=False):
             issue_one = self.create_issue(["fp_one_later"])
-        with freeze_time("2026-01-01T00:00:00Z"):
+        with time_machine.travel("2026-01-01T00:00:00Z", tick=False):
             ErrorTrackingIssueFingerprintV2.objects.create(team=self.team, issue=issue_one, fingerprint="fp_one_early")
         issue_two = self.create_issue(["fp_two"])
         self.create_issue(["fp_other"])

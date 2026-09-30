@@ -56,6 +56,11 @@ import {
   type ExternalAppsFocusCoordinator,
   type ExternalAppsWorkspaceClient,
 } from "@posthog/core/external-apps/identifiers";
+import { feedbackCoreModule } from "@posthog/core/feedback/feedback.module";
+import {
+  FEEDBACK_SUBMISSION_SERVICE,
+  type IFeedbackSubmissionService,
+} from "@posthog/core/feedback/feedbackAttachmentService";
 import {
   FILE_READ_CLIENT,
   type FileReadClient,
@@ -75,6 +80,7 @@ import {
   REPORT_MODEL_RESOLVER,
   type ReportModelResolver,
 } from "@posthog/core/inbox/identifiers";
+import { inboxCoreModule } from "@posthog/core/inbox/inbox.module";
 import { selectModelFromOptions } from "@posthog/core/inbox/reportTaskCreation";
 import { githubConnectModule } from "@posthog/core/integrations/githubConnect.module";
 import {
@@ -180,6 +186,10 @@ import {
   ANALYTICS_SERVICE,
   type IAnalytics,
 } from "@posthog/platform/analytics";
+import {
+  FEEDBACK_CONTEXT_SERVICE,
+  type IFeedbackContext,
+} from "@posthog/platform/feedback-context";
 import {
   HOST_CAPABILITIES,
   type HostCapabilities,
@@ -338,6 +348,7 @@ import { hostTrpcClient } from "./web-trpc";
 
 interface WebBindings {
   [HOST_TRPC_CLIENT]: HostTrpcClient;
+  [FEEDBACK_CONTEXT_SERVICE]: IFeedbackContext;
   [PI_SESSION_PROVIDER]: PiSessionProvider;
   [LOCAL_PI_SESSION_FACTORY]: PiSessionFactory;
   [CLOUD_TASK_CLIENT]: CloudTaskClient;
@@ -448,6 +459,15 @@ container.bind(HOST_LOGGER).toConstantValue(scoped());
 // machine-bound cipher, deep-link OAuth). Web runs the SAME service in the
 // browser over localStorage adapters and a popup PKCE flow.
 container.load(authCoreModule);
+container.load(feedbackCoreModule);
+container.bind(FEEDBACK_CONTEXT_SERVICE).toConstantValue({
+  captureScreenshot: () => Promise.resolve(null),
+  readRecentLogs: () => Promise.resolve(null),
+  submitFeedback: (input) =>
+    container
+      .get<IFeedbackSubmissionService>(FEEDBACK_SUBMISSION_SERVICE)
+      .submitFeedback(input),
+});
 container.bind(AUTH_SESSION_STORE).toConstantValue(new WebAuthSessionStore());
 container
   .bind(AUTH_PREFERENCE_STORE)
@@ -469,9 +489,10 @@ container.bind(POWER_MANAGER_SERVICE).toConstantValue(webPowerManager);
 // The web host is cloud-only: no local filesystem, so the UI must use remote
 // (connected-GitHub-org) repositories and cloud workspaces everywhere it would
 // otherwise reach for local folders/worktrees/terminal.
-container
-  .bind(HOST_CAPABILITIES)
-  .toConstantValue({ localWorkspaces: false } satisfies HostCapabilities);
+container.bind(HOST_CAPABILITIES).toConstantValue({
+  localWorkspaces: false,
+  customCloud: false,
+} satisfies HostCapabilities);
 
 container.load(authUiModule);
 
@@ -494,7 +515,6 @@ container.bind(CLOUD_TASK_AUTH).toDynamicValue((ctx) => ({
     return teamId === null ? null : { apiHost, teamId };
   },
 }));
-
 // ── Canvas / Channels: host-agnostic dashboard + freeform canvas services ──
 // They only need AuthService + fetch (they reach the PostHog canvases and
 // task_channels APIs), so the web host binds them by loading the same core
@@ -541,18 +561,11 @@ container.bind(IMPERATIVE_QUERY_CLIENT).toConstantValue(queryClient);
 container.bind(AUTH_SIDE_EFFECTS).to(WebAuthSideEffects);
 
 // Interactive MCP App iframe host. Electron isolates the proxy with a custom
-// privileged scheme; web gets a separate origin for free via a blob URL of the
-// same (host-agnostic) proxy HTML. The blob is created once, lazily.
+// privileged scheme; web loads the same host-agnostic proxy HTML through a
+// data URL. The iframe sandbox keeps it on an opaque origin.
 container.bind(MCP_APP_HOST_COMPONENT).toConstantValue(McpAppHost);
-let sandboxProxyUrl: string | null = null;
-container.bind(MCP_SANDBOX_PROXY_URL).toConstantValue(() => {
-  if (!sandboxProxyUrl) {
-    sandboxProxyUrl = URL.createObjectURL(
-      new Blob([sandboxProxyHtml], { type: "text/html" }),
-    );
-  }
-  return sandboxProxyUrl;
-});
+const sandboxProxyUrl = `data:text/html;charset=utf-8,${encodeURIComponent(sandboxProxyHtml)}`;
+container.bind(MCP_SANDBOX_PROXY_URL).toConstantValue(() => sandboxProxyUrl);
 
 // ── Post-login shell: the tokens __root.tsx resolves eagerly via useService ──
 // The shared app shell (packages/ui __root.tsx) mounts the full desktop surface
@@ -855,6 +868,13 @@ container.bind(REPORT_MODEL_RESOLVER).toConstantValue({
     }
   },
 } satisfies ReportModelResolver);
+
+// ── Inbox: the report services the shared Inbox hooks resolve ──
+// Self-driving lives in the shared route tree, so the web host loads the same
+// core module the desktop renderer does. Bindings resolve lazily, and the one
+// token the shared hooks reach for (the report implementation service) has no
+// injected dependencies, so nothing here needs a local-only capability.
+container.load(inboxCoreModule);
 
 // Fail loudly at composition time if a capability the shared app resolves via
 // service location is unbound, instead of limping to the first navigation that

@@ -381,9 +381,8 @@ async fn it_applies_overflow_limits() -> Result<()> {
 
     let mut config = DEFAULT_CONFIG.clone();
     config.redis_key_prefix = redis.key_prefix();
-    config.kafka.kafka_topic = topic.topic_name().to_string();
-    config.kafka.kafka_replay_overflow_topic = overflow_topic.topic_name().to_string();
-    config.kafka.kafka_replay_overflow_topic = overflow_topic.topic_name().to_string();
+    config.kafka_topics.main = topic.topic_name().to_string();
+    config.kafka_topics.replay_overflow = overflow_topic.topic_name().to_string();
     config.capture_mode = CaptureMode::Recordings;
     let server = ServerHandle::for_config(config).await;
 

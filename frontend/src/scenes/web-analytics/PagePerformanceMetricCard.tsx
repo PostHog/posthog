@@ -1,7 +1,7 @@
 import { memo } from 'react'
 
 import { IconInfo, IconTrending } from '@posthog/icons'
-import { LemonSkeleton, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonTag, SpinnerOverlay, Tooltip } from '@posthog/lemon-ui'
 import { Sparkline } from '@posthog/quill-charts'
 import type { ChartTheme } from '@posthog/quill-charts'
 
@@ -63,7 +63,13 @@ export const PagePerformanceMetricCard = memo(function PagePerformanceMetricCard
     const hasSparkline = sparkline.some((point) => point > 0)
 
     return (
-        <div className="border rounded bg-surface-primary flex flex-col overflow-hidden" data-attr={dataAttr}>
+        <div
+            className="relative isolate border rounded bg-surface-primary flex flex-col overflow-hidden"
+            data-attr={dataAttr}
+            aria-busy={loading}
+            role={loading ? 'status' : undefined}
+            aria-label={loading ? `Loading ${label}` : undefined}
+        >
             <div className="flex flex-col gap-1 px-3 pt-3">
                 <div className="flex items-center justify-between gap-2">
                     <span className="flex items-center gap-1 text-xs font-medium text-secondary truncate">
@@ -79,14 +85,14 @@ export const PagePerformanceMetricCard = memo(function PagePerformanceMetricCard
                     )}
                 </div>
                 {loading ? (
-                    <LemonSkeleton className="h-8 w-20 my-0.5" />
+                    <div className="h-8 my-0.5" />
                 ) : (
                     <div className="text-2xl font-semibold tabular-nums">{humanFriendlyLargeNumber(value)}</div>
                 )}
                 <div className="text-xs text-secondary">Total</div>
             </div>
-            {!loading && hasSparkline && (
-                <div className="mt-2">
+            <div className="mt-2 h-11">
+                {!loading && hasSparkline ? (
                     <Sparkline
                         data={sparkline}
                         labels={sparklineLabels}
@@ -95,8 +101,9 @@ export const PagePerformanceMetricCard = memo(function PagePerformanceMetricCard
                         type="line"
                         height={SPARKLINE_HEIGHT}
                     />
-                </div>
-            )}
+                ) : null}
+            </div>
+            {loading && <SpinnerOverlay />}
         </div>
     )
 })

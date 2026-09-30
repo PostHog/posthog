@@ -24,7 +24,7 @@ Real submodules (`posthog.api.monitoring`, `.file_system`, …) resolve directly
 This is the laziness Django already intends: the URLconf is the entry point, and non-web processes never resolve it.
 
 Web is the exception and resolves it eagerly: `wsgi.py`/`asgi.py` build the URLconf at import, pre-fork, inside the GC window — because the k8s probes (`/_livez`, `/_readyz`) are served by short-circuiting middleware and never resolve URLs, each worker would otherwise build the router on its **first live request** (measured at multiple seconds per worker, after every deploy).
-Pre-building lands the router in the frozen heap, copy-on-write-shared across workers — exactly the pre-lazy-router behavior for web, while every other process keeps the win.
+Pre-building lands the router in the frozen heap at worker boot — exactly the pre-lazy-router behavior for web, while every other process keeps the win.
 `test_web_entrypoint_prebuilds_the_router` pins this; a prefork smoke (gunicorn `--preload`, 4 workers) verified workers inherit the built router and serve cold requests without it.
 
 ### 2. Model registration
@@ -43,7 +43,7 @@ Wire receivers from the owning app's `AppConfig.ready()` instead, so they connec
 
 Boot allocations are almost all permanent — modules, classes, registries, the generated pydantic schema — so the cyclic GC has nothing useful to reclaim while `django.setup()` runs, yet allocation thresholds trigger ~470 collections during it (~300ms of pauses, single gen2 passes up to ~100ms).
 The entrypoints that own a setup (`manage.py`, `posthog/wsgi.py`, `posthog/asgi.py`) wrap it in `gc.disable()` → boot → `gc.freeze()` → `gc.enable()`.
-The freeze moves the ~600k surviving boot objects to the permanent generation, so they are excluded from every future full collection — which also makes post-boot work (management-command discovery, the first router build) collect almost for free, and maximizes copy-on-write page sharing when a prototype process forks workers.
+The freeze moves the ~600k surviving boot objects to the permanent generation, so they are excluded from every future full collection — which also makes post-boot work (management-command discovery, the first router build) collect almost for free.
 There is deliberately no `gc.collect()` before the freeze: a full pass over the boot heap costs ~210ms and reclaims only ~4% of objects (a few MB), so the garbage is frozen along with everything else.
 The window must always close — GC left disabled in a long-lived process means unbounded cycle growth — hence the `try`/`finally` and the guard test asserting `gc.isenabled()` and a nonzero freeze count after a `manage.py` boot.
 Pytest processes get the same window via a dedicated early-loaded plugin, `pytest_boot_gc.py`, registered with `-p pytest_boot_gc` in `pytest.ini`.
@@ -80,6 +80,11 @@ The list cuts both ways: when you _deliberately_ defer a significant heavy libra
 Removing an entry to dodge a failure weakens the guard; adding one to lock in a deferral strengthens it.
 Confirm the module is absent from a bare `django.setup()` first, then add it.
 
+**Never add a product facade or its contracts module to `FORBIDDEN_AT_SETUP`.**
+A facade is the sanctioned door of a product, and code imports it at module scope from anywhere, setup-path modules included.
+Pinning it makes the guard fail the next legitimate consumer.
+Pin the module you actually deferred instead: the heavy module that a receiver or model file used to import.
+
 **The forward-looking guard: new heavy imports.**
 `FORBIDDEN_AT_SETUP` only catches modules someone already named; `test_no_new_heavy_imports_at_setup` catches the heavy import nobody has named yet.
 It captures `python -X importtime` over a bare setup (GC disabled, so a migrating gen2 pause can't masquerade as a module's cost), aggregates self-time by top-level package for third-party (SDKs split across submodules; the package total is the meaningful number) and per-module for first-party, and fails when a name **not** in `posthog/test/repo_invariants/setup_import_baseline.txt` costs ≥100ms.
@@ -103,6 +108,16 @@ If the module holding the receiver also imports something heavy at module scope,
 The test is simple: importing the module you wire at `ready()` should pull only light dependencies.
 Prefer the dedicated light module even when the owning module looks light _today_ — API/viewset modules accumulate module-scope imports, and `ready()` silently inherits whatever they gain.
 The batch-exports `ready()` wired its receiver through the API module on a "the module is light" justification; the module later picked up imports reaching every destination's vendor SDK, and `django.setup()` quietly grew ~1.6s.
+
+**Choosing where to cut.**
+Cut at the setup-path entry: the module that `ready()` wires, a model file, or `apps.py`.
+Do not defer a product facade import inside the modules that consume it.
+That hides the product boundary and treats the facade like an optional SDK.
+When a heavy facade reaches setup, find the receiver or model module on the setup path that leads to it.
+In that module, defer the import of the implementation module that sits between it and the facade.
+Leave every facade import itself at module scope.
+When the setup path needs only one symbol from a heavy module, move that symbol to a light module and re-export it from the old place.
+hothog's `1-cut@` column (see [Measuring](#measuring)) names the dominator: the one module where a deferral removes the whole subtree.
 
 **Adding a heavy dependency** (a vendor SDK, a Temporal/AI/ClickHouse path, anything pulling pandas/pyarrow/scipy).
 If it is used on one code path, import it function-locally at that path with `# noqa: PLC0415`, not at module scope.
@@ -135,11 +150,53 @@ When the floor has crept, the lever is the same as it ever was — find the heav
   A ~100ms gen2 collection fires wherever the allocation counter crosses its threshold, and `importtime` books it as that module's self-time — a 400-line module of dict literals showed 117ms, and the phantom _migrates between modules when import order changes_ (two runs of the same code attributed it to two different modules).
   Before deferring a suspiciously expensive module, sanity-check it: a pure-Python module with no heavy imports should cost microseconds.
   The decisive test is re-capturing with `gc.disable()` in front — if the cost vanishes, the module is innocent and the finding is GC, not imports.
+- Deciding what to defer, and where: [hothog](https://github.com/PostHog/hothog).
+  It reads an `importtime` log, re-runs the entry under an import hook, and ranks each heavy import by the cost that would actually come off the path.
+  Each row gets a verdict (`easy`, `many`, `BLOCKED:baseclass`, `BLOCKED:modscope`) and the `1-cut@` dominator to defer at.
+  `--compare` diffs two logs, which gives the before/after for a PR.
+  Install it into the project venv, not as an isolated tool, because it imports the code it analyzes:
+  `uv pip install hothog`, then `hothog <importtime.log> --django-settings posthog.settings --env DEBUG=1 --env TEST=1 --first-party posthog,products,ee,common`.
+  Capture the log with GC disabled, or hothog ranks the GC phantoms described above.
 - Finding the _trigger_ of a heavy load: monkeypatch `builtins.__import__` to print the stack the first time the target module is imported.
   A profile shows cost but never whether it is _removable_ — confirm with an A/B, because a module is often reachable by more than one path and cutting one changes nothing.
 - Import _structure_, when a deferral is blocked: `grimp` builds the module import graph.
   Sometimes you cannot just defer a heavy import because it is load-bearing in a circular import — deferring one edge only relocates the cycle.
   `grimp`'s `nominate_cycle_breakers` ranks which edge to cut, so the real work becomes untangling the owning package's cycle before the heavy import can come off the startup path.
+
+## Where the floor is now, and what is left
+
+Re-profiled September 2026 (`TEST=1 DEBUG=1`, warm page cache, GC disabled): a bare `django.setup()` went from ~1.95s to ~1.5s and `manage.py shell -c '1'` from ~1.9s to ~1.6s wall, by removing ~460 modules from the setup path.
+Every removal was a `ready()` chain or a model file dragging a subsystem in at module scope — the same shape as before, one level further down the tail:
+
+- `products/signals/backend/receivers.py` imported `scout_harness.suggestions` → `prompt` → `products.tasks.backend.facade.api` → `facade.contracts` (61 pydantic dataclasses) to wire one `post_delete` receiver. Deferred to the receiver body.
+- `ee` `ready()` imported all of `ee/vercel/integration.py` to wire four receivers. That module imports `ee.api.authentication`, which holds `@api_view` functions, and DRF's decorator resolves `DEFAULT_SCHEMA_CLASS` at decoration time → `posthog.api.documentation` → `drf_spectacular.plumbing` → `rest_framework.test` → `django.test` → `jinja2`. The receivers now live in `ee/vercel/receivers.py` (a light module, as the skill asks) and import the integration when they fire.
+- `posthog/helpers/impersonation.py` (reached from the activity-log signal handlers) imported `posthog.auth`, which pulls `zxcvbn` and `webauthn`. Deferred. The guard then caught that `WebauthnCredential` only registered through that import — it is now imported from `posthog/models/__init__.py`.
+- `posthog/apps.py` imported `posthog.async_migrations.setup` (which imports every async migration) even when `SKIP_ASYNC_MIGRATIONS_SETUP` is on. Import moved under the branch that runs it. That module also used `infi.clickhouse_orm.utils.import_submodules`, and the `infi` package `__init__` imports `pkg_resources` (~40ms); replaced with a local `pkgutil` helper. Deferring it exposed a latent cycle that setup-first import order had hidden: `async_migrations/utils.py` imported the dependency map from `setup.py` at module scope, `setup.py` imports every migration module, and three migrations import `utils`. Entering at `utils` first (the celery task module, the API module, the tests) now failed with a partially initialised module, so `utils` reads the map at call time.
+- `boto3`/`botocore` reached setup through three doors: `products.workflows.backend.providers` (eager aggregator `__init__`, hit by the email and twilio integration models), `posthog/storage/object_storage.py`, and `posthog/models/js_snippet_versioning.py`, plus an `except (BotoCoreError, ClientError)` in `posthog/storage/hypercache.py`. All build clients or classify exceptions at call time now. Web workers pay the boto3 import on their first request that touches object storage.
+
+The _deferred_ modules are pinned in `FORBIDDEN_AT_SETUP` (`scout_harness.suggestions`, `ee.vercel.integration`, the vendor SDKs) — never a product facade or its contracts, which must stay importable from anywhere (see #100055).
+
+**Bytecode.** "Warm" in these numbers means the `.pyc` files exist and the source is in the page cache.
+Without first-party `.pyc` files a bare `django.setup()` costs ~2.4s instead of ~1.5s: ~1300 first-party modules get compiled on import.
+Site-packages are compiled at image build (`UV_COMPILE_BYTECODE=1`). The app runs as `nobody` (`bin/docker-server`), which cannot write `__pycache__` under the `posthog`-owned `/code`, so before September 2026 _every_ process compiled the first-party modules in memory at _every_ start, not just the first boot of a container.
+The production `Dockerfile` now runs `compileall` over the first-party source after the `COPY` (tests excluded; default timestamp validation, so one `stat` per module and a later `COPY` of edited `.py` files still takes effect). Measured locally: ~3s build time, ~15.9k `.pyc` files, ~117 MB in the layer; the layer is rebuilt on every source change.
+Locally, the first run after a checkout or a large rebase pays the compile once; `__pycache__` is gitignored and persists after that.
+Tests that patched a moved name were repointed to the defining module (`boto3.client`, `products.workflows.backend.providers.SESProvider`).
+
+**Evaluated and left alone**, so nobody re-measures them from scratch:
+
+- `clickhouse_driver` (~70ms, mostly a date lookup table built at import in `columns/datecolumn.py`) — blocked structurally: `posthog/clickhouse/client/connection.py` subclasses `clickhouse_driver.Client`, `posthog/errors.py` subclasses `ServerException`, and `posthog.clickhouse.client` has ~25 setup-path importers. Only evicting `posthog.clickhouse.client` from setup would remove it.
+- `posthog.personhog_client` (grpc + protobuf, ~20ms) — six model-file importers for a small win. Not worth the churn.
+- `posthog.utils` (~250ms cumulative) is imported by `posthog/settings/utils.py` for `str_to_bool`. Moving the helper only relocates the cost: model files import `posthog.utils` later in setup regardless, and its heavy children (`posthoganalytics`, `structlog`, `rest_framework`, `redis`) each have dozens of other setup-path importers.
+- `posthog.celery` (~120ms) is imported from `posthog/__init__.py` so `shared_task` binds to our app. Structural.
+- `posthog.settings.web` self time under `TEST=1` is the ephemeral 2048-bit RSA key for OIDC. Test-only.
+
+**Measuring.** [hothog](https://github.com/PostHog/hothog) runs `django.setup()` under an import hook, ranks each heavy import by removable self-time, and names the single best module to defer it in; `hothog --compare base.log pr.log` diffs two captures. Use it before a raw `python -X importtime` read.
+
+**The next lever is `posthog.hogql`**: ~170 modules and ~190ms self time, plus it is what keeps `posthog.clickhouse.client` (and so `clickhouse_driver`) and the `warehouse_sources` facade on the path.
+It reaches setup from 27 first-party modules outside the package.
+Some are one-line fixes (`posthog/models/group_usage_metric.py` uses `ast.Constant` in a method body), but most define HogQL objects at module scope — `products/cohorts/backend/models/util.py`, `products/customer_analytics/backend/facade/hogql.py`, `products/data_modeling/backend/models/{datawarehouse_saved_query,modeling}.py`, `products/warehouse_sources/backend/models/external_table_definitions.py`, `products/revenue_analytics/backend/views/` — so the work is cutting the `models/__init__` edges that pull those facade modules in, not deferring individual imports.
+Expect ~250-300ms; do it entry point by entry point, with the stub A/B first.
 
 ## Traps (these have all caused follow-up fixes)
 
@@ -176,7 +233,8 @@ The eager router imported a large chain when `posthog/urls.py` loaded, _before_ 
 That chain often imported some module fully and early, accidentally papering over a circular import elsewhere that only ever worked because of that import order.
 Make the router lazy and the accidental pre-import disappears, so the next process to import the URLconf hits the cycle head-on.
 The real example: `slack_app.backend.api` imports workflow classes from `posthog_code_slack_mention`, which imported a helper straight back from `slack_app.backend.api` at module scope (placed late with `# noqa: E402` — a tell that someone already fought the ordering).
-With the pre-import gone, Django's system checks (`check_custom_error_handlers` imports the URLconf, e.g. during `ensure_migration_defaults`) raised `cannot import name ... from partially initialized module`.
+With the pre-import gone, Django's system checks (`check_custom_error_handlers` imports the URLconf) raised `cannot import name ... from partially initialized module`.
+They raised it during `ensure_migration_defaults`, which skips the system checks now, so the same cycle would surface first in a test that loads the URLconf.
 Two things make this nasty: it surfaces far from the change (a migration-defaults step in one CI job, not the lazy-router files), and the buggy code is not yours — so it is tempting to blame master.
 Do not assume: the decisive test is `django.setup()` then `import_module("posthog.urls")` in a clean subprocess, run on a detached `origin/master` worktree _and_ the branch.
 If only the branch fails, you unmasked it and you own the fix — break the cycle by deferring the back-reference to its call sites.

@@ -16,7 +16,7 @@ describe('welcomeOverrideLogic', () => {
             get: {
                 '/api/projects/:team/tasks/': { results: [], count: 0 },
                 '/api/projects/:team/tasks/repositories/': { repositories: [] },
-                '/api/environments/:team/integrations/': { results: [] },
+                '/api/projects/:team/integrations/': { results: [] },
             },
         })
         initKeaTests()

@@ -5,11 +5,12 @@ import { IconPlayCircle } from 'lib/lemon-ui/icons'
 import { LemonSnack } from 'lib/lemon-ui/LemonSnack'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { humanFriendlyDuration } from 'lib/utils/durations'
-import { asDisplay } from 'scenes/persons/person-utils'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import { sessionRecordingEventUsageLogic } from 'scenes/session-recordings/sessionRecordingEventUsageLogic'
 
 import { SessionRecordingType } from '~/types'
+
+import { asDisplay } from 'products/persons/frontend/person-utils'
 
 import { ProjectHomePageCompactListItem } from '../../project-homepage/ProjectHomePageCompactListItem'
 

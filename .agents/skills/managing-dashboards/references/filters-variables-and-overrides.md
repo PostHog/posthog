@@ -13,7 +13,23 @@ Dashboard query behavior can combine several layers of state.
 | Tile filter override      | Yes        | One insight tile                    |
 | Quick filters             | Yes, by ID | Dashboard filter controls           |
 
+## Entry sources
+
+| Source                | Mechanism                                     | Required boundary                                                         |
+| --------------------- | --------------------------------------------- | ------------------------------------------------------------------------- |
+| URL filter override   | `query_filters`                               | Current dashboard view only. It joins the initial configuration override. |
+| URL variable override | `query_variables`                             | Current dashboard view only. It joins the initial configuration override. |
+| Embedded context      | `setExternalFilters`                          | Current embedded view only. Never persist it as dashboard filters.        |
+| Tile override         | `tile.filters_overrides`                      | Persist only on its tile. Never enter dashboard filter state.             |
+| Saved dashboard state | `persisted_filters` and `persisted_variables` | Dashboard default for every applicable viewer.                            |
+
+Check pasted links, direct URL edits, browser history navigation, filter controls, variable controls, and embedded placements. A URL parameter can exist on a route that ignores overrides. In that case, do not show a state treatment that claims the parameter changes data.
+
 Before you change one layer, define its precedence with every other affected layer. Do not infer precedence from the UI.
+
+For dashboard editing, treat saved filters and variables as one settings object. Treat both URL parameters as one initial override. A filter or variable edit creates one user draft. Resolve saved settings, then initial override, then user draft.
+
+Show initial URL overrides through the same unsaved treatment as user edits. Do not create a separate temporary state or treatment.
 
 ## Required checks
 
@@ -24,6 +40,17 @@ Before you change one layer, define its precedence with every other affected lay
 - Preserve tile `filters_overrides` when you duplicate, copy, move, serialize, or create from a template.
 - Check tiles that opt out of dashboard filters separately from tiles that add their own filters.
 - Apply the same resolved state to dashboard detail, `run_insights`, streaming, export, and the frontend preview.
+- Keep external embedded filters out of the dashboard configuration draft, change details, and save payload.
+- Combine filter and SQL-variable changes in one change list and one count.
+- Save filters and variables through one dashboard update.
+- Clear both URL override parameters on dashboard configuration save or discard.
+- Compare SQL values by value and null meaning. Treat absent `isNull` and `isNull: false` as equal.
+- Remove a no-op URL variable when a person selects its default value.
+- Apply current draft variables to controls, tile requests, insight links, exports, and scene actions.
+- Map camel-case date actions to snake-case URL fields at the router boundary.
+- Invalidate an old Preview state after any later filter or variable edit.
+- Refresh affected tiles after a save when automatic preview did not apply the draft.
+- Render settings mutation actions only on the authenticated dashboard placement.
 
 ## Failure cases
 

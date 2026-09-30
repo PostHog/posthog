@@ -173,3 +173,31 @@ class TestReminderAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         reminder.refresh_from_db()
         self.assertTrue(reminder.deleted)
+
+    def test_list_pages_are_stable_when_created_at_ties(self) -> None:
+        future = datetime.now(UTC) + timedelta(days=1)
+        reminders = [
+            Reminder.objects.create(
+                organization=self.organization,
+                created_by=self.user,
+                title=f"r{i}",
+                scheduled_at=future,
+                next_fire_at=future,
+            )
+            for i in range(5)
+        ]
+        tied, older = reminders[:4], reminders[4]
+        # uuid7 keys rise with insertion order, so the oldest row here also holds the highest id.
+        # Both ordering terms are then load-bearing in the sequence below.
+        tied_at = datetime.now(UTC) - timedelta(hours=1)
+        Reminder.objects.filter(id__in=[r.id for r in tied]).update(created_at=tied_at)
+        Reminder.objects.filter(id=older.id).update(created_at=tied_at - timedelta(hours=1))
+
+        paged: list[str] = []
+        for offset in (0, 2, 4):
+            response = self.client.get(self._url(f"?limit=2&offset={offset}"))
+            self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+            paged.extend(r["id"] for r in response.json()["results"])
+
+        expected = [str(r.id) for r in sorted(tied, key=lambda r: r.id, reverse=True)] + [str(older.id)]
+        self.assertEqual(paged, expected)

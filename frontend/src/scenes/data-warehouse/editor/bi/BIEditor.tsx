@@ -18,9 +18,11 @@ import { LemonButton, LemonCard, LemonInput, LemonLabel, LemonSearchableSelect, 
 
 import { HogQLDropdown } from 'lib/components/HogQLDropdown/HogQLDropdown'
 import { Resizer } from 'lib/components/Resizer/Resizer'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { Icon123, IconAreaChart, IconHeatmap, IconTableChart } from 'lib/lemon-ui/icons'
+import { Icon123, IconAreaChart, IconDonutChart, IconHeatmap, IconTableChart } from 'lib/lemon-ui/icons'
 import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cn } from 'lib/utils/css-classes'
 
 import { ChartDisplayType } from '~/types'
@@ -37,7 +39,6 @@ import {
     BIShelf,
     BIField,
     BISortDirection,
-    PIVOT_TABLE_QUERY_LIMIT,
     getBIDataSourceKey,
     isDateTimeBIField,
     isNumericBIField,
@@ -52,8 +53,10 @@ const CHART_TYPE_OPTIONS: { value: ChartDisplayType; label: string; icon: JSX.El
     { value: ChartDisplayType.ActionsStackedBar, label: 'Stacked bar chart', icon: <IconLifecycle /> },
     { value: ChartDisplayType.ActionsAreaGraph, label: 'Area chart', icon: <IconAreaChart /> },
     { value: ChartDisplayType.ActionsPie, label: 'Pie chart', icon: <IconPieChart /> },
+    { value: ChartDisplayType.ActionsDonut, label: 'Donut chart', icon: <IconDonutChart /> },
     { value: ChartDisplayType.TwoDimensionalHeatmap, label: 'Pivot table', icon: <IconHeatmap /> },
     { value: ChartDisplayType.BoldNumber, label: 'Big number', icon: <Icon123 /> },
+    { value: ChartDisplayType.Metric, label: 'Metric', icon: <IconTrends /> },
 ]
 
 const AGGREGATION_OPTIONS: { value: BIAggregation; label: string }[] = [
@@ -104,6 +107,7 @@ export function BIEditor({ tabId }: { tabId: string }): JSX.Element {
     const { activeDropShelf, activeExpressionEditorId, availableDataSources, config, databaseLoading, sortOptions } =
         useValues(logic)
     const { biEditorHeight, biEditorResizerProps } = useValues(editorSizingLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const { setDatabaseTreeCollapsed } = useActions(editorSizingLogic)
     const { locateTable } = useActions(queryDatabaseLogic)
     const {
@@ -126,10 +130,6 @@ export function BIEditor({ tabId }: { tabId: string }): JSX.Element {
         setValueAggregation,
         setValueCustomExpression,
     } = useActions(logic)
-    const limitOptions =
-        config.chartType === ChartDisplayType.TwoDimensionalHeatmap
-            ? LIMIT_OPTIONS.filter(({ value }) => value <= PIVOT_TABLE_QUERY_LIMIT)
-            : LIMIT_OPTIONS
 
     return (
         <div
@@ -192,7 +192,7 @@ export function BIEditor({ tabId }: { tabId: string }): JSX.Element {
                         />
                         <LemonSelect
                             value={config.limit}
-                            options={limitOptions}
+                            options={LIMIT_OPTIONS}
                             onChange={setLimit}
                             renderButtonContent={(option) => `Limit: ${option?.label ?? config.limit}`}
                             aria-label="Query row limit"
@@ -247,7 +247,10 @@ export function BIEditor({ tabId }: { tabId: string }): JSX.Element {
                 <div className="flex flex-col gap-1">
                     <LemonLabel>Chart type</LemonLabel>
                     <div className="flex flex-wrap gap-1" role="group" aria-label="Chart type">
-                        {CHART_TYPE_OPTIONS.map((option) => (
+                        {CHART_TYPE_OPTIONS.filter(
+                            (option) =>
+                                option.value !== ChartDisplayType.Metric || !!featureFlags[FEATURE_FLAGS.METRIC_INSIGHT]
+                        ).map((option) => (
                             <LemonButton
                                 key={option.value}
                                 type={config.chartType === option.value ? 'primary' : 'secondary'}

@@ -2,7 +2,7 @@ from datetime import timedelta
 from typing import Any
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest import mock
 
@@ -20,6 +20,8 @@ from rest_framework.response import Response
 from posthog.hogql.errors import QueryError
 
 from posthog.constants import RETENTION_FIRST_EVER_OCCURRENCE, TREND_FILTER_TYPE_EVENTS
+from posthog.models.team.extensions import get_or_create_team_extension
+from posthog.models.team.team_revenue_analytics_config import TeamRevenueAnalyticsConfig
 from posthog.sync import database_sync_to_async
 
 from products.data_modeling.backend.facade.api import UnsatisfiableFrequencyError, get_declared_target
@@ -33,6 +35,7 @@ from products.endpoints.backend.logic.materialization import (
 )
 from products.endpoints.backend.materialization_transforms import build_endpoint_hogql
 from products.endpoints.backend.models import EndpointVersion
+from products.endpoints.backend.rate_limit import is_endpoint_materialization_ready, set_endpoint_materialization_ready
 from products.endpoints.backend.tests.conftest import create_endpoint_with_version
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
@@ -53,18 +56,12 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         # The DAG node exists by scheduling time, so the v2 lookup would hit Temporal for real.
         self.v2_dag_ids_patcher = mock.patch(
             "products.data_modeling.backend.schedule.get_v2_scheduled_dag_ids",
-            side_effect=lambda candidate_dag_ids=None: set(candidate_dag_ids or []),
-        )
-        self.tiered_schedules_patcher = mock.patch(
-            "products.data_modeling.backend.logic.schedule_reconcile.tiered_schedules_enabled",
-            return_value=True,
+            side_effect=lambda candidate_dag_ids=None, **_kwargs: set(candidate_dag_ids or []),
         )
         self.mock_v2_dag_ids = self.v2_dag_ids_patcher.start()
-        self.tiered_schedules_patcher.start()
 
     def tearDown(self):
         self.v2_dag_ids_patcher.stop()
-        self.tiered_schedules_patcher.stop()
         super().tearDown()
 
     def test_enable_materialization_creates_saved_query(self):
@@ -110,6 +107,28 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(saved_query.origin, DataWarehouseSavedQuery.Origin.ENDPOINT)
         self.assertIsNone(saved_query.sync_frequency_interval)
         self.assertEqual(get_declared_target(Node.objects.get(saved_query=saved_query)), timedelta(hours=24))
+
+    def test_enable_materialization_drops_the_cached_throttle_snapshot(self):
+        endpoint = create_endpoint_with_version(
+            name="throttle_snapshot_endpoint",
+            team=self.team,
+            query=self.sample_hogql_query,
+            created_by=self.user,
+            is_active=True,
+        )
+        set_endpoint_materialization_ready(self.team.pk, endpoint.name, False)
+        set_endpoint_materialization_ready(self.team.pk, endpoint.name, False, version=1)
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+            {"is_materialized": True},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+        # A snapshot cached before the enable would hold the inline rate until it expired.
+        self.assertIsNone(is_endpoint_materialization_ready(self.team.pk, endpoint.name))
+        self.assertIsNone(is_endpoint_materialization_ready(self.team.pk, endpoint.name, version=1))
 
     def test_create_with_materialization_enabled_schedules_saved_query(self):
         response = self.client.post(
@@ -1614,7 +1633,11 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         assert version.saved_query is not None
 
         node = Node.objects.filter(team=self.team, saved_query=version.saved_query).first()
-        self.assertIsNotNone(node)
+        assert node is not None
+
+        node_response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_nodes/{node.id}/")
+        self.assertEqual(node_response.status_code, status.HTTP_200_OK, node_response.json())
+        self.assertEqual(node_response.json()["endpoint"], {"name": endpoint.name, "version": version.version})
 
     def test_disable_materialization_removes_dag_node(self):
         endpoint = create_endpoint_with_version(
@@ -1809,7 +1832,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             "interval": "day",
         }
 
-        with freeze_time("2026-04-20T12:00:00Z"):
+        with time_machine.travel("2026-04-20T12:00:00Z", tick=False):
             endpoint = create_endpoint_with_version(
                 name="relative_dates_stay_fresh",
                 team=self.team,
@@ -1831,7 +1854,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             assert saved_query is not None
             self.assertIn("2026-04-20", saved_query.query["query"])
 
-        with freeze_time("2026-04-30T12:00:00Z"):
+        with time_machine.travel("2026-04-30T12:00:00Z", tick=False):
             prepare_executable_query(saved_query)
 
             saved_query.refresh_from_db()
@@ -2158,6 +2181,10 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             "series": [{"kind": "EventsNode", "event": "$pageview", "math": "total"}],
             "dateRange": {"date_from": "-7d"},
         }
+
+        # The HogQL database build reads team.revenue_analytics_config, which creates the row on a team's
+        # first access. Create it first so the capture measures only build_endpoint_hogql.
+        get_or_create_team_extension(self.team, TeamRevenueAnalyticsConfig)
 
         with CaptureQueriesContext(connection) as ctx:
             build_endpoint_hogql(insight_query, self.team)

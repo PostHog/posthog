@@ -90,7 +90,7 @@ def _pr_list_item() -> contracts.PullRequestListItem:
         open_to_merge_seconds=None,
         ready_to_merge_seconds=None,
         labels=["bug"],
-        ci=contracts.CIStatusRollup(runs=3, passing=2, failing=1, pending=0),
+        ci=contracts.CIStatusRollup(runs=3, passing=2, failing=1, pending=0, inconclusive=0),
         pushes=4,
         rerun_cycles=1,
         estimated_cost_usd=None,
@@ -210,6 +210,7 @@ def _workflow_run() -> contracts.WorkflowRunDetail:
         run_attempt=2,
         pr_number=42,
         commit_pr_number=None,
+        is_merge_queue=False,
     )
 
 
@@ -283,6 +284,33 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
             source_product=SOURCE_PRODUCT,
             enabled=True,
         ).exists()
+
+    def test_author_friction_forwards_the_team_and_serializes(self) -> None:
+        friction = contracts.AuthorFrictionList(
+            available=True,
+            window_days=30,
+            ranked_author_count=12,
+            github_team="team-devex",
+            has_membership_data=True,
+            items=[
+                contracts.AuthorFriction(
+                    author="alice",
+                    avatar_url="",
+                    score=2.5,
+                    groups=[contracts.FrictionGroupShare(group=contracts.FrictionGroup.QUEUE, score=2.5)],
+                    pr_count=9,
+                    rank=1,
+                    rank_low=1,
+                    rank_high=3,
+                )
+            ],
+        )
+        with mock.patch(f"{_VIEWS}.get_author_friction", return_value=friction) as get_friction:
+            response = self.client.get(self._url("author_friction"), {"github_team": "team-devex"})
+
+        assert response.status_code == status.HTTP_200_OK
+        assert get_friction.call_args.kwargs["github_team"] == "team-devex"
+        assert response.json()["items"][0]["groups"] == [{"group": "queue", "score": 2.5}]
 
     def test_ci_cards_serializes(self) -> None:
         with mock.patch(f"{_VIEWS}.get_ci_cards", return_value=_cards()):
@@ -574,6 +602,8 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
             ("pr_runs_repo_missing", "pr_runs", {"pr_number": "10"}),
             ("pr_cost_repo_missing", "pr_cost", {"pr_number": "10"}),
             ("workflow_jobs_run_id_invalid", "workflow_jobs", {"run_id": "nope"}),
+            ("author_friction_detail_author_missing", "author_friction_detail", {}),
+            ("pull_request_friction_repo_missing", "pull_request_friction", {"pr_number": "10"}),
         ]
     )
     def test_bad_params_400(self, _name: str, action: str, params: dict[str, str]) -> None:
@@ -598,8 +628,6 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
         ]
     )
     def test_400_on_invalid_run_scope(self, action: str, params: dict[str, str]) -> None:
-        # A typo'd scope must 400 on every endpoint that accepts it, not silently return the
-        # all-runs population as a 200.
         response = self.client.get(self._url(action), {**params, "run_scope": "bogus"})
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST

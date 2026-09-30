@@ -3,7 +3,7 @@ import tempfile
 from pathlib import Path
 from uuid import uuid4
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_person, flush_persons_and_events
 
 from parameterized import parameterized
@@ -219,7 +219,7 @@ class TestLifecycleDataWarehouse(ClickhouseTestMixin, APIBaseTest):
         """Data warehouse source matching a person aggregation target."""
         table_name = self._setup_data_warehouse()
 
-        with freeze_time("2025-11-07T12:00:00Z"):
+        with time_machine.travel("2025-11-07T12:00:00Z", tick=False):
             query = LifecycleQuery(
                 dateRange=DateRange(date_from="-1d"),
                 interval=IntervalType.DAY,
@@ -261,7 +261,7 @@ class TestLifecycleDataWarehouse(ClickhouseTestMixin, APIBaseTest):
             results_by_status["new"]["action"],
         )
 
-        with freeze_time("2025-11-07T12:00:00Z"):
+        with time_machine.travel("2025-11-07T12:00:00Z", tick=False):
             for status, expected_name in {
                 "new": "user-1",
                 "returning": "user-2",
@@ -288,7 +288,7 @@ class TestLifecycleDataWarehouse(ClickhouseTestMixin, APIBaseTest):
         """Data warehouse source matching a group aggregation target."""
         table_name = self._setup_group_data_warehouse()
 
-        with freeze_time("2025-11-07T12:00:00Z"):
+        with time_machine.travel("2025-11-07T12:00:00Z", tick=False):
             query = LifecycleQuery(
                 dateRange=DateRange(date_from="-1d"),
                 interval=IntervalType.DAY,
@@ -317,7 +317,7 @@ class TestLifecycleDataWarehouse(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual([0.0, 1.0], results_by_status["resurrecting"]["data"])
         self.assertEqual([0.0, -1.0], results_by_status["dormant"]["data"])
 
-        with freeze_time("2025-11-07T12:00:00Z"):
+        with time_machine.travel("2025-11-07T12:00:00Z", tick=False):
             for status, expected_name in {
                 "new": "org-new",
                 "returning": "org-returning",
@@ -344,7 +344,7 @@ class TestLifecycleDataWarehouse(ClickhouseTestMixin, APIBaseTest):
         """Series-level data warehouse properties filter lifecycle results."""
         table_name = self._setup_data_warehouse()
 
-        with freeze_time("2025-11-07T12:00:00Z"):
+        with time_machine.travel("2025-11-07T12:00:00Z", tick=False):
             query = LifecycleQuery(
                 dateRange=DateRange(date_from="-1d"),
                 interval=IntervalType.DAY,
@@ -375,7 +375,7 @@ class TestLifecycleDataWarehouse(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual([0.0, 1.0], results_by_status["resurrecting"]["data"])
         self.assertEqual([0.0, 0.0], results_by_status["dormant"]["data"])
 
-        with freeze_time("2025-11-07T12:00:00Z"):
+        with time_machine.travel("2025-11-07T12:00:00Z", tick=False):
             actors_response = ActorsQueryRunner(
                 team=self.team,
                 query=ActorsQuery(
@@ -436,7 +436,7 @@ class TestLifecycleDataWarehouse(ClickhouseTestMixin, APIBaseTest):
             **extra_query_kwargs,
         }
 
-        with freeze_time("2025-11-07T12:00:00Z"):
+        with time_machine.travel("2025-11-07T12:00:00Z", tick=False):
             with self.assertRaises(ValidationError) as context:
                 LifecycleQueryRunner(
                     team=self.team,
@@ -449,7 +449,7 @@ class TestLifecycleDataWarehouse(ClickhouseTestMixin, APIBaseTest):
         """Data warehouse source matching no aggregation target. Counts compute, but no actors are returned."""
         table_name = self._setup_data_warehouse()
 
-        with freeze_time("2025-11-07T12:00:00Z"):
+        with time_machine.travel("2025-11-07T12:00:00Z", tick=False):
             query = LifecycleQuery(
                 dateRange=DateRange(date_from="-1d"),
                 interval=IntervalType.DAY,
@@ -477,7 +477,7 @@ class TestLifecycleDataWarehouse(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual([0.0, 1.0], results_by_status["resurrecting"]["data"])
         self.assertEqual([0.0, -1.0], results_by_status["dormant"]["data"])
 
-        with freeze_time("2025-11-07T12:00:00Z"):
+        with time_machine.travel("2025-11-07T12:00:00Z", tick=False):
             for status in ["new", "returning", "resurrecting", "dormant"]:
                 with self.subTest(status=status):
                     actors_response = ActorsQueryRunner(

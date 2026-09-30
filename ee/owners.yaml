@@ -1,8 +1,12 @@
 version: 1
 owners: []
 rules:
+    - match: '/api/agentic_provisioning/'
+      owners: team-growth
     - match: ['/api/billing.py', '/api/test/test_billing.py', '/billing/']
       owners: team-billing
+    - match: ['/api/vercel/', '/vercel/']
+      owners: team-growth
     - match: '/clickhouse/materialized_columns/'
       owners: team-analytics-platform
     - match: ['/clickhouse/queries/related_actors_query.py', '/clickhouse/views/groups.py']
@@ -14,6 +18,6 @@ rules:
     - match: '/support_sidebar_max/'
       owners: team-self-driving
     - match: '/surveys/'
-      owners: team-surveys
+      owners: conversations
     - match: '/tasks/subscriptions/'
-      owners: team-analytics-platform
+      owners: team-product-analytics

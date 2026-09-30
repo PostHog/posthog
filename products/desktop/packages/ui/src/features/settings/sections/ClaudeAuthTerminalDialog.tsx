@@ -8,14 +8,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@posthog/quill";
+import {
+  AuthTerminalPanel,
+  type AuthTerminalStatus,
+} from "@posthog/ui/features/settings/components/AuthTerminalPanel";
 import { destroyTerminalSession } from "@posthog/ui/features/terminal/destroyShellTerminal";
-import { Terminal } from "@posthog/ui/features/terminal/Terminal";
-import { useThemeStore } from "@posthog/ui/shell/themeStore";
 import { secureRandomString } from "@posthog/ui/utils/random";
 import { useQuery } from "@tanstack/react-query";
 import { type ReactElement, useCallback, useEffect, useState } from "react";
 
-export type ClaudeAuthAction = "login" | "logout";
+export type ClaudeAuthAction = "login" | "logout" | "setup-token";
 
 interface ClaudeAuthTerminalDialogProps {
   action: ClaudeAuthAction;
@@ -23,15 +25,18 @@ interface ClaudeAuthTerminalDialogProps {
   onFinished: () => void;
 }
 
-const SURFACE = {
-  dark: { body: "#131316", chrome: "#1c1c21", text: "#e6e6e6" },
-  light: { body: "#f2f3ee", chrome: "#e7e9e1", text: "#3a4036" },
-} as const;
-
 const COPY = {
+  "setup-token": {
+    title: "Create a Claude token",
+    lead: "Follow the steps in this terminal. Copy the token. Close this window, then paste the token into Cloud tasks.",
+    command: "claude setup-token",
+    ok: "Copy the token. Close this window, then paste the token into Cloud tasks.",
+    failed:
+      "Token setup did not finish. Read the terminal output, then try again.",
+  },
   login: {
     title: "Log in to Claude Code",
-    lead: "The CLI opens your browser. If it asks for a code, paste the code in the terminal.",
+    lead: "Claude opens your browser. If it asks for a code, paste it in this terminal.",
     command: "claude auth login",
     ok: "Claude Code is logged in. You can close this window.",
     failed: "The login did not complete. Read the output, then try again.",
@@ -45,30 +50,18 @@ const COPY = {
   },
 } as const;
 
-type Status = "running" | "checking" | "done" | "failed";
-
-const PILL: Record<Status, { dot: string; label: string }> = {
-  running: {
-    dot: "animate-pulse bg-(--amber-9) motion-reduce:animate-none",
-    label: "Running",
-  },
-  checking: {
-    dot: "animate-pulse bg-(--gray-9) motion-reduce:animate-none",
-    label: "Checking",
-  },
-  done: { dot: "bg-(--green-9)", label: "Done" },
-  failed: { dot: "bg-(--red-9)", label: "Failed" },
-};
-
 export function ClaudeAuthTerminalDialog({
   action,
   onClose,
   onFinished,
 }: ClaudeAuthTerminalDialogProps): ReactElement {
   const hostTRPC = useHostTRPC();
-  const isDarkMode = useThemeStore((state) => state.isDarkMode);
-  const [started, setStarted] = useState(action === "login");
-  const { data: terminal } = useQuery({
+  const [started, setStarted] = useState(action !== "logout");
+  const {
+    data: terminal,
+    isPending: terminalPending,
+    isError: terminalError,
+  } = useQuery({
     ...hostTRPC.agent.claudeAuthTerminal.queryOptions({ action }),
     enabled: started,
   });
@@ -76,24 +69,29 @@ export function ClaudeAuthTerminalDialog({
     () => `claude-auth-${action}-${secureRandomString(7)}`,
   );
   const [stopped, setStopped] = useState(false);
+  const [exitCode, setExitCode] = useState<number | undefined>();
 
   const statusQuery = useQuery({
     ...hostTRPC.agent.claudeSubscriptionStatus.queryOptions(),
-    enabled: stopped,
+    enabled: stopped && action !== "setup-token",
   });
   const loggedIn = statusQuery.data?.loginState === "logged-in";
   const statusKnown = statusQuery.data?.loginState !== undefined;
   const verified = ((): boolean | undefined => {
+    if (action === "setup-token") return stopped ? exitCode === 0 : undefined;
+    if (statusQuery.isError) return false;
     if (!stopped || statusQuery.isFetching || !statusKnown) {
       return undefined;
     }
-    return action === "login" ? loggedIn : !loggedIn;
+    return action === "login"
+      ? loggedIn
+      : statusQuery.data?.loginState === "logged-out";
   })();
 
   const copy = COPY[action];
-  const surface = isDarkMode ? SURFACE.dark : SURFACE.light;
 
-  const status = ((): Status => {
+  const status = ((): AuthTerminalStatus => {
+    if (terminalError) return "failed";
     if (!stopped) return "running";
     if (verified === undefined) return "checking";
     return verified ? "done" : "failed";
@@ -101,15 +99,22 @@ export function ClaudeAuthTerminalDialog({
 
   const hint = ((): string => {
     if (!started) return "Nothing changes until you select Log out.";
+    if (terminalError)
+      return "Could not open the terminal. Close this window and try again.";
+    if (terminalPending) return "Opening the terminal.";
     if (status === "running") return "The command runs. Close to stop it.";
     if (status === "checking") return "Reading the login status.";
     return verified ? copy.ok : copy.failed;
   })();
 
-  const handleExit = useCallback(() => {
-    setStopped(true);
-    onFinished();
-  }, [onFinished]);
+  const handleExit = useCallback(
+    (code?: number) => {
+      setExitCode(code);
+      setStopped(true);
+      onFinished();
+    },
+    [onFinished],
+  );
 
   const handleClose = useCallback(() => {
     destroyTerminalSession(sessionId);
@@ -133,40 +138,24 @@ export function ClaudeAuthTerminalDialog({
             {copy.lead}
           </p>
 
+          {started && terminalPending ? (
+            <output className="text-muted-foreground text-xs">
+              Opening the terminal…
+            </output>
+          ) : null}
+          {started && terminalError ? (
+            <span role="alert" className="text-xs">
+              Could not open the terminal. Close this window and try again.
+            </span>
+          ) : null}
           {started && terminal ? (
-            <div
-              className="overflow-hidden rounded-(--radius-3) border border-(--gray-6) shadow-sm"
-              style={{ backgroundColor: surface.body, color: surface.text }}
-            >
-              <div
-                className="flex items-center justify-between border-black/10 border-b px-3 py-1.5"
-                style={{ backgroundColor: surface.chrome }}
-              >
-                <span className="flex items-center gap-2 font-mono text-[11px] opacity-80">
-                  <span aria-hidden>❯</span>
-                  {copy.command}
-                </span>
-                <span className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-wide opacity-70">
-                  <span
-                    className={`inline-block h-1.5 w-1.5 rounded-full ${PILL[status].dot}`}
-                    aria-hidden
-                  />
-                  {PILL[status].label}
-                </span>
-              </div>
-              <div className="h-44">
-                <Terminal
-                  sessionId={sessionId}
-                  persistenceKey={sessionId}
-                  cwd={terminal.cwd}
-                  command={terminal.command}
-                  additionalEnv={terminal.additionalEnv}
-                  unsetEnv={terminal.unsetEnv}
-                  sensitive
-                  onExit={handleExit}
-                />
-              </div>
-            </div>
+            <AuthTerminalPanel
+              sessionId={sessionId}
+              commandLabel={copy.command}
+              status={status}
+              terminal={terminal}
+              onExit={handleExit}
+            />
           ) : null}
         </DialogBody>
         <DialogFooter className="items-center justify-between gap-3">

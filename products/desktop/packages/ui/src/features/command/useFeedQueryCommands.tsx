@@ -1,20 +1,23 @@
 import { ArrowRightIcon, MagnifyingGlassIcon } from "@phosphor-icons/react";
+import { channelDisplayLabel } from "@posthog/core/canvas/channelName";
 import {
   feedQueryTypeScope,
   parseFeedQuery,
   type TypeValue,
 } from "@posthog/core/tasks/feedQuery";
+import { singleLineTitle } from "@posthog/shared";
 import { useFeedQuerySuggestions } from "@posthog/ui/features/canvas/components/feedQuerySuggestions";
 import { applyFeedQuerySuggestion } from "@posthog/ui/features/canvas/components/feedQuerySuggestionUtils";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useProjectTaskFeeds } from "@posthog/ui/features/canvas/hooks/useProjectTaskFeeds";
 import { useTaskFeedResults } from "@posthog/ui/features/canvas/hooks/useTaskFeedResults";
-import { sessionSubtitle } from "@posthog/ui/features/command/sessionSubtitle";
-import { TaskCommandIcon } from "@posthog/ui/features/command/TaskCommandIcon";
 import type {
   Command,
   CommandSection,
-} from "@posthog/ui/features/command/useSearchSections";
+} from "@posthog/ui/features/command/commandRow";
+import { taskRowParts } from "@posthog/ui/features/command/commandRowFacts";
+import { commandRowMeta } from "@posthog/ui/features/command/commandRowMeta";
+import { TaskCommandIcon } from "@posthog/ui/features/command/TaskCommandIcon";
 import { closeSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
 import { useDebouncedValue } from "@posthog/ui/primitives/hooks/useDebouncedValue";
 import { navigateToFeed } from "@posthog/ui/router/navigationBridge";
@@ -234,15 +237,13 @@ export function useFeedQueryCommands({
     const shown = runsQuery ? results.tasks.slice(0, limit) : [];
     if (shown.length > 0) {
       const items = shown.map((task): Command => {
-        const subtitle = sessionSubtitle({
-          space: task.channel ? channelNames.get(task.channel) : undefined,
-          repository: task.repository,
-          createdAt: task.created_at,
-        });
+        const space = task.channel ? channelNames.get(task.channel) : undefined;
         return {
           id: `feed-query-task-${task.id}`,
-          label: task.title,
-          subtitle,
+          label: singleLineTitle(task.title),
+          subtitle: commandRowMeta(taskRowParts(task)),
+          detail: space ? channelDisplayLabel(space) : undefined,
+          detailPrefix: "",
           keywords: `${query} ${searchText}`,
           icon: <TaskCommandIcon task={task} />,
           action: "open-task",

@@ -168,7 +168,7 @@ WEB_ANALYTICS_CONFIG_SCHEMA = {
     "team_ids": Field(
         Array(int),
         is_required=False,
-        description="List of team IDs to process - if not provided, uses ClickHouse dictionary configuration",
+        description="List of team IDs to process - if not provided, uses the teams in web_pre_aggregated_teams",
     ),
     "extra_clickhouse_settings": Field(
         str,

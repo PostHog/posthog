@@ -13,11 +13,14 @@
 pub mod analysis;
 mod executor;
 mod globals;
+mod program;
 
+pub use analysis::{GlobalsBuild, GlobalsPlan};
 pub use executor::{
     classify_vm_error, evaluate_detailed, CohortEvaluator, EvalOutcome, VmErrorClass,
 };
 pub use globals::{
     build_behavioral_globals, build_person_property_globals, build_person_scan_globals,
-    GlobalsError,
+    parse_person_scan_properties, person_scan_globals, GlobalsError,
 };
+pub use program::ConditionProgram;

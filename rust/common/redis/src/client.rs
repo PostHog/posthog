@@ -1,3 +1,4 @@
+use std::io::Write;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -258,11 +259,18 @@ impl RedisClient {
         data: Vec<u8>,
         config: &CompressionConfig,
     ) -> Result<Vec<u8>, CustomRedisError> {
-        if config.enabled && data.len() > config.threshold {
-            zstd::encode_all(&data[..], config.level).map_err(|e| e.into())
-        } else {
-            Ok(data)
+        if !(config.enabled && data.len() > config.threshold) {
+            return Ok(data);
         }
+
+        // The frame has to declare the decompressed size. Django reads these values through
+        // python-zstd, which sizes its output buffer from that header and fails on anything
+        // past one 128 KiB block without it. `zstd::encode_all` never pledges the size, so it
+        // writes entries Django can only read while they stay small.
+        let mut encoder = zstd::Encoder::new(Vec::new(), config.level)?;
+        encoder.set_pledged_src_size(Some(data.len() as u64))?;
+        encoder.write_all(&data)?;
+        Ok(encoder.finish()?)
     }
 
     /// Serialize a string value according to the format and apply compression if configured
@@ -360,6 +368,19 @@ impl Client for RedisClient {
     ) -> Result<Vec<String>, CustomRedisError> {
         let mut conn = self.conn();
         let results = conn.zrangebyscore(k, min, max).await?;
+        Ok(results)
+    }
+
+    async fn zrangebyscore_limit(
+        &self,
+        k: String,
+        min: String,
+        max: String,
+        offset: isize,
+        count: isize,
+    ) -> Result<Vec<String>, CustomRedisError> {
+        let mut conn = self.conn();
+        let results = conn.zrangebyscore_limit(k, min, max, offset, count).await?;
         Ok(results)
     }
 
@@ -549,6 +570,21 @@ impl Client for RedisClient {
         Ok(())
     }
 
+    async fn batch_incr_by_expire_at(
+        &self,
+        items: Vec<(String, i64, i64)>,
+    ) -> Result<(), CustomRedisError> {
+        let mut pipe = redis::pipe();
+        for (k, by, expire_at) in items {
+            pipe.cmd("INCRBY").arg(&k).arg(by).ignore();
+            pipe.cmd("EXPIREAT").arg(&k).arg(expire_at).ignore();
+        }
+
+        let mut conn = self.conn();
+        pipe.query_async::<()>(&mut conn).await?;
+        Ok(())
+    }
+
     async fn del(&self, k: String) -> Result<(), CustomRedisError> {
         let mut conn = self.conn();
         conn.del::<_, ()>(k).await?;
@@ -707,6 +743,12 @@ impl Client for RedisClient {
                 PipelineCommand::SAdd { key, member } => {
                     pipe.cmd("SADD").arg(key).arg(member);
                 }
+                PipelineCommand::ZAdd { key, members } => {
+                    let cmd = pipe.cmd("ZADD").arg(key);
+                    for (score, member) in members {
+                        cmd.arg(*score).arg(member);
+                    }
+                }
                 PipelineCommand::Expire { key, seconds } => {
                     pipe.cmd("EXPIRE").arg(key).arg(*seconds);
                 }
@@ -769,6 +811,7 @@ impl RedisClient {
             PipelineCommand::Set { .. }
             | PipelineCommand::SetEx { .. }
             | PipelineCommand::Del { .. }
+            | PipelineCommand::ZAdd { .. }
             | PipelineCommand::HIncrBy { .. } => Ok(PipelineResult::Ok),
             PipelineCommand::Expire { .. } => {
                 // EXPIRE returns 1 if the timeout was set, 0 if the key does not exist
@@ -1054,6 +1097,29 @@ mod tests {
             let decompressed = RedisClient::try_decompress(processed);
             let deserialized = helpers::deserialize_value(&decompressed, RedisValueFormat::Pickle);
             assert_eq!(deserialized, test_value);
+        }
+
+        #[test]
+        fn test_compressed_frame_declares_content_size() {
+            // Django reads these values through python-zstd, which sizes its output buffer
+            // from the frame header and fails past one 128 KiB block when the size is absent.
+            // A frame without it is readable by this crate and unreadable by Django, so no
+            // round-trip through `try_decompress` can catch the regression.
+            let test_value = "x".repeat(200_000);
+            let config = CompressionConfig::default();
+
+            let serialized = helpers::serialize_value(&test_value, RedisValueFormat::Pickle);
+            assert!(
+                serialized.len() > 128 * 1024,
+                "payload must exceed one zstd block for this to be the production shape"
+            );
+
+            let processed = RedisClient::maybe_compress(serialized.clone(), &config).unwrap();
+
+            assert_eq!(
+                zstd::zstd_safe::get_frame_content_size(&processed).unwrap(),
+                Some(serialized.len() as u64)
+            );
         }
 
         #[test]

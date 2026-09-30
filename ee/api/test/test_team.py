@@ -1,7 +1,7 @@
 import uuid
 from typing import Optional
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import FuzzyInt
 from unittest.mock import patch
 
@@ -180,7 +180,7 @@ def team_enterprise_api_test_factory():
             self.assertEqual(response.status_code, HTTP_404_NOT_FOUND)
             self.assertEqual(self.not_found_response(), response_data)
 
-        @freeze_time("2022-02-08")
+        @time_machine.travel("2022-02-08", tick=False)
         def test_team_update_is_in_activity_log(self):
             self.organization_membership.level = OrganizationMembership.Level.ADMIN
             self.organization_membership.save()

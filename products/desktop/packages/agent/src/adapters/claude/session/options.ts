@@ -2,8 +2,10 @@ import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import type { Readable, Writable } from "node:stream";
 import type {
   CanUseTool,
+  HookCallback,
   McpServerConfig,
   Options,
   OutputFormat,
@@ -12,6 +14,14 @@ import type {
   SpawnedProcess,
   SpawnOptions,
 } from "@anthropic-ai/claude-agent-sdk";
+import { buildAppendedInstructions } from "@posthog/harness/extensions/agent-instructions";
+import {
+  applyContextWikiEnv,
+  type ContextWikiEnv,
+  resolveContextWikiPath,
+} from "@posthog/harness/extensions/context-wiki";
+import type { FileEnrichmentDeps } from "@posthog/harness/extensions/enrichment";
+import { resolveRtkPrefix } from "@posthog/harness/extensions/rtk";
 import {
   BEDROCK_LLM_GATEWAY_FLAG,
   type BedrockGatewayVariant,
@@ -20,12 +30,6 @@ import {
   buildPosthogProjectHeaderLines,
   buildPosthogPropertyHeaderLines,
 } from "@posthog/shared/posthog-property-headers";
-import {
-  applyContextWikiEnv,
-  resolveContextWikiPath,
-} from "../../../context-wiki";
-import type { FileEnrichmentDeps } from "../../../enrichment/file-enricher";
-import type { ContextWikiEnv } from "../../../types";
 import { IS_ROOT } from "../../../utils/common";
 import type { Logger } from "../../../utils/logger";
 import type { TaskState } from "../conversion/task-state";
@@ -42,14 +46,20 @@ import {
 } from "../hooks";
 import {
   applyMachineClaudeAuth,
+  CLAUDE_PROVIDER_ENV_KEYS,
+  CLAUDE_TRANSPORT_ENV_KEYS,
+  CLOUD_AUTH_STRIPPED_KEYS,
+  MACHINE_AUTH_STRIPPED_KEYS,
   type MachineClaudeAuth,
 } from "../machine-auth";
 import { type CodeExecutionMode, toSdkPermissionMode } from "../tools";
 import type { EffortLevel } from "../types";
-import { buildAppendedInstructions } from "./instructions";
+import type { RunBudgetGuard } from "./budget-guard";
 import { loadUserClaudeJsonMcpServers } from "./mcp-config";
+import { createMemoryKillNoticeHook } from "./memory-kill-hook";
 import { DEFAULT_MODEL, resolveFallbackModel } from "./models";
-import { createRtkRewriteHook, resolveRtkPrefix } from "./rtk";
+import { isPinnedSettingsFile, pinnedSettingsDir } from "./pinned-settings";
+import { createRtkRewriteHook } from "./rtk-hook";
 import type { SettingsManager } from "./settings";
 import { buildTraceparentHookSettingsJson } from "./traceparent-hook";
 
@@ -102,6 +112,7 @@ export interface BuildOptionsParams {
   onModeChange?: OnModeChange;
   onProcessSpawned?: (info: ProcessSpawnedInfo) => void;
   onProcessExited?: (pid: number) => void;
+  onStartupOutput?: (stdout: Readable) => void;
   effort?: EffortLevel;
   enrichmentDeps?: FileEnrichmentDeps;
   enrichedReadCache?: EnrichedReadCache;
@@ -127,6 +138,7 @@ export interface BuildOptionsParams {
   machineAuth?: MachineClaudeAuth;
   /** Matched `bedrock-llm-gateway` variant; `test` serves this session from Bedrock. */
   bedrockGatewayVariant?: BedrockGatewayVariant;
+  budgetGuard?: RunBudgetGuard;
   /** Per-session context wiki mount — prevents global process.env mutation. */
   contextWiki?: ContextWikiEnv;
 }
@@ -337,10 +349,8 @@ function applyGatewayAuth(
   // are pinned rather than inherited — an ambient OTEL_TRACES_EXPORTER=none or
   // unknown protocol registers no tracer and silently drops the traceparent;
   // the endpoint stays overridable for a real collector.
-  // Residual risk: a repo's .claude/settings.json `env` is applied over these
-  // inside the CLI and can redirect the endpoint or turn on content capture
-  // (OTEL_LOG_TOOL_CONTENT, …) — pre-existing settingSources exposure, not
-  // closable from here; hardening tracked separately.
+  // A gateway session pins these in --settings so a repo's settings env
+  // cannot redirect the endpoint or turn on content capture.
   env.CLAUDE_CODE_ENABLE_TELEMETRY = "1";
   env.CLAUDE_CODE_ENHANCED_TELEMETRY_BETA = "1";
   env.CLAUDE_CODE_PROPAGATE_TRACEPARENT = "1";
@@ -373,6 +383,7 @@ function buildHooks(
   taskState: TaskState,
   onTaskStateChange: (() => Promise<void>) | undefined,
   rtkPrefix: string | undefined,
+  budgetGuard: RunBudgetGuard | undefined,
 ): Options["hooks"] {
   const postToolUseHooks = [
     createReadImageGuardHook(),
@@ -396,9 +407,19 @@ function buildHooks(
       createSignedCommitGuardHook(logger, onEnsureLocalToolsConnected),
     );
   }
+  if (budgetGuard) {
+    preToolUseHooks.push(budgetGuard.preToolUseHook());
+  }
   // Registered last so the signed-commit guard evaluates the raw command first.
   if (rtkPrefix) {
     preToolUseHooks.push(createRtkRewriteHook(rtkPrefix, logger));
+  }
+
+  const postToolUseFailureHooks: HookCallback[] = [];
+  if (cloudMode) {
+    const memoryKillNoticeHook = createMemoryKillNoticeHook(logger);
+    postToolUseHooks.push(memoryKillNoticeHook);
+    postToolUseFailureHooks.push(memoryKillNoticeHook);
   }
 
   const taskHook = createTaskHook(taskState, onTaskStateChange);
@@ -408,6 +429,10 @@ function buildHooks(
     PostToolUse: [
       ...(userHooks?.PostToolUse || []),
       { hooks: postToolUseHooks },
+    ],
+    PostToolUseFailure: [
+      ...(userHooks?.PostToolUseFailure || []),
+      { hooks: postToolUseFailureHooks },
     ],
     PreToolUse: [...(userHooks?.PreToolUse || []), { hooks: preToolUseHooks }],
     TaskCreated: [...(userHooks?.TaskCreated || []), { hooks: [taskHook] }],
@@ -479,19 +504,45 @@ function getAbortController(
 
 function buildSpawnWrapper(
   sessionId: string,
-  onProcessSpawned: (info: ProcessSpawnedInfo) => void,
+  onProcessSpawned?: (info: ProcessSpawnedInfo) => void,
   onProcessExited?: (pid: number) => void,
   logger?: Logger,
+  oauthToken?: string,
+  onStartupOutput?: (stdout: Readable) => void,
 ): (options: SpawnOptions) => SpawnedProcess {
   return (spawnOpts: SpawnOptions): SpawnedProcess => {
-    const child = spawn(spawnOpts.command, spawnOpts.args, {
+    const command = oauthToken ? "/bin/bash" : spawnOpts.command;
+    const args = oauthToken
+      ? [
+          "-p",
+          "-c",
+          'exec "$@" 3< <(/bin/cat <&3)',
+          "--",
+          spawnOpts.command,
+          ...spawnOpts.args,
+        ]
+      : spawnOpts.args;
+    const child = spawn(command, args, {
       cwd: spawnOpts.cwd,
-      env: spawnOpts.env as NodeJS.ProcessEnv,
-      stdio: ["pipe", "pipe", "pipe"],
+      env: {
+        ...spawnOpts.env,
+        ...(oauthToken ? { CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR: "3" } : {}),
+      },
+      stdio: oauthToken
+        ? ["pipe", "pipe", "pipe", "pipe"]
+        : ["pipe", "pipe", "pipe"],
     });
 
+    if (child.stdout) onStartupOutput?.(child.stdout);
+
+    if (oauthToken) {
+      const tokenPipe = child.stdio[3] as Writable;
+      tokenPipe.on("error", () => child.kill("SIGTERM"));
+      tokenPipe.end(oauthToken);
+    }
+
     if (child.pid) {
-      onProcessSpawned({
+      onProcessSpawned?.({
         pid: child.pid,
         command: `${spawnOpts.command} ${spawnOpts.args.join(" ")}`,
         sessionId,
@@ -554,6 +605,128 @@ function buildSpawnWrapper(
   };
 }
 
+const PINNED_GATEWAY_ENV_KEYS = [
+  "ANTHROPIC_BASE_URL",
+  "ANTHROPIC_AUTH_TOKEN",
+  "ANTHROPIC_API_KEY",
+  "ANTHROPIC_CUSTOM_HEADERS",
+] as const;
+
+const OTLP_SIGNALS = ["", "TRACES_", "LOGS_", "METRICS_"] as const;
+
+// Where telemetry goes and what it carries; the CLI builds the per-signal names.
+const TELEMETRY_ENV_KEYS = [
+  "CLAUDE_CODE_ENABLE_TELEMETRY",
+  "OTEL_TRACES_EXPORTER",
+  "OTEL_LOGS_EXPORTER",
+  "OTEL_METRICS_EXPORTER",
+  ...OTLP_SIGNALS.flatMap((signal) =>
+    ["ENDPOINT", "HEADERS", "PROTOCOL"].map(
+      (field) => `OTEL_EXPORTER_OTLP_${signal}${field}`,
+    ),
+  ),
+  "OTEL_LOG_USER_PROMPTS",
+  "OTEL_LOG_ASSISTANT_RESPONSES",
+  "OTEL_LOG_TOOL_DETAILS",
+  "OTEL_LOG_TOOL_CONTENT",
+  "OTEL_LOG_RAW_API_BODIES",
+];
+
+// Keys that send content or credentials elsewhere without ANTHROPIC_BASE_URL.
+export const PINNED_ROUTING_ENV_KEYS: readonly string[] = [
+  ...CLAUDE_PROVIDER_ENV_KEYS,
+  ...CLAUDE_TRANSPORT_ENV_KEYS,
+  ...TELEMETRY_ENV_KEYS,
+];
+
+const PROXY_CASE_TWINS: Record<string, string> = {
+  HTTP_PROXY: "http_proxy",
+  HTTPS_PROXY: "https_proxy",
+  ALL_PROXY: "all_proxy",
+  http_proxy: "HTTP_PROXY",
+  https_proxy: "HTTPS_PROXY",
+  all_proxy: "ALL_PROXY",
+};
+
+// The pin outranks user settings too, so it keeps the user's own value.
+function routingPinValue(
+  key: string,
+  env: Record<string, string | undefined>,
+  userEnv: Record<string, string>,
+): string {
+  const own = (name: string) => env[name] ?? userEnv[name];
+  const twin = PROXY_CASE_TWINS[key];
+  return own(key) ?? (twin ? own(twin) : undefined) ?? "";
+}
+
+export function settingsFlagIncludes(options: Options, nonce: string): boolean {
+  const settings = options.extraArgs?.settings;
+  if (typeof settings !== "string") return false;
+  if (!isPinnedSettingsFile(settings)) return settings.includes(nonce);
+  try {
+    return fs.readFileSync(settings, "utf-8").includes(nonce);
+  } catch {
+    return false;
+  }
+}
+
+export function removePinnedSettings(options: Options): void {
+  const file = options.extraArgs?.settings;
+  if (!file || !isPinnedSettingsFile(file)) return;
+  try {
+    fs.rmSync(file, { force: true });
+  } catch {
+    // Best-effort: the next session with this id overwrites it.
+  }
+}
+
+/**
+ * Repeats the gateway env in `--settings`, which outranks a repo's project and
+ * local settings. Written to an owner-only file because argv is readable by
+ * any local user and the base URL carries the proxy's path token.
+ */
+function pinGatewayEnvSettings(
+  options: Options,
+  sessionId: string,
+  userEnv: Record<string, string>,
+): boolean {
+  const pins: Record<string, string> = {};
+  for (const key of PINNED_GATEWAY_ENV_KEYS) {
+    const value = options.env?.[key];
+    if (value !== undefined) pins[key] = value;
+  }
+  for (const key of PINNED_ROUTING_ENV_KEYS) {
+    pins[key] = routingPinValue(key, options.env ?? {}, userEnv);
+  }
+  if (typeof options.settings === "string") return false;
+  let base: Settings = options.settings ?? {};
+  const raw = options.extraArgs?.settings;
+  if (raw) {
+    try {
+      base = { ...(JSON.parse(raw) as Settings), ...base };
+    } catch {
+      return false;
+    }
+  }
+  const merged: Settings = { ...base, env: { ...base.env, ...pins } };
+  const dir = pinnedSettingsDir();
+  const file = path.join(
+    dir,
+    `${sessionId.replace(/[^A-Za-z0-9_-]/g, "_")}.json`,
+  );
+  try {
+    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+    fs.writeFileSync(file, JSON.stringify(merged), { mode: 0o600 });
+    fs.chmodSync(file, 0o600);
+  } catch {
+    return false;
+  }
+  // The SDK drops extraArgs.settings when `settings` is set, so use one channel.
+  delete options.settings;
+  options.extraArgs = { ...options.extraArgs, settings: file };
+  return true;
+}
+
 function ensureLocalSettings(cwd: string): void {
   const claudeDir = path.join(cwd, ".claude");
   const localSettingsPath = path.join(claudeDir, "settings.local.json");
@@ -603,7 +776,9 @@ export function buildSessionOptions(params: BuildOptionsParams): Options {
 
   const agents = buildAgents(params.userProvidedOptions?.agents);
   const registeredAgentNames = new Set(Object.keys(agents));
-  const claudeCodeExecutable = process.env.CLAUDE_CODE_EXECUTABLE;
+  const claudeCodeExecutable = params.machineAuth?.oauthToken
+    ? undefined
+    : process.env.CLAUDE_CODE_EXECUTABLE;
 
   const options: Options = {
     ...params.userProvidedOptions,
@@ -629,8 +804,9 @@ export function buildSessionOptions(params: BuildOptionsParams): Options {
     },
     // Surfaces the traceparent hook's output as `hook_response` messages.
     includeHookEvents:
-      params.userProvidedOptions?.includeHookEvents ??
-      traceparentHookSettings !== undefined,
+      !!params.onStartupOutput ||
+      (params.userProvidedOptions?.includeHookEvents ??
+        traceparentHookSettings !== undefined),
     mcpServers: buildMcpServers(
       params.userProvidedOptions?.mcpServers,
       params.mcpServers,
@@ -662,20 +838,76 @@ export function buildSessionOptions(params: BuildOptionsParams): Options {
       params.taskState,
       params.onTaskStateChange,
       resolveRtkPrefix(process.env),
+      params.budgetGuard,
     ),
     outputFormat: params.outputFormat,
     abortController: getAbortController(
       params.userProvidedOptions?.abortController,
     ),
-    ...(params.onProcessSpawned && {
+    ...((params.onProcessSpawned ||
+      params.machineAuth?.oauthToken ||
+      params.onStartupOutput) && {
       spawnClaudeCodeProcess: buildSpawnWrapper(
         params.sessionId,
         params.onProcessSpawned,
         params.onProcessExited,
         params.logger,
+        params.machineAuth?.oauthToken,
+        params.onStartupOutput,
       ),
     }),
   };
+
+  if (
+    params.gatewayEnv?.anthropicBaseUrl &&
+    !params.machineAuth &&
+    !pinGatewayEnvSettings(
+      options,
+      params.sessionId,
+      params.settingsManager.getUserEnv(),
+    )
+  ) {
+    // Without the pin, repo settings could repoint the gateway env.
+    params.logger.warn(
+      "Gateway env is not pinned; skipping project and local settings",
+    );
+    options.settingSources = options.settingSources?.filter(
+      (source) => source !== "project" && source !== "local",
+    );
+  }
+
+  if (params.machineAuth?.oauthToken) {
+    delete options.pathToClaudeCodeExecutable;
+    delete options.executable;
+    delete options.executableArgs;
+    if (typeof options.settings === "string")
+      throw new Error("Cloud subscription settings must be an object.");
+    const extraSettings = options.extraArgs?.settings;
+    const inlineSettings: Settings = extraSettings
+      ? JSON.parse(extraSettings)
+      : {};
+    if (options.extraArgs) delete options.extraArgs.settings;
+    options.settings = {
+      ...inlineSettings,
+      ...options.settings,
+      apiKeyHelper: "",
+      env: {
+        ...inlineSettings.env,
+        ...options.settings?.env,
+        ...Object.fromEntries(
+          [...MACHINE_AUTH_STRIPPED_KEYS, ...CLOUD_AUTH_STRIPPED_KEYS].map(
+            (key) => [key, ""],
+          ),
+        ),
+        NODE_TLS_REJECT_UNAUTHORIZED: "1",
+        ANTHROPIC_BASE_URL: "https://api.anthropic.com",
+        CLAUDE_CODE_OAUTH_TOKEN: "",
+        CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR: "3",
+        CLAUDE_CODE_REMOTE: "",
+        CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "0",
+      },
+    };
+  }
 
   if (claudeCodeExecutable) {
     options.pathToClaudeCodeExecutable = claudeCodeExecutable;

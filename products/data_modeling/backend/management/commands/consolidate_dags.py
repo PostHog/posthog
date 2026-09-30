@@ -8,7 +8,6 @@ from django.conf import settings
 from django.core.exceptions import ObjectDoesNotExist
 from django.core.management.base import BaseCommand, CommandError, CommandParser
 from django.db import transaction
-from django.utils import timezone
 
 import structlog
 from temporalio.client import Client
@@ -30,12 +29,7 @@ from products.data_modeling.backend.logic.node_frequency import (
     schedulable_nodes,
     set_declared_target,
 )
-from products.data_modeling.backend.logic.saved_query_dag_sync import (
-    DEGRADED_SYNC_KEY,
-    DegradedSyncMarker,
-    node_type_for,
-    sync_saved_query_to_dag,
-)
+from products.data_modeling.backend.logic.saved_query_dag_sync import node_type_for, sync_saved_query_to_dag
 from products.data_modeling.backend.logic.schedule_reconcile import (
     delete_dag_schedules,
     delete_v1_saved_query_schedules,
@@ -601,7 +595,6 @@ class Command(BaseCommand):
         fleet-wide, and the next successful sync clears the marker and rebuilds real edges.
         Returns None if even the bare node cannot be created, falling back to keeping the DAG.
         """
-        marker: DegradedSyncMarker = {"error": str(error)[:500], "at": timezone.now().isoformat()}
         try:
             # Atomic so a failed marker save rolls the creation back too: a committed but
             # unmarked node would make the re-run classify this query as DROP instead of
@@ -613,9 +606,8 @@ class Command(BaseCommand):
                     dag=target,
                     defaults={"name": saved_query.name, "type": node_type_for(saved_query)},
                 )
-                properties = node.properties or {}
-                properties.setdefault("system", {})[DEGRADED_SYNC_KEY] = marker
-                node.properties = properties
+                node.properties = node.properties or {}
+                node.mark_lineage_sync_failed(str(error))
                 node.save(update_fields=["properties"])
             return node
         except Exception:

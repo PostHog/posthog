@@ -2,13 +2,13 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { RpcClient } from "@earendil-works/pi-coding-agent";
+import type { TaskContext } from "@posthog/shared/task-context";
 import { describe, expect, it, vi } from "vitest";
 import {
   createPiRpcClient,
   createRuntimeMcpServers,
   createRuntimeMcpStdioServers,
 } from "./rpc-client";
-import type { TaskContext } from "./task-system-prompt";
 
 function taskContext(cwd: string): TaskContext {
   return {

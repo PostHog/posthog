@@ -1,9 +1,10 @@
+import re
 import json
 import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
 
@@ -24,6 +25,7 @@ from products.replay_vision.backend.search import (
     parse_date_bound,
     query_vector_for,
     rank_observations,
+    warm_query_vectors,
 )
 from products.replay_vision.backend.tests.helpers import snapshot_for
 
@@ -41,15 +43,14 @@ class TestObservationFiltersTagClause:
         ]
     )
     def test_tags_clause_normalizes_stored_side_and_registers_values(self, _name: str, tags: list[str]) -> None:
-        placeholders: dict = {}
-        clauses = ObservationSearchFilters(tags=tags).where_clauses(placeholders)
+        params: dict = {}
+        clauses = ObservationSearchFilters(tags=tags).where_clauses(params)
 
         assert len(clauses) == 1
         # Stored metadata tags are slugified inside the clause (arrayMap) so verbatim-stored tags still match.
         assert clauses[0].startswith("hasAny(")
         assert "arrayMap" in clauses[0]
-        # The clause carries no inlined tag value. It lives only in the parameterized placeholder, verbatim.
-        assert placeholders["tags"].value == tags
+        assert params["tags"] == tags
 
 
 class TestParseDateBound:
@@ -61,7 +62,7 @@ class TestParseDateBound:
         assert parse_date_bound("2026-09-01", None, end_of_range=True).hour == 23
 
     @parameterized.expand([("lowercase", "now"), ("mixed_case", "Now"), ("padded", " now ")])
-    @freeze_time("2026-09-01T10:30:00Z")
+    @time_machine.travel("2026-09-01T10:30:00Z", tick=False)
     def test_now_is_the_current_time_even_as_an_upper_bound(self, _name: str, value: str) -> None:
         # `now` must not widen to end of day the way a date-only bound does, or an upper bound of
         # `now` reaches into the future.
@@ -73,7 +74,6 @@ class TestParseDateBound:
             parse_date_bound(value, None, end_of_range=False)
 
 
-# Runs the ranking SQL against real ClickHouse. Everything else mocks `execute_hogql_query`.
 class TestRankObservationsQuery(ClickhouseTestMixin, APIBaseTest):
     def _insert_embedding_rows(self, rows: list[tuple]) -> None:
         # Reads for this model route to its model-specific table. Named inline to avoid a cross-product import.
@@ -125,18 +125,65 @@ class TestRankObservationsQuery(ClickhouseTestMixin, APIBaseTest):
                 row("reasoning", other, "x" * 2000, vector(0.6, 0.8)),
                 # Opposite direction: past the distance ceiling, so never a match however few rows exist.
                 row("reasoning", str(uuid.uuid4()), "unrelated", vector(-1.0, 0.0)),
+                (self.team.pk + 1, *row("intent", str(uuid.uuid4()), "user wanted to check out", vector(1.0, 0.0))[1:]),
             ]
         )
 
-        matches = rank_observations(
-            self.team, self.user, [scanner_id], vector(1.0, 0.0), 10, ObservationSearchFilters()
-        )
+        with self.capture_select_queries() as queries:
+            matches = rank_observations(self.team, [scanner_id], vector(1.0, 0.0), 10, ObservationSearchFilters())
 
         self.assertEqual([m.observation_id for m in matches], [best, other])
+        self.assertEqual(len(queries), 2)
+        self.assertIsNone(re.search(r"\bembedding\b", queries[0]))
         # `best` has two renderings and the hit carries the closest one's text.
         self.assertEqual(matches[0].matched_content, "user wanted to check out")
         self.assertAlmostEqual(matches[0].distance, 0.0, places=5)
         self.assertEqual(len(matches[1].matched_content), 1500)
+
+    @parameterized.expand(
+        [
+            ("unfiltered_keeps_newest", ObservationSearchFilters(), "newest_no"),
+            ("filtered_rows_do_not_consume_the_cap", ObservationSearchFilters(verdict=["yes"]), "newer_yes"),
+        ]
+    )
+    def test_candidate_cap_keeps_the_most_recent_matching_rows(
+        self, _name: str, filters: ObservationSearchFilters, expected: str
+    ) -> None:
+        scanner_id = str(uuid.uuid4())
+        now = timezone.now()
+        embedding = [1.0, *([0.0] * 3071)]
+
+        def row(document_id: str, age: timedelta, verdict: str) -> tuple:
+            timestamp = now - age
+            metadata = json.dumps({"scanner_id": scanner_id, "verdict": verdict})
+            return (
+                self.team.pk,
+                EMBEDDING_PRODUCT,
+                EMBEDDING_DOCUMENT_TYPE,
+                "reasoning",
+                document_id,
+                timestamp,
+                timestamp,
+                "some content",
+                metadata,
+                embedding,
+                timestamp,
+                0,
+                0,
+            )
+
+        self._insert_embedding_rows(
+            [
+                row("older_yes", timedelta(minutes=2), "yes"),
+                row("newer_yes", timedelta(minutes=1), "yes"),
+                row("newest_no", timedelta(0), "no"),
+            ]
+        )
+
+        with patch("products.replay_vision.backend.search._MAX_CANDIDATE_ROWS", 1):
+            matches = rank_observations(self.team, [scanner_id], embedding, 10, filters)
+
+        self.assertEqual([m.observation_id for m in matches], [expected])
 
     def test_every_filter_clause_compiles_and_applies_inside_the_candidate_subquery(self) -> None:
         scanner_id = str(uuid.uuid4())
@@ -171,7 +218,6 @@ class TestRankObservationsQuery(ClickhouseTestMixin, APIBaseTest):
 
         matches = rank_observations(
             self.team,
-            self.user,
             [scanner_id],
             embedding,
             10,
@@ -190,7 +236,6 @@ class TestRankObservationsQuery(ClickhouseTestMixin, APIBaseTest):
         # The same rows fall outside a window that ends before they were embedded.
         stale = rank_observations(
             self.team,
-            self.user,
             [scanner_id],
             embedding,
             10,
@@ -253,3 +298,9 @@ class TestQueryVectorCache(APIBaseTest):
         self.assertEqual(query_vector_for(self.team, "confused users"), [0.1, 0.2])
         query_vector_for(self.team, "happy users")
         self.assertEqual(mock_embed.call_count, 2)
+
+        for future in warm_query_vectors(self.team, ["confused users", "gave up at checkout"]):
+            future.result(timeout=5)
+        self.assertEqual(mock_embed.call_count, 3)
+        query_vector_for(self.team, "gave up at checkout")
+        self.assertEqual(mock_embed.call_count, 3)

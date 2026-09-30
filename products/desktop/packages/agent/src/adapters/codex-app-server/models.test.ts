@@ -4,8 +4,6 @@ import {
   formatCodexModelName,
   getReasoningEffortOptions,
   modelIdFromConfigOptions,
-  supportsMaxEffort,
-  supportsXhighEffort,
 } from "./models";
 
 describe("formatCodexModelName", () => {
@@ -19,7 +17,7 @@ describe("getReasoningEffortOptions", () => {
     getReasoningEffortOptions(modelId).map((o) => o.value);
 
   it.each(["gpt-5.5", "gpt-5.5-codex", "openai/gpt-5.5", "GPT-5.5"])(
-    "offers Extra High for the gpt-5.5 family (%s)",
+    "offers Extra high for the gpt-5.5 family (%s)",
     (modelId) => {
       expect(values(modelId)).toEqual(["low", "medium", "high", "xhigh"]);
     },
@@ -43,29 +41,11 @@ describe("getReasoningEffortOptions", () => {
     },
   );
 
-  it('labels the extra tier "Extra High"', () => {
+  it('labels the extra tier "Extra high"', () => {
     const xhigh = getReasoningEffortOptions("gpt-5.5").find(
       (o) => o.value === "xhigh",
     );
-    expect(xhigh?.name).toBe("Extra High");
-  });
-});
-
-describe("supportsXhighEffort", () => {
-  it("is true for current GPT families and false for other models", () => {
-    expect(supportsXhighEffort("gpt-6-astra")).toBe(true);
-    expect(supportsXhighEffort("gpt-5.5-codex")).toBe(true);
-    expect(supportsXhighEffort("GPT-5.5")).toBe(true);
-    expect(supportsXhighEffort("gpt-5.3-codex")).toBe(false);
-  });
-});
-
-describe("supportsMaxEffort", () => {
-  it("is true for current GPT families with Max support", () => {
-    expect(supportsMaxEffort("gpt-6-astra")).toBe(true);
-    expect(supportsMaxEffort("gpt-5.6-sol")).toBe(true);
-    expect(supportsMaxEffort("GPT-5.6-LUNA")).toBe(true);
-    expect(supportsMaxEffort("gpt-5.5")).toBe(false);
+    expect(xhigh?.name).toBe("Extra high");
   });
 });
 

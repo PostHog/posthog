@@ -1,4 +1,7 @@
-import { render } from '@testing-library/react'
+import { cleanup, render, screen } from '@testing-library/react'
+import type { ComponentProps } from 'react'
+
+import { type HogChart, ensureJsdom, getHogChart } from '@posthog/quill-charts/testing'
 
 import { dayjs } from 'lib/dayjs'
 
@@ -6,7 +9,8 @@ import { makeQuota } from '../../utils/quotaTestUtils'
 import type { SpendSeries } from '../visionUsageLogic'
 import { SpendTrajectoryChart } from './SpendTrajectoryChart'
 
-/** Daily spend over the fixture's period, oldest first, splitting `total` evenly across `days`. */
+type Props = ComponentProps<typeof SpendTrajectoryChart>
+
 function series(total: number, days: number, periodStart: string): SpendSeries {
     const start = dayjs.utc(periodStart)
     return Array.from({ length: days }, (_, i) => ({
@@ -15,45 +19,35 @@ function series(total: number, days: number, periodStart: string): SpendSeries {
     }))
 }
 
+function renderChart(overrides: Partial<Props> = {}): HogChart {
+    const quota = makeQuota({ credit_limit: 10_000, credits_used: 4_000, free_monthly_credits: 2_500 })
+    const { container } = render(
+        <SpendTrajectoryChart
+            quota={quota}
+            dailyCredits={series(4_000, 5, quota.period_start)}
+            projectedTotal={4_000}
+            capReachDate={null}
+            statusVar="var(--success)"
+            {...overrides}
+        />
+    )
+    return getHogChart(container)
+}
+
 describe('SpendTrajectoryChart', () => {
-    const renderChart = (overrides: Parameters<typeof makeQuota>[0] = {}, spend?: SpendSeries): HTMLElement => {
-        const quota = makeQuota(overrides)
-        return render(
-            <SpendTrajectoryChart
-                quota={quota}
-                dailyCredits={spend ?? series(quota.credits_used, 5, quota.period_start)}
-                projectedTotal={quota.credits_used}
-                capReachDate={null}
-                statusVar="var(--success)"
-            />
-        ).container
-    }
+    beforeEach(() => ensureJsdom())
+    afterEach(() => cleanup())
 
-    // A free allocation this small sits on the axis, where the line reads as the axis and its label
-    // lands on the period end date.
-    it('hides the free-credits line when it would sit on the axis', () => {
-        const container = renderChart({ credit_limit: 240_000, credits_used: 168_000, free_monthly_credits: 1_000 })
-        expect(container.textContent).not.toContain('Free credits')
-    })
-
-    it('keeps the free-credits line when it clears the axis', () => {
-        const container = renderChart({ credit_limit: 10_000, credits_used: 4_000, free_monthly_credits: 2_500 })
-        expect(container.textContent).toContain('Free credits')
-    })
-
-    // The series and the quota are fetched together, so the series can be a moment newer. Today has to
-    // read the same number the card header shows rather than the higher of the two.
-    it('reports today at the quota total even when the ledger series runs ahead', () => {
-        const quota = makeQuota({ credit_limit: 10_000, credits_used: 4_000 })
-        const { container } = render(
-            <SpendTrajectoryChart
-                quota={quota}
-                dailyCredits={series(4_400, 4, quota.period_start)}
-                projectedTotal={4_000}
-                capReachDate={null}
-                statusVar="var(--success)"
-            />
-        )
-        expect(container.textContent).toContain('Today · 4,000')
+    it('draws captioned limit and free-credit lines and labels today at the quota total', () => {
+        const chart = renderChart()
+        const [limit, free] = chart.referenceLines()
+        expect(chart.referenceLines().map((line) => line.label)).toEqual([null, null])
+        expect(limit.position).not.toBeNull()
+        expect(free.position).not.toBeNull()
+        expect(limit.position!).toBeLessThan(free.position!)
+        expect(document.querySelector('[data-attr="hog-chart-reference-line-hit-area"]')).toBeNull()
+        expect(screen.getByText('Monthly limit · 10,000')).toBeTruthy()
+        expect(screen.getByText('Free credits · 2,500')).toBeTruthy()
+        expect(screen.getByText('Today · 4,000')).toBeTruthy()
     })
 })

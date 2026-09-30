@@ -1,12 +1,14 @@
 import time
 from datetime import timedelta
+from typing import Any
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec
+from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
 from posthog.models.integration import FirebaseIntegration, Integration
@@ -76,14 +78,29 @@ class TestFirebaseIntegration(BaseTest):
     def test_reconnecting_preserves_identity_verification(self):
         # Rotating the service account key is a routine action that re-upserts the integration. It
         # must not silently reset the verification policy, which would reopen device takeover.
-        self._create_firebase_integration(push_identity_verification="required")
+        public_pem = _ec_public_pem()
+        self._create_firebase_integration(push_identity_verification="required", push_identity_public_keys=[public_pem])
         reconnected = self._create_firebase_integration()
 
         assert reconnected.config["push_identity_verification"] == "required"
+        assert reconnected.config["push_identity_public_keys"] == [public_pem]
 
-    def test_rejects_an_unknown_identity_verification_mode(self):
+    @parameterized.expand(
+        [
+            ("unknown_mode", {"push_identity_verification": "enabled"}),
+            ("required_without_a_public_key", {"push_identity_verification": "required"}),
+        ]
+    )
+    def test_rejects_an_unusable_identity_verification_policy(self, _name: str, policy: dict[str, Any]) -> None:
         with self.assertRaises(ValidationError):
-            self._create_firebase_integration(push_identity_verification="enabled")
+            self._create_firebase_integration(**policy)
+
+    def test_reconnecting_an_optional_channel_without_a_public_key(self):
+        self._create_firebase_integration(push_identity_verification="optional")
+        reconnected = self._create_firebase_integration()
+
+        assert reconnected.config["push_identity_verification"] == "optional"
+        assert "push_identity_public_keys" not in reconnected.config
 
     def test_reconnecting_preserves_identity_public_keys(self):
         # Same rotation guard as the mode: re-upserting on a credential rotation must keep the
@@ -129,6 +146,34 @@ class TestFirebaseIntegration(BaseTest):
         with self.assertRaises(ValidationError):
             FirebaseIntegration.integration_from_key(key_info_no_project, self.team.id)
 
+    @patch("posthog.models.integration.push.GoogleRequest")
+    @patch("posthog.models.integration.push.service_account.Credentials.from_service_account_info")
+    def test_rejects_key_file_token_uri_that_is_not_google(self, mock_from_sa, mock_google_request) -> None:
+        with self.assertRaises(ValidationError):
+            FirebaseIntegration.integration_from_key(
+                {**FAKE_KEY_INFO, "token_uri": "https://relay.example.com/token"}, self.team.id
+            )
+
+        mock_from_sa.assert_not_called()
+
+    @patch("posthog.models.integration.push.GoogleRequest")
+    @patch("posthog.models.integration.push.service_account.Credentials.from_service_account_info")
+    def test_stored_key_file_with_non_google_token_uri_never_refreshes(self, mock_from_sa, mock_google_request) -> None:
+        integration = self._create_firebase_integration()
+        integration.sensitive_config = {
+            **integration.sensitive_config,
+            "key_info": {**FAKE_KEY_INFO, "token_uri": "https://relay.example.com/token"},
+        }
+        integration.save()
+
+        with self.assertRaises(ValidationError):
+            FirebaseIntegration(integration).refresh_access_token()
+
+        mock_from_sa.assert_not_called()
+        integration.refresh_from_db()
+        assert integration.config["refresh_failure_count"] == 1
+        assert integration.config["refresh_terminal"] is True
+
     def test_wrapper_properties(self):
         integration = self._create_firebase_integration()
         wrapper = FirebaseIntegration(integration)
@@ -146,7 +191,7 @@ class TestFirebaseIntegration(BaseTest):
         with self.assertRaisesMessage(Exception, "FirebaseIntegration init called with Integration with wrong 'kind'"):
             FirebaseIntegration(integration)
 
-    @freeze_time("2024-01-01T00:00:00Z")
+    @time_machine.travel("2024-01-01T00:00:00Z", tick=False)
     def test_access_token_not_expired_initially(self):
         integration = Integration.objects.create(
             team=self.team,
@@ -163,7 +208,7 @@ class TestFirebaseIntegration(BaseTest):
 
         assert wrapper.access_token_expired() is False
 
-    @freeze_time("2024-01-01T00:00:00Z")
+    @time_machine.travel("2024-01-01T00:00:00Z", tick=False)
     def test_access_token_expired_after_half_expiry(self):
         integration = Integration.objects.create(
             team=self.team,
@@ -180,7 +225,7 @@ class TestFirebaseIntegration(BaseTest):
 
         assert wrapper.access_token_expired() is True
 
-    @freeze_time("2024-01-01T00:00:00Z")
+    @time_machine.travel("2024-01-01T00:00:00Z", tick=False)
     def test_access_token_expired_custom_threshold(self):
         integration = Integration.objects.create(
             team=self.team,

@@ -236,6 +236,10 @@ class StreamlitAppViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             )
         except api.AppNotFoundError:
             return Response(status=status.HTTP_404_NOT_FOUND)
+        except api.ZipTooLargeError as e:
+            # The serializer bounds the raw bytes, but compression overhead and per-entry
+            # headers can still push the built archive past the zip limit.
+            return Response({"detail": str(e)}, status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE)
         except api.InvalidZipError as e:
             return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         except api.ConcurrentUploadError as e:

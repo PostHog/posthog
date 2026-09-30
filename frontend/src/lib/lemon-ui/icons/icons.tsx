@@ -640,6 +640,26 @@ export function Icon123(props: LemonIconProps): JSX.Element {
     )
 }
 
+/** A navigation arrow under an arc, for the self-driving product. Sized like the @posthog/icons glyphs. */
+export function IconSelfDriving(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase width="100%" height={undefined} {...props}>
+            <path
+                d="M3.31 15.16A9.25 9.25 0 1 1 20.69 15.16"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+            />
+            <path
+                d="M12 8.25 17 20.5 12 17.75 7 20.5Z"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinejoin="round"
+            />
+        </LemonIconBase>
+    )
+}
+
 /** Material Design Groups icon. */
 export function IconCohort(props: LemonIconProps): JSX.Element {
     return (
@@ -780,6 +800,14 @@ export function IconTrendingFlatDown(props: LemonIconProps): JSX.Element {
 }
 
 /** Material Design Trending Down icon. */
+export function IconTrendingUp(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase {...props}>
+            <path d="m16 6 2.29 2.29-4.88 4.88-4-4L2 16.59 3.41 18l6-6 4 4 6.3-6.29L22 12V6z" fill="currentColor" />
+        </LemonIconBase>
+    )
+}
+
 export function IconTrendingDown(props: LemonIconProps): JSX.Element {
     return (
         <LemonIconBase {...props}>

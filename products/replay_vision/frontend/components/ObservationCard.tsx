@@ -1,8 +1,7 @@
-import { IconCopy, IconRewindPlay, IconSparkles } from '@posthog/icons'
+import { IconCopy, IconSparkles } from '@posthog/icons'
 import { LemonButton, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { colonDelimitedDuration } from 'lib/utils/durations'
 import { urls } from 'scenes/urls'
 
 import type { ReplayObservationApi } from '../generated/api.schemas'
@@ -16,12 +15,16 @@ import {
     parseFailureReason,
     parseIneligibleReason,
 } from '../replay_scanners/types'
+import { markSimilarSearchIntent, similarSearchUrl } from '../search/observationQueries'
 import { citedTextToPlainText, parseCitedSegments } from '../utils/citations'
-import { readReasoning, scannerLabel } from '../utils/observation'
+import { VERDICT_LABEL, confidenceLevel, readReasoning, scannerLabel } from '../utils/observation'
+import { CitedMarkdown } from './CitedMarkdown'
 import { LabeledRow } from './LabeledRow'
 import { ObservationProgressBar } from './ObservationProgressBar'
+import { ObservationPrompt } from './ObservationPrompt'
 import { ObservationRetryButton } from './ObservationRetryButton'
 import { ScannerTypeBadge } from './ScannerTypeBadge'
+import { TimestampCitation } from './TimestampCitation'
 
 export function ObservationStatusTag({
     status,
@@ -99,26 +102,13 @@ export function CitedText({
     }
     return (
         <>
-            {list.map((segment, i) => {
-                if (segment.kind === 'text') {
-                    return <span key={i}>{segment.value}</span>
-                }
-                const seconds = Math.max(0, Math.floor(segment.timestamp_ms / 1000))
-                const label = colonDelimitedDuration(seconds, null)
-                if (onSeek) {
-                    return (
-                        <Link key={i} onClick={() => onSeek(segment.timestamp_ms)} className="ml-0.5">
-                            <IconRewindPlay className="inline-block align-text-bottom mr-0.5" />
-                            <span className="font-mono">{label}</span>
-                        </Link>
-                    )
-                }
-                return (
-                    <span key={i} className="text-muted font-mono ml-0.5">
-                        {label}
-                    </span>
+            {list.map((segment, i) =>
+                segment.kind === 'text' ? (
+                    <span key={i}>{segment.value}</span>
+                ) : (
+                    <TimestampCitation key={i} timestampMs={segment.timestamp_ms} onSeek={onSeek} />
                 )
-            })}
+            )}
         </>
     )
 }
@@ -130,6 +120,8 @@ export function ObservationPrimaryOutput({
     onSeek,
     expandSummary = false,
     copyable = false,
+    reasoningTooltip = false,
+    largeTitle = false,
 }: {
     observation: ReplayObservationApi
     compact?: boolean
@@ -140,6 +132,10 @@ export function ObservationPrimaryOutput({
     expandSummary?: boolean
     /** Shows a copy button on summarizer output: the clipboard gets the title plus the summary with citations as plain timestamps. */
     copyable?: boolean
+    /** Hovering the result shows its reasoning. For list rows, which have nowhere else to print it. */
+    reasoningTooltip?: boolean
+    /** Sets a summarizer's title at headline size, for the observation page. */
+    largeTitle?: boolean
 }): JSX.Element | null {
     const snapshot = observation.scanner_snapshot
     const result = readResult(observation)
@@ -148,10 +144,9 @@ export function ObservationPrimaryOutput({
     }
     const scannerType = snapshot.scanner_type
     const config = configFromSnapshot(snapshot)
-    const promptText = config?.prompt ?? null
-    const prompt = showPrompt ? promptText : null
-    // Tooltip carries the prompt only when it isn't printed inline.
-    const promptTooltip = prompt ? null : promptText
+    const prompt = showPrompt ? (config?.prompt ?? null) : null
+    const reasoning = reasoningTooltip ? readReasoning(observation) : null
+    const resultTooltip = reasoning ? citedTextToPlainText(reasoning, result.reasoning_segments) : null
     const textClass = 'text-sm'
     const summaryClass = expandSummary
         ? `${textClass} whitespace-pre-wrap`
@@ -173,10 +168,10 @@ export function ObservationPrimaryOutput({
                     ? 'muted'
                     : 'muted'
         const tagLabel =
-            verdict === 'yes' ? 'Yes' : verdict === 'no' ? 'No' : verdict === 'inconclusive' ? 'Inconclusive' : '—'
+            verdict === 'yes' || verdict === 'no' || verdict === 'inconclusive' ? VERDICT_LABEL[verdict] : '—'
         return (
             <div className="flex flex-col gap-1">
-                <Tooltip title={promptTooltip}>
+                <Tooltip title={resultTooltip}>
                     <LemonTag size="medium" type={tagType} className="self-start">
                         {tagLabel}
                     </LemonTag>
@@ -194,7 +189,11 @@ export function ObservationPrimaryOutput({
             <div className="flex flex-col gap-1">
                 {(title || showCopy) && (
                     <div className="flex items-start justify-between gap-2">
-                        {title && <span className={`font-semibold ${textClass}`}>{title}</span>}
+                        {title && (
+                            <span className={largeTitle ? 'text-xl font-bold' : `font-semibold ${textClass}`}>
+                                {title}
+                            </span>
+                        )}
                         {showCopy && (
                             <LemonButton
                                 size="xsmall"
@@ -300,7 +299,7 @@ export function ObservationPrimaryOutput({
         const displayLabel = resultLabel ?? scaleLabel
         return (
             <div className="flex flex-col gap-1">
-                <Tooltip title={promptTooltip}>
+                <Tooltip title={resultTooltip}>
                     <span className={`${textClass} self-start`}>
                         <span className="font-semibold text-base">{score ?? '—'}</span>
                         {scaleMax !== null && <span className="text-muted"> / {scaleMax}</span>}
@@ -328,37 +327,18 @@ export function ObservationPrimaryOutput({
     )
 }
 
-export function ObservationConfidence({
-    result,
-    standalone = false,
-}: {
-    result: Record<string, unknown>
-    /** For surfaces with no "Confidence" label of their own: the tag names the metric and the percentage is dropped. */
-    standalone?: boolean
-}): JSX.Element | null {
+// A reader opens an observation for the result, not the prompt they configured. Collapse the prompt to one
+// peek line so the verdict and reasoning stay above the fold, but keep it in view so the verdict has context.
+/** Names the metric in the tag, for surfaces with no "Confidence" label of their own. */
+export function ObservationConfidence({ result }: { result: Record<string, unknown> }): JSX.Element | null {
     if (typeof result.confidence !== 'number') {
         return null
     }
-    const value = result.confidence
-    const pct = Math.round(value * 100)
-    const { type, label } =
-        value >= 0.8
-            ? ({ type: 'success', label: 'High' } as const)
-            : value >= 0.5
-              ? ({ type: 'warning', label: 'Medium' } as const)
-              : ({ type: 'danger', label: 'Low' } as const)
-    if (standalone) {
-        return (
-            <Tooltip title={`Confidence: ${pct}%`}>
-                <LemonTag type={type}>{`${label} confidence`}</LemonTag>
-            </Tooltip>
-        )
-    }
+    const { type, label } = confidenceLevel(result.confidence)
     return (
-        <div className="flex items-center gap-2">
-            <LemonTag type={type}>{label}</LemonTag>
-            <span className="text-sm tabular-nums text-muted">{pct}%</span>
-        </div>
+        <Tooltip title={`Confidence: ${Math.round(result.confidence * 100)}%`}>
+            <LemonTag type={type}>{`${label} confidence`}</LemonTag>
+        </Tooltip>
     )
 }
 
@@ -371,7 +351,7 @@ export function ObservationResultSummary({ observation }: { observation: ReplayO
     if (!snapshot || !result) {
         return <span className="text-muted text-sm">—</span>
     }
-    return <ObservationPrimaryOutput observation={observation} compact showPrompt={false} />
+    return <ObservationPrimaryOutput observation={observation} compact showPrompt={false} reasoningTooltip />
 }
 
 export function FailureDetail({ errorReason }: { errorReason: string }): JSX.Element {
@@ -424,6 +404,10 @@ export function ObservationDockCard({
     const snapshot = observation.scanner_snapshot
     const scannerType = snapshot?.scanner_type
     const result = readResult(observation)
+    // The prompt is the question the scan judged, so it gives the verdict its meaning. Show it inline here so a
+    // reader does not have to open the details page to know what "Yes" answered.
+    const prompt = snapshot ? (configFromSnapshot(snapshot)?.prompt ?? null) : null
+    const similarUrl = observation.status === 'succeeded' ? similarSearchUrl(observation) : null
     // Summarizers excluded: their primary output already is the full text
     const reasoning =
         observation.status === 'succeeded' && scannerType !== 'summarizer' ? readReasoning(observation) : null
@@ -443,12 +427,20 @@ export function ObservationDockCard({
                     )}
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
-                    {observation.status === 'succeeded' && result && (
-                        <ObservationConfidence result={result} standalone />
-                    )}
+                    {observation.status === 'succeeded' && result && <ObservationConfidence result={result} />}
                     <Link to={urls.replayVisionObservation(observation.id)} className="text-xs whitespace-nowrap">
                         View details
                     </Link>
+                    {similarUrl && (
+                        <Link
+                            to={similarUrl}
+                            onClick={() => markSimilarSearchIntent(observation)}
+                            className="text-xs whitespace-nowrap"
+                            data-attr="vision-dock-find-similar"
+                        >
+                            Find similar
+                        </Link>
+                    )}
                 </div>
             </div>
 
@@ -494,11 +486,12 @@ export function ObservationDockCard({
                             copyable
                         />
                     </LabeledRow>
+                    {prompt && scannerType !== 'summarizer' && (
+                        <ObservationPrompt prompt={prompt} question={observation.prompt_question} />
+                    )}
                     {reasoning && (
                         <LabeledRow label="Model reasoning">
-                            <p className="text-sm text-default whitespace-pre-wrap m-0 leading-snug">
-                                <CitedText text={reasoning} segments={result.reasoning_segments} onSeek={onSeek} />
-                            </p>
+                            <CitedMarkdown text={reasoning} segments={result.reasoning_segments} onSeek={onSeek} />
                         </LabeledRow>
                     )}
                 </>

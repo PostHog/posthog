@@ -1,3 +1,4 @@
+import { getCustomCloud } from "./custom-cloud";
 import type { CloudRegion } from "./regions";
 
 export const POSTHOG_US_CLIENT_ID = "HCWoE0aRFMYxIxFNTTwkOORn5LBjOt2GVDzwSw5W";
@@ -27,6 +28,12 @@ export const POSTHOG_DEV_CLOUD_CLIENT_ID =
 //
 // Regenerate from the live advertised list + llm_gateway:read last; bump
 // OAUTH_SCOPE_VERSION whenever the set changes so installs re-authorize.
+// The OAuth callback the app listens on in a development build, where no
+// deep-link scheme is registered. Shared so the sign-in help text and the
+// OAuth service cannot drift apart.
+export const DEV_CALLBACK_PORT = 8237;
+export const DEV_REDIRECT_URI = `http://localhost:${DEV_CALLBACK_PORT}/callback`;
+
 export const OAUTH_SCOPES = [
   "openid",
   "profile",
@@ -256,5 +263,7 @@ export function getOauthClientIdFromRegion(region: CloudRegion): string {
       return POSTHOG_DEV_CLIENT_ID;
     case "dev-cloud":
       return POSTHOG_DEV_CLOUD_CLIENT_ID;
+    case "custom":
+      return getCustomCloud()?.oauthClientId ?? "";
   }
 }

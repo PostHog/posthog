@@ -1,6 +1,5 @@
 import type { SessionConfigOption } from "@agentclientprotocol/sdk";
 import { CaretDown, Lightning, PiIcon, Stack } from "@phosphor-icons/react";
-import { toModelPickerOption } from "@posthog/core/billing/modelPricing";
 import type {
   PiModelSelection,
   PiThinkingLevel,
@@ -29,6 +28,7 @@ import {
 } from "@posthog/ui/features/sessions/components/ModelCostChip";
 import { ModelSelectList } from "@posthog/ui/features/sessions/components/ModelSelectList";
 import type { MessagingMode } from "@posthog/ui/features/sessions/messagingModeStore";
+import { toPickerOption } from "@posthog/ui/features/sessions/modelPickerOption";
 import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { useState } from "react";
 
@@ -63,13 +63,15 @@ function modelLabel(model?: PiModelOption): string {
   return model?.name ?? model?.id ?? "Model";
 }
 
+// Pi's thinking levels, not the catalog's reasoning efforts: Pi adds `off` and `minimal`
+// and has no `ultracode`, so this map cannot come from the catalog.
 const thinkingLevelLabels: Record<PiThinkingLevel, string> = {
   off: "Off",
   minimal: "Minimal",
   low: "Low",
   medium: "Medium",
   high: "High",
-  xhigh: "Extra High",
+  xhigh: "Extra high",
   max: "Max",
 };
 
@@ -109,7 +111,7 @@ export function PiModelSelector({
                 <span className="text-muted-foreground">
                   <PiIcon size={14} weight="bold" className="translate-y-px" />
                 </span>
-                <Spinner size={12} />
+                <Spinner size="sm" />
                 Loading...
               </Button>
             }
@@ -121,7 +123,7 @@ export function PiModelSelector({
             className="min-w-[230px]"
           >
             <DropdownMenuItem disabled>
-              <Spinner size={12} />
+              <Spinner size="sm" />
               Loading models...
             </DropdownMenuItem>
             {onHarnessChange && (
@@ -218,7 +220,7 @@ export function PiModelSelector({
                   }}
                 >
                   {models.map((model) => {
-                    const pickerModel = toModelPickerOption({
+                    const pickerModel = toPickerOption({
                       value: model.id,
                       name: modelLabel(model),
                       ...(model.provider === "posthog"

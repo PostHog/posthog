@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 from typing import Literal, Optional
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, _create_event, flush_persons_and_events
 from unittest.mock import ANY, AsyncMock, patch
 
@@ -36,6 +36,7 @@ from posthog.settings import (
 )
 from posthog.tasks import exporter
 from posthog.temporal.session_replay.rasterize_recording.types import RASTERIZE_WORKFLOW_TIMEOUT
+from posthog.test.insight_queries import browser_filtered_pageview_query
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -137,7 +138,7 @@ class TestExports(APIBaseTest):
 
         cls.dashboard = Dashboard.objects.create(team=cls.team, name="example dashboard", created_by=cls.user)
         cls.insight = Insight.objects.create(
-            filters=Filter(data=cls.insight_filter_dict).to_dict(),
+            query=browser_filtered_pageview_query(),
             team=cls.team,
             created_by=cls.user,
             name="example insight",
@@ -287,7 +288,7 @@ class TestExports(APIBaseTest):
             "insight": None,
             "export_context": None,
             # PNG format gets 180 days (6 months) expiry
-            "expires_after": (now() + timedelta(days=180))
+            "expires_after": (now() + timedelta(days=180) + timedelta(days=1))
             .replace(hour=0, minute=0, second=0, microsecond=0)
             .isoformat()
             .replace("+00:00", "Z"),
@@ -313,7 +314,7 @@ class TestExports(APIBaseTest):
 
         # Expiry is determined by format (PNG = 180 days), not the provided value
         expected_expiry = (
-            (now() + timedelta(days=180))
+            (now() + timedelta(days=180) + timedelta(days=1))
             .replace(hour=0, minute=0, second=0, microsecond=0)
             .isoformat()
             .replace("+00:00", "Z")
@@ -353,7 +354,7 @@ class TestExports(APIBaseTest):
 
     @patch("products.exports.backend.tasks.image_exporter._export_to_png")
     @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
-    @freeze_time("2021-08-25T22:09:14.252Z")
+    @time_machine.travel("2021-08-25T22:09:14.252Z", tick=False)
     def test_can_create_new_valid_export_insight(self, mock_exporter_task, mock_export_to_png) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/exports",
@@ -374,7 +375,7 @@ class TestExports(APIBaseTest):
                 "exception": None,
                 "export_context": None,
                 # PNG format gets 180 days (6 months) expiry
-                "expires_after": (now() + timedelta(days=180))
+                "expires_after": (now() + timedelta(days=180) + timedelta(days=1))
                 .replace(hour=0, minute=0, second=0, microsecond=0)
                 .isoformat()
                 .replace("+00:00", "Z"),
@@ -839,7 +840,7 @@ class TestExports(APIBaseTest):
         self.assertIn(ordinary_export.id, {result["id"] for result in list_response.json()["results"]})
 
     def test_list_shows_stuck_exports_as_failed_in_response(self) -> None:
-        with freeze_time(now() - timedelta(seconds=2 * HOGQL_INCREASED_MAX_EXECUTION_TIME)):
+        with time_machine.travel(now() - timedelta(seconds=2 * HOGQL_INCREASED_MAX_EXECUTION_TIME), tick=False):
             # Create an export that's older than HOGQL_INCREASED_MAX_EXECUTION_TIME
             stuck_export = ExportedAsset.objects.create(
                 team=self.team,
@@ -968,7 +969,7 @@ class TestExports(APIBaseTest):
         age: timedelta,
         expected_failed: bool,
     ) -> None:
-        with freeze_time(now() - age):
+        with time_machine.travel(now() - age, tick=False):
             export = ExportedAsset.objects.create(
                 team=self.team,
                 export_format=export_format,
@@ -989,7 +990,7 @@ class TestExports(APIBaseTest):
         stays incomplete, so the count reflects how often clients poll rather than how many exports
         failed.
         """
-        with freeze_time(now() - RASTERIZE_WORKFLOW_TIMEOUT - timedelta(minutes=1)):
+        with time_machine.travel(now() - RASTERIZE_WORKFLOW_TIMEOUT - timedelta(minutes=1), tick=False):
             ExportedAsset.objects.create(
                 team=self.team,
                 export_format=ExportedAsset.ExportFormat.MP4,
@@ -1004,7 +1005,7 @@ class TestExports(APIBaseTest):
         self.assertEqual([call for call in mock_capture.call_args_list if "export" in str(call)], [])
 
     def test_retrieve_shows_stuck_export_as_failed_in_response(self) -> None:
-        with freeze_time(now() - timedelta(seconds=2 * HOGQL_INCREASED_MAX_EXECUTION_TIME)):
+        with time_machine.travel(now() - timedelta(seconds=2 * HOGQL_INCREASED_MAX_EXECUTION_TIME), tick=False):
             # Create an export that's older than HOGQL_INCREASED_MAX_EXECUTION_TIME
             stuck_export = ExportedAsset.objects.create(
                 team=self.team,
@@ -1486,9 +1487,9 @@ class TestExports(APIBaseTest):
             ("image/png", timedelta(days=180)),
             ("text/csv", timedelta(days=7)),
             ("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", timedelta(days=7)),
-            ("video/mp4", timedelta(days=365)),
-            ("video/webm", timedelta(days=365)),
-            ("image/gif", timedelta(days=365)),
+            ("video/mp4", timedelta(days=30)),
+            ("video/webm", timedelta(days=30)),
+            ("image/gif", timedelta(days=30)),
             ("application/pdf", timedelta(days=180)),
         ]
     )
@@ -1516,7 +1517,7 @@ class TestExports(APIBaseTest):
         data = response.json()
 
         expected_expiry = (
-            (now() + expected_delta)
+            (now() + expected_delta + timedelta(days=1))
             .replace(hour=0, minute=0, second=0, microsecond=0)
             .isoformat()
             .replace("+00:00", "Z")
@@ -1546,9 +1547,9 @@ class TestExports(APIBaseTest):
     @patch("products.exports.backend.api.exports.async_to_sync")
     @patch("products.exports.backend.api.exports.async_connect")
     def test_video_export_monthly_limit(self, mock_async_connect, mock_async_to_sync) -> None:
-        """Test that video exports are limited to 10 per calendar month"""
-        # Create 9 video exports this month (we're at the limit - 1)
-        for i in range(9):
+        """Test that video exports are limited to 25 per calendar month on the free plan"""
+        # Create 24 video exports this month (we're at the limit - 1)
+        for i in range(24):
             ExportedAsset.objects.create(
                 team=self.team,
                 export_format="video/mp4",
@@ -1556,25 +1557,25 @@ class TestExports(APIBaseTest):
                 created_by=self.user,
             )
 
-        # The 10th video export should succeed
+        # The 25th video export should succeed
         response = self.client.post(
             f"/api/projects/{self.team.id}/exports",
             {
                 "export_format": "video/mp4",
                 "export_context": {
-                    "session_recording_id": "session_10",
+                    "session_recording_id": "session_25",
                 },
             },
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
-        # The 11th video export should fail with limit exceeded error
+        # The 26th video export should fail with limit exceeded error
         response = self.client.post(
             f"/api/projects/{self.team.id}/exports",
             {
                 "export_format": "video/mp4",
                 "export_context": {
-                    "session_recording_id": "session_11",
+                    "session_recording_id": "session_26",
                 },
             },
         )
@@ -1582,14 +1583,14 @@ class TestExports(APIBaseTest):
         error_data = response.json()
         self.assertEqual(error_data["type"], "validation_error")
         self.assertEqual(error_data["attr"], "export_limit_exceeded")
-        self.assertIn("reached the limit of 10 full video exports this month", error_data["detail"])
+        self.assertIn("reached the limit of 25 full video exports this month", error_data["detail"])
 
     @patch("products.exports.backend.api.exports.async_to_sync")
     @patch("products.exports.backend.api.exports.async_connect")
     def test_video_export_limit_applies_to_all_video_formats(self, mock_async_connect, mock_async_to_sync) -> None:
         """Test that the limit applies to both MP4 and WebM session recording exports"""
-        # Create 5 MP4 and 5 WebM exports this month (at the limit)
-        for i in range(5):
+        # Create 12 MP4 and 12 WebM exports this month
+        for i in range(12):
             ExportedAsset.objects.create(
                 team=self.team,
                 export_format="video/mp4",
@@ -1602,6 +1603,13 @@ class TestExports(APIBaseTest):
                 export_context={"session_recording_id": f"session_webm_{i}"},
                 created_by=self.user,
             )
+
+        ExportedAsset.objects.create(
+            team=self.team,
+            export_format="video/mp4",
+            export_context={"session_recording_id": "session_mp4_final"},
+            created_by=self.user,
+        )
 
         # MP4 video export should fail
         response = self.client.post(
@@ -1629,12 +1637,12 @@ class TestExports(APIBaseTest):
 
     @patch("products.exports.backend.api.exports.async_to_sync")
     @patch("products.exports.backend.api.exports.async_connect")
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_video_export_limit_resets_monthly(self, mock_async_connect, mock_async_to_sync) -> None:
         """Test that the video export limit resets at the beginning of each month"""
 
-        # Create 10 video exports in January (at the limit)
-        for i in range(10):
+        # Create 25 video exports in January (at the limit)
+        for i in range(25):
             ExportedAsset.objects.create(
                 team=self.team,
                 export_format="video/mp4",
@@ -1655,7 +1663,7 @@ class TestExports(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
         # Move to February 1st
-        with freeze_time("2024-02-01T12:00:00Z"):
+        with time_machine.travel("2024-02-01T12:00:00Z", tick=False):
             # Should succeed in February (limit reset)
             response = self.client.post(
                 f"/api/projects/{self.team.id}/exports",
@@ -1671,11 +1679,11 @@ class TestExports(APIBaseTest):
     @parameterized.expand(
         [
             # name, available_product_features, expected_limit
-            ("free", [], 10),
+            ("free", [], 25),
             (
                 "paid",
                 [{"key": "recordings_file_export", "name": "Recordings file export"}],
-                15,
+                50,
             ),
             (
                 "enterprise_via_role_based_access",
@@ -1683,7 +1691,7 @@ class TestExports(APIBaseTest):
                     {"key": "recordings_file_export", "name": "Recordings file export"},
                     {"key": "role_based_access", "name": "Role based access"},
                 ],
-                25,
+                100,
             ),
             (
                 "enterprise_via_saml",
@@ -1691,12 +1699,12 @@ class TestExports(APIBaseTest):
                     {"key": "recordings_file_export", "name": "Recordings file export"},
                     {"key": "saml", "name": "SAML"},
                 ],
-                25,
+                100,
             ),
             (
                 "enterprise_via_saml_only",
                 [{"key": "saml", "name": "SAML"}],
-                25,
+                100,
             ),
         ]
     )
@@ -1743,8 +1751,8 @@ class TestExports(APIBaseTest):
             (
                 "paid_override_above_tier_wins",
                 [{"key": "recordings_file_export", "name": "Recordings file export"}],
-                20,
-                20,
+                60,
+                60,
             ),
             # Override below tier default is a no-op — tier default wins, so legacy
             # flat-10 overrides can't silently downgrade enterprise orgs post-deploy.
@@ -1755,7 +1763,7 @@ class TestExports(APIBaseTest):
                     {"key": "saml", "name": "SAML"},
                 ],
                 10,
-                25,
+                100,
             ),
             # Free tier with an override-bump also works.
             ("free_override_above_tier_wins", [], 30, 30),

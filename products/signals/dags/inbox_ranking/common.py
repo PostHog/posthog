@@ -17,6 +17,7 @@ from botocore.exceptions import ClientError
 
 from posthog import settings
 from posthog.dags.common import JobOwners
+from posthog.storage.object_storage import ObjectStorage
 
 DATASET_VERSION = "v1"
 
@@ -105,6 +106,11 @@ def s3_client():  # noqa: ANN201
     )
 
 
+def serving_mirror_storage() -> ObjectStorage:
+    # The mirror is another deployment's store, so ambient AWS config must grant the write there.
+    return ObjectStorage(boto3.client("s3", region_name=settings.INBOX_RANKING_SERVING_MIRROR_REGION or None))
+
+
 SNAPSHOT_DATE_METADATA_KEY = "snapshot-date"
 ROW_COUNT_METADATA_KEY = "row-count"
 
@@ -179,15 +185,15 @@ def merge_emission_rows(existing: pa.Table, fresh: pa.Table, key_columns: tuple[
     return pa.concat_tables([existing, fresh.filter(mask)])
 
 
-def read_parquet(client, bucket: str, key: str) -> pa.Table:
+def read_parquet(client, bucket: str, key: str, columns: list[str] | None = None) -> pa.Table:
     body = client.get_object(Bucket=bucket, Key=key)["Body"].read()
-    return pq.read_table(pa.BufferReader(body))
+    return pq.read_table(pa.BufferReader(body), columns=columns)
 
 
-def read_parquet_if_exists(client, bucket: str, key: str) -> pa.Table | None:
+def read_parquet_if_exists(client, bucket: str, key: str, columns: list[str] | None = None) -> pa.Table | None:
     """The object's rows, or None when it was never written."""
     try:
-        return read_parquet(client, bucket, key)
+        return read_parquet(client, bucket, key, columns)
     except ClientError as error:
         if error.response.get("Error", {}).get("Code") in ("404", "NoSuchKey", "NotFound"):
             return None

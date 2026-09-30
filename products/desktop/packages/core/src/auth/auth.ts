@@ -8,15 +8,24 @@ import {
   type BackoffOptions,
   type CloudRegion,
   getCloudUrlFromRegion,
+  isCredentialOriginAllowed,
   NotAuthenticatedError,
   OAUTH_SCOPE_VERSION,
   sleepWithBackoff,
   TypedEventEmitter,
   withTimeout,
 } from "@posthog/shared";
-import { inject, injectable, postConstruct, preDestroy } from "inversify";
+import {
+  inject,
+  injectable,
+  optional,
+  postConstruct,
+  preDestroy,
+} from "inversify";
+import { z } from "zod";
 import {
   AUTH_CONNECTIVITY,
+  AUTH_FETCH_EXTRA_ORIGINS,
   AUTH_OAUTH_FLOW_SERVICE,
   AUTH_PREFERENCE_STORE,
   AUTH_SESSION_STORE,
@@ -129,6 +138,9 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
     private readonly logger: RootLogger,
     @inject(AUTH_TOKEN_OVERRIDE)
     private readonly tokenOverride: string | null,
+    @inject(AUTH_FETCH_EXTRA_ORIGINS)
+    @optional()
+    private readonly extraFetchOrigins: readonly string[] | undefined = [],
   ) {
     super();
   }
@@ -142,6 +154,32 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
   }
   getState(): AuthState {
     return { ...this.state };
+  }
+  async getAccountKey(): Promise<string | null> {
+    const generation = this.sessionGeneration;
+    const { apiHost } = await this.getValidAccessToken();
+    if (generation !== this.sessionGeneration) return null;
+    const session = this.session;
+    if (session?.accountKey && !this.tokenOverride) {
+      return JSON.stringify([apiHost, session.accountKey]);
+    }
+    const response = await this.authenticatedFetch(
+      fetch,
+      `${apiHost}/api/users/@me/`,
+      {
+        redirect: "error",
+        signal: AbortSignal.timeout(10_000),
+      },
+    );
+    if ([408, 429, 500, 502, 503, 504].includes(response.status)) {
+      throw new Error("Cannot check your account. Try again.");
+    }
+    if (!response.ok) return null;
+    const user = z
+      .object({ uuid: z.string() })
+      .safeParse(await response.json());
+    if (generation !== this.sessionGeneration) return null;
+    return user.success ? JSON.stringify([apiHost, user.data.uuid]) : null;
   }
   async login(region: CloudRegion): Promise<AuthState> {
     this.sessionGeneration += 1;
@@ -238,6 +276,18 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
     init: RequestInit = {},
   ): Promise<Response> {
     const initialAuth = await this.getValidAccessToken();
+    const url = typeof input === "string" ? input : input.url;
+    if (
+      !isCredentialOriginAllowed(
+        url,
+        initialAuth.apiHost,
+        this.extraFetchOrigins ?? [],
+      )
+    ) {
+      throw new Error(
+        `Refusing to send PostHog credentials to ${safeOrigin(url)}`,
+      );
+    }
     let response = await this.executeAuthenticatedFetch(
       fetchImpl,
       input,
@@ -1487,6 +1537,13 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
   private async resolveStoredSession(): Promise<StoredSessionInput | null> {
     const stored = this.authSession.getCurrent();
     if (!stored) return null;
+    // A stale scope version means the stored refresh token was granted under
+    // permissions the app no longer requests. Refusing it here, at the one
+    // place every session-refresh path resolves the stored token, stops a
+    // caller that skips the explicit reauth checks (doInitialize,
+    // attemptSessionRecovery) from resurrecting the old-scope session behind
+    // the reauth prompt's back.
+    if (stored.scopeVersion < OAUTH_SCOPE_VERSION) return null;
 
     const refreshToken = await this.cipher.decrypt(
       stored.refreshTokenEncrypted,
@@ -1645,5 +1702,13 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
       ...partial,
     };
     this.emit(AuthServiceEvent.StateChanged, this.getState());
+  }
+}
+
+function safeOrigin(url: string): string {
+  try {
+    return new URL(url).origin;
+  } catch {
+    return "an invalid URL";
   }
 }

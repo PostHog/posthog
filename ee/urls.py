@@ -10,6 +10,9 @@ from django.views.generic import RedirectView
 from django_otp.plugins.otp_static.models import StaticDevice
 from django_otp.plugins.otp_totp.models import TOTPDevice
 
+from posthog.admin import register_all_admin
+from posthog.ingress.vercel.provider import build_vercel_provider
+from posthog.ingress.views import build_webhook_view
 from posthog.middleware import impersonated_session_logout
 from posthog.views import api_key_search_view, redis_edit_ttl_view, redis_values_view
 
@@ -18,11 +21,11 @@ from products.cdp.backend.api import hooks
 from ee.admin.loginas_views import loginas_user, upgrade_impersonation
 from ee.admin.oauth_views import admin_auth_check, admin_oauth_success
 from ee.api import integration
-from ee.api.vercel import vercel_connect, vercel_sso, vercel_webhooks
+from ee.api.vercel import vercel_connect, vercel_sso
 from ee.middleware import admin_oauth2_callback
 from ee.support_sidebar_max.views import MaxChatViewSet
 
-from .api import authentication, billing, conversation, core_memory, license, subscription
+from .api import authentication, billing, conversation, core_memory, organization_billing, subscription
 from .api.rbac import role
 from .api.scim import views as scim_views
 
@@ -37,7 +40,9 @@ def extend_api_router() -> None:
     from ee.api import hands_free, max_tools
 
     root_router.register(r"billing", billing.BillingViewset, "billing")
-    root_router.register(r"license", license.LicenseViewSet)
+    organizations_router.register(
+        r"billing", organization_billing.OrganizationBillingViewSet, "organization_billing", ["organization_id"]
+    )
     root_router.register(r"integrations", integration.PublicIntegrationViewSet)
     organization_roles_router = organizations_router.register(
         r"roles",
@@ -74,6 +79,11 @@ def extend_api_router() -> None:
 
 # The admin interface is disabled on self-hosted instances, as its misuse can be unsafe
 if settings.ADMIN_PORTAL_ENABLED:
+    # `AdminSite.get_urls()` derives the `admin:app_list` URL pattern from the registry
+    # when `admin.site.urls` below is read, and never rebuilds it. `LazyAdminRegistry`
+    # fills the registry first, but `posthog/apps.py` skips it under `settings.TEST`.
+    register_all_admin()
+
     # these models are auto-registered but we don't want to expose them to staff
     for model in (StaticDevice, TOTPDevice):
         try:
@@ -81,11 +91,6 @@ if settings.ADMIN_PORTAL_ENABLED:
         except NotRegistered:
             pass
 
-    from posthog.admin.admins.code_based_verification_bypass_admin import (
-        CodeBasedVerificationBypassViewSet,
-        CodeBasedVerificationGlobalDisableViewSet,
-        code_based_verification_bypass_view,
-    )
     from posthog.admin.admins.distinct_id_usage_admin import distinct_id_usage_view
     from posthog.admin.admins.health_check_admin import (
         health_check_list_view,
@@ -124,26 +129,6 @@ if settings.ADMIN_PORTAL_ENABLED:
             "admin/api/radar-bypass/<str:email>/",
             RadarBypassViewSet.as_view({"delete": "destroy"}),
             name="radar-bypass-api-detail",
-        ),
-        path(
-            "admin/code-based-verification-bypass/",
-            admin.site.admin_view(code_based_verification_bypass_view),
-            name="code-based-verification-bypass",
-        ),
-        path(
-            "admin/api/code-based-verification-bypass/",
-            CodeBasedVerificationBypassViewSet.as_view({"get": "list", "post": "create"}),
-            name="code-based-verification-bypass-api-list",
-        ),
-        path(
-            "admin/api/code-based-verification-bypass/<str:email>/",
-            CodeBasedVerificationBypassViewSet.as_view({"delete": "destroy"}),
-            name="code-based-verification-bypass-api-detail",
-        ),
-        path(
-            "admin/api/code-based-verification-global-disable/",
-            CodeBasedVerificationGlobalDisableViewSet.as_view({"get": "list", "post": "create", "delete": "destroy"}),
-            name="code-based-verification-global-disable-api",
         ),
         path(
             "admin/resave-cohorts/",
@@ -239,7 +224,7 @@ urlpatterns: list[Any] = [
         r"^api/vercel/connect/session/?$",
         vercel_connect.VercelConnectLinkViewSet.as_view({"get": "session_info"}),
     ),
-    path("webhooks/vercel", csrf_exempt(vercel_webhooks.vercel_webhook), name="vercel_webhooks"),
+    path("webhooks/vercel", build_webhook_view(build_vercel_provider()), name="vercel_webhooks"),
     path("scim/v2/<str:scim_slug>/Users", csrf_exempt(scim_views.SCIMUsersView.as_view()), name="scim_users"),
     path(
         "scim/v2/<str:scim_slug>/Users/<int:user_id>",

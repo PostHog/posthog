@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { useMemo, useState } from 'react'
 
 import { LemonButton, LemonModal, LemonSelect, LemonSelectSection, LemonSkeleton } from '@posthog/lemon-ui'
@@ -40,6 +40,7 @@ import {
 import type { StepDefinition } from '@posthog/shared-onboarding/steps'
 
 import { Link } from 'lib/lemon-ui/Link'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { JS_WEB_SNIPPETS } from 'scenes/onboarding/shared/jsWebSnippets'
 import { OnboardingDocsContentWrapper } from 'scenes/onboarding/shared/OnboardingDocsContentWrapper'
 import SetupWizardBanner from 'scenes/onboarding/shared/SetupWizardBanner'
@@ -48,11 +49,6 @@ import { teamLogic } from 'scenes/teamLogic'
 import { SDKKey } from '~/types'
 const NODE_SNIPPETS = { NodeEventCapture }
 const PYTHON_SNIPPETS = { PythonEventCapture }
-
-export const filterToFirstRequiredStep = (steps: StepDefinition[]): StepDefinition[] => {
-    const first = steps.find((s) => s.badge === 'required')
-    return first ? [first] : steps.slice(0, 1)
-}
 
 export const filterRequiredSteps = (steps: StepDefinition[]): StepDefinition[] =>
     steps.filter((s) => s.badge === 'required')
@@ -337,6 +333,7 @@ export function SDKSetupInstructions(): JSX.Element {
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
     const [selectedSDK, setSelectedSDK] = useState<SDKKey>(SDKKey.JS_WEB)
     const [showFullSetup, setShowFullSetup] = useState(false)
+    const { reportSDKSetupInstructionsSDKSelected } = useActions(eventUsageLogic)
 
     const config = useMemo(() => SDK_CONFIGS[selectedSDK], [selectedSDK])
 
@@ -363,12 +360,13 @@ export function SDKSetupInstructions(): JSX.Element {
                 onChange={(value) => {
                     setSelectedSDK(value)
                     setShowFullSetup(false)
+                    reportSDKSetupInstructionsSDKSelected(value, 'settings_sdk_setup')
                 }}
                 options={ALL_SDK_SELECT_OPTIONS}
                 className="max-w-80"
             />
             <OnboardingDocsContentWrapper snippets={snippets} minimal useReverseProxy={isClientSideSDK}>
-                <Installation modifySteps={filterToFirstRequiredStep} />
+                <Installation modifySteps={filterRequiredSteps} />
             </OnboardingDocsContentWrapper>
             <div className="flex items-center gap-2">
                 <LemonButton type="secondary" size="small" onClick={() => setShowFullSetup(true)}>
@@ -386,7 +384,7 @@ export function SDKSetupInstructions(): JSX.Element {
             >
                 {wizardIntegrationName && <SetupWizardBanner integrationName={wizardIntegrationName} />}
                 <OnboardingDocsContentWrapper snippets={snippets} useReverseProxy={isClientSideSDK}>
-                    <Installation modifySteps={filterRequiredSteps} />
+                    <Installation />
                 </OnboardingDocsContentWrapper>
                 <div className="mt-4">
                     <Link to={docsLink} target="_blank">

@@ -85,6 +85,7 @@ export const API_SCOPES: APIScope[] = [
         info: 'Grants the ability to promote catalog entries (approve a metric, certify a table, accept a relationship). This is the human-in-the-loop trust boundary: agents that can write to the catalog still cannot self-approve without this scope.',
         disabledActions: ['read'],
     },
+    { key: 'data_deletion', objectName: 'Data deletion', objectPlural: 'data deletion requests' },
     { key: 'dashboard', objectName: 'Dashboard', objectPlural: 'dashboards' },
     { key: 'dashboard_template', objectName: 'Dashboard template', objectPlural: 'dashboard templates' },
     { key: 'dataset', objectName: 'Dataset', objectPlural: 'datasets' },
@@ -103,6 +104,13 @@ export const API_SCOPES: APIScope[] = [
     { key: 'event_filter', objectName: 'Event filter', objectPlural: 'event filters' },
     { key: 'error_tracking', objectName: 'Error tracking', objectPlural: 'error tracking' },
     { key: 'evaluation', objectName: 'Evaluation', objectPlural: 'evaluations' },
+    {
+        key: 'offline_evaluation_ingestion',
+        objectName: 'Offline evaluation ingestion',
+        objectPlural: 'offline evaluation uploads',
+        info: 'Create experiments, upload results, and mark experiments as completed or failed.',
+        disabledActions: ['read'],
+    },
     { key: 'experiment', objectName: 'Experiment', objectPlural: 'experiments' },
     { key: 'experiment_holdout', objectName: 'Holdout', objectPlural: 'holdouts' },
     { key: 'experiment_saved_metric', objectName: 'Shared metric', objectPlural: 'shared metrics' },
@@ -205,6 +213,7 @@ export const API_SCOPES: APIScope[] = [
     },
     { key: 'sharing_configuration', objectName: 'Sharing configuration', objectPlural: 'sharing configurations' },
     { key: 'subscription', objectName: 'Subscription', objectPlural: 'subscriptions' },
+    { key: 'support_ticket', objectName: 'Support ticket', objectPlural: 'support tickets' },
     {
         key: 'survey',
         objectName: 'Survey',
@@ -257,36 +266,35 @@ export const API_SCOPES: APIScope[] = [
 API_SCOPES.sort((a, b) => a.objectName.localeCompare(b.objectName))
 
 // Scope objects deliberately absent from the key-creation modal above, each with the reason.
-// Every scope object in `API_SCOPE_OBJECTS` must be either offered in `API_SCOPES` or listed here —
+// Every grantable scope object in `ScopeObjectEnumApi` must be either offered in `API_SCOPES` or listed here —
 // scopes.test.ts enforces that partition so a newly added backend scope can't silently go missing.
-// Keep the internal/hidden entries in sync with `INTERNAL_API_SCOPE_OBJECTS` and
-// `OAUTH_HIDDEN_SCOPE_OBJECTS` in posthog/scopes.py.
 export const API_SCOPES_OMITTED_FROM_MODAL: Partial<Record<APIScopeObject, string>> = {
-    // INTERNAL_API_SCOPE_OBJECTS — server-minted only, never user-grantable.
-    clickhouse_test_cluster_perf: 'Internal: minted programmatically only.',
-    internal_run: 'Internal: marks a server-minted sandbox/agent run credential.',
-    mcp_builtin_agent: 'Internal: identifies a trusted built-in agent credential.',
-    signal_scout_internal: 'Internal: sandbox-only writes for the headless Signals agent.',
-    signal_scout_report: 'Internal: sandbox-only writes for the scout report channel.',
-    signal_scratchpad_internal: 'Internal: sandbox-only writes for the Signals scratchpad.',
     // OAUTH_HIDDEN_SCOPE_OBJECTS — pasteable into a PAT, but never advertised via OAuth/CLI/MCP.
     batch_import_support: 'OAuth-hidden: staff-only, pasteable into a PAT but not advertised.',
     query_performance: 'OAuth-hidden: staff-only, pasteable into a PAT but not advertised.',
     wizard_session: 'OAuth-hidden: pasteable into a PAT but not advertised.',
+    wizard_run: 'OAuth-hidden: pasteable into a PAT but not advertised.',
     // Umbrella access-control resource that `warehouse_view`/`warehouse_table` inherit from —
     // the granular scopes are offered instead, so keep the umbrella out of the modal.
     warehouse_objects: 'Umbrella resource: grant warehouse_view/warehouse_table instead.',
     // Pending removal — no endpoint enforces these, so they do nothing when granted.
     // Remove from posthog/scopes.py once no PAK/OAuth grant references them.
     batch_import: 'Pending removal: no endpoint enforces it (its viewset is INTERNAL).',
+    mcp_registry: 'Behind a feature flag.',
     external_data_schema: 'Pending removal: covered by external_data_source; no viewset uses it.',
 }
 
+// Keep in sync with PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION in posthog/scopes.py.
+// posthog/test/test_scopes.py compares the two lists.
 export const PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION = [
     'endpoint:read',
     'feature_flag:read',
     'account:read',
+    'account:write',
+    'support_ticket:read',
     'loop:write',
+    'experiment:read',
+    'offline_evaluation_ingestion:write',
 ] as const
 
 export type ProjectSecretAPIKeyAllowedScope = (typeof PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION)[number]
@@ -384,6 +392,186 @@ export const PROJECT_SECRET_API_KEY_SCOPE_PRESETS: ProjectSecretAPIKeyScopePrese
     { value: 'local_evaluation', label: 'Local feature flag evaluation', scopes: ['feature_flag:read'] },
     { value: 'llm_gateway', label: 'AI gateway access', scopes: ['llm_gateway:read'] },
 ]
+
+// The product areas that the scope pickers use to group objects, in display order. Each grantable
+// scope object in `ScopeObjectEnumApi` is in exactly one group, and scopes.test.ts fails until a new
+// object has a group. OAuth-hidden objects go in the last group, "Internal tools". The pickers do not
+// show those objects, so a person never sees that group.
+export type APIScopeGroup = {
+    label: string
+    objects: APIScopeObject[]
+}
+
+export const API_SCOPE_GROUPS: APIScopeGroup[] = [
+    {
+        label: 'Product analytics',
+        objects: [
+            'insight',
+            'insight_variable',
+            'dashboard',
+            'dashboard_template',
+            'query',
+            'notebook',
+            'canvas',
+            'subscription',
+            'alert',
+            'annotation',
+            'export',
+            'sharing_configuration',
+        ],
+    },
+    {
+        label: 'Web, marketing & revenue analytics',
+        objects: ['web_analytics', 'marketing_analytics', 'revenue_analytics', 'heatmap', 'link'],
+    },
+    {
+        label: 'Events, people & data model',
+        objects: [
+            'person',
+            'group',
+            'cohort',
+            'action',
+            'event_definition',
+            'property_definition',
+            'event_filter',
+            'element',
+        ],
+    },
+    {
+        label: 'Session replay',
+        objects: ['session_recording', 'session_recording_playlist', 'replay_scanner', 'vision_action', 'vision_alert'],
+    },
+    {
+        label: 'Feature flags, experiments & surveys',
+        objects: [
+            'feature_flag',
+            'experiment',
+            'experiment_holdout',
+            'experiment_saved_metric',
+            'early_access_feature',
+            'survey',
+            'user_interview',
+            'product_tour',
+        ],
+    },
+    {
+        label: 'Error tracking, logs & tracing',
+        objects: ['error_tracking', 'logs', 'tracing', 'metrics'],
+    },
+    {
+        label: 'Developer experience',
+        objects: ['engineering_analytics', 'stamphog', 'visual_review'],
+    },
+    {
+        label: 'LLM & MCP analytics',
+        objects: [
+            'llm_analytics',
+            'llm_prompt',
+            'llm_provider_key',
+            'llm_skill',
+            'llm_playground',
+            'dataset',
+            'evaluation',
+            'offline_evaluation_ingestion',
+            'tagger',
+            'ai_observability_clusters',
+            'mcp_analytics',
+            'llm_gateway',
+        ],
+    },
+    {
+        label: 'Data warehouse & pipelines',
+        objects: [
+            'external_data_source',
+            'external_data_schema',
+            'warehouse_objects',
+            'warehouse_table',
+            'warehouse_view',
+            'batch_export',
+            'batch_import',
+            'hog_function',
+            'hog_flow',
+            'endpoint',
+            'streamlit_app',
+            'webhook',
+            'plugin',
+        ],
+    },
+    {
+        label: 'AI & context management tools',
+        objects: [
+            'conversation',
+            'business_knowledge',
+            'data_catalog',
+            'data_catalog_approval',
+            'mcp_registry',
+            'task',
+            'loop',
+            'signal_scout',
+            'review_hog',
+            'approvals',
+            'autoresearch',
+            'field_note',
+        ],
+    },
+    {
+        label: 'Customers & support',
+        objects: [
+            'customer_analytics',
+            'account',
+            'customer_journey',
+            'customer_task',
+            'customer_profile_config',
+            'usage_metric',
+            'ticket',
+            'support_ticket',
+        ],
+    },
+    {
+        label: 'Setup & data management',
+        objects: [
+            'toolbar',
+            'live_debugger',
+            'ingestion_warning',
+            'health_issue',
+            'data_deletion',
+            'product_enablement',
+            'integration',
+            'organization_integration',
+        ],
+    },
+    {
+        label: 'Organization & account',
+        objects: [
+            'organization',
+            'organization_member',
+            'project',
+            'user',
+            'billing',
+            'access_control',
+            'activity_log',
+            'comment',
+            'legal_document',
+            'uploaded_media',
+            'file_system',
+            'file_system_shortcut',
+        ],
+    },
+    {
+        label: 'Internal tools',
+        objects: ['batch_import_support', 'query_performance', 'wizard_session', 'wizard_run'],
+    },
+]
+
+export const OTHER_SCOPE_GROUP_LABEL = 'Other'
+
+// An object that is in no group gets OTHER_SCOPE_GROUP_LABEL, so it still renders.
+const SCOPE_GROUP_LABEL_BY_OBJECT: Record<string, string> = Object.fromEntries(
+    API_SCOPE_GROUPS.flatMap(({ label, objects }) => objects.map((object) => [object, label]))
+)
+
+export const getScopeGroupLabel = (scopeObject: string): string =>
+    SCOPE_GROUP_LABEL_BY_OBJECT[scopeObject] ?? OTHER_SCOPE_GROUP_LABEL
 
 export const DEFAULT_OAUTH_SCOPES = ['openid', 'email', 'profile']
 

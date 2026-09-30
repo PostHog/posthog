@@ -46,19 +46,6 @@
         "source": {
             "description": "The source stickiness insight query whose bar we are drilling into.",
             "properties": {
-                "aggregation_group_type_index": {
-                    "anyOf": [
-                        {
-                            "maximum": 9007199254740991,
-                            "minimum": -9007199254740991,
-                            "type": "integer"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ],
-                    "description": "Groups aggregation"
-                },
                 "compareFilter": {
                     "description": "Compare to date range. When enabled, shows the current and previous period side by side.",
                     "properties": {
@@ -91,7 +78,7 @@
                                             "type": "null"
                                         }
                                     ],
-                                    "description": "ISO8601 date string."
+                                    "description": "ISO8601 date string. A calendar day without a time (`2026-09-01`) is inclusive to the last moment of that day."
                                 }
                             },
                             "required": ["date_from"],
@@ -124,7 +111,7 @@
                 "intervalCount": {
                     "description": "How many base intervals comprise one stickiness period. Defaults to 1. For example, `interval: \"day\"` with `intervalCount: 7` groups by 7-day periods.",
                     "maximum": 9007199254740991,
-                    "minimum": -9007199254740991,
+                    "minimum": 1,
                     "type": "integer"
                 },
                 "kind": {

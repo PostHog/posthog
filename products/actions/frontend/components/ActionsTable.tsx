@@ -35,6 +35,7 @@ import {
 import { ACTIONS_PER_PAGE, actionsLogic } from '../logics/actionsLogic'
 import { ActionStepConditions, ActionStepSummary } from '../utils/actionStepDescription'
 import { deleteActionWithWarning } from '../utils/deleteAction'
+import { EventHealthWarning } from './EventHealthWarning'
 
 export function ActionsTable(): JSX.Element {
     const { actionsList, actionCount, actionsResponseLoading, page, filters, searchTerm } = useValues(actionsLogic)
@@ -109,11 +110,14 @@ export function ActionsTable(): JSX.Element {
                 return (
                     <span>
                         {action.steps.map((step, index) => (
-                            <Tooltip key={index} title={<ActionStepConditions step={step} />} placement="right">
-                                <div className="w-fit">
-                                    <ActionStepSummary step={step} />
-                                </div>
-                            </Tooltip>
+                            <div key={index} className="flex items-center gap-1 flex-wrap">
+                                <Tooltip title={<ActionStepConditions step={step} />} placement="right">
+                                    <div className="w-fit">
+                                        <ActionStepSummary step={step} />
+                                    </div>
+                                </Tooltip>
+                                <EventHealthWarning event={step.event} />
+                            </div>
                         ))}
                     </span>
                 )

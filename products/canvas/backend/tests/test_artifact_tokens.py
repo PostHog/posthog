@@ -79,7 +79,7 @@ class TestCanvasArtifactTokens(SimpleTestCase):
         self.assertEqual(response.content, content)
         self.assertEqual(response["Content-Disposition"], "inline")
         self.assertEqual(response["X-Content-Type-Options"], "nosniff")
-        self.assertEqual(response["Content-Security-Policy"].split(";")[0], "sandbox allow-scripts")
+        self.assertEqual(response["Content-Security-Policy"].split(";")[0], "sandbox allow-scripts allow-pointer-lock")
         self.assertIn("connect-src https://api.example.com", response["Content-Security-Policy"])
         self.assertIn("style-src 'self' 'unsafe-inline' https://api.example.com", response["Content-Security-Policy"])
         self.assertIn("img-src 'self' data: blob: https://api.example.com", response["Content-Security-Policy"])

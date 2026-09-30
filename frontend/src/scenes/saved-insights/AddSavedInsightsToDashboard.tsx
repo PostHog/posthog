@@ -3,7 +3,7 @@ import { useEffect } from 'react'
 
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 
-import { QueryBasedInsightModel } from '~/types'
+import { InsightModel } from '~/types'
 
 import { insightDashboardModalLogic } from './insightDashboardModalLogic'
 import { SavedInsightsTable } from './SavedInsightsTable'
@@ -19,7 +19,7 @@ export function AddSavedInsightsToDashboard(): JSX.Element {
         }
     }, [dashboard?.tiles, syncOptimisticStateWithDashboard])
 
-    const handleToggle = (insight: QueryBasedInsightModel): void => {
+    const handleToggle = (insight: InsightModel): void => {
         if (!dashboard?.id) {
             return
         }

@@ -1,3 +1,4 @@
+import re
 import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime
@@ -41,6 +42,18 @@ class PardotPageTokenExpiredError(Exception):
     """A saved `nextPageToken` was rejected — page tokens expire after 4 hours."""
 
 
+class PardotQueryRejectedError(Exception):
+    """v5 refused the query itself, so an identical retry cannot succeed."""
+
+
+# The source keys its non-retryable error map on this, so the two must not drift apart.
+QUERY_REJECTED_MESSAGE = "Account Engagement rejected the request"
+
+# v5 names the offending field in the 400 body, e.g. "Invalid parameter: fields. It
+# contains an invalid or unknown field: salesforceCmsId."
+_UNKNOWN_FIELD_PATTERN = re.compile(r"invalid or unknown field:\s*([A-Za-z0-9_]+)", re.IGNORECASE)
+
+
 def _api_host(environment: str) -> str:
     api_host = PARDOT_HOSTS.get(environment)
     if api_host is None:
@@ -75,16 +88,24 @@ def _refresh_token(refresh_token: str | None, instance_url: str | None) -> str:
 
 
 def _format_datetime(value: Any) -> str:
-    """Format an incremental cursor as the ISO 8601 UTC timestamp v5 filters expect."""
+    """Format an incremental cursor as the ISO 8601 UTC timestamp v5 filters expect.
+
+    v5 wants a numeric offset and refuses the `Z` designator with "Invalid date time
+    value", which fails the whole query rather than just the filter. Strings go through
+    the same conversion so a stored cursor cannot smuggle a `Z` back in.
+    """
     if isinstance(value, datetime):
         dt = value
     elif isinstance(value, date):
         dt = datetime.combine(value, datetime.min.time())
     else:
-        return str(value)
+        try:
+            dt = datetime.fromisoformat(str(value))
+        except ValueError:
+            return str(value)
 
     utc_dt = dt.replace(tzinfo=UTC) if dt.tzinfo is None else dt.astimezone(UTC)
-    return utc_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+    return utc_dt.strftime("%Y-%m-%dT%H:%M:%S+00:00")
 
 
 def _cursor_field(config: PardotEndpointConfig, incremental_field: str | None) -> str | None:
@@ -128,6 +149,29 @@ def _is_expired_page_token(response: requests.Response) -> bool:
     if response.status_code != 400:
         return False
     return "pagetoken" in response.text.lower().replace(" ", "").replace("_", "")
+
+
+def _rejected_field(response: requests.Response) -> str | None:
+    """The field a 400 refuses, when an unrequestable field is why it was refused.
+
+    Which fields a business unit can return depends on its edition and connectors, so a
+    field the v5 docs list can still be refused here — and one refused name fails the
+    whole query, leaving the table empty.
+    """
+    if response.status_code != 400:
+        return None
+    match = _UNKNOWN_FIELD_PATTERN.search(response.text)
+    return match.group(1) if match else None
+
+
+def _error_reason(response: requests.Response) -> str:
+    """The reason v5 gives for refusing a request, for the error the customer reads."""
+    try:
+        body = response.json()
+    except ValueError:
+        body = None
+    message = body.get("message") if isinstance(body, dict) else None
+    return str(message).strip() if message else response.text.strip()[:500]
 
 
 def validate_credentials(
@@ -208,6 +252,15 @@ def get_rows(
     # Only `fields` may ride along with a page token — sending limit/orderBy/filters
     # alongside one is a 400.
     page_params = {"fields": query_params["fields"]}
+    fields = list(config.fields)
+
+    def drop_field(name: str) -> bool:
+        """Stop asking for a field v5 refuses, so the rest of the table still syncs."""
+        if name == config.primary_key or name not in fields:
+            return False
+        fields.remove(name)
+        query_params["fields"] = page_params["fields"] = ",".join(fields)
+        return True
 
     def request(params: dict[str, Any]) -> dict[str, Any]:
         nonlocal token
@@ -226,11 +279,23 @@ def get_rows(
             token = _refresh_token(refresh_token, instance_url)
             response = _do()
 
+        # v5 names one refused field per response, so drop them one at a time. Each pass
+        # removes a name from `fields`, which bounds the loop.
+        while (rejected := _rejected_field(response)) is not None and drop_field(rejected):
+            logger.warning(
+                f"Account Engagement cannot return '{rejected}' for this business unit, "
+                f"so {config.name} syncs without that column"
+            )
+            params = {**params, "fields": query_params["fields"]}
+            response = _do()
+
         if _is_expired_page_token(response):
             raise PardotPageTokenExpiredError(response.text)
 
         if not response.ok:
             logger.error(f"Account Engagement API error: status={response.status_code}, body={response.text}")
+            if response.status_code == 400:
+                raise PardotQueryRejectedError(f"{QUERY_REJECTED_MESSAGE}: {_error_reason(response)}")
             response.raise_for_status()
 
         return response.json()
@@ -244,7 +309,7 @@ def get_rows(
             resumed = True
 
     while True:
-        params = {**page_params, "nextPageToken": next_page_token} if next_page_token else query_params
+        params = {**page_params, "nextPageToken": next_page_token} if next_page_token else {**query_params}
         try:
             data = request(params)
         except PardotPageTokenExpiredError:

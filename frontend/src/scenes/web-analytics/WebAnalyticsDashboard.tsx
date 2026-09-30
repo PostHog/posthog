@@ -3,7 +3,7 @@ import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import React, { useEffect, useState } from 'react'
 
 import { IconExpand45, IconInfo, IconLineGraph, IconOpenSidebar, IconX } from '@posthog/icons'
-import { LemonSegmentedButton, LemonSegmentedDropdown, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonSegmentedButton, LemonSegmentedDropdown, LemonSelect, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { IntervalFilterStandalone } from 'lib/components/IntervalFilter/IntervalFilter'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
@@ -38,6 +38,7 @@ import {
     TileVisualizationOption,
     WEB_ANALYTICS_DATA_COLLECTION_NODE_ID,
     WebAnalyticsTile,
+    isContentAutopilotEnabled,
     tabSplitIndicesMap,
 } from 'scenes/web-analytics/common'
 import { PageReports, PageReportsFilters } from 'scenes/web-analytics/PageReports'
@@ -49,6 +50,7 @@ import { WebAnalyticsHealthCheck } from 'scenes/web-analytics/WebAnalyticsHealth
 import { webAnalyticsLoadTimeLogic } from 'scenes/web-analytics/webAnalyticsLoadTimeLogic'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 import { WebAnalyticsModal } from 'scenes/web-analytics/WebAnalyticsModal'
+import { WebAnalyticsSavePresetNudge } from 'scenes/web-analytics/WebAnalyticsSavePresetNudge'
 import { WebAnalyticsShareColleagueBanner } from 'scenes/web-analytics/WebAnalyticsShareColleagueBanner'
 import { WebTileHeader } from 'scenes/web-analytics/WebTileHeader'
 import { useWebTileOpenInsight, useWebTileOverflowMenuItems } from 'scenes/web-analytics/webTileHeaderHooks'
@@ -60,6 +62,7 @@ import { InsightLogicProps, OnboardingStepKey, TeamPublicType, TeamType } from '
 
 import { AgentAnalytics } from 'products/web_analytics/frontend/agent_analytics/AgentAnalytics'
 import { AgentAnalyticsFilters } from 'products/web_analytics/frontend/agent_analytics/AgentAnalyticsFilters'
+import { ContentAutopilot } from 'products/web_analytics/frontend/contentAutopilot/ContentAutopilot'
 
 import { BotAnalyticsFilters } from './BotAnalyticsFilters'
 import { botAnalyticsLogic } from './botAnalyticsLogic'
@@ -85,8 +88,8 @@ export const Tiles = (props: { tiles?: WebAnalyticsTile[]; compact?: boolean }):
     return (
         <div
             className={clsx(
-                'mt-4 grid grid-cols-1',
-                useTileHeaderV2 ? 'lg:grid-cols-2 2xl:grid-cols-3' : 'md:grid-cols-2 2xl:grid-cols-3',
+                'mt-4 pb-4 grid grid-cols-1',
+                'md:grid-cols-2 2xl:grid-cols-3',
                 useTileHeaderV2 && '2xl:grid-flow-dense',
                 compact ? 'gap-x-2 gap-y-2' : 'gap-x-4 gap-y-4'
             )}
@@ -164,6 +167,8 @@ interface QueryTileItemVariantProps {
     docs?: QueryTile['docs']
 }
 
+const HEADERLESS_TILES = new Set<TileId>([TileId.OVERVIEW, TileId.WEB_VITALS])
+
 const QueryTileItemV2 = ({
     tile,
     containerClassName,
@@ -194,7 +199,7 @@ const QueryTileItemV2 = ({
                 showIntervalSelect={showIntervalSelect}
                 tileId={tile.tileId}
                 headerSlot={
-                    tile.tileId === TileId.OVERVIEW ? undefined : (
+                    HEADERLESS_TILES.has(tile.tileId) ? undefined : (
                         <WebTileHeader
                             tileId={tile.tileId}
                             title={title}
@@ -239,7 +244,8 @@ const QueryTileItemLegacy = ({
                     })
                 }}
             >
-                Open as new insight
+                <span className="@min-[26rem]/web-tile:hidden">Open insight</span>
+                <span className="hidden @min-[26rem]/web-tile:inline">Open as new insight</span>
             </LemonButton>
         ) : null,
         tile.canOpenModal !== false ? (
@@ -250,13 +256,14 @@ const QueryTileItemLegacy = ({
                 size="small"
                 type="secondary"
             >
-                Show more
+                <span className="@min-[26rem]/web-tile:hidden">Expand</span>
+                <span className="hidden @min-[26rem]/web-tile:inline">Show more</span>
             </LemonButton>
         ) : null,
     ].filter(isNotNil)
 
     return (
-        <div className={containerClassName}>
+        <div className={clsx(containerClassName, '@container/web-tile')}>
             {title && (
                 <div className="flex flex-row items-center mb-2">
                     <h2>{title}</h2>
@@ -274,9 +281,7 @@ const QueryTileItemLegacy = ({
                 tileId={tile.tileId}
             />
 
-            {buttonsRow.length > 0 ? (
-                <div className="flex justify-end my-2 deprecated-space-x-2">{buttonsRow}</div>
-            ) : null}
+            {buttonsRow.length > 0 ? <div className="flex flex-wrap justify-end gap-2 my-2">{buttonsRow}</div> : null}
         </div>
     )
 }
@@ -474,6 +479,7 @@ export const WebTabs = ({
     const isVisualizationToggleEnabled = [TileId.SOURCES, TileId.DEVICES, TileId.PATHS].includes(tileId)
 
     const activeTabData = tabs.find((t) => t.id === activeTabId)
+    const tabOptions = tabs.map(({ id, linkText }) => ({ value: id, label: linkText }))
 
     const buttonsRow = [
         activeTab && activeTabData ? (
@@ -498,7 +504,8 @@ export const WebTabs = ({
                     })
                 }}
             >
-                Open as new insight
+                <span className="@min-[26rem]/web-tile:hidden">Open insight</span>
+                <span className="hidden @min-[26rem]/web-tile:inline">Open as new insight</span>
             </LemonButton>
         ) : null,
         activeTab?.canOpenModal !== false ? (
@@ -509,15 +516,16 @@ export const WebTabs = ({
                 size="small"
                 type="secondary"
             >
-                Show more
+                <span className="@min-[26rem]/web-tile:hidden">Expand</span>
+                <span className="hidden @min-[26rem]/web-tile:inline">Show more</span>
             </LemonButton>
         ) : null,
     ].filter(isNotNil)
 
     return (
-        <div className={clsx(className, 'flex flex-col')}>
-            <div className="flex flex-row items-center self-stretch mb-2">
-                <h2 className="flex-1 m-0 flex flex-row ml-1">
+        <div className={clsx(className, '@container/web-tile flex flex-col')}>
+            <div className="flex flex-row flex-wrap items-center gap-2 self-stretch mb-2">
+                <h2 className="flex-1 m-0 flex flex-row ml-1 whitespace-nowrap">
                     {activeTab?.title}
                     {activeTab?.docs && (
                         <LearnMorePopover
@@ -543,22 +551,24 @@ export const WebTabs = ({
                             },
                         ]}
                         size="small"
-                        className="mr-2"
                     />
                 )}
 
-                <LemonSegmentedDropdown
-                    splitIndices={splitIndices ?? tabSplitIndicesMap[tileId]}
-                    size="small"
-                    value={activeTabId}
-                    onChange={setActiveTabId}
-                    options={tabs.map(({ id, linkText }) => ({ value: id, label: linkText }))}
-                />
+                <div className="hidden @min-[30rem]/web-tile:block">
+                    <LemonSegmentedDropdown
+                        splitIndices={splitIndices ?? tabSplitIndicesMap[tileId]}
+                        size="small"
+                        value={activeTabId}
+                        onChange={setActiveTabId}
+                        options={tabOptions}
+                    />
+                </div>
+                <div className="@min-[30rem]/web-tile:hidden">
+                    <LemonSelect size="small" value={activeTabId} onChange={setActiveTabId} options={tabOptions} />
+                </div>
             </div>
             <div className="flex-1 flex flex-col">{activeTab?.content}</div>
-            {buttonsRow.length > 0 ? (
-                <div className="flex justify-end my-2 deprecated-space-x-2">{buttonsRow}</div>
-            ) : null}
+            {buttonsRow.length > 0 ? <div className="flex flex-wrap justify-end gap-2 my-2">{buttonsRow}</div> : null}
         </div>
     )
 }
@@ -566,8 +576,8 @@ export const WebTabs = ({
 export const SectionTileItem = ({ tile, separator }: { tile: SectionTile; separator?: boolean }): JSX.Element => {
     return (
         <div className="col-span-full">
-            {tile.title && <h2 className="text-lg font-semibold mb-4">{tile.title}</h2>}
-            <div className={tile.layout.className ? `grid ${tile.layout.className} mb-4` : 'mb-4'}>
+            {tile.title && <h2 className="text-lg font-semibold mb-2">{tile.title}</h2>}
+            <div className={clsx('grid gap-2', tile.layout.className)}>
                 {tile.tiles.map((subTile, i) => {
                     if (subTile.kind === 'query') {
                         return (
@@ -652,6 +662,8 @@ const Filters = ({ tabs }: { tabs: JSX.Element }): JSX.Element | null => {
             return <PagePerformanceFilters tabs={tabs} />
         case ProductTab.AGENTS:
             return <AgentAnalyticsFilters tabs={tabs} />
+        case ProductTab.CONTENT_AUTOPILOT:
+            return null
         default:
             return <WebAnalyticsFilters tabs={tabs} />
     }
@@ -682,6 +694,10 @@ const MainContent = (): JSX.Element => {
 
     if (productTab === ProductTab.AGENTS) {
         return <AgentAnalytics />
+    }
+
+    if (productTab === ProductTab.CONTENT_AUTOPILOT) {
+        return <ContentAutopilot />
     }
 
     return <Tiles />
@@ -807,6 +823,29 @@ const agentAnalyticsTab = (
     ]
 }
 
+const contentAutopilotTab = (
+    featureFlags: FeatureFlagsSet
+): { key: ProductTab; label: string | JSX.Element; link: string }[] => {
+    if (!isContentAutopilotEnabled(featureFlags)) {
+        return []
+    }
+
+    return [
+        {
+            key: ProductTab.CONTENT_AUTOPILOT,
+            label: (
+                <div className="flex items-center gap-1">
+                    Content autopilot
+                    <LemonTag type="completion" className="uppercase">
+                        Alpha
+                    </LemonTag>
+                </div>
+            ),
+            link: urls.webAnalyticsContentAutopilot(),
+        },
+    ]
+}
+
 const WebAnalyticsSurveyModal = (): JSX.Element | null => {
     const { surveyModalPath } = useValues(webAnalyticsLogic)
     const { closeSurveyModal } = useActions(webAnalyticsLogic)
@@ -846,6 +885,7 @@ export const WebAnalyticsDashboard = (): JSX.Element => {
                         <Filters tabs={<></>} />
 
                         <WebAnalyticsShareColleagueBanner />
+                        <WebAnalyticsSavePresetNudge />
                         <ShareNudgePrompt />
                         <WebAnalyticsHealthCheck />
                         <MainContent />
@@ -922,6 +962,7 @@ const WebAnalyticsTabs = (): JSX.Element => {
                 ...botAnalyticsTab(featureFlags),
                 ...pagePerformanceTab(featureFlags),
                 ...agentAnalyticsTab(featureFlags),
+                ...contentAutopilotTab(featureFlags),
                 ...healthTab(),
             ]}
             sceneInset
@@ -948,14 +989,16 @@ const getEmptyOnboardingContent = (
         return (
             <div className="col-span-full w-full">
                 <ProductIntroduction
-                    productName="Web Analytics"
-                    productKey={ProductKey.WEB_ANALYTICS}
                     thingName="event"
                     isEmpty={true}
                     titleOverride="Nothing to investigate yet!"
                     description="Install PostHog on your site or app to start capturing events. Head to the installation guide to get set up in just a few minutes."
+                    hogLayout="responsive"
+                    useMainContentContainerQueries
+                    className="p-4 @min-[48rem]/main-content:p-8"
+                    hogClassName="w-40 sm:w-40 lg:w-56"
                     actionElementOverride={
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-col @min-[30rem]/main-content:flex-row items-center gap-x-2 gap-y-3">
                             <LemonButton
                                 type="primary"
                                 to={urls.onboarding({
@@ -966,10 +1009,12 @@ const getEmptyOnboardingContent = (
                             >
                                 Open installation guide
                             </LemonButton>
-                            <span className="text-muted-alt">or</span>
-                            <Link target="_blank" to="/web/web-vitals">
-                                Set up web vitals while you wait
-                            </Link>
+                            <span className="text-muted-alt text-center">
+                                or{' '}
+                                <Link target="_blank" to="/web/web-vitals">
+                                    Set up web vitals while you wait
+                                </Link>
+                            </span>
                         </div>
                     }
                 />

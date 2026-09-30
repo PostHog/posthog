@@ -15,7 +15,7 @@ cross the boundary through sibling facade submodules (``sandbox``, ``warm``,
 their data results.
 """
 
-from datetime import datetime
+from datetime import date, datetime
 from enum import StrEnum
 from typing import Literal
 from uuid import UUID
@@ -23,13 +23,17 @@ from uuid import UUID
 from pydantic import Field
 from pydantic.dataclasses import dataclass
 
+from posthog.enums import LabeledStrEnum
 
-class DesktopAccessReason(StrEnum):
-    STARTUP_PLAN = "startup_plan"
-    PREPAID_CREDITS = "prepaid_credits"
+# Re-exported: the exception is defined in an import-light module so ``storage.py`` can raise it
+# without dragging this module onto the ``django.setup()`` path.
+from products.tasks.backend.storage_errors import TaskRunLogAppendUnserialized as TaskRunLogAppendUnserialized
 
 
-DESKTOP_ACCESS_REASON_SCHEMA_VALUES = [*(reason.value for reason in DesktopAccessReason), None]
+# Each label repeats its value, because the API documents these choices as plain values.
+class DesktopAccessReason(LabeledStrEnum):
+    STARTUP_PLAN = "startup_plan", "startup_plan"
+    PREPAID_CREDITS = "prepaid_credits", "prepaid_credits"
 
 
 @dataclass(frozen=True)
@@ -49,6 +53,18 @@ class TaskDTO:
     created_by_id: int | None = None
     task_number: int | None = None
     slug: str = ""
+
+
+@dataclass(frozen=True)
+class StreamNotificationDelivery:
+    """Where a server-originated stream notification landed.
+
+    ``live`` reached the run's Redis stream, so connected threads show the frame now. ``persisted``
+    reached the run's S3 log, so a thread loaded after the stream expires replays it too.
+    """
+
+    live: bool
+    persisted: bool
 
 
 @dataclass(frozen=True)
@@ -83,6 +99,14 @@ class WizardCloudRunDTO:
 
 
 @dataclass(frozen=True)
+class TaskRunCost:
+    """Provider costs in integer USD cents, or None while a source is unavailable or incomplete."""
+
+    token_cost: int | None
+    compute_cost: int | None
+
+
+@dataclass(frozen=True)
 class TaskRunDTO:
     """A single execution of a task.
 
@@ -113,6 +137,15 @@ class TaskRunDTO:
     created_by_id: int | None = None
     created_by_distinct_id: str | None = None
     pr_url: str | None = None
+
+
+@dataclass(frozen=True)
+class InProgressGithubRunsDTO:
+    """In-progress runs that block disconnecting a team GitHub integration."""
+
+    count: int
+    oldest_task_id: UUID | None = None
+    oldest_task_title: str | None = None
 
 
 @dataclass(frozen=True)
@@ -200,6 +233,24 @@ class TaskDetailDTO:
     channel: UUID | None = None
     slack_thread_references: list[SlackThreadReferenceDTO] = Field(default_factory=list)
     origin_key: str | None = None
+
+
+@dataclass(frozen=True)
+class TaskCreateResponseDTO(TaskDetailDTO):
+    run_error: str | None = None
+
+
+@dataclass(frozen=True)
+class TaskRunResponseDTO(TaskCreateResponseDTO):
+    """The task ``run`` action's response: the refreshed task detail plus the run this call made.
+
+    ``run`` is the run the call created or activated — the payload a caller reads run-scoped ids
+    from, instead of inferring them from ``latest_run`` (or, worse, the top-level task ``id``).
+    Set on every 200; when ``run_error`` is also set, the run exists but its workflow did not
+    start.
+    """
+
+    run: "TaskRunDetailDTO | None" = None
 
 
 @dataclass(frozen=True)
@@ -294,7 +345,7 @@ class TaskActivityDTO:
     """
 
     id: UUID
-    task_id: UUID
+    task_id: UUID | None
     task_title: str
     channel_id: UUID | None
     channel_name: str | None
@@ -372,11 +423,15 @@ class TaskCommentDetailDTO:
 
 @dataclass(frozen=True)
 class TaskLatestRunSummaryDTO:
-    """The latest-run status/environment pair nested in a task summary response."""
+    """The latest-run state nested in a task summary response."""
 
     id: UUID
     status: str | None
     environment: str | None
+    mode: Literal["interactive", "background"]
+    pr_url: str | None = None
+    pr_state: str | None = None
+    task_summary: str | None = None
 
 
 @dataclass(frozen=True)
@@ -384,7 +439,7 @@ class TaskSummaryDTO:
     """The HTTP summary representation of a task.
 
     Mirrors exactly the fields ``TaskSummarySerializer`` emits. ``latest_run`` carries the
-    most-recent run's ``status`` and ``environment`` (or ``None`` when the task has no runs).
+    most-recent run's status, environment, mode and pull request (or ``None`` when the task has no runs).
     """
 
     id: UUID
@@ -425,10 +480,14 @@ class TaskRunResult:
 
     Exactly one of ``task`` / ``error`` is set. ``task`` is the refreshed task detail DTO with
     its new latest run; ``error`` carries the structured error the original view returned inline.
+    ``run_id`` names the run this call created or activated, so the view does not have to infer
+    it from ``task.latest_run`` (which a concurrent run creation can race past).
     """
 
     task: "TaskDetailDTO | None" = None
     error: TaskValidationError | None = None
+    run_error: str | None = None
+    run_id: UUID | None = None
 
 
 @dataclass(frozen=True)
@@ -577,12 +636,15 @@ class TaskRunDetailDTO:
     log_url: str | None
     error_message: str | None
     output: dict | None
+    task_summary: str | None
     state: dict
     artifacts: list = Field(default_factory=list)
+    task_tags: list[str] = Field(default_factory=list)
     created_at: datetime | None = None
     updated_at: datetime | None = None
     completed_at: datetime | None = None
     preview_available: bool = False
+    scheduled_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -636,6 +698,8 @@ class TaskRunSandboxConnectionDTO:
 
     Carries the sandbox URL and connect token parsed off the run state plus a freshly-minted
     connection token. ``sandbox_url`` is ``None`` when the run has no active sandbox.
+    ``run_is_terminal`` disambiguates that case: a terminal run's sandbox is cleaned up and
+    never comes back, while a non-terminal run's sandbox may simply not be reachable yet.
     """
 
     sandbox_url: str | None
@@ -643,6 +707,77 @@ class TaskRunSandboxConnectionDTO:
     connection_token: str | None = None
     # Query-param name the transport token travels under (provider-specific).
     sandbox_token_param: str = "_modal_connect_token"
+    run_is_terminal: bool = False
+
+
+SPACE_SETUP_SCOPES = (
+    "task:write",
+    "canvas:write",
+    "hog_flow:write",
+    # workflows-schedule-create and workflows-test-run require these beside hog_flow:write.
+    "person:read",
+    "group:read",
+    "integration:read",
+    # The MCP server reads the caller from `/api/users/@me/` and refuses the whole session without it.
+    "user:read",
+    "query:read",
+    "action:read",
+    "data_catalog:read",
+    "insight:read",
+    "dashboard:read",
+    "feature_flag:read",
+    "experiment:read",
+    "error_tracking:read",
+    "session_recording:read",
+    "event_definition:read",
+    "property_definition:read",
+    "project:read",
+    "organization:read",
+    "survey:read",
+)
+
+
+class SpaceSetupInProgressError(Exception):
+    pass
+
+
+@dataclass(frozen=True)
+class SpaceGoalRequest:
+    """The metric a goal space is set up to move."""
+
+    statement: str
+    period: Literal["day", "week", "month"] = "week"
+    direction: Literal["at_least", "at_most"] = "at_least"
+    target: str | None = None
+    deadline: date | None = None
+    insight_short_id: str | None = None
+
+
+@dataclass(frozen=True)
+class SpaceFeatureRequest:
+    """The feature a feature space is set up around."""
+
+    name: str
+    description: str = ""
+    flag_key: str | None = None
+
+
+@dataclass(frozen=True)
+class SpaceSetupRequest:
+    """What the space setup task should set the space up for. Exactly one of ``goal`` and
+    ``feature`` is set, matching ``kind``."""
+
+    kind: Literal["goal", "feature"]
+    goal: SpaceGoalRequest | None = None
+    feature: SpaceFeatureRequest | None = None
+    repository: str | None = None
+
+
+@dataclass(frozen=True)
+class SpaceSetupStartedDTO:
+    """The setup task that now owns the channel's context generation marker."""
+
+    task_id: UUID
 
 
 @dataclass(frozen=True)
@@ -657,6 +792,20 @@ class CreatedTaskDTO:
     task_id: UUID
     team_id: int
     latest_run: TaskRunDTO | None = None
+
+
+@dataclass(frozen=True)
+class WorkflowLastRunDTO:
+    """The newest task a workflow created, as its last run.
+
+    ``status`` is the task's newest run status, or ``not_started`` when the task has no run yet.
+    ``ran_at`` is when that run started, or when the task was made if it has no run.
+    """
+
+    hog_flow_id: UUID
+    task_id: UUID
+    status: str
+    ran_at: datetime
 
 
 @dataclass(frozen=True)
@@ -858,3 +1007,9 @@ class ComputeQuotaDenialReason(StrEnum):
 
     COMPUTE_QUOTA_EXHAUSTED = "posthog_code_billing_limit_exceeded"
     ORGANIZATION_DEACTIVATED = "organization_deactivated"
+
+
+@dataclass(frozen=True, kw_only=True)
+class TaskPullRequest:
+    url: str
+    state: str

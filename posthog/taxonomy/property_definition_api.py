@@ -1,21 +1,23 @@
 import json
 import uuid
+import functools
 import dataclasses
 from typing import Any, Optional, Self, Union, cast
 
-from django.db import DEFAULT_DB_ALIAS, OperationalError, connections, router, transaction
-from django.db.models import Manager, QuerySet
+from django.db import connections
+from django.db.models import Field, Manager, QuerySet
 from django.http import Http404
 from django.shortcuts import get_object_or_404
 
 from opentelemetry import trace
 from prometheus_client import Counter
 from rest_framework import mixins, request, response, serializers, status, viewsets
-from rest_framework.exceptions import APIException, ValidationError
+from rest_framework.exceptions import ValidationError
 
 from posthog.api.documentation import extend_schema
 from posthog.api.pagination import PrecountedLimitOffsetPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.statement_timeout import statement_timeout
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import action
 from posthog.constants import GROUP_TYPES_LIMIT
@@ -26,6 +28,11 @@ from posthog.models import EventProperty, PropertyDefinition, User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.utils import UUIDT
 from posthog.settings import EE_AVAILABLE
+from posthog.taxonomy.definition_listing import (
+    DEFINITION_LIST_STATEMENT_TIMEOUT_MS,
+    DefinitionListTimedOut,
+    definition_read_db_alias,
+)
 from posthog.taxonomy.definition_search import search_plan
 from posthog.taxonomy.taxonomy import (
     CORE_FILTER_DEFINITIONS_BY_GROUP,
@@ -45,18 +52,6 @@ EXCLUDED_EVENT_CORE_PROPERTIES = [
 
 PROPERTY_DEFINITION_TYPES = ["event", "person", "group", "session"]
 
-# Listing runs two raw queries (a count, then a page fetch) that take seconds on projects with
-# very many property definitions. The app database sets no statement_timeout, so a slow one keeps
-# consuming database CPU for the full request until the gateway gives up at 120s, long after the
-# client stopped waiting for it. Bounding each statement well below that ceiling sheds the load
-# instead of queueing it, and returns a 503 the caller can retry or report.
-PROPERTY_DEFINITIONS_STATEMENT_TIMEOUT_MS = 25_000
-
-# Postgres reports a statement cancelled by statement_timeout as SQLSTATE 57014. psycopg2 exposes
-# it as `pgcode` and psycopg3 as `sqlstate`, and Django re-raises either as its own
-# OperationalError, so both attribute names have to be checked on the error and on its cause.
-QUERY_CANCELED_SQLSTATE = "57014"
-
 PROPERTY_DEFINITIONS_TIMED_OUT_COUNTER = Counter(
     "property_definitions_list_timed_out_total",
     "Property definition list requests cancelled by the statement timeout.",
@@ -64,34 +59,41 @@ PROPERTY_DEFINITIONS_TIMED_OUT_COUNTER = Counter(
 )
 
 
-class PropertyDefinitionsTimedOut(APIException):
-    # The taxonomic filter renders a failed list the same way as an empty one, so a generic 5xx here
-    # reads to the user as "this project has no properties". A stable code lets the client tell a
-    # timed-out list apart from any other server error and offer a retry instead.
-    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+class PropertyDefinitionsTimedOut(DefinitionListTimedOut):
     default_code = "property_definitions_timeout"
     default_detail = "Loading properties took too long. Try a narrower search, or try again in a moment."
 
 
+@functools.cache
+def property_definition_model(is_enterprise: bool) -> type[PropertyDefinition]:
+    """The model the list query runs through, which the enterprise extension replaces."""
+    if is_enterprise:
+        from ee.models.property_definition import EnterprisePropertyDefinition
+
+        return EnterprisePropertyDefinition
+    return PropertyDefinition
+
+
 def read_db_alias() -> str:
-    # The page fetch is an ORM RawQuerySet, so it follows the read router (see ReplicaRouter's
-    # opt-in list). The count query and the statement timeout have to land on that same connection
-    # or they describe a different session than the one doing the work.
-    return router.db_for_read(PropertyDefinition) or DEFAULT_DB_ALIAS
-
-
-def is_query_canceled(error: BaseException) -> bool:
-    for exc in (error, error.__cause__):
-        if exc is None:
-            continue
-        if (getattr(exc, "sqlstate", None) or getattr(exc, "pgcode", None)) == QUERY_CANCELED_SQLSTATE:
-            return True
-    return False
+    return definition_read_db_alias(property_definition_model(EE_AVAILABLE))
 
 
 class SeenTogetherQuerySerializer(serializers.Serializer):
     event_names: serializers.ListField = serializers.ListField(child=serializers.CharField(), required=True)
     property_name: serializers.CharField = serializers.CharField(required=True)
+
+
+# Sent as JSON instead of duplicate parameters like event_names[] to work with the frontend's combineUrl
+def parse_json_encoded_list(value: str) -> list[str]:
+    try:
+        decoded = json.loads(value)
+    except json.JSONDecodeError:
+        raise ValidationError("Must be a JSON-encoded list of strings")
+
+    if not isinstance(decoded, list) or any(isinstance(item, list | dict) or item is None for item in decoded):
+        raise ValidationError("Must be a JSON-encoded list of strings")
+
+    return [str(item) for item in decoded]
 
 
 class PropertyDefinitionQuerySerializer(serializers.Serializer):
@@ -175,6 +177,12 @@ class PropertyDefinitionQuerySerializer(serializers.Serializer):
         default=None,
     )
 
+    def validate_event_names(self, value: str) -> list[str]:
+        return parse_json_encoded_list(value)
+
+    def validate_excluded_properties(self, value: str) -> list[str]:
+        return parse_json_encoded_list(value)
+
     def validate(self, attrs):
         type_ = attrs.get("type", "event")
 
@@ -193,7 +201,7 @@ class PropertyDefinitionQuerySerializer(serializers.Serializer):
         return super().validate(attrs)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class QueryContext:
     """
     The raw query is used to both query and count these results
@@ -311,17 +319,15 @@ class QueryContext:
                 },
             )
 
-    def with_event_property_filter(self, event_names: Optional[str], filter_by_event_names: Optional[bool]) -> Self:
+    def with_event_property_filter(
+        self, event_names: Optional[list[str]], filter_by_event_names: Optional[bool]
+    ) -> Self:
         event_property_filter = ""
         event_name_filter = ""
         event_property_field = "NULL"
         event_name_join_filter = ""
 
-        # Passed as JSON instead of duplicate properties like event_names[] to work with frontend's combineUrl
-        if event_names:
-            event_names = json.loads(event_names)
-
-        if event_names and len(event_names) > 0 and self.should_join_event_property:
+        if event_names and self.should_join_event_property:
             event_property_field = f"{self.posthog_eventproperty_table_join_alias}.property IS NOT NULL"
             event_name_join_filter = "AND event = ANY(%(event_names)s)"
 
@@ -332,7 +338,7 @@ class QueryContext:
             event_name_join_filter=event_name_join_filter,
             event_name_filter=event_name_filter,
             event_property_join_type="INNER JOIN" if filter_by_event_names else "LEFT JOIN",
-            params={**self.params, "event_names": list(map(str, event_names or []))},
+            params={**self.params, "event_names": event_names or []},
         )
 
     def with_search(self, search_query: str, search_kwargs: dict, order_by_search_relevance: bool = False) -> Self:
@@ -343,10 +349,8 @@ class QueryContext:
             params={**self.params, "project_id": self.project_id, **search_kwargs},
         )
 
-    def with_excluded_properties(self, excluded_properties: Optional[str]) -> Self:
-        excluded_list = []
-        if excluded_properties:
-            excluded_list = list(set(json.loads(excluded_properties)))
+    def with_excluded_properties(self, excluded_properties: Optional[list[str]]) -> Self:
+        excluded_list = list(set(excluded_properties)) if excluded_properties else []
 
         return dataclasses.replace(
             self,
@@ -634,26 +638,27 @@ class PropertyDefinitionViewSet(
                 [
                     f'posthog_propertydefinition."{f.column}"'
                     for f in PropertyDefinition._meta.get_fields()
-                    if hasattr(f, "column")
+                    if isinstance(f, Field) and f.column is not None
                 ]
             )
 
             order_by_verified = False
             if EE_AVAILABLE:
-                from ee.models.property_definition import EnterprisePropertyDefinition
+                enterprise_model = property_definition_model(EE_AVAILABLE)
 
                 # Prevent fetching deprecated `tags` field. Tags are separately fetched in TaggedItemSerializerMixin
                 property_definition_fields = ", ".join(
                     [
                         f'{f.cached_col.alias}."{f.column}"'
-                        for f in EnterprisePropertyDefinition._meta.get_fields()
-                        if hasattr(f, "column")
+                        for f in enterprise_model._meta.get_fields()
+                        if isinstance(f, Field)
+                        and f.column is not None
                         and f.column not in ["deprecated_tags", "tags"]
                         and hasattr(f, "cached_col")
                     ]
                 )
 
-                queryset = EnterprisePropertyDefinition.objects
+                queryset = enterprise_model.objects
 
                 order_by_verified = True
 
@@ -673,8 +678,7 @@ class PropertyDefinitionViewSet(
 
             span.set_attribute("property_type", prop_type or "")
             span.set_attribute("has_search", search is not None and search != "")
-            parsed_event_names = json.loads(event_names) if event_names else []
-            span.set_attribute("event_names_count", len(parsed_event_names))
+            span.set_attribute("event_names_count", len(event_names or []))
             span.set_attribute("filter_by_event_names", bool(filter_by_event_names))
             span.set_attribute("limit", limit or 0)
             span.set_attribute("offset", offset or 0)
@@ -805,27 +809,16 @@ class PropertyDefinitionViewSet(
     def list(self, request, *args, **kwargs):
         event_type = request.query_params.get("type", "event")
 
-        # Both raw queries and the serialization that reads their rows have to sit inside this
-        # transaction, because SET LOCAL only lasts until it commits and the page fetch is a lazy
-        # RawQuerySet that the paginator does not evaluate until super().list() serializes it.
-        alias = read_db_alias()
-        try:
-            with transaction.atomic(using=alias):
-                with connections[alias].cursor() as cursor:
-                    cursor.execute(
-                        "SET LOCAL statement_timeout = %s",
-                        [PROPERTY_DEFINITIONS_STATEMENT_TIMEOUT_MS],
-                    )
-                response = super().list(request, *args, **kwargs)
-        except OperationalError as error:
-            if not is_query_canceled(error):
-                raise
-            # `event_type` is raw query input, so clamp it to the known set rather than letting a
-            # caller mint unbounded Prometheus label values.
-            PROPERTY_DEFINITIONS_TIMED_OUT_COUNTER.labels(
-                property_type=event_type if event_type in PROPERTY_DEFINITION_TYPES else "unknown"
-            ).inc()
-            raise PropertyDefinitionsTimedOut from error
+        # `event_type` is raw query input, so clamp it to the known set rather than letting a
+        # caller mint unbounded Prometheus label values.
+        property_type = event_type if event_type in PROPERTY_DEFINITION_TYPES else "unknown"
+        with statement_timeout(
+            read_db_alias(),
+            DEFINITION_LIST_STATEMENT_TIMEOUT_MS,
+            PropertyDefinitionsTimedOut,
+            PROPERTY_DEFINITIONS_TIMED_OUT_COUNTER.labels(property_type=property_type),
+        ):
+            response = super().list(request, *args, **kwargs)
 
         # Inject virtual event/person/group properties to the end of the results
         if event_type in ["event", "person", "group"]:
@@ -890,7 +883,7 @@ class PropertyDefinitionViewSet(
             return False
 
         # exclusion lists
-        excluded = set(json.loads(v["excluded_properties"])) if v.get("excluded_properties") else set()
+        excluded = set(v["excluded_properties"]) if v.get("excluded_properties") else set()
         if v.get("exclude_core_properties", False):
             excluded |= set(EXCLUDED_EVENT_CORE_PROPERTIES)
         if prop["name"] in excluded:

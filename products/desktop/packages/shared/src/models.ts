@@ -21,7 +21,8 @@ const RESTRICTED_MODEL_META_KEY = "posthog.code/restrictedModel";
 
 /**
  * ACP SessionConfigSelectOption `_meta` key for a model outside the gateway
- * catalog. Picker code uses this explicit mark as the only unpriced case.
+ * catalog. Picker code uses this explicit mark to render the option without a
+ * cost chip.
  */
 const CUSTOM_MODEL_META_KEY = "posthog.code/customModel";
 

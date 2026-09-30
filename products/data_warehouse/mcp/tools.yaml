@@ -288,7 +288,6 @@ tools:
             - columns
             - last_run_at
             - managed_viewset_kind
-            - sync_frequency_managed_by_dag
             - latest_history_id
         param_overrides:
             name:
@@ -309,7 +308,6 @@ tools:
             Delete a data warehouse saved query (view) by ID. This is a soft delete — the view is marked as deleted and
             will no longer appear in lists or be queryable in HogQL. Any materialization schedule is also removed.
             Cannot delete views that have downstream dependencies or views from managed viewsets.
-        soft_delete: true
     view-get:
         operation: warehouse_saved_queries_retrieve
         enabled: true
@@ -441,7 +439,6 @@ tools:
             - columns
             - last_run_at
             - managed_viewset_kind
-            - sync_frequency_managed_by_dag
             - latest_history_id
         param_overrides:
             name:

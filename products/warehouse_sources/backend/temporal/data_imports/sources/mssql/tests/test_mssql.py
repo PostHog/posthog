@@ -314,6 +314,31 @@ def cursor() -> MagicMock:
     return c
 
 
+class TestBuildPipelineProjection:
+    def test_sync_all_projects_discovered_columns(self, impl, mocker):
+        mocker.patch.object(impl, "connect", return_value=MagicMock())
+        mocker.patch.object(impl, "get_primary_keys_for_table", return_value=["id"])
+        mocker.patch.object(
+            impl,
+            "get_table_metadata",
+            return_value=Table(
+                name="users",
+                parents=("dbo",),
+                columns=[
+                    MSSQLColumn(name="id", data_type="int", nullable=False),
+                    MSSQLColumn(name="email", data_type="varchar", nullable=True),
+                ],
+            ),
+        )
+        rows_to_sync = mocker.patch.object(impl, "get_rows_to_sync", return_value=0)
+        mocker.patch.object(impl, "get_chunk_size", return_value=1000)
+
+        impl.build_pipeline(_make_config(), _make_inputs(schema_name="users"))
+
+        query = rows_to_sync.call_args.args[1]
+        assert query.startswith("SELECT [id], [email] FROM")
+
+
 class TestGetPrimaryKeysForTable:
     def test_returns_none_when_no_rows(self, impl, cursor):
         cursor.fetchall.return_value = []
@@ -474,10 +499,19 @@ class TestFetchAverageRowSize:
         result = impl.fetch_average_row_size(cursor, "dbo", "t", "SELECT 1", {}, logger)
         assert result is None
 
-    def test_returns_none_on_exception(self, impl, cursor, logger):
+    def test_returns_none_on_exception_without_capturing(self, impl, cursor, logger, mocker):
+        # This `SELECT TOP 100 *` shares its table/columns with the real streaming query, so a
+        # genuine problem (e.g. a column-level permission denial) resurfaces there and is
+        # captured/classified through the normal retryable/non-retryable path. Capturing it here
+        # too would flood error tracking with a handled duplicate — same reasoning as
+        # `get_rows_to_sync` below.
+        capture = mocker.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mssql.mssql.capture_exception"
+        )
         cursor.execute.side_effect = RuntimeError("boom")
         result = impl.fetch_average_row_size(cursor, "dbo", "t", "SELECT 1", {}, logger)
         assert result is None
+        capture.assert_not_called()
 
 
 class TestGetRowsToSync:
@@ -674,6 +708,24 @@ class TestMSSQLSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            # SQL Server error 230 — the column-level counterpart of 229: some access to the
+            # object, but a column-level GRANT/DENY blocks SELECT on one specific column.
+            "SQL Server message 230, severity 14, state 1, procedure b'', line 1:\n"
+            "b\"The SELECT permission was denied on the column 'Salary', of the object "
+            "'Employees', database 'mydb', schema 'dbo'.DB-Lib error message 20018, severity 14:\n"
+            'General SQL Server error: Check messages from the SQL Server\n"',
+            # Different column/object/database names must still match the stable substring.
+            "The SELECT permission was denied on the column 'Notes', of the object 'Tickets', "
+            "database 'otherdb', schema 'dbo'.",
+        ],
+    )
+    def test_column_permission_denied_errors_are_non_retryable(self, error_msg):
+        non_retryable = MSSQLSource().get_non_retryable_errors()
+        assert any(pattern in error_msg for pattern in non_retryable.keys()), error_msg
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             # Real pymssql MSSQLDatabaseException for SQL Server error 208 raised mid-sync when the
             # view being selected references an object the login can't resolve.
             "SQL Server message 208, severity 16, state 1, procedure b'VentasAsesorMes', line 8: "
@@ -706,6 +758,21 @@ class TestMSSQLSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            # SQL Server error 209 — a stale view whose body joins two tables that now share a
+            # column name. Real pymssql message shape, with the driver's trailing DB-Lib frame.
+            "(209, b\"Ambiguous column name 'modified_at'.DB-Lib error message 20018, severity 16:\\n"
+            'General SQL Server error: Check messages from the SQL Server\\n")',
+            # Different column name must still match the stable substring.
+            "Ambiguous column name 'order_id'.",
+        ],
+    )
+    def test_ambiguous_column_name_is_non_retryable(self, error_msg):
+        non_retryable = MSSQLSource().get_non_retryable_errors()
+        assert any(pattern in error_msg for pattern in non_retryable.keys()), error_msg
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             # Real pymssql MSSQLDatabaseException for SQL Server error 245 raised mid-fetch when a
             # view body implicitly converts a varchar value to int.
             "SQL Server message 245, severity 16, state 1, procedure b'@\\x88[\\xd4\\xfe\\xff', line 1:\n"
@@ -730,6 +797,17 @@ class TestMSSQLSourceNonRetryableErrors:
         assert any(pattern in str(exc_info.value) for pattern in non_retryable.keys())
 
 
+class TestMSSQLSourceCatalogKeywords:
+    @pytest.mark.parametrize("term", ["azure", "azure sql", "azure sql database"])
+    def test_azure_sql_names_are_searchable(self, term):
+        # Azure SQL Database connects through this source, and the catalog search only matches a
+        # source's label, name, and keywords — none of which mention Azure without the keywords.
+        config = MSSQLSource().get_source_config
+        searchable = [config.label or "", str(config.name), *(config.keywords or [])]
+
+        assert any(term in text.lower() for text in searchable), term
+
+
 class TestMSSQLSourceRetryableErrors:
     @pytest.mark.parametrize(
         "error",
@@ -743,9 +821,12 @@ class TestMSSQLSourceRetryableErrors:
                 "SQL Server message 20017, severity 9, state 0, procedure b'\\x00', line 0:\n"
                 "b'DB-Lib error message 20017, severity 9:\\nUnexpected EOF from the server\\n'"
             ),
+            # pymssql's own InterfaceError, raised when a query runs on a connection that died
+            # between opening and use (see `MSSQLSource.get_retryable_errors`).
+            pymssql.InterfaceError("Not connected to any MS SQL server"),
         ],
     )
-    def test_unexpected_eof_is_retryable(self, error):
+    def test_transient_connection_errors_are_retryable(self, error):
         retryable = MSSQLSource().get_retryable_errors()
         assert any(pattern.lower() in str(error).lower() for pattern in retryable), str(error)
 
@@ -772,6 +853,34 @@ class TestMSSQLSourceValidateCredentials:
         assert valid is False
         assert error == _FIREWALL_BLOCKED_ERROR
         capture.assert_not_called()
+
+    @pytest.mark.parametrize(
+        ("driver_error", "expected_guidance"),
+        [
+            # Real pymssql DB-Lib error 20009 for a host it cannot reach. The driver says the same
+            # thing for a wrong host or port, so the copy has to cover the values and the network.
+            (
+                "DB-Lib error message 20009, severity 9:\nUnable to connect: Adaptive Server is "
+                "unavailable or does not exist (db.example.com)",
+                ("host and port", "firewall"),
+            ),
+            (
+                "DB-Lib error message 20003, severity 6:\nAdaptive Server connection timed out",
+                ("public internet", "firewall", "SSH tunnel"),
+            ),
+        ],
+    )
+    def test_connect_failure_names_a_network_cause(self, source, mocker, driver_error, expected_guidance):
+        mocker.patch.object(source, "is_database_host_valid", return_value=(True, None))
+        mocker.patch.object(source, "get_schemas", side_effect=pymssql.OperationalError(driver_error))
+
+        valid, error = source.validate_credentials(_make_config(), team_id=1)
+
+        assert valid is False
+        assert error is not None
+        for fragment in expected_guidance:
+            assert fragment in error
+        assert "Adaptive Server" not in error
 
 
 class TestIsTransientConnectionError:

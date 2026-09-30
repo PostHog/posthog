@@ -2,6 +2,7 @@ import { api } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -10,6 +11,7 @@ import experimentJson from '~/mocks/fixtures/api/experiments/_experiment_launche
 import experimentMetricResultsErrorJson from '~/mocks/fixtures/api/experiments/_experiment_metric_results_error.json'
 import experimentMetricResultsSuccessJson from '~/mocks/fixtures/api/experiments/_experiment_metric_results_success.json'
 import { useMocks } from '~/mocks/jest'
+import { tagsModel } from '~/models/tagsModel'
 import {
     Breakdown,
     CachedNewExperimentQueryResponse,
@@ -20,7 +22,8 @@ import {
 import { initKeaTests } from '~/test/init'
 import { Experiment, MultivariateFlagVariant } from '~/types'
 
-import { ExperimentSavedMetric, ExperimentWarning, experimentLogic, getDisplayOrderedIndices } from './experimentLogic'
+import { ExperimentWarning, experimentLogic } from './experimentLogic'
+import type { ExperimentSavedMetric } from './utils'
 
 jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
     lemonToast: {
@@ -311,6 +314,49 @@ describe('experimentLogic', () => {
                 'markRefreshStarted',
             ])
         })
+
+        it('re-runs the refresh when a later flag update contradicts the value it used', async () => {
+            // The outer beforeEach delivered an empty flag set: flags count as received, but the
+            // recalculation flag reads off, like the bootstrap set of a page load.
+            logic.actions.setExperiment(experiment)
+            useMocks({
+                post: {
+                    '/api/environments/:team/query': () => [
+                        200,
+                        { cache_key: 'cache_key', query_status: experimentMetricResultsSuccessJson.query_status },
+                    ],
+                },
+                get: {
+                    '/api/environments/:team/query/:id': () => [200, experimentMetricResultsSuccessJson],
+                },
+            })
+            // The expectLogic wrapper consumes this refresh's actions from the recorded history, so the
+            // assertions below match only the replayed refresh, not this original one.
+            await expectLogic(logic, async () => {
+                await logic.asyncActions.refreshExperimentResults(true, 'manual')
+            }).toDispatchActions(['refreshExperimentResults', 'markRefreshStarted', 'markRefreshFinished'])
+
+            // The real flag response lands with the flag on. The refresh must re-run with its original
+            // arguments, or the page keeps whatever the wrong branch loaded.
+            await expectLogic(logic, () => {
+                featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION], {
+                    [FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]: true,
+                })
+            }).toDispatchActions([
+                (action) =>
+                    action.type === logic.actionTypes.refreshExperimentResults &&
+                    action.payload.forceRefresh === true &&
+                    action.payload.triggeredBy === 'manual',
+                'markRefreshStarted',
+            ])
+
+            // A repeated update with the same value must not re-run the refresh.
+            await expectLogic(logic, () => {
+                featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION], {
+                    [FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]: true,
+                })
+            }).toNotHaveDispatchedActions(['refreshExperimentResults'])
+        })
     })
 
     describe('updateExperimentMetrics', () => {
@@ -553,7 +599,7 @@ describe('experimentLogic', () => {
                 metric_type: ExperimentMetricType.MEAN,
                 source: { kind: NodeKind.EventsNode, event: '$pageview' },
             },
-            metadata: { type: 'primary', breakdowns: [breakdown] },
+            metadata: { type: 'primary', breakdowns: [breakdown], breakdown_limit: 20 },
             created_at: '2024-01-01T00:00:00Z',
         } as unknown as ExperimentSavedMetric
 
@@ -580,7 +626,7 @@ describe('experimentLogic', () => {
                     metric_type: ExperimentMetricType.MEAN,
                     source: { kind: NodeKind.EventsNode, event: '$pageview' },
                     name: 'Shared conversion metric (copy)',
-                    breakdownFilter: { breakdowns: [breakdown] },
+                    breakdownFilter: { breakdowns: [breakdown], breakdown_limit: 20 },
                 },
             ])
             // The original shared metric link is left untouched
@@ -1098,6 +1144,29 @@ describe('experimentLogic', () => {
                 .toFinishAllListeners()
         })
     })
+    describe('tags refresh', () => {
+        it('reloads tagsModel after an update that changed tags', async () => {
+            logic.actions.setExperiment(experiment)
+            api.update.mockResolvedValue({ ...experiment, tags: ['retention'] })
+            await expectLogic(logic, () => {
+                logic.actions.updateExperiment({ tags: ['retention'] })
+            })
+                .toDispatchActions(['updateExperimentSuccess', tagsModel.actionTypes.loadTags])
+                .toFinishAllListeners()
+        })
+
+        it('does not reload tagsModel when the update did not touch tags', async () => {
+            logic.actions.setExperiment(experiment)
+            api.update.mockResolvedValue({ ...experiment })
+            await expectLogic(logic, () => {
+                logic.actions.updateExperiment({ description: 'updated' })
+            })
+                .toDispatchActions(['updateExperimentSuccess'])
+                .toFinishAllListeners()
+                .toNotHaveDispatchedActions([tagsModel.actionTypes.loadTags])
+        })
+    })
+
     describe('reorderMetrics', () => {
         const testExperiment = {
             ...experiment,
@@ -2464,30 +2533,6 @@ describe('experimentLogic', () => {
         ])('$desc → $expected', ({ overrides, expected }) => {
             logic.actions.setExperiment(createExperiment(overrides))
             expect(logic.values.experimentWarning).toEqual(expected)
-        })
-    })
-
-    describe('getDisplayOrderedIndices', () => {
-        it.each([
-            ['null orderedUuids — identity order', [{ uuid: 'a' }, { uuid: 'b' }, { uuid: 'c' }], null, [0, 1, 2]],
-            ['undefined orderedUuids — identity order', [{ uuid: 'a' }, { uuid: 'b' }], undefined, [0, 1]],
-            ['empty orderedUuids — identity order', [{ uuid: 'a' }, { uuid: 'b' }], [], [0, 1]],
-            ['reorders by orderedUuids', [{ uuid: 'a' }, { uuid: 'b' }, { uuid: 'c' }], ['c', 'a', 'b'], [2, 0, 1]],
-            [
-                'appends missing metrics at end',
-                [{ uuid: 'a' }, { uuid: 'b' }, { uuid: 'c' }, { uuid: 'd' }],
-                ['c', 'a'],
-                [2, 0, 1, 3],
-            ],
-            ['ignores uuids not in metrics', [{ uuid: 'a' }, { uuid: 'b' }], ['x', 'b', 'y', 'a'], [1, 0]],
-            ['handles metrics without uuids', [{ uuid: 'a' }, {}, { uuid: 'c' }], ['c', 'a'], [2, 0, 1]],
-        ])('%s', (_desc, metrics, orderedUuids, expected) => {
-            expect(getDisplayOrderedIndices(metrics, orderedUuids)).toEqual(expected)
-        })
-
-        it('returns all indices exactly once', () => {
-            const metrics = [{ uuid: 'a' }, { uuid: 'b' }, { uuid: 'c' }, { uuid: 'd' }, { uuid: 'e' }]
-            expect(getDisplayOrderedIndices(metrics, ['d', 'b']).sort()).toEqual([0, 1, 2, 3, 4])
         })
     })
 

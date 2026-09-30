@@ -9,12 +9,12 @@ import { isValidMcpUrl } from "@posthog/core/mcp-servers/customServerForm";
 import { AgentScopeToggle } from "@posthog/ui/features/mcp-gateway/components/parts/AgentScopeToggle";
 import type { GatewayRoute } from "@posthog/ui/features/mcp-gateway/gatewayRoute";
 import { useRegisterGatewayServer } from "@posthog/ui/features/mcp-gateway/hooks/useRegisterGatewayServer";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import {
   Button,
   Flex,
   Heading,
   Select,
-  Spinner,
   Switch,
   Text,
   TextArea,
@@ -282,7 +282,7 @@ export function GatewayAddServer({
           </Button>
           <Button type="submit" disabled={!canSave || registerPending}>
             {registerPending ? (
-              <Spinner size="1" />
+              <Spinner size="sm" />
             ) : (
               <Check size={12} weight="bold" />
             )}{" "}

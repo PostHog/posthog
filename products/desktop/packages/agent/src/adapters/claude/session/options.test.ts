@@ -8,6 +8,9 @@ import { SUBAGENT_REWRITES } from "../hooks";
 import {
   buildSessionOptions,
   buildSystemPrompt,
+  PINNED_ROUTING_ENV_KEYS,
+  removePinnedSettings,
+  settingsFlagIncludes,
   toEffortFlagSettings,
   toSdkEffort,
 } from "./options";
@@ -619,6 +622,97 @@ describe("buildSessionOptions", () => {
 
       expect(options.fallbackModel).toBeUndefined();
     });
+
+    it("keeps the relayed OAuth token out of the environment", async () => {
+      const options = buildSessionOptions({
+        ...makeParams(),
+        userProvidedOptions: {
+          pathToClaudeCodeExecutable: "/tmp/untrusted-claude",
+          executable: "node",
+          executableArgs: ["--eval", "throw new Error('wrong executable')"],
+          settings: {
+            apiKeyHelper: "printf fake-api-key",
+            env: {
+              ANTHROPIC_BASE_URL: "https://example.com",
+              HTTPS_PROXY: "https://proxy.example.com",
+              NODE_EXTRA_CA_CERTS: "/tmp/example-ca.pem",
+              NODE_TLS_REJECT_UNAUTHORIZED: "0",
+              CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "0",
+              CLAUDE_CODE_REMOTE: "1",
+              ANTHROPIC_UNIX_SOCKET: "/tmp/untrusted.sock",
+              CLAUDE_CODE_USE_ANTHROPIC_GOOGLE_CLOUD: "1",
+            },
+          },
+        },
+        machineAuth: { oauthToken: "sk-ant-oat01-fake-test-token" },
+        gatewayEnv: {
+          anthropicBaseUrl: "https://gateway.example.com",
+          anthropicAuthToken: "gateway-token",
+          openaiBaseUrl: "https://gateway.example.com/v1",
+          openaiApiKey: "gateway-token",
+          anthropicCustomHeaders: "x-posthog-property-task_id: task-abc",
+          posthogProjectId: "42",
+        },
+      });
+      const env = options.env;
+
+      expect(env?.CLAUDE_CODE_OAUTH_TOKEN).toBeUndefined();
+      expect(env?.CLAUDE_CODE_SUBPROCESS_ENV_SCRUB).toBe("0");
+      for (const key of STRIPPED_KEYS) {
+        expect(env?.[key]).toBeUndefined();
+      }
+      expect(env?.OPENAI_BASE_URL).toBeUndefined();
+      expect(env?.OPENAI_API_KEY).toBeUndefined();
+      for (const [key, value] of Object.entries(env ?? {})) {
+        expect(value).not.toContain("x-posthog-");
+        expect(key).not.toMatch(/X-PostHog/i);
+      }
+      expect(options.settings).toMatchObject({
+        apiKeyHelper: "",
+        env: {
+          ANTHROPIC_BASE_URL: "https://api.anthropic.com",
+          HTTPS_PROXY: "",
+          NODE_EXTRA_CA_CERTS: "",
+          NODE_TLS_REJECT_UNAUTHORIZED: "1",
+          CLAUDE_CODE_OAUTH_TOKEN: "",
+          CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR: "3",
+          CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "0",
+          CLAUDE_CODE_REMOTE: "",
+          ANTHROPIC_UNIX_SOCKET: "",
+          CLAUDE_CODE_USE_ANTHROPIC_GOOGLE_CLOUD: "",
+        },
+      });
+      expect(options.pathToClaudeCodeExecutable).toBeUndefined();
+      expect(options.executable).toBeUndefined();
+      expect(options.executableArgs).toBeUndefined();
+      expect(options.spawnClaudeCodeProcess).toBeTypeOf("function");
+      expect(JSON.stringify(options)).not.toContain(
+        "sk-ant-oat01-fake-test-token",
+      );
+      const child = options.spawnClaudeCodeProcess?.({
+        command: process.execPath,
+        args: [
+          "-e",
+          'const fs = require("node:fs"); const token = fs.readFileSync("/dev/fd/3", "utf8"); process.stdout.write(JSON.stringify({ received: token === "sk-ant-oat01-fake-test-token", inEnvironment: Object.values(process.env).includes(token), remaining: fs.readFileSync("/dev/fd/3", "utf8") }));',
+        ],
+        cwd: os.tmpdir(),
+        env: options.env ?? {},
+        signal: new AbortController().signal,
+      });
+      expect(child).toBeDefined();
+      if (!child) throw new Error("Claude process did not start.");
+      let output = "";
+      const exited = new Promise<number | null>((resolve) => {
+        child.on("exit", resolve);
+      });
+      for await (const chunk of child.stdout) output += chunk.toString();
+      expect(await exited).toBe(0);
+      expect(JSON.parse(output)).toEqual({
+        received: true,
+        inEnvironment: false,
+        remaining: "",
+      });
+    });
   });
 
   describe("per-session context wiki env", () => {
@@ -730,6 +824,25 @@ describe("buildSessionOptions", () => {
       openaiApiKey: "tok",
     };
 
+    let configDir: string;
+    let savedConfigDir: string | undefined;
+    beforeEach(() => {
+      savedConfigDir = process.env.CLAUDE_CONFIG_DIR;
+      configDir = fs.mkdtempSync(path.join(os.tmpdir(), "options-settings-"));
+      process.env.CLAUDE_CONFIG_DIR = configDir;
+    });
+    afterEach(() => {
+      if (savedConfigDir === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+      else process.env.CLAUDE_CONFIG_DIR = savedConfigDir;
+      fs.rmSync(configDir, { recursive: true, force: true });
+    });
+
+    function flagSettings(options: Options) {
+      const file = String(options.extraArgs?.settings);
+      expect(path.isAbsolute(file)).toBe(true);
+      return JSON.parse(fs.readFileSync(file, "utf-8"));
+    }
+
     it("enables per-turn traceparent when routed through the gateway", () => {
       const env = buildSessionOptions({ ...makeParams(), gatewayEnv }).env;
 
@@ -789,7 +902,7 @@ describe("buildSessionOptions", () => {
     it("registers the traceparent hook and hook events for gateway sessions", () => {
       const options = buildSessionOptions({ ...makeParams(), gatewayEnv });
 
-      const settings = JSON.parse(String(options.extraArgs?.settings));
+      const settings = flagSettings(options);
       const hook = settings.hooks.UserPromptSubmit[0].hooks[0];
       expect(hook.command).toContain("$TRACEPARENT");
       expect(options.includeHookEvents).toBe(true);
@@ -809,7 +922,191 @@ describe("buildSessionOptions", () => {
         userProvidedOptions: { extraArgs: { settings: '{"model":"x"}' } },
       });
 
-      expect(options.extraArgs?.settings).toBe('{"model":"x"}');
+      const settings = flagSettings(options);
+      expect(settings.model).toBe("x");
+      expect(settings.hooks).toBeUndefined();
+      expect(settings.env.ANTHROPIC_BASE_URL).toBe("https://gateway.example");
+    });
+
+    it("pins the gateway env in --settings so repo settings cannot redirect it", () => {
+      const options = buildSessionOptions({ ...makeParams(), gatewayEnv });
+
+      const settings = flagSettings(options);
+      expect(settings.env).toMatchObject({
+        ANTHROPIC_BASE_URL: "https://gateway.example",
+        ANTHROPIC_AUTH_TOKEN: "tok",
+        ANTHROPIC_API_KEY: "tok",
+      });
+      expect(settings.env.ANTHROPIC_CUSTOM_HEADERS).toBe(
+        options.env?.ANTHROPIC_CUSTOM_HEADERS,
+      );
+    });
+
+    it("pins every routing key so repo settings cannot reroute", () => {
+      const options = buildSessionOptions({ ...makeParams(), gatewayEnv });
+
+      const env = flagSettings(options).env;
+      for (const key of PINNED_ROUTING_ENV_KEYS) {
+        expect(env[key], key).toBe(options.env?.[key] ?? "");
+      }
+      expect(PINNED_ROUTING_ENV_KEYS).toEqual(
+        expect.arrayContaining([
+          "CLAUDE_CODE_USE_GATEWAY",
+          "ANTHROPIC_VERTEX_BASE_URL",
+          "https_proxy",
+          "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
+          "OTEL_LOG_RAW_API_BODIES",
+        ]),
+      );
+    });
+
+    it("pins the session's own telemetry endpoint over a repo's", () => {
+      const options = buildSessionOptions({ ...makeParams(), gatewayEnv });
+
+      const env = flagSettings(options).env;
+      expect(env.OTEL_EXPORTER_OTLP_ENDPOINT).toBe(
+        options.env?.OTEL_EXPORTER_OTLP_ENDPOINT,
+      );
+      expect(env.OTEL_EXPORTER_OTLP_ENDPOINT).not.toBe("");
+      expect(env.OTEL_LOG_TOOL_CONTENT).toBe("");
+    });
+
+    it("keeps routing values from the user's own settings", () => {
+      const params = makeParams();
+      vi.spyOn(params.settingsManager, "getUserEnv").mockReturnValue({
+        HTTPS_PROXY: "http://corp-proxy.example:3128",
+        ANTHROPIC_VERTEX_BASE_URL: "https://vertex.corp.example",
+      });
+      const options = buildSessionOptions({ ...params, gatewayEnv });
+
+      const env = flagSettings(options).env;
+      expect(env.HTTPS_PROXY).toBe("http://corp-proxy.example:3128");
+      expect(env.https_proxy).toBe("http://corp-proxy.example:3128");
+      expect(env.ANTHROPIC_VERTEX_BASE_URL).toBe("https://vertex.corp.example");
+    });
+
+    it("keeps an inherited routing value in the pin", () => {
+      const saved = process.env.HTTPS_PROXY;
+      process.env.HTTPS_PROXY = "http://corp-proxy.example:3128";
+      try {
+        const options = buildSessionOptions({ ...makeParams(), gatewayEnv });
+        expect(options.env?.HTTPS_PROXY).toBe("http://corp-proxy.example:3128");
+        const env = flagSettings(options).env;
+        expect(env.HTTPS_PROXY).toBe("http://corp-proxy.example:3128");
+        expect(env.https_proxy).toBe(
+          options.env?.https_proxy ?? "http://corp-proxy.example:3128",
+        );
+      } finally {
+        if (saved === undefined) delete process.env.HTTPS_PROXY;
+        else process.env.HTTPS_PROXY = saved;
+      }
+    });
+
+    it("merges the pins into a caller's SDK settings object", () => {
+      const options = buildSessionOptions({
+        ...makeParams(),
+        gatewayEnv,
+        userProvidedOptions: {
+          settings: {
+            model: "x",
+            env: { FOO: "1", ANTHROPIC_BASE_URL: "https://elsewhere.example" },
+          },
+        },
+      });
+
+      expect(options.settings).toBeUndefined();
+      expect(flagSettings(options)).toMatchObject({
+        model: "x",
+        env: { FOO: "1", ANTHROPIC_BASE_URL: "https://gateway.example" },
+      });
+    });
+
+    it("removes the pinned settings file and nothing outside its directory", () => {
+      const options = buildSessionOptions({ ...makeParams(), gatewayEnv });
+      const file = String(options.extraArgs?.settings);
+      const outside = path.join(configDir, "keep.json");
+      fs.writeFileSync(outside, "{}");
+
+      removePinnedSettings(options);
+      removePinnedSettings({ extraArgs: { settings: outside } });
+
+      expect(fs.existsSync(file)).toBe(false);
+      expect(fs.existsSync(outside)).toBe(true);
+    });
+
+    it("keeps the pinned base URL out of argv in an owner-only file", () => {
+      const options = buildSessionOptions({
+        ...makeParams(),
+        gatewayEnv: {
+          ...gatewayEnv,
+          anthropicBaseUrl: "http://127.0.0.1:5000/secret-token",
+        },
+      });
+
+      const file = String(options.extraArgs?.settings);
+      expect(file).not.toContain("secret-token");
+      expect(file.startsWith(configDir)).toBe(true);
+      if (process.platform !== "win32") {
+        expect(fs.statSync(file).mode & 0o777).toBe(0o600);
+      }
+      expect(flagSettings(options).env.ANTHROPIC_BASE_URL).toBe(
+        "http://127.0.0.1:5000/secret-token",
+      );
+    });
+
+    it("detects the traceparent hook in a pinned settings file", () => {
+      const pinned = buildSessionOptions({ ...makeParams(), gatewayEnv });
+      expect(settingsFlagIncludes(pinned, "0123456789abcdef")).toBe(true);
+
+      const skipped = buildSessionOptions({
+        ...makeParams(),
+        gatewayEnv,
+        userProvidedOptions: { extraArgs: { settings: '{"model":"x"}' } },
+      });
+      expect(settingsFlagIncludes(skipped, "0123456789abcdef")).toBe(false);
+    });
+
+    it("keeps a hostile session id inside the pinned settings directory", () => {
+      const options = buildSessionOptions({
+        ...makeParams(),
+        gatewayEnv,
+        sessionId: "../../escape/x",
+      });
+
+      const file = String(options.extraArgs?.settings);
+      expect(path.dirname(file)).toBe(
+        path.join(configDir, "posthog-session-settings"),
+      );
+      removePinnedSettings(options);
+      expect(fs.existsSync(file)).toBe(false);
+    });
+
+    it("keeps project and local settings when the pin is installed", () => {
+      const options = buildSessionOptions({ ...makeParams(), gatewayEnv });
+
+      expect(options.settingSources).toEqual(["user", "project", "local"]);
+    });
+
+    it.each([
+      ["a settings file path", { settings: "/tmp/caller-settings.json" }],
+      ["an unparseable settings flag", { extraArgs: { settings: "not json" } }],
+    ])("drops project and local settings when given %s", (_name, provided) => {
+      const options = buildSessionOptions({
+        ...makeParams(),
+        gatewayEnv,
+        userProvidedOptions: provided as Options,
+      });
+
+      expect(options.settingSources).toEqual(["user"]);
+    });
+
+    it("drops project and local settings when the pin cannot be written", () => {
+      fs.writeFileSync(path.join(configDir, "posthog-session-settings"), "");
+
+      const options = buildSessionOptions({ ...makeParams(), gatewayEnv });
+
+      expect(options.settingSources).toEqual(["user"]);
+      expect(options.extraArgs?.settings).not.toMatch(/^\//);
     });
 
     it("skips the hook when the caller uses the SDK settings option", () => {
@@ -829,7 +1126,9 @@ describe("buildSessionOptions", () => {
       Object.defineProperty(process, "platform", { value: "win32" });
       try {
         const options = buildSessionOptions({ ...makeParams(), gatewayEnv });
-        expect(options.extraArgs?.settings).toBeUndefined();
+        const settings = flagSettings(options);
+        expect(settings.hooks).toBeUndefined();
+        expect(settings.env.ANTHROPIC_BASE_URL).toBe("https://gateway.example");
         expect(options.includeHookEvents).toBe(false);
       } finally {
         if (platform) {
@@ -844,7 +1143,7 @@ describe("buildSystemPrompt", () => {
   const promptText = (prompt: Options["systemPrompt"]): string => {
     if (typeof prompt === "string") return prompt;
     if (Array.isArray(prompt)) return prompt.join("\n");
-    return prompt?.append ?? "";
+    return prompt?.type === "preset" ? (prompt.append ?? "") : "";
   };
 
   const prompts = [

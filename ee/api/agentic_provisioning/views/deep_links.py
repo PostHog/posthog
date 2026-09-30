@@ -12,7 +12,7 @@ from django.core.cache import cache
 from django.http import HttpResponseRedirect
 from django.http.response import HttpResponseBase
 from django.utils import timezone
-from django.utils.http import url_has_allowed_host_and_scheme
+from django.utils.http import url_has_allowed_host_and_scheme, urlencode
 
 import structlog
 from rest_framework.request import Request
@@ -31,6 +31,7 @@ from ee.api.agentic_provisioning.constants import (
     DEEP_LINK_DISALLOWED_PATH_CHARS,
     DEEP_LINK_MAX_PATH_LENGTH,
     DEEP_LINK_TTL_SECONDS,
+    VERIFY_EMAIL_REASON,
 )
 from ee.api.agentic_provisioning.exceptions import ProvisioningError
 from ee.api.agentic_provisioning.ratelimits import BLOCKED, rate_limited
@@ -190,15 +191,7 @@ def agentic_login(request: Any) -> HttpResponseBase:
     # Require explicit is_email_verified=True - don't trust the legacy None passthrough
     # or the org-level email-verification-disabled flag.
     if user.is_email_verified is not True:
-        try:
-            email_verification_code_verifier.send_code(user)
-        except Exception:
-            # Intentionally swallowed: the login must stay blocked regardless of email delivery.
-            # The verifier captures the exception internally; the verify_email page has a resend button.
-            logger.warning("agentic_login.verification_email_failed", user_id=user.id)
-        capture_deep_link_event("email_unverified", user_id=user_id)
-        logger.warning("agentic_login.email_unverified", user_id=user_id)
-        return HttpResponseRedirect(f"/verify_email/{user.uuid}")
+        return _block_unverified_email(user)
 
     auth_login(request, user, backend="django.contrib.auth.backends.ModelBackend")
 
@@ -207,6 +200,26 @@ def agentic_login(request: Any) -> HttpResponseBase:
 
     redirect_path = _deep_link_redirect_path(purpose, team_id, path)
     return HttpResponseRedirect(redirect_path)
+
+
+def _block_unverified_email(user: User) -> HttpResponseBase:
+    """Send a fresh code and redirect to the verify-email page, telling it why the login stopped."""
+    email_sent = True
+    try:
+        email_verification_code_verifier.send_code(user)
+    except Exception:
+        # Intentionally swallowed: the login must stay blocked regardless of email delivery.
+        # The verifier captures the exception internally; the verify_email page has a resend button.
+        email_sent = False
+        logger.warning("agentic_login.verification_email_failed", user_id=user.id)
+
+    capture_deep_link_event("email_unverified", user_id=user.id, verification_email_sent=email_sent)
+    logger.warning("agentic_login.email_unverified", user_id=user.id, email_sent=email_sent)
+
+    params: dict[str, str] = {"reason": VERIFY_EMAIL_REASON}
+    if not email_sent:
+        params["email_sent"] = "false"
+    return HttpResponseRedirect(f"/verify_email/{user.uuid}?{urlencode(params)}")
 
 
 def _deep_link_redirect_path(purpose: str, team_id: int | None, path: str | None = None) -> str:

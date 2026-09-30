@@ -126,6 +126,12 @@ const StreamlitAppsSetSourceSchema = () => {
             source: StreamlitAppsCreateVersionFromSourceCreateBody.shape['source'].describe(
                 "The complete Python source for the app's root app.py (a Streamlit script, e.g. starting with `import streamlit as st`). Sent as plain text."
             ),
+            files: StreamlitAppsCreateVersionFromSourceCreateBody.shape['files'].describe(
+                'Optional extra text files keyed by project-relative path (e.g. `utils.py`, `data/config.json`), each value the file\'s full text. Paths must not be `app.py` and must not contain `..`. The app process does not run inside its own directory, so open them via `Path(__file__).parent / "data/config.json"`.'
+            ),
+            assets: StreamlitAppsCreateVersionFromSourceCreateBody.shape['assets'].describe(
+                "Optional extra binary files keyed by project-relative path (e.g. `data/events.parquet`), each value the file's bytes as standard base64. Same path rules as `files`. Keep them small: the whole call is sent as JSON, so a large file costs tokens on every set-source."
+            ),
         })
 }
 
@@ -140,6 +146,12 @@ const streamlitAppsSetSource = (): ToolBase<
         const body: Record<string, unknown> = {}
         if (params.source !== undefined) {
             body['source'] = params.source
+        }
+        if (params.files !== undefined) {
+            body['files'] = params.files
+        }
+        if (params.assets !== undefined) {
+            body['assets'] = params.assets
         }
         const result = await context.api.request<Schemas.AppVersionContract>({
             method: 'POST',

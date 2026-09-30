@@ -1,23 +1,17 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
+import { shellQuote } from "../../utils/shell-quote";
 import {
   applyMachineClaudeAuth,
   type MachineClaudeAuth,
   machineClaudeAuthShellEnv,
 } from "./machine-auth";
 
-export type ClaudeAuthAction = "login" | "logout";
+export type ClaudeAuthAction = "login" | "logout" | "setup-token";
 
 export interface ClaudeAuthTerminalCommand {
   command: string;
   env: { set: Record<string, string>; unset: string[] };
-}
-
-function shellQuote(value: string): string {
-  if (process.platform === "win32") {
-    return `"${value.replaceAll('"', '\\"')}"`;
-  }
-  return `'${value.replaceAll("'", `'\\''`)}'`;
 }
 
 export function claudeAuthTerminalCommand(
@@ -25,7 +19,7 @@ export function claudeAuthTerminalCommand(
   claudeCliPath: string,
   machineAuth: MachineClaudeAuth,
 ): ClaudeAuthTerminalCommand {
-  const args = action === "login" ? ["auth", "login"] : ["auth", "logout"];
+  const args = action === "setup-token" ? ["setup-token"] : ["auth", action];
   const isLegacyJs = claudeCliPath.endsWith(".js");
   const parts = isLegacyJs
     ? [process.execPath, claudeCliPath, ...args]

@@ -2,6 +2,8 @@
 
 from enum import StrEnum
 
+from posthog.enums import LabeledStrEnum
+
 
 class RunStatus(StrEnum):
     """Status of a visual review run."""
@@ -72,10 +74,11 @@ class ClassificationReason(StrEnum):
 class ChangeKind(StrEnum):
     """What kind of change a CHANGED snapshot represents.
 
-    Set when a snapshot's `result` is CHANGED. The two-tier classifier
-    distinguishes a pixel-level diff (lots of pixels differ) from a
-    structural/perceptual change caught by SSIM (few pixels but a measurable
-    perceptual difference). Empty for snapshots that haven't been diffed yet (legacy data).
+    Set when a snapshot's `result` is CHANGED. The classifier distinguishes a
+    pixel-level diff (lots of pixels differ) from a structural/perceptual
+    change caught by SSIM (few pixels but a measurable perceptual difference),
+    and from a layout change where rows moved. Empty for snapshots that
+    haven't been diffed yet (legacy data).
 
     Size mismatch is *not* a kind here — a snapshot can have a different
     viewport AND a content change. The flag lives in `diff_metadata`
@@ -84,6 +87,22 @@ class ChangeKind(StrEnum):
 
     PIXEL = "pixel"  # Pixel diff above threshold — a chunk of pixels visibly changed
     STRUCTURAL = "structural"  # SSIM caught a perceptual change; pixel diff was below threshold
+    # Rows were inserted or deleted past the absorb cap, so the page moved
+    # vertically. The content in the rows that exist in both images is within
+    # both thresholds; what changed is where things sit.
+    LAYOUT = "layout"
+
+
+class ShiftBandKind(LabeledStrEnum):
+    """Whether a shift band marks rows the current image gained or lost.
+
+    The OpenAPI component name (ShiftBandKindEnum) derives from this class, so it
+    does not collide with the other `kind` fields across products. Each label
+    repeats its value, because the API documents these choices as plain values.
+    """
+
+    INSERTED = "inserted", "inserted"
+    DELETED = "deleted", "deleted"
 
 
 class FlakinessState(StrEnum):

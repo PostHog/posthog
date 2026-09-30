@@ -55,6 +55,25 @@ export function getFileExtension(filePath: string): string {
   return lastDot >= 0 ? name.slice(lastDot + 1).toLowerCase() : "";
 }
 
+export const CLIPBOARD_ATTACHMENT_DIR_NAME = "posthog-code-clipboard";
+export const CLIPBOARD_ATTACHMENT_PREFIX = "attachment-";
+
+/** True for a path shaped like a composer-saved file: `<dir>/posthog-code-clipboard/attachment-*\/<name>`. */
+export function isClipboardAttachmentPath(filePath: string): boolean {
+  const normalized = filePath.replaceAll("\\", "/");
+  if (!isAbsolutePath(filePath) || normalized.startsWith("//")) return false;
+  const segments = normalized.split("/");
+  const [dir, folder, name] = segments.slice(-3);
+  return (
+    dir === CLIPBOARD_ATTACHMENT_DIR_NAME &&
+    folder !== undefined &&
+    folder.length > CLIPBOARD_ATTACHMENT_PREFIX.length &&
+    folder.startsWith(CLIPBOARD_ATTACHMENT_PREFIX) &&
+    !!name &&
+    !segments.includes("..")
+  );
+}
+
 /**
  * Convert a local file path to a `file://` URI.
  * Renderer-safe (no `node:*` imports) and supports Windows drive and UNC paths.

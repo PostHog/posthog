@@ -2,7 +2,6 @@ import uuid
 import random
 import logging
 import datetime as dt
-from collections.abc import Callable
 from typing import Any
 
 import pytest
@@ -31,12 +30,14 @@ from products.data_warehouse.backend.logic.data_load.service import (
     a_unpause_external_data_schedule,
     bulk_sync_cdc_extraction_schedules,
     bulk_update_external_data_job_schedules,
-    cdc_extraction_schedule_has_running_action,
+    cdc_extraction_schedule_exists,
     cdc_min_interval,
     get_discover_schemas_schedule,
     get_sync_schedule,
     is_cdc_extraction_schedule_paused,
     pause_external_data_schedule,
+    sync_cdc_extraction_schedule,
+    trigger_cdc_extraction_schedule,
     unpause_external_data_schedule,
 )
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
@@ -383,22 +384,9 @@ def test_cdc_schedule_paused_reports_the_schedule_state(paused: bool) -> None:
         assert is_cdc_extraction_schedule_paused("01a0393e-a79f-0000-0361-2cabb703888f") is paused
 
 
-@pytest.mark.parametrize("running_actions,expected", [([], False), ([MagicMock()], True)])
-def test_cdc_schedule_running_action_reports_an_executing_run(running_actions: list[MagicMock], expected: bool) -> None:
-    desc = MagicMock()
-    desc.info.running_actions = running_actions
-
-    with _temporal_with_schedule(desc):
-        assert cdc_extraction_schedule_has_running_action("01a0393e-a79f-0000-0361-2cabb703888f") is expected
-
-
-@pytest.mark.parametrize(
-    "read",
-    [is_cdc_extraction_schedule_paused, cdc_extraction_schedule_has_running_action],
-)
-def test_a_missing_schedule_reads_as_neither_paused_nor_running(read: Callable[[str], bool]) -> None:
+def test_a_missing_schedule_reads_as_not_paused() -> None:
     with _temporal_with_schedule(describe_side=_not_found()):
-        assert read("01a0393e-a79f-0000-0361-2cabb703888f") is False
+        assert is_cdc_extraction_schedule_paused("01a0393e-a79f-0000-0361-2cabb703888f") is False
 
 
 # --- bulk_sync_cdc_extraction_schedules (upsert: update, else create+trigger) ---
@@ -457,6 +445,25 @@ def test_bulk_sync_cdc_reraises_non_not_found_rpc_errors():
     # a non-NOT_FOUND error is a failure, not a silent create
     assert [sid for sid, _ in failures] == [str(source.id)]
     assert create_mock.call_count == 0
+
+
+# --- sync_cdc_extraction_schedule (per-source upsert) ---
+
+
+@pytest.mark.parametrize("source_type", ["MySQL", "UnsupportedDB"])
+def test_sync_cdc_refuses_a_schedule_for_a_source_type_without_cdc(source_type: str) -> None:
+    source = MagicMock(id=uuid.uuid4(), source_type=source_type)
+
+    with (
+        patch(f"{SERVICE}.sync_connect") as connect_mock,
+        patch(f"{SERVICE}.delete_external_data_schedule") as delete_mock,
+    ):
+        sync_cdc_extraction_schedule(source, create=True)
+
+    # Creating it would fire an extraction run that can never read a change stream, once per
+    # interval for as long as the source lives.
+    connect_mock.assert_not_called()
+    delete_mock.assert_called_once_with(_get_cdc_extraction_schedule_id(str(source.id)))
 
 
 # --- bulk_update_external_data_job_schedules (update-only; missing => skipped) ---
@@ -557,3 +564,40 @@ def test_a_unpause_reraises_other_rpc_errors():
         pytest.raises(RPCError),
     ):
         async_to_sync(a_unpause_external_data_schedule)("some-schedule-id")
+
+
+@pytest.mark.parametrize(
+    "trigger_error, started",
+    [(None, True), (_not_found(), False)],
+)
+def test_triggering_capture_reports_a_schedule_that_is_gone(trigger_error: RPCError | None, started: bool) -> None:
+    # The caller recreates the schedule, because building one reads the source row.
+    source_id = str(uuid.uuid4())
+
+    with (
+        patch(f"{SERVICE}.sync_connect", return_value=MagicMock()),
+        patch(f"{SERVICE}.trigger_schedule", side_effect=trigger_error) as trigger,
+    ):
+        assert trigger_cdc_extraction_schedule(source_id) is started
+
+    assert trigger.call_args.kwargs["schedule_id"] == _get_cdc_extraction_schedule_id(source_id)
+
+
+def test_triggering_capture_raises_any_other_temporal_error() -> None:
+    with (
+        patch(f"{SERVICE}.sync_connect", return_value=MagicMock()),
+        patch(f"{SERVICE}.trigger_schedule", side_effect=RPCError("unavailable", RPCStatusCode.UNAVAILABLE, b"")),
+        pytest.raises(RPCError),
+    ):
+        trigger_cdc_extraction_schedule(str(uuid.uuid4()))
+
+
+@pytest.mark.parametrize("exists", [True, False])
+def test_reporting_whether_a_source_still_has_its_capture_schedule(exists: bool) -> None:
+    # The caller recreates a missing one, so it needs to know without starting a run.
+    source_id = str(uuid.uuid4())
+
+    with patch(f"{SERVICE}.external_data_workflow_exists", return_value=exists) as workflow_exists:
+        assert cdc_extraction_schedule_exists(source_id) is exists
+
+    workflow_exists.assert_called_once_with(_get_cdc_extraction_schedule_id(source_id))

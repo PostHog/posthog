@@ -15,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.deepsource
     _per_repository_object_rows,
     _report_rows,
     _repositories_rows,
+    _root_connection_rows,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.deepsource.source import DeepsourceSource
@@ -43,6 +44,27 @@ def _connection_response(
                     "edges": [{"node": node} for node in nodes],
                     "pageInfo": {"hasNextPage": has_next_page, "endCursor": end_cursor},
                 },
+            }
+        }
+    }
+    return response
+
+
+def _root_connection_response(
+    connection_field: str,
+    nodes: list[dict[str, Any]],
+    has_next_page: bool,
+    end_cursor: str | None,
+) -> MagicMock:
+    """A connection that sits directly on the root query, with no parent object."""
+    response = MagicMock()
+    response.status_code = 200
+    response.ok = True
+    response.json.return_value = {
+        "data": {
+            connection_field: {
+                "edges": [{"node": node} for node in nodes],
+                "pageInfo": {"hasNextPage": has_next_page, "endCursor": end_cursor},
             }
         }
     }
@@ -144,6 +166,16 @@ class TestRepositoriesPagination:
         with pytest.raises(Exception, match="endCursor is empty"):
             list(_repositories_rows(session, "acme", "GITHUB", MagicMock(), _make_manager()))
 
+    def test_stalled_cursor_raises_instead_of_refetching_the_same_page(self) -> None:
+        session = MagicMock()
+        session.post.side_effect = [
+            _connection_response("account", "repositories", [{"id": "a"}], True, "c1"),
+            _connection_response("account", "repositories", [{"id": "a"}], True, "c1"),
+        ]
+
+        with pytest.raises(Exception, match="endCursor did not advance past 'c1'"):
+            list(_repositories_rows(session, "acme", "GITHUB", MagicMock(), _make_manager()))
+
     def test_missing_account_raises_actionable_error(self) -> None:
         session = MagicMock()
         session.post.side_effect = [_null_parent_response("account")]
@@ -240,6 +272,152 @@ class TestFanOut:
         assert manager.save_state.call_args_list[-1] == (
             (DeepsourceResumeConfig(completed_repositories=["alive", "gone"], current_repository=None, cursor=None),),
         )
+
+
+class TestChecksFanOut:
+    """Checks ride nested inside the analysis-run walk, so one run page can expand into many rows."""
+
+    @staticmethod
+    def _run_node(run_id: str, checks: list[dict[str, Any]], has_next_page: bool, end_cursor: str | None) -> dict:
+        return {
+            "id": run_id,
+            "runUid": f"uid-{run_id}",
+            "commitOid": "abc123",
+            "branchName": "main",
+            "checks": {
+                "edges": [{"node": check} for check in checks],
+                "pageInfo": {"hasNextPage": has_next_page, "endCursor": end_cursor},
+            },
+        }
+
+    def test_each_run_expands_into_one_row_per_check(self) -> None:
+        session = MagicMock()
+        _capture_post_calls(
+            session,
+            [
+                _repo_names_response([("alpha", True)]),
+                _connection_response(
+                    "repository",
+                    "analysisRuns",
+                    [
+                        self._run_node("run-1", [{"id": "chk-1"}, {"id": "chk-2"}], False, None),
+                        self._run_node("run-2", [{"id": "chk-3"}], False, None),
+                    ],
+                    False,
+                    None,
+                    parent_extra={"id": "RID", "name": "alpha"},
+                ),
+            ],
+        )
+
+        pages = list(_fan_out_connection_rows(session, "acme", "GITHUB", "checks", MagicMock(), _make_manager()))
+
+        rows = [row for page in pages for row in page]
+        assert [row["id"] for row in rows] == ["chk-1", "chk-2", "chk-3"]
+        assert [row["analysisRunId"] for row in rows] == ["run-1", "run-1", "run-2"]
+        assert all(row["repositoryId"] == "RID" and row["repositoryName"] == "alpha" for row in rows)
+        assert all(row["analysisRunUid"] == f"uid-{row['analysisRunId']}" for row in rows)
+
+    def test_run_with_more_checks_than_one_page_is_followed_up(self) -> None:
+        session = MagicMock()
+        snapshots = _capture_post_calls(
+            session,
+            [
+                _repo_names_response([("alpha", True)]),
+                _connection_response(
+                    "repository",
+                    "analysisRuns",
+                    [self._run_node("run-1", [{"id": "chk-1"}], True, "check-c1")],
+                    False,
+                    None,
+                    parent_extra={"id": "RID", "name": "alpha"},
+                ),
+                _connection_response("node", "checks", [{"id": "chk-2"}], False, None),
+            ],
+        )
+
+        pages = list(_fan_out_connection_rows(session, "acme", "GITHUB", "checks", MagicMock(), _make_manager()))
+
+        rows = [row for page in pages for row in page]
+        assert [row["id"] for row in rows] == ["chk-1", "chk-2"]
+        # The follow-up resumes the run's own check connection, not the analysis-run walk.
+        assert snapshots[2] == {"id": "run-1", "checkPageSize": 50, "cursor": "check-c1"}
+        # The trailing check still carries the run and repository context.
+        assert rows[1]["analysisRunId"] == "run-1" and rows[1]["repositoryName"] == "alpha"
+
+    def test_run_lost_during_check_follow_up_raises(self) -> None:
+        session = MagicMock()
+        _capture_post_calls(
+            session,
+            [
+                _repo_names_response([("alpha", True)]),
+                _connection_response(
+                    "repository",
+                    "analysisRuns",
+                    [self._run_node("run-1", [{"id": "chk-1"}], True, "check-c1")],
+                    False,
+                    None,
+                    parent_extra={"id": "RID", "name": "alpha"},
+                ),
+                _null_parent_response("node"),
+            ],
+        )
+
+        # Skipping instead would checkpoint run-1 as complete with only its first check page.
+        with pytest.raises(Exception, match="analysis run run-1 disappeared"):
+            list(_fan_out_connection_rows(session, "acme", "GITHUB", "checks", MagicMock(), _make_manager()))
+
+    def test_truncated_check_page_raises_rather_than_dropping_checks(self) -> None:
+        session = MagicMock()
+        _capture_post_calls(
+            session,
+            [
+                _repo_names_response([("alpha", True)]),
+                _connection_response(
+                    "repository",
+                    "analysisRuns",
+                    [self._run_node("run-1", [{"id": "chk-1"}], True, None)],
+                    False,
+                    None,
+                    parent_extra={"id": "RID", "name": "alpha"},
+                ),
+            ],
+        )
+
+        with pytest.raises(Exception, match="endCursor is empty for checks"):
+            list(_fan_out_connection_rows(session, "acme", "GITHUB", "checks", MagicMock(), _make_manager()))
+
+
+class TestRootConnection:
+    def test_analyzers_paginate_and_checkpoint_without_an_account(self) -> None:
+        session = MagicMock()
+        responses = [
+            _root_connection_response("analyzers", [{"id": "an-1", "shortcode": "python"}], True, "c1"),
+            _root_connection_response("analyzers", [{"id": "an-2", "shortcode": "go"}], False, None),
+        ]
+        snapshots = _capture_post_calls(session, responses)
+
+        manager = _make_manager()
+        pages = list(_root_connection_rows(session, "analyzers", MagicMock(), manager))
+
+        assert [row["id"] for page in pages for row in page] == ["an-1", "an-2"]
+        # The analyzer catalog is account-independent, so the query carries no account filter.
+        assert all("login" not in snapshot for snapshot in snapshots)
+        manager.save_state.assert_called_once_with(DeepsourceResumeConfig(cursor="c1"))
+
+    def test_analyzers_resume_from_saved_cursor(self) -> None:
+        session = MagicMock()
+        snapshots = _capture_post_calls(
+            session, [_root_connection_response("analyzers", [{"id": "an-3"}], False, None)]
+        )
+
+        list(
+            _root_connection_rows(
+                session, "analyzers", MagicMock(), _make_manager(DeepsourceResumeConfig(cursor="saved"))
+            )
+        )
+
+        assert snapshots[0]["cursor"] == "saved"
 
 
 class TestPerRepositoryObjects:

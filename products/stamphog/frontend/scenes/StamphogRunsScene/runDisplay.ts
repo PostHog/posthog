@@ -33,6 +33,7 @@ const STATUS_DISPLAY: Record<ReviewRunStatusEnumApi, OutcomeDisplay> = {
 
 const TRIGGER_LABEL: Record<ReviewRunTriggerEnumApi, string> = {
     [ReviewRunTriggerEnumApi.SelfDriving]: 'Self-driving',
+    [ReviewRunTriggerEnumApi.Manual]: 'Requested',
     [ReviewRunTriggerEnumApi.Label]: 'Label',
     [ReviewRunTriggerEnumApi.All]: 'Every PR',
 }

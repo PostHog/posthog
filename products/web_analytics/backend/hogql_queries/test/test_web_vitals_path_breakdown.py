@@ -1,4 +1,4 @@
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -50,7 +50,7 @@ class TestWebVitalsPathBreakdownQueryRunner(ClickhouseTestMixin, APIBaseTest):
         percentile: PropertyMathType = PropertyMathType.P75,
         properties=None,
     ):
-        with freeze_time(self.QUERY_TIMESTAMP):
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False):
             query = WebVitalsPathBreakdownQuery(
                 dateRange=DateRange(date_from=date_from, date_to=date_to),
                 metric=metric,
@@ -301,7 +301,7 @@ class TestWebVitalsPathBreakdownQueryRunner(ClickhouseTestMixin, APIBaseTest):
         ]
         self.team.save()
 
-        with freeze_time(self.QUERY_TIMESTAMP):
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False):
             query = WebVitalsPathBreakdownQuery(
                 dateRange=DateRange(date_from="2025-01-08", date_to="2025-01-15"),
                 metric=WebVitalsMetric.INP,

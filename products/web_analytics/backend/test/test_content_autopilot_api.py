@@ -13,6 +13,7 @@ from products.web_analytics.backend.models import ContentAutopilotProposal, Cont
 from products.web_analytics.backend.presentation.views.content_autopilot import CONTENT_AUTOPILOT_FEATURE_FLAG
 from products.web_analytics.backend.public_url_fetch import FetchedPublicUrl, PublicUrlFetchError
 from products.web_analytics.backend.test.content_autopilot_test_utils import (
+    create_content_autopilot_opportunity,
     create_content_autopilot_profile,
     create_content_autopilot_proposal,
     create_content_autopilot_run,
@@ -46,6 +47,9 @@ class TestContentAutopilotAPI(APIBaseTest):
 
     def _proposals_url(self, suffix: str = "") -> str:
         return f"/api/projects/{self.team.id}/web_analytics_content_autopilot_proposals/{suffix}"
+
+    def _opportunities_url(self, suffix: str = "") -> str:
+        return f"/api/projects/{self.team.id}/web_analytics_content_autopilot_opportunities/{suffix}"
 
     def _profile_payload(self, **overrides: object) -> dict[str, object]:
         payload: dict[str, object] = {
@@ -129,6 +133,25 @@ class TestContentAutopilotAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["attr"], "domain")
+
+    def test_deleting_a_site_retires_it_and_its_history_and_frees_the_domain(self) -> None:
+        profile = create_content_autopilot_profile(self.team)
+        run = create_content_autopilot_run(self.team, profile)
+        create_content_autopilot_proposal(self.team, run)
+        kept_profile = create_content_autopilot_profile(self.team, domain="https://docs.example.com")
+
+        deleted = self.client.delete(self._profiles_url(f"{profile.id}/"))
+        profiles = self.client.get(self._profiles_url())
+        runs = self.client.get(self._runs_url())
+        proposals = self.client.get(self._proposals_url())
+        readded = self.client.post(self._profiles_url(), self._profile_payload(), format="json")
+
+        self.assertEqual(deleted.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertEqual([site["id"] for site in profiles.json()["results"]], [str(kept_profile.id)])
+        self.assertEqual(runs.json()["results"], [])
+        self.assertEqual(proposals.json()["results"], [])
+        self.assertEqual(readded.status_code, status.HTTP_201_CREATED, readded.json())
+        self.assertEqual(self.client.get(self._profiles_url(f"{profile.id}/")).status_code, status.HTTP_404_NOT_FOUND)
 
     @patch("products.web_analytics.backend.presentation.views.content_autopilot.discover_site")
     def test_discover_returns_editable_onboarding_defaults(self, discover_site: MagicMock) -> None:
@@ -279,6 +302,25 @@ class TestContentAutopilotAPI(APIBaseTest):
         self.assertEqual(rejected.json()["lifecycle_status"], ContentAutopilotProposal.LifecycleStatus.REJECTED)
         self.assertEqual(regenerated.json()["lifecycle_status"], ContentAutopilotProposal.LifecycleStatus.GENERATING)
 
+    def test_opportunities_are_listed_per_site_and_dismissed(self) -> None:
+        profile = create_content_autopilot_profile(self.team)
+        drafted = create_content_autopilot_opportunity(self.team, profile, cluster_key="drafted")
+        dismissed = create_content_autopilot_opportunity(self.team, profile, cluster_key="dismissed")
+
+        missing_profile = self.client.get(self._opportunities_url())
+        listed = self.client.get(self._opportunities_url(), {"profile_id": str(profile.id)})
+        dismiss = self.client.post(self._opportunities_url(f"{dismissed.id}/dismiss/"), format="json")
+        after = self.client.get(self._opportunities_url(), {"profile_id": str(profile.id)})
+
+        self.assertEqual(missing_profile.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual({item["id"] for item in listed.json()["results"]}, {str(drafted.id), str(dismissed.id)})
+        self.assertEqual(listed.json()["results"][0]["gap"]["competitor_urls"], ["https://rival.example/replay"])
+        self.assertEqual(dismiss.json()["status"], "dismissed")
+        self.assertEqual(
+            {item["id"]: item["status"] for item in after.json()["results"]},
+            {str(drafted.id): "new", str(dismissed.id): "dismissed"},
+        )
+
     def test_edit_stores_markdown_whitespace_exactly(self) -> None:
         proposal = self._reviewable_proposal()
         markdown = "    indented code block\n\n# Reviewed draft\n\nUseful content.\n"
@@ -325,10 +367,13 @@ class TestContentAutopilotAPI(APIBaseTest):
         other_profile = create_content_autopilot_profile(other_team, domain="https://other.example")
         other_run = create_content_autopilot_run(other_team, other_profile)
         other_proposal = create_content_autopilot_proposal(other_team, other_run)
+        other_opportunity = create_content_autopilot_opportunity(other_team, other_profile)
 
         proposal_response = self.client.get(self._proposals_url(f"{other_proposal.id}/"))
         runs_response = self.client.get(self._runs_url())
+        dismiss_response = self.client.post(self._opportunities_url(f"{other_opportunity.id}/dismiss/"))
 
         self.assertEqual(proposal_response.status_code, status.HTTP_404_NOT_FOUND)
         self.assertEqual(runs_response.status_code, status.HTTP_200_OK)
         self.assertEqual(runs_response.json()["results"], [])
+        self.assertEqual(dismiss_response.status_code, status.HTTP_404_NOT_FOUND)

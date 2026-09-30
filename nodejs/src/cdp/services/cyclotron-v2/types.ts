@@ -1,7 +1,15 @@
 import { DateTime } from 'luxon'
 import { z } from 'zod'
 
+import { StepResume, StepResumeOutcome } from '~/cdp/services/hogflows/step-resume.service'
+
 export type CyclotronV2JobStatus = 'available' | 'running' | 'completed' | 'failed' | 'canceled'
+
+// SMALLINT ceiling. Dequeue bumps the counter while claiming a batch, so one saturated row aborts the claim for every job in it.
+export const CYCLOTRON_COUNTER_MAX = 32767
+
+// Past this a job is in a retry loop it will not leave on its own. Set above normal work: live p99 is ~5k and the highest row ~19.5k.
+export const CYCLOTRON_TRANSITION_CHURN_THRESHOLD = 20000
 
 export type CyclotronV2PoolConfig = {
     dbUrl: string
@@ -186,6 +194,7 @@ export interface CyclotronV2JobProducer {
     countInFlightJobs(teamId: number, functionId: string): Promise<CyclotronV2InFlightCounts>
     rescheduleParkedJobs(options: CyclotronV2RescheduleParkedOptions): Promise<CyclotronV2RescheduleParkedResult>
     cancelJobs(options: CyclotronV2CancelJobsOptions): Promise<CyclotronV2CancelJobsResult>
+    resumeParkedSteps(teamId: number, resumes: StepResume[]): Promise<Map<string, StepResumeOutcome>>
     disconnect(): Promise<void>
 }
 

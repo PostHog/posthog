@@ -38,11 +38,6 @@ exclude {
     "*_staging",
     "*_backfill",
 
-    # --- cross-cluster proxies carried by the node but owned elsewhere ---
-    # Distributed proxies into the main event cluster; owned by the data role.
-    "events_main",
-    "events_recent",
-
     # --- per-customer and adhoc tables on the cloud data clusters ---
     # A team-numbered table belongs to one customer and is not part of the cluster's
     # schema. The bare [0-9]* glob catches the numeric-prefixed scratch tables that
@@ -81,5 +76,11 @@ exclude {
     "custom_metrics*",
     # Orphan: present on prod OPS but no migration or code creates it anywhere.
     "events_team_daily_stats",
+    # Cloud infra inventory, created outside this repo and present on a single
+    # dev node. Declaring them would put one node's inventory in every dev role.
+    "eni_inventory",
+    "flow_logs_local",
+    "k8s_node_inventory",
+    "rds_inventory",
   ]
 }

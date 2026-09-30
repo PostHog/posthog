@@ -16,8 +16,8 @@ class Reminder(RootTeamMixin, CreatedMetaFields, UpdatedMetaFields, UUIDModel):
         MONTHLY = "monthly", "Monthly"
         YEARLY = "yearly", "Yearly"
 
-    organization = models.ForeignKey("posthog.Organization", on_delete=models.CASCADE)
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, null=True, blank=True)
+    organization = models.ForeignKey("posthog.Organization", on_delete=models.CASCADE, related_name="+")
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, null=True, blank=True, related_name="+")
 
     title = models.CharField(max_length=255)
     message = models.TextField(blank=True, default="")

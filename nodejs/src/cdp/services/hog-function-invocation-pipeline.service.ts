@@ -233,6 +233,7 @@ export class HogFunctionInvocationPipeline {
                     })
                     this.deps.cdpUsageReporter?.reportBillableInvocation({
                         teamId: item.teamId,
+                        usageKey: 'cdp_billable_invocations',
                         recordId: `event:${eventUuid}`,
                     })
                 }

@@ -9,8 +9,9 @@ with anything else in the schema.
 import uuid
 
 import pytest
+from unittest.mock import patch
 
-from django.db import connection, migrations, models
+from django.db import connection, migrations, models, router
 from django.db.migrations.state import ModelState, ProjectState
 
 from posthog.migration_helpers import (
@@ -187,6 +188,21 @@ def test_drop_index_concurrently_is_idempotent(temp_table):
     _apply(op)  # still nothing the second time
 
     assert not _index_exists(idx_name)
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize("op_cls,index_present", [(CreateIndexConcurrently, False), (DropIndexConcurrently, True)])
+def test_raw_ops_skip_a_database_the_router_excludes(temp_table, op_cls, index_present):
+    idx_name = f"{temp_table}_col_idx"
+    if index_present:
+        with connection.cursor() as cursor:
+            cursor.execute(f'CREATE INDEX "{idx_name}" ON "{temp_table}" (col)')
+    op = op_cls(index_name=idx_name, table_name=temp_table, columns="(col)")
+
+    with patch.object(router, "allow_migrate", return_value=False):
+        _apply(op)
+
+    assert _index_exists(idx_name) == index_present
 
 
 @pytest.mark.django_db(transaction=True)

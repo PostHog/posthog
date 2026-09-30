@@ -1,12 +1,10 @@
 from typing import cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldOauthConfig,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -36,6 +34,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class SalesforceSource(ResumableSource[SalesforceSourceConfig, SalesforceResumeConfig], OAuthMixin):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    # Salesforce moves orgs onto a new release over several weeks, and an org still on the previous
+    # release answers 404 to every path of the new version. New sources are pinned to the default, so
+    # declare a release's version only once it has reached every production org.
     supported_versions = ("v61.0", "v67.0")
     default_version = "v67.0"
     api_docs_url = "https://developer.salesforce.com/docs/atlas.en-us.api_rest.meta/api_rest/intro_rest.htm"
@@ -56,6 +57,16 @@ class SalesforceSource(ResumableSource[SalesforceSourceConfig, SalesforceResumeC
             "invalid_session_id": "Your Salesforce session has expired. Please reconnect the source.",
             "400 Client Error: Bad Request for url": None,
             "403 Client Error: Forbidden for url": None,
+            # Salesforce answers 404 on every path of a release an org has not been moved to yet
+            # (see `supported_versions` above), and on an object the org does not have. Both are
+            # deterministic for the stored pin and the selected table, so retrying replays the same
+            # rejection and the raw text echoes the org's instance URL and the SOQL query back to
+            # the customer. Match the stable status text, not the volatile url that follows it.
+            "404 Client Error: Not Found for url": (
+                "Salesforce doesn't have this object, or your org doesn't support the API version "
+                "this source uses. Remove the table from the source's selected tables, or contact "
+                "support."
+            ),
             "inactive organization": None,
             # Salesforce's OAuth token endpoint returns error_description "inactive user" when the
             # user that authorized the connection has been deactivated. Retrying can't fix it —
@@ -70,19 +81,6 @@ class SalesforceSource(ResumableSource[SalesforceSourceConfig, SalesforceResumeC
             # above never match it. Key off the stable error_description returned by Salesforce
             # when the refresh token is expired/revoked — reconnecting is the only fix.
             "expired access/refresh token": "Your Salesforce connection has expired or been revoked. Please reconnect the source.",
-        }
-
-    def get_retryable_errors(self) -> set[str]:
-        # `salesforce_refresh_access_token` builds its own tracked session rather than going
-        # through the shared REST client, so a proxy CONNECT failure during token refresh isn't
-        # retried in-process beyond `DEFAULT_RETRY`'s few attempts before it re-raises here. Once
-        # Temporal retries the whole activity the failure is transient and self-recovering (same
-        # class of egress-proxy blip already classified this way for ClickHouse), so don't
-        # surface it as tracked exception noise.
-        return {
-            "Tunnel connection failed: 502",
-            "Tunnel connection failed: 503",
-            "Tunnel connection failed: 504",
         }
 
     def get_schemas(
@@ -111,7 +109,7 @@ class SalesforceSource(ResumableSource[SalesforceSourceConfig, SalesforceResumeC
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.SALESFORCE,
+            name=ExternalDataSourceType.SALESFORCE,
             category=DataWarehouseSourceCategory.CRM,
             keywords=["sfdc"],
             caption="Select an existing Salesforce account to link to PostHog or create a new connection",

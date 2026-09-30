@@ -1,3 +1,7 @@
+import {readFileSync} from 'node:fs'
+import path from 'node:path'
+
+import * as jsyaml from 'js-yaml'
 import {Filter} from '../src/filter'
 import {File, ChangeStatus} from '../src/file'
 
@@ -28,6 +32,15 @@ describe('yaml filter parsing tests', () => {
 })
 
 describe('matching tests', () => {
+  test('runs frontend consumer tests when replay-shared source changes', () => {
+    const workflowYaml = readFileSync(path.join(__dirname, '../../../../.github/workflows/ci-frontend.yml'), 'utf8')
+    const workflow = jsyaml.load(workflowYaml) as {jobs: {changes: {steps: {id?: string; with?: {filters?: string}}[]}}}
+    const filtersYaml = workflow.jobs.changes.steps.find(step => step.id === 'filter')?.with?.filters
+    const files = modified(['common/replay-shared/src/mobile/transformer/transformers.ts'])
+
+    expect(new Filter(filtersYaml).match(files).frontend_code).toEqual(files)
+  })
+
   test('matches single inline rule', () => {
     const yaml = `
     src: "src/**/*.js"

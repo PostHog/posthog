@@ -11,12 +11,9 @@ from typing import Any
 import requests
 
 from posthog.egress.limiter.policies import Priority
-from posthog.egress.logodev.limiter import consume_logodev_sync
-from posthog.egress.logodev.observability import record_logodev_api_exception, record_logodev_api_response
+from posthog.egress.logodev.limiter import ACCOUNT_SCOPE_ID, consume_logodev_sync
+from posthog.egress.logodev.observability import logodev_egress
 from posthog.egress.transport.transport import EgressBudgetExhausted, EgressClient
-
-# The whole instance shares one logo.dev account, so every call carries the same scope.
-_ACCOUNT_SCOPE = "default"
 
 
 class LogoDevEgressBudgetExhausted(EgressBudgetExhausted):
@@ -28,19 +25,10 @@ class LogoDevClient(EgressClient):
     """The logo.dev incarnation of :class:`EgressClient`. Stateless — one shared instance serves
     every caller; wire it through :func:`logodev_request`."""
 
-    def _standard_headers(self) -> dict[str, str]:
-        return {}
+    observability = logodev_egress
 
     def _consume(self, scope: str, priority: Priority, source: str, url: str) -> bool:
         return consume_logodev_sync(priority=priority, source=source)
-
-    def _record_response(
-        self, response: requests.Response, *, source: str, scope: str | None, method: str, endpoint: str | None
-    ) -> None:
-        record_logodev_api_response(response, source=source, method=method, endpoint=endpoint)
-
-    def _record_exception(self, *, source: str, scope: str | None, method: str, url: str, endpoint: str | None) -> None:
-        record_logodev_api_exception(source=source, method=method, url=url, endpoint=endpoint)
 
     def _budget_exhausted_error(self, scope: str) -> LogoDevEgressBudgetExhausted:
         return LogoDevEgressBudgetExhausted("logo.dev egress budget exhausted; degrading")
@@ -62,11 +50,12 @@ def logodev_request(
 ) -> requests.Response:
     """Make a gated, recorded logo.dev request. ``source`` attributes the call to a subsystem;
     callers pass the authentication required by their selected logo.dev endpoint."""
+    # The whole instance shares one logo.dev account, so every call carries the same scope.
     return _logodev_client.request(
         method,
         url,
         source=source,
-        scope=_ACCOUNT_SCOPE,
+        scope=ACCOUNT_SCOPE_ID,
         priority=priority,
         endpoint=endpoint,
         timeout=timeout,

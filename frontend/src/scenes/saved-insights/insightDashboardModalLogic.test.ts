@@ -2,12 +2,12 @@ import { expectLogic } from 'kea-test-utils'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { QueryBasedInsightModel } from '~/types'
+import { InsightModel } from '~/types'
 
 import { addSavedInsightsModalLogic } from './addSavedInsightsModalLogic'
 import { insightDashboardModalLogic } from './insightDashboardModalLogic'
 
-const createInsight = (id: number, name = 'test'): QueryBasedInsightModel =>
+const createInsight = (id: number, name = 'test'): InsightModel =>
     ({
         id,
         name: `${name} ${id}`,
@@ -26,7 +26,7 @@ const createInsight = (id: number, name = 'test'): QueryBasedInsightModel =>
         deleted: false,
         saved: true,
         query: {},
-    }) as any as QueryBasedInsightModel
+    }) as any as InsightModel
 
 describe('insightDashboardModalLogic', () => {
     let logic: ReturnType<typeof insightDashboardModalLogic.build>

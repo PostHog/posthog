@@ -1,10 +1,12 @@
 // AUTO-GENERATED — do not edit
 import type { ToolBase, ZodObjectAny } from '@/tools/types'
 
+import { GENERATED_TOOLS as access_control } from './access_control'
 import { GENERATED_TOOLS as actions } from './actions'
 import { GENERATED_TOOLS as ai_observability } from './ai_observability'
 import { GENERATED_TOOLS as alerts } from './alerts'
 import { GENERATED_TOOLS as annotations } from './annotations'
+import { GENERATED_TOOLS as autoresearch } from './autoresearch'
 import { GENERATED_TOOLS as batch_exports } from './batch_exports'
 import { GENERATED_TOOLS as billing } from './billing'
 import { GENERATED_TOOLS as billing_alerts } from './billing_alerts'
@@ -37,6 +39,7 @@ import { GENERATED_TOOLS as logs } from './logs'
 import { GENERATED_TOOLS as managed_migrations } from './managed_migrations'
 import { GENERATED_TOOLS as marketing_analytics } from './marketing_analytics'
 import { GENERATED_TOOLS as mcp_analytics } from './mcp_analytics'
+import { GENERATED_TOOLS as mcp_registry } from './mcp_registry'
 import { GENERATED_TOOLS as mcp_store } from './mcp_store'
 import { GENERATED_TOOLS as messaging } from './messaging'
 import { GENERATED_TOOLS as metrics } from './metrics'
@@ -66,10 +69,12 @@ import { GENERATED_TOOLS as web_analytics } from './web_analytics'
 import { GENERATED_TOOLS as workflows } from './workflows'
 
 export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
+    ...access_control,
     ...actions,
     ...ai_observability,
     ...alerts,
     ...annotations,
+    ...autoresearch,
     ...batch_exports,
     ...billing,
     ...billing_alerts,
@@ -102,6 +107,7 @@ export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = 
     ...managed_migrations,
     ...marketing_analytics,
     ...mcp_analytics,
+    ...mcp_registry,
     ...mcp_store,
     ...messaging,
     ...metrics,

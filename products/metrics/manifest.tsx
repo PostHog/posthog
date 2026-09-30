@@ -1,4 +1,3 @@
-import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
@@ -31,14 +30,15 @@ export const manifest: ProductManifest = {
         {
             path: 'Metrics',
             intents: [ProductKey.METRICS],
-            category: ProductItemCategory.APP_MONITORING,
+            category: ProductItemCategory.MONITORING,
             iconType: 'metrics',
             iconColor: [
                 'var(--color-product-metrics-light)',
                 'var(--color-product-metrics-dark)',
             ] as FileSystemIconColor,
             href: urls.metrics(),
-            flag: FEATURE_FLAGS.METRICS,
+            // Open alpha: the nav item is visible to everyone; the scene gate offers the
+            // feature preview toggle to visitors who have not enrolled yet.
             tags: ['alpha'],
             sceneKey: 'Metrics',
         },

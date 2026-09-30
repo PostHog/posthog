@@ -6,7 +6,6 @@ from django.test.client import RequestFactory
 
 from parameterized import parameterized
 
-from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
@@ -20,6 +19,7 @@ from products.slack_app.backend.api import (
     route_posthog_code_event_to_relevant_region,
 )
 from products.slack_app.backend.services.slack_auth import get_cached_auth_state, write_auth_state_ok
+from products.slack_app.backend.services.slack_scopes import REQUIRED_SLACK_SCOPES
 
 MEMBER_EMAIL = "dev@example.com"
 

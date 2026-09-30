@@ -34,9 +34,6 @@ import { isGroupType, isSessionType } from 'lib/utils/guards'
 import { capitalizeFirstLetter, midEllipsis, pluralize } from 'lib/utils/strings'
 import { InsightErrorState, InsightValidationError } from 'scenes/insights/EmptyStates'
 import { isOtherBreakdown } from 'scenes/insights/utils'
-import { GroupActorDisplay, groupDisplayId } from 'scenes/persons/GroupActorDisplay'
-import { asDisplay, pickBestPersonDistinctId } from 'scenes/persons/person-utils'
-import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { isSharedView } from '~/exporter/exporterViewLogic'
@@ -52,6 +49,10 @@ import {
     PropertiesTimelineFilterType,
     PropertyDefinitionType,
 } from '~/types'
+
+import { GroupActorDisplay, groupDisplayId } from 'products/persons/frontend/components/GroupActorDisplay'
+import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
+import { asDisplay, pickBestPersonDistinctId } from 'products/persons/frontend/person-utils'
 
 import {
     cleanedInsightActorsQueryOptions,

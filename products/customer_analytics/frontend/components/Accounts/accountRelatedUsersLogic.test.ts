@@ -104,6 +104,52 @@ describe('accountRelatedUsersLogic', () => {
         expect(listForOrg).toHaveBeenLastCalledWith('org-uuid', { limit: PAGE_SIZE, offset: 0, search: 'Ada' })
     })
 
+    it('sends the sort as the backend ordering param and resets to the first page', async () => {
+        const listForOrg = jest
+            .spyOn(api.organizationMembers, 'listForOrg')
+            .mockResolvedValue(buildResponse([buildMember()], PAGE_SIZE + 1))
+
+        logic = accountRelatedUsersLogic({ externalId: 'org-uuid' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setPage(2)
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setSorting({ columnKey: 'last_login', order: -1 })
+
+        await expectLogic(logic).toFinishAllListeners().toMatchValues({ page: 1 })
+        expect(listForOrg).toHaveBeenLastCalledWith('org-uuid', {
+            limit: PAGE_SIZE,
+            offset: 0,
+            ordering: '-last_login',
+        })
+
+        logic.actions.setSorting(null)
+
+        await expectLogic(logic).toFinishAllListeners()
+        expect(listForOrg).toHaveBeenLastCalledWith('org-uuid', { limit: PAGE_SIZE, offset: 0 })
+    })
+
+    it('sends selected access levels as a comma-separated levels param', async () => {
+        const listForOrg = jest
+            .spyOn(api.organizationMembers, 'listForOrg')
+            .mockResolvedValueOnce(buildResponse([buildMember()]))
+            .mockResolvedValueOnce(buildResponse([]))
+        const query = jest.spyOn(api, 'query')
+
+        logic = accountRelatedUsersLogic({ externalId: 'org-uuid' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setLevels([OrganizationMembershipLevel.Owner, OrganizationMembershipLevel.Admin])
+
+        await expectLogic(logic).toFinishAllListeners().toMatchValues({ page: 1 })
+        expect(listForOrg).toHaveBeenLastCalledWith('org-uuid', { limit: PAGE_SIZE, offset: 0, levels: '15,8' })
+        // The org has US members, so an empty filtered page is "no match", not a reason to look in the EU view.
+        expect(query).not.toHaveBeenCalled()
+    })
+
     it('does not load EU members when a US user search has no matches', async () => {
         const listForOrg = jest
             .spyOn(api.organizationMembers, 'listForOrg')
@@ -197,6 +243,69 @@ describe('accountRelatedUsersLogic', () => {
         expect(listForOrg).toHaveBeenCalledTimes(1)
         expect(query).toHaveBeenCalledTimes(1)
         expect(logic.values.membersResponse).toMatchObject({ count: 1, results: [{ id: 'eu-m-2' }] })
+    })
+
+    it('applies a filter set before the first load finishes to EU members', async () => {
+        jest.spyOn(api.organizationMembers, 'listForOrg').mockResolvedValue(buildResponse([], 0))
+        const query = jest.spyOn(api, 'query').mockResolvedValue({
+            results: [
+                buildEuRow(1, OrganizationMembershipLevel.Member),
+                buildEuRow(2, OrganizationMembershipLevel.Admin),
+            ],
+        } as any)
+
+        logic = accountRelatedUsersLogic({ externalId: 'org-uuid' })
+        logic.mount()
+        logic.actions.setLevels([OrganizationMembershipLevel.Admin])
+
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.membersResponse).toMatchObject({ count: 1, results: [{ id: 'eu-m-2' }] })
+
+        logic.actions.setLevels([])
+
+        await expectLogic(logic).toFinishAllListeners()
+        expect(query).toHaveBeenCalledTimes(1)
+        expect(logic.values.membersResponse).toMatchObject({ count: 2 })
+    })
+
+    it('sorts and filters cached EU members client-side without refetching', async () => {
+        const listForOrg = jest.spyOn(api.organizationMembers, 'listForOrg').mockResolvedValue(buildResponse([], 0))
+        const query = jest.spyOn(api, 'query').mockResolvedValue({
+            results: [
+                buildEuRow(1, OrganizationMembershipLevel.Member, '2026-03-01T00:00:00Z'),
+                buildEuRow(2, OrganizationMembershipLevel.Owner, null),
+                buildEuRow(3, OrganizationMembershipLevel.Admin, '2026-01-01T00:00:00Z'),
+            ],
+        } as any)
+
+        logic = accountRelatedUsersLogic({ externalId: 'org-uuid' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setSorting({ columnKey: 'level', order: -1 })
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.membersResponse).toMatchObject({
+            results: [{ id: 'eu-m-2' }, { id: 'eu-m-3' }, { id: 'eu-m-1' }],
+        })
+
+        logic.actions.setSorting({ columnKey: 'last_login', order: -1 })
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.membersResponse).toMatchObject({
+            results: [{ id: 'eu-m-1' }, { id: 'eu-m-3' }, { id: 'eu-m-2' }],
+        })
+
+        logic.actions.setSorting({ columnKey: 'last_login', order: 1 })
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.membersResponse).toMatchObject({
+            results: [{ id: 'eu-m-2' }, { id: 'eu-m-3' }, { id: 'eu-m-1' }],
+        })
+
+        logic.actions.setLevels([OrganizationMembershipLevel.Admin])
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.membersResponse).toMatchObject({ count: 1, results: [{ id: 'eu-m-3' }] })
+
+        expect(listForOrg).toHaveBeenCalledTimes(1)
+        expect(query).toHaveBeenCalledTimes(1)
     })
 
     it('degrades to the empty response when the EU view does not exist', async () => {

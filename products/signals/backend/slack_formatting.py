@@ -4,11 +4,7 @@ import re
 from collections import Counter
 
 from posthog.dataclasses import frozen
-
-# A Slack `markdown` block takes Markdown directly, and Slack budgets 12,000 characters across
-# every markdown block in one message. A message carries one, and the headroom covers the blocks
-# around it.
-SLACK_MARKDOWN_TEXT_MAX_LEN = 11500
+from posthog.slack.markdown import SLACK_MARKDOWN_TEXT_MAX_LEN
 
 # A summary places a chart inline with a markdown link targeting `chart:<chart_id>`. Slack cannot
 # place an image mid-sentence, and the link degrades badly if left alone: `chart:` is no scheme a
@@ -70,11 +66,6 @@ def strip_chart_references(text: str) -> str:
     return _REFERENCE_LINK_RE.sub(_reduce, _CHART_REF_DEFINITION_RE.sub("", text))
 
 
-def escape_slack_mrkdwn(text: str) -> str:
-    """Neutralize Slack control syntax so untrusted text cannot inject mentions or links."""
-    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-
-
 # The Slack tokens that can address somebody or lie about where they point: the mentions
 # (`<@U…>`, `<#C…>`, `<!here>`, `<!subteam^S…>`) and the labelled link form, whose `<dest|label>`
 # shape lets the label say one thing while the link goes somewhere else. A bare `<https://…>` is
@@ -114,11 +105,6 @@ def truncate_slack_text(text: str, limit: int) -> str:
     if len(text) <= limit:
         return text
     return text[: limit - 1].rstrip() + "…"
-
-
-def slack_markdown_block(text: str) -> dict:
-    """The Slack block that renders Markdown, for text `prepare_slack_markdown` has already made safe."""
-    return {"type": "markdown", "text": text}
 
 
 def prepare_slack_markdown(text: str) -> str:
@@ -343,8 +329,3 @@ def chunk_slack_text(text: str, limit: int) -> list[str]:
     if current.strip():
         chunks.append(current.rstrip())
     return chunks
-
-
-def slack_channel_id_from_target(value: str) -> str:
-    """Extract the Slack channel ID from the frontend picker's `id|#name` value."""
-    return value.split("|", 1)[0].strip()

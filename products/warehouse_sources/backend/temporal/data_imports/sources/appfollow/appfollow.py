@@ -7,6 +7,8 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.appfollow.settings import (
     APPFOLLOW_ENDPOINTS,
     DEFAULT_START_DATE,
@@ -20,6 +22,14 @@ APPFOLLOW_BASE_URL = "https://api.appfollow.io/api/v2"
 
 # Ratings history is offset/limit paginated; reviews use page/pages_count. Both cap a page at 100 rows.
 DEFAULT_PAGE_SIZE = 100
+
+# The ASO endpoints page with a bare `page` number and publish neither a page count nor a total, so
+# the walk can only end on an empty page. Cap it so a misbehaving endpoint can't spend credits forever.
+MAX_PAGES_PER_APP = 100
+
+# `/meta/versions` requires a country and an app does not always carry one. Last resort when neither
+# the app nor its collection names one.
+FALLBACK_COUNTRY = "us"
 
 
 class AppfollowRetryableError(Exception):
@@ -128,17 +138,25 @@ def _fetch(
     return response.json()
 
 
-def _extract_rows(data: Any, data_key: str | None) -> list[dict[str, Any]]:
+def _extract_rows(data: Any, data_key: str | tuple[str, ...] | None) -> list[dict[str, Any]]:
     """Pull the row list out of an AppFollow response.
 
     Rows live either at the response root (``data_key is None``) or under a single body key
     (e.g. ``apps``, ``reviews``, ``ratings``). Anything unexpected degrades to an empty page rather
     than raising, since AppFollow occasionally returns a non-list error envelope with HTTP 200.
+
+    The ASO and review-statistics endpoints publish an empty 200 schema, so their envelope key is a
+    best guess. Those endpoints pass several candidate keys and fall back to a root list, rather than
+    syncing an empty table on a key we guessed wrong.
     """
     if data_key is None:
         return data if isinstance(data, list) else []
-    value = data.get(data_key) if isinstance(data, dict) else None
-    return value if isinstance(value, list) else []
+    if isinstance(data, dict):
+        for key in (data_key,) if isinstance(data_key, str) else data_key:
+            value = data.get(key)
+            if isinstance(value, list):
+                return value
+    return data if isinstance(data, list) else []
 
 
 def check_credentials(api_key: str) -> int | None:
@@ -161,8 +179,14 @@ def _iter_collections(session: requests.Session, logger: FilteringBoundLogger) -
     yield from _extract_rows(data, "apps")
 
 
-def _iter_apps(session: requests.Session, logger: FilteringBoundLogger) -> Iterator[dict[str, Any]]:
-    """Fan out over every collection and yield each app row, enriched for keying and downstream fan-out.
+@frozen
+class _CollectionApp:
+    collection: dict[str, Any]
+    app: dict[str, Any]
+
+
+def _iter_collection_apps(session: requests.Session, logger: FilteringBoundLogger) -> Iterator[_CollectionApp]:
+    """Fan out over every collection and yield each app with the collection it came from.
 
     Each app row is stamped with its `app_collection_id` and `collection_name`, and `ext_id`/`store`
     are lifted from the nested `app` object to the top level when absent so the review/rating fan-outs
@@ -180,36 +204,73 @@ def _iter_apps(session: requests.Session, logger: FilteringBoundLogger) -> Itera
                 app["ext_id"] = nested_ext_id
             if not app.get("store") and (nested_store := nested.get("store")):
                 app["store"] = nested_store
-            yield app
+            yield _CollectionApp(collection=collection, app=app)
 
 
-@dataclasses.dataclass
+def _iter_apps(session: requests.Session, logger: FilteringBoundLogger) -> Iterator[dict[str, Any]]:
+    for pair in _iter_collection_apps(session, logger):
+        yield pair.app
+
+
+def _resolve_country(collection: dict[str, Any], app: dict[str, Any]) -> str:
+    """Resolve the store country to query an app's country-scoped endpoints with.
+
+    An app row does not reliably carry a country, so fall back to the country its collection tracks.
+    """
+    countries = collection.get("countries")
+    first_tracked = countries[0] if isinstance(countries, list) and countries else None
+    country = (
+        app.get("country")
+        or (app.get("app") or {}).get("country")
+        or collection.get("default_country")
+        or first_tracked
+        or FALLBACK_COUNTRY
+    )
+    return str(country).lower()
+
+
+@frozen
 class _AppTarget:
     ext_id: str
     store: str | None
     collection_name: str | None
+    country: str
 
 
 def _iter_app_targets(
-    session: requests.Session, logger: FilteringBoundLogger, *, dedupe_by_store: bool
+    session: requests.Session,
+    logger: FilteringBoundLogger,
+    *,
+    dedupe_by_store: bool,
+    dedupe_by_country: bool = False,
 ) -> list[_AppTarget]:
-    """Discover the apps the review/rating fan-outs iterate.
+    """Discover the apps the per-app fan-outs iterate.
 
-    Reviews key on `ext_id` alone; ratings key on `ext_id` + `store`. The same app can appear in
-    several collections, so we de-duplicate to avoid fetching (and paying credits for) it twice.
+    Reviews key on `ext_id` alone; ratings key on `ext_id` + `store`; the country-scoped ASO endpoints
+    key on `ext_id` + `country`. The same app can appear in several collections, so we de-duplicate on
+    whichever of those the endpoint varies to avoid fetching (and paying credits for) it twice.
     """
-    seen: set[tuple[str, str | None]] = set()
+    seen: set[tuple[str, str | None, str | None]] = set()
     targets: list[_AppTarget] = []
-    for app in _iter_apps(session, logger):
+    for pair in _iter_collection_apps(session, logger):
+        app = pair.app
         ext_id = app.get("ext_id")
         if not ext_id:
             continue
         store = app.get("store")
-        key = (str(ext_id), store if dedupe_by_store else None)
+        country = _resolve_country(pair.collection, app)
+        key = (str(ext_id), store if dedupe_by_store else None, country if dedupe_by_country else None)
         if key in seen:
             continue
         seen.add(key)
-        targets.append(_AppTarget(ext_id=str(ext_id), store=store, collection_name=app.get("collection_name")))
+        targets.append(
+            _AppTarget(
+                ext_id=str(ext_id),
+                store=store,
+                collection_name=app.get("collection_name"),
+                country=country,
+            )
+        )
     return targets
 
 
@@ -355,6 +416,84 @@ def _get_ratings(
             manager.save_state(AppfollowResumeConfig(ext_id=remaining[i + 1].ext_id, cursor=0))
 
 
+def _fanout_time_params(
+    config: AppfollowEndpointConfig,
+    today: str,
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Any,
+) -> dict[str, Any]:
+    if config.time_mode == "snapshot":
+        return {"date": today}
+    if config.time_mode == "window":
+        from_date = DEFAULT_START_DATE
+        if should_use_incremental_field and db_incremental_field_last_value:
+            from_date = _to_date_str(_clamp_future_value_to_now(db_incremental_field_last_value)) or DEFAULT_START_DATE
+        return {"from": from_date, "to": today}
+    return {}
+
+
+def _stamp_fanout_row(row: dict[str, Any], config: AppfollowEndpointConfig, target: "_AppTarget", today: str) -> None:
+    """Fill in the key and partition fields the request knows but the response may not carry."""
+    row.setdefault("ext_id", target.ext_id)
+    if config.requires_country:
+        row.setdefault("country", target.country)
+    if config.time_mode == "snapshot":
+        row.setdefault("date", today)
+
+
+def _get_app_fanout(
+    session: requests.Session,
+    config: AppfollowEndpointConfig,
+    logger: FilteringBoundLogger,
+    manager: ResumableSourceManager[AppfollowResumeConfig],
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Any,
+) -> Iterator[list[dict[str, Any]]]:
+    """Walk the ASO and review-statistics endpoints, which take one `ext_id` per request.
+
+    They differ only in whether they page, whether they need a country, and how they take time, so
+    the endpoint config drives all three rather than each endpoint getting its own walk.
+    """
+    targets = _iter_app_targets(session, logger, dedupe_by_store=False, dedupe_by_country=config.requires_country)
+    remaining, resume_page = _resume_slice(targets, manager)
+
+    today = _today_str()
+    time_params = _fanout_time_params(config, today, should_use_incremental_field, db_incremental_field_last_value)
+
+    for i, target in enumerate(remaining):
+        page = resume_page if i == 0 and resume_page else 1
+        while True:
+            params: dict[str, Any] = {"ext_id": target.ext_id, **time_params}
+            if config.requires_country:
+                params["country"] = target.country
+            if config.paginated:
+                params["page"] = page
+
+            data = _fetch(session, f"{APPFOLLOW_BASE_URL}{config.path}", params, logger)
+            rows = _extract_rows(data, config.data_key)
+
+            if rows:
+                for row in rows:
+                    _stamp_fanout_row(row, config, target, today)
+                yield rows
+
+            if not config.paginated or not rows:
+                break
+            if page >= MAX_PAGES_PER_APP:
+                logger.warning(
+                    f"AppFollow {config.name}: reached the {MAX_PAGES_PER_APP} page cap for "
+                    f"ext_id={target.ext_id}; later pages were not fetched"
+                )
+                break
+
+            page += 1
+            # Save AFTER yielding so a crash re-fetches the current page rather than skipping it.
+            manager.save_state(AppfollowResumeConfig(ext_id=target.ext_id, cursor=page))
+
+        if i + 1 < len(remaining):
+            manager.save_state(AppfollowResumeConfig(ext_id=remaining[i + 1].ext_id, cursor=1))
+
+
 def get_rows(
     api_key: str,
     endpoint: str,
@@ -370,6 +509,15 @@ def get_rows(
         yield from _get_list(session, config, logger)
     elif config.kind == "apps":
         yield from _get_apps(session, logger)
+    elif config.kind == "app_fanout":
+        yield from _get_app_fanout(
+            session,
+            config,
+            logger,
+            resumable_source_manager,
+            should_use_incremental_field,
+            db_incremental_field_last_value,
+        )
     elif config.kind == "reviews":
         yield from _get_reviews(
             session,

@@ -133,15 +133,15 @@ impl ConditionAnalyses {
             if by_hash.contains_key(&condition.hash) {
                 continue;
             }
-            let Some(bytecode) = filters
-                .by_condition_to_bytecode
+            let Some(program) = filters
+                .by_condition_to_program
                 .get(&condition.hash.as_bytes())
             else {
                 continue;
             };
             by_hash.insert(
                 condition.hash,
-                analyze_condition_within(bytecode.as_slice(), &mut budget),
+                analyze_condition_within(program.tokens(), &mut budget),
             );
         }
         Self { by_hash }

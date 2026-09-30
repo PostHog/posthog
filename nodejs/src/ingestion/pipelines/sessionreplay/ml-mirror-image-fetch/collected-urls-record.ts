@@ -29,6 +29,8 @@ export type StoredRepublishReason =
 export type RepublishReason = StoredRepublishReason
 
 export interface FetchCandidate {
+    /** Raw UUIDv7 session ID of the v2 session that collected the URL; a v1 record carries none. */
+    sessionId?: string
     originalRef: string
     currentUrl: string
     host: string
@@ -49,6 +51,7 @@ export interface FrontierRecord {
     jobs: Array<
         Pick<
             FetchCandidate,
+            | 'sessionId'
             | 'originalRef'
             | 'currentUrl'
             | 'remainingHops'
@@ -215,6 +218,7 @@ function parseJob(job: unknown, kafkaKey: string): ParsedJob {
         return { kind: 'rejected', reason: 'bad_url' }
     }
     const {
+        sessionId,
         originalRef,
         currentUrl,
         remainingHops,
@@ -227,6 +231,7 @@ function parseJob(job: unknown, kafkaKey: string): ParsedJob {
         lowOriginDiversityDeferred,
     } = job
     if (
+        (sessionId !== undefined && typeof sessionId !== 'string') ||
         typeof originalRef !== 'string' ||
         typeof currentUrl !== 'string' ||
         !isNonNegativeSafeInteger(remainingHops) ||
@@ -261,6 +266,7 @@ function parseJob(job: unknown, kafkaKey: string): ParsedJob {
     return {
         kind: 'candidate',
         candidate: {
+            ...(sessionId ? { sessionId } : {}),
             originalRef,
             currentUrl,
             host: canonical.host,
@@ -281,6 +287,7 @@ export function serializeFrontierRecord(candidates: FetchCandidate[]): Buffer {
     const record: FrontierRecord = {
         v: 2,
         jobs: candidates.map((candidate) => ({
+            ...(candidate.sessionId ? { sessionId: candidate.sessionId } : {}),
             originalRef: candidate.originalRef,
             currentUrl: candidate.currentUrl,
             remainingHops: candidate.remainingHops,
