@@ -37,7 +37,7 @@ export function PlaygroundVariablesPanel(): JSX.Element {
                         in a test value here. Values are applied when you run. Saved prompts keep the placeholders.
                     </p>
                 ) : (
-                    <div className="space-y-2 mb-2">
+                    <div className="space-y-2 mb-2 max-h-80 overflow-y-auto pr-1">
                         {detectedVariables.map((name) => (
                             <div key={name} className="flex items-start gap-2">
                                 <code className="text-xs pt-2 whitespace-nowrap">{`{{${name}}}`}</code>
