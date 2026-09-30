@@ -2,7 +2,7 @@ import copy
 import dataclasses
 from collections.abc import Callable, Iterator
 from typing import Any, Optional
-from urllib.parse import urlsplit
+from urllib.parse import SplitResult, urlsplit
 
 import requests
 from requests import Request, Response
@@ -48,8 +48,8 @@ class GrafanaIRMResumeConfig:
     cursor: Optional[str] = None
 
 
-def _parse_grafana_cloud_url(url: str, label: str) -> tuple[str, str]:
-    """Return ``(origin, path)`` for a Grafana Cloud URL, or raise ``GrafanaIRMConfigError``."""
+def _parse_grafana_cloud_url(url: str, label: str) -> SplitResult:
+    """Return the URL as bare ``https://<host><path>``, or raise ``GrafanaIRMConfigError``."""
     value = url.strip()
     if "://" not in value:
         value = f"https://{value}"
@@ -63,21 +63,18 @@ def _parse_grafana_cloud_url(url: str, label: str) -> tuple[str, str]:
         raise GrafanaIRMConfigError(f"The {label} must be a plain https:// URL.")
     if not hostname.endswith(f".{GRAFANA_CLOUD_DOMAIN}"):
         raise GrafanaIRMConfigError(f"The {label} must be a Grafana Cloud URL ending in .{GRAFANA_CLOUD_DOMAIN}.")
-    return f"https://{hostname}", parsed.path.rstrip("/")
+    return SplitResult(scheme="https", netloc=hostname, path=parsed.path.rstrip("/"), query="", fragment="")
 
 
 def normalize_stack_url(url: str) -> str:
     """``yourstack.grafana.net/a/grafana-irm-app`` -> ``https://yourstack.grafana.net``."""
-    origin, _ = _parse_grafana_cloud_url(url, "Grafana stack URL")
-    return origin
+    return _parse_grafana_cloud_url(url, "Grafana stack URL")._replace(path="").geturl()
 
 
 def normalize_oncall_api_url(url: str) -> str:
     """Keep the path (``https://oncall-prod-us-central-0.grafana.net/oncall``) but drop a pasted ``/api/v1`` suffix."""
-    origin, path = _parse_grafana_cloud_url(url, "OnCall API URL")
-    if path.endswith("/api/v1"):
-        path = path[: -len("/api/v1")]
-    return f"{origin}{path}"
+    parsed = _parse_grafana_cloud_url(url, "OnCall API URL")
+    return parsed._replace(path=parsed.path.removesuffix("/api/v1")).geturl()
 
 
 class IncidentCursorPaginator(BasePaginator):

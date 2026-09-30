@@ -45,8 +45,9 @@ class GrafanaIRMSource(ResumableSource[GrafanaIRMSourceConfig, GrafanaIRMResumeC
 
     @property
     def connection_host_fields(self) -> list[str]:
-        # The service account token is sent to the OnCall API URL, so retargeting it must re-require the token.
-        return ["oncall_api_url"]
+        # The token goes to both hosts, and any Grafana Cloud customer can own a *.grafana.net stack,
+        # so retargeting either one must re-require the token.
+        return ["stack_url", "oncall_api_url"]
 
     @property
     def get_source_config(self) -> SourceConfig:
