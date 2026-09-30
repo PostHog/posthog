@@ -21,6 +21,7 @@ describe('agent-feedback submit handler', () => {
             summary: 'discriminator misfires on young projects',
             feedback_type: 'scout',
             sentiment: 'neutral',
+            product_area: 'web analytics',
             scout_skill_name: 'signals-scout-web-analytics',
             scout_skill_version: 7,
             scout_category: 'discriminator_gap',
@@ -49,6 +50,7 @@ describe('agent-feedback submit handler', () => {
             summary: 'discriminator misfires on young projects',
             feedback_type: 'scout',
             sentiment: 'neutral',
+            product_area: 'web analytics',
             ...scoutFields,
         })
         expect(result.success).toBe(false)
@@ -59,7 +61,21 @@ describe('agent-feedback submit handler', () => {
             summary: 'the SQL editor autocomplete is excellent',
             feedback_type: 'product',
             sentiment: 'positive',
+            product_area: 'data warehouse',
         })
         expect(result.success).toBe(true)
+    })
+
+    it.each([
+        ['missing', {}],
+        ['empty', { product_area: '' }],
+    ])('rejects feedback with %s product_area', (_case, areaFields) => {
+        const result = FeedbackSubmitSchema.safeParse({
+            summary: 'query-trends errors on breakdown limits',
+            feedback_type: 'mcp',
+            sentiment: 'negative',
+            ...areaFields,
+        })
+        expect(result.success).toBe(false)
     })
 })
