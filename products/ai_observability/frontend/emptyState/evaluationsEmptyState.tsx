@@ -8,7 +8,6 @@ import { urls } from 'scenes/urls'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import { EvaluationsOnlineNav } from '../evaluations/EvaluationsOnlineNav'
 import { EvaluationsPreview } from './EvaluationsPreview'
 import { evaluationsSetupLogic } from './evaluationsSetupLogic'
 
@@ -16,7 +15,6 @@ const HedgehogJudge = pngHoggie(judgePng)
 
 export const evaluationsEmptyState: SceneProductEmptyState = {
     statusLogic: evaluationsSetupLogic,
-    SceneNav: EvaluationsOnlineNav,
     config: {
         productKey: ProductKey.LLM_EVALUATIONS,
         productName: 'Evaluations',
