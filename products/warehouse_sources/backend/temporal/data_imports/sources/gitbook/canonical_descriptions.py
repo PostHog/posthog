@@ -197,7 +197,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "input": "The question as asked: normalized text and raw text.",
             "thread": "The thread this answer belongs to and the previous answer in it.",
             "session": "The visitor session the answer was generated in.",
-            "feedback": "Feedback rating provided by the visitor: 1 or -1.",
+            "feedback": "Optional visitor feedback object whose rating is 1 or -1.",
             "responseId": "The response identifier for this answer.",
             "language": "ISO language code of the question.",
             "answered": "Whether the response answered the question: yes, partially, or no.",

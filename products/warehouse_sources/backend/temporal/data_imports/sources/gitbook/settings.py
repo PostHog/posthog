@@ -5,7 +5,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
 from products.warehouse_sources.backend.types import IncrementalField
 
 
-@dataclass
+@dataclass(frozen=True)
 class GitBookEndpointConfig:
     name: str
     # Path relative to the API base URL. Fan-out endpoints carry a single `{parent_id}`
