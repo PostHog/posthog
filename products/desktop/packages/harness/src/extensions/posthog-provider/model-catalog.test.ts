@@ -76,6 +76,28 @@ describe("resolvePosthogPiModelCatalog", () => {
     expect(fable51.thinkingLevels).not.toContain("off");
   });
 
+  it("uses the GPT-6.1 Sol thinking levels before Pi adds the model", () => {
+    const [model] = resolvePosthogPiModelCatalog(
+      [
+        {
+          id: "gpt-6.1-sol",
+          context_window: 1_050_000,
+          supports_vision: true,
+          allowed: true,
+        },
+      ],
+      "us",
+    );
+
+    expect(model.thinkingLevels).toEqual([
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max",
+    ]);
+  });
+
   it("marks the default model without changing catalog order", () => {
     const models = resolvePosthogPiModelCatalog(
       [

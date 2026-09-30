@@ -427,7 +427,7 @@
           "supports_fast_mode": false
         },
         "gpt-6.1-sol": {
-          "cost_multiplier": "1×",
+          "cost_multiplier": "1× base",
           "offered": true,
           "reasoning_efforts": [
             "low",
