@@ -835,9 +835,14 @@ def _sync_background_bands(
         band = band_by_team.get(config.team_id)
         if config.background_band == band:
             continue
-        changes: dict = {"background_band": band}
-        if (interval := _background_interval(background, band)) is not None:
-            changes["run_interval_minutes"] = interval
+        # Without a configured interval, fall back to the model default rather than keep the old band's.
+        interval = _background_interval(background, band)
+        changes: dict = {
+            "background_band": band,
+            "run_interval_minutes": interval
+            if interval is not None
+            else SignalScoutConfig._meta.get_field("run_interval_minutes").default,
+        }
         SignalScoutConfig.all_teams.filter(pk=config.pk, managed_by=SignalScoutConfig.ManagedBy.BACKGROUND).update(
             **changes
         )

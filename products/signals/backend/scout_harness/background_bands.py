@@ -50,6 +50,8 @@ RECENT_LOGIN_DAYS = 14
 MAX_LOGIN_DAYS = 30
 # A week evens out the weekday and weekend traffic of one project.
 EVENT_WINDOW_DAYS = 7
+# `sync_execute` sets no wall-clock cap, so a stalled read would otherwise hold a Celery worker.
+EVENT_READ_MAX_EXECUTION_S = 600
 # Keeps each `IN (...)` list far below the Postgres bind-parameter limit.
 ID_BATCH_SIZE = 5_000
 
@@ -128,6 +130,7 @@ def _events_per_day_by_org(organization_ids: Collection[int], begin: datetime, e
         """,
         {"begin": begin, "end": end},
         workload=Workload.OFFLINE,
+        settings={"max_execution_time": EVENT_READ_MAX_EXECUTION_S},
     )
     events_by_team = dict(rows)
     days = (end - begin).total_seconds() / 86_400
