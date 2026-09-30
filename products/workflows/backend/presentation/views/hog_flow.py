@@ -13,10 +13,9 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django.conf import settings
 from django.core.cache import cache
-from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.signing import BadSignature, SignatureExpired, TimestampSigner
 from django.db import IntegrityError, models, transaction
-from django.db.models import Exists, OuterRef, Q, QuerySet, Subquery
+from django.db.models import Q, QuerySet
 from django.db.models.expressions import RawSQL
 from django.http import Http404, HttpResponse
 from django.utils import timezone
@@ -113,7 +112,13 @@ from products.tasks.backend.facade.workflow_tasks import (
     resolve_connectors,
     validate_skill_names,
 )
-from products.workflows.backend.facade.api import create_batch_job
+from products.workflows.backend.facade.batch_jobs import (
+    create_batch_job,
+    get_batch_job,
+    hog_flow_ids_with_broadcast_status,
+    list_batch_jobs,
+    set_batch_job_status,
+)
 from products.workflows.backend.facade.blast_radius import (
     SUPPORTED_DEDUPE_KEYS,
     get_account_audience_ids_page,
@@ -124,7 +129,11 @@ from products.workflows.backend.facade.blast_radius import (
     is_account_audience,
     parse_account_audience_filters,
 )
-from products.workflows.backend.facade.contracts import StaffPausedError
+from products.workflows.backend.facade.contracts import (
+    StaffPausedError,
+    WorkflowBatchJobNotFound,
+    WorkflowScheduleNotFound,
+)
 from products.workflows.backend.facade.email_health import (
     fetch_aws_tenant_reputation,
     fetch_email_totals_by_source,
@@ -134,6 +143,17 @@ from products.workflows.backend.facade.email_health import (
     pause_requires_staff,
     resume_email_sending,
     team_email_sending_allowance,
+)
+from products.workflows.backend.facade.enums import HogFlowBatchJobState, HogFlowScheduleStatus
+from products.workflows.backend.facade.schedules import (
+    compute_next_occurrences,
+    create_schedule,
+    delete_schedule,
+    get_schedule,
+    list_schedules,
+    process_due_schedules,
+    update_schedule,
+    validate_rrule,
 )
 from products.workflows.backend.facade.secrets import (
     TemplateCache,
@@ -178,10 +198,8 @@ from products.workflows.backend.models.hog_flow.hog_flow import (
     WORKFLOW_SAFE_INTERNAL_EVENTS,
     HogFlow,
 )
-from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
 from products.workflows.backend.models.hog_flow_optimization import HogFlowOptimization
 from products.workflows.backend.models.hog_flow_revision import HogFlowRevision
-from products.workflows.backend.models.hog_flow_schedule import SCHEDULED_TRIGGER_TYPES, HogFlowSchedule
 from products.workflows.backend.models.workflow_proposal import WorkflowProposal
 from products.workflows.backend.presentation.views.action_redirects import compute_action_redirects
 from products.workflows.backend.presentation.views.graph_operations import _deep_merge, apply_graph_operations
@@ -208,7 +226,6 @@ from products.workflows.backend.services.timing_reschedule import (
     get_timing_reschedule_action_ids,
 )
 from products.workflows.backend.tasks.hog_flows import reschedule_hog_flow_timing
-from products.workflows.backend.utils.rrule_utils import compute_next_occurrences, validate_rrule
 
 logger = structlog.get_logger(__name__)
 
@@ -1942,34 +1959,30 @@ class HogFlowEmailSendingRateLimitSerializer(serializers.Serializer):
         return value
 
 
-class HogFlowScheduleSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = HogFlowSchedule
-        fields = [
-            "id",
-            "rrule",
-            "starts_at",
-            "timezone",
-            "variables",
-            "status",
-            "next_run_at",
-            "created_at",
-            "updated_at",
-        ]
-        read_only_fields = ["id", "status", "next_run_at", "created_at", "updated_at"]
-        extra_kwargs = {
-            "rrule": {
-                "help_text": (
-                    "iCalendar RRULE string (e.g. 'FREQ=DAILY;INTERVAL=1'). Must produce occurrences at most once "
-                    "per hour."
-                )
-            },
-            "starts_at": {"help_text": "ISO 8601 datetime the schedule starts from."},
-            "timezone": {"help_text": "IANA timezone for interpreting the RRULE (default 'UTC')."},
-            "variables": {"help_text": "Variable value overrides merged with the workflow defaults on each run."},
-            "status": {"help_text": "active, paused, or completed (set once the RRULE's COUNT/UNTIL is exhausted)."},
-            "next_run_at": {"help_text": "Next scheduled fire time, computed by the scheduler."},
-        }
+class HogFlowScheduleSerializer(serializers.Serializer):
+    id = serializers.UUIDField(read_only=True)
+    rrule = serializers.CharField(
+        help_text=(
+            "iCalendar RRULE string (e.g. 'FREQ=DAILY;INTERVAL=1'). Must produce occurrences at most once per hour."
+        )
+    )
+    starts_at = serializers.DateTimeField(help_text="ISO 8601 datetime the schedule starts from.")
+    timezone = serializers.CharField(
+        max_length=64, required=False, help_text="IANA timezone for interpreting the RRULE (default 'UTC')."
+    )
+    variables = serializers.JSONField(
+        required=False, help_text="Variable value overrides merged with the workflow defaults on each run."
+    )
+    status = serializers.ChoiceField(
+        choices=HogFlowScheduleStatus.choices,
+        read_only=True,
+        help_text="active, paused, or completed (set once the RRULE's COUNT/UNTIL is exhausted).",
+    )
+    next_run_at = serializers.DateTimeField(
+        read_only=True, allow_null=True, help_text="Next scheduled fire time, computed by the scheduler."
+    )
+    created_at = serializers.DateTimeField(read_only=True)
+    updated_at = serializers.DateTimeField(read_only=True)
 
     def validate(self, data):
         # For partial updates, fall back to instance values
@@ -2002,14 +2015,6 @@ class HogFlowScheduleSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({"rrule": "Schedules must run at most once per hour."})
 
         return data
-
-    def update(self, instance, validated_data):
-        if any(field in validated_data for field in ("rrule", "starts_at", "timezone")):
-            # Force the scheduler to recalculate the next occurrence on its next poll
-            instance.next_run_at = None
-            if instance.status != HogFlowSchedule.Status.PAUSED:
-                instance.status = HogFlowSchedule.Status.ACTIVE
-        return super().update(instance, validated_data)
 
 
 class HogFlowRunRequestSerializer(serializers.Serializer):
@@ -4085,52 +4090,6 @@ def annotate_broadcast_shape(queryset: QuerySet) -> QuerySet:
 BROADCAST_STATUSES = ("draft", "scheduled", "sending", "sent", "failed", "archived")
 
 
-def filter_by_broadcast_status(queryset: QuerySet, statuses: set[str]) -> QuerySet:
-    # The status a sender sees on a broadcast, derived the way the broadcasts UI derives it: from the
-    # latest run and whether a schedule still has sends to come.
-    latest_run_status = (
-        HogFlowBatchJob.objects.filter(team_id=OuterRef("team_id"), hog_flow_id=OuterRef("pk"))
-        .order_by("-created_at")
-        .values("status")[:1]
-    )
-    queryset = queryset.annotate(
-        _latest_run_status=Subquery(latest_run_status),
-        _has_pending_schedule=Exists(
-            HogFlowSchedule.objects.filter(
-                team_id=OuterRef("team_id"), hog_flow_id=OuterRef("pk"), status=HogFlowSchedule.Status.ACTIVE
-            )
-        ),
-    )
-    live = Q(status=HogFlow.State.ACTIVE)
-    # Only a wizard launch always leaves a schedule or a run. An opened workflow can wait for an API send.
-    nothing_to_come = Q(_latest_run_status__isnull=True, _has_pending_schedule=False)
-    unfinished_launch = nothing_to_come & Q(origin_product="broadcasts")
-    running = [HogFlowBatchJob.State.WAITING, HogFlowBatchJob.State.QUEUED, HogFlowBatchJob.State.ACTIVE]
-    conditions = {
-        "draft": Q(status=HogFlow.State.DRAFT),
-        "archived": Q(status=HogFlow.State.ARCHIVED),
-        "sending": live & Q(_latest_run_status__in=running),
-        "sent": live & Q(_latest_run_status=HogFlowBatchJob.State.COMPLETED, _has_pending_schedule=False),
-        "scheduled": live
-        & (
-            (
-                Q(_has_pending_schedule=True)
-                & (Q(_latest_run_status__isnull=True) | Q(_latest_run_status=HogFlowBatchJob.State.COMPLETED))
-            )
-            | (nothing_to_come & ~Q(origin_product="broadcasts"))
-        ),
-        "failed": live
-        & (
-            Q(_latest_run_status__in=[HogFlowBatchJob.State.FAILED, HogFlowBatchJob.State.CANCELLED])
-            | unfinished_launch
-        ),
-    }
-    combined = Q()
-    for broadcast_status in statuses:
-        combined |= conditions[broadcast_status]
-    return queryset.filter(combined)
-
-
 class HogFlowFilterSet(FilterSet):
     # A producer's work list, so an agent need not read every workflow to find the few it may look at.
     optimization_enabled = BooleanFilter(
@@ -4487,7 +4446,9 @@ class HogFlowViewSet(
                     raise exceptions.ValidationError(
                         {"broadcast_status": f"Must be one or more of: {', '.join(BROADCAST_STATUSES)}"}
                     )
-                queryset = filter_by_broadcast_status(queryset, requested_statuses)
+                queryset = queryset.filter(
+                    id__in=hog_flow_ids_with_broadcast_status(team_id=self.team_id, statuses=requested_statuses)
+                )
 
             # `?type=loop` and `?type=broadcast` return the same rows, but Desktop's Loops list sends
             # this param and ships on its own release cadence, so installed builds keep sending it.
@@ -5168,8 +5129,8 @@ class HogFlowViewSet(
             "filters"
         ):
             return
-        paused = after.schedules.filter(status=HogFlowSchedule.Status.ACTIVE).update(
-            status=HogFlowSchedule.Status.PAUSED, next_run_at=None, updated_at=timezone.now()
+        paused = after.schedules.filter(status=HogFlowScheduleStatus.ACTIVE).update(
+            status=HogFlowScheduleStatus.PAUSED, next_run_at=None, updated_at=timezone.now()
         )
         if paused:
             self._report_workflow_action("hog_flow_schedules_paused_on_audience_change", after, {"paused": paused})
@@ -5243,7 +5204,7 @@ class HogFlowViewSet(
         schedule_overrides = {
             str(schedule_id): variables or {}
             for schedule_id, variables in hog_flow.schedules.exclude(
-                status=HogFlowSchedule.Status.COMPLETED
+                status=HogFlowScheduleStatus.COMPLETED
             ).values_list("id", "variables")
         }
         return build_publish_impact(
@@ -6485,7 +6446,7 @@ class HogFlowViewSet(
             self._report_workflow_action("hog_flow_batch_job_created", hog_flow, {"batch_job_id": str(batch_job.id)})
             return Response(HogFlowBatchJobSerializer(batch_job).data)
         else:
-            batch_jobs = HogFlowBatchJob.objects.filter(hog_flow=hog_flow, team=self.team).order_by("-created_at")
+            batch_jobs = list_batch_jobs(team_id=self.team_id, hog_flow_id=hog_flow.id)
             serializer = HogFlowBatchJobSerializer(batch_jobs, many=True)
             return Response(serializer.data)
 
@@ -6514,16 +6475,18 @@ class HogFlowViewSet(
         hog_flow = self.get_object()
 
         try:
-            batch_job = HogFlowBatchJob.objects.get(id=kwargs["batch_job_id"], hog_flow=hog_flow, team_id=self.team_id)
-        except (HogFlowBatchJob.DoesNotExist, DjangoValidationError, ValueError):
-            # DjangoValidationError fires when the id is not a parseable UUID — surface
-            # as 404 rather than a 500 reported to error tracking.
+            batch_job = get_batch_job(
+                team_id=self.team_id, hog_flow_id=hog_flow.id, batch_job_id=kwargs["batch_job_id"]
+            )
+        except WorkflowBatchJobNotFound:
+            # An id that is not a parseable UUID lands here too, as a 404 rather than a 500
+            # reported to error tracking.
             raise exceptions.NotFound("Batch job not found")
 
         non_terminal = {
-            HogFlowBatchJob.State.WAITING,
-            HogFlowBatchJob.State.QUEUED,
-            HogFlowBatchJob.State.ACTIVE,
+            HogFlowBatchJobState.WAITING,
+            HogFlowBatchJobState.QUEUED,
+            HogFlowBatchJobState.ACTIVE,
         }
         if batch_job.status not in non_terminal:
             return Response({"status": batch_job.status, "marked": 0, "remaining": 0, "done": True})
@@ -6549,13 +6512,12 @@ class HogFlowViewSet(
 
         if data["done"]:
             # Conditional so a completion that landed mid-cancel wins over the flip; the
-            # resolver's own terminal write absorbs the reverse race. `.update()` bypasses
-            # auto_now, so stamp updated_at explicitly.
-            HogFlowBatchJob.objects.filter(id=batch_job.id, status__in=non_terminal).update(
-                status=HogFlowBatchJob.State.CANCELLED, updated_at=timezone.now()
+            # resolver's own terminal write absorbs the reverse race.
+            set_batch_job_status(
+                batch_job_id=batch_job.id, status=HogFlowBatchJobState.CANCELLED, from_statuses=non_terminal
             )
 
-        batch_job.refresh_from_db()
+        batch_job = get_batch_job(team_id=self.team_id, hog_flow_id=hog_flow.id, batch_job_id=str(batch_job.id))
         self._report_workflow_action(
             "hog_flow_batch_job_cancel_requested",
             hog_flow,
@@ -6590,11 +6552,11 @@ class HogFlowViewSet(
 
             serializer = HogFlowScheduleSerializer(data=request.data, context=self.get_serializer_context())
             serializer.is_valid(raise_exception=True)
-            schedule = serializer.save(team=self.team, hog_flow=hog_flow)
+            schedule = create_schedule(team_id=self.team_id, hog_flow_id=hog_flow.id, fields=serializer.validated_data)
             self._report_workflow_action("hog_flow_schedule_created", hog_flow, {"schedule_id": str(schedule.id)})
-            return Response(serializer.data, status=201)
+            return Response(HogFlowScheduleSerializer(schedule).data, status=201)
 
-        schedules = HogFlowSchedule.objects.filter(hog_flow=hog_flow, team=self.team).order_by("-created_at")
+        schedules = list_schedules(team_id=self.team_id, hog_flow_id=hog_flow.id)
         serializer = HogFlowScheduleSerializer(schedules, many=True)
         return Response(serializer.data)
 
@@ -6613,13 +6575,13 @@ class HogFlowViewSet(
     def schedule_detail(self, request: Request, schedule_id=None, *args, **kwargs):
         hog_flow = self.get_object()
         try:
-            schedule = HogFlowSchedule.objects.get(id=schedule_id, hog_flow=hog_flow, team=self.team)
-        except HogFlowSchedule.DoesNotExist:
+            schedule = get_schedule(team_id=self.team_id, hog_flow_id=hog_flow.id, schedule_id=schedule_id)
+        except WorkflowScheduleNotFound:
             raise exceptions.NotFound("Schedule not found")
 
         if request.method == "DELETE":
             schedule_id_str = str(schedule.id)
-            schedule.delete()
+            delete_schedule(team_id=self.team_id, hog_flow_id=hog_flow.id, schedule_id=schedule.id)
             self._report_workflow_action("hog_flow_schedule_deleted", hog_flow, {"schedule_id": schedule_id_str})
             return Response(status=204)
 
@@ -6627,9 +6589,11 @@ class HogFlowViewSet(
             schedule, data=request.data, partial=True, context=self.get_serializer_context()
         )
         serializer.is_valid(raise_exception=True)
-        serializer.save()
+        schedule = update_schedule(
+            team_id=self.team_id, hog_flow_id=hog_flow.id, schedule_id=schedule.id, fields=serializer.validated_data
+        )
         self._report_workflow_action("hog_flow_schedule_updated", hog_flow, {"schedule_id": str(schedule.id)})
-        return Response(serializer.data)
+        return Response(HogFlowScheduleSerializer(schedule).data)
 
     @extend_schema(
         request=HogFlowRunRequestSerializer,
@@ -6869,159 +6833,13 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
         Internal endpoint called by the scheduler service to process due schedules.
         Handles both executing due schedules and initializing next_run_at for new ones.
         """
-        from django.db import transaction  # noqa: PLC0415
-
-        from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob  # noqa: PLC0415
-        from products.workflows.backend.models.hog_flow_schedule import HogFlowSchedule  # noqa: PLC0415
-        from products.workflows.backend.utils.rrule_utils import compute_next_occurrences  # noqa: PLC0415
-
-        def advance_next_run(schedule, after=None):
-            """Compute and set next_run_at, or mark completed if RRULE is exhausted."""
-            occurrences = compute_next_occurrences(
-                rrule_string=schedule.rrule,
-                starts_at=schedule.starts_at,
-                timezone_str=schedule.timezone,
-                after=after,
-                count=1,
-            )
-            if occurrences:
-                schedule.next_run_at = occurrences[0]
-                schedule.save(update_fields=["next_run_at", "updated_at"])
-            else:
-                schedule.status = HogFlowSchedule.Status.COMPLETED
-                schedule.next_run_at = None
-                schedule.save(update_fields=["status", "next_run_at", "updated_at"])
-            return occurrences
-
-        def resolve_variables(hog_flow, schedule):
-            """Build default variables from HogFlow schema, then merge schedule overrides."""
-            variables = {}
-            for var in hog_flow.variables or []:
-                variables[var.get("key")] = var.get("default")
-            variables.update(schedule.variables or {})
-            return variables
-
-        processed = []
-        initialized = []
-        failed = []
-
         try:
-            # 1. Process due schedules (next_run_at <= now)
-            # nosemgrep: idor-lookup-without-team (internal endpoint processes all teams)
-            due_schedule_ids = list(
-                HogFlowSchedule.objects.filter(
-                    status=HogFlowSchedule.Status.ACTIVE, next_run_at__lte=timezone.now()
-                ).values_list("id", flat=True)
-            )
-
-            for schedule_id in due_schedule_ids:
-                try:
-                    batch_job_params: dict | None = None
-                    schedule_invocation_params: dict | None = None
-                    with transaction.atomic():
-                        # Per-schedule transaction: lock only one row at a time to minimize
-                        # lock duration and allow concurrent replicas via skip_locked.
-                        # Re-checks conditions since the schedule may have been processed
-                        # between the ID scan and this lock.
-                        schedule = (
-                            # nosemgrep: idor-lookup-without-team
-                            HogFlowSchedule.objects.select_for_update(skip_locked=True)
-                            .select_related("hog_flow")
-                            .filter(
-                                id=schedule_id, status=HogFlowSchedule.Status.ACTIVE, next_run_at__lte=timezone.now()
-                            )
-                            .first()
-                        )
-                        if not schedule:
-                            continue
-
-                        hog_flow = schedule.hog_flow
-                        trigger_type = (hog_flow.trigger or {}).get("type")
-
-                        if hog_flow.status != "active" or trigger_type not in SCHEDULED_TRIGGER_TYPES:
-                            schedule.next_run_at = None
-                            schedule.save(update_fields=["next_run_at", "updated_at"])
-                            continue
-
-                        advance_next_run(schedule, after=schedule.next_run_at)
-
-                        if trigger_type == "batch":
-                            batch_job_params = {
-                                "team_id": schedule.team_id,
-                                "hog_flow": hog_flow,
-                                "variables": resolve_variables(hog_flow, schedule),
-                                "filters": (hog_flow.trigger or {}).get("filters", {}),
-                            }
-                        else:
-                            schedule_invocation_params = {
-                                "team_id": schedule.team_id,
-                                "hog_flow_id": str(hog_flow.id),
-                                "variables": resolve_variables(hog_flow, schedule),
-                            }
-
-                    # Dispatch outside the transaction so HTTP calls don't hold the row lock.
-                    if batch_job_params:
-                        with transaction.atomic():
-                            # Re-read the status under the flow's lock, so a stop that committed after
-                            # the check above wins, and a stop that lands later sees this job.
-                            still_active = (
-                                HogFlow.objects.select_for_update()
-                                .filter(id=batch_job_params["hog_flow"].id, status=HogFlow.State.ACTIVE)
-                                .exists()
-                            )
-                            if still_active:
-                                HogFlowBatchJob.objects.create(
-                                    **batch_job_params,
-                                    status=HogFlowBatchJob.State.QUEUED,
-                                )
-                        if still_active:
-                            processed.append(str(schedule_id))
-                    elif schedule_invocation_params:
-                        response = create_hog_flow_scheduled_invocation(**schedule_invocation_params)
-                        response.raise_for_status()
-                        processed.append(str(schedule_id))
-                except Exception:
-                    logger.exception("Error processing schedule", schedule_id=str(schedule_id))
-                    failed.append(str(schedule_id))
-
-            # 2. Initialize next_run_at for schedules that need it
-            # nosemgrep: idor-lookup-without-team (internal endpoint processes all teams)
-            uninitialized_ids = list(
-                HogFlowSchedule.objects.filter(
-                    status=HogFlowSchedule.Status.ACTIVE,
-                    next_run_at__isnull=True,
-                    hog_flow__status="active",
-                    hog_flow__trigger__type__in=SCHEDULED_TRIGGER_TYPES,
-                ).values_list("id", flat=True)
-            )
-
-            for schedule_id in uninitialized_ids:
-                try:
-                    with transaction.atomic():
-                        # Per-schedule transaction: lock only one row at a time to minimize
-                        # lock duration and allow concurrent replicas via skip_locked.
-                        # Re-checks conditions since the schedule may have been initialized
-                        # between the ID scan and this lock.
-                        schedule = (
-                            # nosemgrep: idor-lookup-without-team
-                            HogFlowSchedule.objects.select_for_update(skip_locked=True)
-                            .filter(id=schedule_id, status=HogFlowSchedule.Status.ACTIVE, next_run_at__isnull=True)
-                            .first()
-                        )
-                        if not schedule:
-                            continue
-
-                        if advance_next_run(schedule):
-                            initialized.append(str(schedule.id))
-                except Exception:
-                    logger.exception("Error initializing schedule", schedule_id=str(schedule_id))
-                    failed.append(str(schedule_id))
-
+            result = process_due_schedules()
             return Response(
                 {
-                    "processed": processed,
-                    "initialized": initialized,
-                    "failed": failed,
+                    "processed": result.processed,
+                    "initialized": result.initialized,
+                    "failed": result.failed,
                 }
             )
         except Exception as e:
@@ -7037,8 +6855,6 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
 
         Accepts: { status: "completed" | "failed" }
         """
-        from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob  # noqa: PLC0415
-
         if request.method != "PUT":
             return Response({"error": "Method not allowed"}, status=405)
 
@@ -7048,25 +6864,22 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
             return Response({"error": "Team not found"}, status=404)
 
         new_status = request.data.get("status")
-        if new_status not in (HogFlowBatchJob.State.COMPLETED, HogFlowBatchJob.State.FAILED):
+        if new_status not in (HogFlowBatchJobState.COMPLETED, HogFlowBatchJobState.FAILED):
             return Response(
                 {"error": "status must be one of: completed, failed"},
                 status=400,
             )
 
         try:
-            batch_job = HogFlowBatchJob.objects.get(id=batch_job_id, team=team)
-        except (HogFlowBatchJob.DoesNotExist, DjangoValidationError, ValueError):
-            # `DjangoValidationError` fires when `batch_job_id` is not a parseable
-            # UUID (UUIDField rejects it before the lookup). `ValueError` is a
-            # belt-and-suspenders catch for str→int / str→UUID edge cases on
-            # other backends. Either way, surface as 404, not 500.
+            batch_job = get_batch_job(team_id=team.id, batch_job_id=batch_job_id)
+        except WorkflowBatchJobNotFound:
+            # An unparseable `batch_job_id` lands here too: surface as 404, not 500.
             return Response({"error": "Batch job not found"}, status=404)
 
         terminal_states = {
-            HogFlowBatchJob.State.COMPLETED,
-            HogFlowBatchJob.State.FAILED,
-            HogFlowBatchJob.State.CANCELLED,
+            HogFlowBatchJobState.COMPLETED,
+            HogFlowBatchJobState.FAILED,
+            HogFlowBatchJobState.CANCELLED,
         }
         if batch_job.status in terminal_states:
             # Idempotent no-op: already in a terminal state.
@@ -7079,12 +6892,11 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
             )
 
         try:
-            batch_job.status = new_status
-            batch_job.save(update_fields=["status", "updated_at"])
+            set_batch_job_status(batch_job_id=batch_job.id, status=HogFlowBatchJobState(new_status))
             return Response(
                 {
                     "id": str(batch_job.id),
-                    "status": batch_job.status,
+                    "status": new_status,
                     "no_op": False,
                 }
             )

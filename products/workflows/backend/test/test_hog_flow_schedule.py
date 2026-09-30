@@ -315,7 +315,8 @@ class TestProcessDueSchedules(APIBaseTest):
             return real_compute(*args, **kwargs)
 
         with unittest.mock.patch(
-            "products.workflows.backend.utils.rrule_utils.compute_next_occurrences", side_effect=stop_then_compute
+            "products.workflows.backend.services.hog_flow_schedules.compute_next_occurrences",
+            side_effect=stop_then_compute,
         ):
             response = self._post()
 
@@ -434,7 +435,7 @@ class TestProcessDueSchedules(APIBaseTest):
 
 
 @override_settings(INTERNAL_API_SECRET="test-secret")
-@unittest.mock.patch("products.workflows.backend.presentation.views.hog_flow.create_hog_flow_scheduled_invocation")
+@unittest.mock.patch("products.workflows.backend.services.hog_flow_schedules.create_hog_flow_scheduled_invocation")
 class TestProcessDueScheduleTriggers(APIBaseTest):
     INTERNAL_URL = "/api/internal/hog_flows/process_due_schedules"
 
