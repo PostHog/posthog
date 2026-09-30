@@ -374,6 +374,7 @@ class TestHogFunctionDrafts(DraftTestCase):
         assert "hog" in changed_fields
         assert "transpiled" not in changed_fields
         assert all("private-input" not in str(log.detail) for log in logs)
+
     @parameterized.expand(
         [
             ("live_secret_last", False, [False, True]),
