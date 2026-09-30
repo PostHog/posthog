@@ -155,7 +155,11 @@ describe('ActionManager', () => {
         await actionManager.reloadAllActions()
 
         const actions = actionManager.getTeamActions(teamId)
-        expect(Object.keys(actions).map(Number).sort((a, b) => a - b)).toEqual([actionId, hookActionId])
+        expect(
+            Object.keys(actions)
+                .map(Number)
+                .sort((a, b) => a - b)
+        ).toEqual([actionId, hookActionId])
         expect(actions[hookActionId].hooks).toMatchObject([{ id: `hook-${hookActionId}`, resource_id: hookActionId }])
         expect(actions[actionId].hooks).toEqual([])
     })
