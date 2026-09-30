@@ -10,7 +10,6 @@ from products.engineering_analytics.backend.logic.queries._curated import Curate
 
 _EMPTY = CICardSummary(open_prs=0, repos=0, stuck=0, failing_ci=0)
 
-# The backlog rules the cards count and the attention list returns, defined once so the two agree.
 # Every _SELECT metric below is gated on OPEN_PR_SQL, and it also scopes the rollup CTEs to the same PRs
 # (see query_ci_cards).
 OPEN_PR_SQL = "state = 'open'"

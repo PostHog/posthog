@@ -26,7 +26,6 @@ const TOP_COST_WORKFLOWS = 5
 
 export interface AttentionPullRequests {
     rows: PullRequestRow[]
-    /** Every open pull request needing attention, including the ones past the server's cap. */
     total: number
 }
 

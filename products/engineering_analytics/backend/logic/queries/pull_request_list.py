@@ -221,7 +221,6 @@ def query_attention_pull_requests(*, curated: CuratedGitHubSource) -> AttentionP
         placeholders={},
         # An open pull request has no ready-to-merge time, so the issue-events scans would add nothing.
         ready=READY_TO_MERGE_UNOBSERVABLE,
-        # Counted before the LIMIT, so the total covers every match rather than the page.
         extra_columns=", count() OVER () AS matching",
     )
     return AttentionPullRequestList(
