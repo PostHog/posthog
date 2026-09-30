@@ -65,6 +65,7 @@ export const AIPropertyPicker: Story = {
 
 export const SavingAIPropertyRule: Story = {
     parameters: {
+        testOptions: { waitForLoadersToDisappear: false },
         msw: {
             mocks: {
                 post: {
