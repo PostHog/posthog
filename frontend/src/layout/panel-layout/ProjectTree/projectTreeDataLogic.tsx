@@ -30,6 +30,7 @@ import {
     getDefaultTreeNew,
     getDefaultTreePersons,
     getDefaultTreeProducts,
+    withProductShortcutHref,
 } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { RecentResults, SearchResults, projectTreeLogic } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { FolderState, ProjectTreeAction } from '~/layout/panel-layout/ProjectTree/types'
@@ -40,11 +41,11 @@ import {
     formatUrlAsName,
     isGroupViewShortcut,
     isPathUnder,
-    joinPath,
     matchesRefType,
     parentPath,
     refTypeParams,
     reparentPath,
+    shortcutFromEntry,
     sortFilesAndFolders,
     splitPath,
 } from '~/layout/panel-layout/ProjectTree/utils'
@@ -1047,28 +1048,14 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                         SHORTCUTS_LOADER_TIMEOUT_MS,
                         'loadShortcuts timed out'
                     )
-                    return response.results
+                    return response.results.map(withProductShortcutHref)
                 },
                 addShortcutItem: async ({ item }) => {
-                    const shortcutPath = joinPath([splitPath(item.path).pop() ?? 'Unnamed'])
-
-                    const shortcutItem =
-                        item.type === 'folder'
-                            ? {
-                                  path: shortcutPath,
-                                  type: 'folder',
-                                  ref: item.path,
-                              }
-                            : {
-                                  path: shortcutPath,
-                                  type: (item as FileSystemImport).iconType || item.type,
-                                  ref: item.ref,
-                                  href: item.href,
-                              }
+                    const shortcutItem = shortcutFromEntry(item)
                     const response = await api.fileSystemShortcuts.create(shortcutItem)
                     posthog.capture('navbar starred item added', {
                         item_type: shortcutItem.type ?? 'unknown',
-                        item_name: shortcutPath,
+                        item_name: shortcutItem.path,
                     })
                     lemonToast.success('Added to starred')
                     return [...values.shortcutData, response]

@@ -64,6 +64,15 @@ from products.data_modeling.backend.facade.models import (
     Node,
     NodeType,
 )
+from products.data_quality.backend.facade.enums import (
+    CheckRunStatus,
+    CheckSeverity,
+    CheckType,
+    SubjectType,
+    SuiteRunStatus,
+    SuiteRunTrigger,
+)
+from products.data_quality.backend.facade.models import DataQualityCheckRun, DataQualitySuiteRun
 from products.data_warehouse.backend.facade.api import CreateTableResult
 from products.managed_warehouse.backend.facade.contracts import DuckLakeTableResult
 from products.notifications.backend.facade.api import NotificationType, Priority, TargetType
@@ -571,20 +580,94 @@ class TestQualityBlockMaterializationActivity:
             dag_id=str(adag.id),
             job_id=str(job.id),
             blocking_failures=2,
+            suite_run_id="suite-1",
+        )
+
+        with unittest.mock.patch(
+            "posthog.temporal.data_modeling.activities.quality_block_materialization.data_quality_facade.materialization_failure_summary",
+            side_effect=RuntimeError("summary unavailable"),
+        ):
+            await activity_environment.run(quality_block_materialization_activity, inputs)
+
+        await database_sync_to_async(anode.refresh_from_db)()
+        await database_sync_to_async(job.refresh_from_db)()
+        system_props = anode.properties.get("system", {})
+        assert system_props["last_run_status"] == DataModelingJobStatus.FAILED
+        expected_error = (
+            "Not published: 2 data quality checks failed. The previous version keeps serving until the checks pass."
+        )
+        assert system_props["last_run_error"] == expected_error
+        assert job.status == DataModelingJob.Status.FAILED
+        assert job.error == expected_error
+        assert "suspended" not in system_props
+
+        await database_sync_to_async(job.delete)()
+
+    async def test_persists_the_safe_suite_summary_on_the_node_and_job(
+        self, activity_environment, ateam, anode, asaved_query, adag
+    ):
+        job = await _make_job(ateam, asaved_query, DataModelingJob.Status.RUNNING)
+        suite_run = await database_sync_to_async(
+            lambda: DataQualitySuiteRun.objects.for_team(ateam.pk).create(
+                team=ateam,
+                trigger=SuiteRunTrigger.MATERIALIZATION,
+                status=SuiteRunStatus.COMPLETED,
+                data_modeling_job_id=job.id,
+                subject_type=SubjectType.VIEW,
+                subject_uuid=asaved_query.id,
+            )
+        )()
+        await database_sync_to_async(
+            lambda: DataQualityCheckRun.objects.for_team(ateam.pk).create(
+                team=ateam,
+                suite_run=suite_run,
+                subject_type=SubjectType.VIEW,
+                subject_uuid=asaved_query.id,
+                subject_name="subject",
+                check_type=CheckType.ROW_COUNT,
+                check_fingerprint=uuid4().hex,
+                check_config={"min": 1_000},
+                check_severity=CheckSeverity.ERROR,
+                status=CheckRunStatus.FAILED,
+                observed_value=999,
+            )
+        )()
+        inputs = QualityBlockMaterializationInputs(
+            team_id=ateam.pk,
+            node_id=str(anode.id),
+            dag_id=str(adag.id),
+            job_id=str(job.id),
+            blocking_failures=1,
+            suite_run_id=str(suite_run.id),
         )
 
         await activity_environment.run(quality_block_materialization_activity, inputs)
 
         await database_sync_to_async(anode.refresh_from_db)()
         await database_sync_to_async(job.refresh_from_db)()
+        expected_error = "Not published: the row count is below its minimum. The previous version keeps serving until the checks pass."
+        assert anode.properties["system"]["last_run_error"] == expected_error
+        assert job.error == expected_error
+        await database_sync_to_async(job.delete)()
+
+    async def test_fails_the_node_when_the_job_no_longer_exists(self, activity_environment, ateam, anode, adag):
+        inputs = QualityBlockMaterializationInputs(
+            team_id=ateam.pk,
+            node_id=str(anode.id),
+            dag_id=str(adag.id),
+            job_id=str(uuid4()),
+            blocking_failures=1,
+        )
+
+        with pytest.raises(DataModelingJob.DoesNotExist):
+            await activity_environment.run(quality_block_materialization_activity, inputs)
+
+        await database_sync_to_async(anode.refresh_from_db)()
         system_props = anode.properties.get("system", {})
         assert system_props["last_run_status"] == DataModelingJobStatus.FAILED
-        assert "2 data quality checks failed" in system_props["last_run_error"]
-        assert job.status == DataModelingJob.Status.FAILED
-        assert "2 data quality checks failed" in job.error
-        assert "suspended" not in system_props
-
-        await database_sync_to_async(job.delete)()
+        assert system_props["last_run_error"] == (
+            "Not published: 1 data quality check failed. The previous version keeps serving until the checks pass."
+        )
 
 
 class TestNodeSuspension:
@@ -1656,18 +1739,24 @@ class _EmptyArrowClient:
 
 class TestHogqlTableModifiers:
     @pytest.mark.parametrize(
-        "query,team_modifiers,expected_sql",
+        "query,team_modifiers,expected_sql,expected_sql_new_events_schema",
         [
-            ("SELECT $is_bounce FROM sessions LIMIT 1", {"bounceRateDurationSeconds": 123}, "123"),
+            ("SELECT $is_bounce FROM sessions LIMIT 1", {"bounceRateDurationSeconds": 123}, "123", "123"),
             (
                 "SELECT properties.plan FROM events LIMIT 1",
                 {"propertyGroupsMode": "optimized"},
                 "properties_group_custom",
+                "events_json AS events",
             ),
         ],
     )
     async def test_compiles_the_view_with_the_team_default_modifiers(
-        self, ateam: Team, query: str, team_modifiers: dict[str, Any], expected_sql: str
+        self,
+        ateam: Team,
+        query: str,
+        team_modifiers: dict[str, Any],
+        expected_sql: str,
+        expected_sql_new_events_schema: str,
     ) -> None:
         ateam.modifiers = team_modifiers
         await database_sync_to_async(ateam.save)()
@@ -1690,6 +1779,9 @@ class TestHogqlTableModifiers:
         ):
             _ = [batch async for batch in hogql_table(query, ateam, LOGGER.bind())]
 
+        expected_sql = (
+            expected_sql_new_events_schema if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else expected_sql
+        )
         assert captured_sql is not None and expected_sql in captured_sql
 
     async def test_compiles_account_dependencies_without_a_user(self, ateam: Team) -> None:
@@ -2047,3 +2139,23 @@ class TestMaterializeViewStagesAccountPropertyRows:
         staged_object = await minio_client.get_object(Bucket=bucket_name, Key=keys[0])
         table = pq.read_table(BytesIO(await staged_object["Body"].read()))
         assert table.column_names == ["mrr", "organization_id"]
+
+
+class TestAwsStorageOptions:
+    @override_settings(
+        USE_LOCAL_SETUP=False,
+        BUCKET_URL="s3://posthog-s3-datawarehouse-us-east-1/dlt",
+        DATA_WAREHOUSE_S3_REGION="us-east-1",
+    )
+    def test_deployed_options_keep_warehouse_bucket_traffic_off_the_egress_proxy(self) -> None:
+        with (
+            unittest.mock.patch("posthog.temporal.data_modeling.activities.materialize_view.TEST", False),
+            unittest.mock.patch.dict(
+                "os.environ", {"HTTPS_PROXY": "http://egress-proxy.svc.cluster.local:4750/", "NO_PROXY": ""}
+            ),
+        ):
+            options = get_aws_storage_options()
+
+        assert options["proxy_excludes"] == "posthog-s3-datawarehouse-us-east-1.s3.us-east-1.amazonaws.com"
+        assert options["AWS_S3_ADDRESSING_STYLE"] == "virtual"
+        assert options["AWS_S3_ALLOW_UNSAFE_RENAME"] == "true"

@@ -1,9 +1,18 @@
 import asyncio
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Iterator
+from contextlib import AbstractContextManager
 from uuid import UUID
 
 import pytest
+import time_machine
 from unittest.mock import AsyncMock, MagicMock, patch
+
+from django.core.exceptions import ImproperlyConfigured
+
+from fakeredis import FakeRedis
+from redis.exceptions import ConnectionError as RedisConnectionError
+
+from posthog.token_bucket import TEST_reset_scripts
 
 from products.ml_inference.backend.facade.contracts import (
     ChoiceAnswer,
@@ -19,11 +28,24 @@ from products.signals.backend.temporal.safety_filter import SafetyFilterJudgeRes
 from products.signals.backend.typesafe_decision import (
     JEV_MODEL,
     JEV_TIMEOUT_SECONDS,
+    ModelMode,
     SignalsDecision,
     SignalsDecisionError,
     _query,
     run_model_decision,
 )
+
+
+@pytest.fixture(autouse=True)
+def reset_jev_budget() -> Iterator[MagicMock]:
+    TEST_reset_scripts()
+    with (
+        patch("products.signals.backend.typesafe_decision.get_client", return_value=FakeRedis()) as get_redis,
+        patch("products.signals.backend.typesafe_decision.JEV_ADMISSION_TIMEOUT_SECONDS", 600),
+        patch("products.signals.backend.typesafe_decision.JEV_SHADOW_ADMISSION_TIMEOUT_SECONDS", 600),
+    ):
+        yield get_redis
+    TEST_reset_scripts()
 
 
 def _actionability_result(probability: float = 0.98) -> DecisionResult:
@@ -51,12 +73,14 @@ def _safety_result(probability: float = 0.2) -> DecisionResult:
 
 async def _run_actionability(
     *,
+    team_id: int = 7,
+    stage: str = "actionability",
     traditional: Callable[[str | None], Awaitable[bool]] | None = None,
     typesafe_result: Callable[[bool, str | None], bool] | None = None,
 ) -> bool:
     return await run_model_decision(
-        team_id=7,
-        stage="actionability",
+        team_id=team_id,
+        stage=stage,
         primary_model="claude-sonnet-5",
         source_id="issue-1",
         source_product="linear",
@@ -84,6 +108,7 @@ async def test_safety_requests_category_through_the_shared_gateway_client() -> N
             "decision-1",
             "issue-1",
             "linear",
+            "typesafe-only",
         )
 
     decide.assert_called_once()
@@ -168,6 +193,136 @@ async def test_shadow_disagreement_keeps_primary_result_and_records_usage() -> N
     assert primary.await_args is not None
     assert primary.await_args.args == (trace_id,)
     assert decide.call_args.args[0].trace_id == trace_id
+
+
+@pytest.mark.asyncio
+async def test_shadow_budget_is_shared_across_teams_and_stages() -> None:
+    with (
+        time_machine.travel("2026-01-01", tick=False),
+        patch(
+            "products.signals.backend.typesafe_decision.posthoganalytics.get_feature_flag",
+            return_value="typesafe-shadow",
+        ),
+        patch("products.signals.backend.typesafe_decision.posthoganalytics.capture") as capture,
+        patch(
+            "products.signals.backend.typesafe_decision.decision_api.decide_when_available",
+            side_effect=lambda request, **kwargs: (
+                _actionability_result() if "actionable" in request.questions else _safety_result()
+            ),
+        ) as decide,
+    ):
+        results = await asyncio.gather(
+            *[
+                _run_actionability(team_id=team_id, stage=stage)
+                for team_id, stage in [(7, "actionability"), (8, "signal_safety"), (9, "report_safety")]
+            ]
+        )
+
+    assert results == [False, False, False]
+    assert decide.call_count == 2
+    statuses = [call.kwargs["properties"]["typesafe_status"] for call in capture.call_args_list]
+    assert sorted(statuses) == ["ok", "ok", "skipped_overload"]
+    assert all(call.kwargs["properties"]["deciding_provider"] == "traditional" for call in capture.call_args_list)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["traditional-shadow", "typesafe-only"])
+async def test_primary_waits_for_budget_refill(mode: ModelMode, reset_jev_budget: MagicMock) -> None:
+    with (
+        time_machine.travel("2026-01-01", tick=False) as clock,
+        patch("products.signals.backend.typesafe_decision.posthoganalytics.get_feature_flag", return_value=mode),
+        patch("products.signals.backend.typesafe_decision.posthoganalytics.capture"),
+        patch(
+            "products.signals.backend.typesafe_decision.decision_api.decide_when_available",
+            return_value=_actionability_result(),
+        ) as decide,
+        patch("products.signals.backend.typesafe_decision.asyncio.sleep", AsyncMock(side_effect=clock.shift)) as sleep,
+    ):
+        results = [await _run_actionability() for _ in range(3)]
+
+    assert results == [True, True, True]
+    assert decide.call_count == 3
+    assert all(call.kwargs["timeout_seconds"] == JEV_TIMEOUT_SECONDS for call in decide.call_args_list)
+    assert sleep.await_count == 2
+    assert all(2 <= call.args[0] <= 2.25 for call in sleep.await_args_list)
+    reset_jev_budget.assert_called_with(socket_timeout=0.1, socket_connect_timeout=0.1)
+
+
+@pytest.mark.asyncio
+async def test_busy_team_leaves_capacity_for_another_teams_primary_checks() -> None:
+    with (
+        time_machine.travel("2026-01-01", tick=False) as clock,
+        patch(
+            "products.signals.backend.typesafe_decision.posthoganalytics.get_feature_flag",
+            return_value="typesafe-shadow",
+        ) as flag,
+        patch("products.signals.backend.typesafe_decision.posthoganalytics.capture"),
+        patch(
+            "products.signals.backend.typesafe_decision.decision_api.decide_when_available",
+            return_value=_actionability_result(),
+        ) as decide,
+        patch(
+            "products.signals.backend.typesafe_decision.asyncio.sleep",
+            AsyncMock(side_effect=AssertionError("The other team must not wait for capacity")),
+        ),
+    ):
+        for second in range(6):
+            flag.return_value = "typesafe-shadow"
+            await asyncio.gather(*[_run_actionability(team_id=7) for _ in range(20)])
+            if second % 2 == 0:
+                flag.return_value = "typesafe-only"
+                assert await _run_actionability(team_id=8) is True
+            clock.shift(1)
+
+    teams = [call.args[0].team_id for call in decide.call_args_list]
+    assert teams.count(7) == 3
+    assert teams.count(8) == 3
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["typesafe-shadow", "traditional-shadow", "typesafe-only"])
+@pytest.mark.parametrize("failure", ["redis", "redis_config", "timeout"])
+async def test_admission_failure_preserves_mode_semantics(mode: ModelMode, failure: str) -> None:
+    traditional = AsyncMock(return_value=False)
+    broken_redis = MagicMock()
+    broken_redis.register_script.return_value.side_effect = RedisConnectionError("unavailable")
+    failure_patch: AbstractContextManager[object]
+    if failure == "redis":
+        failure_patch = patch("products.signals.backend.typesafe_decision.get_client", return_value=broken_redis)
+    elif failure == "redis_config":
+        failure_patch = patch(
+            "products.signals.backend.typesafe_decision.get_client", side_effect=ImproperlyConfigured("unconfigured")
+        )
+    else:
+        timeout = (
+            "JEV_SHADOW_ADMISSION_TIMEOUT_SECONDS" if mode == "typesafe-shadow" else "JEV_ADMISSION_TIMEOUT_SECONDS"
+        )
+        failure_patch = patch(f"products.signals.backend.typesafe_decision.{timeout}", 0)
+    with (
+        failure_patch,
+        patch("products.signals.backend.typesafe_decision.posthoganalytics.get_feature_flag", return_value=mode),
+        patch("products.signals.backend.typesafe_decision.posthoganalytics.capture") as capture,
+        patch("products.signals.backend.typesafe_decision.decision_api.decide_when_available") as decide,
+    ):
+        if mode == "typesafe-only":
+            with pytest.raises(SignalsDecisionError):
+                await _run_actionability(traditional=traditional)
+            traditional.assert_not_awaited()
+        else:
+            assert await _run_actionability(traditional=traditional) is False
+            traditional.assert_awaited_once()
+
+    decide.assert_not_called()
+    properties = capture.call_args.kwargs["properties"]
+    assert properties["typesafe_status"] == ("admission_timeout" if failure == "timeout" else "admission_unavailable")
+    assert (
+        properties["deciding_provider"]
+        == {
+            "typesafe-shadow": "traditional",
+            "traditional-shadow": "traditional_fallback",
+            "typesafe-only": "typesafe",
+        }[mode]
+    )
 
 
 @pytest.mark.asyncio

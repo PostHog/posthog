@@ -17,6 +17,7 @@ logger = structlog.get_logger(__name__)
 PARTITIONED_TABLES = ["sourcebatch", "sourcebatchstatus"]
 PARTITIONS_AHEAD = 7
 RETENTION_DAYS = 7
+DEFAULT_PARTITION_DELETE_BATCH_SIZE = 10_000
 
 # Deliberately not the lock-takeover sentinel — that string has special
 # downstream semantics in the dead-job gate.
@@ -45,7 +46,7 @@ async def manage_warehouse_sources_queue_partitions() -> dict:
     dropped: list[str] = []
     errors: list[str] = []
 
-    with psycopg.Connection.connect(settings.WAREHOUSE_SOURCES_DATABASE_URL, autocommit=True) as conn:
+    with psycopg.Connection.connect(_partition_ddl_database_url(), autocommit=True) as conn:
         today = datetime.now(UTC).date()
 
         for table in PARTITIONED_TABLES:
@@ -76,6 +77,7 @@ async def manage_warehouse_sources_queue_partitions() -> dict:
             ).fetchall():
                 partition_name = row[0]
                 if partition_name.endswith("_default"):
+                    await sync_to_async(_expire_default_partition_rows)(conn, table, partition_name, cutoff, errors)
                     continue
                 suffix = partition_name.rsplit("_", 1)[-1]
                 try:
@@ -96,7 +98,7 @@ async def manage_warehouse_sources_queue_partitions() -> dict:
                             )
                             continue
                     try:
-                        conn.execute(f"DROP TABLE IF EXISTS {partition_name}")
+                        await sync_to_async(_drop_partition)(conn, partition_name)
                         dropped.append(partition_name)
                     except Exception as e:
                         errors.append(f"Failed to drop {partition_name}: {e}")
@@ -129,7 +131,63 @@ async def manage_warehouse_sources_queue_partitions() -> dict:
     }
 
 
-def _terminalize_stranded_runs(conn: psycopg.Connection, partition_name: str) -> None:
+def _partition_ddl_database_url() -> str:
+    # Only the owner of a partitioned table can create its partitions, and the migration role owns the queue tables.
+    return settings.WAREHOUSE_SOURCES_QUEUE_PARTITION_DATABASE_URL or settings.WAREHOUSE_SOURCES_DATABASE_URL
+
+
+def _drop_partition(conn: psycopg.Connection, partition_name: str) -> None:
+    try:
+        conn.execute(f"DROP TABLE IF EXISTS {partition_name}")
+    except psycopg.errors.InsufficientPrivilege:
+        # Only a table's owner can drop it. Partitions created before this job used the
+        # migration role are owned by the worker's own role, so drop those with that role.
+        if not settings.WAREHOUSE_SOURCES_QUEUE_PARTITION_DATABASE_URL:
+            raise
+        with psycopg.Connection.connect(settings.WAREHOUSE_SOURCES_DATABASE_URL, autocommit=True) as owner_conn:
+            owner_conn.execute(f"DROP TABLE IF EXISTS {partition_name}")
+
+
+def _expire_default_partition_rows(
+    conn: psycopg.Connection, table: str, partition_name: str, cutoff: date, errors: list[str]
+) -> None:
+    """Apply retention to rows in the default partition.
+
+    Rows land in the default partition only for days that had no daily partition. Retention
+    removes data by dropping daily partitions, so without this step those rows stay forever.
+    """
+    created_before = datetime.combine(cutoff, datetime.min.time(), tzinfo=UTC)
+    try:
+        if table == "sourcebatch":
+            _terminalize_stranded_runs(conn, partition_name, created_before=created_before)
+        deleted = 0
+        while True:
+            # Bounded batches keep each statement short after an outage leaves several days of rows.
+            batch_deleted = conn.execute(
+                f"""
+                DELETE FROM {partition_name}
+                WHERE ctid = ANY(ARRAY(
+                    SELECT ctid FROM {partition_name}
+                    WHERE created_at < %(created_before)s
+                    LIMIT %(limit)s
+                ))
+                """,
+                {"created_before": created_before, "limit": DEFAULT_PARTITION_DELETE_BATCH_SIZE},
+            ).rowcount
+            deleted += batch_deleted
+            if batch_deleted < DEFAULT_PARTITION_DELETE_BATCH_SIZE:
+                break
+    except Exception as e:
+        errors.append(f"Failed to expire old rows in {partition_name}: {e}")
+        logger.exception("Failed to expire old default partition rows", partition=partition_name)
+        return
+    if deleted:
+        logger.warning("Expired old default partition rows", partition=partition_name, deleted=deleted)
+
+
+def _terminalize_stranded_runs(
+    conn: psycopg.Connection, partition_name: str, *, created_before: datetime | None = None
+) -> None:
     """Fail runs that still have non-terminal batches in ``partition_name`` before it is dropped.
 
     Dropping the data itself is deliberate — the staged cursor never promoted,
@@ -152,6 +210,7 @@ def _terminalize_stranded_runs(conn: psycopg.Connection, partition_name: str) ->
     )
 
     states = ", ".join(f"'{s}'" for s in _NON_TERMINAL_BATCH_STATES)
+    created_filter = "AND created_at < %(created_before)s" if created_before else ""
     stranded = conn.execute(
         f"""
         SELECT run_uuid, team_id, schema_id, job_id,
@@ -159,9 +218,11 @@ def _terminalize_stranded_runs(conn: psycopg.Connection, partition_name: str) ->
                COUNT(*) AS non_terminal_batches
         FROM {partition_name}
         WHERE latest_state IN ({states})
+          {created_filter}
         GROUP BY run_uuid, team_id, schema_id, job_id
         ORDER BY run_uuid
-        """
+        """,
+        {"created_before": created_before} if created_before else None,
     ).fetchall()
     if not stranded:
         return
@@ -219,6 +280,11 @@ def _cleanup_old_s3_extractions(today: date, errors: list[str]) -> list[str]:
         entries = s3.ls(base_prefix)
     except FileNotFoundError:
         logger.debug("s3_extraction_prefix_not_found", prefix=base_prefix)
+        return deleted
+    except Exception as e:
+        # Record instead of raising, because a raise here skips the Slack alert for every error so far.
+        errors.append(f"Failed to list S3 extraction partitions: {e}")
+        logger.exception("Failed to list S3 extraction partitions", prefix=base_prefix)
         return deleted
 
     for entry in entries:

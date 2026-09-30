@@ -1,4 +1,5 @@
 import os
+import time
 import signal
 import typing
 import asyncio
@@ -281,6 +282,8 @@ from products.signals.backend.emission.temporal_settings import (
 )
 from products.signals.backend.temporal import (
     ACTIVITIES as SIGNALS_PRODUCT_ACTIVITIES,
+    SELF_DRIVING_ACTIVITIES,
+    SELF_DRIVING_WORKFLOWS,
     WORKFLOWS as SIGNALS_PRODUCT_WORKFLOWS,
 )
 from products.stamphog.backend.facade.temporal import (
@@ -311,8 +314,8 @@ from products.wizard.backend.facade.temporal import (
     WORKFLOWS as WIZARD_WORKFLOWS,
 )
 
-# When adding modules to a queue, also update the corresponding CI trigger
-# in .github/workflows/container-images-cd.yml (check_changes_*_temporal_worker)
+# When adding modules to a queue, also add their paths to that fleet's filter in the
+# check_temporal_worker_changes step of .github/workflows/container-images-cd.yml
 _task_queue_specs = [
     (
         settings.SYNC_BATCH_EXPORTS_TASK_QUEUE,
@@ -575,6 +578,11 @@ _task_queue_specs = [
         AUTORESEARCH_ACTIVITIES,
     ),
     (
+        settings.SELF_DRIVING_TASK_QUEUE,
+        SELF_DRIVING_WORKFLOWS,
+        SELF_DRIVING_ACTIVITIES,
+    ),
+    (
         settings.STAMPHOG_TASK_QUEUE,
         STAMPHOG_WORKFLOWS,
         STAMPHOG_ACTIVITIES,
@@ -807,6 +815,21 @@ class Command(BaseCommand):
                 return
 
             logger.info("Initiating shutdown")
+
+            # Each activity that runs now holds this pod until it returns or the graceful shutdown
+            # timeout ends, so this list shows what a slow shutdown waits on.
+            running_activities = get_liveness_tracker().get_running_activities()
+            now = time.time()
+            logger.info("Activities running at shutdown", count=len(running_activities))
+            for running in running_activities:
+                logger.info(
+                    "Activity running at shutdown",
+                    activity_type=running.activity_type,
+                    workflow_type=running.workflow_type,
+                    workflow_id=running.workflow_id,
+                    attempt=running.attempt,
+                    running_seconds=round(now - running.started_at),
+                )
 
             # Shutdown health server first so k8s stops sending traffic
             if health_srv:

@@ -75,6 +75,12 @@ class GladlySource(ResumableSource[GladlySourceConfig, GladlyResumeConfig]):
                 "account. Ask Gladly support to check the report is available for your account. If "
                 "Gladly confirms it is, contact PostHog support."
             ),
+            "Gladly report unavailable for this account": (
+                "Gladly returned an error every time PostHog asked for the report this table syncs "
+                "from, and the table has never synced. Ask Gladly support to make the report "
+                "available for your account, then re-enable this table. If Gladly confirms it is "
+                "available, contact PostHog support."
+            ),
         }
 
     def get_retryable_errors(self) -> set[str]:
@@ -210,4 +216,5 @@ Your organization is the part of your Gladly URL before `.gladly.com`. For `myor
             if inputs.should_use_incremental_field
             else None,
             domain=config.domain,
+            schema_has_ever_synced=inputs.schema_has_ever_synced,
         )

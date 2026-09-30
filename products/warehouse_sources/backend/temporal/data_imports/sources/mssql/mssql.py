@@ -837,8 +837,12 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
             row_size_bytes = max(row[0] or 0, 1)
             return int(row_size_bytes)
         except Exception as e:
+            # This `SELECT TOP 100 *` is a best-effort sample over the same table/columns as the
+            # real streaming query, same as `get_rows_to_sync` above: a genuine problem (missing
+            # column, permissions) resurfaces there and is classified through the normal
+            # retryable/non-retryable path. Capturing it here too would only flood error tracking
+            # with a handled duplicate.
             logger.debug(f"fetch_average_row_size: Error: {e}.", exc_info=e)
-            capture_exception(e)
             return None
 
     def get_rows_to_sync(

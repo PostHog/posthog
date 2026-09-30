@@ -82,10 +82,6 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     process_message,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline import PipelineV3
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
-    BATCH_TABLE,
-    PendingBatch,
-)
 from products.warehouse_sources.backend.temporal.data_imports.post_import_job import (
     PostImportWorkflow,
     build_post_import_workflow_id,
@@ -104,6 +100,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.p
     XminBounds,
     _TableChunking,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.xmin_cursor import XminCursor
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.constants import (
     BALANCE_TRANSACTION_RESOURCE_NAME as STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
     CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
@@ -136,6 +133,7 @@ from products.warehouse_sources.backend.types import (
     ExternalDataSchemaSyncType,
     IncrementalSyncBlockedReason,
 )
+from products.warehouse_sources_queue.backend.core.jobs_db import BATCH_TABLE, PendingBatch
 
 BUCKET_NAME = "test-pipeline"
 SESSION = aioboto3.Session()
@@ -459,7 +457,7 @@ async def _run(
     )
 
     with (
-        mock.patch.object(DeltaMaintenance, "compact_table") as mock_compact_table,
+        mock.patch.object(DeltaMaintenance, "run_scheduled") as mock_run_scheduled,
         mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.external_data_job.get_data_import_finished_metric"
         ) as mock_get_data_import_finished_metric,
@@ -497,7 +495,14 @@ async def _run(
             # so that case only checks storage_delta_mib was computed at all, above.
             assert run.storage_delta_mib != 0
 
-        mock_compact_table.assert_called()
+        if existing_schema_id is not None:
+            # A genuine re-sync also runs the pre-write defensive maintenance pass (see
+            # DeltaMaintenance.run_scheduled's callers in pipeline_v2/pipeline_v3), so both that call
+            # and the post-load call must land — asserting only "called" would still pass if the
+            # post-load call were dropped, since the pre-write call alone satisfies it.
+            assert mock_run_scheduled.call_count == 2
+        else:
+            mock_run_scheduled.assert_called()
         mock_get_data_import_finished_metric.assert_called_with(
             source_type=source_type, status=ExternalDataJobStatus.COMPLETED.lower()
         )
@@ -2351,6 +2356,13 @@ _COARSEN_FLAGS_ON = (
     ".is_auto_repartition_enabled",
     "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition_controller"
     ".is_auto_coarsen_enabled",
+    # `repartition_activity_has_work` (used by job creation to decide whether to schedule the
+    # activity at all) calls the module-local `is_auto_repartition_enabled` binding inside
+    # `repartition_controller`, a separate name from the one `repartition_table` imported for its
+    # own use above. Patching only the latter leaves job creation seeing the real (disabled) flag,
+    # so organic pre-extraction detection never gets scheduled and coarsening never runs.
+    "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition_controller"
+    ".is_auto_repartition_enabled",
 )
 
 
@@ -2444,7 +2456,11 @@ async def test_in_place_coarsening_merges_weekly_partitions_into_months(
     assert len(ids_before) == len(timestamps)
 
     # Coarsening evaluates on the next sync and, finding a layout that fits, rewrites in the same run.
-    with mock.patch(_COARSEN_FLAGS_ON[0], return_value=True), mock.patch(_COARSEN_FLAGS_ON[1], return_value=True):
+    with (
+        mock.patch(_COARSEN_FLAGS_ON[0], return_value=True),
+        mock.patch(_COARSEN_FLAGS_ON[1], return_value=True),
+        mock.patch(_COARSEN_FLAGS_ON[2], return_value=True),
+    ):
         await _execute_run(str(uuid.uuid4()), inputs, [])
         await _replay_v3_consumer(team_id=team.pk, schema_id=inputs.external_data_schema_id)
 
@@ -2460,7 +2476,11 @@ async def test_in_place_coarsening_merges_weekly_partitions_into_months(
     assert await _row_ids(team, "postgres_test_coarsen_week") == ids_before
 
     # And it must settle: a table just coarsened must not be split straight back on the next sync.
-    with mock.patch(_COARSEN_FLAGS_ON[0], return_value=True), mock.patch(_COARSEN_FLAGS_ON[1], return_value=True):
+    with (
+        mock.patch(_COARSEN_FLAGS_ON[0], return_value=True),
+        mock.patch(_COARSEN_FLAGS_ON[1], return_value=True),
+        mock.patch(_COARSEN_FLAGS_ON[2], return_value=True),
+    ):
         await _execute_run(str(uuid.uuid4()), inputs, [])
         await _replay_v3_consumer(team_id=team.pk, schema_id=inputs.external_data_schema_id)
 
@@ -2598,7 +2618,11 @@ async def test_in_place_coarsening_merges_hourly_partitions_up(
     ids_before = await _row_ids(team, "postgres_test_coarsen_hour")
 
     await _backdate_last_repartition(schema, days=8)
-    with mock.patch(_COARSEN_FLAGS_ON[0], return_value=True), mock.patch(_COARSEN_FLAGS_ON[1], return_value=True):
+    with (
+        mock.patch(_COARSEN_FLAGS_ON[0], return_value=True),
+        mock.patch(_COARSEN_FLAGS_ON[1], return_value=True),
+        mock.patch(_COARSEN_FLAGS_ON[2], return_value=True),
+    ):
         await _execute_run(str(uuid.uuid4()), inputs, [])
         await _replay_v3_consumer(team_id=team.pk, schema_id=inputs.external_data_schema_id)
 
@@ -2684,7 +2708,11 @@ async def test_in_place_coarsening_for_hashed_and_numerical_modes(
     assert len(ids_before) == 320
 
     await _backdate_last_repartition(schema, days=8)
-    with mock.patch(_COARSEN_FLAGS_ON[0], return_value=True), mock.patch(_COARSEN_FLAGS_ON[1], return_value=True):
+    with (
+        mock.patch(_COARSEN_FLAGS_ON[0], return_value=True),
+        mock.patch(_COARSEN_FLAGS_ON[1], return_value=True),
+        mock.patch(_COARSEN_FLAGS_ON[2], return_value=True),
+    ):
         await _execute_run(str(uuid.uuid4()), inputs, [])
         await _replay_v3_consumer(team_id=team.pk, schema_id=inputs.external_data_schema_id)
 
@@ -3274,7 +3302,7 @@ async def test_append_only_table(team, mock_stripe_client):
         sync_type_config={"incremental_field": "created", "incremental_field_type": "integer"},
     )
 
-    with mock.patch.object(DeltaMaintenance, "compact_table"):
+    with mock.patch.object(DeltaMaintenance, "run_scheduled"):
         await _execute_run(str(uuid.uuid4()), inputs, [])
 
     run_for_replay = await sync_to_async(
@@ -4359,7 +4387,7 @@ async def test_stripe_webhook_s3_charges(team, stripe_charge, mock_stripe_client
     assert len(files.get("Contents", [])) == 1
 
     # Run the pipeline again to ingest the webhook parquet
-    with mock.patch.object(DeltaMaintenance, "compact_table"):
+    with mock.patch.object(DeltaMaintenance, "run_scheduled"):
         workflow_id = str(uuid.uuid4())
         await _execute_run(workflow_id, inputs, stripe_charge["data"])
 
@@ -4550,7 +4578,7 @@ async def test_stripe_webhook_consumer_e2e(team, stripe_charge, mock_stripe_clie
     consumer._consumer.commit.assert_called_once_with(asynchronous=False)
 
     # 6. Run the import pipeline to ingest the parquet
-    with mock.patch.object(DeltaMaintenance, "compact_table"):
+    with mock.patch.object(DeltaMaintenance, "run_scheduled"):
         workflow_id = str(uuid.uuid4())
         await _execute_run(workflow_id, inputs, stripe_charge["data"])
 
@@ -4921,6 +4949,11 @@ def _postgres_job_inputs(postgres_config: dict) -> dict[str, str | dict[str, str
     }
 
 
+def _stored_xmin_cursor(schema: ExternalDataSchema) -> XminCursor | None:
+    payload = schema.sync_type_config.get("source_cursor")
+    return XminCursor(**payload["data"]) if payload else None
+
+
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_postgres_xmin_sync(team, postgres_config, postgres_connection):
@@ -4952,10 +4985,8 @@ async def test_postgres_xmin_sync(team, postgres_config, postgres_connection):
 
     # Ceiling state persisted at job completion (next run's lower bound + durable cursor + epoch).
     schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
-    assert schema.xmin_last_value is not None
-    assert schema.xmin_ceiling is not None
-    assert schema.xmin_num_wraparound is not None
-    first_ceiling = schema.xmin_last_value
+    first_cursor = _stored_xmin_cursor(schema)
+    assert first_cursor is not None
 
     # Mutate: update the existing row and insert a new one. Both get a fresh xmin above the ceiling.
     await postgres_connection.execute(
@@ -4975,8 +5006,9 @@ async def test_postgres_xmin_sync(team, postgres_config, postgres_connection):
 
     # Ceiling advanced strictly past the first run's value — the delta committed new transactions.
     schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
-    assert schema.xmin_last_value is not None
-    assert schema.xmin_last_value > first_ceiling
+    second_cursor = _stored_xmin_cursor(schema)
+    assert second_cursor is not None
+    assert second_cursor.ceiling_xid8 > first_cursor.ceiling_xid8
 
     # Hard deletes are invisible to xmin — a vacuumed tuple leaves nothing to read.
     await postgres_connection.execute("DELETE FROM {schema}.xmin_table WHERE id = 2".format(schema=schema_name))
@@ -5088,7 +5120,7 @@ async def test_postgres_switch_to_xmin_rebuilds_table(team, postgres_config, pos
     # Reset consumed: xmin state seeded fresh, reset_pipeline cleared.
     schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
     assert schema.sync_type_config.get("reset_pipeline") is None
-    assert schema.xmin_last_value is not None
+    assert _stored_xmin_cursor(schema) is not None
 
 
 # --- Destinations ------------------------------------------------------------------------

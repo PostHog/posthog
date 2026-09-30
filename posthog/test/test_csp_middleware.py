@@ -17,6 +17,18 @@ from posthog.csp_middleware import (
 )
 
 
+def _parse_policies(header: str) -> list[dict[str, list[str]]]:
+    return [
+        {name: sources for name, *sources in (part.split() for part in policy.split("; "))}
+        for policy in header.split(", ")
+        if policy
+    ]
+
+
+def _report_version(policy: dict[str, list[str]]) -> list[str] | None:
+    return parse_qs(urlsplit(policy.get("report-uri", [""])[0]).query).get("v")
+
+
 # Tests run as a self-hosted install, which never enforces. LOCAL enforces without turning on DEBUG.
 @override_settings(CLOUD_DEPLOYMENT="LOCAL")
 class TestCSPMiddleware(APIBaseTest):
@@ -63,6 +75,15 @@ class TestCSPMiddleware(APIBaseTest):
         with override_settings(**overrides):
             response = self.client.get("/")
         assert expected in response["Content-Security-Policy"]
+
+    def test_dev_policy_admits_a_remote_vite_host(self):
+        # A devbox serves Vite from its Coder host, so a policy naming only localhost renders a blank page.
+        with override_settings(JS_URL="https://frontend--devbox--jane.coder.example.com"):
+            response = self.client.get("/")
+        script_src = next(
+            part for part in response["Content-Security-Policy"].split("; ") if part.startswith("script-src ")
+        ).split()
+        assert {"http://localhost:8234", "https://frontend--devbox--jane.coder.example.com"} <= set(script_src)
 
     def test_replay_player_frame_serves_the_mount_node_without_a_session(self):
         # Shared recordings render the player for logged-out viewers.
@@ -116,7 +137,7 @@ class TestCSPMiddleware(APIBaseTest):
 
         embedded = self.client.get("/shared/notarealtoken")
         assert "Content-Security-Policy" not in embedded
-        assert "frame-ancestors" in embedded["Content-Security-Policy-Report-Only"]
+        assert "frame-ancestors" not in embedded["Content-Security-Policy-Report-Only"]
 
     @override_settings(CLOUD_DEPLOYMENT="US")  # As PostHog Cloud
     def test_html_response_declares_default_reporting_endpoint_with_distinct_id(self):
@@ -295,6 +316,52 @@ class TestCSPMiddleware(APIBaseTest):
         assert f"https://agent-proxy.{region}.posthog.com" in connect_src
         # Allowing the other region would hide a request that crossed regions by mistake.
         assert not any(other_region in (urlsplit(source).hostname or "").split(".") for source in connect_src)
+
+    @parameterized.expand(
+        [
+            ("enforced_app_page", "/", {"CLOUD_DEPLOYMENT": "US", "SITE_URL": "https://us.posthog.com"}, True),
+            # This document already sends the app policy report-only, so the shadow must join that header.
+            (
+                "report_only_embeddable_document",
+                "/shared/notarealtoken",
+                {"CLOUD_DEPLOYMENT": "US", "SITE_URL": "https://us.posthog.com"},
+                True,
+            ),
+            (
+                "self_hosted_with_reporting_on",
+                "/",
+                {
+                    "CLOUD_DEPLOYMENT": None,
+                    "SITE_URL": "https://posthog.example.com",
+                    "CSP_REPORT_ENDPOINT": "https://posthog.example.com/report/?token=phc_test&v=2",
+                },
+                False,
+            ),
+        ]
+    )
+    def test_cloud_reports_images_that_need_https_without_blocking_them(
+        self, _name: str, path: str, overrides: dict[str, str | None], expects_shadow: bool
+    ) -> None:
+        with override_settings(TEST=False, DEBUG=False, E2E_TESTING=False, **overrides):
+            response = self.client.get(path)
+
+        enforced = _parse_policies(response.get("Content-Security-Policy", ""))
+        reported = _parse_policies(response.get("Content-Security-Policy-Report-Only", ""))
+        (app_policy,) = [policy for policy in enforced + reported if "default-src" in policy]
+        # The app policy keeps `https:`, so the shadow reports images without blocking any.
+        assert "https:" in app_policy["img-src"]
+        # Enforced, the shadow would block every image from a host it does not name.
+        assert [policy for policy in enforced if _report_version(policy) == ["5"]] == []
+        shadows = [policy for policy in reported if _report_version(policy) == ["5"]]
+        if not expects_shadow:
+            assert shadows == []
+            return
+
+        (shadow,) = shadows
+        # Any other directive would make a v=5 report mean something besides "this image needs https:".
+        assert set(shadow) == {"img-src", "report-uri"}
+        assert "https:" not in shadow["img-src"]
+        assert "https://www.gravatar.com" in shadow["img-src"]
 
     @override_settings(
         OBJECT_STORAGE_PUBLIC_ENDPOINT="https://s3.us-east-1.amazonaws.com",
