@@ -22,10 +22,12 @@ export interface TodayReportLogicProps {
 export interface todayReportLogicValues {
     reports: SignalReport[] // todayLogic
     chartPlacements: ChartPlacements
+    chartsById: Map<string, ReportChartApi>
     currentReport: SignalReport | null
     fullReport: SignalReport | null
     fullReportLoading: boolean
     reportFailed: boolean
+    reportNotFound: boolean
     reportSignals: SignalNodeApi[] | null
     reportSignalsLoading: boolean
     reportUrl: string
@@ -77,6 +79,7 @@ export interface todayReportLogicMeta {
             reportFailed: boolean
         ) => SignalReport | null
         chartPlacements: (currentReport: SignalReport | null) => ChartPlacements
+        chartsById: (currentReport: SignalReport | null) => Map<string, ReportChartApi>
         trailingCharts: (currentReport: SignalReport | null, chartPlacements: ChartPlacements) => ReportChartApi[]
         signals: (reportSignals: SignalNodeApi[] | null) => SignalNodeApi[]
     }
@@ -129,6 +132,14 @@ export const todayReportLogic = kea<todayReportLogicType>([
     })),
     reducers({
         reportFailed: [false, { loadFullReport: () => false, loadFullReportFailure: () => true }],
+        // A 404 also covers a report in a project the user can't access, so the page can't claim it was deleted.
+        reportNotFound: [
+            false,
+            {
+                loadFullReport: () => false,
+                loadFullReportFailure: (_, { errorObject }) => errorObject?.status === 404,
+            },
+        ],
     }),
     selectors(({ props }) => ({
         // The list row renders at once, and the full report replaces it when it arrives with its charts.
@@ -145,6 +156,11 @@ export const todayReportLogic = kea<todayReportLogicType>([
                     currentReport?.summary,
                     (currentReport?.charts ?? []).map((chart) => chart.chart_id)
                 ),
+        ],
+        chartsById: [
+            (s) => [s.currentReport],
+            (currentReport: SignalReport | null): Map<string, ReportChartApi> =>
+                new Map((currentReport?.charts ?? []).map((chart) => [chart.chart_id, chart])),
         ],
         trailingCharts: [
             (s) => [s.currentReport, s.chartPlacements],
