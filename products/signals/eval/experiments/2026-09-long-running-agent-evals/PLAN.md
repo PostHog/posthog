@@ -242,9 +242,17 @@ Write a private variants JSON file, for example:
 The source settings are saved before any override, so the first variant does not redefine the baseline.
 If the source has no explicit effort pin, supply a common `--effort` supported by the selected models.
 
+The CLI reads the operator key from `POSTHOG_API_KEY`, and it never saves the key in the manifest.
+`.codex/with-flox` starts commands with an empty environment, so an exported key does not reach the CLI.
+Keep the key on one line in a private mode-`600` file and load it inside the wrapper:
+
 ```sh
-export POSTHOG_API_KEY=... # Set privately; never save it in the manifest.
-.codex/with-flox python products/signals/eval/experiments/2026-09-long-running-agent-evals/scripts/run_live_trials.py \
+.codex/with-flox bash -c '
+  IFS= read -r POSTHOG_API_KEY < "$HOME/.config/posthog/scout-devbox.pat" || exit 1
+  export POSTHOG_API_KEY
+  exec python "$@"
+' scout-trials \
+  products/signals/eval/experiments/2026-09-long-running-agent-evals/scripts/run_live_trials.py \
   --host http://localhost:8000 --project-id 1 --config-id '<source-config-uuid>' \
   --variants playground/scout-evals/variants.json --effort medium \
   --repeats 3 --concurrency 2 --output playground/scout-evals/live-comparison
