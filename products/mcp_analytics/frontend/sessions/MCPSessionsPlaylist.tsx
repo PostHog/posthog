@@ -158,7 +158,7 @@ function SessionsListPanel(): JSX.Element {
         <div className="flex flex-col h-full min-h-0 overflow-hidden rounded border border-primary bg-surface-primary">
             <div className="shrink-0 flex flex-col gap-2 border-b border-primary p-2">
                 <div className="flex flex-col gap-2" data-quill>
-                    <div className="flex flex-wrap items-center gap-2">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
                         <Select
                             value={String(filters.hasErrors ?? 'all')}
                             onValueChange={(value) => setFilters({ hasErrors: parseUrlBoolean(value) })}
@@ -196,6 +196,18 @@ function SessionsListPanel(): JSX.Element {
                             </SelectContent>
                         </Select>
                     </div>
+                    {filters.search ? (
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            className="self-start"
+                            data-attr="mcp-sessions-clear-search"
+                            title={`Clear session filter: ${filters.search}`}
+                            onClick={() => setFilters({ search: '' })}
+                        >
+                            Clear session filter
+                        </Button>
+                    ) : null}
                 </div>
             </div>
             <div className="flex-1 min-h-0 overflow-y-auto" data-attr="mcp-sessions-list">

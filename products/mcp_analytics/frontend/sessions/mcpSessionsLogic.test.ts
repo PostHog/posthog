@@ -89,6 +89,32 @@ describe('mcpSessionsLogic', () => {
         expect(listMock).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({ has_errors: undefined }))
     })
 
+    it('deep-links a session through search and clears the filter', async () => {
+        listMock.mockResolvedValue({
+            results: [{ session_id: 'linked-session', session_start: '2026-01-01T00:00:00Z' }],
+            has_next: false,
+        })
+        toolCallsMock.mockResolvedValue({ results: [], has_next: false })
+
+        await expectLogic(logic, () => {
+            router.actions.push(urls.mcpAnalyticsSessions(), { search: 'linked-session' })
+        }).toDispatchActions(['loadSessionsSuccess', 'loadToolCallsSuccess'])
+
+        expect(logic.values.filters.search).toBe('linked-session')
+        expect(logic.values.selectedSessionId).toBe('linked-session')
+        expect(listMock).toHaveBeenLastCalledWith(
+            expect.anything(),
+            expect.objectContaining({ search: 'linked-session' })
+        )
+
+        await expectLogic(logic, () => logic.actions.setFilters({ search: '' })).toDispatchActions([
+            'loadSessionsSuccess',
+        ])
+
+        expect(router.values.searchParams).not.toHaveProperty('search')
+        expect(listMock).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({ search: undefined }))
+    })
+
     it.each([
         ['nothing', () => {}, false],
         ['search', () => logic.actions.setFilters({ search: 'abc' }), true],

@@ -27,7 +27,7 @@ import { formatDuration, truncateSessionId } from './formatters'
 // Link to the Sessions tab, keeping the dashboard's date range so a linked session resolves in the
 // same window. A sessionId becomes the search term (filtering the list to it and selecting it);
 // without one, opens the full list.
-function sessionsUrl(searchParams: Record<string, any>, sessionId?: string): string {
+export function sessionsUrl(searchParams: Record<string, any>, sessionId?: string): string {
     const { search: _search, ...rest } = searchParams
     return combineUrl(urls.mcpAnalyticsSessions(), sessionId ? { ...rest, search: sessionId } : rest).url
 }
