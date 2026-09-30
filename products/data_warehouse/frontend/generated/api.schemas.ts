@@ -91,6 +91,110 @@ export interface CheckSchemaNameResponseApi {
     available: boolean
 }
 
+export interface PipelineActivityRowApi {
+    /** Run id. */
+    id: string
+    /**
+     * The source type for a sync, or 'Materialized view' for a model run.
+     * @nullable
+     */
+    type: string | null
+    /**
+     * Table or view the run wrote.
+     * @nullable
+     */
+    name: string | null
+    /** Run status. One of: Running, Completed, Failed, BillingLimitReached, BillingLimitTooLow. */
+    status: string
+    /** Rows the run wrote. Zero while it is still going. */
+    rows: number
+    /** When the run was created. There is no separate start time. */
+    created_at: string
+    /**
+     * When the run ended, or null while running.
+     * @nullable
+     */
+    finished_at: string | null
+    /**
+     * Error the run ended with, if any.
+     * @nullable
+     */
+    latest_error: string | null
+    /**
+     * Temporal run id, for finding the run's logs.
+     * @nullable
+     */
+    workflow_run_id: string | null
+    /**
+     * Where a materialized view came from. Null for syncs.
+     * @nullable
+     */
+    origin: string | null
+}
+
+export interface PipelineActivityResponseApi {
+    /** Runs, newest first. */
+    results: PipelineActivityRowApi[]
+    /**
+     * Query string for the next page, or null on the last.
+     * @nullable
+     */
+    next: string | null
+    /**
+     * Query string for the previous page, or null on the first.
+     * @nullable
+     */
+    previous: string | null
+}
+
+export interface PipelineErrorApi {
+    /** What went wrong, for a reader rather than a parser. */
+    error: string
+}
+
+export interface DataHealthIssueApi {
+    /** Id of the thing that is unhealthy. */
+    id: string
+    /** Table, view or export the issue is about. */
+    name: string
+    /** What kind of thing is unhealthy. One of: materialized_view, external_data_sync, source, destination, transformation. */
+    type: string
+    /**
+     * Source type for a sync issue, for example 'Stripe'.
+     * @nullable
+     */
+    source_type?: string | null
+    /**
+     * How a sync issue's table is kept up to date, for example 'incremental' or 'webhook'. A webhook table is pushed to rather than pulled on a schedule. Null for other types.
+     * @nullable
+     */
+    sync_type?: string | null
+    /** Why it is unhealthy. One of: failed, disabled, degraded, billing_limit. */
+    status: string
+    /**
+     * The error, where one was recorded.
+     * @nullable
+     */
+    error: string | null
+    /**
+     * When a sync issue's table last synced successfully. Null if it never has.
+     * @nullable
+     */
+    failed_at: string | null
+    /**
+     * Where to go to fix it.
+     * @nullable
+     */
+    url: string | null
+}
+
+export interface DataHealthIssuesResponseApi {
+    /** Everything currently unhealthy. */
+    results: DataHealthIssueApi[]
+    /** How many issues are in `results`. */
+    count: number
+}
+
 /**
  * The team-level materialization gate. Checks always run and warn; this only toggles blocking.
  */
@@ -119,6 +223,48 @@ export interface DeprovisionWarehouseResponseApi {
     status: string
     /** duckgres org identifier (the PostHog organization id) */
     org: string
+}
+
+export interface JobStatsBucketApi {
+    /** Runs that completed in this bucket. */
+    successful: number
+    /** Runs that failed in this bucket. */
+    failed: number
+}
+
+/**
+ * Runs per time bucket, keyed by ISO hour when days=1 and by ISO date otherwise. Buckets with no runs are absent rather than zero.
+ */
+export type PipelineJobStatsResponseApiBreakdown = { [key: string]: JobStatsBucketApi }
+
+export interface JobCountsApi {
+    /** Runs that finished inside the window. */
+    total: number
+    /** Runs in flight right now, regardless of the window. */
+    running: number
+    /** Runs that completed. */
+    successful: number
+    /** Runs that errored or that billing stopped. */
+    failed: number
+}
+
+export interface PipelineJobStatsResponseApi {
+    /** Window the counts cover, in days. One of 1, 7 or 30. */
+    days: number
+    /** Start of the window, in the project's timezone. */
+    cutoff_time: string
+    /** Sync runs plus materialization runs in the window. */
+    total_jobs: number
+    /** Sync and materialization runs that completed. */
+    successful_jobs: number
+    /** Sync and materialization runs that failed. */
+    failed_jobs: number
+    /** Counts for warehouse source syncs alone. */
+    external_data_jobs: JobCountsApi
+    /** Counts for materialized view runs alone. */
+    modeling_jobs: JobCountsApi
+    /** Runs per time bucket, keyed by ISO hour when days=1 and by ISO date otherwise. Buckets with no runs are absent rather than zero. */
+    breakdown: PipelineJobStatsResponseApiBreakdown
 }
 
 /**
@@ -594,6 +740,41 @@ export interface ProvisionWarehouseResponseApi {
 export interface ResetPasswordResponseApi {
     username: string
     password: string
+}
+
+/**
+ * Rows synced in the billing period, keyed by source id.
+ */
+export type PipelineRowsStatsResponseApiBreakdownOfRowsBySource = { [key: string]: number }
+
+export interface PipelineRowsStatsResponseApi {
+    /** Whether billing answered. When false, only the counts derived from runs are meaningful. */
+    billing_available: boolean
+    /**
+     * Length of the billing period, for example 'month'.
+     * @nullable
+     */
+    billing_interval: string | null
+    /**
+     * Start of the current billing period.
+     * @nullable
+     */
+    billing_period_start: string | null
+    /**
+     * End of the current billing period.
+     * @nullable
+     */
+    billing_period_end: string | null
+    /** Rows synced in the billing period, billed and not yet billed. */
+    total_rows: number
+    /** Rows billing has already counted. */
+    tracked_billing_rows: number
+    /** Rows synced since billing last counted. */
+    pending_billing_rows: number
+    /** Rows written by materialized view runs in the billing period. */
+    materialized_rows_in_billing_period: number
+    /** Rows synced in the billing period, keyed by source id. */
+    breakdown_of_rows_by_source: PipelineRowsStatsResponseApiBreakdownOfRowsBySource
 }
 
 /**
@@ -1482,7 +1663,7 @@ export interface SyncFrequencyBoundsApi {
 export interface DataWarehouseSavedQueryApi {
     readonly id: string
     /** @nullable */
-    deleted?: boolean | null
+    readonly deleted: boolean | null
     /**
      * Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node.
      * @maxLength 128
@@ -1548,12 +1729,12 @@ export interface DataWarehouseSavedQueryApi {
      */
     readonly latest_history_id: string | null
     /**
-     * If true, skip column inference and validation. For saving drafts.
+     * If true, skip column inference and external table discovery. On update, also skip the query revision conflict check. Query validation and revision updates still run.
      * @nullable
      */
     soft_update?: boolean | null
     /**
-     * Optional DAG to place this view into
+     * DAG in this project to place the view into. Null uses the default DAG. Managed DAGs are not allowed.
      * @nullable
      */
     dag_id?: string | null
@@ -1611,7 +1792,7 @@ export type PatchedDataWarehouseSavedQueryApiSuspended = { [key: string]: SavedQ
 export interface PatchedDataWarehouseSavedQueryApi {
     readonly id?: string
     /** @nullable */
-    deleted?: boolean | null
+    readonly deleted?: boolean | null
     /**
      * Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node.
      * @maxLength 128
@@ -1677,12 +1858,12 @@ export interface PatchedDataWarehouseSavedQueryApi {
      */
     readonly latest_history_id?: string | null
     /**
-     * If true, skip column inference and validation. For saving drafts.
+     * If true, skip column inference and external table discovery. On update, also skip the query revision conflict check. Query validation and revision updates still run.
      * @nullable
      */
     soft_update?: boolean | null
     /**
-     * Optional DAG to place this view into
+     * DAG in this project to place the view into. Null uses the default DAG. Managed DAGs are not allowed.
      * @nullable
      */
     dag_id?: string | null
@@ -3323,6 +3504,11 @@ export interface CredentialApi {
  * * `Expo` - Expo
  * * `PostNord` - PostNord
  * * `Commslayer` - Commslayer
+ * * `Sprinto` - Sprinto
+ * * `Gem` - Gem
+ * * `AudioGO` - AudioGO
+ * * `ExactOnline` - ExactOnline
+ * * `LettrLabs` - LettrLabs
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -4676,6 +4862,11 @@ export const ExternalDataSourceTypeEnumApi = {
     Expo: 'Expo',
     PostNord: 'PostNord',
     Commslayer: 'Commslayer',
+    Sprinto: 'Sprinto',
+    Gem: 'Gem',
+    AudioGO: 'AudioGO',
+    ExactOnline: 'ExactOnline',
+    LettrLabs: 'LettrLabs',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {
@@ -5082,6 +5273,75 @@ export type DataWarehouseCheckSchemaNameRetrieveParams = {
      */
     name: string
 }
+
+export type DataWarehouseCompletedActivityRetrieveParams = {
+    /**
+     * Only include runs created within this many days of now. Defaults to 30.
+     */
+    cutoff_days?: number
+    /**
+     * Which runs to return: 'import' for warehouse source syncs, 'model' for materialized view runs, 'all' for both. Defaults to 'all'.
+     *
+     * * `all` - all
+     * * `import` - import
+     * * `model` - model
+     * @minLength 1
+     */
+    kind?: DataWarehouseCompletedActivityRetrieveKind
+    /**
+     * Max rows to return. Capped at 50 server-side. Defaults to 20.
+     */
+    limit?: number
+    /**
+     * Rows to skip, for pagination. Defaults to 0.
+     */
+    offset?: number
+    /**
+     * Which outcome to return: 'completed' or 'failed'. Defaults to 'completed'.
+     *
+     * * `completed` - completed
+     * * `failed` - failed
+     * @minLength 1
+     */
+    outcome?: DataWarehouseCompletedActivityRetrieveOutcome
+}
+
+export type DataWarehouseCompletedActivityRetrieveKind =
+    (typeof DataWarehouseCompletedActivityRetrieveKind)[keyof typeof DataWarehouseCompletedActivityRetrieveKind]
+
+export const DataWarehouseCompletedActivityRetrieveKind = {
+    All: 'all',
+    Import: 'import',
+    Model: 'model',
+} as const
+
+export type DataWarehouseCompletedActivityRetrieveOutcome =
+    (typeof DataWarehouseCompletedActivityRetrieveOutcome)[keyof typeof DataWarehouseCompletedActivityRetrieveOutcome]
+
+export const DataWarehouseCompletedActivityRetrieveOutcome = {
+    Completed: 'completed',
+    Failed: 'failed',
+} as const
+
+export type DataWarehouseJobStatsRetrieveParams = {
+    /**
+     * Window the counts should cover, in days. One of 1, 7 or 30. Defaults to 7.
+     *
+     * * `1` - 1
+     * * `7` - 7
+     * * `30` - 30
+     */
+    days?: DataWarehouseJobStatsRetrieveDays
+}
+
+export type DataWarehouseJobStatsRetrieveDays =
+    (typeof DataWarehouseJobStatsRetrieveDays)[keyof typeof DataWarehouseJobStatsRetrieveDays]
+
+export const DataWarehouseJobStatsRetrieveDays = {
+    Number1: 1,
+    Number7: 7,
+    Number30: 30,
+} as const
 
 export type DataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveParams = {
     /**

@@ -207,7 +207,7 @@ describe('runInteractionLogic', () => {
         jest.clearAllMocks()
         localStorage.clear()
         ;(tasksRunsCommandCreate as jest.Mock).mockResolvedValue({ jsonrpc: '2.0', result: { queued: true } })
-        ;(tasksRunCreate as jest.Mock).mockResolvedValue({ latest_run: { id: 'run-2' } })
+        ;(tasksRunCreate as jest.Mock).mockResolvedValue({ run: { id: 'run-2' }, latest_run: { id: 'run-2' } })
         ;(tasksRunsClearConversationCreate as jest.Mock).mockResolvedValue({})
         ;(tasksWarmResumeCreate as jest.Mock).mockResolvedValue({ task_id: TASK_ID, run_id: 'warm-run' })
         initKeaTests()

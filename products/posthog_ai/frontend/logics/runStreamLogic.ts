@@ -669,16 +669,22 @@ function findLastBufferIndex(state: ThreadItem[], id: string, type: ThreadItemTy
 /**
  * A debug row carries a `_posthog/console` line from the agent server, and `threadItems` gates it on
  * `showDebugLogs`, so for most viewers it renders nothing. Ending a streamed message on one splits
- * the answer wherever the delta happened to end, with nothing between the halves to explain it.
+ * the answer wherever the delta happened to end, with nothing between the halves to explain it. A
+ * send the agent has not taken up yet sinks below the whole answer before it renders, so it splits
+ * the halves the same way and is passed over too.
  */
-function onlyDebugRowsFollow(state: ThreadItem[], idx: number): boolean {
+function onlyDebugRowsFollow(state: ThreadItem[], idx: number, waitingIds: ReadonlySet<string>): boolean {
     for (let i = idx + 1; i < state.length; i++) {
-        if (state[i].type !== 'debug') {
+        if (state[i].type !== 'debug' && !waitingIds.has(state[i].id)) {
             return false
         }
     }
     return true
 }
+
+// The agent takes a queued or steering send up at the next turn boundary, so a placeholder that
+// outlives a second boundary has missed the window its echo could arrive in.
+const SETTLED_AFTER_TURNS = 2
 
 /** The in-progress spinner for a long-running status — retired when it completes, fails, or its boundary lands. */
 function isPendingStatus(item: ThreadItem, status: string): boolean {
@@ -1277,11 +1283,17 @@ function retainedFramesWithoutOptimisticEchoes(retained: StoredEntry[]): StoredL
     })
 }
 
+/**
+ * A follow-up persists under the run it was sent to, not the successor that bootstraps next, so a
+ * persisted turn cancels its local echo whichever run of the chain it belongs to. `unconfirmedEcho`
+ * is the one echo no persisted copy covers yet, matched by identity because the same words can
+ * arrive several times.
+ */
 export function reconcileRunLog(
     history: StoredLogEntry[],
     retained: StoredEntry[],
     buffered: StoredLogEntry[],
-    optimisticRunId?: string
+    unconfirmedEcho?: StoredEntry
 ): RunLog {
     let entries: StoredEntry[] = history.map((entry) => ({ entry, source: 'replay' }))
     const coverage = new RunEventCoverage(history)
@@ -1289,7 +1301,7 @@ export function reconcileRunLog(
     const rememberedHumanTexts = new Map<string, number>()
     for (const entry of dedupeBufferedAgainstHistory(history, retainedFramesWithoutOptimisticEchoes(retained))) {
         const text = persistedHumanText(entry)
-        if (!text || (optimisticRunId && entry.source_run_id !== optimisticRunId)) {
+        if (!text) {
             continue
         }
         if (entry.notification.method === '_posthog/user_message') {
@@ -1315,7 +1327,7 @@ export function reconcileRunLog(
         survivors.forEach((entry) => survivorCounts.set(entry, (survivorCounts.get(entry) ?? 0) + 1))
         for (const stored of tail) {
             const { entry } = stored
-            if (entry.notification.method === '_client/human_message') {
+            if (entry.notification.method === '_client/human_message' && stored !== unconfirmedEcho) {
                 const text = String(entry.notification.params?.content ?? '')
                 const saved = savedHumanCounts.get(text) ?? 0
                 if (saved > 0) {
@@ -1490,6 +1502,14 @@ export function foldLogToThread(
     // Texts already rendered by a `_posthog/user_message`, so a later identical `user_message_chunk`
     // (resume chains persist the same turn in both forms) is consumed once rather than doubled.
     const rememberedHumanTexts = new Map<string, number>()
+    // Placeholders the composer drew for sends the agent has not taken up, in send order. A queued or
+    // steering send is echoed only when the agent takes it up, which is a turn later than the bubble,
+    // so the pairing outlives that turn. Text is what an echo matches on, because a client echo
+    // carries no id, and send order keeps repeated sends of one text apart.
+    const waitingSends: { id: string; text: string; turns: number }[] = []
+    // Sends this turn already paired, counted per text so the same send's second wire form takes no
+    // further placeholder while a second send of that text still takes its own.
+    const pairedSends = new Map<string, number>()
     let humanCount = 0
     let bubbleSeq = 0
     let separatorSeq = 0
@@ -1507,20 +1527,35 @@ export function foldLogToThread(
     let pendingInsertionIndex: number | undefined
     let bufferedAttachments: ThreadAttachment[] = []
 
-    const pushHuman = (text: string, attachments: ThreadAttachment[] = []): void => {
+    /**
+     * A wire turn opens with its message, so that is where a message goes by default. A send the
+     * agent has not taken up opens nothing and waits `atFoot` instead. `reuseId` keeps the row React
+     * already rendered when an echo takes a placeholder's place.
+     */
+    const pushHuman = (
+        text: string,
+        attachments: ThreadAttachment[] = [],
+        placement: { atFoot?: boolean; reuseId?: string } = {}
+    ): string => {
         if (options.pendingMessage?.text === text && entryRunId === options.pendingMessage.runId) {
             pendingMessageSeen = true
         }
         const carried = [...attachments, ...bufferedAttachments]
-        items = insertHumanMessageAtTurnStart(items, {
-            id: `human-${humanCount++}`,
+        const item: ThreadItem = {
+            id: placement.reuseId ?? `human-${humanCount++}`,
             type: 'human_message',
             text,
             complete: true,
             ...(carried.length > 0 && { attachments: carried }),
             ...(timestamp !== undefined && { startedAt: timestamp }),
-        })
+        }
+        if (placement.atFoot) {
+            items.push(item)
+        } else {
+            items = insertHumanMessageAtTurnStart(items, item)
+        }
         bufferedAttachments = []
+        return item.id
     }
 
     /**
@@ -1553,6 +1588,9 @@ export function foldLogToThread(
         }
     }
 
+    const waitingSendIds = (): ReadonlySet<string> =>
+        new Set(waitingSends.filter((send) => send.turns < SETTLED_AFTER_TURNS).map((send) => send.id))
+
     const appendChunk = (id: string, type: ThreadItemType, delta: string): void => {
         const idx = findLastBufferIndex(items, id, type, false)
         // Continue the matched buffer only while it's incomplete and only debug rows followed it;
@@ -1562,7 +1600,7 @@ export function foldLogToThread(
         // the S3 replay always does, since the backend drops chunks), so the bare fallback id would
         // collide as a React key across messages. The continuation lookup matches the `${id}@`
         // prefix, so it still works.
-        if (idx === -1 || items[idx].complete || !onlyDebugRowsFollow(items, idx)) {
+        if (idx === -1 || items[idx].complete || !onlyDebugRowsFollow(items, idx, waitingSendIds())) {
             items.push({
                 id: `${id}@${bubbleSeq++}`,
                 type,
@@ -1647,7 +1685,13 @@ export function foldLogToThread(
         }
     }
 
-    const renderLiveHuman = (rawText: string): void => {
+    /** The oldest send of this text the agent has not taken up, which is the one it takes up next. */
+    const takeWaitingPlaceholder = (text: string): string | undefined => {
+        const index = waitingSends.findIndex((send) => send.text === text)
+        return index === -1 ? undefined : waitingSends.splice(index, 1)[0].id
+    }
+
+    const renderLiveHuman = (rawText: string, remember: boolean): void => {
         const { text, contextBlocks } = splitUserMessageContent(rawText)
         if (!text) {
             return
@@ -1655,10 +1699,40 @@ export function foldLogToThread(
         // The blocks ride only the server echo (the optimistic `_client/human_message` carries the raw
         // text), so push them even when the human text below dedupes against the optimistic render.
         pushContextBlocks(contextBlocks)
-        // The server echoes every user send live. An idle send already rendered it optimistically via
-        // `_client/human_message`; a queue-drained send (dispatched with `addToThread: false`) did not,
-        // so its echo is what surfaces it. Render unless the current turn already shows this message —
-        // which both drops the optimistic-paired echo and dedupes a send echoed in two wire forms.
+        // A send echoed in two wire forms is one send: the `_posthog/user_message` form places it and
+        // leaves a credit the `user_message_chunk` form spends. Counting rather than flagging the text
+        // keeps a second send of the same text in one turn from reading as the first send's echo.
+        if (!remember) {
+            const paired = pairedSends.get(text) ?? 0
+            if (paired > 0) {
+                pairedSends.set(text, paired - 1)
+                return
+            }
+        }
+        // The echo says the agent took the send up, so it is what places the message: the placeholder
+        // leaves the foot of the thread and the message renders at the head of the turn it opens,
+        // keeping the attachment previews the placeholder carried. A placeholder already inside this
+        // turn is where it belongs, so it stays put.
+        const waitingId = takeWaitingPlaceholder(text)
+        if (waitingId !== undefined) {
+            if (remember) {
+                pairedSends.set(text, (pairedSends.get(text) ?? 0) + 1)
+            }
+            const index = items.findIndex((item) => item.id === waitingId)
+            if (index >= items.findLastIndex((item) => item.type === 'turn_separator') + 1) {
+                // The placeholder already sits in this turn, which is where the echo would put it.
+                return
+            }
+            if (index === -1) {
+                pushHuman(text)
+                return
+            }
+            const [placeholder] = items.splice(index, 1)
+            pushHuman(text, placeholder.attachments ?? [], { reuseId: placeholder.id })
+            return
+        }
+        // No send of ours is waiting — a drained queue from another tab, or a replayed turn the
+        // current turn already shows.
         if (currentTurnHasHumanText(items, text)) {
             return
         }
@@ -1735,7 +1809,9 @@ export function foldLogToThread(
         timestamp = !importedRun && !updateMeta?.imported && Number.isFinite(recordedAt) ? recordedAt : undefined
 
         if (method === '_client/human_message') {
-            pushHuman(String(params.content ?? ''), optimisticAttachments(params.attachments))
+            const optimisticText = String(params.content ?? '')
+            const id = pushHuman(optimisticText, optimisticAttachments(params.attachments), { atFoot: true })
+            waitingSends.push({ id, text: optimisticText, turns: 0 })
             continue
         }
         if (method === '_client/error') {
@@ -1763,6 +1839,8 @@ export function foldLogToThread(
                 ...(traceId && { traceId }),
                 ...(timestamp !== undefined && { startedAt: timestamp }),
             })
+            pairedSends.clear()
+            waitingSends.forEach((send) => (send.turns += 1))
             continue
         }
         if (method === '_posthog/progress') {
@@ -1773,6 +1851,11 @@ export function foldLogToThread(
                 // The undelivered follow-up is a consequence of the run's error, so it rides the error
                 // card instead of a second failed row. Without a preceding error it becomes the card.
                 items = items.filter((item) => !(item.type === 'progress' && item.progressGroup === group))
+                // The notice follows the send that failed, which is the last one drawn. Retiring it
+                // stops a retry of the same text from taking its placeholder, and keeps a send that
+                // was never delivered where the composer drew it instead of sinking it below the
+                // answers that came after.
+                waitingSends.pop()
                 const last = items[items.length - 1]
                 if (last?.type === 'error' && last.variant !== 'crash') {
                     items[items.length - 1] = { ...last, undeliveredMessage: true }
@@ -1872,7 +1955,7 @@ export function foldLogToThread(
             if (source === 'replay') {
                 renderReplayHuman(userText, true)
             } else {
-                renderLiveHuman(userText)
+                renderLiveHuman(userText, true)
             }
             if (Array.isArray(params.content)) {
                 for (const block of params.content) {
@@ -1928,7 +2011,7 @@ export function foldLogToThread(
             if (source === 'replay') {
                 renderReplayHuman(userText, false)
             } else {
-                renderLiveHuman(userText)
+                renderLiveHuman(userText, false)
             }
             continue
         }
@@ -1978,6 +2061,14 @@ export function foldLogToThread(
                 handleToolCallUpdate(update, notification)
                 break
         }
+    }
+
+    // A send the agent has not taken up sits below everything that has landed, in send order, however
+    // much arrived after the composer drew it. A settled one leaves the sink, so a send whose echo
+    // can no longer pair cannot walk the thread for the rest of the run.
+    const waiting = waitingSendIds()
+    if (waiting.size > 0) {
+        items = [...items.filter((item) => !waiting.has(item.id)), ...items.filter((item) => waiting.has(item.id))]
     }
 
     if (options.pendingMessage && !pendingMessageSeen) {
@@ -3405,22 +3496,21 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 }
             })
             const history = normalizeHistory(entries, session.runId, values.isBootstrapResumeRun)
-            let retained = values.log.entries
-            if (
-                cache.retainedMessage &&
+            const echo = cache.retainedMessage
+                ? values.log.entries.findLast(
+                      ({ entry }) =>
+                          entry.notification.method === '_client/human_message' &&
+                          entry.notification.params?.content === cache.retainedMessage
+                  )
+                : undefined
+            const echoPersisted =
+                !!echo &&
                 history.some(
                     (entry) =>
                         entry.source_run_id === session.runId && persistedHumanText(entry) === cache.retainedMessage
                 )
-            ) {
-                const optimisticIndex = retained.findLastIndex(
-                    ({ entry }) =>
-                        entry.notification.method === '_client/human_message' &&
-                        entry.notification.params?.content === cache.retainedMessage
-                )
-                retained = retained.filter((_, index) => index !== optimisticIndex)
-            }
-            const log = reconcileRunLog(history, retained, session.buffer, session.runId)
+            const retained = echoPersisted ? values.log.entries.filter((stored) => stored !== echo) : values.log.entries
+            const log = reconcileRunLog(history, retained, session.buffer, echoPersisted ? undefined : echo)
             const bufferedEntries = new Set(session.buffer)
             const bufferedIds = new Set(session.buffer.flatMap((entry) => (entry.event_id ? [entry.event_id] : [])))
             // Rebuild state without publishing a partial transcript or repeating live reactions.
@@ -4346,6 +4436,8 @@ export const runStreamLogic = kea<runStreamLogicType>([
                     {
                         entry: {
                             type: 'notification',
+                            // The wire echo of this send is deduped against this entry, so the send time can only come from here.
+                            timestamp: new Date().toISOString(),
                             notification: {
                                 method: '_client/human_message',
                                 params: {

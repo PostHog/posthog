@@ -19,7 +19,7 @@ import {
 
 import type { TaskRunDetailDTOApi } from 'products/tasks/frontend/generated/api.schemas'
 
-import { TaskEnvironmentIcon } from '../../../components/TaskEnvironmentIcon'
+import { TaskSourceIcon } from '../../../components/TaskSourceIcon'
 import type { Task } from '../../../types/taskTypes'
 import { TaskDebugLogsPanelToggle } from './TaskDebugLogsPanelToggle'
 import { TaskPanelSkeleton, TaskRunMetadataSkeleton } from './taskDetailSkeletons'
@@ -133,7 +133,12 @@ export function TaskRunSceneShell({
                             description={null}
                             resourceType={{
                                 type: 'task',
-                                forceIcon: <TaskEnvironmentIcon environment={task?.latest_run?.environment} />,
+                                forceIcon: (
+                                    <TaskSourceIcon
+                                        originProduct={task?.origin_product}
+                                        environment={task?.latest_run?.environment}
+                                    />
+                                ),
                             }}
                             isLoading={isHeaderLoading}
                             canEdit={!!onRename}

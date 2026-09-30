@@ -61,6 +61,32 @@ const GRAPH_EDGES: DataModelingEdge[] = [
     mockEdge('e5', '4', '6'),
 ]
 
+// Pruning the graph rekeys `lineageGraphLogic`, so react-flow unmounts while ELK lays the cone
+// out again. Read the canvas on every poll — a node captured before the relayout is detached,
+// and a detached element reports a zero-sized rect that passes any centering check.
+const VIEWPORT_SETTLE_MS = 10000
+
+async function expectNodeCentered(canvasElement: HTMLElement, nodeId: string, message: string): Promise<void> {
+    await waitFor(
+        () => {
+            const graph = canvasElement.querySelector<HTMLElement>('.react-flow')
+            const node = graph?.querySelector<HTMLElement>(`.react-flow__node[data-id="${nodeId}"]`)
+            if (!graph || !node) {
+                throw new Error(message)
+            }
+            const nodeBounds = node.getBoundingClientRect()
+            const graphBounds = graph.getBoundingClientRect()
+            if (
+                Math.abs(nodeBounds.x + nodeBounds.width / 2 - graphBounds.x - graphBounds.width / 2) > 5 ||
+                Math.abs(nodeBounds.y + nodeBounds.height / 2 - graphBounds.y - graphBounds.height / 2) > 5
+            ) {
+                throw new Error(message)
+            }
+        },
+        { timeout: VIEWPORT_SETTLE_MS }
+    )
+}
+
 type Story = StoryObj<typeof LineageGraph>
 const meta: Meta<typeof LineageGraph> = {
     title: 'Products/Data modeling/Lineage graph',
@@ -83,6 +109,11 @@ const meta: Meta<typeof LineageGraph> = {
 
 export default meta
 
+// The loading graph keeps its skeleton nodes on screen, so the test runner must not wait for them to go.
+const LOADING_PARAMETERS = {
+    testOptions: { waitForLoadersToDisappear: false, waitForSelector: '.react-flow__node' },
+}
+
 export const Full: Story = {
     render: () => (
         <LineageGraph nodes={GRAPH_NODES} edges={GRAPH_EDGES} currentNodeId="4" variant="full" showControls />
@@ -93,6 +124,42 @@ export const Canvas: Story = {
     render: () => (
         <LineageGraph nodes={GRAPH_NODES} edges={GRAPH_EDGES} variant="canvas" showControls showMinimap interactive />
     ),
+}
+
+export const Loading: Story = {
+    parameters: LOADING_PARAMETERS,
+    render: () => (
+        <LineageGraph
+            nodes={GRAPH_NODES}
+            edges={GRAPH_EDGES}
+            loading
+            variant="canvas"
+            showControls
+            showMinimap
+            panels={<span>Graph tools</span>}
+        />
+    ),
+}
+
+export const LoadingFocused: Story = {
+    parameters: LOADING_PARAMETERS,
+    render: () => (
+        <LineageGraph
+            nodes={GRAPH_NODES}
+            edges={GRAPH_EDGES}
+            loading
+            loadingCenter={{ name: 'revenue_summary', type: 'matview' }}
+            variant="full"
+            showControls
+            showMinimap
+            panels={<span>Graph tools</span>}
+        />
+    ),
+}
+
+export const LoadingDarkMode: Story = {
+    ...LoadingFocused,
+    globals: { theme: 'dark' },
 }
 
 export const SingleNode: Story = {
@@ -118,23 +185,64 @@ export const SearchFocus: Story = {
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
         await canvas.findByText('monthly_report')
-        const graph = canvasElement.querySelector<HTMLElement>('.react-flow')!
-        const target = graph.querySelector<HTMLElement>('.react-flow__node[data-id="4"]')!
         const search = canvas.getByPlaceholderText('Search, or +name for upstream')
-        fireEvent.change(search, { target: { value: 'monthly_report' } })
-        await waitFor(() => {
-            const nodeBounds = target.getBoundingClientRect()
-            const graphBounds = graph.getBoundingClientRect()
-            if (
-                Math.abs(nodeBounds.x + nodeBounds.width / 2 - graphBounds.x - graphBounds.width / 2) > 5 ||
-                Math.abs(nodeBounds.y + nodeBounds.height / 2 - graphBounds.y - graphBounds.height / 2) > 5
-            ) {
-                throw new Error('The search match must be centered in the lineage viewport')
-            }
-        })
+        fireEvent.change(search, { target: { value: 'monthly' } })
+        await canvas.findByText('2 results')
+        fireEvent.keyDown(search, { key: 'ArrowDown' })
+        // The arrow key moves the selection through a kea listener, so the new result is only
+        // selected on the next tick. Pressing Enter in the same tick would focus the old one.
+        await canvas.findByText('monthly_recurring_revenue, result 2 of 2')
+        fireEvent.keyDown(search, { key: 'Enter' })
+        await expectNodeCentered(canvasElement, '6', 'The search match must be centered in the lineage viewport')
+        const graph = canvasElement.querySelector<HTMLElement>('.react-flow')!
         if (graph.querySelectorAll('.react-flow__node').length !== GRAPH_NODES.length) {
             throw new Error('Plain search must keep the rest of the graph visible')
         }
+        const previousResult = canvas.getByLabelText('Previous result')
+        previousResult.focus()
+        fireEvent.click(previousResult)
+        if (document.activeElement !== search) {
+            throw new Error('Cycling results must return focus to the search input')
+        }
+    },
+}
+
+export const SelectorFocus: Story = {
+    render: () => <ModelsLineageTab />,
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/environments/:team_id/data_modeling_nodes/': { count: GRAPH_NODES.length, results: GRAPH_NODES },
+                '/api/environments/:team_id/data_modeling_edges/': { count: GRAPH_EDGES.length, results: GRAPH_EDGES },
+            },
+        }),
+    ],
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await canvas.findByText('revenue_summary')
+        const search = canvas.getByPlaceholderText('Search, or +name for upstream')
+        fireEvent.change(search, { target: { value: 'revenue_summary+' } })
+        await canvas.findByText('4 models · downstream')
+        fireEvent.keyDown(search, { key: 'ArrowDown' })
+        await canvas.findByText('monthly_report, result 2 of 4')
+        fireEvent.keyDown(search, { key: 'Enter' })
+        if ((search as HTMLInputElement).selectionStart !== 'revenue_summary'.length) {
+            throw new Error('A downstream selector must keep the caret before its trailing plus')
+        }
+        await waitFor(
+            () => {
+                const graph = canvasElement.querySelector<HTMLElement>('.react-flow')
+                if (!graph || graph.querySelectorAll('.react-flow__node').length !== 4) {
+                    throw new Error('A downstream selector must keep only its lineage cone visible')
+                }
+            },
+            { timeout: VIEWPORT_SETTLE_MS }
+        )
+        await expectNodeCentered(
+            canvasElement,
+            '4',
+            'The selected downstream model must be centered in the lineage viewport'
+        )
     },
 }
 

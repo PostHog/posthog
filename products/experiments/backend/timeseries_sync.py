@@ -1,13 +1,14 @@
-"""Assemble a completed metrics recalculation from the timeseries points of one daily run.
+"""Assemble a completed metrics recalculation from the timeseries points of one scheduled run.
 
-The daily timeseries workflows stamp each metric's query_to at the moment its own activity runs, so the points of one
-run land seconds to minutes apart and never share an exact window. This module accepts that approximation: every
+The scheduled timeseries workflows stamp each metric's query_to at the moment its own activity runs, so the points of
+one run land seconds to minutes apart and never share an exact window. This module accepts that approximation: every
 metric whose newest completed point falls inside the run qualifies, and the copies land under one shared query_to so
 the recalculation reads (`get_run_results`, derived counters, the metric-config-change window reuse) work unchanged.
 
 Two workflows (inline metrics, saved metrics) run per hour and each calls this for the same experiment with its own
-run start. The row belongs to the experiment's daily run, not to one workflow: the first pass creates it, and a later
-pass adds the copies the row still lacks.
+run start. The row belongs to one scheduled run of the experiment, not to one workflow: the first pass creates it,
+and a later pass in the same hour adds the copies the row still lacks. The lookup is scoped to the run's start, so a
+team with a second recalculation time later in the day gets a fresh row for that run.
 """
 
 from datetime import datetime, timedelta
@@ -22,13 +23,13 @@ from posthog.models.scoping import team_scope
 
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
 from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
+from products.experiments.backend.metric_resolution import find_metric_dict, is_daily_timeseries_metric
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentMetricResult,
     ExperimentMetricsRecalculation,
 )
 from products.experiments.backend.recalculation import get_active_recalculation
-from products.experiments.backend.temporal.metric_resolution import find_metric_dict, is_daily_timeseries_metric
 from products.experiments.backend.temporal.recalc_fingerprint import compute_recalc_fingerprint
 from products.experiments.backend.temporal.recalculation_logic import discover_experiment_metrics
 
@@ -45,12 +46,12 @@ _SAME_RUN_LOOKBACK = timedelta(hours=1)
 def sync_timeseries_recalculation(
     experiment_id: int, *, team_id: int, run_started_at: datetime, now: datetime | None = None
 ) -> str | None:
-    """Copy the timeseries points written between run_started_at and now into this daily run's recalculation.
+    """Copy the timeseries points written between run_started_at and now into this run's recalculation.
 
     Returns the recalculation id when a row was created or gained copies, else None: no metric has a point
-    inside the run, the day's sync row already holds every point, or another run's window already reaches the
+    inside the run, the run's sync row already holds every point, or another run's window already reaches the
     oldest qualifying point. A supported metric without a point is counted in total_metrics but gets no copy, so
-    the frontend sees the gap and heals it. Metric types the daily run cannot compute are left out of the row.
+    the frontend sees the gap and heals it. Metric types the scheduled run cannot compute are left out of the row.
     """
     now = now or timezone.now()
     with team_scope(team_id, canonical=True), transaction.atomic():

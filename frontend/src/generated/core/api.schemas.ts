@@ -866,6 +866,14 @@ export const AvailableSetupTaskIdsEnumApi = {
     UsePosthogInSlack: 'use_posthog_in_slack',
 } as const
 
+export type FlagEvaluationsModeEnumApi = (typeof FlagEvaluationsModeEnumApi)[keyof typeof FlagEvaluationsModeEnumApi]
+
+export const FlagEvaluationsModeEnumApi = {
+    Number0: 0,
+    Number1: 1,
+    Number2: 2,
+} as const
+
 /**
  * * `AED` - AED
  * * `AFN` - AFN
@@ -2694,6 +2702,8 @@ export interface ProjectBackwardCompatApi {
      */
     readonly user_access_level: string | null
     readonly managed_viewsets: ProjectBackwardCompatApiManagedViewsets
+    /** Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table. */
+    readonly flag_evaluations_mode: FlagEvaluationsModeEnumApi
     revenue_analytics_config?: TeamRevenueAnalyticsConfigApi
     marketing_analytics_config?: TeamMarketingAnalyticsConfigApi
     customer_analytics_config?: TeamCustomerAnalyticsConfigApi
@@ -3561,6 +3571,8 @@ export interface PatchedProjectBackwardCompatApi {
      */
     readonly user_access_level?: string | null
     readonly managed_viewsets?: PatchedProjectBackwardCompatApiManagedViewsets
+    /** Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table. */
+    readonly flag_evaluations_mode?: FlagEvaluationsModeEnumApi
     revenue_analytics_config?: TeamRevenueAnalyticsConfigApi
     marketing_analytics_config?: TeamMarketingAnalyticsConfigApi
     customer_analytics_config?: TeamCustomerAnalyticsConfigApi
@@ -3659,6 +3671,7 @@ export const RestrictionTypeEnumApi = {
  * * `session_recordings` - Session Recordings
  * * `errortracking` - Errortracking
  * * `clientwarnings` - Clientwarnings
+ * * `heatmaps` - Heatmaps
  * * `ai` - Ai
  */
 export type IngestionPipelineEnumApi = (typeof IngestionPipelineEnumApi)[keyof typeof IngestionPipelineEnumApi]
@@ -3668,6 +3681,7 @@ export const IngestionPipelineEnumApi = {
     SessionRecordings: 'session_recordings',
     Errortracking: 'errortracking',
     Clientwarnings: 'clientwarnings',
+    Heatmaps: 'heatmaps',
     Ai: 'ai',
 } as const
 
@@ -3865,6 +3879,18 @@ export interface DataDeletionRequestInputApi {
 export interface DataDeletionPreviewApi {
     /** Number of event UUIDs selected when the preview ran. */
     readonly count: number
+}
+
+export interface EmojiSuggestionApi {
+    /** The suggested emoji character. */
+    emoji: string
+    /** The emoji's English name. */
+    label: string
+}
+
+export interface EmojiSearchResponseApi {
+    /** Related emojis, or an empty list. */
+    suggestions: EmojiSuggestionApi[]
 }
 
 /**
@@ -4154,6 +4180,40 @@ export interface PatchedFileSystemShortcutApi {
     readonly user_access_level?: string | null
 }
 
+export interface FileSystemShortcutBulkItemApi {
+    /** Display path of the shortcut in the sidebar. */
+    path: string
+    /**
+     * Type of the linked item (e.g. 'folder', 'insight'), or blank.
+     * @maxLength 100
+     */
+    type?: string
+    /**
+     * Reference to the linked item, scoped to its type. Null for href-only shortcuts.
+     * @maxLength 4000
+     * @nullable
+     */
+    ref?: string | null
+    /**
+     * Destination URL the shortcut opens. Null when the shortcut points at an item by ref.
+     * @nullable
+     */
+    href?: string | null
+}
+
+export interface FileSystemShortcutBulkUpdateApi {
+    /**
+     * Shortcuts to create, appended to the end of the current order in the given sequence. An item identical to a shortcut the user already has is skipped.
+     * @maxItems 500
+     */
+    add?: FileSystemShortcutBulkItemApi[]
+    /**
+     * IDs of the current user's shortcuts to delete.
+     * @maxItems 500
+     */
+    remove_ids?: string[]
+}
+
 export interface FileSystemShortcutReorderApi {
     /** IDs of the current user's shortcuts in the desired display order. */
     ordered_ids: string[]
@@ -4418,6 +4478,33 @@ export interface SearchIntentResponseApi {
      * @nullable
      */
     prompt_version: number | null
+    /**
+     * The search as the decision model read it, with emails, URLs, paths, ids and tokens replaced by placeholders such as <url>. Null when the model did not answer.
+     * @nullable
+     */
+    model_query: string | null
+}
+
+export interface EventMatchRequestApi {
+    /**
+     * What the person typed into the events list search box, which matched no event name.
+     * @maxLength 200
+     */
+    query: string
+}
+
+export interface EventMatchApi {
+    /** The event name to select, such as $autocapture. */
+    name: string
+    /** The event's display name, such as Autocapture. */
+    display_name: string
+    /** How likely the search means this event, from 0 to 1. */
+    probability: number
+}
+
+export interface EventMatchResponseApi {
+    /** PostHog core events the search most likely means, strongest first. Empty when nothing is likely. */
+    matches: EventMatchApi[]
 }
 
 export interface UploadedMediaApi {
@@ -4850,7 +4937,7 @@ export interface UserApi {
     passkeys_enabled_for_2fa?: boolean | null
     /** When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions. */
     hide_mcp_hints?: boolean
-    /** Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown. */
+    /** Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown. Once `sidebar.starred_products_setup_completed` is true, an update that omits it keeps it true. */
     ui_configuration?: unknown
     /** @nullable */
     readonly onboarding_skipped_at: string | null
@@ -4966,7 +5053,7 @@ export interface PatchedUserApi {
     passkeys_enabled_for_2fa?: boolean | null
     /** When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions. */
     hide_mcp_hints?: boolean
-    /** Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown. */
+    /** Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown. Once `sidebar.starred_products_setup_completed` is true, an update that omits it keeps it true. */
     ui_configuration?: unknown
     /** @nullable */
     readonly onboarding_skipped_at?: string | null
@@ -5627,6 +5714,15 @@ export type DataDeletionRequestsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type EmojiSearchSuggestRetrieveParams = {
+    /**
+     * Search text that had no direct emoji match.
+     * @minLength 3
+     * @maxLength 64
+     */
+    query: string
 }
 
 export type ExportsListParams = {

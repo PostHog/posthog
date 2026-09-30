@@ -405,6 +405,13 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig], ResumableSource[Snowflak
             # cleanly, so this is a self-recovering network blip rather than a bug. The errno and OS-
             # specific wrapping vary, so we match the stable requests-library wrapper phrase.
             "Connection broken: ConnectionResetError",
+            # Snowflake connector error 290503 (ER_HTTP_GENERAL_ERROR + 503): Snowflake's own backend
+            # briefly returned HTTP 503 while the connector was already retrying internally (it
+            # re-raises only after exhausting its own `RetryRequest` budget). A fresh Temporal-level
+            # retry opens a new connection and re-executes the query from scratch, which recovers
+            # cleanly once the backend blip clears, so this is self-recovering rather than a bug.
+            # The errno prefix is volatile, so we match the stable status text.
+            "HTTP 503: Service Unavailable",
         }
 
     def reconcile_schema_metadata(

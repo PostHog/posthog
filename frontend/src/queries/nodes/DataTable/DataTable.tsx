@@ -1072,6 +1072,7 @@ export function DataTable({
                                 data-attr={dataAttr}
                                 className="DataTable"
                                 allowContentScroll={context?.dataTableAllowContentScroll}
+                                stickyHeader={context?.dataTableStickyHeader}
                                 loading={responseLoading && !nextDataLoading && !newDataLoading}
                                 columns={lemonColumns}
                                 tableLayout={context?.tableLayout}
