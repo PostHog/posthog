@@ -1,0 +1,28 @@
+version: 1
+key: welcome-new-signups
+name: Welcome new signups
+description: Sends a welcome email a day after signup to people who have an email address.
+status: draft
+trigger:
+    type: event
+    event: user signed up
+steps:
+    - type: delay
+      name: Wait a day
+      duration: 1d
+    - type: branch
+      name: Has an email address?
+      arms:
+          - name: Has an email address
+            when:
+                - { person: email, operator: is_set }
+            then:
+                - type: email
+                  name: Send the welcome email
+                  from: { integration_ids: [1], name: The PostHog team }
+                  to: '{{ person.properties.email }}'
+                  subject: Welcome to PostHog
+                  text: Thanks for signing up. Your first events show up in Activity as soon as your SDK sends them.
+                  html: <p>Thanks for signing up. Your first events show up in Activity as soon as your SDK sends them.</p>
+exit:
+    reason: Welcome new signups finished
