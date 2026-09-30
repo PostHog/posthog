@@ -35,16 +35,19 @@ import { SessionRecordingPlayerMode, sessionRecordingPlayerLogic } from '../sess
 import { InspectorSearchInfo } from './components/InspectorSearchInfo'
 
 function sideActionForType({
+    type,
     miniFilters,
     setMiniFilter,
     allItemsByMiniFilterKey,
 }: {
+    type: FilterableInspectorListItemTypes
     miniFilters: SharedListMiniFilter[]
     setMiniFilter: (key: string, enabled: boolean) => void
     allItemsByMiniFilterKey: Record<string, InspectorListItem[]>
 }): SideAction {
     return {
         icon: <IconChevronRight className="rotate-90" />,
+        'data-attr': `player-inspector-${type}-mini-filter-menu`,
         dropdown: {
             closeOnClickInside: false,
             overlay: (
@@ -123,6 +126,7 @@ function FilterSettingsButton({
                     ? upsellSideAction
                     : allItemsByItemType[type]?.length > 1
                       ? sideActionForType({
+                            type,
                             setMiniFilter,
                             allItemsByMiniFilterKey,
                             miniFilters: filteredMiniFiltersForType,
@@ -167,6 +171,7 @@ function NetworkFilterSettingsButton(): JSX.Element {
                 showNetworkUpsell
                     ? {
                           icon: <IconChevronDown />,
+                          'data-attr': 'player-inspector-network-upsell-menu',
 
                           dropdown: {
                               closeOnClickInside: false,
@@ -215,6 +220,7 @@ function ConsoleFilterSettingsButton(): JSX.Element {
                 showConsoleUpsell
                     ? {
                           icon: <IconChevronRight className="rotate-90" />,
+                          'data-attr': 'player-inspector-console-upsell-menu',
 
                           dropdown: {
                               closeOnClickInside: false,
