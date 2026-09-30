@@ -391,9 +391,11 @@ export function AlertNotificationDestinationEditor<NotificationType extends stri
                         <fieldset className="space-y-1">
                             <legend className="text-sm font-medium">Integration key</legend>
                             <div className="flex flex-col sm:flex-row items-start gap-2">
+                                {/* Autocapture records copied text, which the password type does not stop. */}
                                 <LemonInput
                                     type="password"
                                     autoComplete="off"
+                                    className="ph-no-capture"
                                     placeholder="32-character Events API v2 integration key"
                                     value={pagerduty.routingKey}
                                     onChange={pagerduty.onRoutingKeyChange}
