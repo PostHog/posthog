@@ -100,10 +100,13 @@ function SchemaInput({
         )
     }
 
+    // Autocapture records copied text, so a credential typed here would otherwise reach analytics.
+    // The standard destination editor guards its inputs the same way.
     if (schema.type === 'choice') {
         return (
             <LemonSelect
                 fullWidth
+                className="ph-no-capture"
                 options={(schema.choices ?? []).map((choice) => ({ value: choice.value, label: choice.label }))}
                 value={value ?? schema.default}
                 onChange={onChange}
@@ -111,5 +114,12 @@ function SchemaInput({
         )
     }
 
-    return <LemonInput value={value ?? ''} onChange={onChange} placeholder={schema.description || schema.label || ''} />
+    return (
+        <LemonInput
+            className="ph-no-capture"
+            value={value ?? ''}
+            onChange={onChange}
+            placeholder={schema.description || schema.label || ''}
+        />
+    )
 }
