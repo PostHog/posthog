@@ -101,11 +101,19 @@ def test_system_one_key_validation(status: int, expected_state: str) -> None:
     assert request.call_args.args[0].extensions["timeout"] == {"connect": 10, "read": 10, "write": 10, "pool": 10}
 
 
-@pytest.mark.parametrize("error", [httpx.ConnectError("Connection refused"), httpx.ReadTimeout("Timed out")])
-def test_transport_failures_are_retryable_connection_errors(error: Exception) -> None:
+@pytest.mark.parametrize(
+    "error,expected_error",
+    [
+        (httpx.ConnectError("Connection refused"), ProviderConnectionError),
+        (httpx.ReadTimeout("Timed out"), ProviderConnectionError),
+        (httpx.DecodingError("The endpoint must return an uncompressed response."), SystemOneRequestRejectedError),
+        (httpx.DecodingError("The endpoint response exceeds the size limit."), SystemOneRequestRejectedError),
+    ],
+)
+def test_transport_failures_map_to_provider_errors(error: Exception, expected_error: type[Exception]) -> None:
     with (
         patch("httpx.AsyncHTTPTransport.handle_async_request", side_effect=error),
-        pytest.raises(ProviderConnectionError),
+        pytest.raises(expected_error),
     ):
         SystemOneClient.evaluate(
             api_key="example-token",

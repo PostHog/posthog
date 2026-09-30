@@ -141,6 +141,11 @@ class SystemOneClient:
                 )
         except SSRFBlockedError as error:
             raise SystemOneEndpointBlockedError("This endpoint is not allowed. Use a public HTTPS endpoint.") from error
+        except httpx.DecodingError as error:
+            raise SystemOneRequestRejectedError(
+                "The endpoint returned a compressed or oversized response. "
+                "Configure it to return uncompressed responses no larger than 1 MiB."
+            ) from error
         except httpx.RequestError as error:
             raise ProviderConnectionError("Could not reach the System One endpoint. Try again.") from error
 

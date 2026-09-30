@@ -67,7 +67,7 @@ Responses stream incrementally, with a separate connection per request; connecti
 Select the connection and configured model on each evaluation; these connections cannot become the shared active provider key used by other AI features.
 Provider keys keep the provider they were created with; switching providers requires a new key.
 The evaluation integration uses Noul for boolean outputs, with the same formatted text for generation, trace, and session targets.
-The product client reuses the request builder and response parser in `posthog/llm/system_one.py` and the HTTP client used by OpenAI-compatible BYOK connections, including `posthog/security/pinned_httpx.py`.
+The product client reuses the request builder and response parser in `posthog/llm/system_one.py` and constructs a DNS-pinned client from `posthog/security/pinned_httpx.py` with the bounded transport.
 Customer connections do not consume PostHog's TypeSafe account budgets or emit TypeSafe egress metrics.
 The selected connection supplies its own endpoint and credential; it never falls back to instance gateway settings.
 Categorical evaluations use a native Choice question for single selection, with option keys mapped to their labels.
