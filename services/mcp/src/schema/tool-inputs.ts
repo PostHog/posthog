@@ -269,6 +269,29 @@ export const PromptListInputSchema = z.object({
         ),
 })
 
+const FEEDBACK_PRODUCT_AREAS = [
+    'product_analytics',
+    'web_analytics',
+    'session_replay',
+    'feature_flags',
+    'experiments',
+    'surveys',
+    'error_tracking',
+    'logs',
+    'data_warehouse',
+    'data_pipelines',
+    'llm_analytics',
+    'revenue_analytics',
+    'marketing_analytics',
+    'customer_analytics',
+    'workflows',
+    'notebooks',
+    'posthog_ai',
+    'platform',
+    'mcp',
+    'other',
+] as const
+
 export const FeedbackSubmitSchema = z
     .object({
         summary: z
@@ -288,10 +311,9 @@ export const FeedbackSubmitSchema = z
                 'The overall tone. Use "negative" for something broken or blocking, "mixed" for mostly-fine-but-with-a-concrete-problem, "neutral" for a suggestion or feature request with no strong sentiment, and "positive" for praise or something that worked well. All sentiments are welcome — positive feedback is encouraged, not just problems.'
             ),
         product_area: z
-            .string()
-            .min(1)
+            .enum(FEEDBACK_PRODUCT_AREAS)
             .describe(
-                'Required for every feedback type: the PostHog product the feedback concerns, e.g. "product analytics", "session replay", "feature flags", "data warehouse", "error tracking", "experiments", "surveys", "web analytics", "llm analytics". For MCP feedback, name the product the tools belong to (query-trends, insight-* and dashboard-* are "product analytics"; execute-sql is "data warehouse"), not the tool itself — tool names go in `tools_used`. Use "general" only when no single product fits.'
+                'Required for every feedback type: the PostHog product the feedback concerns. Pick the product, not the tool — tool names go in `tools_used`. "product_analytics" covers trends, funnels, retention, stickiness, lifecycle, paths, insights, dashboards, cohorts, actions, persons and events. "data_warehouse" covers SQL (execute-sql), sources, views and the data catalog. "data_pipelines" covers destinations, transformations and batch exports. "posthog_ai" covers PostHog AI, signals and tasks. "platform" covers organizations, projects, access control, billing and integrations. "mcp" is for the MCP server as a whole (instructions, tool discovery, auth) when no single product fits. Use "other" only when nothing else fits.'
             ),
         category: z
             .enum([

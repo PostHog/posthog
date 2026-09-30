@@ -2,7 +2,7 @@
 
 The `agent-feedback` tool is a direct channel to the PostHog team for feedback about **anything PostHog** — a product or feature you (or the user) hit a rough edge with, this MCP server itself, the docs, or a capability that's missing. Use it whenever you or the user run into something worth telling the PostHog team, on any surface.
 
-Always set `product_area` to the PostHog product the feedback concerns (e.g. "product analytics", "session replay", "data warehouse"), whatever the `feedback_type`. For MCP feedback, that is the product the tools you used belong to, not the tool name.
+Always set `product_area` to the PostHog product the feedback concerns (e.g. `product_analytics`, `session_replay`, `data_warehouse`), whatever the `feedback_type`. For MCP feedback, pick the product the tools you used belong to, not the tool name.
 
 Set `feedback_type` to route it:
 

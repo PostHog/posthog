@@ -634,8 +634,29 @@
                 },
                 "product_area": {
                     "type": "string",
-                    "minLength": 1,
-                    "description": "Required for every feedback type: the PostHog product the feedback concerns, e.g. \"product analytics\", \"session replay\", \"feature flags\", \"data warehouse\", \"error tracking\", \"experiments\", \"surveys\", \"web analytics\", \"llm analytics\". For MCP feedback, name the product the tools belong to (query-trends, insight-* and dashboard-* are \"product analytics\"; execute-sql is \"data warehouse\"), not the tool itself — tool names go in `tools_used`. Use \"general\" only when no single product fits."
+                    "enum": [
+                        "product_analytics",
+                        "web_analytics",
+                        "session_replay",
+                        "feature_flags",
+                        "experiments",
+                        "surveys",
+                        "error_tracking",
+                        "logs",
+                        "data_warehouse",
+                        "data_pipelines",
+                        "llm_analytics",
+                        "revenue_analytics",
+                        "marketing_analytics",
+                        "customer_analytics",
+                        "workflows",
+                        "notebooks",
+                        "posthog_ai",
+                        "platform",
+                        "mcp",
+                        "other"
+                    ],
+                    "description": "Required for every feedback type: the PostHog product the feedback concerns. Pick the product, not the tool — tool names go in `tools_used`. \"product_analytics\" covers trends, funnels, retention, stickiness, lifecycle, paths, insights, dashboards, cohorts, actions, persons and events. \"data_warehouse\" covers SQL (execute-sql), sources, views and the data catalog. \"data_pipelines\" covers destinations, transformations and batch exports. \"posthog_ai\" covers PostHog AI, signals and tasks. \"platform\" covers organizations, projects, access control, billing and integrations. \"mcp\" is for the MCP server as a whole (instructions, tool discovery, auth) when no single product fits. Use \"other\" only when nothing else fits."
                 },
                 "category": {
                     "description": "For MCP feedback (`feedback_type: \"mcp\"`) only: the single category that best describes the dominant theme. Pick \"missing_tool\" if a capability was absent, \"tool_description\" if the tool docs were unclear, \"tool_input_schema\" if input args were confusing, \"tool_output_format\" if the response was hard to consume, \"instructions_clarity\" if these MCP instructions were unclear, \"tool_correctness\" if a tool returned wrong data, \"error_message\" if an error was unhelpful, \"performance\" if latency was the issue. Omit for product, docs, or other feedback.",
