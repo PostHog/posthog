@@ -64,7 +64,7 @@ Pick by intent, not appearance. Each cluster below lists the discriminating ques
 | Combobox     | Pick one or many values from a long/dynamic list, with search. Multi-select renders chips                 | Action menus                                |
 | Autocomplete | Search-first text input with suggestions where the typed text itself is the value                         | Constrained choices — use Select/Combobox   |
 
-For a custom menu-like list inside a Popover (when DropdownMenu's open/close semantics don't fit), use `Item variant="menuItem"` with `ItemMenuItem`/`ItemCheckbox`/`ItemRadio` — don't restyle Buttons into menu rows. Inside quill, a primitive that renders a Button as a list row passes `size="row"` rather than pinning width, weight and text size per caller. `MenuLabel` is the shared section-label primitive the menu families render internally (DropdownMenuLabel, ComboboxLabel); it's exported for these custom menu-like lists.
+For navigation rows (sidebars, sub-navs) use `NavItem`, see its section below. For a custom menu-like list inside a Popover (when DropdownMenu's open/close semantics don't fit), use `Item variant="menuItem"` with `ItemMenuItem`/`ItemCheckbox`/`ItemRadio` — don't restyle Buttons into menu rows. Inside quill, a primitive that renders a Button as a list row passes `size="row"` rather than pinning width, weight and text size per caller. `MenuLabel` is the shared section-label primitive the menu families render internally (DropdownMenuLabel, ComboboxLabel); it's exported for these custom menu-like lists.
 
 ### Disclosure
 
@@ -710,6 +710,33 @@ Item variants: default, outline, pressable, muted, menuItem
 Item sizes: default, sm, xs
 `<ItemGroup>` spaces items with a gap by default; pass `combined` to merge them into one flush list (no gap, squared interior corners, collapsed shared borders, rounded outer corners — like CardGroup)
 Item tones (the `tone` prop — named `tone`, not `color`, to avoid colliding with the DOM `color` attribute when Base UI render props are spread onto ItemCheckbox/ItemRadio): default, info, success, warning, completed, destructive — a semantic tint orthogonal to `variant`, designed to pair with `variant="pressable"` for colored clickable rows (e.g. `<Item variant="pressable" tone="success" render={<a href="…" />}>`)
+
+### Nav item (sidebar and sub-nav rows)
+
+For rows in a navigation list: a sidebar, a sub-nav, a list of spaces or sessions. Not for menus (use DropdownMenu) or entity lists (use Item).
+
+```tsx
+<nav aria-label="Spaces" className="flex flex-col gap-px">
+  <MenuLabel>Spaces</MenuLabel>
+  <NavItem>
+    <NavItemButton current={isCurrent} render={<Link to={url} />}>
+      <HashIcon />
+      <NavItemLabel>growth</NavItemLabel>
+      <NavItemMeta>2h</NavItemMeta>
+    </NavItemButton>
+    <NavItemAction>
+      <Button size="icon-xs" aria-label="More">
+        <EllipsisIcon />
+      </Button>
+    </NavItemAction>
+  </NavItem>
+</nav>
+```
+
+- `current` sets `aria-current="page"` and the selected fill. Any `variant="default"` Button with `aria-current="page"` gets the same fill, so an icon-only rail button marks the current pane the same way.
+- `NavItemAction` sits beside the button, not inside it, so a link row can hold its own menu or create button. It shows on hover and focus, and stays while its menu is open. It takes the place of `NavItemMeta` while it shows.
+- `NavItemLabel` truncates. Don't set a text size or color on the row: the button owns them.
+- For a second line, wrap `NavItemLabel` and `NavItemDescription` in `NavItemContent`. The row grows to fit both lines.
 
 ### Avatar
 

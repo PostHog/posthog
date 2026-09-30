@@ -108,6 +108,16 @@ export { Chip, ChipClose, ChipGroup } from './chip'
 export { Collapsible, CollapsibleHeader, CollapsibleTrigger, CollapsibleContent } from './collapsible'
 export { MenuLabel } from './menu-label'
 export {
+    NavItem,
+    NavItemAction,
+    NavItemButton,
+    NavItemContent,
+    NavItemDescription,
+    NavItemLabel,
+    NavItemMeta,
+    type NavItemButtonProps,
+} from './nav-item'
+export {
     Combobox,
     ComboboxInput,
     ComboboxContent,

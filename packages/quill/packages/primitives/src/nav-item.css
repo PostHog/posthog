@@ -1,0 +1,65 @@
+@layer components {
+    .quill-nav-item {
+        position: relative;
+    }
+
+    .quill-nav-item__button:not([aria-current='page']) {
+        color: var(--muted-foreground);
+    }
+
+    /* A two-line row grows past the button's fixed height; the block padding stands in for it. */
+    .quill-nav-item__button:has([data-slot='nav-item-description']) {
+        height: auto;
+        padding-block: 0.25rem;
+    }
+
+    .quill-nav-item__description {
+        overflow: hidden;
+        font-size: var(--text-xs, 0.75rem);
+        color: var(--subtle-foreground, var(--muted-foreground));
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .quill-nav-item__meta {
+        flex-shrink: 0;
+        max-width: 40%;
+        overflow: hidden;
+        font-size: var(--text-xs, 0.75rem);
+        font-variant-numeric: tabular-nums;
+        color: var(--subtle-foreground, var(--muted-foreground));
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    /* Without trailing meta, the label stops short of the action so the two never overlap. */
+    .quill-nav-item:has(> .quill-nav-item__action):not(:has([data-slot='nav-item-meta'])) > .quill-nav-item__button {
+        padding-inline-end: 2rem;
+    }
+
+    .quill-nav-item__action {
+        position: absolute;
+        inset-block: 0;
+        inset-inline-end: 0.25rem;
+        display: flex;
+        align-items: center;
+        opacity: 0;
+        transition: opacity 0.1s ease;
+    }
+
+    /* The action takes over the meta's spot while it shows. An open menu keeps it shown. */
+    .quill-nav-item:is(:hover, :focus-within, :has([data-popup-open])) > .quill-nav-item__action {
+        opacity: 1;
+    }
+
+    .quill-nav-item:has(> .quill-nav-item__action):is(:hover, :focus-within, :has([data-popup-open]))
+        [data-slot='nav-item-meta'] {
+        visibility: hidden;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        .quill-nav-item__action {
+            transition: none;
+        }
+    }
+}

@@ -71,6 +71,7 @@ Compose from the listed parts only. Part names are shown without their prefix (e
 - Label
 - MenuLabel (section label for custom menu-like lists only)
 - Menubar (Menu, Trigger, Content, Item, CheckboxItem, RadioGroup, RadioItem, Label, Separator, Shortcut, Group, Sub, SubTrigger, SubContent, Portal)
+- NavItem (Button, Content, Label, Description, Meta, Action)
 - NumberFieldRoot (NumberFieldGroup, NumberFieldInput, NumberFieldIncrement, NumberFieldDecrement, NumberFieldScrubArea, NumberFieldScrubAreaCursor)
 - Pagination (Content, Item, Button, Previous, Next, Ellipsis; getPaginationRange)
 - Popover (Trigger, Content, Arrow)
@@ -194,6 +195,7 @@ Use via Tailwind utilities (`bg-primary text-primary-foreground`, `border-border
   - ContextMenu: right-click only; never the only path to an action
   - Menubar: persistent app-level menus
   - Never Select for actions; never restyle Buttons into menu rows (use `Item variant="menuItem"`)
+- Navigation lists (sidebars, sub-navs): `NavItem` rows under a `MenuLabel`, in a `<nav>`; mark the current page with `current`, never a hand-rolled active class
 - Switching views: Tabs (sections of one page; `variant="line"` for page-level) | ToggleGroup (2–4 display modes) | Select (many views, low priority)
 - Text and numbers:
   - Input: single-line text

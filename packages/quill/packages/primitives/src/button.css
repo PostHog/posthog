@@ -113,6 +113,12 @@
         background-color: var(--fill-selected);
     }
 
+    /* The page the user is on, in a nav list or rail. */
+    .quill-button--variant-default[aria-current='page'] {
+        color: var(--foreground);
+        background-color: var(--fill-selected);
+    }
+
     .quill-button--variant-default[data-highlighted] {
         background-color: var(--fill-hover);
     }
