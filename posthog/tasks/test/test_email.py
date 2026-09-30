@@ -2320,7 +2320,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         # Verify the href falls back to base URL with discussion panel
         assert mocked_email_messages[0].properties["href"] == f"{settings.SITE_URL}#panel=discussion"
 
-    @parameterized.expand(["task", "task_artifact", "desktop_canvas"])
+    @parameterized.expand(["task", "task_artifact", "canvas"])
     def test_send_discussions_mentioned_skips_desktop_comments(self, MockEmailMessage: MagicMock, scope: str) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
         mentioned_user = User.objects.create_and_join(

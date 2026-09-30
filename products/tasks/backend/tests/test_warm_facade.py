@@ -1151,6 +1151,8 @@ class TestCreateTaskWarmReuse(APIBaseTest):
                 retry = self.client.post(url, payload, format="json", HTTP_X_POSTHOG_WARM_RETRY=retry_token)
                 assert retry.status_code == (201 if endpoint == "create" else 200), retry.content
                 assert retry.json()["latest_run"]["id"] == str(run.id)
+                if endpoint != "create":
+                    assert retry.json()["run"]["id"] == str(run.id)
                 assert handle.signal.await_count == 3
                 assert all(call.kwargs["args"] == first_message for call in handle.signal.await_args_list)
                 run.refresh_from_db()
@@ -1721,6 +1723,7 @@ class TestWarmTaskResumeSandbox(APIBaseTest):
             )
 
         assert result is not None and result.error is None
+        assert result.run_id == warm_run.id
         assert task.runs.count() == 2
         signal.assert_called_once()
         warm_run.refresh_from_db()
