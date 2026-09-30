@@ -981,16 +981,18 @@ class TestSQLV2Run(APIBaseTest):
 class TestSQLV2BrowserKernel(APIBaseTest):
     def setUp(self):
         super().setUp()
-        for target, kwargs in (
-            ("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", {"return_value": True}),
-            ("products.notebooks.backend.sql_v2_dispatch.start_sql_v2_run_workflow", {}),
-            ("products.notebooks.backend.sql_v2_dispatch.enqueue_direct_run", {}),
-        ):
-            patcher = patch(target, **kwargs)
-            setattr(self, target.rsplit(".", 1)[1], patcher.start())
-            self.addCleanup(patcher.stop)
+        self._patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled").return_value = True
+        self.start_sql_v2_run_workflow = self._patch(
+            "products.notebooks.backend.sql_v2_dispatch.start_sql_v2_run_workflow"
+        )
+        self.enqueue_direct_run = self._patch("products.notebooks.backend.sql_v2_dispatch.enqueue_direct_run")
         self.notebook = Notebook.objects.create(team=self.team, short_id="nbbrowser")
         self.base_url = f"/api/projects/{self.team.id}/notebooks/{self.notebook.short_id}/sql_v2"
+
+    def _patch(self, target: str) -> MagicMock:
+        patcher = patch(target)
+        self.addCleanup(patcher.stop)
+        return patcher.start()
 
     def _done_sql_run(self, node_id: str, code: str) -> NotebookNodeRun:
         return NotebookNodeRun.objects.for_team(self.team.id).create(

@@ -93,7 +93,6 @@ from products.notebooks.backend.facade.sql_v2 import (
     NodeRunRequest,
     build_ref_specs,
     dispatch_cell_run,
-    is_browser_run,
     kernel_sandbox_is_live,
     plan_browser_run,
     record_browser_run,
@@ -163,6 +162,7 @@ from products.notebooks.backend.sql_v2 import (
     is_sql_v2_enabled,
     sql_v2_page_lock_key,
 )
+from products.notebooks.backend.sql_v2_browser import is_browser_run
 from products.notebooks.backend.sql_v2_direct import cancel_direct_run, sync_direct_run
 from products.notebooks.backend.sql_v2_runs import expire_stale_kernel_run, finish_node_run
 from products.notebooks.backend.sql_v2_serializers import (
@@ -2071,7 +2071,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         notebook = self._get_notebook_for_kernel()
         self._require_query_access()
         try:
-            run = record_browser_run(
+            run_id = record_browser_run(
                 team_id=self.team_id,
                 notebook_short_id=notebook.short_id,
                 user_id=user.id if user else None,
@@ -2082,7 +2082,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             )
         except NodeRunInvalid as e:
             return Response({"detail": str(e)}, status=400)
-        return Response(NotebookBrowserRunRecordResponseSerializer({"run_id": run.id}).data)
+        return Response(NotebookBrowserRunRecordResponseSerializer({"run_id": run_id}).data)
 
     def _require_notebook_runs_enabled(self, user: User | None) -> None:
         # Server-side gate is permissive in local dev (the frontend still gates the UI);

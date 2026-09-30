@@ -14,7 +14,6 @@ never handles them.
 
 from ..sql_v2_browser import (
     BrowserRunPlan as BrowserRunPlan,
-    is_browser_run as is_browser_run,
     plan_browser_run as plan_browser_run,
     record_browser_run as record_browser_run,
 )

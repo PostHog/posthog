@@ -9,6 +9,7 @@ so widget generation, cross-cell references, reloads and the agent state view al
 """
 
 from typing import Any, Literal
+from uuid import UUID
 
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 
@@ -94,7 +95,7 @@ def record_browser_run(
     node_type: Literal["python", "duckdb"],
     code: str,
     envelope: dict[str, Any],
-) -> NotebookNodeRun:
+) -> UUID:
     """File a run the browser kernel finished, as a terminal run row."""
     notebook = resolve_team_notebook(team_id, notebook_short_id)
     user: User | None = resolve_user(user_id)
@@ -105,7 +106,7 @@ def record_browser_run(
     error = envelope.get("error") or None
     if status == NotebookNodeRun.Status.FAILED and not error:
         error = "Run failed"
-    return NotebookNodeRun.objects.for_team(team_id).create(
+    run = NotebookNodeRun.objects.for_team(team_id).create(
         team_id=team_id,
         notebook=notebook,
         user=user,
@@ -116,6 +117,7 @@ def record_browser_run(
         envelope=stored,
         error=error if status != NotebookNodeRun.Status.DONE else None,
     )
+    return run.id
 
 
 def is_browser_run(run: NotebookNodeRun) -> bool:
