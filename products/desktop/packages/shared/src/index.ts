@@ -74,7 +74,9 @@ export {
   serializeCloudPrompt,
 } from "./cloud-prompt";
 export {
+  type AllowedModelsPin,
   adapterForModelId,
+  applyAllowedModels,
   buildCloudTaskConfigOptions,
   buildProviderModelGroups,
   type CloudTaskConfigOption,
@@ -99,6 +101,7 @@ export {
   isModalModelId,
   isOpenAIModel,
   normalizeGatewayModelsResponse,
+  PAID_PLAN_REQUIRED_REASON,
   pickAllowedModel,
 } from "./cloud-task-models";
 export {
@@ -109,6 +112,7 @@ export {
   isCredentialOriginAllowed,
   isCustomCloudHost,
   normalizeCustomCloud,
+  validateAiGatewayUrl,
 } from "./custom-cloud";
 export {
   buildLoopDeeplink,
@@ -152,6 +156,8 @@ export {
 } from "./domain-types";
 export * from "./enrichment";
 export {
+  aiGatewayDenialCode,
+  aiGatewayRemintReason,
   classifyGatewayLimitError,
   classifyPromptFailure,
   type GatewayLimitCause,
