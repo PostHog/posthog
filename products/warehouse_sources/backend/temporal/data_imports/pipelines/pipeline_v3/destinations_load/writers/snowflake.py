@@ -30,7 +30,7 @@ from typing import ClassVar
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from products.batch_exports.backend.facade.pipeline import (
+from products.batch_exports.backend.facade.destinations.snowflake import (
     NamedBytesIO,
     SnowflakeClient,
     SnowflakeField,

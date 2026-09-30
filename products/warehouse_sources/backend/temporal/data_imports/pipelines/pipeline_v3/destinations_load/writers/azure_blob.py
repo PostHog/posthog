@@ -49,13 +49,13 @@ from azure.storage.blob.aio import BlobServiceClient, ContainerClient, Exponenti
 
 from posthog.models.integration.azure_blob import EndpointNotAllowedError, validate_azure_blob_connection_string
 
-from products.batch_exports.backend.facade.pipeline import (
+from products.batch_exports.backend.facade.destinations.azure_blob import (
     AZURE_BLOB_SUPPORTED_COMPRESSIONS,
     MalformedConnectionStringError,
-    ParquetStreamTransformer,
     get_azure_blob_integration,
     is_authorization_failure_response_error,
 )
+from products.batch_exports.backend.facade.pipeline import ParquetStreamTransformer
 from products.warehouse_sources.backend.temporal.data_imports.destinations.contracts import (
     BatchWriteOutcome,
     DestinationBatchContext,

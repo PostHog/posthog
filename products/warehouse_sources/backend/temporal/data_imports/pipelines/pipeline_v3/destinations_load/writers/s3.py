@@ -52,17 +52,17 @@ import botocore.exceptions
 from posthog.models.integration import AWSS3RoleBasedIntegration, S3CompatibleIntegration
 from posthog.models.team import Team
 
-from products.batch_exports.backend.facade.pipeline import (
+from products.batch_exports.backend.facade.contracts import AWSCredentials
+from products.batch_exports.backend.facade.destinations.s3 import (
     S3_SUPPORTED_COMPRESSIONS,
-    AWSCredentials,
     ConcurrentS3Consumer,
     IntermittentUploadPartTimeoutError,
-    ParquetStreamTransformer,
     PolicyStatement,
     get_credentials_using_user_aws_role,
     get_s3_integration,
     s3_client,
 )
+from products.batch_exports.backend.facade.pipeline import ParquetStreamTransformer
 from products.warehouse_sources.backend.temporal.data_imports.destinations.contracts import (
     BatchWriteOutcome,
     DestinationBatchContext,

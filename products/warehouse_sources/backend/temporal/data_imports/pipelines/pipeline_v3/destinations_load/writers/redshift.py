@@ -29,7 +29,8 @@ from psycopg import sql
 
 from posthog.models.integration import Integration, RedshiftIntegration
 
-from products.batch_exports.backend.facade.pipeline import Fields, PostgreSQLClient, RedshiftClient
+from products.batch_exports.backend.facade.destinations.postgres import Fields, PostgreSQLClient
+from products.batch_exports.backend.facade.destinations.redshift import RedshiftClient
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.writers.postgres import (
     PostgresDestinationWriter,
 )
