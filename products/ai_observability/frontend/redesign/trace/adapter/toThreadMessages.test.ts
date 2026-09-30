@@ -171,6 +171,62 @@ describe('toThreadMessages', () => {
         })
     })
 
+    it('keeps an Anthropic tool_result carrying an image as its own message with the attachment', () => {
+        const messages = toThreadMessages(
+            [
+                {
+                    role: 'assistant',
+                    content: [{ type: 'tool_use', id: 'call-1', name: 'take_screenshot', input: {} }],
+                },
+                {
+                    role: 'user',
+                    content: [
+                        {
+                            type: 'tool_result',
+                            tool_use_id: 'call-1',
+                            content: [
+                                { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'AAAA' } },
+                            ],
+                        },
+                    ],
+                },
+            ],
+            options('assistant', 'gen', 'gen-1')
+        )
+        expect(messages.map((message) => [message.role, message.parts])).toEqual([
+            ['assistant', [{ kind: 'toolCall', name: 'take_screenshot', args: {} }]],
+            [
+                'tool',
+                [
+                    {
+                        kind: 'attachment',
+                        mediaType: 'image',
+                        name: null,
+                        mimeType: 'image/png',
+                        url: 'data:image/png;base64,AAAA',
+                    },
+                ],
+            ],
+        ])
+    })
+
+    it.each([
+        [
+            'a refusal',
+            { role: 'assistant', content: null, refusal: 'I cannot share account passwords.' },
+            'I cannot share account passwords.',
+        ],
+        [
+            'a spoken reply',
+            { role: 'assistant', content: null, audio: { id: 'audio-1', transcript: 'Your plan renews on Friday.' } },
+            'Your plan renews on Friday.',
+        ],
+    ])('keeps the text of %s that has no content', (_name, message, expectedText) => {
+        expect(toThreadMessages([message], options('assistant', 'out', 'gen-1'))).toMatchObject([
+            { role: 'assistant', parts: [{ kind: 'text', text: expectedText }] },
+        ])
+    })
+
     it.each<[string, unknown, unknown, boolean]>([
         ['role-bearing arrays', [{ role: 'user', content: 'Hi' }], [{ role: 'assistant', content: 'Hello' }], true],
         ['LangChain message dicts', [{ type: 'human', content: 'Hi' }], null, true],

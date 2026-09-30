@@ -15,8 +15,9 @@ export function eventError(event: LLMTraceEvent): string | null {
     return isErrorEvent(event) ? toDisplayText(event.properties.$ai_error ?? 'This step failed.') : null
 }
 
+// The single-trace query never sets `errorCount`, so the events are the source of truth there.
 export function hasTraceError(trace: LLMTrace): boolean {
-    return (trace.errorCount ?? 0) > 0
+    return (trace.errorCount ?? 0) > 0 || trace.events.some(isErrorEvent)
 }
 
 export function traceStats(trace: LLMTrace): NodeStats {
@@ -25,7 +26,8 @@ export function traceStats(trace: LLMTrace): NodeStats {
         inputTokens: trace.inputTokens ?? null,
         outputTokens: trace.outputTokens ?? null,
         cacheReadTokens: null,
-        latencyMs: trace.totalLatency !== undefined ? trace.totalLatency * 1000 : null,
+        cacheWriteTokens: null,
+        latencyMs: trace.totalLatency != null ? trace.totalLatency * 1000 : null,
     }
 }
 
@@ -40,6 +42,7 @@ function nodeStats(node: EnrichedTraceTreeNode): NodeStats {
             ? node.aggregation.outputTokens || null
             : aiTokenCount(properties.$ai_output_tokens),
         cacheReadTokens: aiTokenCount(properties.$ai_cache_read_input_tokens),
+        cacheWriteTokens: aiTokenCount(properties.$ai_cache_creation_input_tokens),
         latencyMs: node.displayLatency > 0 ? node.displayLatency * 1000 : null,
     }
 }

@@ -4,7 +4,6 @@ import { EvaluationRun } from '../../../evaluations/types'
 import { isLLMEvent } from '../../../utils'
 import { EvalResult, EvalsState, TraceTreeNode } from '../types'
 import { makeEvent, makeTrace } from './testFixtures'
-import { toEvalResults } from './toEvalResults'
 import { toNodeDetail } from './toNodeDetail'
 
 const node = (id: string, kind: 'trace' | 'span' | 'generation'): TraceTreeNode => ({
@@ -14,7 +13,14 @@ const node = (id: string, kind: 'trace' | 'span' | 'generation'): TraceTreeNode 
     model: null,
     hasError: false,
     children: [],
-    stats: { costUsd: null, inputTokens: null, outputTokens: null, cacheReadTokens: null, latencyMs: null },
+    stats: {
+        costUsd: null,
+        inputTokens: null,
+        outputTokens: null,
+        cacheReadTokens: null,
+        cacheWriteTokens: null,
+        latencyMs: null,
+    },
 })
 
 const run = (overrides: Partial<EvaluationRun> = {}): EvaluationRun => ({
@@ -45,7 +51,18 @@ const cachedPerson: LLMTracePerson = {
 }
 
 describe('toNodeDetail', () => {
-    const base = { trace: makeTrace(), cache: {}, evalRuns: [], evalRunsLoading: false, teamId: 7, person: null }
+    const base = {
+        trace: makeTrace(),
+        tree: [],
+        cache: {},
+        evalRuns: [],
+        evalRunsLoading: false,
+        evaluations: [],
+        detectorEvaluationIds: [],
+        evaluationsSettled: true,
+        teamId: 7,
+        person: null,
+    }
 
     it('generation without inline IO and no cache entry yields loading', () => {
         const event = makeEvent({ id: 'gen-1', event: '$ai_generation', properties: {} })
@@ -88,14 +105,17 @@ describe('toNodeDetail', () => {
         expect(readyResults(detail.evals).map((result) => result.id)).toEqual(['r1'])
     })
 
-    it('reports evals as loading while eval runs are loading', () => {
+    it.each([
+        ['eval runs are loading', { evalRunsLoading: true }],
+        ['the evaluation configs that decide detector polarity have not loaded', { evaluationsSettled: false }],
+    ])('reports evals as loading while %s', (_name, overrides) => {
         const event = makeEvent({ id: 'gen-1', event: '$ai_generation', properties: {} })
         const detail = toNodeDetail({
             ...base,
+            ...overrides,
             event,
             node: node('gen-1', 'generation'),
             evalRuns: [run()],
-            evalRunsLoading: true,
         })
         expect(detail.evals).toEqual({ status: 'loading' })
     })
@@ -168,18 +188,6 @@ describe('toNodeDetail', () => {
             kind: 'messages',
             input: [{ role: 'user', parts: [{ kind: 'text', text: 'Move my flight to Friday' }] }],
             output: [{ role: 'assistant', parts: [{ kind: 'text', text: 'Moved to Friday 09:15' }] }],
-        })
-    })
-
-    describe('toEvalResults', () => {
-        it('maps results, skips and missing results to verdicts', () => {
-            const runs = [
-                run({ result: true }),
-                run({ id: 'r2', result: false }),
-                run({ id: 'r3', skipped: true }),
-                run({ id: 'r4', result: null }),
-            ]
-            expect(toEvalResults(runs).map((result) => result.verdict)).toEqual(['pass', 'fail', 'na', 'na'])
         })
     })
 })

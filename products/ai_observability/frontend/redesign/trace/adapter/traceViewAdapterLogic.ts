@@ -1,4 +1,5 @@
 import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 
 import { teamLogic } from 'scenes/teamLogic'
@@ -23,14 +24,15 @@ import type {
 import { AIData, AIDataLookup, aiObservabilityAIDataLogic } from '../../../aiObservabilityAIDataLogic'
 import { EnrichedTraceTreeNode, aiObservabilityTraceDataLogic } from '../../../aiObservabilityTraceDataLogic'
 import { aiObservabilityTraceLogic } from '../../../aiObservabilityTraceLogic'
-import { EvaluationRun } from '../../../evaluations/types'
+import { llmEvaluationsLogic } from '../../../evaluations/llmEvaluationsLogic'
+import { EvaluationConfig, EvaluationRun } from '../../../evaluations/types'
 import { pickUserVisibleTurn } from '../../../extractSessionTurns'
 import { generationEvaluationRunsLogic } from '../../../generationEvaluationRunsLogic'
 import { llmPersonsLazyLoaderLogic } from '../../../llmPersonsLazyLoaderLogic'
 import { isLLMEvent } from '../../../utils'
 import { TraceHeaderProps } from '../components/TraceHeader'
 import { TraceSummaryBarProps } from '../components/TraceSummaryBar'
-import { ConversationTurn, NodeDetailTab, TimelineRowData, TraceMode, TraceTreeNode } from '../types'
+import { ConversationState, NodeDetailTab, TimelineRowData, TraceMode, TraceTreeNode } from '../types'
 import { heavyDataLookup } from './eventIO'
 import { toHeader } from './toHeader'
 import { NodeDetailData, toNodeDetail } from './toNodeDetail'
@@ -74,7 +76,11 @@ export interface traceViewAdapterLogicValues {
     olderTraceId: string | null // aiObservabilityTraceLogic
     generationEvaluationRuns: EvaluationRun[] // generationEvaluationRunsLogic
     generationEvaluationRunsLoading: boolean // generationEvaluationRunsLogic
+    detectorEvaluationIds: string[] // llmEvaluationsLogic
+    evaluations: EvaluationConfig[] // llmEvaluationsLogic
+    evaluationsSettled: boolean // llmEvaluationsLogic
     personsCache: Record<string, LLMTracePerson | null> // llmPersonsLazyLoaderLogic
+    searchParams: Record<string, any> // router
     currentTeamId: number | null // teamLogic
     canViewInThread: boolean
     detailData: NodeDetailData | null
@@ -87,10 +93,7 @@ export interface traceViewAdapterLogicValues {
     selectedTreeNode: TraceTreeNode | null
     status: 'error' | 'loading' | 'ready'
     summary: TraceSummaryBarProps | null
-    thread: {
-        activeTurnId: string | null
-        turns: ConversationTurn[]
-    }
+    thread: ConversationState
     timeline: {
         rows: TimelineRowData[]
         totalMs: number
@@ -105,9 +108,6 @@ export interface traceViewAdapterLogicActions {
     } // aiObservabilityAIDataLogic
     setEventId: (eventId: string | null) => {
         eventId: string | null
-    } // aiObservabilityTraceLogic
-    setSearchQuery: (searchQuery: string) => {
-        searchQuery: string
     } // aiObservabilityTraceLogic
     selectAndShowSpans: (id: string) => {
         id: string
@@ -160,7 +160,8 @@ export interface traceViewAdapterLogicMeta {
             olderTraceId: string | null,
             olderTimestamp: string | null,
             newerTraceId: string | null,
-            newerTimestamp: string | null
+            newerTimestamp: string | null,
+            searchParams: Record<string, any>
         ) => TraceHeaderProps | null
         summary: (
             trace: LLMTrace | undefined,
@@ -169,10 +170,14 @@ export interface traceViewAdapterLogicMeta {
         detailData: (
             trace: LLMTrace | undefined,
             event: LLMTrace | LLMTraceEvent | null,
+            tree: TraceTreeNode[],
             selectedTreeNode: TraceTreeNode | null,
             aiDataCache: Record<string, AIData | null>,
             generationEvaluationRuns: EvaluationRun[],
             generationEvaluationRunsLoading: boolean,
+            evaluations: EvaluationConfig[],
+            detectorEvaluationIds: string[],
+            evaluationsSettled: boolean,
             currentTeamId: number | null,
             personsCache: Record<string, LLMTracePerson | null>
         ) => NodeDetailData | null
@@ -180,10 +185,7 @@ export interface traceViewAdapterLogicMeta {
             trace: LLMTrace | undefined,
             aiDataCache: Record<string, AIData | null>,
             currentTeamId: number | null
-        ) => {
-            activeTurnId: string | null
-            turns: ConversationTurn[]
-        }
+        ) => ConversationState
         timeline: (
             trace: LLMTrace | undefined,
             tree: TraceTreeNode[]
@@ -191,14 +193,7 @@ export interface traceViewAdapterLogicMeta {
             rows: TimelineRowData[]
             totalMs: number
         }
-        canViewInThread: (
-            selectedNodeId: string | null,
-            thread: {
-                activeTurnId: string | null
-                turns: ConversationTurn[]
-            },
-            traceId: string
-        ) => boolean
+        canViewInThread: (selectedNodeId: string | null, thread: ConversationState, traceId: string) => boolean
         heavyDataLookups: (trace: LLMTrace | undefined, event: LLMTrace | LLMTraceEvent | null) => AIDataLookup[]
     }
 }
@@ -233,13 +228,12 @@ export const traceViewAdapterLogic = kea<traceViewAdapterLogicType>([
             ['currentTeamId'],
             llmPersonsLazyLoaderLogic,
             ['personsCache'],
+            llmEvaluationsLogic,
+            ['evaluations', 'detectorEvaluationIds', 'evaluationsSettled'],
+            router,
+            ['searchParams'],
         ],
-        actions: [
-            aiObservabilityTraceLogic,
-            ['setEventId', 'setSearchQuery'],
-            aiObservabilityAIDataLogic,
-            ['ensureAIDataLoaded'],
-        ],
+        actions: [aiObservabilityTraceLogic, ['setEventId'], aiObservabilityAIDataLogic, ['ensureAIDataLoaded']],
     })),
     actions({
         setMode: (mode: TraceMode) => ({ mode }),
@@ -297,15 +291,18 @@ export const traceViewAdapterLogic = kea<traceViewAdapterLogicType>([
                 selectedNodeId ? findTreeNode(tree, selectedNodeId) : null,
         ],
         header: [
-            (s) => [s.trace, s.olderTraceId, s.olderTimestamp, s.newerTraceId, s.newerTimestamp],
+            (s) => [s.trace, s.olderTraceId, s.olderTimestamp, s.newerTraceId, s.newerTimestamp, s.searchParams],
             (
                 trace: LLMTrace | undefined,
                 olderTraceId: string | null,
                 olderTimestamp: string | null,
                 newerTraceId: string | null,
-                newerTimestamp: string | null
+                newerTimestamp: string | null,
+                searchParams: Record<string, unknown>
             ): TraceHeaderProps | null =>
-                trace ? toHeader(trace, { olderTraceId, olderTimestamp, newerTraceId, newerTimestamp }) : null,
+                trace
+                    ? toHeader(trace, { olderTraceId, olderTimestamp, newerTraceId, newerTimestamp }, searchParams)
+                    : null,
         ],
         summary: [
             (s) => [s.trace, s.personsCache],
@@ -318,20 +315,28 @@ export const traceViewAdapterLogic = kea<traceViewAdapterLogicType>([
             (s) => [
                 s.trace,
                 s.event,
+                s.tree,
                 s.selectedTreeNode,
                 s.aiDataCache,
                 s.generationEvaluationRuns,
                 s.generationEvaluationRunsLoading,
+                s.evaluations,
+                s.detectorEvaluationIds,
+                s.evaluationsSettled,
                 s.currentTeamId,
                 s.personsCache,
             ],
             (
                 trace: LLMTrace | undefined,
                 event: LLMTrace | LLMTraceEvent | null,
+                tree: TraceTreeNode[],
                 node: TraceTreeNode | null,
                 cache: Record<string, AIData | null>,
                 evalRuns: EvaluationRun[],
                 evalRunsLoading: boolean,
+                evaluations: EvaluationConfig[],
+                detectorEvaluationIds: string[],
+                evaluationsSettled: boolean,
                 teamId: number | null,
                 personsCache: Record<string, LLMTracePerson | null>
             ): NodeDetailData | null =>
@@ -339,10 +344,14 @@ export const traceViewAdapterLogic = kea<traceViewAdapterLogicType>([
                     ? toNodeDetail({
                           trace,
                           event,
+                          tree,
                           node,
                           cache,
                           evalRuns,
                           evalRunsLoading,
+                          evaluations,
+                          detectorEvaluationIds,
+                          evaluationsSettled,
                           teamId,
                           person: personsCache[trace.distinctId] ?? null,
                       })
@@ -354,8 +363,7 @@ export const traceViewAdapterLogic = kea<traceViewAdapterLogicType>([
                 trace: LLMTrace | undefined,
                 cache: Record<string, AIData | null>,
                 teamId: number | null
-            ): { turns: ConversationTurn[]; activeTurnId: string | null } =>
-                trace ? toThread(trace, cache, teamId) : { turns: [], activeTurnId: null },
+            ): ConversationState => (trace ? toThread(trace, cache, teamId) : { status: 'loading' }),
         ],
         timeline: [
             (s) => [s.trace, s.tree],
@@ -364,18 +372,14 @@ export const traceViewAdapterLogic = kea<traceViewAdapterLogicType>([
         ],
         canViewInThread: [
             (s, p) => [s.selectedNodeId, s.thread, p.traceId],
-            (
-                selectedNodeId: string | null,
-                thread: { turns: ConversationTurn[]; activeTurnId: string | null },
-                traceId: string
-            ): boolean => {
+            (selectedNodeId: string | null, thread: ConversationState, traceId: string): boolean => {
                 if (!selectedNodeId) {
                     return false
                 }
                 if (selectedNodeId === traceId) {
                     return true
                 }
-                const turnMessages = thread.turns[0]?.messages ?? []
+                const turnMessages = thread.status === 'ready' ? (thread.turns[0]?.messages ?? []) : []
                 return turnMessages.some((message) => message.sourceNodeId === selectedNodeId)
             },
         ],
@@ -403,10 +407,14 @@ export const traceViewAdapterLogic = kea<traceViewAdapterLogicType>([
             }
         },
     })),
-    afterMount(({ actions }) => {
+    afterMount(() => {
         // The legacy scene writes a `search` param into shared trace links. This view has no
         // search UI, so without clearing it the tree silently filters down to whatever the
-        // stale query matched.
-        actions.setSearchQuery('')
+        // stale query matched. Removing only that param keeps every other permalink param, and
+        // the legacy trace logic reads the new URL and clears its search query.
+        const { search, ...searchParams } = router.values.searchParams
+        if (search !== undefined) {
+            router.actions.replace(router.values.location.pathname, searchParams, router.values.hashParams)
+        }
     }),
 ])

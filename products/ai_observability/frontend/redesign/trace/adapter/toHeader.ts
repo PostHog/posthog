@@ -1,7 +1,10 @@
+import { combineUrl } from 'kea-router'
+
 import { urls } from 'scenes/urls'
 
 import { LLMTrace } from '~/queries/schema/schema-general'
 
+import { sanitizeTraceUrlSearchParams } from '../../../utils'
 import { TraceHeaderProps } from '../components/TraceHeader'
 import { hasTraceError } from './toTraceTree'
 
@@ -12,16 +15,41 @@ export interface TraceNeighbours {
     newerTimestamp: string | null
 }
 
-function traceHref(traceId: string | null, timestamp: string | null): string | null {
-    return traceId ? urls.aiObservabilityTrace(traceId, { timestamp: timestamp ?? undefined }) : null
+type SearchParams = Record<string, unknown>
+
+function neighbourHref(traceId: string | null, timestamp: string | null, searchParams: SearchParams): string | null {
+    return traceId
+        ? combineUrl(urls.aiObservabilityTrace(traceId), {
+              ...sanitizeTraceUrlSearchParams(searchParams),
+              timestamp: timestamp ?? undefined,
+          }).url
+        : null
 }
 
-export function toHeader(trace: LLMTrace, neighbours: TraceNeighbours): TraceHeaderProps {
+// Matches the legacy scene: a link opened from a review queue returns to that queue, other links to the reviews tab.
+function reviewsBackHref(searchParams: SearchParams): string {
+    const inQueue = typeof searchParams.queue_id === 'string' && searchParams.queue_id !== ''
+    return combineUrl(urls.aiObservabilityReviews(), {
+        ...sanitizeTraceUrlSearchParams(searchParams),
+        human_reviews_tab: inQueue ? undefined : 'reviews',
+    }).url
+}
+
+function backHref(searchParams: SearchParams): string {
+    if (searchParams.back_to === 'reviews') {
+        return reviewsBackHref(searchParams)
+    }
+    const list =
+        searchParams.back_to === 'generations' ? urls.aiObservabilityGenerations() : urls.aiObservabilityTraces()
+    return combineUrl(list, sanitizeTraceUrlSearchParams(searchParams)).url
+}
+
+export function toHeader(trace: LLMTrace, neighbours: TraceNeighbours, searchParams: SearchParams): TraceHeaderProps {
     return {
         name: trace.traceName || 'Untitled trace',
         hasError: hasTraceError(trace),
-        olderHref: traceHref(neighbours.olderTraceId, neighbours.olderTimestamp),
-        newerHref: traceHref(neighbours.newerTraceId, neighbours.newerTimestamp),
-        backHref: urls.aiObservabilityTraces(),
+        olderHref: neighbourHref(neighbours.olderTraceId, neighbours.olderTimestamp, searchParams),
+        newerHref: neighbourHref(neighbours.newerTraceId, neighbours.newerTimestamp, searchParams),
+        backHref: backHref(searchParams),
     }
 }

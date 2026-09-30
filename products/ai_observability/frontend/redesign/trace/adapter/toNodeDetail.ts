@@ -1,7 +1,7 @@
 import { LLMTrace, LLMTraceEvent, LLMTracePerson } from '~/queries/schema/schema-general'
 
 import { AIData } from '../../../aiObservabilityAIDataLogic'
-import { EvaluationRun } from '../../../evaluations/types'
+import { EvaluationConfig, EvaluationRun } from '../../../evaluations/types'
 import { isLLMEvent } from '../../../utils'
 import { NodeDetailProps } from '../components/NodeDetail'
 import { EvalsState, NodeContent, NodeProperties, TraceTreeNode } from '../types'
@@ -14,15 +14,19 @@ import { toMessageIO } from './toThread'
 import { isMessageIO } from './toThreadMessages'
 import { eventError } from './toTraceTree'
 
-export type NodeDetailData = Omit<NodeDetailProps, 'tab' | 'onTabChange' | 'onViewInThread'>
+export type NodeDetailData = Omit<NodeDetailProps, 'tab' | 'onTabChange' | 'onViewInThread' | 'onSelectNode'>
 
 interface NodeDetailArgs {
     trace: LLMTrace
     event: LLMTrace | LLMTraceEvent
     node: TraceTreeNode
     cache: Record<string, AIData | null>
+    tree: TraceTreeNode[]
     evalRuns: EvaluationRun[]
     evalRunsLoading: boolean
+    evaluations: EvaluationConfig[]
+    detectorEvaluationIds: string[]
+    evaluationsSettled: boolean
     teamId: TeamId
     person: LLMTracePerson | null
 }
@@ -69,22 +73,26 @@ function traceProperties(trace: LLMTrace, person: LLMTracePerson | null): NodePr
     }
 }
 
-function evalsState(evalRunsLoading: boolean, runs: EvaluationRun[]): EvalsState {
-    return evalRunsLoading ? { status: 'loading' } : { status: 'ready', results: toEvalResults(runs) }
+// Detector polarity comes from the evaluation configs, so results wait for them to avoid showing a flipped verdict.
+function evalsState(runs: EvaluationRun[], node: TraceTreeNode, args: NodeDetailArgs): EvalsState {
+    if (args.evalRunsLoading || !args.evaluationsSettled) {
+        return { status: 'loading' }
+    }
+    return {
+        status: 'ready',
+        results: toEvalResults(runs, {
+            tree: args.tree,
+            viewedNodeId: node.id,
+            evaluations: args.evaluations,
+            detectorEvaluationIds: args.detectorEvaluationIds,
+        }),
+    }
 }
 
-export function toNodeDetail({
-    trace,
-    event,
-    node,
-    cache,
-    evalRuns,
-    evalRunsLoading,
-    teamId,
-    person,
-}: NodeDetailArgs): NodeDetailData {
+export function toNodeDetail(args: NodeDetailArgs): NodeDetailData {
+    const { trace, event, node, cache, evalRuns, teamId, person } = args
     const runs = node.kind === 'trace' ? evalRuns : evalRuns.filter((run) => run.generation_id === node.id)
-    const evals = evalsState(evalRunsLoading, runs)
+    const evals = evalsState(runs, node, args)
 
     if (!isLLMEvent(event)) {
         const { events: _events, ...raw } = trace

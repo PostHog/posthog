@@ -38,6 +38,13 @@ const answeredGeneration = makeEvent({
     },
 })
 
+const offloadedLatestGeneration = makeEvent({
+    id: 'gen-3',
+    event: '$ai_generation',
+    createdAt: '2026-09-01T10:15:04Z',
+    properties: { $ai_trace_id: 'trace-1', $ai_parent_id: 'trace-1' },
+})
+
 const unrelatedSpan = makeEvent({
     id: 'span-1',
     event: '$ai_span',
@@ -47,6 +54,13 @@ const unrelatedSpan = makeEvent({
 
 describe('traceViewAdapterLogic', () => {
     let logic: ReturnType<typeof traceViewAdapterLogic.build>
+
+    function remount(): void {
+        logic.unmount()
+        const { query } = aiObservabilityTraceLogic.values
+        logic = traceViewAdapterLogic({ traceId: 'trace-1', query })
+        logic.mount()
+    }
 
     beforeEach(async () => {
         initKeaTests()
@@ -63,11 +77,22 @@ describe('traceViewAdapterLogic', () => {
 
     afterEach(() => logic.unmount())
 
-    it('asks the heavy-data loader for a generation when it is selected', async () => {
-        await expectLogic(logic, () => logic.actions.selectNode('gen-1')).toDispatchActions([
+    it.each([
+        ['a generation when it is selected', null, () => logic.actions.selectNode('gen-1'), 'gen-1'],
+        [
+            'the offloaded latest generation, which the thread shows, on mount',
+            [answeredGeneration, offloadedLatestGeneration],
+            null,
+            'gen-3',
+        ],
+    ])('asks the heavy-data loader for %s', async (_name, events, act, expectedEventId) => {
+        if (events) {
+            jest.mocked(performQuery).mockResolvedValue({ results: [makeTrace({ events })] } as any)
+        }
+        await expectLogic(logic, () => (act ? act() : remount())).toDispatchActions([
             (action) =>
                 action.type === aiObservabilityAIDataLogic.actionTypes.ensureAIDataLoaded &&
-                action.payload.lookups.some((lookup: { eventId: string }) => lookup.eventId === 'gen-1'),
+                action.payload.lookups.some((lookup: { eventId: string }) => lookup.eventId === expectedEventId),
         ])
     })
 
@@ -93,15 +118,26 @@ describe('traceViewAdapterLogic', () => {
         await expectLogic(logic, () => logic.actions.selectNode(nodeId)).toMatchValues({ canViewInThread: expected })
     })
 
-    it('clears a search query left over from a shared legacy URL, so it does not silently filter the tree', async () => {
-        logic.unmount()
-        router.actions.push(urls.aiObservabilityTrace('trace-1', { search: 'does-not-match-anything' }))
-        const { query } = aiObservabilityTraceLogic.values
-        logic = traceViewAdapterLogic({ traceId: 'trace-1', query })
-        logic.mount()
+    it('clears a search query left over from a shared legacy URL, so it does not silently filter the tree, and keeps the other params', async () => {
+        router.actions.push(
+            urls.aiObservabilityTrace('trace-1', {
+                search: 'does-not-match-anything',
+                event: 'gen-2',
+                line: '4',
+                back_to: 'generations',
+                date_from: '-7d',
+            })
+        )
+        remount()
 
         await expectLogic(logic).toFinishAllListeners().toMatchValues({ status: 'ready' })
         expect(logic.values.tree[0].children.map((child) => child.id)).toEqual(['span-1', 'gen-1', 'gen-2'])
+        expect(router.values.searchParams).toEqual({
+            event: 'gen-2',
+            line: 4,
+            back_to: 'generations',
+            date_from: '-7d',
+        })
     })
 
     it.each([

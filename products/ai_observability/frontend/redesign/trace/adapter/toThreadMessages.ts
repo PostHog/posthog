@@ -51,7 +51,7 @@ function itemText(item: unknown): string | undefined {
     return extractTextContent(item)
 }
 
-function messageText(message: CompatMessage): string {
+function contentText(message: CompatMessage): string {
     if (!Array.isArray(message.content)) {
         return extractText(message)
     }
@@ -59,6 +59,18 @@ function messageText(message: CompatMessage): string {
         .map(itemText)
         .filter((text): text is string => text !== undefined)
         .join('\n')
+}
+
+// OpenAI puts a refusal or a spoken reply next to `content`, which is then null.
+function sideChannelTexts(message: CompatMessage): string[] {
+    const refusal: unknown = message.refusal
+    const audio: unknown = message.audio
+    const transcript = isObject(audio) ? audio.transcript : undefined
+    return [refusal, transcript].filter((text): text is string => typeof text === 'string' && text !== '')
+}
+
+function messageText(message: CompatMessage): string {
+    return [contentText(message), ...sideChannelTexts(message)].filter((text) => text !== '').join('\n')
 }
 
 function contentParts(message: CompatMessage, teamId: TeamId): { text: string; attachments: MessagePart[] } {
@@ -124,7 +136,12 @@ export function toThreadMessages(
         const role = toRole(message.role)
         const { text, attachments } = contentParts(message, teamId)
 
-        const pendingCall = role === 'tool' && message.tool_call_id ? pendingCalls.get(message.tool_call_id) : undefined
+        // A tool call part holds its result as text only, so a result carrying media stays its own
+        // message and keeps its attachments.
+        const pendingCall =
+            role === 'tool' && message.tool_call_id && attachments.length === 0
+                ? pendingCalls.get(message.tool_call_id)
+                : undefined
         if (pendingCall && message.tool_call_id) {
             pendingCall.result = text || message.content
             pendingCalls.delete(message.tool_call_id)

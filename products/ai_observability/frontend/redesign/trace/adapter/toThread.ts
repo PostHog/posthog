@@ -1,8 +1,8 @@
-import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
+import { LLMTrace } from '~/queries/schema/schema-general'
 
 import { AIData } from '../../../aiObservabilityAIDataLogic'
 import { pickUserVisibleTurn } from '../../../extractSessionTurns'
-import { ConversationTurn, ThreadMessage } from '../types'
+import { ConversationState, ThreadMessage } from '../types'
 import { resolveEventIO } from './eventIO'
 import { TeamId } from './toAttachment'
 import { toThreadMessages } from './toThreadMessages'
@@ -30,22 +30,23 @@ export function toMessageIO(io: { input: unknown; output: unknown }, sourceNodeI
     }
 }
 
-function turnMessages(event: LLMTraceEvent, cache: Record<string, AIData | null>, teamId: TeamId): ThreadMessage[] {
-    const { input, output } = toMessageIO(resolveEventIO(event, cache), event.id, teamId)
-    return [...input, ...output]
+function readyThread(trace: LLMTrace, messages: ThreadMessage[], error: string | null): ConversationState {
+    return {
+        status: 'ready',
+        turns: [{ id: trace.id, timestamp: trace.createdAt, messages, error }],
+        activeTurnId: trace.id,
+    }
 }
 
-export function toThread(
-    trace: LLMTrace,
-    cache: Record<string, AIData | null>,
-    teamId: TeamId
-): { turns: ConversationTurn[]; activeTurnId: string } {
+export function toThread(trace: LLMTrace, cache: Record<string, AIData | null>, teamId: TeamId): ConversationState {
     const turnEvent = pickUserVisibleTurn(trace)
-    const turn: ConversationTurn = {
-        id: trace.id,
-        timestamp: trace.createdAt,
-        messages: turnEvent ? turnMessages(turnEvent, cache, teamId) : [],
-        error: turnEvent ? eventError(turnEvent) : null,
+    if (!turnEvent) {
+        return readyThread(trace, [], null)
     }
-    return { turns: [turn], activeTurnId: trace.id }
+    const io = resolveEventIO(turnEvent, cache)
+    if (io.loading) {
+        return { status: 'loading' }
+    }
+    const { input, output } = toMessageIO(io, turnEvent.id, teamId)
+    return readyThread(trace, [...input, ...output], eventError(turnEvent))
 }

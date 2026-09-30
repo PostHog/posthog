@@ -1,5 +1,5 @@
 import { enrich, makeEvent, makeTrace } from './testFixtures'
-import { isErrorEvent, toTraceTree } from './toTraceTree'
+import { hasTraceError, isErrorEvent, toTraceTree } from './toTraceTree'
 
 describe('toTraceTree', () => {
     describe('isErrorEvent', () => {
@@ -10,6 +10,18 @@ describe('toTraceTree', () => {
             ['neither an error payload nor a truthy flag', { $ai_is_error: false }, false],
         ])('%s -> %s', (_description, properties, expected) => {
             expect(isErrorEvent(makeEvent({ id: 'e1', properties }))).toBe(expected)
+        })
+
+        it.each([
+            ['an error count from the traces list', makeTrace({ errorCount: 1 }), true],
+            [
+                'a failed event in a single-trace read, which carries no error count',
+                makeTrace({ events: [makeEvent({ id: 'e1', properties: { $ai_error: 'Rate limited' } })] }),
+                true,
+            ],
+            ['no error count and no failed event', makeTrace({ events: [makeEvent({ id: 'e1' })] }), false],
+        ])('hasTraceError with %s -> %s', (_description, trace, expected) => {
+            expect(hasTraceError(trace)).toBe(expected)
         })
     })
 
@@ -22,6 +34,7 @@ describe('toTraceTree', () => {
             $ai_input_tokens: 1822,
             $ai_output_tokens: '212',
             $ai_cache_read_input_tokens: 1024,
+            $ai_cache_creation_input_tokens: '256',
         },
     })
     const span = makeEvent({ id: 'span-1', event: '$ai_span', properties: { $ai_span_name: 'retrieve-context' } })
@@ -50,6 +63,7 @@ describe('toTraceTree', () => {
             inputTokens: 1840,
             outputTokens: 212,
             cacheReadTokens: null,
+            cacheWriteTokens: null,
             latencyMs: 2310,
         })
     })
@@ -68,6 +82,7 @@ describe('toTraceTree', () => {
             inputTokens: 1822,
             outputTokens: 212,
             cacheReadTokens: 1024,
+            cacheWriteTokens: 256,
             latencyMs: 1880,
         })
         expect(generationNode.model).toBe('gpt-4.1-mini')
