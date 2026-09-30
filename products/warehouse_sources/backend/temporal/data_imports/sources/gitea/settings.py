@@ -8,7 +8,7 @@ from products.warehouse_sources.backend.types import IncrementalField, Increment
 PAGE_SIZE = 50
 
 
-@dataclass
+@dataclass(frozen=True)
 class GiteaEndpointConfig:
     name: str
     path: str  # Path template with a {repository} (owner/repo) placeholder
@@ -26,8 +26,9 @@ class GiteaEndpointConfig:
     extra_params: dict[str, str] = field(default_factory=dict)
     # How the endpoint signals a next page. Several list endpoints send no Link header, only
     # X-Total-Count (or a body `total_count`), so they page by number against that total.
-    # "until_empty" is for endpoints whose total is the size of the current page, not the list.
-    pagination: Literal["link_header", "total_count", "until_empty"] = "link_header"
+    # "unpaged" endpoints return every row when `page` is omitted. Use it where the endpoint
+    # drops rows after paging, because there a short or empty page is not the last page.
+    pagination: Literal["link_header", "total_count", "unpaged"] = "link_header"
     # Key of the row list when the response wraps it in an object.
     data_selector: Optional[str] = None
     # Parent endpoint whose rows fan out to this one; `path` then also has an {index}
@@ -146,13 +147,14 @@ GITEA_ENDPOINTS: dict[str, GiteaEndpointConfig] = {
     "issue_timeline": GiteaEndpointConfig(
         name="issue_timeline",
         # Every event on an issue (comments, state changes, label and assignee changes, ...).
-        # The endpoint filters rows after paging, so a short page does not mean the last page.
         # Adding a timeline event bumps the issue's updated time, so an incremental run only
-        # fans out over issues updated since the watermark.
+        # fans out over issues updated since the watermark. A plain comment edit does not bump
+        # it; the issue_comments table carries those edits.
         path="/repos/{repository}/issues/{index}/timeline",
         parent="issues",
         parent_number_column="issue_number",
-        pagination="until_empty",
+        # Gitea drops cross-references the token can't read after paging.
+        pagination="unpaged",
         partition_key="created_at",
         supports_since=True,
         sort_mode="desc",
@@ -173,7 +175,8 @@ GITEA_ENDPOINTS: dict[str, GiteaEndpointConfig] = {
         path="/repos/{repository}/pulls/{index}/reviews",
         parent="pull_requests",
         parent_number_column="pull_request_number",
-        pagination="total_count",
+        # Gitea drops other users' pending reviews after paging.
+        pagination="unpaged",
         partition_key="submitted_at",
         incremental_fields=[],
     ),
