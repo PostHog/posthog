@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Iterable, Sequence
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 
 from django.db import models
 from django.db.models import Q, QuerySet
@@ -100,6 +100,8 @@ _ACTION_STATE_RANK = {
     PersonalActionState.CLOSED: 3,
 }
 _PRIORITY_RANK = {priority: index for index, priority in enumerate(AutonomyPriority.values)}
+_EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
+_KEY_TIME_CEILING = 10**16
 
 
 @frozen
@@ -137,15 +139,19 @@ class PersonalDecision:
     priority: str | None
     changed_at: datetime
 
-    def sort_key(self) -> tuple[int, int, int, int, float, str]:
+    @property
+    def relevance_key(self) -> str:
+        """Ascending string order is relevance order.
+
+        Clients that merge several list requests sort by this key, so the ranking rules stay here.
+        """
         responsibility = 0 if PersonalReason.CLAIMED in self.reasons else 1 if self.reasons else 2
+        priority = _PRIORITY_RANK.get(self.priority or "", len(_PRIORITY_RANK))
+        # Newer research sorts first, so the key stores the time counted down from a fixed ceiling.
+        age = _KEY_TIME_CEILING - (self.changed_at - _EPOCH) // timedelta(microseconds=1)
         return (
-            0 if self.urgent else 1,
-            _ACTION_STATE_RANK[self.action_state],
-            _PRIORITY_RANK.get(self.priority or "", len(_PRIORITY_RANK)),
-            responsibility,
-            -self.changed_at.timestamp(),
-            self.report_id,
+            f"{0 if self.urgent else 1}{_ACTION_STATE_RANK[self.action_state]}{priority}{responsibility}"
+            f".{age:017d}.{self.report_id}"
         )
 
 
@@ -401,7 +407,7 @@ def decide_reports(
 
 
 def rank_report_ids(decisions: Iterable[PersonalDecision]) -> list[str]:
-    return [decision.report_id for decision in sorted(decisions, key=PersonalDecision.sort_key)]
+    return [decision.report_id for decision in sorted(decisions, key=lambda decision: decision.relevance_key)]
 
 
 _FACT_FIELDS = (

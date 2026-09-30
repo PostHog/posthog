@@ -285,6 +285,8 @@ class TestPersonalInboxListAPI(APIBaseTest):
         second = self._list(scope="for_me", sort="relevance", limit=2, offset=2)
 
         assert [row["title"] for row in first["results"] + second["results"]] == ["Urgent", "High", "Low", "Waiting"]
+        rows = first["results"] + second["results"]
+        assert sorted(rows, key=lambda row: row["personal_inbox"]["relevance_key"]) == rows
         assert first["count"] == 4
         row = first["results"][0]["personal_inbox"]
         assert row["action_state"] == "action_available"

@@ -68277,6 +68277,8 @@ export namespace Schemas {
          * @nullable
          */
       observed_at: string | null;
+      /** Sort key for the relevance order: ascending string order puts the most relevant report first. Use it to merge rows from several list requests without re-deriving the order. */
+      relevance_key: string;
       /** Version of the selection and ordering policy that produced this row. */
       policy_version: string;
     }
