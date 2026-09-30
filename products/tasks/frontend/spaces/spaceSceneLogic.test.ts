@@ -18,6 +18,9 @@ describe('spaceSceneLogic', () => {
                     200,
                     { id: params.id, name: String(params.id), system_role: null },
                 ],
+                '/api/projects/:team_id/task_channels/:id/members/': [
+                    { id: 7, uuid: 'user-7', first_name: 'Ada', email: 'ada@example.com' },
+                ],
                 '/api/projects/:team_id/tasks/': ({ request }) => {
                     const channel = new URL(request.url).searchParams.get('channel')
                     const results =
@@ -28,6 +31,10 @@ describe('spaceSceneLogic', () => {
                 },
             },
             patch: {
+                '/api/projects/:team_id/task_channels/:id/': async ({ params, request }) => [
+                    200,
+                    { id: params.id, system_role: null, ...((await request.json()) as Record<string, unknown>) },
+                ],
                 '/api/projects/:team_id/tasks/:id/': async ({ request }) => {
                     const body = (await request.json()) as { channel?: string }
                     sessionSpace = body.channel ?? sessionSpace
@@ -48,5 +55,44 @@ describe('spaceSceneLogic', () => {
         await expectLogic(logic).toDispatchActions(['sessionUpdated', 'loadSessionsSuccess'])
 
         expect(logic.values.feedGroups).toEqual([])
+    })
+
+    it('shows the new name after a rename and reloads the sidebar spaces', async () => {
+        const logic = spaceSceneLogic({ id: 'space-a' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.updateSpace({ name: 'checkout' })
+        await expectLogic(logic).toDispatchActions(['updateSpace', 'spaceSaved', 'loadSpaces'])
+
+        expect(logic.values.space?.name).toBe('checkout')
+        expect(logic.values.savingSpace).toBe(false)
+    })
+
+    it.each([
+        [404, true],
+        [500, false],
+    ])('treats a %s space load as missing: %s', async (status, missing) => {
+        useMocks({
+            get: { '/api/projects/:team_id/task_channels/:id/': () => [status, { detail: 'Error' }] },
+        })
+        const logic = spaceSceneLogic({ id: 'space-gone' })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadSpaceFailure'])
+
+        expect(logic.values.spaceMissing).toBe(missing)
+        expect(logic.values.spaceUnavailable).toBe(true)
+    })
+
+    it('loads the members once the space turns private', async () => {
+        const logic = spaceSceneLogic({ id: 'space-a' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.members).toEqual([])
+
+        logic.actions.updateSpace({ channel_type: 'private' })
+        await expectLogic(logic).toDispatchActions(['spaceSaved', 'loadMembersSuccess'])
+
+        expect(logic.values.members.map((member) => member.id)).toEqual([7])
     })
 })

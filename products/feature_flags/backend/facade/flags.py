@@ -11,8 +11,8 @@ from django.conf import settings
 from posthog.models.instance_setting import get_instance_setting
 from posthog.ph_client import feature_enabled_or_false
 
+from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
-from products.feature_flags.backend.models.team_feature_flags_config import FlagEvaluationsMode
 
 if TYPE_CHECKING:
     from posthog.models.team import Team

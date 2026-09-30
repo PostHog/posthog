@@ -40,7 +40,7 @@ const SPACES = [
         name: 'checkout',
         channel_type: 'public',
         github_integration: null,
-        repositories: [],
+        repositories: ['example-org/web', 'example-org/billing'],
         auto_archive_after_days: null,
         created_at: '2026-09-02T09:00:00Z',
         starred: true,
@@ -254,6 +254,14 @@ export const SpacesPane: Story = {
 
 export const SpacePage: Story = {
     parameters: { pageUrl: urls.taskSpace('space-checkout') },
+}
+
+export const SpacesBrowse: Story = {
+    parameters: { pageUrl: urls.taskSpaces() },
+}
+
+export const SpaceSettingsTab: Story = {
+    parameters: { pageUrl: urls.taskSpaceSettings('space-checkout') },
 }
 
 export const LibraryAllObjects: Story = {

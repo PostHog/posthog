@@ -116,6 +116,9 @@ export interface todayLogicActions {
         searchParams: Record<string, any>
         url: string
     } // router
+    askAi: (prompt: string) => {
+        prompt: string
+    }
     loadTopReports: () => any
     loadTopReportsFailure: (
         error: string,
@@ -178,6 +181,7 @@ export const todayLogic = kea<todayLogicType>([
         actions: [router, ['locationChanged']],
     })),
     actions({
+        askAi: (prompt: string) => ({ prompt }),
         setHoveredReportId: (reportId: string | null) => ({ reportId }),
         openReport: (report: SignalReport, source: TodayReportOpenSource) => ({ report, source }),
         reportOpened: (report: SignalReport, source: TodayReportOpenSource) => ({ report, source }),
@@ -255,6 +259,9 @@ export const todayLogic = kea<todayLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
+        askAi: ({ prompt }) => {
+            router.actions.push(urls.ai(undefined, prompt))
+        },
         openReport: ({ report, source }) => {
             router.actions.push(urls.todayReport(report.id))
             actions.reportOpened(report, source)
