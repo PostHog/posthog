@@ -176,11 +176,15 @@ const meta: Meta = {
                     },
                 ],
                 '/api/projects/:team_id/task_channels/': SPACES,
+                '/api/projects/:team_id/task_channels/:id/': (req) => [
+                    200,
+                    SPACES.find((space) => space.id === req.params.id) ?? SPACES[0],
+                ],
                 '/api/projects/:team_id/tasks/': ({ request }) => {
                     const params = new URL(request.url).searchParams
                     const results = params.get('pinned')
                         ? PINNED_SESSIONS
-                        : params.get('created_by')
+                        : params.get('created_by') || params.get('channel') === 'space-checkout'
                           ? RECENT_SESSIONS
                           : []
                     return [200, { results, count: results.length, next: null, previous: null }]
@@ -246,6 +250,10 @@ export const SpacesPane: Story = {
     play: async ({ canvasElement }) => {
         await userEvent.click(await within(canvasElement).findByLabelText('Spaces'))
     },
+}
+
+export const SpacePage: Story = {
+    parameters: { pageUrl: urls.taskSpace('space-checkout') },
 }
 
 export const LibraryAllObjects: Story = {
