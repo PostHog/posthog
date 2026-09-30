@@ -329,10 +329,16 @@ The follow-up is bounded to 240,000 serialized bytes; an oversized request fails
 Only the validated final suggestions are stored on the scout config; a failed generation preserves the saved rubric.
 Late failure callbacks preserve results from generations that already completed or failed.
 The worker ends the session after success or failure.
+A note below Generate suggestions says that generation takes a few minutes.
 The browser can close during generation and retrieve the result later without restoring a sandbox.
 Suggestions remain separate from the saved rubric until a person selects and saves them.
+Save includes checked suggestions and shows the number of new criteria it will add.
+Add selected is optional; it moves suggestions into the editable list without saving them.
+Suggested and saved criteria show their title and description first. Show details reveals the passing rules and when they apply.
+Editing a criterion shows all its fields.
 Save rubric edits before generating suggestions; generation uses the saved criteria.
 Every save must retain the shared default criteria, which owners can edit or disable.
+Edits to shared defaults apply only to that scout. Custom criteria appear above the shared defaults in the editor.
 Revision checks protect concurrent saves, and each completion checks its generation identifier before updating the config.
 
 See `products/tasks/backend/logic/services/mts_example/` for a complete working example.

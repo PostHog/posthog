@@ -713,6 +713,9 @@ tools:
                 - latest_run.log_url
                 - latest_run.state.sandbox_connect_token
                 - latest_run.state.sandbox_url
+    tasks-review-retrieve:
+        operation: tasks_review_retrieve
+        enabled: false
     tasks-run-create:
         operation: tasks_run_create
         enabled: true

@@ -567,6 +567,126 @@ export interface PaginatedAccountTrackRuleRunViewListApi {
 }
 
 /**
+ * * `doc` - doc
+ */
+export type AccountViewContentTypeEnumApi =
+    (typeof AccountViewContentTypeEnumApi)[keyof typeof AccountViewContentTypeEnumApi]
+
+export const AccountViewContentTypeEnumApi = {
+    Doc: 'doc',
+} as const
+
+/**
+ * * `ph-markdown-notebook` - ph-markdown-notebook
+ */
+export type AccountViewMarkdownNodeTypeEnumApi =
+    (typeof AccountViewMarkdownNodeTypeEnumApi)[keyof typeof AccountViewMarkdownNodeTypeEnumApi]
+
+export const AccountViewMarkdownNodeTypeEnumApi = {
+    PhMarkdownNotebook: 'ph-markdown-notebook',
+} as const
+
+export interface AccountViewMarkdownAttributesApi {
+    /** Stable identifier for this document. */
+    nodeId: string
+    /**
+     * Component-only Markdown stored by the account view editor.
+     * @maxLength 262144
+     */
+    markdown: string
+}
+
+export interface AccountViewMarkdownNodeApi {
+    /** Markdown notebook node type.
+     *
+     * * `ph-markdown-notebook` - ph-markdown-notebook */
+    type: AccountViewMarkdownNodeTypeEnumApi
+    /** Markdown notebook attributes. */
+    attrs: AccountViewMarkdownAttributesApi
+}
+
+export interface AccountViewContentApi {
+    /** Document root type.
+     *
+     * * `doc` - doc */
+    type: AccountViewContentTypeEnumApi
+    /**
+     * The single Markdown notebook node containing the account view components.
+     * @minItems 1
+     * @maxItems 1
+     */
+    content: AccountViewMarkdownNodeApi[]
+}
+
+export interface AccountViewApi {
+    /** Stable account view identifier. */
+    readonly id: string
+    /** Name shown in the account view. */
+    readonly name: string
+    /** Account views created through this API are private. */
+    readonly visibility: string
+    /** Validated Markdown notebook document. */
+    readonly content: AccountViewContentApi
+    /** Searchable component labels extracted from content. */
+    readonly text_content: string
+    /** Optimistic concurrency version. */
+    readonly version: number
+    /**
+     * Creator user ID.
+     * @nullable
+     */
+    readonly created_by: number | null
+    /**
+     * User ID that last changed the view.
+     * @nullable
+     */
+    readonly last_modified_by: number | null
+    /** When the view was created. */
+    readonly created_at: string
+    /** When the view was last changed. */
+    readonly updated_at: string
+}
+
+export interface AccountViewCreateApi {
+    /**
+     * View name.
+     * @maxLength 400
+     */
+    name: string
+    /** Initial account view components. */
+    content: AccountViewContentApi
+}
+
+/**
+ * * `private` - Personal
+ */
+export type AccountViewUpdateVisibilityEnumApi =
+    (typeof AccountViewUpdateVisibilityEnumApi)[keyof typeof AccountViewUpdateVisibilityEnumApi]
+
+export const AccountViewUpdateVisibilityEnumApi = {
+    Private: 'private',
+} as const
+
+export interface AccountViewUpdateApi {
+    /**
+     * New view name. Omit to keep the current name.
+     * @maxLength 400
+     */
+    name?: string
+    /** Replacement account view components. Omit to keep current content. */
+    content?: AccountViewContentApi
+    /** Views can only be private.
+     *
+     * * `private` - Personal */
+    visibility?: AccountViewUpdateVisibilityEnumApi
+    /**
+     * Version returned by the last read.
+     * @minimum 1
+     */
+    version: number
+}
+
+/**
  * * `daily` - daily
  * * `weekly` - weekly
  * * `monthly` - monthly
@@ -1268,55 +1388,6 @@ export interface AccountsTableCustomPropertyHistoryColumnApi {
     windowDays: WindowDaysApi
 }
 
-export interface AccountsTableSearchFilterApi {
-    kind?: 'search'
-    query: string
-}
-
-export interface AccountsTableTagsFilterApi {
-    kind?: 'tags'
-    /** Match accounts carrying any of these tag names. */
-    tagNames: string[]
-}
-
-export interface AccountsTableAssignedToFilterApi {
-    kind?: 'assigned_to'
-    /** Match accounts where any listed user actively holds any relationship. */
-    userIds: number[]
-}
-
-export const AccountsTableAssignedFilterApiValue = {
-    kind: 'assigned',
-} as const
-export type AccountsTableAssignedFilterApi = typeof AccountsTableAssignedFilterApiValue
-
-export const AccountsTableUnassignedFilterApiValue = {
-    kind: 'unassigned',
-} as const
-export type AccountsTableUnassignedFilterApi = typeof AccountsTableUnassignedFilterApiValue
-
-export type AccountsTableRelationshipOperatorApi =
-    (typeof AccountsTableRelationshipOperatorApi)[keyof typeof AccountsTableRelationshipOperatorApi]
-
-export const AccountsTableRelationshipOperatorApi = {
-    Exact: 'exact',
-    IsNot: 'is_not',
-    IsSet: 'is_set',
-    IsNotSet: 'is_not_set',
-} as const
-
-export interface AccountsTableRelationshipFilterApi {
-    definitionId: string
-    kind?: 'relationship'
-    operator: AccountsTableRelationshipOperatorApi
-    userIds?: number[] | null
-}
-
-export interface AccountsTableAccountIdFilterApi {
-    accountId: string
-    kind?: 'account_id'
-}
-
 export type AccountsTableAccountFieldOperatorApi =
     (typeof AccountsTableAccountFieldOperatorApi)[keyof typeof AccountsTableAccountFieldOperatorApi]
 
@@ -1337,6 +1408,23 @@ export interface AccountsTableAccountFieldFilterApi {
     kind?: 'account_field'
     operator: AccountsTableAccountFieldOperatorApi
     values?: string[] | null
+}
+
+export type AccountsTableRelationshipOperatorApi =
+    (typeof AccountsTableRelationshipOperatorApi)[keyof typeof AccountsTableRelationshipOperatorApi]
+
+export const AccountsTableRelationshipOperatorApi = {
+    Exact: 'exact',
+    IsNot: 'is_not',
+    IsSet: 'is_set',
+    IsNotSet: 'is_not_set',
+} as const
+
+export interface AccountsTableRelationshipFilterApi {
+    definitionId: string
+    kind?: 'relationship'
+    operator: AccountsTableRelationshipOperatorApi
+    userIds?: number[] | null
 }
 
 export type AccountsTableCustomPropertyOperatorApi =
@@ -1366,6 +1454,38 @@ export interface AccountsTableCustomPropertyFilterApi {
     operator: AccountsTableCustomPropertyOperatorApi
     /** Values interpreted according to the custom property definition's display type. */
     values?: (string | number | boolean)[] | null
+}
+
+export interface AccountsTableSearchFilterApi {
+    kind?: 'search'
+    query: string
+}
+
+export interface AccountsTableTagsFilterApi {
+    kind?: 'tags'
+    /** Match accounts carrying any of these tag names. */
+    tagNames: string[]
+}
+
+export interface AccountsTableAssignedToFilterApi {
+    kind?: 'assigned_to'
+    /** Match accounts where any listed user actively holds any relationship. */
+    userIds: number[]
+}
+
+export const AccountsTableAssignedFilterApiValue = {
+    kind: 'assigned',
+} as const
+export type AccountsTableAssignedFilterApi = typeof AccountsTableAssignedFilterApiValue
+
+export const AccountsTableUnassignedFilterApiValue = {
+    kind: 'unassigned',
+} as const
+export type AccountsTableUnassignedFilterApi = typeof AccountsTableUnassignedFilterApiValue
+
+export interface AccountsTableAccountIdFilterApi {
+    accountId: string
+    kind?: 'account_id'
 }
 
 export const AccountsTableCountMetricApiValue = {
@@ -1919,6 +2039,14 @@ export interface AccountsTableQueryApi {
         | AccountsTableCustomPropertyColumnApi
         | AccountsTableCustomPropertyHistoryColumnApi
     )[]
+    /** Nonempty property-filter groups are ORed together; filters within each group use AND. Global filters still apply. */
+    filterGroups?:
+        | (
+              | AccountsTableAccountFieldFilterApi
+              | AccountsTableRelationshipFilterApi
+              | AccountsTableCustomPropertyFilterApi
+          )[][]
+        | null
     /** Filters are combined with AND. Values within tag and assignment filters use OR. */
     filters?:
         | (
@@ -4547,6 +4675,13 @@ export type AccountTrackRulesRunsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type AccountViewsDestroyParams = {
+    /**
+     * Version returned by the last read.
+     */
+    version: number
 }
 
 export type AccountsListParams = {

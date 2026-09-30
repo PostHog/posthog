@@ -87,7 +87,7 @@ Do not add frontend-only controls that imply a backend capability. If the UI exp
 
 ## Routes and Shell
 
-`InboxView` is the layout shell for `/inbox/*`. It owns the page header, tab bar, reviewer scope control, and nested route outlet. Route files live in `apps/code/src/renderer/routes/inbox/`.
+`InboxView` is the layout shell for `/inbox/*`. On a triage route it renders `InboxTriagePane` in both layouts. On other list routes it renders `InboxHomePane` under the spaces layout and the sectioned `ReportsInboxView` page otherwise. Detail routes render through the nested route outlet. Route files live in `apps/code/src/renderer/routes/inbox/`.
 
 Under the spaces layout Self-driving is a rail destination that owns the column
 beside the rail (`railPaneHasSidebar`, `railPane.ts`). `InboxPane` draws the
@@ -145,7 +145,7 @@ and the page can never disagree about what is in the inbox. React Query dedupes
 the requests, but paging is a side effect, so only one caller may drive it: the
 sidebar pages, `InboxHomePane` passes `autoPage: false`.
 
-The tab components are intentionally simple:
+The tab list components are legacy. `InboxView` never renders the outlet on a list route (see Routes and Shell above), so no current route shows them. Do not extend them; they stay only until a follow-up removes them:
 
 - `PullRequestsTab` partitions scoped reports with `isPullRequestReport`.
 - `ReportsTab` partitions with `isReportTabReport`.

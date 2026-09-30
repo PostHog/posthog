@@ -371,6 +371,7 @@ const inboxReportsList = (): ToolBase<
                 task_id: params.task_id,
                 teammate_uuid: params.teammate_uuid,
                 unclaimed: params.unclaimed,
+                unread: params.unread,
                 use_priority_preference: params.use_priority_preference,
                 view: params.view,
             },
@@ -744,6 +745,9 @@ const scoutCheckRecordResult = (): ToolBase<
         }
         if (params.outcome !== undefined) {
             body['outcome'] = params.outcome
+        }
+        if (params.reason !== undefined) {
+            body['reason'] = params.reason
         }
         if (params.explanation !== undefined) {
             body['explanation'] = params.explanation
