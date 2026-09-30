@@ -26,11 +26,20 @@ from posthog.utils import get_machine_id
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.oom_event import ExternalDataSchemaOOMEvent
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
     is_transient_maintenance_error,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.maintenance import (
+    compact,
+    removable_file_count,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.ops import (
+    ObjectStorePermissionDeniedError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition import (
     measure_partition_bytes,
+    partition_file_sizes,
     select_coarsen_target,
     select_repartition_target,
 )
@@ -419,6 +428,64 @@ async def maybe_flag_for_coarsening(
     )
 
 
+async def _compact_over_budget_partitions(
+    schema: ExternalDataSchema,
+    delta_table: deltalake.DeltaTable,
+    partition_bytes: dict[str | None, int],
+    budget: int,
+    logger: FilteringBoundLogger,
+) -> dict[str | None, int]:
+    """Compact the over-budget partitions that hold small files, and return the new measurement.
+
+    The budget is sized against compacted data. A merge writes files that take more bytes at rest than
+    the same rows after compaction, so a partition that took many merges since its last compaction can
+    read over the budget while its data fits. A split on that reading re-buckets the whole table into
+    many more files, and every read of the table then pays for them. Compaction removes the excess and
+    rewrites only the partitions involved.
+
+    Returns `partition_bytes` unchanged when no over-budget partition has small files to merge, and
+    also when the compaction fails. The split protects merges from running out of memory, so a failed
+    compaction must not hide an over-budget table from it.
+    """
+    file_sizes = await asyncio.to_thread(partition_file_sizes, delta_table)
+    compactable = [
+        key
+        for key, size in partition_bytes.items()
+        if size > budget and removable_file_count(file_sizes.get(key, [])) > 0
+    ]
+    if not compactable:
+        return partition_bytes
+
+    # A partition filter cannot select the null partition, and an unpartitioned table has no partition
+    # column, so both cases compact the whole table. delta-rs skips every partition with nothing to merge.
+    partition_filters = None if None in compactable else [(PARTITION_KEY, "in", compactable)]
+    try:
+        await compact(delta_table, logger, partition_filters=partition_filters)
+    except Exception as e:
+        # A refused operation on our own bucket and a transient blip are both conditions that no code
+        # change fixes, the same classification the maintenance passes apply.
+        if not isinstance(e, ObjectStorePermissionDeniedError) and not is_transient_maintenance_error(e):
+            capture_exception(e)
+        await logger.awarning(
+            f"repartition: compaction before measuring failed, judging the uncompacted size schema_id={schema.id}",
+            schema_id=str(schema.id),
+        )
+        return partition_bytes
+
+    compacted_bytes = await asyncio.to_thread(measure_partition_bytes, delta_table)
+    await logger.ainfo(
+        f"repartition: compacted over-budget partitions before measuring schema_id={schema.id} "
+        f"partitions={len(compactable)} max_partition_bytes_before={max(partition_bytes.values())} "
+        f"max_partition_bytes_after={max(compacted_bytes.values())} budget_bytes={budget}",
+        schema_id=str(schema.id),
+        partitions=len(compactable),
+        max_partition_bytes_before=max(partition_bytes.values()),
+        max_partition_bytes_after=max(compacted_bytes.values()),
+        budget_bytes=budget,
+    )
+    return compacted_bytes
+
+
 async def maybe_flag_for_repartition(
     schema: ExternalDataSchema,
     source: ExternalDataSource,
@@ -457,10 +524,15 @@ async def maybe_flag_for_repartition(
             )
             return
 
+        budget = target_partition_bytes()
+        if max(partition_bytes.values()) > budget:
+            partition_bytes = await _compact_over_budget_partitions(
+                schema, delta_table, partition_bytes, budget, logger
+            )
+
         max_bytes = max(partition_bytes.values())
         await asyncio.to_thread(schema.record_partition_measurement, max_bytes)
 
-        budget = target_partition_bytes()
         over_budget = max_bytes > budget
 
         # Hybrid trigger: a table that has actually OOM'd repeatedly is repartitioned even when its

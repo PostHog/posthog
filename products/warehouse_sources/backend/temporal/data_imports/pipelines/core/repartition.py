@@ -259,8 +259,9 @@ def _partition_key_from_add_path(path: str) -> str | None:
     return None
 
 
-def measure_partition_bytes(delta_table: deltalake.DeltaTable) -> dict[str | None, int]:
-    """At-rest bytes per partition, read from the Delta log (no S3 LIST, no data scan).
+def partition_file_sizes(delta_table: deltalake.DeltaTable) -> dict[str | None, list[int]]:
+    """At-rest size of every live file, grouped by partition, read from the Delta log (no S3 LIST,
+    no data scan).
 
     Unpartitioned tables collapse to a single `None` bucket. Keyed by the `_ph_partition_key` value.
 
@@ -272,11 +273,16 @@ def measure_partition_bytes(delta_table: deltalake.DeltaTable) -> dict[str | Non
     """
     partitioned = PARTITION_KEY in (delta_table.metadata().partition_columns or [])
 
-    totals: dict[str | None, int] = defaultdict(int)
+    sizes: dict[str | None, list[int]] = defaultdict(list)
     for path, size in delta_table._table.get_add_file_sizes().items():
         key = _partition_key_from_add_path(path) if partitioned else None
-        totals[key] += size or 0
-    return dict(totals)
+        sizes[key].append(size or 0)
+    return dict(sizes)
+
+
+def measure_partition_bytes(delta_table: deltalake.DeltaTable) -> dict[str | None, int]:
+    """At-rest bytes per partition, keyed like `partition_file_sizes`."""
+    return {key: sum(sizes) for key, sizes in partition_file_sizes(delta_table).items()}
 
 
 def _table_row_count(delta_table: deltalake.DeltaTable) -> int:

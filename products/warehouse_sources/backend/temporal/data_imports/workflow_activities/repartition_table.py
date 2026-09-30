@@ -397,7 +397,9 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
         # Nothing was queued by a prior run's post-load detection, but the gate flagged the table for an
         # on-disk measurement. Measure now and self-flag if it's over budget — the only path that can
         # rescue a table which OOMs its merge every run (and so never reaches post-load detection).
-        pending = _maybe_flag_pre_extraction(schema, job, table_ref, logger, enabled)
+        # Detection can compact an over-budget partition first, which can outlast the heartbeat timeout.
+        with HeartbeaterSync(logger=logger):
+            pending = _maybe_flag_pre_extraction(schema, job, table_ref, logger, enabled)
         if pending is None:
             logger.debug("repartition: pre-extraction measurement found no repartition needed")
             return
