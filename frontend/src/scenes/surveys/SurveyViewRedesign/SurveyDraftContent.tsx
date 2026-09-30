@@ -97,9 +97,11 @@ export function SurveyDraftContent({ onSeeSurveyDetails }: { onSeeSurveyDetails?
 
                 <div className="flex items-center gap-2">
                     <LaunchSurveyButton>Launch survey</LaunchSurveyButton>
-                    <LemonButton type="tertiary" size="small" onClick={onSeeSurveyDetails}>
-                        See survey details
-                    </LemonButton>
+                    {onSeeSurveyDetails && (
+                        <LemonButton type="tertiary" size="small" onClick={onSeeSurveyDetails}>
+                            See survey details
+                        </LemonButton>
+                    )}
                 </div>
 
                 <div className="w-full max-w-2xl">
