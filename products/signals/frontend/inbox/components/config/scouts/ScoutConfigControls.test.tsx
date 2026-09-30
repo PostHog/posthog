@@ -241,4 +241,26 @@ describe('ScoutConfigForm', () => {
         expect(onUpdate).toHaveBeenCalledWith('config-1', { tags: ['on-call', 'revenue'] })
         unmount()
     })
+
+    // The scout page keeps the form mounted when the URL moves to another scout, so a draft left on
+    // one scout would otherwise sit in the next scout's editor, ready to save there.
+    it('drops an unsaved schema draft when the form moves to another scout', () => {
+        const onUpdate = jest.fn()
+        const draft = '{"type": "object", "properties": {"verdict": {"type": "string"}}}'
+        const { getByText, getByLabelText, queryByDisplayValue, rerender, unmount } = render(
+            <ScoutConfigForm config={config} onUpdate={onUpdate} />
+        )
+        fireEvent.click(getByText('Structured output'))
+        fireEvent.change(getByLabelText(`${config.skill_name} record schema`), { target: { value: draft } })
+
+        rerender(
+            <ScoutConfigForm
+                config={{ ...config, id: 'config-2', skill_name: 'signals-scout-other' }}
+                onUpdate={onUpdate}
+            />
+        )
+
+        expect(queryByDisplayValue(draft)).toBeNull()
+        unmount()
+    })
 })

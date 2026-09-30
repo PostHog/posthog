@@ -332,7 +332,9 @@ export function ScoutConfigForm({
                 // Editable while the scout is disabled, for the same reason as the MCP selection.
                 disabledReason={updating ? 'Saving scout settings' : undefined}
             />
-            <ScoutStructuredOutputSection config={config} onUpdate={onUpdate} updating={updating} />
+            {/* Keyed by scout because the scout page keeps this form mounted when the URL moves to another
+                scout, and an unsaved schema draft must not become the next scout's save. */}
+            <ScoutStructuredOutputSection key={config.id} config={config} onUpdate={onUpdate} updating={updating} />
             <ScoutWriteAccessSection config={config} onUpdate={onUpdate} updating={updating} />
             {/* Only custom scouts are deletable. A canonical scout would be re-seeded from disk after
                 deletion (and couldn't be re-added from the UI), so its terminal action stays disable. */}
