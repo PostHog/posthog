@@ -7,6 +7,16 @@ import { WatchFeedEmptyState } from './WatchFeedEmptyState'
 const meta: Meta<typeof WatchFeedEmptyState> = {
     title: 'Scenes-App/Replay Vision/WatchFeedEmptyState',
     component: WatchFeedEmptyState,
+    decorators: [
+        // The width has to come from the parent. LemonBanner is a CSS container, so its contents do
+        // not set its width, and the snapshot runner sizes the story root to hug its child — which
+        // collapses a bannered story to a strip. This is also the width the feed renders at.
+        (Story) => (
+            <div className="w-200">
+                <Story />
+            </div>
+        ),
+    ],
 }
 export default meta
 
