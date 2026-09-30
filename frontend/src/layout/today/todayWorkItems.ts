@@ -3,6 +3,7 @@ import { Dayjs, dayjs } from 'lib/dayjs'
 import { ConversationDetail } from '~/types'
 
 import { TaskListItemApi } from 'products/tasks/frontend/generated/api.schemas'
+import { TaskPullRequest, taskPullRequests } from 'products/tasks/frontend/spaces/taskPullRequests'
 
 export type TodayWorkItemKind = 'session' | 'chat'
 
@@ -16,10 +17,12 @@ export interface TodayWorkItem {
     channel: string | null
     createdById: number | null
     latestRunId: string | null
+    runEnvironment: string | null
     originProduct: string | null
     /** What filed it: a session's origin product, or PostHog AI for a chat. */
     source: string | null
     repository: string | null
+    pullRequests: TaskPullRequest[]
 }
 
 export interface TodayWorkGroup {
@@ -29,6 +32,7 @@ export interface TodayWorkGroup {
 }
 
 const FINISHED_RUN_STATUSES = new Set(['completed', 'failed', 'cancelled'])
+const ACTIVE_RUN_STATUSES = new Set(['not_started', 'queued', 'in_progress'])
 
 export function canHandOff(item: TodayWorkItem, userId: number | null | undefined): boolean {
     return item.kind === 'session' && item.createdById !== null && item.createdById === userId
@@ -36,6 +40,16 @@ export function canHandOff(item: TodayWorkItem, userId: number | null | undefine
 
 export function analysisRunId(item: TodayWorkItem): string | null {
     return item.originProduct !== 'task_analysis' && item.status !== null && FINISHED_RUN_STATUSES.has(item.status)
+        ? item.latestRunId
+        : null
+}
+
+/** The latest run when it is a cloud run that is still going, so the session can be stopped. */
+export function activeCloudRunId(item: TodayWorkItem): string | null {
+    return item.kind === 'session' &&
+        item.runEnvironment === 'cloud' &&
+        item.status !== null &&
+        ACTIVE_RUN_STATUSES.has(item.status)
         ? item.latestRunId
         : null
 }
@@ -51,9 +65,11 @@ export function sessionItem(task: TaskListItemApi): TodayWorkItem {
         channel: task.channel ?? null,
         createdById: task.created_by?.id ?? null,
         latestRunId: task.latest_run?.id ?? null,
+        runEnvironment: task.latest_run?.environment ?? null,
         originProduct: task.origin_product ?? null,
         source: task.origin_product || null,
         repository: task.repository || null,
+        pullRequests: taskPullRequests(task.latest_run?.output),
     }
 }
 
@@ -68,9 +84,11 @@ export function chatItem(conversation: ConversationDetail): TodayWorkItem {
         channel: null,
         createdById: conversation.user?.id ?? null,
         latestRunId: null,
+        runEnvironment: null,
         originProduct: null,
         source: 'posthog_ai',
         repository: null,
+        pullRequests: [],
     }
 }
 
