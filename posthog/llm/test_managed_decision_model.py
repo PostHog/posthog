@@ -1,3 +1,4 @@
+import os
 import threading
 from concurrent.futures import Future
 
@@ -84,32 +85,52 @@ class TestManagedDecisionModel(SimpleTestCase):
     def test_model_config(self, _name: str, config: dict, expected: str) -> None:
         assert model_from_config(config) == expected
 
-    @patch("posthog.llm.managed_decision_model.posthoganalytics.personal_api_key", "phx_test")
+    @parameterized.expand(
+        [
+            ("shared_personal_key", "phx_test", None, "phx_test"),
+            ("dedicated_key_wins", "phx_test", "phx_prompts", "phx_prompts"),
+            ("dedicated_key_beside_secret_key", "phs_secret", "phx_prompts", "phx_prompts"),
+        ]
+    )
+    @patch("posthog.llm.managed_decision_model.posthoganalytics.api_key", "phc_project")
     @patch("posthog.llm.managed_decision_model.Prompts")
-    def test_every_refresh_reads_the_posthog_project_through_one_sdk_client(self, prompts_class) -> None:
+    def test_every_refresh_reads_the_posthog_project_through_one_sdk_client(
+        self, _name: str, shared_key: str, dedicated_key: str | None, expected_key: str, prompts_class
+    ) -> None:
         prompts_class.return_value.get.return_value = managed_result()
-        managed = ManagedDecisionModel("emoji-search-suggestions")
-
-        managed._refresher._refresh()
-        managed._refresher._refresh()
-        assert managed.fetch(version=3) == NEW_MODEL
+        with (
+            patch.dict("os.environ"),
+            patch("posthog.llm.managed_decision_model.posthoganalytics.personal_api_key", shared_key),
+        ):
+            os.environ.pop("POSTHOG_PROMPTS_PERSONAL_API_KEY", None)
+            if dedicated_key:
+                os.environ["POSTHOG_PROMPTS_PERSONAL_API_KEY"] = dedicated_key
+            managed = ManagedDecisionModel("emoji-search-suggestions")
+            managed._refresher._refresh()
+            managed._refresher._refresh()
+            assert managed.fetch(version=3) == NEW_MODEL
 
         assert managed.current() == NEW_MODEL
         prompts_class.assert_called_once_with(
-            managed_decision_model.posthoganalytics, capture_errors=True, default_cache_ttl_seconds=0
+            personal_api_key=expected_key, project_api_key="phc_project", default_cache_ttl_seconds=0
         )
         get = prompts_class.return_value.get
         get.assert_any_call("emoji-search-suggestions", with_metadata=True, label="production", version=None)
         get.assert_any_call("emoji-search-suggestions", with_metadata=True, label=None, version=3)
 
-    @patch("posthog.llm.managed_decision_model.posthoganalytics.personal_api_key", None)
+    @parameterized.expand([("no_key", None), ("project_secret_key", "phs_secret")])
     @patch("posthog.llm.managed_decision_model.Prompts")
-    def test_without_a_personal_key_the_bundled_model_stays(self, prompts_class) -> None:
-        managed = ManagedDecisionModel("emoji-search-suggestions")
+    def test_without_a_personal_key_no_request_is_sent(self, _name: str, key: str | None, prompts_class) -> None:
+        with (
+            patch.dict("os.environ"),
+            patch("posthog.llm.managed_decision_model.posthoganalytics.personal_api_key", key),
+        ):
+            os.environ.pop("POSTHOG_PROMPTS_PERSONAL_API_KEY", None)
+            managed = ManagedDecisionModel("emoji-search-suggestions")
 
-        managed._refresher._refresh()
+            managed._refresher._refresh()
 
-        assert managed.current() == DEFAULT_DECISION_MODEL
-        with self.assertRaisesRegex(RuntimeError, "version 3 needs POSTHOG_PERSONAL_API_KEY"):
-            managed.fetch(version=3)
+            assert managed.current() == DEFAULT_DECISION_MODEL
+            with self.assertRaisesRegex(RuntimeError, "version 3 needs a personal API key"):
+                managed.fetch(version=3)
         prompts_class.assert_not_called()
