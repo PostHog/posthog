@@ -1357,6 +1357,26 @@ describe('Hog Executor', () => {
             expect(result.invocation.queue).toBe('hog')
         })
 
+        it('honors Retry-After when a fetch is throttled', async () => {
+            mockRequest.mockImplementation((req: any, res: any) => {
+                res.writeHead(429, { 'Retry-After': '50' })
+                res.end('Request was throttled')
+            })
+
+            const invocation = await createFetchInvocation({
+                url: `${baseUrl}/test`,
+                method: 'GET',
+            })
+
+            const result = await executor.executeFetch(invocation)
+
+            expect(result.invocation.state.attempts).toBe(1)
+            expect(result.logs.map((log) => log.message)).toEqual([
+                'HTTP fetch failed on attempt 1 with status code 429. Retrying.',
+            ])
+            expect(result.invocation.queueScheduledAt?.toISO()).toMatchInlineSnapshot(`"2025-01-01T00:00:50.000Z"`)
+        })
+
         it('sets result.error after retries are exhausted', async () => {
             mockRequest.mockImplementation((req: any, res: any) => {
                 res.writeHead(500, { 'Content-Type': 'text/plain' })

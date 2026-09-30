@@ -520,9 +520,15 @@ export class HogExecutorAsyncService {
                 : undefined
             const isNonFailure = isNonFailureStatus(fetchResponse?.status, nonFailureConfig)
 
+            // A 429 response can tell us exactly when capacity returns. Queue the retry for
+            // that time instead of spending its retry budget in a few seconds. The configured
+            // maximum is still a safety bound for a bad or hostile upstream response.
+            const retryAfterMs = Number(fetchResponse?.headers?.['retry-after']) * 1000
             const backoffMs = Math.min(
-                this.config.fetchBackoffBaseMs * result.invocation.state.attempts +
-                    Math.floor(Math.random() * this.config.fetchBackoffBaseMs),
+                Number.isFinite(retryAfterMs) && retryAfterMs > 0
+                    ? retryAfterMs
+                    : this.config.fetchBackoffBaseMs * result.invocation.state.attempts +
+                      Math.floor(Math.random() * this.config.fetchBackoffBaseMs),
                 this.config.fetchBackoffMaxMs
             )
 

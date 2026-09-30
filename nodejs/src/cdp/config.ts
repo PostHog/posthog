@@ -300,7 +300,8 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN: '',
         CDP_FETCH_RETRIES: 3,
         CDP_FETCH_BACKOFF_BASE_MS: 1000,
-        CDP_FETCH_BACKOFF_MAX_MS: 30000,
+        // Must allow the common one-minute rate-limit window advertised by external APIs.
+        CDP_FETCH_BACKOFF_MAX_MS: 60000,
         CDP_OVERFLOW_QUEUE_ENABLED: false,
         HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC: KAFKA_APP_METRICS_2,
         HOG_FUNCTION_MONITORING_APP_METRICS_PRODUCER: WARPSTREAM_INGESTION_PRODUCER,
