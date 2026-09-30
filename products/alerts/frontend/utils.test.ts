@@ -38,6 +38,24 @@ describe('alerts utils', () => {
                 canViewLogAlerts: false,
                 expected: AlertsTab.INSIGHTS,
             },
+            {
+                name: 'opens the platform tab when the flag is on',
+                alertId: null,
+                requestedTab: AlertsTab.PLATFORM,
+                canViewInsightAlerts: true,
+                canViewLogAlerts: true,
+                canViewPlatformAlerts: true,
+                expected: AlertsTab.PLATFORM,
+            },
+            {
+                name: 'falls back to insight alerts when the platform tab is requested without the flag',
+                alertId: null,
+                requestedTab: AlertsTab.PLATFORM,
+                canViewInsightAlerts: true,
+                canViewLogAlerts: true,
+                canViewPlatformAlerts: false,
+                expected: AlertsTab.INSIGHTS,
+            },
         ])('$name', ({ name: _, expected, ...state }) => {
             expect(getActiveAlertsTab(state)).toBe(expected)
         })
