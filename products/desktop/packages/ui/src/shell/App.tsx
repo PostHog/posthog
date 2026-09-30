@@ -193,6 +193,7 @@ function App({ devToolbar }: AppProps) {
           spacesLayoutEnabledRef.current,
           guidedFirstTaskEnabled,
         );
+        if (cancelled) return;
         if (firstRun) {
           showChannelList({ keepForRoute: firstRun.generalChannelId });
           useSpaceTreeStore.getState().expandSpace(firstRun.generalChannelId);

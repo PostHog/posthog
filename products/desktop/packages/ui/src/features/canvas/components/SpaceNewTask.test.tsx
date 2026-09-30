@@ -1,9 +1,8 @@
-import { Theme } from "@radix-ui/themes";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// Radix's ScrollArea (in the context panel) observes resizes; jsdom lacks it.
+// The context panel observes resizes; jsdom lacks ResizeObserver.
 if (typeof globalThis.ResizeObserver === "undefined") {
   globalThis.ResizeObserver = class {
     observe() {}
@@ -43,6 +42,11 @@ const NO_WIKI_PAGE = {
 // this test cares about — a button that fires onContextChipClick when wired.
 vi.mock("@posthog/ui/features/canvas/hooks/useWorkLayout", () => ({
   useWorkLayout: () => false,
+}));
+vi.mock("@posthog/ui/features/canvas/components/ChannelContextPanel", () => ({
+  ChannelContextPanel: ({ channelName }: { channelName?: string }) => (
+    <div>{channelName ? `${channelName} ` : ""}CONTEXT.md</div>
+  ),
 }));
 vi.mock("@posthog/ui/features/task-detail/components/TaskInput", () => ({
   TaskInput: (props: {
@@ -136,11 +140,7 @@ import { GUIDED_FIRST_TASK_PROMPT } from "../channelTaskSuggestions";
 import { SpaceNewTask } from "./SpaceNewTask";
 
 function renderNewTask() {
-  render(
-    <Theme>
-      <SpaceNewTask channelId="chan-1" />
-    </Theme>,
-  );
+  render(<SpaceNewTask channelId="chan-1" />);
 }
 
 describe("SpaceNewTask context panel", () => {
@@ -180,11 +180,7 @@ describe("SpaceNewTask context panel", () => {
   it("prefills a repo-independent task for guided first-run users", () => {
     useFolderInstructions.mockReturnValue({ data: undefined });
 
-    render(
-      <Theme>
-        <SpaceNewTask channelId="chan-1" guidedFirstTask />
-      </Theme>,
-    );
+    render(<SpaceNewTask channelId="chan-1" guidedFirstTask />);
 
     expect(taskInputProps).toHaveBeenLastCalledWith(
       expect.objectContaining({
