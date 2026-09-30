@@ -458,6 +458,56 @@ describe('featureFlagLogic', () => {
         })
     })
 
+    describe('live key conflict check', () => {
+        it.each([
+            ['another flag uses the exact key', 'taken-key', [{ id: 42, key: 'taken-key' }], true],
+            ['another flag uses the key with different case', 'taken-key', [{ id: 42, key: 'Taken-Key' }], false],
+            ['only the flag being edited matches', 'taken-key', [{ id: MOCK_FEATURE_FLAG.id, key: 'taken-key' }], null],
+            ['no flag matches', 'free-key', [], null],
+        ])('when %s', async (_desc, key, results, expectedExact) => {
+            useMocks({
+                get: {
+                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/`]: () => [
+                        200,
+                        { results: results.map((flag) => ({ ...MOCK_FEATURE_FLAG, ...flag })), count: results.length },
+                    ],
+                },
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.setFeatureFlagValue('key', key)
+            })
+                .toDispatchActions(['checkKeyConflictSuccess'])
+                .toFinishAllListeners()
+
+            expect(logic.values.currentKeyConflict).toEqual(
+                expectedExact === null
+                    ? null
+                    : { key, existingFlagId: 42, existingFlagKey: results[0].key, exact: expectedExact }
+            )
+        })
+
+        it('hides a conflict once the key changes again', async () => {
+            useMocks({
+                get: {
+                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/`]: () => [
+                        200,
+                        { results: [{ ...MOCK_FEATURE_FLAG, id: 42, key: 'taken-key' }], count: 1 },
+                    ],
+                },
+            })
+            await expectLogic(logic, () => {
+                logic.actions.setFeatureFlagValue('key', 'taken-key')
+            })
+                .toDispatchActions(['checkKeyConflictSuccess'])
+                .toFinishAllListeners()
+            expect(logic.values.currentKeyConflict?.exact).toBe(true)
+
+            logic.actions.setFeatureFlagValue('key', 'taken-key-2')
+            expect(logic.values.currentKeyConflict).toBeNull()
+        })
+    })
+
     describe('saveFeatureFlag error handling', () => {
         it('shows the friendly permission toast on a save-time 403', async () => {
             useMocks({
