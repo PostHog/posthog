@@ -21,6 +21,7 @@ use personhog_proto::personhog::types::v1::{
     Person, SealedSourceSnapshot, UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
 };
 use personhog_router::backend::{LeaderBackend, LeaderBackendConfig, StashTable};
+use personhog_router::config::Http2Windows;
 use personhog_router::stash_handler::RouterStashHandler;
 use prost::Message;
 use tokio::sync::RwLock;
@@ -65,6 +66,7 @@ async fn make_backend(leader_addr: std::net::SocketAddr, stash: StashTable) -> A
         LeaderBackendConfig {
             num_partitions: NUM_PARTITIONS,
             timeout: Duration::from_secs(5),
+            http2_windows: Http2Windows::default(),
         },
         stash,
     ))

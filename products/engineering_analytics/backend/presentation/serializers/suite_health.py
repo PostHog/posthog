@@ -1,10 +1,12 @@
 """Payloads for test-health reads and the quarantine sidecar."""
 
+from rest_framework.fields import ChoiceField
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from products.engineering_analytics.backend.facade.contracts import (
     BrokenTestRow,
     BrokenTestsResult,
+    CIEngine,
     FlakyTestItem,
     FlakyTestList,
     QuarantineEntry,
@@ -162,6 +164,10 @@ class FlakyTestListSerializer(DataclassSerializer):
 
 
 class BrokenTestRowSerializer(DataclassSerializer):
+    latest_ci_engine = ChoiceField(
+        choices=CIEngine.choices, required=False, allow_null=True, help_text="CI execution engine; null when unknown."
+    )
+
     class Meta:
         dataclass = BrokenTestRow
         extra_kwargs = {

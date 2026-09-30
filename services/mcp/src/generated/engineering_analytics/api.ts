@@ -181,6 +181,10 @@ export const EngineeringAnalyticsRunFailureLogsParams = () => zod.object({
 })
 
 export const EngineeringAnalyticsRunFailureLogsQueryParams = () => zod.object({
+    ci_engine: zod
+        .enum(['depot_ci', 'github_actions'])
+        .optional()
+        .describe('CI engine. Required when run_id exists in both engines.'),
     repo: zod
         .string()
         .optional()
@@ -305,6 +309,10 @@ export const EngineeringAnalyticsWorkflowJobsParams = () => zod.object({
 })
 
 export const EngineeringAnalyticsWorkflowJobsQueryParams = () => zod.object({
+    ci_engine: zod
+        .enum(['depot_ci', 'github_actions'])
+        .optional()
+        .describe('CI engine. Required when run_id exists in both engines.'),
     repo: zod
         .string()
         .optional()

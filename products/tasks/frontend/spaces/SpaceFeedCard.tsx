@@ -14,6 +14,7 @@ import {
     Tooltip,
     TooltipContent,
     TooltipTrigger,
+    cn,
 } from '@posthog/quill'
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
@@ -24,6 +25,7 @@ import { TodaySessionMenu } from '~/layout/today/TodaySessionMenu'
 import { todaySessionMenuLogic } from '~/layout/today/todaySessionMenuLogic'
 import { TodaySessionRenameInput } from '~/layout/today/TodaySessionRenameInput'
 import { TodaySessionStatusIcon } from '~/layout/today/TodaySessionStatusIcon'
+import { todaySpacesLogic } from '~/layout/today/todaySpacesLogic'
 import { activeCloudRunId, analysisRunId, canHandOff, sessionItem, shortTimeAgo } from '~/layout/today/todayWorkItems'
 
 import { TaskListItemApi } from '../generated/api.schemas'
@@ -35,13 +37,16 @@ import { pullRequestLabel, splitPullRequests } from './taskPullRequests'
 interface SpaceFeedCardProps {
     task: TaskListItemApi
     pinned: boolean
+    unread: boolean
 }
 
-export function SpaceFeedCard({ task, pinned }: SpaceFeedCardProps): JSX.Element {
+export function SpaceFeedCard({ task, pinned, unread }: SpaceFeedCardProps): JSX.Element {
     const { renaming } = useValues(todaySessionMenuLogic)
     const { user } = useValues(userLogic)
+    const { pullRequestStates } = useValues(todaySpacesLogic)
     const item = sessionItem(task)
-    const status = spaceFeedStatus(task.latest_run)
+    const [mainPullRequest] = item.pullRequests
+    const status = spaceFeedStatus(task.latest_run, mainPullRequest && pullRequestStates[mainPullRequest.url])
     const pullRequests = splitPullRequests(item.pullRequests)
     const preview = spaceFeedPreview('description_preview' in task ? task.description_preview : task.description)
     const author = task.created_by
@@ -66,11 +71,22 @@ export function SpaceFeedCard({ task, pinned }: SpaceFeedCardProps): JSX.Element
                     <div className="flex min-w-0 flex-1 items-baseline gap-1.5">
                         <LinkPrimitive
                             to={urls.aiTask(task.id)}
-                            className="min-w-0 truncate font-medium text-foreground after:absolute after:inset-0 hover:underline"
+                            className={cn(
+                                'min-w-0 truncate text-foreground after:absolute after:inset-0 hover:underline',
+                                unread ? 'font-semibold' : 'font-medium'
+                            )}
                             data-attr="today-space-feed-card"
                         >
                             {item.title || 'Untitled session'}
                         </LinkPrimitive>
+                        {unread && (
+                            <span
+                                role="img"
+                                aria-label="Unread"
+                                className="size-1.5 shrink-0 self-center rounded-full bg-primary"
+                                data-attr="today-unread-feed-dot"
+                            />
+                        )}
                         {item.timestamp && (
                             <Text render={<span />} size="xs" variant="muted" className="shrink-0" translate="no">
                                 {`· ${shortTimeAgo(item.timestamp)}`}
@@ -115,6 +131,7 @@ export function SpaceFeedCard({ task, pinned }: SpaceFeedCardProps): JSX.Element
                             key={pullRequest.url}
                             pullRequest={pullRequest}
                             label={pullRequestLabel(pullRequest, task.repository)}
+                            state={pullRequestStates[pullRequest.url]}
                             dataAttr="today-pr-chip-feed"
                         />
                     ))}
@@ -138,6 +155,7 @@ export function SpaceFeedCard({ task, pinned }: SpaceFeedCardProps): JSX.Element
                                         key={pullRequest.url}
                                         pullRequest={pullRequest}
                                         label={pullRequestLabel(pullRequest, task.repository)}
+                                        state={pullRequestStates[pullRequest.url]}
                                         dataAttr="today-pr-chip-feed"
                                     />
                                 ))}

@@ -2,6 +2,7 @@ use std::fmt;
 use std::str::FromStr;
 
 use envconfig::Envconfig;
+pub use personhog_common::h2_window::{Http2Windows, WindowSize};
 use personhog_coordination::authority::AuthorityClock;
 use personhog_coordination::coordinator::REVOKE_TIMEOUT as COORDINATOR_REVOKE_TIMEOUT;
 use std::net::SocketAddr;
@@ -179,6 +180,18 @@ pub struct Config {
     /// Timeout for a keepalive ping ack from the replica backend
     #[envconfig(default = "10")]
     pub backend_keepalive_timeout_secs: u64,
+
+    #[envconfig(default = "0")]
+    pub grpc_initial_stream_window_bytes: WindowSize,
+
+    #[envconfig(default = "0")]
+    pub grpc_initial_connection_window_bytes: WindowSize,
+
+    #[envconfig(default = "0")]
+    pub backend_initial_stream_window_bytes: WindowSize,
+
+    #[envconfig(default = "0")]
+    pub backend_initial_connection_window_bytes: WindowSize,
 
     /// Maximum request body size the proxy will collect before forwarding,
     /// in bytes. Oversized requests are rejected with RESOURCE_EXHAUSTED.
@@ -762,6 +775,20 @@ impl Config {
         } else {
             Some(Duration::from_secs(self.backend_keepalive_timeout_secs))
         }
+    }
+
+    pub fn grpc_http2_windows(&self) -> Http2Windows {
+        Http2Windows::new(
+            self.grpc_initial_stream_window_bytes,
+            self.grpc_initial_connection_window_bytes,
+        )
+    }
+
+    pub fn backend_http2_windows(&self) -> Http2Windows {
+        Http2Windows::new(
+            self.backend_initial_stream_window_bytes,
+            self.backend_initial_connection_window_bytes,
+        )
     }
 
     pub fn retry_config(&self) -> RetryConfig {

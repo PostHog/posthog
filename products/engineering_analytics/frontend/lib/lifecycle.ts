@@ -1,6 +1,7 @@
-import type { PRLifecycleEventApi } from '../generated/api.schemas'
+import type { PRLifecycleEventApi, WorkflowRunDetailApi } from '../generated/api.schemas'
 
 export interface WorkflowRun {
+    ciEngine?: WorkflowRunDetailApi['ci_engine']
     workflow: string
     /** Null while the run hasn't reported a finish — queued or in progress. */
     conclusion: string | null
@@ -61,15 +62,18 @@ export function workflowRuns(events: PRLifecycleEventApi[]): WorkflowRun[] {
                 finishedAt: null,
                 durationSeconds: null,
                 runId: event.run_id ?? null,
+                ciEngine: event.ci_engine,
                 runAttempt: null,
             }
             runs.push(run)
-            const queue = unfinishedByWorkflow.get(workflow) ?? []
+            const queue = unfinishedByWorkflow.get(`${event.ci_engine ?? ''}:${event.run_id ?? ''}:${workflow}`) ?? []
             queue.push(run)
-            unfinishedByWorkflow.set(workflow, queue)
+            unfinishedByWorkflow.set(`${event.ci_engine ?? ''}:${event.run_id ?? ''}:${workflow}`, queue)
         } else if (event.kind === 'ci_finished') {
             const { workflow, conclusion } = parseFinishedDetail(event.detail)
-            const started = unfinishedByWorkflow.get(workflow)?.shift()
+            const started = unfinishedByWorkflow
+                .get(`${event.ci_engine ?? ''}:${event.run_id ?? ''}:${workflow}`)
+                ?.shift()
             if (started) {
                 started.conclusion = conclusion ?? 'completed'
                 started.finishedAt = event.at
@@ -85,6 +89,7 @@ export function workflowRuns(events: PRLifecycleEventApi[]): WorkflowRun[] {
                     finishedAt: event.at,
                     durationSeconds: null,
                     runId: event.run_id ?? null,
+                    ciEngine: event.ci_engine,
                     runAttempt: null,
                 })
             }
