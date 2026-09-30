@@ -238,3 +238,98 @@ export const LinkedReportGates: Story = {
     parameters: { mockDate: '2026-09-23T10:00:00Z' },
     args: { artefacts: linkArtefacts },
 }
+
+/** A staff-only scoring pass: the served model, one challenger, and one model that could not score. */
+const rankingArtefacts = [
+    {
+        id: 'work-release',
+        type: 'work_release',
+        created_at: '2026-09-29T09:58:00Z',
+        content: { reason: 'taken_over' },
+    },
+    {
+        id: 'work-claim',
+        type: 'work_claim',
+        created_at: '2026-09-29T09:56:00Z',
+        content: { display_name: 'Ada' },
+    },
+    {
+        id: 'ranking-score',
+        type: 'ranking_score',
+        created_at: '2026-09-29T09:00:00Z',
+        content: {
+            scored_at: '2026-09-29T09:00:00Z',
+            manifest_version: '12',
+            served_key: 'report_embeddings@2026-09-28',
+            results: {
+                'report_embeddings@2026-09-28': {
+                    model_name: 'report_embeddings',
+                    model_version: '2026-09-28',
+                    model_kind: 'xgboost',
+                    roles: ['served'],
+                    feature_schema_version: 3,
+                    status: 'scored',
+                    scores: { action: 0.78, pr_merged: 0.52, dismiss_wrong: 0.14, reviewer_fix: 0.04 },
+                    metadata: {
+                        heads: [
+                            { head: 'action', readable: true },
+                            { head: 'pr_merged', readable: true },
+                            { head: 'dismiss_wrong', readable: true },
+                            { head: 'reviewer_fix', readable: false },
+                        ],
+                    },
+                },
+                'report_embeddings@2026-09-29': {
+                    model_name: 'report_embeddings',
+                    model_version: '2026-09-29',
+                    model_kind: 'xgboost',
+                    roles: ['challenger'],
+                    feature_schema_version: 3,
+                    status: 'scored',
+                    scores: { action: 0.74, pr_merged: 0.55, dismiss_wrong: 0.11 },
+                    metadata: {
+                        heads: [
+                            { head: 'action', readable: true },
+                            { head: 'pr_merged', readable: true },
+                            { head: 'dismiss_wrong', readable: true },
+                        ],
+                    },
+                },
+                'signal_counts@2026-09-28': {
+                    model_name: 'signal_counts',
+                    model_version: '2026-09-28',
+                    model_kind: 'xgboost',
+                    roles: ['challenger'],
+                    feature_schema_version: 1,
+                    status: 'skipped',
+                    skip_reason: 'missing report vector',
+                    scores: {},
+                    metadata: {},
+                },
+            },
+        },
+    },
+]
+
+const openOtherModels: Story['play'] = async ({ canvasElement }) => {
+    canvasElement.querySelector('details')?.setAttribute('open', '')
+}
+
+export const RankingScore: Story = {
+    parameters: { mockDate: '2026-09-29T10:00:00Z' },
+    args: { artefacts: rankingArtefacts },
+    play: openOtherModels,
+}
+export const RankingScoreNarrow: Story = {
+    parameters: { mockDate: '2026-09-29T10:00:00Z' },
+    args: { artefacts: rankingArtefacts },
+    play: openOtherModels,
+    decorators: [
+        (Story) => (
+            // About 520px of scene, the width left next to the nav sidebar and an open side panel.
+            <div className="w-[20rem] p-5">
+                <Story />
+            </div>
+        ),
+    ],
+}
