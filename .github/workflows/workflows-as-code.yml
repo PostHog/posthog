@@ -13,7 +13,7 @@ on:
             - '.github/workflows/workflows-as-code.yml'
 
 concurrency:
-    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
@@ -32,9 +32,9 @@ jobs:
                   sparse-checkout: products/workflows/workflows
                   sparse-checkout-cone-mode: false
 
-            - uses: Silthus/posthog-workflows-action@028eaa17c6cd3dbb46f2a9d80b956571a0573976 # v0.1.1
+            - uses: Silthus/posthog-workflows-action@0cab58e324130751b02374d2c76b3fc614438671 # v0.1.2
               with:
-                  api-key: ${{ secrets.POSTHOG_WORKFLOWS_CHECK_API_KEY }}
+                  api-key: ${{ secrets.POSTHOG_WORKFLOWS_API_KEY }}
                   project-id: ${{ vars.POSTHOG_WORKFLOWS_PROJECT_ID || '2' }}
                   host: ${{ vars.POSTHOG_WORKFLOWS_HOST || 'https://us.posthog.com' }}
                   files: products/workflows/workflows/*.yaml
@@ -45,8 +45,9 @@ jobs:
         if: github.event_name == 'push' && github.ref == 'refs/heads/master'
         runs-on: ubuntu-24.04
         timeout-minutes: 10
-        # Only master may deploy to this environment, so a pull request run cannot read its write key.
-        environment: workflows-as-code
+        # Only master may deploy to this environment. Its POSTHOG_WORKFLOWS_API_KEY holds the write key and
+        # wins over the repository secret of the same name, which holds the read key for the check job.
+        environment: posthog-workflows
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
@@ -54,7 +55,7 @@ jobs:
                   sparse-checkout: products/workflows/workflows
                   sparse-checkout-cone-mode: false
 
-            - uses: Silthus/posthog-workflows-action@028eaa17c6cd3dbb46f2a9d80b956571a0573976 # v0.1.1
+            - uses: Silthus/posthog-workflows-action@0cab58e324130751b02374d2c76b3fc614438671 # v0.1.2
               with:
                   api-key: ${{ secrets.POSTHOG_WORKFLOWS_API_KEY }}
                   project-id: ${{ vars.POSTHOG_WORKFLOWS_PROJECT_ID || '2' }}
