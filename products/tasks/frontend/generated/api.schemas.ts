@@ -1006,7 +1006,8 @@ export const ActivityKindEnumApi = {
  */
 export interface TaskActivityDTOApi {
     id: string
-    task_id: string
+    /** @nullable */
+    task_id: string | null
     task_title: string
     /** @nullable */
     channel_id: string | null
@@ -1060,8 +1061,11 @@ export interface TaskActivityPageDTOApi {
 }
 
 export interface TaskActivityReadMarkerApi {
-    /** Task whose displayed activity should be marked read. */
-    task_id: string
+    /**
+     * Task whose displayed activity should be marked read. Optional when activity_id is set.
+     * @nullable
+     */
+    task_id?: string | null
     /**
      * Comment activity row to mark read. Omit for collapsed task activity.
      * @nullable
@@ -2759,6 +2763,38 @@ export interface TaskPinResponseApi {
 export interface TaskPresenceBeaconRequestApi {
     /** UUID of the caller's UserPushToken (returned by `/api/users/@me/push_tokens/` on register). */
     device_id: string
+}
+
+export interface TaskReviewFileApi {
+    /** Repository-relative path. */
+    filename: string
+    /** Change type reported by GitHub. */
+    status: string
+    /** Added lines. */
+    additions: number
+    /** Removed lines. */
+    deletions: number
+    /** Unified diff, limited to 20,000 characters per file. */
+    patch: string
+    /** Open GitHub to read the complete or binary change. */
+    truncated: boolean
+}
+
+export interface TaskReviewApi {
+    /** GitHub pull request URL. */
+    url: string
+    /** Pull request title. */
+    title: string
+    /** Pull request state. */
+    state: string
+    /** Combined check result. */
+    ci_status: string
+    /** Head commit used for the check result. */
+    head_sha: string
+    /** Changed files on this page. */
+    files: TaskReviewFileApi[]
+    /** Whether another file page is available. */
+    has_more: boolean
 }
 
 /**
@@ -5998,6 +6034,15 @@ export type TasksCommentsRetrieveParams = {
      * @maximum 100
      */
     limit?: number
+}
+
+export type TasksReviewRetrieveParams = {
+    /**
+     * Page of changed files.
+     * @minimum 1
+     * @maximum 100
+     */
+    page?: number
 }
 
 export type TasksRunsListParams = {

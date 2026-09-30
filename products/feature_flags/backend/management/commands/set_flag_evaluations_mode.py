@@ -17,6 +17,8 @@ from django.core.management.base import BaseCommand, CommandError, CommandParser
 from django.db import transaction
 
 from products.feature_flags.backend.flag_evaluations_mode import (
+    UnknownIdsError,
+    get_organizations,
     select_organizations,
     set_organization_flag_evaluations_mode,
 )
@@ -78,14 +80,13 @@ class Command(BaseCommand):
         allow_downgrade: bool = options["allow_downgrade"]
         organization_ids: list[UUID] | None = options["organization_ids"]
 
-        organizations = list(
-            select_organizations(organization_ids=organization_ids, created_after=options["created_after"])
-        )
-        if organization_ids is not None:
-            missing = set(organization_ids) - {organization.id for organization in organizations}
-            if missing:
-                # Fail before writing anything, so a mistyped id does not leave a partial run.
-                raise CommandError(f"Unknown organization id(s): {', '.join(sorted(map(str, missing)))}")
+        if organization_ids is None:
+            organizations = list(select_organizations(created_after=options["created_after"]))
+        else:
+            try:
+                organizations = get_organizations(organization_ids)
+            except UnknownIdsError as error:
+                raise CommandError(str(error)) from error
 
         verb = "Would set" if dry_run else "Set"
         self.stdout.write(f"{verb} mode {mode.value} ({mode.label}) on {len(organizations)} organization(s).")

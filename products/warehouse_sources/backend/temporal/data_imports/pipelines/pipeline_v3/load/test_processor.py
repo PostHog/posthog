@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 import pyarrow as pa
 from deltalake import DeltaTable, write_deltalake
@@ -176,7 +176,7 @@ class TestPromoteStagedCursor:
         _promote_staged_cursor(signal)
 
         mock_objects.get.assert_called_once_with(id="schema-1", team_id=1)
-        schema.promote_staged_incremental_values.assert_called_once_with("run-abc-a1")
+        schema.promote_staged_incremental_values.assert_called_once_with("run-abc-a1", merge_source_cursors=ANY)
 
     @parameterized.expand(
         [
@@ -448,7 +448,7 @@ class TestMarkJobCompleted:
         _mark_job_completed(self._make_signal())
 
         if expect_promotion:
-            schema.promote_staged_incremental_values.assert_called_once_with("run-abc-a1")
+            schema.promote_staged_incremental_values.assert_called_once_with("run-abc-a1", merge_source_cursors=ANY)
         else:
             schema.promote_staged_incremental_values.assert_not_called()
             mock_finish_row_tracking.assert_not_awaited()
