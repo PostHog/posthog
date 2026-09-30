@@ -3581,10 +3581,10 @@ Today (6): `commits`, `issues`, `labels`, `milestones`, `pull_requests`, `releas
 
 Diffed against: <https://demo.gitea.com/swagger.v1.json>
 
-- [ ] `/repos/{owner}/{repo}/issues/comments` — repo-wide issue and PR comments in one listable call — the main discussion signal, entirely absent (high)
-- [ ] `/repos/{owner}/{repo}/pulls/{index}/reviews` — PR review verdicts and reviewers, required for any review-throughput analysis (high)
-- [ ] `/repos/{owner}/{repo}/actions/runs` — Gitea Actions CI runs — no CI data is synced at all today (high)
-- [ ] `/repos/{owner}/{repo}/issues/{index}/timeline` — state and assignment transition history behind issue cycle time (high)
+- [x] `/repos/{owner}/{repo}/issues/comments` — repo-wide issue and PR comments in one listable call — the main discussion signal, entirely absent (high)
+- [x] `/repos/{owner}/{repo}/pulls/{index}/reviews` — PR review verdicts and reviewers, required for any review-throughput analysis (high)
+- [x] `/repos/{owner}/{repo}/actions/runs` — Gitea Actions CI runs — no CI data is synced at all today (high)
+- [x] `/repos/{owner}/{repo}/issues/{index}/timeline` — state and assignment transition history behind issue cycle time (high)
 - [ ] `/repos/{owner}/{repo}/actions/jobs` — job-level CI granularity for duration and failure attribution (medium)
 - [ ] `/repos/{owner}/{repo}/branches` — branch inventory with protection and last-commit metadata (medium)
 - [ ] `/repos/{owner}/{repo}/tags` — git tags — releases are synced but the underlying tags are not (medium)

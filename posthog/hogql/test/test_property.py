@@ -173,6 +173,52 @@ class TestProperty(BaseTest):
             self._parse_expr("properties.arr > 100"),
         )
 
+    @parameterized.expand(
+        [
+            # `$group_key` is the group's key column, not an entry in its property JSON
+            ("event_scope", {"group_type_index": 0, "value": "org_123"}, None, "group_0.key = 'org_123'"),
+            ("group_scope", {"group_type_index": 2, "value": "org_123"}, "group", "key = 'org_123'"),
+            # groups.key is a String column, so a numeric key has to reach it as a string
+            ("numeric_value", {"group_type_index": 0, "value": 13}, None, "group_0.key = '13'"),
+            (
+                "multiple_values",
+                {"group_type_index": 0, "value": ["org_1", "org_2"]},
+                None,
+                "group_0.key in ('org_1', 'org_2')",
+            ),
+            # Multi-value starts_with expands per value by recursing with the original key, so the
+            # column has to survive that round trip
+            (
+                "multi_value_starts_with",
+                {"group_type_index": 0, "operator": "starts_with", "value": ["org_1", "org_2"]},
+                None,
+                "toString(group_0.key) ilike 'org_1%' or toString(group_0.key) ilike 'org_2%'",
+            ),
+        ]
+    )
+    def test_property_to_expr_group_key(
+        self, _name: str, filter_fields: dict[str, Any], scope: Optional[Literal["group"]], expected: str
+    ) -> None:
+        self.assertEqual(
+            self._property_to_expr({"type": "group", "key": "$group_key", **filter_fields}, scope=scope),
+            self._parse_expr(expected),
+        )
+
+    def test_property_to_expr_group_key_prints_the_group_join(self) -> None:
+        # The AST tests above stop at `group_0.key`; this proves the resolver reaches the groups table's
+        # key column through the events lazy join and does not fall back to a JSON extract.
+        where = self._property_to_expr({"type": "group", "group_type_index": 0, "key": "$group_key", "value": "org_1"})
+        query = ast.SelectQuery(
+            select=[ast.Call(name="count", args=[])],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            where=where,
+        )
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        sql, _ = prepare_and_print_ast(query, context=context, dialect="clickhouse")
+        assert "groups" in sql
+        assert "group_key" in sql
+        assert "group_properties" not in sql
+
     def test_property_to_expr_group_booleans(self):
         PropertyDefinition.objects.create(
             team=self.team,
