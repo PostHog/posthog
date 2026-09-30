@@ -29,11 +29,11 @@ const HEADLINE_LABEL: Record<ScannerTypeEnumApi, string> = {
     summarizer: 'Summary',
 }
 
-// Matches the LemonTag types the cards use: yes is info, not success.
+// The `--success`/`--danger` family LemonTag uses. The `text-success` utility maps to a different, brighter green.
 const VERDICT_STYLE: Record<MonitorVerdict, { icon: typeof IconCheckCircle; className: string }> = {
-    yes: { icon: IconCheckCircle, className: 'text-blue-11' },
-    no: { icon: IconXCircle, className: 'text-default' },
-    inconclusive: { icon: IconQuestion, className: 'text-muted' },
+    yes: { icon: IconCheckCircle, className: 'text-success-dark dark:text-success-light' },
+    no: { icon: IconXCircle, className: 'text-danger-dark dark:text-danger-light' },
+    inconclusive: { icon: IconQuestion, className: 'text-secondary dark:text-default' },
 }
 
 function scorerScale(observation: ReplayObservationApi): { min: number; max: number | null; label: string | null } {

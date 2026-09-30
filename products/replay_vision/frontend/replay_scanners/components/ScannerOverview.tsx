@@ -100,7 +100,7 @@ function RankedTermList({
 }
 
 const VERDICT_ROWS: { verdict: ObservationVerdictValue; label: string; tagType: LemonTagType }[] = [
-    { verdict: 'yes', label: 'Yes', tagType: 'info' },
+    { verdict: 'yes', label: 'Yes', tagType: 'highlight' },
     { verdict: 'no', label: 'No', tagType: 'default' },
     { verdict: 'inconclusive', label: 'Inconclusive', tagType: 'muted' },
 ]
