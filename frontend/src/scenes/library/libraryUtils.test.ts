@@ -1,4 +1,4 @@
-import { libraryObjectHref, libraryObjectName } from './libraryUtils'
+import { libraryObjectHref, libraryObjectName, libraryTypeForPath } from './libraryUtils'
 
 describe('libraryUtils', () => {
     test.each([
@@ -16,5 +16,15 @@ describe('libraryUtils', () => {
         ['no link for an unknown type', { type: 'not_a_type', ref: '7' }, null],
     ])('links an object to %s', (_, entry, href) => {
         expect(libraryObjectHref(entry)).toBe(href)
+    })
+
+    test.each([
+        ['/feature_flags/920847', 'feature_flag'],
+        ['/workflows/abc/workflow', 'workflows'],
+        ['/replay/playlists/abc', 'session_recording_playlist'],
+        ['/feature_flags', null],
+        ['/notebooks/abc', null],
+    ])('finds the object type of %s', (path, type) => {
+        expect(libraryTypeForPath(path)).toBe(type)
     })
 })

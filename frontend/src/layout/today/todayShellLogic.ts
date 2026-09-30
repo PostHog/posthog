@@ -4,6 +4,7 @@ import type { LocationChangedPayload } from 'kea-router/lib/types'
 import posthog from 'posthog-js'
 
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
+import { libraryTypeForPath } from 'scenes/library/libraryUtils'
 import { urls } from 'scenes/urls'
 
 export type TodayRailPane = 'home' | 'spaces' | 'library' | 'tools'
@@ -35,7 +36,7 @@ export function railPaneForPath(pathname: string): TodayRailPane | null {
     if (isUnder(path, '/ai') || isUnder(path, '/spaces')) {
         return 'spaces'
     }
-    if (isUnder(path, urls.library())) {
+    if (isUnder(path, urls.library()) || libraryTypeForPath(path)) {
         return 'library'
     }
     return null

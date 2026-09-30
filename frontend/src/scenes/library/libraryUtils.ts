@@ -35,6 +35,29 @@ export function libraryObjectHref(entry: Pick<FileSystemEntry, 'href' | 'type' |
     return entry.ref && definition ? definition.href(entry.ref) : null
 }
 
+const REF_PLACEHOLDER = 'LIBRARY_REF'
+
+/** The saved object type whose page this path opens, such as `feature_flag` for `/feature_flags/12`. */
+export function libraryTypeForPath(path: string): string | null {
+    let match: { type: string; prefix: string } | null = null
+    for (const [type, definition] of Object.entries(fileSystemTypes)) {
+        if (TOOL_FILE_SYSTEM_TYPES.has(type)) {
+            continue
+        }
+        const href = definition.href(REF_PLACEHOLDER)
+        const prefix = href.slice(0, Math.max(href.indexOf(REF_PLACEHOLDER), 0))
+        if (
+            prefix.endsWith('/') &&
+            path.length > prefix.length &&
+            path.startsWith(prefix) &&
+            (!match || prefix.length > match.prefix.length)
+        ) {
+            match = { type, prefix }
+        }
+    }
+    return match?.type ?? null
+}
+
 /** The last segment of a file system path, with escaped slashes restored. */
 export function libraryObjectName(entry: Pick<FileSystemEntry, 'path'>): string {
     const segments = entry.path.split(/(?<!\\)\//)
