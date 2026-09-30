@@ -1954,6 +1954,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 }
 
                 const deleteCount = idsToDelete.length
+                const toastOptions = { toastId: 'bulk-delete-recordings' }
                 actions.setIsDeletingSelectedRecordings(true)
 
                 try {
@@ -1972,7 +1973,6 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     // Recordings the backend did not find, or that the user cannot edit, are
                     // neither deleted nor failed, so only `deleted_count` gives the true count.
                     const actualCount = result.deleted_count
-                    const toastOptions = { toastId: 'bulk-delete-recordings' }
                     if (actualCount === 0 && failedIds.length > 0) {
                         lemonToast.error(
                             "Couldn't delete the recordings. The recording service didn't respond. Try again in a few minutes.",
@@ -1995,7 +1995,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                         status === 502 || status === 504
                             ? 'The delete request timed out. Some recordings may already be deleted. Reload the list, then try again.'
                             : 'Failed to delete recordings!',
-                        { toastId: 'bulk-delete-recordings' }
+                        toastOptions
                     )
                     posthog.captureException(e)
                 } finally {
