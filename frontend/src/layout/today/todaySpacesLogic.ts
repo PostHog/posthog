@@ -1,13 +1,18 @@
-import { MakeLogicType, actions, afterMount, connect, kea, path, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { combineUrl } from 'kea-router'
 
+import { toast } from '@posthog/quill'
+
+import { writeToClipboard } from 'lib/utils/writeToClipboard'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { ConversationDetail, UserType } from '~/types'
 
-import { taskChannelsList, tasksList } from 'products/tasks/frontend/generated/api'
+import { taskChannelsList, taskChannelsStarCreate, tasksList } from 'products/tasks/frontend/generated/api'
 import { ChannelDTOApi, TaskListItemApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import {
@@ -33,6 +38,13 @@ const RECENT_SESSION_LIMIT = 30
 const RECENT_ITEM_LIMIT = 30
 
 export type TodayWorkSectionId = 'pinned' | 'recent' | 'spaces'
+
+/** The space page reads this search param once and focuses its new-session composer. */
+export const SPACE_COMPOSE_PARAM = 'compose'
+
+export function spaceNewSessionUrl(spaceId: string): string {
+    return combineUrl(urls.taskSpace(spaceId), { [SPACE_COMPOSE_PARAM]: 1 }).url
+}
 
 /** The personal space first, then the team's general space, then starred spaces, then the rest by name. */
 export function sortSpaces(spaces: ChannelDTOApi[]): ChannelDTOApi[] {
@@ -81,6 +93,7 @@ export interface todaySpacesLogicValues {
     user: UserType | null // userLogic
     allRecentItems: TodayWorkItem[]
     collapsedSections: TodayWorkSectionId[]
+    pendingSpaceIds: string[]
     pinnedItems: TodayWorkItem[]
     pinnedTasks: TaskListItemApi[]
     pinnedTasksLoading: boolean
@@ -114,6 +127,9 @@ export interface todaySpacesLogicActions {
     }
     clearRecentSearchAndFilters: () => {
         value: true
+    }
+    copySpaceLink: (spaceId: string) => {
+        spaceId: string
     }
     loadPinnedTasks: () => any
     loadPinnedTasksFailure: (
@@ -185,8 +201,18 @@ export interface todaySpacesLogicActions {
     setSectionHeights: (heights: Partial<Record<TodayWorkSectionId, number>>) => {
         heights: Partial<Record<TodayWorkSectionId, number>>
     }
+    starFailed: (spaceId: string) => {
+        spaceId: string
+    }
     toggleSection: (sectionId: TodayWorkSectionId) => {
         sectionId: TodayWorkSectionId
+    }
+    toggleStar: (
+        spaceId: string,
+        starred: boolean
+    ) => {
+        spaceId: string
+        starred: boolean
     }
 }
 
@@ -252,6 +278,9 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
         clearRecentSearchAndFilters: true,
         setRecentSort: (sort: TodayRecentSort) => ({ sort }),
         setRecentGrouping: (grouping: TodayRecentGrouping) => ({ grouping }),
+        toggleStar: (spaceId: string, starred: boolean) => ({ spaceId, starred }),
+        starFailed: (spaceId: string) => ({ spaceId }),
+        copySpaceLink: (spaceId: string) => ({ spaceId }),
     }),
     loaders(({ values }) => ({
         spaces: [
@@ -345,6 +374,15 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
             { persist: true },
             { setRecentGrouping: (_, { grouping }) => grouping },
         ],
+        pendingSpaceIds: [
+            [] as string[],
+            {
+                toggleStar: (state, { spaceId }) => [...state, spaceId],
+                starFailed: (state, { spaceId }) => state.filter((id) => id !== spaceId),
+                loadSpacesSuccess: () => [],
+                loadSpacesFailure: () => [],
+            },
+        ],
         spacesUnavailable: [false, { loadSpaces: () => false, loadSpacesFailure: () => true }],
         recentTasksUnavailable: [false, { loadRecentTasks: () => false, loadRecentTasksFailure: () => true }],
     }),
@@ -420,6 +458,25 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
                 recentTasksLoading || conversationHistoryLoading,
         ],
     }),
+    listeners(({ actions, values }) => ({
+        toggleStar: async ({ spaceId, starred }) => {
+            try {
+                await taskChannelsStarCreate(String(values.currentTeamId), spaceId, { starred })
+                actions.loadSpaces()
+            } catch {
+                toast.error({ title: `Couldn’t ${starred ? 'star' : 'unstar'} this space. Try again.` })
+                actions.starFailed(spaceId)
+            }
+        },
+        copySpaceLink: async ({ spaceId }) => {
+            const outcome = await writeToClipboard(urls.absolute(urls.currentProject(urls.taskSpace(spaceId))))
+            if (outcome === 'copied') {
+                toast.success({ title: 'Link copied' })
+            } else {
+                toast.error({ title: 'Couldn’t copy the link. Copy it from the address bar instead.' })
+            }
+        },
+    })),
     afterMount(({ actions }) => {
         actions.loadSpaces()
         actions.loadPinnedTasks()

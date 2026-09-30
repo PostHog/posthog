@@ -3,10 +3,13 @@ from typing import Any
 
 import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event
+from unittest.mock import patch
 
 import dagster
 import pyarrow as pa
 from parameterized import parameterized
+
+from posthog.models import Organization, Team
 
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
 from products.signals.backend.models import SignalReport
@@ -405,6 +408,36 @@ class TestSpineInclusion(BaseTest):
         assert promoted_after_cutoff not in in_spine
         assert created_after_cutoff not in in_spine
 
+    def test_state_snapshot_keeps_only_reports_of_organizations_opted_in_to_ai_training(self):
+        self.organization.is_ai_training_opted_in = True
+        self.organization.save()
+        consenting = self._report(SignalReport.Status.READY)
+        excluded: list[str] = []
+        for consent in (False, None):
+            organization = Organization.objects.create(name=f"consent-{consent}", is_ai_training_opted_in=consent)
+            team = Team.objects.create(organization=organization)
+            report = SignalReport.objects.create(team=team, status=SignalReport.Status.READY, title="t", summary="s")
+            SignalReport.objects.filter(id=report.id).update(created_at=BEFORE_CUTOFF)
+            excluded.append(str(report.id))
+        written: dict[str, Any] = {}
+
+        with (
+            patch.object(dag, "skip_unconfigured", lambda context: False),
+            patch.object(dag, "_tag_dagster_queries", lambda context, query_type: None),
+            # A label event that names an opted-out report must not pull it back into the spine.
+            patch.object(dag, "labels_team", lambda: self.team),
+            patch.object(dag, "hogql_rows", lambda *args, **kwargs: [(excluded[0],)]),
+            patch.object(dag, "s3_client", lambda: None),
+            patch.object(dag, "write_parquet", lambda client, bucket, key, table: written.update(table=table)),
+            dagster.build_asset_context(partition_key=SNAPSHOT_DATE.isoformat()) as context,
+        ):
+            dag.inbox_report_state(context)
+            metadata = context.get_output_metadata("result")
+
+        assert written["table"].column("report_id").to_pylist() == [consenting]
+        assert metadata["excluded_no_training_consent_reports"].value == 2
+        assert metadata["excluded_no_training_consent_teams"].value == 2
+
 
 class TestImpressionsStream(ClickhouseTestMixin, BaseTest):
     @parameterized.expand([("labeled_ids", LABELED_REPORT_IDS_SQL), ("impressions", IMPRESSIONS_SQL)])
@@ -554,7 +587,7 @@ class TestStatusStream(ClickhouseTestMixin, BaseTest):
         assert row["wrong_dismissal_count"] == (0 if row["status_event_team_id"] == self.team.id else 1)
 
 
-def _run_embeddings_asset(monkeypatch, asset, rows):
+def _run_embeddings_asset(monkeypatch, asset, rows, consent_team_ids=frozenset({2})):
     """Run one embeddings asset against a stubbed ClickHouse and S3, and return what it wrote."""
     captured: dict[str, Any] = {}
 
@@ -572,6 +605,9 @@ def _run_embeddings_asset(monkeypatch, asset, rows):
     monkeypatch.setattr(dag, "_tag_dagster_queries", lambda context, query_type: None)
     monkeypatch.setattr(dag, "dataset_bucket", lambda: "test-bucket")
     monkeypatch.setattr(dag, "s3_client", lambda: None)
+    monkeypatch.setattr(dag, "read_parquet_if_exists", lambda *args, **kwargs: None)
+    monkeypatch.setattr(dag, "object_row_count", lambda *args: None)
+    monkeypatch.setattr(dag, "training_consent_team_ids", lambda: consent_team_ids)
     monkeypatch.setattr(dag.settings, "INBOX_RANKING_DATASET_S3_PREFIX", "inbox_ranking")
 
     context = dagster.build_asset_context(partition_key=SNAPSHOT_DATE.isoformat())
@@ -603,6 +639,20 @@ def test_an_empty_result_still_writes_the_full_schema(monkeypatch, asset):
 
     assert written["table"].num_rows == 0
     assert written["table"].schema == EMBEDDINGS_SCHEMA
+
+
+@pytest.mark.parametrize(
+    "asset", [dag.inbox_report_embeddings, dag.inbox_report_title_embeddings, dag.inbox_signal_embeddings]
+)
+@pytest.mark.parametrize("consent_team_ids", [frozenset({2, 7}), frozenset()])
+def test_embeddings_are_read_only_for_teams_opted_in_to_ai_training(monkeypatch, asset, consent_team_ids):
+    written = _run_embeddings_asset(monkeypatch, asset, [], consent_team_ids)
+
+    if consent_team_ids:
+        assert written["params"]["team_ids"] == [2, 7]
+    else:
+        assert "params" not in written
+    assert written["table"].num_rows == 0
 
 
 def test_the_title_snapshot_is_a_leaf_ordered_after_the_join():
