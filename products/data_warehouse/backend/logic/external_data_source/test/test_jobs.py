@@ -20,6 +20,10 @@ pytestmark = [
     pytest.mark.django_db,
 ]
 
+_PRODUCE_INTERNAL_EVENT = (
+    "products.warehouse_sources.backend.temporal.data_imports.sync_failure_events.produce_internal_event"
+)
+
 
 def _create_org_team_source_schema_job(
     pipeline_version: ExternalDataJobPipelineVersion | None = None,
@@ -179,13 +183,14 @@ class TestUpdateExternalJobStatus:
         ],
     )
     def test_failure_notification_only_fires_on_failed_status(self, status, expect_notify):
-        team, _source, _schema, job = _create_org_team_source_schema_job()
+        team, _source, schema, job = _create_org_team_source_schema_job()
 
         with (
             patch("products.data_warehouse.backend.logic.external_data_source.jobs.emit_data_import_app_metrics"),
             patch(
                 "products.data_warehouse.backend.logic.external_data_source.jobs.schedule_external_data_failure_digest"
             ) as mock_schedule_digest,
+            patch(_PRODUCE_INTERNAL_EVENT) as mock_produce,
         ):
             update_external_job_status(
                 job_id=str(job.id),
@@ -197,8 +202,14 @@ class TestUpdateExternalJobStatus:
 
         if expect_notify:
             mock_schedule_digest.assert_called_once_with(team.pk)
+            mock_produce.assert_called_once()
+            properties = mock_produce.call_args.kwargs["event"].properties
+            assert properties["schema_id"] == str(schema.id)
+            assert properties["job_id"] == str(job.id)
+            assert properties["error"] == "boom"
         else:
             mock_schedule_digest.assert_not_called()
+            mock_produce.assert_not_called()
 
     def test_failure_notification_not_repeated_on_retried_terminal_transition(self):
         team, _source, _schema, job = _create_org_team_source_schema_job()
@@ -208,6 +219,7 @@ class TestUpdateExternalJobStatus:
             patch(
                 "products.data_warehouse.backend.logic.external_data_source.jobs.schedule_external_data_failure_digest"
             ) as mock_schedule_digest,
+            patch(_PRODUCE_INTERNAL_EVENT) as mock_produce,
         ):
             for _ in range(2):
                 update_external_job_status(
@@ -219,6 +231,7 @@ class TestUpdateExternalJobStatus:
                 )
 
         mock_schedule_digest.assert_called_once()
+        mock_produce.assert_called_once()
 
     def test_failed_digest_scheduling_error_does_not_fail_status_update(self):
         team, _source, _schema, job = _create_org_team_source_schema_job()
