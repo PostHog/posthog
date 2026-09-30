@@ -31,7 +31,7 @@ from products.engineering_analytics.backend.logic.queries._curated import (
 )
 from products.engineering_analytics.backend.logic.queries._workflow_filters import DECISIVE_FAILURE_CONCLUSIONS_SQL
 from products.engineering_analytics.backend.logic.queries.ci_cards import FAILING_CI_SQL, OPEN_PR_SQL, stuck_pr_sql
-from products.engineering_analytics.backend.logic.queries.pr_cost import query_pr_costs
+from products.engineering_analytics.backend.logic.queries.pr_cost import PullRequestKey, query_pr_costs
 
 _LIMIT = 1000
 _ATTENTION_LIMIT = 15
@@ -139,7 +139,7 @@ class PushActivity:
 
 def query_pr_push_activity(
     *, curated: CuratedGitHubSource, pr_numbers: list[int]
-) -> dict[tuple[str, str, int], PushActivity]:
+) -> dict[PullRequestKey, PushActivity]:
     """Per-PR push activity keyed by (repo_owner, repo_name, pr_number). Scoped to the visible PR
     numbers so the scan tracks the page (same shape as ``query_pr_costs``). A PR with no CI has no entry."""
     if not pr_numbers:
@@ -154,7 +154,7 @@ def query_pr_push_activity(
         query_type="engineering_analytics.pr_push_history",
         placeholders={"pr_numbers": ast.Constant(value=pr_numbers)},
     )
-    activity: dict[tuple[str, str, int], PushActivity] = {}
+    activity: dict[PullRequestKey, PushActivity] = {}
     for (
         repo_owner,
         repo_name,
@@ -271,8 +271,8 @@ def query_attention_pull_requests(*, curated: CuratedGitHubSource) -> AttentionP
 
 def _map_row(
     row: tuple,
-    cost_by_pr: dict[tuple[str, str, int], PRCostAggregate],
-    activity_by_pr: dict[tuple[str, str, int], PushActivity],
+    cost_by_pr: dict[PullRequestKey, PRCostAggregate],
+    activity_by_pr: dict[PullRequestKey, PushActivity],
 ) -> PullRequestListItem:
     (
         number,

@@ -220,11 +220,13 @@ _PR_COSTS_CACHE_SECONDS = 300
 # The cache stores the SQL row, not a PRCostAggregate, because the cache key covers the SQL but not
 # the Python classes that read the row.
 _CostRow = tuple[str, str, float | None, float | None, int | None, int | None, int | None]
+# (repo_owner, repo_name, pr_number). PR numbers restart per repository, so the number alone is not a key.
+PullRequestKey = tuple[str, str, int]
 
 
 def query_pr_costs(
     *, curated: CuratedGitHubSource, pr_numbers: list[int], run_from: datetime | None = None
-) -> dict[tuple[str, str, int], PRCostAggregate]:
+) -> dict[PullRequestKey, PRCostAggregate]:
     """Per-PR billable cost across the given PR numbers' runs, keyed by (repo_owner, repo_name, pr_number).
 
     Empty when the jobs source isn't synced or no PR numbers are given. One grouped pass over the cost
