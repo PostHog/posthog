@@ -17,6 +17,7 @@ jest.mock('kea', () => ({
 }))
 jest.mock('../logics/runStreamLogic', () => ({ runStreamLogic: jest.fn(() => ({})) }))
 jest.mock('./tool/toolRegistry', () => ({ lookupToolRenderer: jest.fn(() => ({})) }))
+jest.mock('../hooks/useThreadSkin', () => ({ useThreadSkin: () => 'lemon' }))
 
 describe('PermissionInput', () => {
     const respondToPermission = jest.fn()

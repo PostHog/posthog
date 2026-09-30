@@ -66,12 +66,12 @@ export function QuillActivityGroup(props: ActivityGroupProps): JSX.Element {
             <span className="shrink-0 font-medium" data-attr="thread-activity-toggle">
                 {running && !thoughtsOnly ? currentLabel : label}
             </span>
-            {waitingForInput && <span className="truncate text-muted-foreground">Review the request below</span>}
+            {waitingForInput && <span className="truncate">Review the request below</span>}
             {!waitingForInput && (
                 <ActivityElapsedTime startedAt={group.startedAt} endedAt={group.endedAt} active={active} />
             )}
             {calls.length > 0 && (
-                <span className="shrink-0 tabular-nums text-muted-foreground">
+                <span className="shrink-0 tabular-nums">
                     · {calls.length} tool {calls.length === 1 ? 'call' : 'calls'}
                 </span>
             )}

@@ -83,6 +83,7 @@ import {
     ThreadView,
     TurnFeedbackActions,
     type TurnTrailer,
+    useThreadSkin,
 } from 'products/posthog_ai/frontend/api/primitives'
 import { LogEntry } from 'products/posthog_ai/frontend/lib/parse-logs'
 import { isPiTaskRuntime } from 'products/posthog_ai/frontend/types/taskTypes'
@@ -108,7 +109,6 @@ import { getTicketPromptData, getTicketSummaryData, isTicketConfirmationMessage 
 import { ToolCallWidgetDef, getToolCallDescriptionAndWidgetDef } from './toolCallDisplay'
 import { TraceIdProvider, useTraceId } from './TraceIdContext'
 import { useFeedback } from './useFeedback'
-import { useThreadSkin } from './useThreadSkin'
 import {
     isArtifactMessage,
     isAssistantMessage,

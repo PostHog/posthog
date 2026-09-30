@@ -53,7 +53,7 @@ function ClampedContent({ children }: { children: ReactNode }): JSX.Element {
                 <button
                     type="button"
                     onClick={() => setExpanded(!expanded)}
-                    className="mt-1 flex items-center gap-0.5 text-sm text-muted-foreground hover:text-foreground"
+                    className="mt-1 flex items-center gap-0.5 text-sm text-foreground"
                 >
                     Show {expanded ? 'less' : 'more'}
                     <IconChevronDown className={cn('size-3', expanded && 'rotate-180')} />
@@ -83,10 +83,7 @@ export const QuillHumanMessage = memo(function QuillHumanMessage({ item }: { ite
                 <ChatMessageFooter className="min-h-5 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
                     {item.startedAt !== undefined && (
                         // A fresh dayjs object every render would defeat TZLabel's memo; a string compares by value.
-                        <TZLabel
-                            time={new Date(item.startedAt).toISOString()}
-                            className="text-xs text-muted-foreground"
-                        />
+                        <TZLabel time={new Date(item.startedAt).toISOString()} className="text-xs text-foreground" />
                     )}
                     {text && (
                         <QuillCopyButton value={text} label="Copy message" dataAttr="posthog-ai-human-message-copy" />

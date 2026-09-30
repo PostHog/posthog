@@ -52,6 +52,7 @@ export { DEFAULT_SUGGESTIONS_DATA } from '../components/suggestions/suggestionsD
 export { Thread } from '../components/Thread'
 export { ThreadView } from '../components/ThreadView'
 export type { ThreadSkin } from '../components/quill/quillThreadContext'
+export { useThreadSkin } from '../hooks/useThreadSkin'
 export type { TurnTrailer } from '../utils/turnTrailers'
 export { TurnFeedbackActions } from '../components/TurnFeedbackActions'
 export { MessageTemplate } from '../messages/MessageTemplate'

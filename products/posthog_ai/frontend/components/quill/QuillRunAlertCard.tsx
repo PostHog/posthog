@@ -44,7 +44,7 @@ export function QuillRunAlertCard({
                 )}
             </CardHeader>
             {(message || undeliveredMessage) && (
-                <CardContent className="flex min-w-0 flex-col gap-1 break-words text-muted-foreground">
+                <CardContent className="flex min-w-0 flex-col gap-1 break-words text-foreground">
                     {message && <MarkdownMessage content={message} id={`${id}-message`} />}
                     {undeliveredMessage && kind !== 'message_undelivered' && (
                         <div>Your last message was not delivered.</div>

@@ -2,6 +2,7 @@ import clsx from 'clsx'
 
 import { MarkdownMessage } from '../messages/MarkdownMessage'
 import type { ActivityStatus } from './activityTypes'
+import { useQuillThread } from './quill/quillThreadContext'
 
 function activitySubstepText(content: string, isInProgress: boolean): string {
     if (content.at(0) === '[' && content.at(-1) === ')') {
@@ -25,6 +26,7 @@ export function ActivitySubsteps({
     substeps: string[]
     status: ActivityStatus
 }): JSX.Element {
+    const quill = useQuillThread()
     const isCompleted = status === 'completed'
     const isFailed = status === 'failed'
 
@@ -41,8 +43,8 @@ export function ActivitySubsteps({
                             className={clsx(
                                 'leading-relaxed',
                                 isFailed && 'text-danger',
-                                !isFailed && isCompletedSubstep && 'text-muted',
-                                !isFailed && isCurrentSubstep && !isCompleted && 'text-secondary'
+                                !quill && !isFailed && isCompletedSubstep && 'text-muted',
+                                !quill && !isFailed && isCurrentSubstep && !isCompleted && 'text-secondary'
                             )}
                             content={activitySubstepText(substep ?? '', status === 'in_progress')}
                         />

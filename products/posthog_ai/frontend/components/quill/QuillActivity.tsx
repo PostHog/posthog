@@ -25,7 +25,10 @@ export function QuillActivity({
 
     const isRunning = status === 'in_progress'
     const body = hasDetails ? (
-        <div className="flex min-w-0 flex-col gap-1 ps-5 text-muted-foreground" data-not-quill>
+        <div
+            className="flex min-w-0 flex-col gap-1 text-[length:var(--text-ui,0.8125rem)] leading-[1.625] text-foreground [&_.LemonMarkdown_p]:mb-0"
+            data-not-quill
+        >
             {substeps.length > 0 && <ActivitySubsteps id={id} substeps={substeps} status={status} />}
             {details}
         </div>
@@ -44,7 +47,7 @@ export function QuillActivity({
                 className={cn(status === 'pending' && 'opacity-40')}
             >
                 <span className="min-w-0 truncate font-medium">{title}</span>
-                {subtitle && <span className="min-w-0 truncate text-muted-foreground">{subtitle}</span>}
+                {subtitle && <span className="min-w-0 truncate">{subtitle}</span>}
             </ThreadMarker>
             {/* Product widgets (charts, tables, diffs) keep PostHog's own colours inside the quill thread. */}
             {children && (

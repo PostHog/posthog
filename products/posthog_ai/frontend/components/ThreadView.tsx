@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { type ReactNode, memo, useCallback, useEffect, useMemo, useState } from 'react'
 
+import { cn } from 'lib/utils/css-classes'
 import { inStorybookTestRunner } from 'lib/utils/dom'
 
 import { isTerminalRunStatus, runStreamLogic } from '../logics/runStreamLogic'
@@ -74,6 +75,7 @@ interface ThreadViewProps {
     footerExtra?: ReactNode
     className?: string
     listClassName?: string
+    endInset?: number
     rowClassName?: string
     /**
      * `quill` lays the thread out like PostHog Desktop's chat: user bubbles, ghost assistant prose, and
@@ -105,6 +107,7 @@ export function ThreadView({
     className,
     listClassName,
     rowClassName,
+    endInset,
     skin = 'lemon',
 }: ThreadViewProps): JSX.Element {
     const {
@@ -297,6 +300,7 @@ export function ThreadView({
             // thread is already pinned when the first streamed rows land.
             turnActive={streamPhase !== 'idle'}
             virtualized={virtualized}
+            endInset={endInset}
             gap={skin === 'quill' ? QUILL_ROW_GAP : undefined}
             className={className}
             listClassName={listClassName}
@@ -310,7 +314,11 @@ export function ThreadView({
     return (
         <ThreadSkinContext.Provider value={skin}>
             {/* Virtualized, the root lays out rows itself; in document flow, this wrapper sets the rhythm. */}
-            <div data-quill className={virtualized ? 'contents' : 'flex flex-col gap-4'}>
+            {/* Quill's text color, set once here: a ghost bubble sets none, so its prose would inherit the page's. */}
+            <div
+                data-quill
+                className={cn('text-[var(--foreground)]', virtualized ? 'contents' : 'flex flex-col gap-4')}
+            >
                 {thread}
             </div>
         </ThreadSkinContext.Provider>

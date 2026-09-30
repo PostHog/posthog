@@ -32,7 +32,7 @@ export function QuillTurnFeedbackActions({
                 )}
             >
                 {timestamp !== undefined && (
-                    <TZLabel time={new Date(timestamp).toISOString()} className="text-xs text-muted-foreground" />
+                    <TZLabel time={new Date(timestamp).toISOString()} className="text-xs text-foreground" />
                 )}
                 {turnText && (
                     <QuillCopyButton
