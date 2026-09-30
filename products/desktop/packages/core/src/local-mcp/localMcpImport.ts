@@ -4,7 +4,7 @@ import type {
   LocalMcpServerDescriptor,
   McpServerConnection,
 } from "@posthog/shared";
-import { isPrivateIpv4Octets, isPrivateIpv6Literal } from "@posthog/shared";
+import { isPrivateHostname } from "@posthog/shared";
 import { inject, injectable } from "inversify";
 import { LOCAL_MCP_WORKSPACE_CLIENT } from "./identifiers";
 
@@ -44,48 +44,6 @@ export interface LocalMcpCloudClassification {
   reason: LocalMcpCloudReason;
   /** Sandbox-shaped config; present only when availability is "importable". */
   remote?: McpServerConnection;
-}
-
-function parseIpv4(host: string): [number, number, number, number] | null {
-  const match = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
-  if (!match) return null;
-  const octets = match.slice(1).map(Number);
-  if (octets.some((octet) => octet > 255)) return null;
-  return octets as [number, number, number, number];
-}
-
-const PRIVATE_HOST_SUFFIXES = [
-  ".local",
-  ".localhost",
-  ".internal",
-  ".lan",
-  ".home",
-  ".home.arpa",
-  ".ts.net", // Tailscale MagicDNS
-];
-
-/**
- * Heuristic: is this hostname only reachable from the user's own machine or
- * network? Errs toward private — a public server misclassified as private
- * just stays desktop-only, while the reverse would ship an unreachable server
- * to the sandbox.
- */
-export function isPrivateHostname(hostname: string): boolean {
-  let host = hostname.toLowerCase().replace(/\.$/, "");
-  if (host.startsWith("[") && host.endsWith("]")) host = host.slice(1, -1);
-  if (host === "" || host === "localhost") return true;
-
-  // IPv6 literal: the shared kernel covers loopback/unspecified, link-local,
-  // unique-local, and IPv4-mapped (incl. the hex-group form URL normalizes to).
-  if (host.includes(":")) return isPrivateIpv6Literal(host);
-
-  const octets = parseIpv4(host);
-  if (octets) return isPrivateIpv4Octets(octets[0], octets[1]);
-
-  // Bare intranet names ("nas", "router") only resolve on the local network.
-  if (!host.includes(".")) return true;
-
-  return PRIVATE_HOST_SUFFIXES.some((suffix) => host.endsWith(suffix));
 }
 
 function parseHttpUrl(raw: string): URL | null {

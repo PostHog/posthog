@@ -303,7 +303,11 @@ export {
   readPrSummaries,
   readPrUrls,
 } from "./pr-urls";
-export { isPrivateIpv4Octets, isPrivateIpv6Literal } from "./private-network";
+export {
+  isPrivateHostname,
+  isPrivateIpv4Octets,
+  isPrivateIpv6Literal,
+} from "./private-network";
 export {
   type CapabilityNotch,
   DEFAULT_REASONING_EFFORT,

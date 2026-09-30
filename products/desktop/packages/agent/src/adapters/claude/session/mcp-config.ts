@@ -3,10 +3,11 @@ import * as os from "node:os";
 import * as path from "node:path";
 import type { NewSessionRequest } from "@agentclientprotocol/sdk";
 import type { McpServerConfig } from "@anthropic-ai/claude-agent-sdk";
-import type {
-  LocalMcpServerDescriptor,
-  LocalMcpServerScope,
-  LocalMcpTransport,
+import {
+  isPrivateHostname,
+  type LocalMcpServerDescriptor,
+  type LocalMcpServerScope,
+  type LocalMcpTransport,
 } from "@posthog/shared";
 import type { Logger } from "../../../utils/logger";
 
@@ -137,6 +138,43 @@ export function parseClaudeJsonTransport(
     return { kind: "http", url, headers: sanitizeHeaders(raw.headers) };
   }
   return { kind: "unknown" };
+}
+
+/**
+ * Names of the servers in `<cwd>/.mcp.json` whose URL points at a private
+ * network host, such as a dev server on localhost. A cloud sandbox cannot
+ * reach them, so the CLI would only time out connecting to each one.
+ */
+export function loadPrivateNetworkMcpjsonServerNames(
+  cwd: string,
+  logger?: Logger,
+): string[] {
+  let servers: unknown;
+  try {
+    servers = JSON.parse(
+      fs.readFileSync(path.join(cwd, ".mcp.json"), "utf8"),
+    ).mcpServers;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+      logger?.warn("Failed to read .mcp.json", {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+    return [];
+  }
+  if (!servers || typeof servers !== "object") return [];
+
+  return Object.entries(servers as Record<string, McpServerConfig>)
+    .filter(([, config]) => {
+      const transport = parseClaudeJsonTransport(config ?? {});
+      if (transport.kind !== "http" && transport.kind !== "sse") return false;
+      try {
+        return isPrivateHostname(new URL(transport.url).hostname);
+      } catch {
+        return false;
+      }
+    })
+    .map(([name]) => name);
 }
 
 function toTransport(config: McpServerConfig): LocalMcpTransport {

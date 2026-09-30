@@ -23,6 +23,7 @@
  */
 
 import { randomBytes } from "node:crypto";
+import type { Settings } from "@anthropic-ai/claude-agent-sdk";
 
 const TRACEPARENT_STDERR_PREFIX = "traceparent:";
 
@@ -32,14 +33,14 @@ export function generateTraceparentHookNonce(): string {
   return randomBytes(8).toString("hex");
 }
 
-/** Value for the CLI's `--settings <json>` flag declaring the hook. */
-export function buildTraceparentHookSettingsJson(nonce: string): string {
+/** Settings for the CLI's `--settings <json>` flag declaring the hook. */
+export function buildTraceparentHookSettings(nonce: string): Settings {
   const command = `printf '${TRACEPARENT_STDERR_PREFIX}${nonce}=%s' "$TRACEPARENT" >&2`;
-  return JSON.stringify({
+  return {
     hooks: {
       UserPromptSubmit: [{ hooks: [{ type: "command", command }] }],
     },
-  });
+  };
 }
 
 /**
