@@ -53,6 +53,9 @@ export function CommentOnRecordingButton({
     const { setIsCommenting } = useActions(sessionRecordingPlayerLogic)
     const { isCommenting } = useValues(sessionRecordingPlayerLogic)
 
+    const defaultDataAttr = isCommenting ? 'stop-annotating-recording' : 'annotate-recording'
+    const overrideDataAttr = dataAttr && isCommenting ? `${dataAttr}-stop` : dataAttr
+
     return (
         <AccessControlAction
             resourceType={AccessControlResourceType.SessionRecording}
@@ -75,7 +78,7 @@ export function CommentOnRecordingButton({
                         </>
                     )
                 }
-                data-attr={dataAttr ?? (isCommenting ? 'stop-annotating-recording' : 'annotate-recording')}
+                data-attr={overrideDataAttr ?? defaultDataAttr}
                 active={isCommenting}
                 icon={<IconComment className={cn('text-lg', className)} />}
             />
