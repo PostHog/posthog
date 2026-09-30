@@ -142,6 +142,12 @@ TASKS_COMPUTE_QUOTA_ENFORCEMENT_ENABLED: bool = get_from_env(
     type_cast=str_to_bool,
 )
 
+TASKS_SANDBOX_MEMORY_WATCHDOG_ENABLED: bool = get_from_env(
+    "TASKS_SANDBOX_MEMORY_WATCHDOG_ENABLED",
+    True,
+    type_cast=str_to_bool,
+)
+
 # Event-count threshold for the above; 0 relies on Temporal's is_continue_as_new_suggested().
 TASKS_CONTINUE_AS_NEW_HISTORY_THRESHOLD: int = get_from_env(
     "TASKS_CONTINUE_AS_NEW_HISTORY_THRESHOLD", 4000, type_cast=int

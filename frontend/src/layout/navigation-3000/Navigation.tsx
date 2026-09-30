@@ -50,13 +50,11 @@ export function Navigation({
     const { scenePanelIsPresent, scenePanelOpenManual, sceneTakeoverActive } = useValues(sceneLayoutLogic)
     const { sidePanelOpen } = useValues(sidePanelStateLogic)
     const { sidePanelWidth } = useValues(panelLayoutLogic)
-    const { leftNavWidth: todayLeftNavWidth } = useValues(todayShellLogic)
+    const { leftNavWidth: todayLeftNavWidth, todayRailEnabled: todayRail } = useValues(todayShellLogic)
 
     // SceneMenuBar (when enabled) replaces ProjectNotice's role of conveying project-level
     // context above scene content, so we hide the notice for users on the new menu bar.
     const sceneMenuBarEnabled = useFeatureFlag('SCENE_MENU_BAR')
-    // The rail layout has no overlay mode, so narrow windows keep the regular navigation.
-    const todayRail = useFeatureFlag('TODAY_RAIL_NAV') && !mobileLayout
     const inlinePanelRef = useRef<HTMLDivElement | null>(null)
     const inlinePanelCallbackRef = useCallback(
         (node: HTMLDivElement | null) => {

@@ -57,6 +57,7 @@ async def test_shutdown_monitor_async(temporal_client: Client):
     # longer than a few seconds on loaded CI runners.
     _ = await asyncio.wait([wait_for_shutdown_task], timeout=15)
     assert waiter.shutdown_monitor.is_worker_shutdown()
+    assert waiter.shutdown_callback_ran.is_set()
 
     _ = await asyncio.wait([shutdown_task, worker_run_task], timeout=5)
     # Need to start a new worker to pick-up the workflow again and set the failure.
