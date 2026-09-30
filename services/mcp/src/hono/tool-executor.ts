@@ -369,7 +369,7 @@ export class ToolExecutor {
             // Duration is 0: no handler ran (see `trackInnerCall`, same rule).
             const rejection = new ToolInputValidationError(
                 message,
-                describeValidationError(validation.error, toolArgs, tool.schema)
+                describeValidationError(validation.error, tool.schema)
             )
             const sessionProperties = await sessionShape
             void trackToolCall(
@@ -613,7 +613,7 @@ export class ToolExecutor {
             const message = formatInputValidationError(resolved.name, validation.error)
             const rejection = new ToolInputValidationError(
                 message,
-                describeValidationError(validation.error, toolArgs, resolved.schema)
+                describeValidationError(validation.error, resolved.schema)
             )
             const sessionProperties = await sessionShape
             void trackToolCall(
@@ -894,7 +894,7 @@ export class ToolExecutor {
             // The agent keeps zod's own message; the event gets the value-free one `callTool` records.
             const rejection = new ToolInputValidationError(
                 formatInputValidationError('render-ui', validation.error),
-                describeValidationError(validation.error, toolArgs, renderUiTool.schema)
+                describeValidationError(validation.error, renderUiTool.schema)
             )
             const sessionProperties = await sessionShape
             void trackToolCall(
@@ -964,8 +964,6 @@ interface ToolErrorClassification {
     status?: number
     /** Value-free descriptors of a schema rejection (offending field+code). */
     validationFields?: string[]
-    /** Top-level keys the caller sent — surfaces unaccepted aliases on a union rejection. */
-    validationInputKeys?: string[]
     /** Machine-readable leaf failure code: the API's validation error code or the exec rejection reason. */
     errorCode?: string
     /** Field path the API's validation error pointed at, array indexes normalized to `N`. */
@@ -993,7 +991,6 @@ function resolveToolErrorClassification(error: unknown): ToolErrorClassification
         return {
             errorType: 'validation',
             ...(error.fields.length ? { validationFields: error.fields } : {}),
-            ...(error.inputKeys.length ? { validationInputKeys: error.inputKeys } : {}),
         }
     }
     // Agent-recoverable command mistakes, so keep them out of the `internal` rate
@@ -1017,9 +1014,7 @@ function resolveToolErrorClassification(error: unknown): ToolErrorClassification
         const errorCode = apiError.code ? sanitizeErrorToken(apiError.code) : undefined
         const errorField = apiError.attr ? normalizeErrorField(apiError.attr) : undefined
         // Same descriptor property and format as a local schema rejection, so one
-        // query covers both layers. There is no `validationInputKeys` counterpart:
-        // the request body reached the API, so the keys it carried aren't ours to
-        // reconstruct here.
+        // query covers both layers.
         return {
             errorType: 'validation',
             validationFields: describeApiValidationError(apiError.attr, apiError.code),
@@ -1144,11 +1139,8 @@ async function sessionUuidForError(state: ResolvedState): Promise<string | undef
 }
 
 /**
- * `$mcp_input_keys`: the top-level argument names the caller sent, on every event,
- * success and failure alike. `$mcp_validation_input_keys` only exists on a local
- * schema rejection, so until now a call that sent `experimentId` and was
- * rescued by an alias, or sent an unknown key a permissive schema ignored, left
- * no trace of its shape. Names only, never values (see `describeInputShape`).
+ * `$mcp_input_keys`: the safe top-level argument names the caller sent, on every
+ * event, success and failure alike. Names only, never values (see `describeInputShape`).
  *
  * `$mcp_input_aliases_used`: which declared aliases the call relied on, as
  * `alias:canonical`, present only when at least one was. Both halves are names
@@ -1215,9 +1207,6 @@ function errorAnalyticsProperties(classification: ToolErrorClassification, error
         $mcp_error_type: classification.errorType,
         ...(classification.status !== undefined ? { $mcp_error_status: classification.status } : {}),
         ...(classification.validationFields?.length ? { $mcp_validation_fields: classification.validationFields } : {}),
-        ...(classification.validationInputKeys?.length
-            ? { $mcp_validation_input_keys: classification.validationInputKeys }
-            : {}),
         ...(classification.errorCode ? { $mcp_error_code: classification.errorCode } : {}),
         ...(classification.errorField ? { $mcp_error_field: classification.errorField } : {}),
         ...(message !== undefined ? { $mcp_error_message: message } : {}),

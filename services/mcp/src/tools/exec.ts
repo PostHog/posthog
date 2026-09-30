@@ -1483,9 +1483,6 @@ export function describeApiValidationError(attr: string | undefined, code: strin
  * `fields` are the offending field path + issue code, plus the received type where
  * that distinguishes the bug (e.g. `id:invalid_type:undefined` for an omitted
  * parameter vs `query:invalid_union:string` for an envelope the agent flattened).
- * `inputKeys` — the top-level keys the caller actually sent — is what surfaces an
- * unaccepted alias (e.g. `organizationId` where the schema wants `orgId`).
- *
  * Records only structural information: field names, issue codes, and the TYPE of a
  * rejected value. It never records input VALUES — the ZodError embeds those in
  * `issue.input` and in `.message` (see `formatInputValidationError`), so this reads
@@ -1495,9 +1492,8 @@ export function describeApiValidationError(attr: string | undefined, code: strin
  */
 export function describeValidationError(
     error: z.ZodError,
-    input: Record<string, unknown>,
     schema: z.ZodType
-): { fields: string[]; inputKeys: string[] } {
+): { fields: string[] } {
     const declaredNames = declaredPropertyNames(schema)
     const fields = [
         ...new Set(
@@ -1513,7 +1509,7 @@ export function describeValidationError(
             })
         ),
     ].slice(0, MAX_VALIDATION_DESCRIPTORS)
-    return { fields, inputKeys: describeInputKeys(input, schema) }
+    return { fields }
 }
 
 /**
@@ -2005,7 +2001,7 @@ export function createExecTool(
                         // which field/alias was rejected — without the payload.
                         throw new ToolInputValidationError(
                             message,
-                            describeValidationError(validation.error, input, toolSchema)
+                            describeValidationError(validation.error, toolSchema)
                         )
                     }
                     input = validation.data as Record<string, unknown>

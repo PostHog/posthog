@@ -469,10 +469,10 @@ describe('ToolExecutor metrics', () => {
             expect(call[1]).toBe(0)
             expect(trackToolCallExtras('strict-tool')).toMatchObject({
                 $mcp_error_type: 'validation',
+                $mcp_input_keys: ['[redacted]'],
                 // `:undefined` is the received type — the param was absent, not
                 // mistyped, which is what separates an alias slip from a coercion bug.
                 $mcp_validation_fields: ['required_field:invalid_type:undefined'],
-                $mcp_validation_input_keys: ['requiredField'],
             })
         })
 
@@ -492,9 +492,7 @@ describe('ToolExecutor metrics', () => {
             })
         })
 
-        // `$mcp_validation_input_keys` exists only on a rejection, so a call the alias
-        // layer rescued left no trace of the name the agent actually used. The shape
-        // is read from the raw input, before preprocess folds the alias away.
+        // The shape is read from the raw input, before preprocess folds the alias away.
         it('stamps the input keys and the alias used on a successful direct call', async () => {
             vi.spyOn(catalog, 'getToolByName').mockReturnValue({
                 name: 'alias-tool',
@@ -887,8 +885,8 @@ describe('ToolExecutor metrics', () => {
             expect(call?.[1]).toBe(0)
             expect(call?.[2]).toBe(true)
             expect(call?.[4]).toMatchObject({
+                $mcp_input_keys: ['[redacted]'],
                 $mcp_error_type: 'validation',
-                $mcp_validation_input_keys: ['cmd'],
             })
             expect(call?.[4]).not.toHaveProperty('$mcp_exec_verb')
         })
@@ -1069,9 +1067,8 @@ describe('ToolExecutor metrics', () => {
             expect(call?.[1]).toBe(0)
             expect(call?.[2]).toBe(true)
             expect(call?.[4]).toMatchObject({
-                $mcp_input_keys: ['toolName'],
+                $mcp_input_keys: ['[redacted]'],
                 $mcp_error_type: 'validation',
-                $mcp_validation_input_keys: ['toolName'],
             })
         })
     })

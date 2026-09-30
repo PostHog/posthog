@@ -2952,11 +2952,6 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "Parameter paths the MCP server's own input schema rejected, as `path:code` (for example `id:invalid_type`). Names from the tool's schema, never caller values. Only set when the server rejected the input before calling PostHog.",
             "examples": ["id:invalid_type", "filters.groups:required"],
         },
-        "$mcp_validation_input_keys": {
-            "label": "MCP validation input keys",
-            "description": "Top-level argument names the caller sent on a call the MCP server's input schema rejected, sorted and capped at 20. Shows which name an agent used for a parameter the schema spells differently. Only set on local schema rejections, and recorded with the same rule as $mcp_input_keys, which is set on every call.",
-            "examples": ["experimentId", "flagKey, limit"],
-        },
         "$mcp_input_keys": {
             "label": "MCP input keys",
             "description": "Top-level argument names the caller sent on a tool call, success or failure: every direct-mode call, `render-ui`, and an exec `call` (parsed from the command string). Exec discovery verbs (tools, search, info, schema) carry none, so rate against rows where it is set rather than every $mcp_tool_call. Recorded by the @posthog/mcp SDK helper: names the tool declares (including its aliases) first, then undeclared identifier-shaped names, capped at 20; any other name becomes one `[redacted]` entry. Names only, never values. Group by it with $mcp_input_aliases_used to see how agents spell a parameter.",

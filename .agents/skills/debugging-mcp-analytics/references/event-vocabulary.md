@@ -88,17 +88,15 @@ refusals into tool error rates, which is also why the status has its own field. 
 time, never by person.
 
 Per-event additions: `$mcp_error_status` (upstream HTTP status), `$mcp_error_code` (machine-readable leaf failure code: the API's validation error code or the exec rejection reason), and `$mcp_error_field` (the validation error's field path, array indexes normalized to `N`, e.g. `actions__N__inputs__email`) — all stamped by `services/mcp/src/hono/tool-executor.ts` — **server-side, despite sitting next to the SDK's typed error properties in queries**; and `tool_count`, `read_only`, `via_sse_redirect` on `$mcp_initialize`. Failed calls may also carry
-`$mcp_validation_fields` and `$mcp_validation_input_keys` (which fields failed validation, and
-which keys the caller actually sent), and exec-mode calls carry `$mcp_exec_verb` (which dispatcher
-verb ran) and `$mcp_exec_target_tool` (the tool that `info`/`schema`/`call` named). All four are
+`$mcp_validation_fields` (which fields failed validation), and exec-mode calls carry `$mcp_exec_verb` (which dispatcher
+verb ran) and `$mcp_exec_target_tool` (the tool that `info`/`schema`/`call` named). These properties are
 stamped in `tool-executor.ts` and registered in `posthog/taxonomy/taxonomy.py`.
 
 A `$mcp_tool_call` that named a tool and its arguments (a direct-mode call, `render-ui`, or an
 exec `call`) also carries the call's shape, stamped in `tool-executor.ts` from the raw input before
 any alias is folded away, by the `@posthog/mcp` SDK helper `getToolInputProperties`:
 `$mcp_input_keys` (the top-level argument names the caller sent, never values: declared names and
-aliases first, then undeclared identifier-shaped names, capped at 20, any other name recorded as
-one `[redacted]` entry; in exec mode parsed from the `call` command's JSON) and
+aliases first, capped at 20, with undeclared names recorded as one `[redacted]` entry; in exec mode parsed from the `call` command's JSON) and
 `$mcp_input_aliases_used` (`alias:canonical` tokens such as `experimentId:id`, present only when
 the normaliser filled the canonical from that alias). Exec
 discovery verbs (`tools`, `search`, `info`, `schema`) carry neither, so rate alias use against the

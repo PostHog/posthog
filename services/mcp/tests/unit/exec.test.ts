@@ -2121,15 +2121,6 @@ describe('exec tool', () => {
             expect(keys).toEqual(Object.keys(declared))
         })
 
-        it('is what describeValidationError records as inputKeys', () => {
-            const schema = z.object({ id: z.string() })
-            const input = { experimentId: 'x', extra: true }
-            const result = schema.safeParse(input, { reportInput: true })
-            expect(result.success).toBe(false)
-
-            expect(describeValidationError(result.error!, input, schema).inputKeys).toEqual(describeInputKeys(input))
-        })
-
         describe('describeInputShape', () => {
             const schema = z.preprocess(
                 normalizeParamAliases({ id: ['experimentId', 'experiment_id'] }),
@@ -2167,26 +2158,13 @@ describe('exec tool', () => {
     })
 
     describe('describeValidationError', () => {
-        it('redacts an unaccepted top-level key on a union rejection without leaking values', () => {
-            const schema = z.union([z.object({ orgId: z.string() }), z.object({ id: z.string() })])
-            const input = { organizationId: 'super-secret-org-uuid' }
-            const result = schema.safeParse(input, { reportInput: true })
-            expect(result.success).toBe(false)
-
-            const detail = describeValidationError(result.error!, input, schema)
-
-            expect(detail.inputKeys).toEqual(['[redacted]'])
-            // Never record input values — the raw uuid must not appear anywhere.
-            expect(JSON.stringify(detail)).not.toContain('super-secret-org-uuid')
-        })
-
         it('records field path + issue code for a wrong-typed field, still without values', () => {
             const schema = z.object({ projectId: z.number() })
             const input = { projectId: 'not-a-number' }
             const result = schema.safeParse(input, { reportInput: true })
             expect(result.success).toBe(false)
 
-            const detail = describeValidationError(result.error!, input, schema)
+            const detail = describeValidationError(result.error!, schema)
 
             expect(detail.fields).toContain('projectId:invalid_type:string')
             expect(JSON.stringify(detail)).not.toContain('not-a-number')
@@ -2207,9 +2185,7 @@ describe('exec tool', () => {
             const result = schema.safeParse(input, { reportInput: true })
             expect(result.success).toBe(false)
 
-            expect(describeValidationError(result.error!, input as Record<string, unknown>, schema).fields).toEqual([
-                expected,
-            ])
+            expect(describeValidationError(result.error!, schema).fields).toEqual([expected])
         })
 
         // The received type is only meaningful for the type-shaped codes; appending it
@@ -2220,7 +2196,7 @@ describe('exec tool', () => {
             const result = schema.safeParse(input, { reportInput: true })
             expect(result.success).toBe(false)
 
-            expect(describeValidationError(result.error!, input, schema).fields).toEqual(['description:too_big'])
+            expect(describeValidationError(result.error!, schema).fields).toEqual(['description:too_big'])
         })
 
         // A malformed array produces one issue per element. Collapsing indices keeps
@@ -2239,7 +2215,7 @@ describe('exec tool', () => {
             const result = schema.safeParse(input, { reportInput: true })
             expect(result.success).toBe(false)
 
-            const { fields } = describeValidationError(result.error!, input as Record<string, unknown>, schema)
+            const { fields } = describeValidationError(result.error!, schema)
 
             expect(fields).toEqual(['series.N.event:invalid_type:number', 'dateRange:invalid_type:number'])
         })
@@ -2257,7 +2233,7 @@ describe('exec tool', () => {
             const result = schema.safeParse(input, { reportInput: true })
             expect(result.success).toBe(false)
 
-            const detail = describeValidationError(result.error!, input as Record<string, unknown>, schema)
+            const detail = describeValidationError(result.error!, schema)
 
             expect(detail.fields).toEqual(['params.*:invalid_type:number'])
             expect(JSON.stringify(detail)).not.toContain('sk-live-abc123')
@@ -2272,7 +2248,7 @@ describe('exec tool', () => {
             const result = schema.safeParse(input, { reportInput: true })
             expect(result.success).toBe(false)
 
-            expect(describeValidationError(result.error!, input, schema).fields).toEqual(['query.kind:invalid_value'])
+            expect(describeValidationError(result.error!, schema).fields).toEqual(['query.kind:invalid_value'])
         })
     })
 
