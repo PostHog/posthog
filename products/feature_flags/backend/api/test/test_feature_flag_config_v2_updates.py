@@ -340,10 +340,15 @@ class TestAdmittedV2Updates(AdmittedV2TestCase):
         assert flag.filters == document
         assert info.call_args.kwargs["extra"]["codes"] == ["ROLLOUT_MISS_CAN_ENTER_LOWER_RULE"]
 
-    def test_return_type_cannot_change(self) -> None:
+    @parameterized.expand(
+        [
+            ("values_of_the_new_type", config(targeted(value="compact"), return_type="string", default_value=None)),
+            ("only_the_type", config(targeted(), return_type="string")),
+        ]
+    )
+    def test_return_type_cannot_change(self, _name: str, document: dict) -> None:
         flag = self.flag()
         stored = copy.deepcopy(flag.filters)
-        document = config(targeted(value="compact"), return_type="string", default_value=None)
         response = self.patch_flag(flag, {"version": 3, "filters": document})
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["detail"] == "filters.return_type: Cannot be changed after the flag is created."

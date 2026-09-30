@@ -236,6 +236,11 @@ INVALID_DOCUMENTS: list[tuple[str, object, list[tuple[str, str]]]] = [
         config(targeted(value=True), return_type="string", default_value=None),
         [("invalid", "filters.rules[0].value")],
     ),
+    (
+        "string_reserved_false_sentinel",
+        config(targeted(value="$false"), return_type="string", default_value="$false"),
+        [("invalid", "filters.default_value"), ("invalid", "filters.rules[0].value")],
+    ),
     ("number_bool_default", config(return_type="number", default_value=False), [("invalid", "filters.default_value")]),
     (
         "number_string_value",
@@ -714,7 +719,7 @@ class TestValidateConfig:
         assert str(exc_info.value) == "filters.future: Unknown field."
 
     def test_unsupported_family_is_reported_before_shape_of_its_values(self) -> None:
-        # A group document is refused for the family, not for values of the wrong type.
+        # The unsupported family is reported first. The rule value is still checked against the boolean return type.
         document = config(targeted(value=1), aggregation_group_type_index=0)
         assert errors_of(document) == [
             ("unsupported", "filters.aggregation_group_type_index"),
@@ -723,23 +728,45 @@ class TestValidateConfig:
 
     @parameterized.expand(
         [
-            ("boolean", True, True, "true"),
-            ("string", "compact", "compact", '"compact"'),
-            ("number", 1.0, -0.0, "1"),
-            ("object", {"b": [1.0, True], "a": "ü"}, {"b": [1.0, True]}, '{"a":"ü","b":[1,true]}'),
+            ("boolean", True, True, "true", "true"),
+            ("string", "compact", "compact", '"compact"', '"compact"'),
+            ("number", 1.0, -0.0, "1", "0"),
+            ("object", {"b": [1.0, True], "a": "ü"}, {"b": [1.0, True]}, '{"a":"ü","b":[1,true]}', '{"b":[1,true]}'),
         ]
     )
     def test_values_are_canonical_json_so_equal_json_values_compare_equal(
-        self, return_type: str, value: Any, default: Any, canonical: str
+        self, return_type: str, value: Any, default: Any, canonical: str, canonical_default: str
     ) -> None:
         validated = validate_config(
             config(targeted(value=value), return_type=return_type, default_value=default), limits=LIMITS
         )
         assert validated.rules[0].value == canonical
-        assert validated.default_value is not None
-        assert json.loads(validated.default_value) == default
+        assert validated.default_value == canonical_default
         assert canonical_value(True) != canonical_value(1)
         assert canonical_value({"n": 1}) == canonical_value({"n": 1.0}) != canonical_value({"n": True})
+
+    @parameterized.expand(
+        [
+            ("boolean", 1, "Must be true or false"),
+            ("string", "$false", "Must be a non-empty string other than $false"),
+            ("number", "1", "Must be a number from -9007199254740991 to 9007199254740991"),
+            (
+                "object",
+                [],
+                "Must be an object at most 20 levels deep with numbers from -9007199254740991 to 9007199254740991",
+            ),
+        ]
+    )
+    def test_value_errors_name_the_type_and_allow_null_only_for_the_default(
+        self, return_type: str, invalid: Any, message: str
+    ) -> None:
+        document = config(targeted(value=invalid), return_type=return_type, default_value=invalid)
+        with pytest.raises(ConfigValidationError) as exc_info:
+            validate_config(document, limits=LIMITS)
+        assert [(error.attr, error.detail) for error in exc_info.value.errors] == [
+            ("filters.default_value", f"{message}, or null."),
+            ("filters.rules[0].value", f"{message}."),
+        ]
 
     def test_v1_only_fields_name_the_format_clash(self) -> None:
         with pytest.raises(ConfigValidationError) as exc_info:
@@ -876,6 +903,8 @@ class TestReleasedContract:
         assert MAX_PREDICATES_PER_RULE == CONFIG_SCHEMA["$defs"]["targeting"]["properties"]["properties"]["maxItems"]
         assert MAX_SEED_LENGTH == CONFIG_SCHEMA["$defs"]["seed"]["maxLength"]
         assert UUID_PATTERN.pattern == CONFIG_SCHEMA["$defs"]["uuid"]["pattern"]
+        safe_number = CONFIG_SCHEMA["$defs"]["safeNumber"]
+        assert (safe_number["minimum"], safe_number["maximum"]) == (-MAX_SAFE_INTEGER, MAX_SAFE_INTEGER)
         assert set(RETURN_TYPES) == {entry["value"] for entry in registry["return_types"]}
         assert set(RULE_TYPES) == {entry["value"] for entry in registry["rule_types"]}
 

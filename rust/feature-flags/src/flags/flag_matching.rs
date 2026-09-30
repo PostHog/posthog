@@ -1704,7 +1704,8 @@ impl FeatureFlagMatcher {
     }
 
     /// Projects a v2 outcome onto the v1 match shape: a null value is disabled, a boolean is
-    /// `enabled`, a string is the variant; the subject is the request distinct ID.
+    /// `enabled`, a string is the variant, and a number or object is an enabled flag whose value
+    /// travels as a JSON-encoded payload, like a v1 payload. The subject is the request distinct ID.
     fn get_match_v2(
         &self,
         config: &Config,
@@ -1749,12 +1750,10 @@ impl FeatureFlagMatcher {
                 (value, FeatureFlagMatchReason::NoConditionMatch, None)
             }
         };
-        // Legacy rendering: a string is the variant, and a number or object is an enabled
-        // flag whose value travels as a JSON-encoded payload, like a v1 payload.
         let (matches, variant, payload) = match value {
             None => (false, None, None),
-            Some(Value::Bool(value)) => (value, None, None),
-            Some(Value::String(value)) => (true, Some(value), None),
+            Some(Value::Bool(value)) => (*value, None, None),
+            Some(Value::String(value)) => (true, Some(value.clone()), None),
             Some(value) => (true, None, Some(Value::String(value.to_string()))),
         };
         Ok(FeatureFlagMatch {

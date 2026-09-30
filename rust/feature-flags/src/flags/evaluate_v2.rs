@@ -31,19 +31,20 @@ pub struct MatchedRule {
     pub kind: RuleKind,
 }
 
-/// `value` is the parsed JSON of the flag's return type; `None` is a null default.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Evaluation {
+/// `value` borrows the parsed JSON of the flag's return type from the configuration; `None`
+/// is a null default.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Evaluation<'a> {
     TargetingMatch {
-        value: Value,
+        value: &'a Value,
         rule: MatchedRule,
     },
     RolloutMiss {
-        value: Option<Value>,
+        value: Option<&'a Value>,
         rule: MatchedRule,
     },
     NoRuleMatch {
-        value: Option<Value>,
+        value: Option<&'a Value>,
     },
 }
 
@@ -102,7 +103,10 @@ impl<'a> Evaluator<'a> {
         Self { config }
     }
 
-    pub fn evaluate(&self, context: &EvaluationContext<'_>) -> Result<Evaluation, EvaluationError> {
+    pub fn evaluate(
+        &self,
+        context: &EvaluationContext<'_>,
+    ) -> Result<Evaluation<'a>, EvaluationError> {
         self.evaluate_with_hash(context, |seed, subject| {
             calculate_hash(&format!("{seed}."), subject, "").map_err(|_| EvaluationError::Hash)
         })
@@ -114,7 +118,7 @@ impl<'a> Evaluator<'a> {
         &self,
         context: &EvaluationContext<'_>,
         mut hash: impl FnMut(&str, &str) -> Result<f64, EvaluationError>,
-    ) -> Result<Evaluation, EvaluationError> {
+    ) -> Result<Evaluation<'a>, EvaluationError> {
         let subject = truncate_chars(context.person_identifier, MAX_DISTINCT_ID_LEN);
         let matching =
             PropertyMatchingContext::new(context.timezone, context.use_explicit_exact_matching)
@@ -157,7 +161,7 @@ impl<'a> Evaluator<'a> {
                             RolloutMiss::Continue => continue,
                             RolloutMiss::ReturnDefault => {
                                 return Ok(Evaluation::RolloutMiss {
-                                    value: self.config.default_value.clone(),
+                                    value: self.config.default_value.as_ref(),
                                     rule: matched_rule(RuleKind::PercentageRollout),
                                 })
                             }
@@ -167,12 +171,12 @@ impl<'a> Evaluator<'a> {
                 }
             };
             return Ok(Evaluation::TargetingMatch {
-                value: value.clone(),
+                value,
                 rule: matched_rule(kind),
             });
         }
         Ok(Evaluation::NoRuleMatch {
-            value: self.config.default_value.clone(),
+            value: self.config.default_value.as_ref(),
         })
     }
 }

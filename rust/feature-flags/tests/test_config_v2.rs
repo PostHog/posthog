@@ -1,6 +1,8 @@
 use std::sync::Arc;
 
-use feature_flags::flags::config_v2::{Config, Outcome, ParseError, RolloutMiss, MAX_CONFIG_BYTES};
+use feature_flags::flags::config_v2::{
+    Config, Outcome, ParseError, RolloutMiss, MAX_CONFIG_BYTES, MAX_OBJECT_DEPTH,
+};
 use feature_flags::flags::feature_flag_list::PreparedFlags;
 use feature_flags::flags::flag_models::{
     EvaluationMetadata, FeatureFlag, FeatureFlagRow, HypercacheFlagsWrapper,
@@ -408,6 +410,33 @@ fn semantic_limits_and_duplicate_ids_are_enforced() {
         result(&read(document)).as_ref().unwrap_err(),
         &ParseError::LimitExceeded("filters")
     );
+
+    // Arrays count toward the object depth, and numbers inside them keep the safe range.
+    let mut deepest = json!("leaf");
+    for _ in 1..MAX_OBJECT_DEPTH {
+        deepest = json!([deepest]);
+    }
+    for (value, accepted) in [
+        (json!({"list": deepest.clone()}), true),
+        (json!({"list": [deepest]}), false),
+        (json!({"limits": [9_007_199_254_740_991_u64]}), true),
+        (json!({"limits": [9_007_199_254_740_992_u64]}), false),
+        (json!({"limits": [-9_007_199_254_740_992_i64]}), false),
+    ] {
+        let mut document = config();
+        document["return_type"] = json!("object");
+        document["default_value"] = Value::Null;
+        document["rules"][0]["value"] = value;
+        let flag = read(document);
+        if accepted {
+            assert!(result(&flag).is_ok());
+        } else {
+            assert_eq!(
+                result(&flag).as_ref().unwrap_err(),
+                &ParseError::Malformed("value")
+            );
+        }
+    }
 }
 
 fn person_property_cases() -> Vec<(&'static str, Value)> {
@@ -641,4 +670,15 @@ fn preparation_reuses_parsing_and_accounts_for_raw_and_typed_data() {
     assert!(result(&flag).is_ok());
     let weighted = prepared(flag).estimated_size_bytes();
     assert!(weighted > document.to_string().len() + 50_000 * std::mem::size_of::<Value>());
+
+    // The parsed default and each rule value count, not only their raw text.
+    let object = json!({"items": vec![Value::Null; 1000]});
+    let mut document = config();
+    document["return_type"] = json!("object");
+    document["default_value"] = object.clone();
+    document["rules"][0]["value"] = object;
+    let flag = read(document.clone());
+    assert!(result(&flag).is_ok());
+    let weighted = prepared(flag).estimated_size_bytes();
+    assert!(weighted > document.to_string().len() + 2000 * std::mem::size_of::<Value>());
 }

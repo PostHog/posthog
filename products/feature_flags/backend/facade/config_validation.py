@@ -28,8 +28,9 @@ import json
 from collections.abc import Callable, Mapping
 from dataclasses import field
 from decimal import Decimal
-from typing import Any, Literal, get_args
+from typing import Any, Literal, TypeGuard, get_args
 
+from posthog.hogql.constants import FEATURE_FLAG_FALSE_VARIANT_SENTINEL
 from posthog.hogql.property import parse_semver
 
 from posthog.dataclasses import frozen
@@ -237,7 +238,11 @@ def validate_config(document: object, *, limits: ValidationLimits) -> ValidatedC
     elif value_check is not None and document["default_value"] is not None:
         accepts, detail = value_check
         if not accepts(document["default_value"]):
-            errors.append(ConfigError(code="invalid", detail=f"{detail[:-1]}, or null.", attr="filters.default_value"))
+            errors.append(
+                ConfigError(
+                    code="invalid", detail=f"{detail.removesuffix('.')}, or null.", attr="filters.default_value"
+                )
+            )
     if _field(document, "aggregation_group_type_index", "filters", errors, (_is_int, "Must be an integer."), False):
         errors.append(
             ConfigError(
@@ -528,12 +533,7 @@ def _unknown_field(attr: str, detail: str | None = None) -> ConfigError:
 
 
 def _is_safe_number(value: object) -> bool:
-    # NaN and the infinities fail both comparisons.
-    return (
-        not isinstance(value, bool)
-        and isinstance(value, int | float)
-        and -MAX_SAFE_INTEGER <= value <= MAX_SAFE_INTEGER
-    )
+    return _is_number(value) and -MAX_SAFE_INTEGER <= value <= MAX_SAFE_INTEGER
 
 
 def _is_object_value(value: object) -> bool:
@@ -550,7 +550,11 @@ def _is_nested_value(value: object, *, depth: int) -> bool:
 
 _VALUE_CHECKS: dict[str, _Check] = {
     "boolean": (lambda v: isinstance(v, bool), "Must be true or false."),
-    "string": (lambda v: isinstance(v, str) and bool(v), "Must be a non-empty string."),
+    # A string is served as the variant, and `$false` is the event-storage sentinel that v1 reserves as a variant key.
+    "string": (
+        lambda v: isinstance(v, str) and v not in ("", FEATURE_FLAG_FALSE_VARIANT_SENTINEL),
+        f"Must be a non-empty string other than {FEATURE_FLAG_FALSE_VARIANT_SENTINEL}.",
+    ),
     "number": (_is_safe_number, f"Must be a number from -{MAX_SAFE_INTEGER} to {MAX_SAFE_INTEGER}."),
     "object": (
         _is_object_value,
@@ -567,7 +571,7 @@ def _is_int(value: object) -> bool:
     return not isinstance(value, bool) and isinstance(value, int)
 
 
-def _is_number(value: object) -> bool:
+def _is_number(value: object) -> TypeGuard[int | float]:
     if isinstance(value, bool) or not isinstance(value, int | float):
         return False
     return -sys.float_info.max <= value <= sys.float_info.max
