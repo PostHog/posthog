@@ -29,6 +29,7 @@ vendor's API, see [COVERAGE_GAPS.md](COVERAGE_GAPS.md), refreshed by the
 | **gRPC**                  | The vendor SDK uses gRPC over HTTP/2 (binary, not REST). Routed through the [tracked gRPC transport](common/grpc/) via client interceptors (see `common/grpc/`). |
 | **DB protocol**           | Native database wire protocol via a driver (e.g. PostgreSQL, MySQL, Snowflake). Not HTTP.                                                                        |
 | **SSH (SFTP)**            | SFTP over an SSH transport via `paramiko`. Not HTTP, so neither the HTTP nor the gRPC tracked transport applies.                                                 |
+| **Kafka protocol**        | Kafka wire protocol via `confluent-kafka` (librdkafka). Not HTTP, so neither the HTTP nor the gRPC tracked transport applies.                                    |
 | **Webhook (S3-buffered)** | Vendor pushes events to a webhook endpoint; payloads are buffered to S3 by the `WebhookSourceManager` and consumed by the pipeline.                              |
 
 When a source uses more than one transport (e.g. BigQuery REST + Storage gRPC, or Stripe pull-API + webhooks),
@@ -65,6 +66,7 @@ the row lists both.
 | airtable                         | HTTP                        | requests                                                        | ✅                          |
 | airwallex                        | HTTP                        | requests (rest_source.RESTClient)                               | ✅                          |
 | aiven                            | HTTP                        | requests                                                        | ✅                          |
+| alegra                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | algolia                          | HTTP                        | requests                                                        | ✅                          |
 | alguna                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | alpha_vantage                    | HTTP                        | requests                                                        | ✅                          |
@@ -145,6 +147,7 @@ the row lists both.
 | buildkite                        | HTTP                        | requests                                                        | ✅                          |
 | bunny                            | HTTP                        | requests                                                        | ✅                          |
 | buttondown                       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| buy_me_a_coffee                  | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | buzzsprout                       | HTTP                        | requests                                                        | ✅                          |
 | cal_com                          | HTTP                        | requests                                                        | ✅                          |
 | calendly                         | HTTP + Webhook              | requests + `rest_source.RESTClient` + `WebhookSourceManager`    | ✅ (pull) / ➖ (webhook)    |
@@ -409,8 +412,10 @@ the row lists both.
 | justcall                         | HTTP                        | requests                                                        | ✅                          |
 | justsift                         | HTTP                        | requests                                                        | ✅                          |
 | k6_cloud                         | HTTP                        | requests                                                        | ✅                          |
+| kafka                            | Kafka protocol              | confluent-kafka (librdkafka)                                    | ➖                          |
 | kalshi                           | HTTP                        | requests (rest_source.RESTClient)                               | ✅                          |
 | kandji                           | HTTP                        | requests (rest_source.RESTClient)                               | ✅                          |
+| kapa_ai                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | katana                           | HTTP                        | requests                                                        | ✅                          |
 | kernel                           | HTTP                        | requests                                                        | ✅                          |
 | kickscale                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -558,6 +563,7 @@ the row lists both.
 | pexels                           | HTTP                        | requests                                                        | ✅                          |
 | phyllo                           | HTTP                        | requests                                                        | ✅                          |
 | picqer                           | HTTP                        | requests                                                        | ✅                          |
+| pinecone                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | pingdom                          | HTTP                        | requests                                                        | ✅                          |
 | pinterest_ads                    | HTTP                        | requests                                                        | ✅                          |
 | pipedrive                        | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (pull) / ➖ (webhook)    |
@@ -657,6 +663,7 @@ the row lists both.
 | shutterstock                     | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | sigma_computing                  | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | signoz                           | HTTP                        | requests                                                        | ✅                          |
+| sim                              | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | simfin                           | HTTP                        | requests                                                        | ✅                          |
 | similarweb                       | HTTP                        | requests                                                        | ✅                          |
 | simplecast                       | HTTP                        | requests                                                        | ✅                          |
@@ -864,7 +871,6 @@ doesn't conflict with concurrent PRs.
 - akamai_reporting
 - akeneo
 - alation
-- alegra
 - allegro
 - alpaca_broker_api
 - amazon_ads
@@ -952,7 +958,6 @@ doesn't conflict with concurrent PRs.
 - breezy_hr
 - buffer
 - buildium
-- buy_me_a_coffee
 - cal_com
 - calendarific
 - calibre
@@ -1154,10 +1159,8 @@ doesn't conflict with concurrent PRs.
 - jobtread
 - judgeme_reviews
 - justsift
-- kafka
 - kajabi
 - kameleoon
-- kapa_ai
 - kaufland_marketplace
 - keka
 - kestra
@@ -1286,7 +1289,6 @@ doesn't conflict with concurrent PRs.
 - phonepe
 - phyllo
 - pike13
-- pinecone
 - pingone
 - pinterest_organic
 - pipeliner
@@ -1377,7 +1379,6 @@ doesn't conflict with concurrent PRs.
 - shortio
 - sideshift
 - signnow
-- sim
 - simon_data
 - simplecast
 - simplesat
