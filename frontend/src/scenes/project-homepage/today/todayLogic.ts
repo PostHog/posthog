@@ -146,22 +146,22 @@ export interface todayLogicActions {
     } // router
     askAi: (prompt: string) => {
         prompt: string
-    };
+    }
     itemOpened: (
         item: BriefingItemApi,
         surface: TodayItemOpenSurface
     ) => {
         item: BriefingItemApi
         surface: TodayItemOpenSurface
-    };
-    loadPersonalBriefing: () => any;
+    }
+    loadPersonalBriefing: () => any
     loadPersonalBriefingFailure: (
         error: string,
         errorObject?: any
     ) => {
         error: string
         errorObject?: any
-    };
+    }
     loadPersonalBriefingSuccess: (
         personalBriefing: BriefingApi | null,
         payload?: any

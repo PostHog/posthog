@@ -1,7 +1,6 @@
 import { useActions, useValues } from 'kea'
 
 import { Link } from 'lib/lemon-ui/Link'
-import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { urls } from 'scenes/urls'
 
 import type { BriefingSegmentApi } from 'products/today/frontend/generated/api.schemas'
@@ -64,7 +63,7 @@ function PersonalBriefingChips(): JSX.Element | null {
 
 export function TodayPersonalBriefing(): JSX.Element | null {
     const { personalBriefing } = useValues(todayLogic)
-    const { askSidePanelMax } = useActions(maxGlobalLogic)
+    const { askAi } = useActions(todayLogic)
 
     if (!personalBriefing) {
         return null
@@ -114,7 +113,7 @@ export function TodayPersonalBriefing(): JSX.Element | null {
                 <button
                     type="button"
                     data-attr="today-ask-about-edition"
-                    onClick={() => askSidePanelMax('Walk me through what changed in my product today.')}
+                    onClick={() => askAi('Walk me through what changed in my product today.')}
                 >
                     ask PostHog AI to walk you through it
                 </button>
