@@ -106,7 +106,7 @@ def parse_search_intent_prompt(result: PromptResult) -> SearchIntentPrompt:
 
 
 def fetch_search_intent_prompt(*, version: int | None = None) -> SearchIntentPrompt:
-    """Blocks on the network for up to the SDK timeout. Request code reads `current_search_intent_prompt` instead."""
+    """Reads the database. Request code reads `current_search_intent_prompt` instead."""
     result = get_app_prompt(SEARCH_INTENT_PROMPT_NAME, version=version)
     if result is None:
         return BUNDLED_SEARCH_INTENT_PROMPT

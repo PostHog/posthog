@@ -26,7 +26,8 @@ decision model, and with the harness's own BRAINTRUST_API_KEY and LLM_GATEWAY_AN
     hogli evals eval_search_intent --eval email_in_events_tab
 
 It scores the `production` version of the managed prompt. Set SEARCH_INTENT_PROMPT_VERSION to score
-another version. Only US cloud has the prompt rows; everywhere else both runs score the bundled copy.
+another version. Only US cloud has the prompt rows; outside US cloud the production run scores the
+bundled copy, and a pinned version fails instead of silently scoring that same fallback.
 """
 
 from __future__ import annotations

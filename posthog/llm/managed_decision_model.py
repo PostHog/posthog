@@ -5,6 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from django.conf import settings
+from django.db import connections
 
 import structlog
 from posthoganalytics.ai.prompts import PromptResult
@@ -45,8 +46,8 @@ def get_app_prompt(prompt_name: str, *, version: int | None = None) -> PromptRes
 
 
 class BackgroundRefresher[T]:
-    # The SDK fetch blocks for up to 10 s on a cache miss and the pickers' budget is 2 s, so a request
-    # reads the last value it has and at most one background fetch replaces it.
+    # A request reads the last value it has, and at most one background fetch replaces it, so no
+    # request ever blocks on the database or cache read that resolves the current value.
     def __init__(self, prompt_name: str, initial: T, fetch: Callable[[], T]) -> None:
         self._prompt_name = prompt_name
         self._fetch = fetch
@@ -69,6 +70,11 @@ class BackgroundRefresher[T]:
             value = self._fetch()
         except Exception:
             logger.exception("managed_prompt_refresh_failed", prompt_name=self._prompt_name)
+        finally:
+            # This thread never sees request_finished, so release its connections the way a request would.
+            for conn in connections.all(initialized_only=True):
+                if not conn.in_atomic_block:
+                    conn.close_if_unusable_or_obsolete()
         with self._lock:
             if value is not None:
                 self._value = value
