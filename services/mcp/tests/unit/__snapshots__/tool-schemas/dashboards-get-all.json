@@ -2,7 +2,7 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "archived": {
-            "description": "Optional. Return only archived dashboards. By default archived dashboards are included alongside non-archived ones.",
+            "description": "Optional. true returns only archived dashboards, false returns only non-archived ones. Omitted, both are included.",
             "type": "boolean"
         },
         "exclude_generated": {
