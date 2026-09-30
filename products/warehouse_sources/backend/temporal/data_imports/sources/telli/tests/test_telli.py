@@ -9,7 +9,31 @@ from responses import matchers
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.telli.telli import TelliResumeConfig, telli_source
+from products.warehouse_sources.backend.temporal.data_imports.sources.telli.telli import (
+    TelliResumeConfig,
+    telli_source,
+    validate_credentials,
+)
+
+
+def test_disables_http_sample_capture() -> None:
+    manager = MagicMock(spec=ResumableSourceManager)
+    manager.can_resume.return_value = False
+
+    with patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.telli.telli.RESTClient"
+    ) as client_class:
+        client_class.return_value.paginate.return_value = iter([[]])
+        validate_credentials("test-telli-key")
+        assert client_class.call_args.kwargs["capture"] is False
+
+    with patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.telli.telli.rest_api_resource",
+        return_value=iter([]),
+    ) as resource:
+        response = telli_source("test-telli-key", "calls", 1, "test-job", manager)
+        assert list(cast(Iterable[object], response.items())) == []
+        assert resource.call_args.args[0]["client"]["capture"] is False
 
 
 @pytest.mark.parametrize(

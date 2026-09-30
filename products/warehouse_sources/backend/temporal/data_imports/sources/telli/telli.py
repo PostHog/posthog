@@ -33,6 +33,7 @@ def validate_credentials(api_key: str, schema_name: str | None = None) -> None:
         allowed_hosts=[],
         allow_redirects=False,
         request_timeout=60,
+        capture=False,
     )
     try:
         next(
@@ -72,6 +73,9 @@ def telli_source(
             "allowed_hosts": [],
             "allow_redirects": False,
             "request_timeout": 60,
+            # Calls contain transcripts and contacts contain arbitrary properties that generic
+            # sample scrubbers cannot reliably redact.
+            "capture": False,
         }
         config: RESTAPIConfig = {
             "client": client,
